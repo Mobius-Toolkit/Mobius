@@ -1,0 +1,11 @@
+/target
+**/*.rs.bk
+.mobius-data/
+dist/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+.DS_Store
+mobius.toml

@@ -1,0 +1,17 @@
+# Mobius infrastructure configuration. Domain configuration
+# (organizations, repositories, projects, agents, model profiles, harnesses)
+# lives in SQLite — manage it through the REST API or the UI.
+
+[server]
+bind = "127.0.0.1:8787"
+data_dir = "./.mobius-data"
+# Serve the built Dioxus UI (`dx build --release --debug-symbols false` in crates/mobius-ui writes
+# target/dx/mobius-ui/release/web/public).
+ui_dir = "./target/dx/mobius-ui/release/web/public"
+log = "info,mobius=debug"
+
+[github]
+# GitHub ingestion uses the `gh` CLI (authenticated via `gh auth login`,
+# never a token in this file).
+poll_interval_secs = 300
+gh_binary = "gh"
