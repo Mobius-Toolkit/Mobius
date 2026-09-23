@@ -1,0 +1,25 @@
+[package]
+name = "mobius-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mobius-core.workspace = true
+mobius-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+dioxus.workspace = true
+gloo-net.workspace = true
+web-sys = { workspace = true, features = [
+    "EventSource",
+    "MessageEvent",
+    "ErrorEvent",
+    "console",
+] }
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
