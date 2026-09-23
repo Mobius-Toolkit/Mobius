@@ -69,10 +69,14 @@ pub trait ProjectRepo: Send + Sync {
     ) -> impl Future<Output = StoreResult<Option<Project>>> + Send;
     fn find_project_by_slug(
         &self,
-        repository_id: RepositoryId,
+        organization_id: OrganizationId,
         slug: &str,
     ) -> impl Future<Output = StoreResult<Option<Project>>> + Send;
     fn list_projects(&self) -> impl Future<Output = StoreResult<Vec<Project>>> + Send;
+    fn list_projects_by_organization(
+        &self,
+        organization_id: OrganizationId,
+    ) -> impl Future<Output = StoreResult<Vec<Project>>> + Send;
     fn list_projects_by_repository(
         &self,
         repository_id: RepositoryId,
@@ -87,6 +91,13 @@ pub trait AgentRepo: Send + Sync {
     fn find_agent_by_name(
         &self,
         name: &str,
+    ) -> impl Future<Output = StoreResult<Option<Agent>>> + Send;
+    /// First agent of `role` owned by `organization_id` and not bound to a
+    /// project (the org-level template agents live at `project_id = NULL`).
+    fn find_agent_by_role_and_org(
+        &self,
+        organization_id: OrganizationId,
+        role: AgentRole,
     ) -> impl Future<Output = StoreResult<Option<Agent>>> + Send;
     fn list_agents(&self) -> impl Future<Output = StoreResult<Vec<Agent>>> + Send;
     fn list_agents_by_project(
@@ -143,6 +154,16 @@ pub trait TaskRepo: Send + Sync {
     fn list_tasks_by_project(
         &self,
         project_id: ProjectId,
+    ) -> impl Future<Output = StoreResult<Vec<Task>>> + Send;
+    fn list_tasks_by_parent(
+        &self,
+        parent_task_id: TaskId,
+    ) -> impl Future<Output = StoreResult<Vec<Task>>> + Send;
+    /// Tasks whose `origin.conversation_id` matches (tasks created from a
+    /// chat via `mobius task create`).
+    fn list_tasks_by_origin_conversation(
+        &self,
+        conversation_id: ConversationId,
     ) -> impl Future<Output = StoreResult<Vec<Task>>> + Send;
     fn insert_task(&self, task: &Task) -> impl Future<Output = StoreResult<()>> + Send;
     fn update_task(&self, task: &Task) -> impl Future<Output = StoreResult<()>> + Send;
@@ -202,6 +223,10 @@ pub trait ConversationRepo: Send + Sync {
         id: ConversationId,
     ) -> impl Future<Output = StoreResult<Option<Conversation>>> + Send;
     fn list_conversations(&self) -> impl Future<Output = StoreResult<Vec<Conversation>>> + Send;
+    fn list_conversations_by_project(
+        &self,
+        project_id: ProjectId,
+    ) -> impl Future<Output = StoreResult<Vec<Conversation>>> + Send;
     fn insert_conversation(
         &self,
         conversation: &Conversation,
@@ -251,6 +276,25 @@ pub trait PermissionRequestRepo: Send + Sync {
     ) -> impl Future<Output = StoreResult<()>> + Send;
 }
 
+pub trait ResearchRepo: Send + Sync {
+    fn get_research(
+        &self,
+        id: ResearchId,
+    ) -> impl Future<Output = StoreResult<Option<Research>>> + Send;
+    fn list_research(&self) -> impl Future<Output = StoreResult<Vec<Research>>> + Send;
+    fn list_research_by_project(
+        &self,
+        project_id: ProjectId,
+    ) -> impl Future<Output = StoreResult<Vec<Research>>> + Send;
+    /// Research spawned from a chat (`mobius research start` in a turn).
+    fn list_research_by_origin_conversation(
+        &self,
+        conversation_id: ConversationId,
+    ) -> impl Future<Output = StoreResult<Vec<Research>>> + Send;
+    fn insert_research(&self, research: &Research) -> impl Future<Output = StoreResult<()>> + Send;
+    fn update_research(&self, research: &Research) -> impl Future<Output = StoreResult<()>> + Send;
+}
+
 /// `Arc<T>` delegates to the inner store impl, so `Arc<InMemoryStore>` and
 /// `Arc<SqliteStore>` satisfy the same `Store` bound.
 macro_rules! delegate_to_arc {
@@ -296,10 +340,14 @@ delegate_to_arc!(
     fn get_project(&self, id: ProjectId) -> StoreResult<Option<Project>>;,
     fn find_project_by_slug(
         &self,
-        repository_id: RepositoryId,
+        organization_id: OrganizationId,
         slug: &str,
     ) -> StoreResult<Option<Project>>;,
     fn list_projects(&self) -> StoreResult<Vec<Project>>;,
+    fn list_projects_by_organization(
+        &self,
+        organization_id: OrganizationId,
+    ) -> StoreResult<Vec<Project>>;,
     fn list_projects_by_repository(&self, repository_id: RepositoryId)
     -> StoreResult<Vec<Project>>;,
     fn insert_project(&self, project: &Project) -> StoreResult<()>;,
@@ -311,6 +359,11 @@ delegate_to_arc!(
     AgentRepo,
     fn get_agent(&self, id: AgentId) -> StoreResult<Option<Agent>>;,
     fn find_agent_by_name(&self, name: &str) -> StoreResult<Option<Agent>>;,
+    fn find_agent_by_role_and_org(
+        &self,
+        organization_id: OrganizationId,
+        role: AgentRole,
+    ) -> StoreResult<Option<Agent>>;,
     fn list_agents(&self) -> StoreResult<Vec<Agent>>;,
     fn list_agents_by_project(&self, project_id: ProjectId) -> StoreResult<Vec<Agent>>;,
     fn insert_agent(&self, agent: &Agent) -> StoreResult<()>;,
@@ -343,6 +396,11 @@ delegate_to_arc!(
     fn get_task(&self, id: TaskId) -> StoreResult<Option<Task>>;,
     fn list_tasks(&self) -> StoreResult<Vec<Task>>;,
     fn list_tasks_by_project(&self, project_id: ProjectId) -> StoreResult<Vec<Task>>;,
+    fn list_tasks_by_parent(&self, parent_task_id: TaskId) -> StoreResult<Vec<Task>>;,
+    fn list_tasks_by_origin_conversation(
+        &self,
+        conversation_id: ConversationId,
+    ) -> StoreResult<Vec<Task>>;,
     fn insert_task(&self, task: &Task) -> StoreResult<()>;,
     fn update_task(&self, task: &Task) -> StoreResult<()>;,
     fn delete_task(&self, id: TaskId) -> StoreResult<()>;
@@ -381,6 +439,10 @@ delegate_to_arc!(
     ConversationRepo,
     fn get_conversation(&self, id: ConversationId) -> StoreResult<Option<Conversation>>;,
     fn list_conversations(&self) -> StoreResult<Vec<Conversation>>;,
+    fn list_conversations_by_project(
+        &self,
+        project_id: ProjectId,
+    ) -> StoreResult<Vec<Conversation>>;,
     fn insert_conversation(&self, conversation: &Conversation) -> StoreResult<()>;,
     fn update_conversation(&self, conversation: &Conversation) -> StoreResult<()>;,
     fn delete_conversation(&self, id: ConversationId) -> StoreResult<()>;
@@ -410,6 +472,19 @@ delegate_to_arc!(
     fn update_permission_request(&self, request: &PermissionRequest) -> StoreResult<()>;
 );
 
+delegate_to_arc!(
+    ResearchRepo,
+    fn get_research(&self, id: ResearchId) -> StoreResult<Option<Research>>;,
+    fn list_research(&self) -> StoreResult<Vec<Research>>;,
+    fn list_research_by_project(&self, project_id: ProjectId) -> StoreResult<Vec<Research>>;,
+    fn list_research_by_origin_conversation(
+        &self,
+        conversation_id: ConversationId,
+    ) -> StoreResult<Vec<Research>>;,
+    fn insert_research(&self, research: &Research) -> StoreResult<()>;,
+    fn update_research(&self, research: &Research) -> StoreResult<()>;
+);
+
 /// Convenience supertrait implemented by every store that implements all port
 /// traits (blanket impl).
 pub trait Store:
@@ -426,6 +501,7 @@ pub trait Store:
     + ConversationRepo
     + MessageRepo
     + PermissionRequestRepo
+    + ResearchRepo
 {
 }
 
@@ -443,5 +519,6 @@ impl<T> Store for T where
         + ConversationRepo
         + MessageRepo
         + PermissionRequestRepo
+        + ResearchRepo
 {
 }

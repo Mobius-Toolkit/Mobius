@@ -126,7 +126,8 @@ fn row_to_repository(row: &sqlx::sqlite::SqliteRow) -> StoreResult<Repository> {
 fn row_to_project(row: &sqlx::sqlite::SqliteRow) -> StoreResult<Project> {
     Ok(Project {
         id: parse_id(row.get::<String, _>("id").as_str())?,
-        repository_id: parse_id(row.get::<String, _>("repository_id").as_str())?,
+        organization_id: parse_id(row.get::<String, _>("organization_id").as_str())?,
+        repository_ids: json_out(row.get::<String, _>("repository_ids").as_str())?,
         name: row.get("name"),
         slug: row.get("slug"),
         description: row.get("description"),
@@ -171,6 +172,8 @@ fn row_to_agent(row: &sqlx::sqlite::SqliteRow) -> StoreResult<Agent> {
         id: parse_id(row.get::<String, _>("id").as_str())?,
         name: row.get("name"),
         role: en(row.get::<String, _>("role").as_str())?,
+        organization_id: opt_id(row.get::<Option<String>, _>("organization_id").as_deref())?
+            .ok_or_else(|| StoreError::Serialization("agent with NULL organization_id".into()))?,
         profiles: json_out(row.get::<String, _>("profiles").as_str())?,
         project_id: opt_id(row.get::<Option<String>, _>("project_id").as_deref())?,
         repository_id: opt_id(row.get::<Option<String>, _>("repository_id").as_deref())?,
@@ -189,6 +192,7 @@ fn row_to_task(row: &sqlx::sqlite::SqliteRow) -> StoreResult<Task> {
         parent_task_id: opt_id(row.get::<Option<String>, _>("parent_task_id").as_deref())?,
         title: row.get("title"),
         description: row.get("description"),
+        repository_id: opt_id(row.get::<Option<String>, _>("repository_id").as_deref())?,
         kind: en(row.get::<String, _>("kind").as_str())?,
         status: en(row.get::<String, _>("status").as_str())?,
         origin: json_out(row.get::<String, _>("origin").as_str())?,
@@ -206,6 +210,8 @@ fn row_to_run(row: &sqlx::sqlite::SqliteRow) -> StoreResult<Run> {
         activity: en(row.get::<String, _>("activity").as_str())?,
         model_profile_id: parse_id(row.get::<String, _>("model_profile_id").as_str())?,
         harness_id: parse_id(row.get::<String, _>("harness_id").as_str())?,
+        repository_id: opt_id(row.get::<Option<String>, _>("repository_id").as_deref())?,
+        conversation_id: opt_id(row.get::<Option<String>, _>("conversation_id").as_deref())?,
         worktree_path: row
             .get::<Option<String>, _>("worktree_path")
             .map(std::path::PathBuf::from),
@@ -241,6 +247,10 @@ fn row_to_memory_entry(row: &sqlx::sqlite::SqliteRow) -> StoreResult<MemoryEntry
         kind: en(row.get::<String, _>("kind").as_str())?,
         content: row.get("content"),
         source_run_id: opt_id(row.get::<Option<String>, _>("source_run_id").as_deref())?,
+        source_conversation_id: opt_id(
+            row.get::<Option<String>, _>("source_conversation_id")
+                .as_deref(),
+        )?,
         superseded_by: opt_id(row.get::<Option<String>, _>("superseded_by").as_deref())?,
         created_at: ts(row.get::<String, _>("created_at").as_str())?,
     })
@@ -252,6 +262,14 @@ fn row_to_conversation(row: &sqlx::sqlite::SqliteRow) -> StoreResult<Conversatio
         agent_id: parse_id(row.get::<String, _>("agent_id").as_str())?,
         activity: en(row.get::<String, _>("activity").as_str())?,
         model_profile_id: parse_id(row.get::<String, _>("model_profile_id").as_str())?,
+        organization_id: opt_id(row.get::<Option<String>, _>("organization_id").as_deref())?
+            .ok_or_else(|| {
+                StoreError::Serialization("conversation with NULL organization_id".into())
+            })?,
+        project_id: opt_id(row.get::<Option<String>, _>("project_id").as_deref())?,
+        kind: en(row.get::<String, _>("kind").as_str())?,
+        run_id: opt_id(row.get::<Option<String>, _>("run_id").as_deref())?,
+        research_id: opt_id(row.get::<Option<String>, _>("research_id").as_deref())?,
         repository_id: opt_id(row.get::<Option<String>, _>("repository_id").as_deref())?,
         workdir: std::path::PathBuf::from(row.get::<String, _>("workdir")),
         title: row.get("title"),
@@ -460,11 +478,11 @@ impl ProjectRepo for SqliteStore {
 
     async fn find_project_by_slug(
         &self,
-        repository_id: RepositoryId,
+        organization_id: OrganizationId,
         slug: &str,
     ) -> StoreResult<Option<Project>> {
-        let rows = sqlx::query("SELECT * FROM projects WHERE repository_id = ? AND slug = ?")
-            .bind(repository_id.to_string())
+        let rows = sqlx::query("SELECT * FROM projects WHERE organization_id = ? AND slug = ?")
+            .bind(organization_id.to_string())
             .bind(slug)
             .fetch_all(&self.pool)
             .await
@@ -480,13 +498,29 @@ impl ProjectRepo for SqliteStore {
         rows.iter().map(row_to_project).collect()
     }
 
+    async fn list_projects_by_organization(
+        &self,
+        organization_id: OrganizationId,
+    ) -> StoreResult<Vec<Project>> {
+        let rows =
+            sqlx::query("SELECT * FROM projects WHERE organization_id = ? ORDER BY created_at")
+                .bind(organization_id.to_string())
+                .fetch_all(&self.pool)
+                .await
+                .map_err(db_err)?;
+        rows.iter().map(row_to_project).collect()
+    }
+
     async fn list_projects_by_repository(
         &self,
         repository_id: RepositoryId,
     ) -> StoreResult<Vec<Project>> {
+        // repository_ids is a JSON array of quoted UUIDs; match on the
+        // quoted id so a LIKE can never produce a false positive.
+        let pattern = format!("%\"{repository_id}\"%");
         let rows =
-            sqlx::query("SELECT * FROM projects WHERE repository_id = ? ORDER BY created_at")
-                .bind(repository_id.to_string())
+            sqlx::query("SELECT * FROM projects WHERE repository_ids LIKE ? ORDER BY created_at")
+                .bind(pattern)
                 .fetch_all(&self.pool)
                 .await
                 .map_err(db_err)?;
@@ -495,11 +529,12 @@ impl ProjectRepo for SqliteStore {
 
     async fn insert_project(&self, project: &Project) -> StoreResult<()> {
         sqlx::query(
-            "INSERT INTO projects (id, repository_id, name, slug, description, scope, \
-             status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO projects (id, organization_id, repository_ids, name, slug, \
+             description, scope, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(project.id.to_string())
-        .bind(project.repository_id.to_string())
+        .bind(project.organization_id.to_string())
+        .bind(json_in(&project.repository_ids)?)
         .bind(&project.name)
         .bind(&project.slug)
         .bind(&project.description)
@@ -514,10 +549,11 @@ impl ProjectRepo for SqliteStore {
 
     async fn update_project(&self, project: &Project) -> StoreResult<()> {
         sqlx::query(
-            "UPDATE projects SET repository_id = ?, name = ?, slug = ?, \
-             description = ?, scope = ?, status = ? WHERE id = ?",
+            "UPDATE projects SET organization_id = ?, repository_ids = ?, name = ?, \
+             slug = ?, description = ?, scope = ?, status = ? WHERE id = ?",
         )
-        .bind(project.repository_id.to_string())
+        .bind(project.organization_id.to_string())
+        .bind(json_in(&project.repository_ids)?)
         .bind(&project.name)
         .bind(&project.slug)
         .bind(&project.description)
@@ -709,6 +745,23 @@ impl AgentRepo for SqliteStore {
         rows.first().map(row_to_agent).transpose()
     }
 
+    async fn find_agent_by_role_and_org(
+        &self,
+        organization_id: OrganizationId,
+        role: AgentRole,
+    ) -> StoreResult<Option<Agent>> {
+        let rows = sqlx::query(
+            "SELECT * FROM agents WHERE organization_id = ? AND role = ? \
+             AND project_id IS NULL ORDER BY name LIMIT 1",
+        )
+        .bind(organization_id.to_string())
+        .bind(role.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
+        rows.first().map(row_to_agent).transpose()
+    }
+
     async fn list_agents(&self) -> StoreResult<Vec<Agent>> {
         let rows = sqlx::query("SELECT * FROM agents ORDER BY name")
             .fetch_all(&self.pool)
@@ -728,13 +781,14 @@ impl AgentRepo for SqliteStore {
 
     async fn insert_agent(&self, a: &Agent) -> StoreResult<()> {
         sqlx::query(
-            "INSERT INTO agents (id, name, role, profiles, project_id, \
+            "INSERT INTO agents (id, name, role, organization_id, profiles, project_id, \
              repository_id, instructions, permission_policy, status, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(a.id.to_string())
         .bind(&a.name)
         .bind(a.role.to_string())
+        .bind(a.organization_id.to_string())
         .bind(json_in(&a.profiles)?)
         .bind(a.project_id.map(|p| p.to_string()))
         .bind(a.repository_id.map(|r| r.to_string()))
@@ -750,12 +804,13 @@ impl AgentRepo for SqliteStore {
 
     async fn update_agent(&self, a: &Agent) -> StoreResult<()> {
         sqlx::query(
-            "UPDATE agents SET name = ?, role = ?, profiles = ?, project_id = ?, \
-             repository_id = ?, instructions = ?, permission_policy = ?, \
+            "UPDATE agents SET name = ?, role = ?, organization_id = ?, profiles = ?, \
+             project_id = ?, repository_id = ?, instructions = ?, permission_policy = ?, \
              status = ? WHERE id = ?",
         )
         .bind(&a.name)
         .bind(a.role.to_string())
+        .bind(a.organization_id.to_string())
         .bind(json_in(&a.profiles)?)
         .bind(a.project_id.map(|p| p.to_string()))
         .bind(a.repository_id.map(|r| r.to_string()))
@@ -806,11 +861,33 @@ impl TaskRepo for SqliteStore {
         rows.iter().map(row_to_task).collect()
     }
 
+    async fn list_tasks_by_parent(&self, parent_task_id: TaskId) -> StoreResult<Vec<Task>> {
+        let rows = sqlx::query("SELECT * FROM tasks WHERE parent_task_id = ? ORDER BY created_at")
+            .bind(parent_task_id.to_string())
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?;
+        rows.iter().map(row_to_task).collect()
+    }
+
+    async fn list_tasks_by_origin_conversation(
+        &self,
+        conversation_id: ConversationId,
+    ) -> StoreResult<Vec<Task>> {
+        // origin is a JSON blob; the table is small so filter in Rust.
+        let tasks = self.list_tasks().await?;
+        Ok(tasks
+            .into_iter()
+            .filter(|t| t.origin.conversation_id == Some(conversation_id))
+            .collect())
+    }
+
     async fn insert_task(&self, t: &Task) -> StoreResult<()> {
         sqlx::query(
             "INSERT INTO tasks (id, project_id, agent_id, parent_task_id, title, \
-             description, kind, status, origin, priority, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             description, repository_id, kind, status, origin, priority, \
+             created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(t.id.to_string())
         .bind(t.project_id.to_string())
@@ -818,6 +895,7 @@ impl TaskRepo for SqliteStore {
         .bind(t.parent_task_id.map(|p| p.to_string()))
         .bind(&t.title)
         .bind(&t.description)
+        .bind(t.repository_id.map(|r| r.to_string()))
         .bind(t.kind.to_string())
         .bind(t.status.to_string())
         .bind(json_in(&t.origin)?)
@@ -833,14 +911,15 @@ impl TaskRepo for SqliteStore {
     async fn update_task(&self, t: &Task) -> StoreResult<()> {
         sqlx::query(
             "UPDATE tasks SET project_id = ?, agent_id = ?, parent_task_id = ?, \
-             title = ?, description = ?, kind = ?, status = ?, origin = ?, \
-             priority = ?, updated_at = ? WHERE id = ?",
+             title = ?, description = ?, repository_id = ?, kind = ?, status = ?, \
+             origin = ?, priority = ?, updated_at = ? WHERE id = ?",
         )
         .bind(t.project_id.to_string())
         .bind(t.agent_id.to_string())
         .bind(t.parent_task_id.map(|p| p.to_string()))
         .bind(&t.title)
         .bind(&t.description)
+        .bind(t.repository_id.map(|r| r.to_string()))
         .bind(t.kind.to_string())
         .bind(t.status.to_string())
         .bind(json_in(&t.origin)?)
@@ -893,9 +972,9 @@ impl RunRepo for SqliteStore {
     async fn insert_run(&self, r: &Run) -> StoreResult<()> {
         sqlx::query(
             "INSERT INTO runs (id, task_id, agent_id, activity, model_profile_id, \
-             harness_id, worktree_path, branch, acp_session_id, status, summary, \
-             started_at, finished_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             harness_id, repository_id, conversation_id, worktree_path, branch, \
+             acp_session_id, status, summary, started_at, finished_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(r.id.to_string())
         .bind(r.task_id.to_string())
@@ -903,6 +982,8 @@ impl RunRepo for SqliteStore {
         .bind(r.activity.to_string())
         .bind(r.model_profile_id.to_string())
         .bind(r.harness_id.to_string())
+        .bind(r.repository_id.map(|r| r.to_string()))
+        .bind(r.conversation_id.map(|c| c.to_string()))
         .bind(r.worktree_path.as_ref().map(|p| p.display().to_string()))
         .bind(&r.branch)
         .bind(&r.acp_session_id)
@@ -919,7 +1000,8 @@ impl RunRepo for SqliteStore {
     async fn update_run(&self, r: &Run) -> StoreResult<()> {
         sqlx::query(
             "UPDATE runs SET task_id = ?, agent_id = ?, activity = ?, \
-             model_profile_id = ?, harness_id = ?, worktree_path = ?, branch = ?, \
+             model_profile_id = ?, harness_id = ?, repository_id = ?, \
+             conversation_id = ?, worktree_path = ?, branch = ?, \
              acp_session_id = ?, status = ?, summary = ?, finished_at = ? \
              WHERE id = ?",
         )
@@ -928,6 +1010,8 @@ impl RunRepo for SqliteStore {
         .bind(r.activity.to_string())
         .bind(r.model_profile_id.to_string())
         .bind(r.harness_id.to_string())
+        .bind(r.repository_id.map(|r| r.to_string()))
+        .bind(r.conversation_id.map(|c| c.to_string()))
         .bind(r.worktree_path.as_ref().map(|p| p.display().to_string()))
         .bind(&r.branch)
         .bind(&r.acp_session_id)
@@ -1042,13 +1126,15 @@ impl MemoryRepo for SqliteStore {
     async fn insert_memory_entry(&self, e: &MemoryEntry) -> StoreResult<()> {
         sqlx::query(
             "INSERT INTO memory_entries (id, scope, kind, content, source_run_id, \
-             superseded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+             source_conversation_id, superseded_by, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(e.id.to_string())
         .bind(json_in(&e.scope)?)
         .bind(e.kind.to_string())
         .bind(&e.content)
         .bind(e.source_run_id.map(|r| r.to_string()))
+        .bind(e.source_conversation_id.map(|c| c.to_string()))
         .bind(e.superseded_by.map(|s| s.to_string()))
         .bind(fmt_ts(&e.created_at))
         .execute(&self.pool)
@@ -1060,12 +1146,14 @@ impl MemoryRepo for SqliteStore {
     async fn update_memory_entry(&self, e: &MemoryEntry) -> StoreResult<()> {
         sqlx::query(
             "UPDATE memory_entries SET scope = ?, kind = ?, content = ?, \
-             source_run_id = ?, superseded_by = ? WHERE id = ?",
+             source_run_id = ?, source_conversation_id = ?, superseded_by = ? \
+             WHERE id = ?",
         )
         .bind(json_in(&e.scope)?)
         .bind(e.kind.to_string())
         .bind(&e.content)
         .bind(e.source_run_id.map(|r| r.to_string()))
+        .bind(e.source_conversation_id.map(|c| c.to_string()))
         .bind(e.superseded_by.map(|s| s.to_string()))
         .bind(e.id.to_string())
         .execute(&self.pool)
@@ -1102,17 +1190,37 @@ impl ConversationRepo for SqliteStore {
         rows.iter().map(row_to_conversation).collect()
     }
 
+    async fn list_conversations_by_project(
+        &self,
+        project_id: ProjectId,
+    ) -> StoreResult<Vec<Conversation>> {
+        let rows = sqlx::query(
+            "SELECT * FROM conversations WHERE project_id = ? ORDER BY created_at DESC",
+        )
+        .bind(project_id.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
+        rows.iter().map(row_to_conversation).collect()
+    }
+
     async fn insert_conversation(&self, c: &Conversation) -> StoreResult<()> {
         sqlx::query(
             "INSERT INTO conversations (id, agent_id, activity, model_profile_id, \
+             organization_id, project_id, kind, run_id, research_id, \
              repository_id, workdir, title, acp_session_id, status, \
              config_options, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(c.id.to_string())
         .bind(c.agent_id.to_string())
         .bind(c.activity.to_string())
         .bind(c.model_profile_id.to_string())
+        .bind(c.organization_id.to_string())
+        .bind(c.project_id.map(|p| p.to_string()))
+        .bind(c.kind.to_string())
+        .bind(c.run_id.map(|r| r.to_string()))
+        .bind(c.research_id.map(|r| r.to_string()))
         .bind(c.repository_id.map(|r| r.to_string()))
         .bind(c.workdir.display().to_string())
         .bind(&c.title)
@@ -1130,13 +1238,19 @@ impl ConversationRepo for SqliteStore {
     async fn update_conversation(&self, c: &Conversation) -> StoreResult<()> {
         sqlx::query(
             "UPDATE conversations SET agent_id = ?, activity = ?, \
-             model_profile_id = ?, repository_id = ?, workdir = ?, title = ?, \
-             acp_session_id = ?, status = ?, config_options = ?, updated_at = ? \
-             WHERE id = ?",
+             model_profile_id = ?, organization_id = ?, project_id = ?, \
+             kind = ?, run_id = ?, research_id = ?, repository_id = ?, \
+             workdir = ?, title = ?, acp_session_id = ?, status = ?, \
+             config_options = ?, updated_at = ? WHERE id = ?",
         )
         .bind(c.agent_id.to_string())
         .bind(c.activity.to_string())
         .bind(c.model_profile_id.to_string())
+        .bind(c.organization_id.to_string())
+        .bind(c.project_id.map(|p| p.to_string()))
+        .bind(c.kind.to_string())
+        .bind(c.run_id.map(|r| r.to_string()))
+        .bind(c.research_id.map(|r| r.to_string()))
         .bind(c.repository_id.map(|r| r.to_string()))
         .bind(c.workdir.display().to_string())
         .bind(&c.title)
@@ -1290,6 +1404,119 @@ impl PermissionRequestRepo for SqliteStore {
         .bind(resolved_option_id)
         .bind(p.resolved_at.as_ref().map(fmt_ts))
         .bind(p.id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(db_err)?;
+        Ok(())
+    }
+}
+
+fn row_to_research(row: &sqlx::sqlite::SqliteRow) -> StoreResult<Research> {
+    Ok(Research {
+        id: parse_id(row.get::<String, _>("id").as_str())?,
+        organization_id: parse_id(row.get::<String, _>("organization_id").as_str())?,
+        project_id: opt_id(row.get::<Option<String>, _>("project_id").as_deref())?,
+        repository_ids: json_out(row.get::<String, _>("repository_ids").as_str())?,
+        question: row.get("question"),
+        status: en(row.get::<String, _>("status").as_str())?,
+        findings: row.get("findings"),
+        conversation_id: opt_id(row.get::<Option<String>, _>("conversation_id").as_deref())?,
+        origin_conversation_id: opt_id(
+            row.get::<Option<String>, _>("origin_conversation_id")
+                .as_deref(),
+        )?,
+        model_profile_id: opt_id(row.get::<Option<String>, _>("model_profile_id").as_deref())?,
+        created_at: ts(row.get::<String, _>("created_at").as_str())?,
+        finished_at: opt_ts(row.get::<Option<String>, _>("finished_at").as_deref())?,
+    })
+}
+
+impl ResearchRepo for SqliteStore {
+    async fn get_research(&self, id: ResearchId) -> StoreResult<Option<Research>> {
+        let rows = sqlx::query("SELECT * FROM research WHERE id = ?")
+            .bind(id.to_string())
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?;
+        rows.first().map(row_to_research).transpose()
+    }
+
+    async fn list_research(&self) -> StoreResult<Vec<Research>> {
+        let rows = sqlx::query("SELECT * FROM research ORDER BY created_at DESC")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?;
+        rows.iter().map(row_to_research).collect()
+    }
+
+    async fn list_research_by_project(&self, project_id: ProjectId) -> StoreResult<Vec<Research>> {
+        let rows =
+            sqlx::query("SELECT * FROM research WHERE project_id = ? ORDER BY created_at DESC")
+                .bind(project_id.to_string())
+                .fetch_all(&self.pool)
+                .await
+                .map_err(db_err)?;
+        rows.iter().map(row_to_research).collect()
+    }
+
+    async fn list_research_by_origin_conversation(
+        &self,
+        conversation_id: ConversationId,
+    ) -> StoreResult<Vec<Research>> {
+        let rows = sqlx::query(
+            "SELECT * FROM research WHERE origin_conversation_id = ? \
+             ORDER BY created_at",
+        )
+        .bind(conversation_id.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
+        rows.iter().map(row_to_research).collect()
+    }
+
+    async fn insert_research(&self, r: &Research) -> StoreResult<()> {
+        sqlx::query(
+            "INSERT INTO research (id, organization_id, project_id, repository_ids, \
+             question, status, findings, conversation_id, origin_conversation_id, \
+             model_profile_id, created_at, finished_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(r.id.to_string())
+        .bind(r.organization_id.to_string())
+        .bind(r.project_id.map(|p| p.to_string()))
+        .bind(json_in(&r.repository_ids)?)
+        .bind(&r.question)
+        .bind(r.status.to_string())
+        .bind(&r.findings)
+        .bind(r.conversation_id.map(|c| c.to_string()))
+        .bind(r.origin_conversation_id.map(|c| c.to_string()))
+        .bind(r.model_profile_id.map(|m| m.to_string()))
+        .bind(fmt_ts(&r.created_at))
+        .bind(r.finished_at.as_ref().map(fmt_ts))
+        .execute(&self.pool)
+        .await
+        .map_err(db_err)?;
+        Ok(())
+    }
+
+    async fn update_research(&self, r: &Research) -> StoreResult<()> {
+        sqlx::query(
+            "UPDATE research SET organization_id = ?, project_id = ?, \
+             repository_ids = ?, question = ?, status = ?, findings = ?, \
+             conversation_id = ?, origin_conversation_id = ?, \
+             model_profile_id = ?, finished_at = ? WHERE id = ?",
+        )
+        .bind(r.organization_id.to_string())
+        .bind(r.project_id.map(|p| p.to_string()))
+        .bind(json_in(&r.repository_ids)?)
+        .bind(&r.question)
+        .bind(r.status.to_string())
+        .bind(&r.findings)
+        .bind(r.conversation_id.map(|c| c.to_string()))
+        .bind(r.origin_conversation_id.map(|c| c.to_string()))
+        .bind(r.model_profile_id.map(|m| m.to_string()))
+        .bind(r.finished_at.as_ref().map(fmt_ts))
+        .bind(r.id.to_string())
         .execute(&self.pool)
         .await
         .map_err(db_err)?;

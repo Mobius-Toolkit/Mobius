@@ -2606,6 +2606,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "mobius-cli"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "clap",
+ "mobius-api",
+ "mobius-core",
+ "mobius-ingest",
+ "mobius-orchestrator",
+ "mobius-server",
+ "mobius-store",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
 name = "mobius-core"
 version = "0.1.0"
 dependencies = [
@@ -2687,6 +2707,7 @@ dependencies = [
  "chrono",
  "clap",
  "futures",
+ "http-body-util",
  "mobius-api",
  "mobius-core",
  "mobius-harness",
@@ -2701,6 +2722,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "toml",
+ "tower",
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",

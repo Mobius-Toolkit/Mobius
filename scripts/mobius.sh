@@ -64,6 +64,10 @@ case "$CMD" in
             cp mobius.example.toml "$CONFIG"
             echo "created $CONFIG from mobius.example.toml"
         fi
+        # Server + CLI from the same target dir: SessionManager prepends the
+        # directory containing mobius-server to harness PATH, so `mobius`
+        # must sit next to it.
+        cargo build --release -p mobius-server -p mobius-cli
         if [ "$BUILD_UI" = 1 ] || \
            [ ! -f target/dx/mobius-ui/release/web/public/index.html ]; then
             build_ui
@@ -71,6 +75,6 @@ case "$CMD" in
         if [ "$OPEN" = 1 ]; then
             open_when_ready &
         fi
-        exec cargo run -p mobius-server -- --config "$CONFIG" serve
+        exec ./target/release/mobius-server --config "$CONFIG" serve
         ;;
 esac

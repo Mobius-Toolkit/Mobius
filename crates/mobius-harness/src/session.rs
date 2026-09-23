@@ -3,7 +3,8 @@
 //! A [`HarnessSession`] owns one spawned agent process, one ACP connection and
 //! one ACP session. Permission requests are routed by the agent's
 //! [`PermissionPolicy`]: `Auto`/`WorkspaceEdits` pick the first "allow"
-//! option, `ReadOnly` allows only `read`-kind tool calls, and `AskHuman` parks
+//! option, `ReadOnly` allows `read`-kind tool calls plus `execute` calls that
+//! invoke the `mobius` CLI, and `AskHuman` parks
 //! the ACP request on a oneshot until [`HarnessSession::respond_permission`]
 //! (or `cancel`/`close`) resolves it — human approval UI is a server concern.
 
@@ -52,6 +53,12 @@ pub struct SpawnSpec {
     pub cwd: PathBuf,
     pub policy: PermissionPolicy,
     pub profile: Option<ModelProfile>,
+    /// Extra environment for the agent process (e.g. `MOBIUS_*` wiring for
+    /// the `mobius` CLI). Applied after the harness's own `env`.
+    pub extra_env: std::collections::BTreeMap<String, String>,
+    /// Prepended to the agent's `PATH` so the `mobius` binary next to the
+    /// server resolves in the agent's shell.
+    pub cli_bin_dir: Option<PathBuf>,
 }
 
 /// Stream of updates produced by a session. Delivered over a `broadcast`
@@ -244,7 +251,20 @@ impl HarnessSession {
     pub async fn spawn(spec: SpawnSpec) -> Result<Self, HarnessError> {
         let mut config = AcpAgentConfig::new(&spec.harness.command)
             .args(spec.harness.args.iter().cloned())
-            .envs(spec.harness.env.iter().map(|(k, v)| (k.clone(), v.clone())));
+            .envs(spec.harness.env.iter().map(|(k, v)| (k.clone(), v.clone())))
+            .envs(spec.extra_env.iter().map(|(k, v)| (k.clone(), v.clone())));
+        if let Some(dir) = &spec.cli_bin_dir {
+            let path = match std::env::var_os("PATH") {
+                Some(existing) if !existing.is_empty() => {
+                    let mut p = std::ffi::OsString::from(dir);
+                    p.push(":");
+                    p.push(existing);
+                    p
+                }
+                _ => std::ffi::OsString::from(dir),
+            };
+            config = config.envs([("PATH".to_string(), path.to_string_lossy().to_string())]);
+        }
 
         // Launch-arg model override: e.g. `devin acp --model swe`.
         if let Some(model) = spec.profile.as_ref().and_then(|p| p.model.clone())
@@ -620,7 +640,25 @@ async fn handle_permission(
             RequestPermissionResponse::new(outcome_for(first_option_matching(&request, true))),
         ),
         PermissionPolicy::ReadOnly => {
-            let allow = config_options::is_read_tool_kind(request.tool_call.fields.kind);
+            // Read tools always pass; `execute` passes only when it invokes
+            // the `mobius` CLI — a coordinator's only action surface.
+            let fields = &request.tool_call.fields;
+            let allow = config_options::is_read_tool_kind(fields.kind)
+                || config_options::is_mobius_exec(
+                    fields.kind,
+                    fields.title.as_deref(),
+                    fields.raw_input.as_ref(),
+                    request.tool_call.meta.as_ref(),
+                );
+            tracing::debug!(
+                kind = ?fields.kind,
+                name = ?fields.name,
+                title = ?fields.title,
+                raw_input = ?fields.raw_input,
+                meta = ?request.tool_call.meta,
+                allow,
+                "readonly permission check"
+            );
             responder.respond(RequestPermissionResponse::new(outcome_for(
                 first_option_matching(&request, allow),
             )))

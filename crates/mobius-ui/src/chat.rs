@@ -1,7 +1,8 @@
-//! Chat page: conversation list, streaming thread, tool-call cards,
-//! permission banner, config selectors, new-conversation dialog.
+//! Chat page: grouped conversation sidebar (organization + per project),
+//! streaming thread, tool-call cards, permission banner, config selectors,
+//! Memory/Research/Tasks side panels, new-conversation dialog.
 
-use crate::{Data, api};
+use crate::{Data, Nav, api, panels};
 use dioxus::prelude::*;
 // `mobius_core::Signal` collides with `dioxus::prelude::Signal` under globs.
 use dioxus::prelude::Signal;
@@ -34,14 +35,6 @@ fn use_conv_events(selected: Signal<Option<ConversationId>>, on_event: Callback<
                 cb.forget();
                 *holder.borrow_mut() = Some(es);
             }
-        }
-    });
-}
-
-fn refresh_conversations(mut conversations: Signal<Vec<Conversation>>) {
-    spawn(async move {
-        if let Ok(v) = api::get::<Vec<Conversation>>("/conversations").await {
-            conversations.set(v);
         }
     });
 }
@@ -90,10 +83,49 @@ fn send_message(
     });
 }
 
+/// Which right-column panel is open (one at a time).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Panel {
+    Memory,
+    Research,
+    Tasks,
+}
+
+/// The "+" target for a new chat: `None` = organization, `Some` = project.
+/// `show_new` adds the outer "dialog open" Option.
+type NewChatScope = Option<ProjectId>;
+
+#[component]
+fn ConvRow(
+    c: Conversation,
+    selected: Signal<Option<ConversationId>>,
+    view: Signal<Option<ConversationView>>,
+    status: Signal<ConversationStatus>,
+    draft: Signal<String>,
+    pending: Signal<Option<PermissionRequest>>,
+) -> Element {
+    let dot = format!("dot {}", c.status);
+    rsx! {
+        div {
+            key: "{c.id}",
+            class: if selected() == Some(c.id) { "conv active" } else { "conv" },
+            onclick: move |_| {
+                let id = c.id;
+                selected.set(Some(id));
+                draft.set(String::new());
+                pending.set(None);
+                refresh_view(id, view, status);
+            },
+            span { class: "{dot}" }
+            b { "{c.title}" }
+        }
+    }
+}
+
 #[component]
 pub fn ChatPage() -> Element {
-    let data: Data = use_context();
-    let mut conversations = use_signal(Vec::<Conversation>::new);
+    let mut data: Data = use_context();
+    let nav: Nav = use_context();
     let mut selected = use_signal(|| None::<ConversationId>);
     let mut view = use_signal(|| None::<ConversationView>);
     let mut draft = use_signal(String::new);
@@ -101,10 +133,27 @@ pub fn ChatPage() -> Element {
     let mut pending = use_signal(|| None::<PermissionRequest>);
     let mut status = use_signal(|| ConversationStatus::Idle);
     let send_error = use_signal(|| None::<String>);
-    let mut show_new = use_signal(|| false);
+    let mut show_new = use_signal(|| None::<NewChatScope>);
     let busy = use_signal(|| false);
+    let mut panel = use_signal(|| None::<Panel>);
 
-    use_hook(move || refresh_conversations(conversations));
+    use_hook(move || data.refresh_kind(EntityKind::Conversation));
+
+    // Another page (Work/Runs/panels) asked us to open a conversation.
+    {
+        let mut nav = nav;
+        use_effect(move || {
+            // Read-then-clear: `chat_target()` clones + drops the borrow.
+            let target = (nav.chat_target)();
+            if let Some(id) = target {
+                nav.chat_target.set(None);
+                selected.set(Some(id));
+                draft.set(String::new());
+                pending.set(None);
+                refresh_view(id, view, status);
+            }
+        });
+    }
 
     // Conversation-scoped SSE.
     let mut upsert_message = move |message: Message| {
@@ -138,7 +187,8 @@ pub fn ChatPage() -> Element {
         } => {
             status.set(s);
             // Keep the sidebar entry live too, not just the open thread.
-            if let Some(c) = conversations
+            if let Some(c) = data
+                .conversations
                 .write()
                 .iter_mut()
                 .find(|c| c.id == conversation_id)
@@ -155,37 +205,132 @@ pub fn ChatPage() -> Element {
     });
     use_conv_events(selected, on_event);
 
+    // Sidebar: chats only (run/research transcripts open from the panels),
+    // grouped organization first then per project, newest first.
+    let mut chats: Vec<Conversation> = data
+        .conversations
+        .read()
+        .iter()
+        .filter(|c| c.kind == ConversationKind::Chat)
+        .cloned()
+        .collect();
+    chats.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
+    let orgs = data.orgs.read().clone();
+    let projects = {
+        let mut p = data.projects.read().clone();
+        p.sort_by(|a, b| a.slug.cmp(&b.slug));
+        p
+    };
+    // Owned groups: rsx `for` iterators must not borrow locals that inner
+    // closures capture.
+    let org_groups: Vec<(Organization, Vec<Conversation>)> = orgs
+        .iter()
+        .map(|o| {
+            (
+                o.clone(),
+                chats
+                    .iter()
+                    .filter(|c| c.organization_id == o.id && c.project_id.is_none())
+                    .cloned()
+                    .collect(),
+            )
+        })
+        .collect();
+    let proj_groups: Vec<(Project, Vec<Conversation>)> = projects
+        .iter()
+        .map(|p| {
+            (
+                p.clone(),
+                chats
+                    .iter()
+                    .filter(|c| c.project_id == Some(p.id))
+                    .cloned()
+                    .collect(),
+            )
+        })
+        .collect();
+
     let conv_view = view.read().clone();
     let conv = conv_view.as_ref().map(|v| v.conversation.clone());
+    // Breadcrumb: org name, project slug when the conversation has one.
+    let org_name = conv
+        .as_ref()
+        .and_then(|c| {
+            orgs.iter()
+                .find(|o| o.id == c.organization_id)
+                .map(|o| o.name.clone())
+        })
+        .unwrap_or_default();
+    let project_slug = conv.as_ref().and_then(|c| c.project_id).and_then(|pid| {
+        projects
+            .iter()
+            .find(|p| p.id == pid)
+            .map(|p| p.slug.clone())
+    });
 
     rsx! {
         div { class: "chat-layout",
             aside { class: "conv-list",
-                div { class: "row",
-                    h3 { "Conversations" }
-                    button { onclick: move |_| show_new.set(true), "+" }
+                for (org, convs) in org_groups {
+                    div { class: "conv-group", key: "org-{org.id}",
+                        div { class: "conv-group-head",
+                            span { "Organization: {org.name}" }
+                            button {
+                                title: "New organization chat",
+                                onclick: move |_| show_new.set(Some(None)),
+                                "+"
+                            }
+                        }
+                        for c in convs {
+                            ConvRow {
+                                key: "{c.id}",
+                                c,
+                                selected,
+                                view,
+                                status,
+                                draft,
+                                pending,
+                            }
+                        }
+                    }
                 }
-                for c in conversations.read().clone() {
-                    div {
-                        key: "{c.id}",
-                        class: if selected() == Some(c.id) { "conv active" } else { "conv" },
-                        onclick: move |_| {
-                            let id = c.id;
-                            selected.set(Some(id));
-                            draft.set(String::new());
-                            pending.set(None);
-                            refresh_view(id, view, status);
-                        },
-                        b { "{c.title}" }
-                        span { class: "muted", " {c.status}" }
+                for (p, convs) in proj_groups {
+                    div { class: "conv-group", key: "proj-{p.id}",
+                        div { class: "conv-group-head",
+                            span { "{p.slug}" }
+                            button {
+                                title: "New project chat",
+                                onclick: move |_| {
+                                    show_new.set(Some(Some(p.id)));
+                                },
+                                "+"
+                            }
+                        }
+                        for c in convs {
+                            ConvRow {
+                                key: "{c.id}",
+                                c,
+                                selected,
+                                view,
+                                status,
+                                draft,
+                                pending,
+                            }
+                        }
                     }
                 }
             }
             section { class: "chat-main",
                 if let Some(conv) = conv.clone() {
                     div { class: "chat-header",
-                        b { "{conv.title}" }
-                        span { class: "muted", " {status()} · {conv.workdir.display()}" }
+                        span { class: "crumbs",
+                            b { "{org_name}" }
+                            if let Some(slug) = &project_slug {
+                                " / {slug}"
+                            }
+                            " · {conv.title}"
+                        }
+                        span { class: "muted", " {status()}" }
                         for opt in conv.config_options.clone() {
                             if !opt.options.is_empty() {
                                 label { class: "cfg", key: "{opt.id}",
@@ -234,111 +379,175 @@ pub fn ChatPage() -> Element {
                             },
                             "Cancel"
                         }
-                    }
-                    div { class: "thread",
-                        for msg in conv_view.as_ref().map(|v| v.messages.clone()).unwrap_or_default() {
-                            div {
-                                key: "{msg.id}",
-                                class: match msg.author {
-                                    MessageAuthor::Human => "msg human",
-                                    MessageAuthor::Agent => "msg agent",
-                                    MessageAuthor::System => "msg system",
+                        button {
+                            class: if panel() == Some(Panel::Memory) { "toggle active" } else { "toggle" },
+                            onclick: move |_| {
+                                panel.set(if panel() == Some(Panel::Memory) {
+                                    None
+                                } else {
+                                    Some(Panel::Memory)
+                                });
+                            },
+                            "Memory ({panels::memory_count(&data, &conv)})"
+                        }
+                        button {
+                            class: if panel() == Some(Panel::Research) { "toggle active" } else { "toggle" },
+                            onclick: move |_| {
+                                panel.set(if panel() == Some(Panel::Research) {
+                                    None
+                                } else {
+                                    Some(Panel::Research)
+                                });
+                            },
+                            "Research ({panels::research_count(&data, &conv)})"
+                        }
+                        if conv.project_id.is_some() {
+                            button {
+                                class: if panel() == Some(Panel::Tasks) { "toggle active" } else { "toggle" },
+                                onclick: move |_| {
+                                    panel.set(if panel() == Some(Panel::Tasks) {
+                                        None
+                                    } else {
+                                        Some(Panel::Tasks)
+                                    });
                                 },
-                                for block in msg.blocks.iter() {
-                                    BlockView { block: block.clone() }
-                                }
+                                "Tasks ({panels::task_count(&data, &conv)})"
                             }
                         }
-                        if !draft.read().is_empty() {
-                            div { class: "msg agent streaming",
-                                p { "{draft.read()}" }
-                            }
-                        } else if status() == ConversationStatus::Streaming || busy() {
-                            div { class: "msg agent streaming",
-                                span { class: "typing",
-                                    i {}
-                                    i {}
-                                    i {}
+                    }
+                    div { class: "chat-body",
+                        div { class: "thread",
+                            for msg in conv_view.as_ref().map(|v| v.messages.clone()).unwrap_or_default() {
+                                div {
+                                    key: "{msg.id}",
+                                    class: match msg.author {
+                                        MessageAuthor::Human => "msg human",
+                                        MessageAuthor::Agent => "msg agent",
+                                        MessageAuthor::System => "msg system",
+                                    },
+                                    for block in msg.blocks.iter() {
+                                        BlockView { block: block.clone() }
+                                    }
                                 }
                             }
-                        }
-                        if let Some(req) = pending.read().clone() {
-                            div { class: "permission-banner",
-                                b { "Permission requested: " }
-                                span { "{req.tool_call.title.clone().unwrap_or_default()} ({req.tool_call.kind.clone().unwrap_or_default()})" }
-                                div { class: "row",
-                                    for opt in req.options.clone() {
-                                        button {
-                                            key: "{opt.option_id}",
-                                            class: if opt.kind.contains("allow") { "allow" } else { "deny" },
-                                            onclick: move |_| {
-                                                let pid = req.id;
-                                                let oid = opt.option_id.clone();
-                                                pending.set(None);
-                                                spawn(async move {
-                                                    let _ = api::post_empty(
-                                                        &format!("/permissions/{pid}"),
-                                                        &ResolvePermission { option_id: oid },
-                                                    )
-                                                    .await;
-                                                });
-                                            },
-                                            "{opt.name}"
+                            if !draft.read().is_empty() {
+                                div { class: "msg agent streaming",
+                                    p { "{draft.read()}" }
+                                }
+                            } else if status() == ConversationStatus::Streaming || busy() {
+                                div { class: "msg agent streaming",
+                                    span { class: "typing",
+                                        i {}
+                                        i {}
+                                        i {}
+                                    }
+                                }
+                            }
+                            if let Some(req) = pending.read().clone() {
+                                div { class: "permission-banner",
+                                    b { "Permission requested: " }
+                                    span { "{req.tool_call.title.clone().unwrap_or_default()} ({req.tool_call.kind.clone().unwrap_or_default()})" }
+                                    div { class: "row",
+                                        for opt in req.options.clone() {
+                                            button {
+                                                key: "{opt.option_id}",
+                                                class: if opt.kind.contains("allow") { "allow" } else { "deny" },
+                                                onclick: move |_| {
+                                                    let pid = req.id;
+                                                    let oid = opt.option_id.clone();
+                                                    pending.set(None);
+                                                    spawn(async move {
+                                                        let _ = api::post_empty(
+                                                            &format!("/permissions/{pid}"),
+                                                            &ResolvePermission { option_id: oid },
+                                                        )
+                                                        .await;
+                                                    });
+                                                },
+                                                "{opt.name}"
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+                        match panel() {
+                            Some(Panel::Memory) => rsx! {
+                                panels::MemoryPanel {
+                                    conv: conv.clone(),
+                                    on_close: move |_| panel.set(None),
+                                }
+                            },
+                            Some(Panel::Research) => rsx! {
+                                panels::ResearchPanel {
+                                    conv: conv.clone(),
+                                    on_close: move |_| panel.set(None),
+                                }
+                            },
+                            Some(Panel::Tasks) => rsx! {
+                                panels::TasksPanel {
+                                    conv: conv.clone(),
+                                    on_close: move |_| panel.set(None),
+                                }
+                            },
+                            None => rsx! {},
+                        }
                     }
-                    div { class: "composer",
-                        textarea {
-                            value: "{input.read()}",
-                            placeholder: "Message…",
-                            oninput: move |e| input.set(e.value()),
-                            onkeydown: move |e| {
-                                if e.key() == Key::Enter {
-                                    e.prevent_default();
-                                    // Never pass `input.read().…` inline into a
-                                    // call that writes `input` — the read guard
-                                    // lives to the end of the statement and the
-                                    // write panics. `input()` clones + drops.
-                                    if !(busy() || status() == ConversationStatus::Streaming)
-                                        && let Some(id) = selected()
-                                    {
+                    // The composer stays live for chats and runs (the human
+                    // can steer an implementer); research transcripts are
+                    // read-only.
+                    if conv.kind != ConversationKind::Research {
+                        div { class: "composer",
+                            textarea {
+                                value: "{input.read()}",
+                                placeholder: "Message…",
+                                oninput: move |e| input.set(e.value()),
+                                onkeydown: move |e| {
+                                    if e.key() == Key::Enter {
+                                        e.prevent_default();
+                                        // Never pass `input.read().…` inline into a
+                                        // call that writes `input` — the read guard
+                                        // lives to the end of the statement and the
+                                        // write panics. `input()` clones + drops.
+                                        if !(busy() || status() == ConversationStatus::Streaming)
+                                            && let Some(id) = selected()
+                                        {
+                                            let text = input();
+                                            send_message(id, text, input, busy, send_error, data.error);
+                                        }
+                                    }
+                                },
+                            }
+                            button {
+                                disabled: busy() || status() == ConversationStatus::Streaming,
+                                onclick: move |_| {
+                                    if let Some(id) = selected() {
                                         let text = input();
                                         send_message(id, text, input, busy, send_error, data.error);
                                     }
-                                }
-                            },
+                                },
+                                "Send"
+                            }
                         }
-                        button {
-                            disabled: busy() || status() == ConversationStatus::Streaming,
-                            onclick: move |_| {
-                                if let Some(id) = selected() {
-                                    let text = input();
-                                    send_message(id, text, input, busy, send_error, data.error);
-                                }
-                            },
-                            "Send"
+                        if let Some(e) = send_error.read().as_ref() {
+                            p { class: "error", "{e}" }
                         }
-                    }
-                    if let Some(e) = send_error.read().as_ref() {
-                        p { class: "error", "{e}" }
                     }
                 } else {
                     div { class: "empty",
                         p { "Pick a conversation or start a new one." }
-                        button { onclick: move |_| show_new.set(true), "New conversation" }
+                        button { onclick: move |_| show_new.set(Some(None)), "New conversation" }
                     }
                 }
             }
         }
-        if show_new() {
+        if let Some(preset) = show_new() {
             NewConversation {
+                preset_project: preset,
                 on_done: move |id: Option<ConversationId>| {
-                    show_new.set(false);
+                    show_new.set(None);
                     if let Some(id) = id {
-                        refresh_conversations(conversations);
+                        data.refresh_kind(EntityKind::Conversation);
                         selected.set(Some(id));
                         refresh_view(id, view, status);
                     }
@@ -372,64 +581,45 @@ fn BlockView(block: ContentBlock) -> Element {
     }
 }
 
+/// `preset_project`: `Some(id)` when the project group's "+" was clicked,
+/// `None` for the organization group.
 #[component]
-fn NewConversation(on_done: Callback<Option<ConversationId>>) -> Element {
+fn NewConversation(
+    preset_project: Option<ProjectId>,
+    on_done: Callback<Option<ConversationId>>,
+) -> Element {
     let data: Data = use_context();
-    let mut agent_id = use_signal(|| None::<AgentId>);
-    let mut workdir = use_signal(String::new);
+    let mut project_id = use_signal(|| preset_project);
+    let mut profile_id = use_signal(|| None::<ModelProfileId>);
     let mut title = use_signal(String::new);
     let mut error = use_signal(|| None::<String>);
 
-    let agents = data.agents.read().clone();
-    let repos = data.repos.read().clone();
+    let projects = data.projects.read().clone();
     let profiles = data.profiles.read().clone();
-
-    let resolved = agent_id().and_then(|id| {
-        let agent = agents.iter().find(|a| a.id == id)?.clone();
-        let pid = agent.profiles.profile_for(Activity::Chat);
-        let profile = profiles.iter().find(|p| p.id == pid)?.clone();
-        Some(profile)
-    });
 
     rsx! {
         div { class: "modal-backdrop",
             div { class: "modal",
                 h3 { "New conversation" }
-                label { "Agent" }
+                p { class: "muted",
+                    "Chats run as the project coordinator (or the organization coordinator when no project is picked)."
+                }
+                label { "Project" }
                 select {
-                    onchange: move |e| {
-                        let id = e.value().parse::<AgentId>().ok();
-                        agent_id.set(id);
-                        if let Some(id) = id
-                            && let Some(a) = agents.iter().find(|a| a.id == id)
-                        {
-                            let wd = a.repository_id.and_then(|rid| {
-                                repos
-                                    .iter()
-                                    .find(|r| r.id == rid)
-                                    .and_then(|r| r.local_path.clone())
-                            });
-                            if let Some(wd) = wd {
-                                workdir.set(wd.display().to_string());
-                            }
-                        }
-                    },
-                    option { value: "", "— pick an agent —" }
-                    for a in agents.iter() {
-                        option { key: "{a.id}", value: "{a.id}", "{a.name} ({a.role})" }
+                    value: "{project_id().map(|p| p.to_string()).unwrap_or_default()}",
+                    onchange: move |e| project_id.set(e.value().parse::<ProjectId>().ok()),
+                    option { value: "", "— organization —" }
+                    for p in projects.iter() {
+                        option { key: "{p.id}", value: "{p.id}", "{p.slug}" }
                     }
                 }
-                if let Some(profile) = &resolved {
-                    p { class: "muted",
-                        "chat profile: {profile.name} · harness {data.harness_name(profile.harness_id)}"
-                        " · model {profile.model.clone().unwrap_or_else(|| \"-\".into())}"
-                        " · effort {profile.effort.map(|e| e.to_string()).unwrap_or_else(|| \"-\".into())}"
+                label { "Model profile" }
+                select {
+                    onchange: move |e| profile_id.set(e.value().parse::<ModelProfileId>().ok()),
+                    option { value: "", "— agent default —" }
+                    for p in profiles.iter() {
+                        option { key: "{p.id}", value: "{p.id}", "{p.name}" }
                     }
-                }
-                label { "Workdir" }
-                input {
-                    value: "{workdir.read()}",
-                    oninput: move |e| workdir.set(e.value()),
                 }
                 label { "Title" }
                 input {
@@ -442,19 +632,17 @@ fn NewConversation(on_done: Callback<Option<ConversationId>>) -> Element {
                 div { class: "row",
                     button {
                         onclick: move |_| {
-                            let Some(id) = agent_id() else {
-                                error.set(Some("pick an agent".into()));
-                                return;
-                            };
-                            let wd = workdir.read().clone();
+                            let pid = project_id();
+                            let mpid = profile_id();
                             let t = title.read().clone();
                             spawn(async move {
                                 match api::post::<CreateConversation, Conversation>(
                                     "/conversations",
                                     &CreateConversation {
-                                        agent_id: id,
-                                        workdir: wd,
+                                        organization_id: None,
+                                        project_id: pid,
                                         title: if t.is_empty() { None } else { Some(t) },
+                                        model_profile_id: mpid,
                                     },
                                 )
                                 .await

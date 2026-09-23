@@ -141,6 +141,126 @@ pub fn is_read_tool_kind(kind: Option<agent_client_protocol::schema::v1::ToolKin
     )
 }
 
+/// ReadOnly additionally permits `execute` tool calls whose command invokes
+/// the `mobius` CLI — that CLI is a coordinator's only sanctioned action
+/// surface (see ADR-0009/0010). Anything else under ReadOnly is rejected.
+///
+/// Detection is heuristic by necessity: harnesses report exec commands via
+/// `raw_input` (arbitrary JSON — we scan every string leaf), the title
+/// (Devin uses `"Ran <command>"`), or vendor `_meta` keys (Devin puts the
+/// shell command in `cognition.ai/editableCommand`). An explicit non-Execute
+/// kind is never allowed; when no command text is available at all we
+/// reject — an unidentified call is not a read.
+pub fn is_mobius_exec(
+    kind: Option<agent_client_protocol::schema::v1::ToolKind>,
+    title: Option<&str>,
+    raw_input: Option<&serde_json::Value>,
+    meta: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> bool {
+    use agent_client_protocol::schema::v1::ToolKind;
+    // Explicit non-execute kinds (Edit/Write/Delete/…) are never the CLI.
+    if matches!(
+        kind,
+        Some(
+            ToolKind::Edit
+                | ToolKind::Delete
+                | ToolKind::Move
+                | ToolKind::Search
+                | ToolKind::Fetch
+                | ToolKind::Think
+                | ToolKind::SwitchMode
+        )
+    ) {
+        return false;
+    }
+    let mut commands: Vec<String> = Vec::new();
+    if let Some(raw) = raw_input {
+        // Prefer strings under command-ish keys; fall back to every leaf.
+        collect_keyed_strings(raw, &mut commands);
+        if commands.is_empty() {
+            collect_strings(raw, &mut commands);
+        }
+    }
+    if let Some(meta) = meta {
+        // Vendor keys like `cognition.ai/editableCommand` hold the command.
+        for (k, v) in meta {
+            if k.to_ascii_lowercase().contains("command") || k.contains("cmd") {
+                collect_strings(v, &mut commands);
+            }
+        }
+    }
+    if let Some(t) = title {
+        // Devin titles exec calls "Ran <command>".
+        if let Some(cmd) = t.trim().strip_prefix("Ran ") {
+            commands.push(cmd.trim().to_string());
+        }
+    }
+    commands.iter().any(|c| command_invokes_mobius(c))
+}
+
+const COMMAND_KEYS: &[&str] = &["command", "cmd", "shell", "script", "input", "code"];
+
+fn collect_keyed_strings(v: &serde_json::Value, out: &mut Vec<String>) {
+    match v {
+        serde_json::Value::Object(m) => {
+            for (k, x) in m {
+                if COMMAND_KEYS.iter().any(|c| k.eq_ignore_ascii_case(c)) {
+                    collect_strings(x, out);
+                } else {
+                    collect_keyed_strings(x, out);
+                }
+            }
+        }
+        serde_json::Value::Array(xs) => xs.iter().for_each(|x| collect_keyed_strings(x, out)),
+        _ => {}
+    }
+}
+
+fn collect_strings(v: &serde_json::Value, out: &mut Vec<String>) {
+    match v {
+        serde_json::Value::String(s) => out.push(s.clone()),
+        serde_json::Value::Array(xs) => xs.iter().for_each(|x| collect_strings(x, out)),
+        serde_json::Value::Object(m) => m.values().for_each(|x| collect_strings(x, out)),
+        _ => {}
+    }
+}
+
+/// Whether a shell command's executable is `mobius`, tolerating benign
+/// prefixes: `cd <dir> &&`, `cd <dir>;`, and `VAR=value` env assignments.
+/// Shell metacharacters in the remainder (`&&`, `|`, `$()`, redirects, …)
+/// reject it — no smuggling extra commands behind a `mobius` call.
+fn command_invokes_mobius(cmd: &str) -> bool {
+    let mut rest = cmd.trim();
+    loop {
+        // `VAR=value ` env-assignment prefix.
+        if let Some((tok, tail)) = rest.split_once(char::is_whitespace)
+            && let Some((key, _)) = tok.split_once('=')
+            && !key.is_empty()
+            && key.chars().all(|c| c == '_' || c.is_ascii_alphanumeric())
+            && !key.chars().next().is_some_and(|c| c.is_ascii_digit())
+        {
+            rest = tail.trim_start();
+            continue;
+        }
+        // `cd <dir> && …` / `cd <dir>; …` prefix.
+        if let Some(after_cd) = rest.strip_prefix("cd ")
+            && let Some(i) = after_cd.find("&&").or_else(|| after_cd.find(';'))
+        {
+            rest = after_cd[i..].trim_start_matches(['&', ';', ' ']);
+            continue;
+        }
+        break;
+    }
+    if !(rest == "mobius" || rest.starts_with("mobius ")) {
+        return false;
+    }
+    // `$(`/`${}` substitution is covered by `$`; bare parens and quotes are
+    // legal inside mobius arguments.
+    !rest
+        .chars()
+        .any(|c| matches!(c, '&' | '|' | ';' | '`' | '$' | '<' | '>' | '\\' | '\n'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,5 +362,69 @@ mod tests {
         assert!(!is_read_tool_kind(Some(ToolKind::Edit)));
         assert!(!is_read_tool_kind(Some(ToolKind::Execute)));
         assert!(!is_read_tool_kind(None));
+    }
+
+    #[test]
+    fn mobius_exec_allowed_under_readonly() {
+        use agent_client_protocol::schema::v1::ToolKind;
+        let exec = Some(ToolKind::Execute);
+        // raw_input command detection.
+        let raw =
+            serde_json::json!({"command": "mobius memory add --kind fact \"x\" --scope project"});
+        assert!(is_mobius_exec(exec, None, Some(&raw), None));
+        // Nested under another key.
+        let raw = serde_json::json!({"args": {"shell_command": "mobius task list"}});
+        assert!(is_mobius_exec(exec, None, Some(&raw), None));
+        // Devin "Ran <command>" title fallback when raw_input is absent.
+        assert!(is_mobius_exec(exec, Some("Ran mobius"), None, None));
+        assert!(is_mobius_exec(
+            exec,
+            Some("Ran mobius project list"),
+            None,
+            None
+        ));
+        // Devin `editableCommand` vendor meta (kind absent, as observed).
+        let meta =
+            serde_json::json!({"cognition.ai/editableCommand": "mobius memory add --kind fact x"});
+        let meta = meta.as_object().expect("object");
+        assert!(is_mobius_exec(None, None, None, Some(meta)));
+        // Benign prefixes.
+        let raw = serde_json::json!({"command": "cd work && mobius research list"});
+        assert!(is_mobius_exec(exec, None, Some(&raw), None));
+        let raw = serde_json::json!({"command": "MOBIUS_URL=http://x mobius task show abc"});
+        assert!(is_mobius_exec(exec, None, Some(&raw), None));
+    }
+
+    #[test]
+    fn non_mobius_exec_rejected_under_readonly() {
+        use agent_client_protocol::schema::v1::ToolKind;
+        let exec = Some(ToolKind::Execute);
+        let raw = serde_json::json!({"command": "git status"});
+        assert!(!is_mobius_exec(exec, None, Some(&raw), None));
+        // Smuggled second command behind `&&`.
+        let raw = serde_json::json!({"command": "mobius task list && rm -rf x"});
+        assert!(!is_mobius_exec(exec, None, Some(&raw), None));
+        // `mobius` merely mentioned in an argument doesn't count.
+        let raw = serde_json::json!({"command": "rm -rf mobius"});
+        assert!(!is_mobius_exec(exec, None, Some(&raw), None));
+        // An editableCommand meta on an Edit kind still rejects.
+        let meta = serde_json::json!({"cognition.ai/editableCommand": "mobius task list"});
+        let meta = meta.as_object().expect("object");
+        assert!(!is_mobius_exec(
+            Some(ToolKind::Edit),
+            None,
+            None,
+            Some(meta)
+        ));
+        // Non-exec kinds never qualify.
+        let raw = serde_json::json!({"command": "mobius task list"});
+        assert!(!is_mobius_exec(
+            Some(ToolKind::Edit),
+            None,
+            Some(&raw),
+            None
+        ));
+        // No command text at all → reject.
+        assert!(!is_mobius_exec(exec, Some("exec"), None, None));
     }
 }

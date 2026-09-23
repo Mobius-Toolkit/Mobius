@@ -1,6 +1,7 @@
 pub mod event;
 pub mod id;
 pub mod inmem;
+pub mod memory_paths;
 pub mod model;
 pub mod ports;
 
@@ -74,14 +75,16 @@ mod tests {
 
     #[test]
     fn task_kind_maps_to_activity() {
-        assert_eq!(Activity::from(TaskKind::Implement), Activity::Implement);
+        assert_eq!(Activity::from(TaskKind::Feature), Activity::Implement);
+        assert_eq!(Activity::from(TaskKind::Fix), Activity::Implement);
+        assert_eq!(Activity::from(TaskKind::Refactor), Activity::Implement);
+        assert_eq!(Activity::from(TaskKind::Spec), Activity::Plan);
         assert_eq!(Activity::from(TaskKind::Review), Activity::Review);
         assert_eq!(Activity::from(TaskKind::Triage), Activity::Triage);
         assert_eq!(
             Activity::from(TaskKind::Housekeeping),
             Activity::Housekeeping
         );
-        assert_eq!(Activity::from(TaskKind::Research), Activity::Research);
     }
 
     #[test]

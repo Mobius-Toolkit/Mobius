@@ -44,7 +44,11 @@ pub struct UpdateRepository {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateProject {
-    pub repository_id: RepositoryId,
+    #[serde(default)]
+    pub organization_id: Option<OrganizationId>,
+    /// Routing hint only — a project may span zero or more repositories.
+    #[serde(default)]
+    pub repository_ids: Vec<RepositoryId>,
     pub name: String,
     pub slug: String,
     #[serde(default)]
@@ -64,6 +68,9 @@ pub struct UpdateProject {
     #[serde(default)]
     pub scope: ProjectScope,
     pub status: ProjectStatus,
+    /// Routing hint only — replaces the project's repository hints.
+    #[serde(default)]
+    pub repository_ids: Vec<RepositoryId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +131,10 @@ pub struct UpdateModelProfile {
 pub struct CreateAgent {
     pub name: String,
     pub role: AgentRole,
+    /// Required for non-organization agents; organization agents may derive
+    /// it from `project_id` or the single organization.
+    #[serde(default)]
+    pub organization_id: Option<OrganizationId>,
     /// Default profile applied to activities without an override.
     pub default_profile: ModelProfileId,
     #[serde(default)]
@@ -144,6 +155,7 @@ pub struct CreateAgent {
 pub struct UpdateAgent {
     pub name: String,
     pub role: AgentRole,
+    pub organization_id: OrganizationId,
     pub default_profile: ModelProfileId,
     #[serde(default)]
     pub profile_overrides: BTreeMap<Activity, ModelProfileId>,
@@ -168,10 +180,15 @@ pub struct ManualSignal {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateConversation {
-    pub agent_id: AgentId,
-    pub workdir: String,
+    /// Optional; resolved from the project or the single organization.
+    #[serde(default)]
+    pub organization_id: Option<OrganizationId>,
+    #[serde(default)]
+    pub project_id: Option<ProjectId>,
     #[serde(default)]
     pub title: Option<String>,
+    #[serde(default)]
+    pub model_profile_id: Option<ModelProfileId>,
 }
 
 /// Conversation with its persisted messages, returned by `GET /conversations/{id}`.
@@ -197,4 +214,87 @@ pub struct SetConversationConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvePermission {
     pub option_id: String,
+}
+
+// ------------------------------------------------------------------ Tasks
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTask {
+    pub project_id: ProjectId,
+    /// Repository the task executes against (required to *run*, optional to
+    /// propose).
+    #[serde(default)]
+    pub repository_id: Option<RepositoryId>,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub kind: Option<TaskKind>,
+    #[serde(default)]
+    pub parent_task_id: Option<TaskId>,
+    #[serde(default)]
+    pub priority: Option<Priority>,
+    /// Set when the task is created from inside a conversation (CLI).
+    #[serde(default)]
+    pub origin_conversation_id: Option<ConversationId>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateTask {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub kind: Option<TaskKind>,
+    #[serde(default)]
+    pub repository_id: Option<RepositoryId>,
+    #[serde(default)]
+    pub priority: Option<Priority>,
+    /// Only legal transitions are accepted (`can_transition_to`).
+    #[serde(default)]
+    pub status: Option<TaskStatus>,
+}
+
+/// `GET /tasks/{id}`: the task with its runs and child tasks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskView {
+    #[serde(flatten)]
+    pub task: Task,
+    #[serde(default)]
+    pub runs: Vec<Run>,
+    #[serde(default)]
+    pub children: Vec<Task>,
+}
+
+// ------------------------------------------------------------------ Research
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartResearch {
+    /// Optional; resolved from `project_id` or the single organization.
+    #[serde(default)]
+    pub organization_id: Option<OrganizationId>,
+    #[serde(default)]
+    pub project_id: Option<ProjectId>,
+    /// Repositories the researcher may read (must have local checkouts).
+    #[serde(default)]
+    pub repositories: Vec<RepositoryId>,
+    pub question: String,
+    /// The chat that spawned this research (drives the updates block).
+    #[serde(default)]
+    pub origin_conversation_id: Option<ConversationId>,
+    #[serde(default)]
+    pub model_profile_id: Option<ModelProfileId>,
+}
+
+// ------------------------------------------------------------------ Memory
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateMemoryEntry {
+    pub scope: MemoryScope,
+    pub kind: MemoryKind,
+    pub content: String,
+    /// Set when the entry is added from inside a conversation (CLI).
+    #[serde(default)]
+    pub source_conversation_id: Option<ConversationId>,
 }

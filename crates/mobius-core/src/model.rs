@@ -54,7 +54,11 @@ pub enum ProjectStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     pub id: ProjectId,
-    pub repository_id: RepositoryId,
+    pub organization_id: OrganizationId,
+    /// Repositories the project touches. A hint for routing and context,
+    /// not ownership — there is no "primary" repository.
+    #[serde(default)]
+    pub repository_ids: Vec<RepositoryId>,
     pub name: String,
     pub slug: String,
     pub description: String,
@@ -147,8 +151,10 @@ pub enum Activity {
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum TaskKind {
-    Implement,
-    Research,
+    Feature,
+    Fix,
+    Spec,
+    Refactor,
     Review,
     Housekeeping,
     Triage,
@@ -157,8 +163,8 @@ pub enum TaskKind {
 impl From<TaskKind> for Activity {
     fn from(kind: TaskKind) -> Self {
         match kind {
-            TaskKind::Implement => Activity::Implement,
-            TaskKind::Research => Activity::Research,
+            TaskKind::Feature | TaskKind::Fix | TaskKind::Refactor => Activity::Implement,
+            TaskKind::Spec => Activity::Plan,
             TaskKind::Review => Activity::Review,
             TaskKind::Housekeeping => Activity::Housekeeping,
             TaskKind::Triage => Activity::Triage,
@@ -188,6 +194,7 @@ impl ActivityProfiles {
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum AgentRole {
+    Organization,
     Project,
     Researcher,
     Reviewer,
@@ -208,6 +215,8 @@ pub struct Agent {
     pub id: AgentId,
     pub name: String,
     pub role: AgentRole,
+    /// Owning organization. Every agent template belongs to exactly one org.
+    pub organization_id: OrganizationId,
     /// Model profile selection per activity; the harness is derived from the
     /// resolved profile's `harness_id`.
     pub profiles: ActivityProfiles,
@@ -276,6 +285,9 @@ pub struct TaskOrigin {
     pub github_issue: Option<u64>,
     #[serde(default)]
     pub github_pr: Option<u64>,
+    /// Set when the task was created from a chat (CLI `task create` or UI).
+    #[serde(default)]
+    pub conversation_id: Option<ConversationId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -288,6 +300,10 @@ pub struct Task {
     pub parent_task_id: Option<TaskId>,
     pub title: String,
     pub description: String,
+    /// The repository the task executes against (fresh worktree). Required
+    /// to run; a task without one can be proposed but not started.
+    #[serde(default)]
+    pub repository_id: Option<RepositoryId>,
     pub kind: TaskKind,
     pub status: TaskStatus,
     #[serde(default)]
@@ -318,6 +334,12 @@ pub struct Run {
     pub activity: Activity,
     pub model_profile_id: ModelProfileId,
     pub harness_id: HarnessId,
+    /// Repository the run executes against (one task = one repo).
+    #[serde(default)]
+    pub repository_id: Option<RepositoryId>,
+    /// Conversation that carries this run's transcript.
+    #[serde(default)]
+    pub conversation_id: Option<ConversationId>,
     #[serde(default)]
     pub worktree_path: Option<PathBuf>,
     #[serde(default)]
@@ -395,6 +417,45 @@ pub enum MemoryKind {
     Summary,
 }
 
+/// A question answered by a read-only agent with repository access.
+/// Ephemeral: produces findings, no artifact. Not a task kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumString)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum ResearchStatus {
+    Pending,
+    Running,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Research {
+    pub id: ResearchId,
+    pub organization_id: OrganizationId,
+    #[serde(default)]
+    pub project_id: Option<ProjectId>,
+    /// Checkouts the researcher may read.
+    #[serde(default)]
+    pub repository_ids: Vec<RepositoryId>,
+    pub question: String,
+    pub status: ResearchStatus,
+    #[serde(default)]
+    pub findings: Option<String>,
+    /// Conversation carrying the researcher's transcript.
+    #[serde(default)]
+    pub conversation_id: Option<ConversationId>,
+    /// Chat that spawned this research (drives the updates block).
+    #[serde(default)]
+    pub origin_conversation_id: Option<ConversationId>,
+    #[serde(default)]
+    pub model_profile_id: Option<ModelProfileId>,
+    pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub finished_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MemoryEntry {
     pub id: MemoryEntryId,
@@ -403,6 +464,9 @@ pub struct MemoryEntry {
     pub content: String,
     #[serde(default)]
     pub source_run_id: Option<RunId>,
+    /// Chat that added the entry (`mobius memory add` / UI).
+    #[serde(default)]
+    pub source_conversation_id: Option<ConversationId>,
     #[serde(default)]
     pub superseded_by: Option<MemoryEntryId>,
     pub created_at: DateTime<Utc>,
@@ -448,12 +512,35 @@ pub enum ConversationStatus {
     Closed,
 }
 
+/// What a conversation is for. `Chat` is a human-facing coordinator chat;
+/// `Run` and `Research` carry the transcript of one run/research turn.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Display, EnumString,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum ConversationKind {
+    #[default]
+    Chat,
+    Run,
+    Research,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Conversation {
     pub id: ConversationId,
     pub agent_id: AgentId,
     pub activity: Activity,
     pub model_profile_id: ModelProfileId,
+    pub organization_id: OrganizationId,
+    #[serde(default)]
+    pub project_id: Option<ProjectId>,
+    #[serde(default)]
+    pub kind: ConversationKind,
+    #[serde(default)]
+    pub run_id: Option<RunId>,
+    #[serde(default)]
+    pub research_id: Option<ResearchId>,
     #[serde(default)]
     pub repository_id: Option<RepositoryId>,
     pub workdir: PathBuf,
@@ -465,6 +552,17 @@ pub struct Conversation {
     pub config_options: Vec<SessionConfigOption>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl Conversation {
+    /// The memory scope the conversation reads and writes by default:
+    /// project-scoped when attached to a project, else the organization.
+    pub fn memory_scope(&self) -> MemoryScope {
+        match self.project_id {
+            Some(project_id) => MemoryScope::Project(project_id),
+            None => MemoryScope::Organization(self.organization_id),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumString)]

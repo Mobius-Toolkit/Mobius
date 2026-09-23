@@ -1,7 +1,7 @@
 use crate::events::EventBus;
 use mobius_core::DomainEvent;
 use mobius_ingest::ManualSourceHandle;
-use mobius_orchestrator::{Dispatcher, SessionManager};
+use mobius_orchestrator::{Dispatcher, ResearchService, SessionManager};
 use mobius_store::SqliteStore;
 use std::sync::Arc;
 
@@ -11,6 +11,7 @@ pub struct AppState {
     pub events: Arc<EventBus>,
     pub sessions: Arc<SessionManager<SqliteStore>>,
     pub dispatcher: Arc<Dispatcher<SqliteStore>>,
+    pub research: Arc<ResearchService<SqliteStore>>,
     pub manual: ManualSourceHandle,
     /// Flips to `true` when graceful shutdown begins; long-lived streams
     /// (SSE) watch it so `axum::serve` can actually return.

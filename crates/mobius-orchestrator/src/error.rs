@@ -14,6 +14,13 @@ pub enum OrchestratorError {
     InvalidTransition { from: TaskStatus, to: TaskStatus },
     #[error("session not live: {0}")]
     NotLive(String),
+    /// Missing or inconsistent configuration / entity wiring — the API
+    /// maps this to 422 Unprocessable Entity.
+    #[error("configuration error: {0}")]
+    Config(String),
+    /// A `run_turn` turn failed (prompt error, session exited, …).
+    #[error("turn failed: {0}")]
+    Turn(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }

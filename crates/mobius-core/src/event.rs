@@ -23,6 +23,7 @@ pub enum EntityKind {
     Conversation,
     Message,
     PermissionRequest,
+    Research,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -52,6 +53,19 @@ pub enum DomainEvent {
     },
     MemoryWritten {
         entry: MemoryEntry,
+    },
+    /// A prompt turn completed and its agent message is final. `run_turn`
+    /// awaits this; humans see it as the end of streaming.
+    TurnFinished {
+        conversation_id: ConversationId,
+        human_message_id: Option<MessageId>,
+        agent_message_id: MessageId,
+    },
+    ResearchStarted {
+        research: Research,
+    },
+    ResearchFinished {
+        research: Research,
     },
     AgentStatusChanged {
         agent_id: AgentId,

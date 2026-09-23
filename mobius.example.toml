@@ -15,3 +15,10 @@ log = "info,mobius=debug"
 # never a token in this file).
 poll_interval_secs = 300
 gh_binary = "gh"
+
+# [cli]
+# Directory containing the `mobius` CLI binary, prepended to harness PATH
+# so agents can call back (`mobius task create`, `mobius memory add`, …).
+# Default: the directory of the running mobius-server binary — the release
+# layout produced by scripts/mobius.sh works out of the box.
+# bin_dir = "./target/release"

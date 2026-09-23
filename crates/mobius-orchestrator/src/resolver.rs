@@ -84,6 +84,7 @@ mod tests {
             id: AgentId::new(),
             name: "a".into(),
             role: AgentRole::Project,
+            organization_id: OrganizationId::new(),
             profiles: ActivityProfiles {
                 default: default_p.id,
                 overrides,

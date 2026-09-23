@@ -1,0 +1,33 @@
+[package]
+name = "mobius-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "mobius"
+path = "src/main.rs"
+
+[dependencies]
+mobius-core.workspace = true
+mobius-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true }
+clap.workspace = true
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+
+[dev-dependencies]
+mobius-server.workspace = true
+mobius-store.workspace = true
+mobius-orchestrator.workspace = true
+mobius-ingest.workspace = true
+axum.workspace = true
+tempfile.workspace = true
