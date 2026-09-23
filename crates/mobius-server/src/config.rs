@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 pub struct Config {
     pub server: ServerConfig,
     pub github: GithubConfig,
+    pub cli: CliConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -38,6 +39,14 @@ impl Default for ServerConfig {
             log: "info".to_string(),
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub struct CliConfig {
+    /// Directory containing the `mobius` CLI binary, prepended to agent
+    /// `PATH`. Defaults to the directory of the running server executable.
+    pub bin_dir: Option<PathBuf>,
 }
 
 impl Default for GithubConfig {

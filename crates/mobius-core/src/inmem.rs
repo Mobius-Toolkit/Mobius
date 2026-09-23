@@ -20,6 +20,7 @@ struct Inner {
     conversations: Vec<Conversation>,
     messages: Vec<Message>,
     permission_requests: Vec<PermissionRequest>,
+    research: Vec<Research>,
 }
 
 #[derive(Default)]
@@ -120,16 +121,28 @@ impl ProjectRepo for InMemoryStore {
     }
     async fn find_project_by_slug(
         &self,
-        repository_id: RepositoryId,
+        organization_id: OrganizationId,
         slug: &str,
     ) -> StoreResult<Option<Project>> {
         let inner = lock(&self.inner)?;
         Ok(get_by(&inner.projects, |p| {
-            p.repository_id == repository_id && p.slug == slug
+            p.organization_id == organization_id && p.slug == slug
         }))
     }
     async fn list_projects(&self) -> StoreResult<Vec<Project>> {
         Ok(lock(&self.inner)?.projects.clone())
+    }
+    async fn list_projects_by_organization(
+        &self,
+        organization_id: OrganizationId,
+    ) -> StoreResult<Vec<Project>> {
+        let inner = lock(&self.inner)?;
+        Ok(inner
+            .projects
+            .iter()
+            .filter(|p| p.organization_id == organization_id)
+            .cloned()
+            .collect())
     }
     async fn list_projects_by_repository(
         &self,
@@ -139,7 +152,7 @@ impl ProjectRepo for InMemoryStore {
         Ok(inner
             .projects
             .iter()
-            .filter(|p| p.repository_id == repository_id)
+            .filter(|p| p.repository_ids.contains(&repository_id))
             .cloned()
             .collect())
     }
@@ -167,6 +180,16 @@ impl AgentRepo for InMemoryStore {
     async fn find_agent_by_name(&self, name: &str) -> StoreResult<Option<Agent>> {
         let inner = lock(&self.inner)?;
         Ok(get_by(&inner.agents, |a| a.name == name))
+    }
+    async fn find_agent_by_role_and_org(
+        &self,
+        organization_id: OrganizationId,
+        role: AgentRole,
+    ) -> StoreResult<Option<Agent>> {
+        let inner = lock(&self.inner)?;
+        Ok(get_by(&inner.agents, |a| {
+            a.organization_id == organization_id && a.role == role && a.project_id.is_none()
+        }))
     }
     async fn list_agents(&self) -> StoreResult<Vec<Agent>> {
         Ok(lock(&self.inner)?.agents.clone())
@@ -264,6 +287,27 @@ impl TaskRepo for InMemoryStore {
             .tasks
             .iter()
             .filter(|t| t.project_id == project_id)
+            .cloned()
+            .collect())
+    }
+    async fn list_tasks_by_parent(&self, parent_task_id: TaskId) -> StoreResult<Vec<Task>> {
+        let inner = lock(&self.inner)?;
+        Ok(inner
+            .tasks
+            .iter()
+            .filter(|t| t.parent_task_id == Some(parent_task_id))
+            .cloned()
+            .collect())
+    }
+    async fn list_tasks_by_origin_conversation(
+        &self,
+        conversation_id: ConversationId,
+    ) -> StoreResult<Vec<Task>> {
+        let inner = lock(&self.inner)?;
+        Ok(inner
+            .tasks
+            .iter()
+            .filter(|t| t.origin.conversation_id == Some(conversation_id))
             .cloned()
             .collect())
     }
@@ -375,6 +419,18 @@ impl ConversationRepo for InMemoryStore {
     async fn list_conversations(&self) -> StoreResult<Vec<Conversation>> {
         Ok(lock(&self.inner)?.conversations.clone())
     }
+    async fn list_conversations_by_project(
+        &self,
+        project_id: ProjectId,
+    ) -> StoreResult<Vec<Conversation>> {
+        let inner = lock(&self.inner)?;
+        Ok(inner
+            .conversations
+            .iter()
+            .filter(|c| c.project_id == Some(project_id))
+            .cloned()
+            .collect())
+    }
     async fn insert_conversation(&self, conversation: &Conversation) -> StoreResult<()> {
         lock(&self.inner)?.conversations.push(conversation.clone());
         Ok(())
@@ -451,6 +507,47 @@ impl PermissionRequestRepo for InMemoryStore {
     async fn update_permission_request(&self, request: &PermissionRequest) -> StoreResult<()> {
         upsert(&mut lock(&self.inner)?.permission_requests, request, |p| {
             p.id == request.id
+        });
+        Ok(())
+    }
+}
+
+impl ResearchRepo for InMemoryStore {
+    async fn get_research(&self, id: ResearchId) -> StoreResult<Option<Research>> {
+        let inner = lock(&self.inner)?;
+        Ok(get_by(&inner.research, |r| r.id == id))
+    }
+    async fn list_research(&self) -> StoreResult<Vec<Research>> {
+        Ok(lock(&self.inner)?.research.clone())
+    }
+    async fn list_research_by_project(&self, project_id: ProjectId) -> StoreResult<Vec<Research>> {
+        let inner = lock(&self.inner)?;
+        Ok(inner
+            .research
+            .iter()
+            .filter(|r| r.project_id == Some(project_id))
+            .cloned()
+            .collect())
+    }
+    async fn list_research_by_origin_conversation(
+        &self,
+        conversation_id: ConversationId,
+    ) -> StoreResult<Vec<Research>> {
+        let inner = lock(&self.inner)?;
+        Ok(inner
+            .research
+            .iter()
+            .filter(|r| r.origin_conversation_id == Some(conversation_id))
+            .cloned()
+            .collect())
+    }
+    async fn insert_research(&self, research: &Research) -> StoreResult<()> {
+        lock(&self.inner)?.research.push(research.clone());
+        Ok(())
+    }
+    async fn update_research(&self, research: &Research) -> StoreResult<()> {
+        upsert(&mut lock(&self.inner)?.research, research, |r| {
+            r.id == research.id
         });
         Ok(())
     }

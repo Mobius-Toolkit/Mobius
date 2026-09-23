@@ -3,7 +3,7 @@
 All entities live in `mobius-core::model`, identified by typed uuid newtypes
 (`OrganizationId`, `RepositoryId`, `ProjectId`, `AgentId`, `ModelProfileId`,
 `HarnessId`, `TaskId`, `RunId`, `SignalId`, `MemoryEntryId`,
-`ConversationId`, `MessageId`, `PermissionRequestId`).
+`ConversationId`, `MessageId`, `PermissionRequestId`, `ResearchId`).
 
 ## Configuration entities (DB-backed, CRUD via REST)
 
@@ -11,8 +11,8 @@ All entities live in `mobius-core::model`, identified by typed uuid newtypes
 |---|---|
 | `Organization` | name, slug |
 | `Repository` | owner, name, provider, default_branch, local_path |
-| `Project` | slug, scope `{paths, labels, keywords}`, status |
-| `Agent` | role, profiles (`ActivityProfiles`), instructions, permission_policy |
+| `Project` | `organization_id`, slug, `repository_ids` (routing hint), scope `{paths, labels, keywords}`, status |
+| `Agent` | role (`Organization \| Project \| Reviewer \| Housekeeping`), `organization_id`, `project_id?`, profiles (`ActivityProfiles`), instructions, permission_policy |
 | `ModelProfile` | name, harness_id, model?, effort?, config overrides |
 | `Harness` | name, command, args, env, default_permission_policy, model_arg_template |
 
@@ -20,21 +20,42 @@ All entities live in `mobius-core::model`, identified by typed uuid newtypes
 overrides). The harness for any piece of work is derived through the resolved
 profile — agents never reference harnesses directly.
 
+**Projects are feature/domain-level and owned by the organization**, not by a
+repository. `Project.repository_ids` is only a routing hint: signal routing
+matches `repository_ids.contains`, and tasks require exactly one repository to
+run. There is no "primary repository".
+
+**Coordinators** are `Organization`- and `Project`-role agents. They run in
+`<data_dir>/memory/<org-slug>/` with `PermissionPolicy::ReadOnly`, never see
+repository local paths, research code facts via `mobius research start`, and
+(project coordinators) create tasks for physical changes — see ADR-0010.
+
 ## Work entities
 
 - `Signal` — one inbound event; `dedupe_key` makes ingestion idempotent.
-- `Task` — unit of work owned by an agent; `origin` links back to the signal
-  or GitHub number.
-- `Run` — one execution attempt: activity, resolved `model_profile_id` +
-  `harness_id`, worktree path, branch, ACP session id, status, summary.
+- `Task` — a physical change owned by a project, executed against exactly one
+  repository in a fresh git worktree (`mobius/task-<id8>` branch).
+  `TaskKind = Feature | Fix | Spec | Refactor | Review | Housekeeping |
+  Triage` (`Triage` is reserved for signal routing). `parent_task_id` gives a
+  hierarchy; `origin` links back to the signal or conversation.
+- `Run` — one execution attempt: resolved `model_profile_id` + `harness_id`,
+  `repository_id`, `conversation_id` (the run *is* a `Run`-kind
+  conversation), worktree path, branch, ACP session id, status, summary.
+- `Research` — a read-only code investigation: question, repository ids,
+  findings (`## Findings` section to end of reply), status
+  (`Pending | Running | Done | Failed | Cancelled`), linked `conversation_id`.
+  Research is its own entity, not a `TaskKind`.
 - `MemoryEntry` — scoped note (`Fact | Decision | Convention | Gotcha |
-  Summary`); supersession via `superseded_by`.
+  Summary`) with `source_conversation_id` / `source_run_id` provenance;
+  supersession via `superseded_by`.
 
 ## Chat entities
 
-- `Conversation` — a long-lived chat session with an agent: activity `Chat`,
-  resolved profile, workdir, `acp_session_id`, status, advertised
-  `config_options`.
+- `Conversation` — `kind: Chat | Run | Research`. Chats are coordinator
+  conversations scoped to a project (or the organization); runs and research
+  open a conversation for their transcript. `organization_id` is always set;
+  `project_id` is optional. `memory_scope()` = project scope when attached to
+  a project, else the organization.
 - `Message` — author (`human | agent | system`) + ordered `ContentBlock`s
   (`text | thought | tool_call | plan`).
 - `PermissionRequest` — a parked ACP permission prompt for a conversation or
@@ -55,6 +76,7 @@ stateDiagram-v2
     Running --> Cancelled
     NeedsReview --> Done
     NeedsReview --> Queued : rework
+    NeedsReview --> Failed
     NeedsReview --> Cancelled
     Failed --> Queued : retry
     Done --> [*]

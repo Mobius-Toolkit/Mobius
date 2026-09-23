@@ -103,6 +103,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cwd,
         policy: PermissionPolicy::Auto,
         profile,
+        extra_env: Default::default(),
+        cli_bin_dir: None,
     })
     .await?;
 

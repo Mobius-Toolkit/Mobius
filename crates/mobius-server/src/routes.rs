@@ -55,6 +55,11 @@ fn orch_err(e: mobius_orchestrator::OrchestratorError) -> (StatusCode, Json<ApiE
     match e {
         O::NotFound(m) => err(StatusCode::NOT_FOUND, m),
         O::NotLive(m) => err(StatusCode::CONFLICT, m),
+        O::Config(m) => err_fields(m, BTreeMap::new()),
+        O::InvalidTransition { from, to } => err_fields(
+            format!("invalid transition {from} -> {to}"),
+            BTreeMap::new(),
+        ),
         O::Store(s) => store_err(s),
         other => err(StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
     }
@@ -75,6 +80,7 @@ pub fn router(state: AppState, ui_dir: Option<PathBuf>) -> Router {
     let api = Router::new()
         // Health + events
         .route("/health", get(health))
+        .route("/api/v1/health", get(health))
         .route("/api/v1/events", get(events_sse))
         // CRUD
         .route("/api/v1/organizations", get(list_orgs).post(create_org))
@@ -113,14 +119,23 @@ pub fn router(state: AppState, ui_dir: Option<PathBuf>) -> Router {
             "/api/v1/harnesses/{id}",
             get(get_harness).put(update_harness).delete(delete_harness),
         )
-        // Read-only collections
-        .route("/api/v1/tasks", get(list_tasks))
-        .route("/api/v1/tasks/{id}", get(get_task))
+        // Tasks / runs
+        .route("/api/v1/tasks", get(list_tasks).post(create_task))
+        .route("/api/v1/tasks/{id}", get(get_task).put(update_task))
+        .route("/api/v1/tasks/{id}/run", post(run_task))
+        .route("/api/v1/tasks/{id}/cancel", post(cancel_task))
         .route("/api/v1/runs", get(list_runs))
         .route("/api/v1/runs/{id}", get(get_run))
+        // Research
+        .route("/api/v1/research", get(list_research).post(start_research))
+        .route("/api/v1/research/{id}", get(get_research))
+        .route("/api/v1/research/{id}/cancel", post(cancel_research))
+        // Read-only collections
         .route("/api/v1/signals", get(list_signals))
-        .route("/api/v1/memory", get(list_memory))
         .route("/api/v1/signals/manual", post(post_manual_signal))
+        // Memory
+        .route("/api/v1/memory", get(list_memory).post(create_memory))
+        .route("/api/v1/memory/{id}", axum::routing::delete(delete_memory))
         // Chat
         .route(
             "/api/v1/conversations",
@@ -300,19 +315,355 @@ crud_list_get!(
     list_harnesses,
     get_harness
 );
-crud_list_get!(list_tasks, get_task, Task, TaskId, list_tasks, get_task);
-crud_list_get!(list_runs, get_run, Run, RunId, list_runs, get_run);
+async fn get_run(State(s): State<AppState>, Path(id): Path<RunId>) -> ApiResult<Json<Run>> {
+    s.store
+        .get_run(id)
+        .await
+        .map_err(store_err)?
+        .map(Json)
+        .ok_or_else(|| not_found("run"))
+}
 
 async fn list_signals(State(s): State<AppState>) -> ApiResult<Json<Vec<Signal>>> {
     s.store.list_signals().await.map(Json).map_err(store_err)
 }
 
-async fn list_memory(State(s): State<AppState>) -> ApiResult<Json<Vec<MemoryEntry>>> {
-    s.store
-        .list_memory_entries()
+// ---------- Tasks ----------
+
+#[derive(Debug, Deserialize)]
+struct TasksQuery {
+    project_id: Option<ProjectId>,
+    conversation_id: Option<ConversationId>,
+    status: Option<String>,
+}
+
+async fn list_tasks(
+    State(s): State<AppState>,
+    Query(q): Query<TasksQuery>,
+) -> ApiResult<Json<Vec<Task>>> {
+    let mut tasks = if let Some(pid) = q.project_id {
+        s.store
+            .list_tasks_by_project(pid)
+            .await
+            .map_err(store_err)?
+    } else if let Some(cid) = q.conversation_id {
+        s.store
+            .list_tasks_by_origin_conversation(cid)
+            .await
+            .map_err(store_err)?
+    } else {
+        s.store.list_tasks().await.map_err(store_err)?
+    };
+    if let Some(status) = &q.status {
+        let status = status.parse::<TaskStatus>().map_err(|_| {
+            let mut f = BTreeMap::new();
+            f.insert("status".into(), format!("unknown status {status:?}"));
+            err_fields("validation failed", f)
+        })?;
+        tasks.retain(|t| t.status == status);
+    }
+    Ok(Json(tasks))
+}
+
+async fn get_task(State(s): State<AppState>, Path(id): Path<TaskId>) -> ApiResult<Json<TaskView>> {
+    let task = s
+        .store
+        .get_task(id)
+        .await
+        .map_err(store_err)?
+        .ok_or_else(|| not_found("task"))?;
+    let runs = s.store.list_runs_by_task(id).await.map_err(store_err)?;
+    let children = s.store.list_tasks_by_parent(id).await.map_err(store_err)?;
+    Ok(Json(TaskView {
+        task,
+        runs,
+        children,
+    }))
+}
+
+async fn create_task(
+    State(s): State<AppState>,
+    Json(body): Json<CreateTask>,
+) -> ApiResult<(StatusCode, Json<Task>)> {
+    let task = s
+        .dispatcher
+        .create_task(mobius_orchestrator::CreateTaskSpec {
+            project_id: body.project_id,
+            repository_id: body.repository_id,
+            title: body.title,
+            description: body.description,
+            kind: body.kind.unwrap_or(TaskKind::Feature),
+            parent_task_id: body.parent_task_id,
+            priority: body.priority.unwrap_or(Priority::Normal),
+            origin_conversation_id: body.origin_conversation_id,
+        })
+        .await
+        .map_err(orch_err)?;
+    Ok((StatusCode::CREATED, Json(task)))
+}
+
+async fn update_task(
+    State(s): State<AppState>,
+    Path(id): Path<TaskId>,
+    Json(body): Json<UpdateTask>,
+) -> ApiResult<Json<Task>> {
+    let mut task = s
+        .store
+        .get_task(id)
+        .await
+        .map_err(store_err)?
+        .ok_or_else(|| not_found("task"))?;
+    if let Some(repo_id) = body.repository_id {
+        s.store
+            .get_repository(repo_id)
+            .await
+            .map_err(store_err)?
+            .ok_or_else(|| {
+                let mut f = BTreeMap::new();
+                f.insert("repository_id".into(), "unknown repository".into());
+                err_fields("validation failed", f)
+            })?;
+        task.repository_id = Some(repo_id);
+    }
+    if let Some(title) = body.title {
+        task.title = title;
+    }
+    if let Some(description) = body.description {
+        task.description = description;
+    }
+    if let Some(kind) = body.kind {
+        task.kind = kind;
+    }
+    if let Some(priority) = body.priority {
+        task.priority = priority;
+    }
+    if let Some(to) = body.status {
+        if !task.status.can_transition_to(&to) {
+            return Err(err_fields(
+                format!("invalid transition {} -> {to}", task.status),
+                BTreeMap::new(),
+            ));
+        }
+        let from = task.status;
+        task.status = to;
+        s.events.publish(DomainEvent::TaskStatusChanged {
+            task_id: task.id,
+            from,
+            to,
+        });
+    }
+    task.updated_at = chrono::Utc::now();
+    s.store.update_task(&task).await.map_err(store_err)?;
+    changed(&s, EntityKind::Task, id);
+    Ok(Json(task))
+}
+
+async fn run_task(
+    State(s): State<AppState>,
+    Path(id): Path<TaskId>,
+) -> ApiResult<(StatusCode, Json<Run>)> {
+    let run = s.dispatcher.start_task(id).await.map_err(orch_err)?;
+    Ok((StatusCode::ACCEPTED, Json(run)))
+}
+
+async fn cancel_task(State(s): State<AppState>, Path(id): Path<TaskId>) -> ApiResult<Json<Task>> {
+    s.dispatcher
+        .cancel_task(id)
         .await
         .map(Json)
-        .map_err(store_err)
+        .map_err(orch_err)
+}
+
+// ---------- Runs ----------
+
+#[derive(Debug, Deserialize)]
+struct RunsQuery {
+    task_id: Option<TaskId>,
+}
+
+async fn list_runs(
+    State(s): State<AppState>,
+    Query(q): Query<RunsQuery>,
+) -> ApiResult<Json<Vec<Run>>> {
+    match q.task_id {
+        Some(tid) => s
+            .store
+            .list_runs_by_task(tid)
+            .await
+            .map(Json)
+            .map_err(store_err),
+        None => s.store.list_runs().await.map(Json).map_err(store_err),
+    }
+}
+
+// ---------- Research ----------
+
+#[derive(Debug, Deserialize)]
+struct ResearchQuery {
+    project_id: Option<ProjectId>,
+    conversation_id: Option<ConversationId>,
+    status: Option<String>,
+}
+
+async fn list_research(
+    State(s): State<AppState>,
+    Query(q): Query<ResearchQuery>,
+) -> ApiResult<Json<Vec<Research>>> {
+    let mut items = if let Some(pid) = q.project_id {
+        s.store
+            .list_research_by_project(pid)
+            .await
+            .map_err(store_err)?
+    } else if let Some(cid) = q.conversation_id {
+        s.store
+            .list_research_by_origin_conversation(cid)
+            .await
+            .map_err(store_err)?
+    } else {
+        s.store.list_research().await.map_err(store_err)?
+    };
+    if let Some(status) = &q.status {
+        let status = status.parse::<ResearchStatus>().map_err(|_| {
+            let mut f = BTreeMap::new();
+            f.insert("status".into(), format!("unknown status {status:?}"));
+            err_fields("validation failed", f)
+        })?;
+        items.retain(|r| r.status == status);
+    }
+    Ok(Json(items))
+}
+
+async fn get_research(
+    State(s): State<AppState>,
+    Path(id): Path<ResearchId>,
+) -> ApiResult<Json<Research>> {
+    s.store
+        .get_research(id)
+        .await
+        .map_err(store_err)?
+        .map(Json)
+        .ok_or_else(|| not_found("research"))
+}
+
+async fn start_research(
+    State(s): State<AppState>,
+    Json(body): Json<StartResearch>,
+) -> ApiResult<(StatusCode, Json<Research>)> {
+    if body.question.trim().is_empty() {
+        let mut f = BTreeMap::new();
+        f.insert("question".into(), "required".into());
+        return Err(err_fields("validation failed", f));
+    }
+    let research = s
+        .research
+        .start(mobius_orchestrator::StartResearch {
+            organization_id: body.organization_id,
+            project_id: body.project_id,
+            repository_ids: body.repositories,
+            question: body.question,
+            origin_conversation_id: body.origin_conversation_id,
+            model_profile_id: body.model_profile_id,
+        })
+        .await
+        .map_err(orch_err)?;
+    Ok((StatusCode::CREATED, Json(research)))
+}
+
+async fn cancel_research(
+    State(s): State<AppState>,
+    Path(id): Path<ResearchId>,
+) -> ApiResult<Json<Research>> {
+    s.research.cancel(id).await.map(Json).map_err(orch_err)
+}
+
+// ---------- Memory ----------
+
+/// `organization:<id>` / `repository:<id>` / `project:<id>`.
+fn parse_scope(s: &str) -> Option<MemoryScope> {
+    let (level, id) = s.split_once(':')?;
+    match level {
+        "organization" | "org" => id.parse().ok().map(MemoryScope::Organization),
+        "repository" | "repo" => id.parse().ok().map(MemoryScope::Repository),
+        "project" => id.parse().ok().map(MemoryScope::Project),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryQuery {
+    scope: Option<String>,
+}
+
+async fn list_memory(
+    State(s): State<AppState>,
+    Query(q): Query<MemoryQuery>,
+) -> ApiResult<Json<Vec<MemoryEntry>>> {
+    match &q.scope {
+        Some(raw) => {
+            let scope = parse_scope(raw).ok_or_else(|| {
+                let mut f = BTreeMap::new();
+                f.insert(
+                    "scope".into(),
+                    "expected organization:<id>|repository:<id>|project:<id>".into(),
+                );
+                err_fields("validation failed", f)
+            })?;
+            s.store
+                .list_memory_by_scope(&scope)
+                .await
+                .map(Json)
+                .map_err(store_err)
+        }
+        None => s
+            .store
+            .list_memory_entries()
+            .await
+            .map(Json)
+            .map_err(store_err),
+    }
+}
+
+async fn create_memory(
+    State(s): State<AppState>,
+    Json(body): Json<CreateMemoryEntry>,
+) -> ApiResult<(StatusCode, Json<MemoryEntry>)> {
+    if body.content.trim().is_empty() {
+        let mut f = BTreeMap::new();
+        f.insert("content".into(), "required".into());
+        return Err(err_fields("validation failed", f));
+    }
+    let entry = MemoryEntry {
+        id: MemoryEntryId::new(),
+        scope: body.scope,
+        kind: body.kind,
+        content: body.content,
+        source_run_id: None,
+        source_conversation_id: body.source_conversation_id,
+        superseded_by: None,
+        created_at: chrono::Utc::now(),
+    };
+    s.store
+        .insert_memory_entry(&entry)
+        .await
+        .map_err(store_err)?;
+    s.events.publish(DomainEvent::MemoryWritten {
+        entry: entry.clone(),
+    });
+    Ok((StatusCode::CREATED, Json(entry)))
+}
+
+async fn delete_memory(
+    State(s): State<AppState>,
+    Path(id): Path<MemoryEntryId>,
+) -> ApiResult<StatusCode> {
+    s.store
+        .get_memory_entry(id)
+        .await
+        .map_err(store_err)?
+        .ok_or_else(|| not_found("memory entry"))?;
+    s.store.delete_memory_entry(id).await.map_err(store_err)?;
+    changed(&s, EntityKind::MemoryEntry, id);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ---------- Organizations ----------
@@ -473,32 +824,75 @@ async fn delete_repo(
 
 // ---------- Projects ----------
 
+/// Explicit org → validated; otherwise the single registered organization.
+async fn resolve_org_id(
+    s: &AppState,
+    organization_id: Option<OrganizationId>,
+    field: &str,
+) -> Result<OrganizationId, (StatusCode, Json<ApiError>)> {
+    if let Some(id) = organization_id {
+        s.store
+            .get_organization(id)
+            .await
+            .map_err(store_err)?
+            .ok_or_else(|| {
+                let mut f = BTreeMap::new();
+                f.insert(field.into(), "unknown organization".into());
+                err_fields("validation failed", f)
+            })?;
+        return Ok(id);
+    }
+    let orgs = s.store.list_organizations().await.map_err(store_err)?;
+    match orgs.as_slice() {
+        [single] => Ok(single.id),
+        _ => {
+            let mut f = BTreeMap::new();
+            f.insert(field.into(), "required (multiple organizations)".into());
+            Err(err_fields("validation failed", f))
+        }
+    }
+}
+
+/// Every repository hint must reference an existing repository.
+async fn validate_repo_hints(
+    s: &AppState,
+    repository_ids: &[RepositoryId],
+) -> Result<(), (StatusCode, Json<ApiError>)> {
+    for rid in repository_ids {
+        if s.store
+            .get_repository(*rid)
+            .await
+            .map_err(store_err)?
+            .is_none()
+        {
+            let mut f = BTreeMap::new();
+            f.insert("repository_ids".into(), format!("unknown repository {rid}"));
+            return Err(err_fields("validation failed", f));
+        }
+    }
+    Ok(())
+}
+
 async fn create_project(
     State(s): State<AppState>,
     Json(body): Json<CreateProject>,
 ) -> ApiResult<Json<Project>> {
-    s.store
-        .get_repository(body.repository_id)
-        .await
-        .map_err(store_err)?
-        .ok_or_else(|| {
-            let mut f = BTreeMap::new();
-            f.insert("repository_id".into(), "unknown repository".into());
-            err_fields("validation failed", f)
-        })?;
+    let org_id = resolve_org_id(&s, body.organization_id, "organization_id").await?;
+    validate_repo_hints(&s, &body.repository_ids).await?;
     if s.store
-        .find_project_by_slug(body.repository_id, &body.slug)
+        .find_project_by_slug(org_id, &body.slug)
         .await
         .map_err(store_err)?
         .is_some()
     {
         let mut f = BTreeMap::new();
-        f.insert("slug".into(), "already exists in repository".into());
+        f.insert("slug".into(), "already exists in organization".into());
         return Err(err_fields("validation failed", f));
     }
     let project = Project {
         id: ProjectId::new(),
-        repository_id: body.repository_id,
+        organization_id: org_id,
+        repository_ids: body.repository_ids,
         name: body.name,
         slug: body.slug,
         description: body.description,
@@ -522,15 +916,16 @@ async fn update_project(
         .await
         .map_err(store_err)?
         .ok_or_else(|| not_found("project"))?;
+    validate_repo_hints(&s, &body.repository_ids).await?;
     if let Some(other) = s
         .store
-        .find_project_by_slug(project.repository_id, &body.slug)
+        .find_project_by_slug(project.organization_id, &body.slug)
         .await
         .map_err(store_err)?
         && other.id != id
     {
         let mut f = BTreeMap::new();
-        f.insert("slug".into(), "already exists in repository".into());
+        f.insert("slug".into(), "already exists in organization".into());
         return Err(err_fields("validation failed", f));
     }
     project.name = body.name;
@@ -538,6 +933,7 @@ async fn update_project(
     project.description = body.description;
     project.scope = body.scope;
     project.status = body.status;
+    project.repository_ids = body.repository_ids;
     s.store.update_project(&project).await.map_err(store_err)?;
     changed(&s, EntityKind::Project, id);
     Ok(Json(project))
@@ -793,10 +1189,30 @@ async fn create_agent(
         f.insert("name".into(), "already exists".into());
         return Err(err_fields("validation failed", f));
     }
+    // Org: explicit → validated; else the project's org; else the single org.
+    let org_id = match body.organization_id {
+        Some(id) => resolve_org_id(&s, Some(id), "organization_id").await?,
+        None => match body.project_id {
+            Some(pid) => {
+                s.store
+                    .get_project(pid)
+                    .await
+                    .map_err(store_err)?
+                    .ok_or_else(|| {
+                        let mut f = BTreeMap::new();
+                        f.insert("project_id".into(), "unknown project".into());
+                        err_fields("validation failed", f)
+                    })?
+                    .organization_id
+            }
+            None => resolve_org_id(&s, None, "organization_id").await?,
+        },
+    };
     let agent = Agent {
         id: AgentId::new(),
         name: body.name,
         role: body.role,
+        organization_id: org_id,
         profiles: ActivityProfiles {
             default: body.default_profile,
             overrides: body.profile_overrides,
@@ -836,8 +1252,10 @@ async fn update_agent(
         f.insert("name".into(), "already exists".into());
         return Err(err_fields("validation failed", f));
     }
+    resolve_org_id(&s, Some(body.organization_id), "organization_id").await?;
     agent.name = body.name;
     agent.role = body.role;
+    agent.organization_id = body.organization_id;
     agent.profiles = ActivityProfiles {
         default: body.default_profile,
         overrides: body.profile_overrides,
@@ -882,45 +1300,48 @@ async fn post_manual_signal(
 
 // ---------- Conversations ----------
 
-async fn list_conversations(State(s): State<AppState>) -> ApiResult<Json<Vec<Conversation>>> {
-    s.store
-        .list_conversations()
-        .await
-        .map(Json)
-        .map_err(store_err)
+#[derive(Debug, Deserialize)]
+struct ConversationsQuery {
+    project_id: Option<ProjectId>,
+    kind: Option<String>,
+}
+
+async fn list_conversations(
+    State(s): State<AppState>,
+    Query(q): Query<ConversationsQuery>,
+) -> ApiResult<Json<Vec<Conversation>>> {
+    let mut convs = match q.project_id {
+        Some(pid) => s
+            .store
+            .list_conversations_by_project(pid)
+            .await
+            .map_err(store_err)?,
+        None => s.store.list_conversations().await.map_err(store_err)?,
+    };
+    if let Some(kind) = &q.kind {
+        let kind = kind.parse::<ConversationKind>().map_err(|_| {
+            let mut f = BTreeMap::new();
+            f.insert("kind".into(), format!("unknown kind {kind:?}"));
+            err_fields("validation failed", f)
+        })?;
+        convs.retain(|c| c.kind == kind);
+    }
+    Ok(Json(convs))
 }
 
 async fn create_conversation(
     State(s): State<AppState>,
     Json(body): Json<CreateConversation>,
 ) -> ApiResult<Json<Conversation>> {
-    // Default workdir: the agent's repository local checkout.
-    let workdir = if body.workdir.trim().is_empty() {
-        let agent = s
-            .store
-            .get_agent(body.agent_id)
-            .await
-            .map_err(store_err)?
-            .ok_or_else(|| not_found("agent"))?;
-        match agent.repository_id {
-            Some(rid) => s
-                .store
-                .get_repository(rid)
-                .await
-                .map_err(store_err)?
-                .and_then(|r| r.local_path)
-                .unwrap_or_else(std::env::temp_dir),
-            None => std::env::temp_dir(),
-        }
-    } else {
-        PathBuf::from(body.workdir)
-    };
+    // Chats are coordinator conversations: the org is resolved from the
+    // project (or is the single org), and the working directory is always
+    // the org memory dir — no repository checkout.
+    let mut spec = mobius_orchestrator::OpenConversation::chat(body.project_id);
+    spec.organization_id = body.organization_id;
+    spec.title = body.title;
+    spec.model_profile_id = body.model_profile_id;
     s.sessions
-        .open_conversation(
-            body.agent_id,
-            workdir,
-            body.title.unwrap_or_else(|| "chat".into()),
-        )
+        .open_conversation(spec)
         .await
         .map(Json)
         .map_err(orch_err)
@@ -1048,9 +1469,21 @@ async fn resolve_permission(
         return Ok(StatusCode::OK);
     }
 
-    // Run-scoped permission: resolve directly against the run session.
+    // Run-scoped permission: the run's session is its `Run` conversation.
     if let Some(run_id) = req.run_id {
-        let session = s.dispatcher.run_session(run_id).await.ok_or_else(|| {
+        let run = s
+            .store
+            .get_run(run_id)
+            .await
+            .map_err(store_err)?
+            .ok_or_else(|| not_found("run"))?;
+        let conv_id = run.conversation_id.ok_or_else(|| {
+            err(
+                StatusCode::CONFLICT,
+                format!("run {run_id} has no conversation"),
+            )
+        })?;
+        let session = s.sessions.live_session(conv_id).await.ok_or_else(|| {
             err(
                 StatusCode::CONFLICT,
                 format!("run {run_id} has no live session"),

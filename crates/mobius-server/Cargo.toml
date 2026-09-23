@@ -31,3 +31,5 @@ toml.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+tower = { workspace = true, features = ["util"] }
+http-body-util = "0.1"

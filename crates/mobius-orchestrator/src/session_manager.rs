@@ -1,29 +1,94 @@
-//! Human-chat sessions: long-lived `HarnessSession`s keyed by `Conversation`,
-//! streaming updates persisted as `Message` blocks and forwarded as
-//! `DomainEvent`s.
+//! Conversation sessions: long-lived `HarnessSession`s keyed by
+//! `Conversation`, streaming updates persisted as `Message` blocks and
+//! forwarded as `DomainEvent`s. Covers human-facing chats (`kind=chat`,
+//! always run in the org memory dir) and run/research transcript
+//! conversations.
 
+use crate::agents::AgentProvisioner;
 use crate::dispatcher::EmitFn;
 use crate::error::OrchestratorError;
+use crate::prompt::{ChatContext, MemoryGroup, chat_preamble, updates_block};
 use crate::resolver::ProfileResolver;
 use mobius_core::*;
 use mobius_harness::{HarnessSession, SessionUpdate, SpawnSpec};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::warn;
 
+/// Specification for [`SessionManager::open_conversation`].
+pub struct OpenConversation {
+    /// Explicit org; otherwise derived from `project_id`, else the single
+    /// organization, else a `Config` error.
+    pub organization_id: Option<OrganizationId>,
+    pub project_id: Option<ProjectId>,
+    pub title: Option<String>,
+    /// Profile override; defaults to the agent's profile for `activity`.
+    pub model_profile_id: Option<ModelProfileId>,
+    pub kind: ConversationKind,
+    pub activity: Activity,
+    /// Linkage for run/research conversations (+ `MOBIUS_RUN` /
+    /// `MOBIUS_RESEARCH` env).
+    pub run_id: Option<RunId>,
+    pub research_id: Option<ResearchId>,
+    /// `MOBIUS_TASK` env (task runs).
+    pub task_id: Option<TaskId>,
+    /// Repository the conversation is bound to (run/research transcripts).
+    pub repository_id: Option<RepositoryId>,
+    /// Working directory — required for Run/Research; ignored for Chat
+    /// (chats always run in the org memory dir).
+    pub workdir: Option<PathBuf>,
+    /// Policy override (research runs ReadOnly); defaults to the agent's.
+    pub permission_policy: Option<PermissionPolicy>,
+}
+
+impl OpenConversation {
+    /// A human-facing chat, optionally scoped to a project.
+    pub fn chat(project_id: Option<ProjectId>) -> Self {
+        Self {
+            organization_id: None,
+            project_id,
+            title: None,
+            model_profile_id: None,
+            kind: ConversationKind::Chat,
+            activity: Activity::Chat,
+            run_id: None,
+            research_id: None,
+            task_id: None,
+            repository_id: None,
+            workdir: None,
+            permission_policy: None,
+        }
+    }
+}
+
 pub struct SessionManager<S: Store> {
     store: Arc<S>,
     emit: EmitFn,
+    data_dir: PathBuf,
+    /// Directory containing the `mobius` CLI binary, prepended to agent
+    /// `PATH`. Defaults to the directory of `current_exe()`.
+    pub cli_bin_dir: Option<PathBuf>,
+    /// Base URL agents use to reach this server (`MOBIUS_URL`).
+    pub mobius_url: String,
     sessions: Mutex<HashMap<ConversationId, Arc<HarnessSession>>>,
 }
 
+fn default_cli_bin_dir() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+}
+
 impl<S: Store + 'static> SessionManager<S> {
-    pub fn new(store: Arc<S>, emit: EmitFn) -> Self {
+    pub fn new(store: Arc<S>, emit: EmitFn, data_dir: PathBuf) -> Self {
         Self {
             store,
             emit,
+            data_dir,
+            cli_bin_dir: default_cli_bin_dir(),
+            mobius_url: "http://127.0.0.1:8787".to_string(),
             sessions: Mutex::new(HashMap::new()),
         }
     }
@@ -39,6 +104,56 @@ impl<S: Store + 'static> SessionManager<S> {
                 "conversation {id} has no live session (server restart?)"
             ))
         })
+    }
+
+    /// `MOBIUS_*` environment for an agent process.
+    fn mobius_env(
+        &self,
+        org: &Organization,
+        project: Option<&Project>,
+        conversation_id: ConversationId,
+    ) -> BTreeMap<String, String> {
+        let mut env = BTreeMap::new();
+        env.insert("MOBIUS_URL".into(), self.mobius_url.clone());
+        env.insert("MOBIUS_ORG".into(), org.slug.clone());
+        if let Some(p) = project {
+            env.insert("MOBIUS_PROJECT".into(), p.slug.clone());
+        }
+        env.insert("MOBIUS_CONVERSATION".into(), conversation_id.to_string());
+        env
+    }
+
+    /// Env for an existing conversation row (re-attach): `MOBIUS_TASK` is
+    /// recovered through `run_id` → task when present.
+    async fn conversation_env(
+        &self,
+        conversation: &Conversation,
+    ) -> Result<BTreeMap<String, String>, OrchestratorError> {
+        let org = self
+            .store
+            .get_organization(conversation.organization_id)
+            .await?
+            .ok_or_else(|| {
+                OrchestratorError::Config(format!(
+                    "conversation {} references missing organization",
+                    conversation.id
+                ))
+            })?;
+        let project = match conversation.project_id {
+            Some(id) => self.store.get_project(id).await?,
+            None => None,
+        };
+        let mut env = self.mobius_env(&org, project.as_ref(), conversation.id);
+        if let Some(run_id) = conversation.run_id {
+            env.insert("MOBIUS_RUN".into(), run_id.to_string());
+            if let Some(run) = self.store.get_run(run_id).await? {
+                env.insert("MOBIUS_TASK".into(), run.task_id.to_string());
+            }
+        }
+        if let Some(research_id) = conversation.research_id {
+            env.insert("MOBIUS_RESEARCH".into(), research_id.to_string());
+        }
+        Ok(env)
     }
 
     /// Live session if one exists; otherwise spawn a fresh ACP session for
@@ -72,12 +187,15 @@ impl<S: Store + 'static> SessionManager<S> {
             })?;
         let (profile, harness) =
             ProfileResolver::resolve(self.store.as_ref(), &agent, conversation.activity).await?;
+        let extra_env = self.conversation_env(&conversation).await?;
         let session = Arc::new(
             HarnessSession::spawn(SpawnSpec {
                 harness,
                 cwd: conversation.workdir.clone(),
                 policy: agent.permission_policy,
                 profile: Some(profile),
+                extra_env,
+                cli_bin_dir: self.cli_bin_dir.clone(),
             })
             .await?,
         );
@@ -119,39 +237,148 @@ impl<S: Store + 'static> SessionManager<S> {
         }
     }
 
-    /// Resolve the agent's Chat profile, spawn the harness session, persist
-    /// the conversation with the advertised config options.
+    /// Organization resolution: explicitly supplied → from project → the
+    /// single organization → `Config` error.
+    async fn resolve_organization(
+        &self,
+        organization_id: Option<OrganizationId>,
+        project: Option<&Project>,
+    ) -> Result<Organization, OrchestratorError> {
+        if let Some(id) = organization_id {
+            return self
+                .store
+                .get_organization(id)
+                .await?
+                .ok_or_else(|| OrchestratorError::NotFound(format!("organization {id}")));
+        }
+        if let Some(p) = project {
+            return self
+                .store
+                .get_organization(p.organization_id)
+                .await?
+                .ok_or_else(|| {
+                    OrchestratorError::Config(format!(
+                        "project {:?} references missing organization",
+                        p.slug
+                    ))
+                });
+        }
+        let orgs = self.store.list_organizations().await?;
+        match orgs.as_slice() {
+            [single] => Ok(single.clone()),
+            _ => Err(OrchestratorError::Config(format!(
+                "cannot resolve organization ({} registered); specify one",
+                orgs.len()
+            ))),
+        }
+    }
+
+    /// Open a conversation: resolve org + coordinator agent (via the
+    /// provisioner), spawn the harness session with `MOBIUS_*` env and the
+    /// CLI bin dir on PATH, persist the conversation.
     pub async fn open_conversation(
         &self,
-        agent_id: AgentId,
-        workdir: PathBuf,
-        title: String,
+        spec: OpenConversation,
     ) -> Result<Conversation, OrchestratorError> {
-        let agent = self
-            .store
-            .get_agent(agent_id)
-            .await?
-            .ok_or_else(|| OrchestratorError::NotFound(format!("agent {agent_id}")))?;
-        let (profile, harness) =
-            ProfileResolver::resolve(self.store.as_ref(), &agent, Activity::Chat).await?;
+        let project = match spec.project_id {
+            Some(id) => Some(
+                self.store
+                    .get_project(id)
+                    .await?
+                    .ok_or_else(|| OrchestratorError::NotFound(format!("project {id}")))?,
+            ),
+            None => None,
+        };
+        let org = self
+            .resolve_organization(spec.organization_id, project.as_ref())
+            .await?;
+        if let Some(p) = &project
+            && p.organization_id != org.id
+        {
+            return Err(OrchestratorError::Config(format!(
+                "project {:?} does not belong to organization {:?}",
+                p.slug, org.slug
+            )));
+        }
+        let agent = match &project {
+            Some(p) => AgentProvisioner::ensure_project_agent(self.store.as_ref(), p).await?,
+            None => AgentProvisioner::ensure_org_agent(self.store.as_ref(), &org).await?,
+        };
+        let activity = spec.activity;
+        let (profile, harness) = match spec.model_profile_id {
+            Some(id) => {
+                let profile =
+                    self.store.get_model_profile(id).await?.ok_or_else(|| {
+                        OrchestratorError::NotFound(format!("model profile {id}"))
+                    })?;
+                let harness = self
+                    .store
+                    .get_harness(profile.harness_id)
+                    .await?
+                    .ok_or_else(|| {
+                        OrchestratorError::NotFound(format!("harness {}", profile.harness_id))
+                    })?;
+                if !harness.enabled {
+                    return Err(OrchestratorError::Config(format!(
+                        "profile {:?} references disabled harness {:?}",
+                        profile.name, harness.name
+                    )));
+                }
+                (profile, harness)
+            }
+            None => ProfileResolver::resolve(self.store.as_ref(), &agent, activity).await?,
+        };
+
+        let conversation_id = ConversationId::new();
+        let cwd = match spec.kind {
+            ConversationKind::Chat => {
+                let dir = memory_paths::org_dir(&self.data_dir, &org.slug);
+                std::fs::create_dir_all(&dir)?;
+                dir
+            }
+            _ => spec.workdir.ok_or_else(|| {
+                OrchestratorError::Config(
+                    "run/research conversations require a workdir".to_string(),
+                )
+            })?,
+        };
+
+        let mut extra_env = self.mobius_env(&org, project.as_ref(), conversation_id);
+        if let Some(t) = spec.task_id {
+            extra_env.insert("MOBIUS_TASK".into(), t.to_string());
+        }
+        if let Some(r) = spec.run_id {
+            extra_env.insert("MOBIUS_RUN".into(), r.to_string());
+        }
+        if let Some(r) = spec.research_id {
+            extra_env.insert("MOBIUS_RESEARCH".into(), r.to_string());
+        }
+
         let session = Arc::new(
             HarnessSession::spawn(SpawnSpec {
-                harness: harness.clone(),
-                cwd: workdir.clone(),
-                policy: agent.permission_policy,
+                harness,
+                cwd: cwd.clone(),
+                policy: spec.permission_policy.unwrap_or(agent.permission_policy),
                 profile: Some(profile.clone()),
+                extra_env,
+                cli_bin_dir: self.cli_bin_dir.clone(),
             })
             .await?,
         );
         let now = chrono::Utc::now();
         let conversation = Conversation {
-            id: ConversationId::new(),
-            agent_id,
-            activity: Activity::Chat,
+            id: conversation_id,
+            agent_id: agent.id,
+            activity,
             model_profile_id: profile.id,
-            repository_id: agent.repository_id,
-            workdir,
-            title,
+            organization_id: org.id,
+            project_id: project.map(|p| p.id),
+            kind: spec.kind,
+            run_id: spec.run_id,
+            research_id: spec.research_id,
+            repository_id: spec.repository_id,
+            workdir: cwd,
+            title: spec.title.unwrap_or_else(|| "New chat".to_string()),
             acp_session_id: Some(session.session_id()),
             status: ConversationStatus::Idle,
             config_options: session.config_options(),
@@ -166,6 +393,163 @@ impl<S: Store + 'static> SessionManager<S> {
         Ok(conversation)
     }
 
+    /// Assemble the `ChatContext` a coordinator preamble renders. No local
+    /// repository paths ever reach the context's rendered output.
+    async fn chat_context(
+        &self,
+        conversation: &Conversation,
+    ) -> Result<ChatContext, OrchestratorError> {
+        let org = self
+            .store
+            .get_organization(conversation.organization_id)
+            .await?
+            .ok_or_else(|| OrchestratorError::Config("missing organization".into()))?;
+        let agent = self
+            .store
+            .get_agent(conversation.agent_id)
+            .await?
+            .ok_or_else(|| OrchestratorError::NotFound("agent".into()))?;
+        let project = match conversation.project_id {
+            Some(id) => self.store.get_project(id).await?,
+            None => None,
+        };
+        let projects = self.store.list_projects_by_organization(org.id).await?;
+        let org_repos: Vec<Repository> = self
+            .store
+            .list_repositories()
+            .await?
+            .into_iter()
+            .filter(|r| r.organization_id == org.id)
+            .collect();
+        let repositories: Vec<Repository> = match &project {
+            Some(p) => org_repos
+                .iter()
+                .filter(|r| p.repository_ids.contains(&r.id))
+                .cloned()
+                .collect(),
+            None => org_repos,
+        };
+
+        // Memory groups: org → repository (owner/name only) → project.
+        let mut memory = vec![MemoryGroup::new(
+            "Organization",
+            self.store
+                .list_memory_by_scope(&MemoryScope::Organization(org.id))
+                .await?,
+        )];
+        for r in &repositories {
+            memory.push(MemoryGroup::new(
+                format!("Repository {}/{}", r.owner, r.name),
+                self.store
+                    .list_memory_by_scope(&MemoryScope::Repository(r.id))
+                    .await?,
+            ));
+        }
+        if let Some(p) = &project {
+            memory.push(MemoryGroup::new(
+                format!("Project {}", p.slug),
+                self.store
+                    .list_memory_by_scope(&MemoryScope::Project(p.id))
+                    .await?,
+            ));
+        }
+
+        let memory_files = memory_files_in(&memory_paths::org_dir(&self.data_dir, &org.slug));
+
+        let open_research: Vec<Research> = match &project {
+            Some(p) => self
+                .store
+                .list_research_by_project(p.id)
+                .await?
+                .into_iter()
+                .filter(|r| matches!(r.status, ResearchStatus::Pending | ResearchStatus::Running))
+                .collect(),
+            None => self
+                .store
+                .list_research()
+                .await?
+                .into_iter()
+                .filter(|r| {
+                    r.project_id.is_none()
+                        && matches!(r.status, ResearchStatus::Pending | ResearchStatus::Running)
+                })
+                .collect(),
+        };
+        let open_tasks: Vec<Task> = match &project {
+            Some(p) => self
+                .store
+                .list_tasks_by_project(p.id)
+                .await?
+                .into_iter()
+                .filter(|t| {
+                    !matches!(
+                        t.status,
+                        TaskStatus::Done | TaskStatus::Cancelled | TaskStatus::Failed
+                    )
+                })
+                .collect(),
+            None => vec![],
+        };
+
+        Ok(ChatContext {
+            org,
+            agent,
+            project,
+            projects,
+            repositories,
+            memory,
+            memory_files,
+            open_research,
+            open_tasks,
+        })
+    }
+
+    /// The "since your last message" block: research/tasks/runs originating
+    /// from this conversation that changed after the last human message.
+    async fn updates_block(
+        &self,
+        conversation: &Conversation,
+        prior: &[Message],
+    ) -> Result<Option<String>, OrchestratorError> {
+        let since = prior
+            .iter()
+            .rev()
+            .find(|m| m.author == MessageAuthor::Human)
+            .map(|m| m.created_at);
+        let changed_since = |a: chrono::DateTime<chrono::Utc>,
+                             b: Option<chrono::DateTime<chrono::Utc>>| {
+            match since {
+                Some(s) => a > s || b.is_some_and(|b| b > s),
+                None => false,
+            }
+        };
+        let research: Vec<Research> = self
+            .store
+            .list_research_by_origin_conversation(conversation.id)
+            .await?
+            .into_iter()
+            .filter(|r| changed_since(r.created_at, r.finished_at))
+            .collect();
+        let tasks: Vec<Task> = self
+            .store
+            .list_tasks_by_origin_conversation(conversation.id)
+            .await?
+            .into_iter()
+            .filter(|t| changed_since(t.updated_at, None))
+            .collect();
+        let mut runs = Vec::new();
+        for t in &tasks {
+            runs.extend(
+                self.store
+                    .list_runs_by_task(t.id)
+                    .await?
+                    .into_iter()
+                    .filter(|r| changed_since(r.started_at, r.finished_at)),
+            );
+        }
+        Ok(updates_block(&research, &tasks, &runs))
+    }
+
     /// Persist the human message, then drive the turn in the background:
     /// stream `MessageDelta`s, persist agent blocks as they complete, park
     /// permissions, finalize on `TurnFinished`.
@@ -175,17 +559,53 @@ impl<S: Store + 'static> SessionManager<S> {
         text: &str,
     ) -> Result<Message, OrchestratorError> {
         let (session, reattached) = self.session_or_reattach(conversation_id).await?;
-        // On re-attach the new ACP session has no memory of the prior
-        // turns — prepend a transcript preamble to the first prompt only.
-        let prompt_text = if reattached {
-            let prior = self
-                .store
-                .list_messages_by_conversation(conversation_id)
-                .await?;
-            format!("{}\n\n{text}", build_resume_preamble(&prior))
-        } else {
-            text.to_string()
-        };
+        let conversation = self
+            .store
+            .get_conversation(conversation_id)
+            .await?
+            .ok_or_else(|| {
+                OrchestratorError::NotFound(format!("conversation {conversation_id}"))
+            })?;
+        let prior = self
+            .store
+            .list_messages_by_conversation(conversation_id)
+            .await?;
+
+        // Prompt composition (plan §3): chat preamble on the first turn of a
+        // fresh session, resume preamble on re-attach, the updates block, and
+        // finally the raw text.
+        let mut parts: Vec<String> = Vec::new();
+        let is_chat = conversation.kind == ConversationKind::Chat;
+        let first_turn = !prior.iter().any(|m| m.author == MessageAuthor::Human);
+        if is_chat && (reattached || first_turn) {
+            let ctx = self.chat_context(&conversation).await?;
+            parts.push(chat_preamble(&ctx));
+        }
+        if reattached {
+            parts.push(build_resume_preamble(&prior));
+        }
+        if is_chat && let Some(updates) = self.updates_block(&conversation, &prior).await? {
+            parts.push(updates);
+        }
+        parts.push(text.to_string());
+        let prompt_text = parts.join("\n\n");
+
+        // Auto-title the conversation from the first human message.
+        if matches!(conversation.title.trim(), "" | "New chat") {
+            let title: String = text.trim().chars().take(60).collect();
+            if !title.is_empty() {
+                let mut c = conversation.clone();
+                c.title = title;
+                c.updated_at = chrono::Utc::now();
+                if self.store.update_conversation(&c).await.is_ok() {
+                    (self.emit)(DomainEvent::EntityChanged {
+                        kind: EntityKind::Conversation,
+                        id: c.id.to_string(),
+                    });
+                }
+            }
+        }
+
         let human = Message {
             id: MessageId::new(),
             conversation_id,
@@ -230,10 +650,93 @@ impl<S: Store + 'static> SessionManager<S> {
                 agent_msg,
                 rx,
                 session_loop.prompt(&prompt_text),
+                TurnCtx {
+                    human_message_id: Some(human.id),
+                    done: None,
+                },
             )
             .await;
         });
         Ok(human)
+    }
+
+    /// Send `prompt` to the conversation's session and wait for the turn to
+    /// finish, returning the completed agent message. The prompt is persisted
+    /// as a `System` message so the transcript stays readable. Used by
+    /// research and task runs (the dispatcher/research service drive these).
+    pub async fn run_turn(
+        &self,
+        conversation_id: ConversationId,
+        prompt: &str,
+    ) -> Result<Message, OrchestratorError> {
+        let (session, reattached) = self.session_or_reattach(conversation_id).await?;
+        let prompt_text = if reattached {
+            let prior = self
+                .store
+                .list_messages_by_conversation(conversation_id)
+                .await?;
+            format!("{}\n\n{prompt}", build_resume_preamble(&prior))
+        } else {
+            prompt.to_string()
+        };
+
+        let sys = Message {
+            id: MessageId::new(),
+            conversation_id,
+            author: MessageAuthor::System,
+            blocks: vec![ContentBlock::Text {
+                text: prompt.to_string(),
+            }],
+            created_at: chrono::Utc::now(),
+        };
+        self.store.insert_message(&sys).await?;
+        (self.emit)(DomainEvent::EntityChanged {
+            kind: EntityKind::Message,
+            id: sys.id.to_string(),
+        });
+        set_status_now(
+            &self.store,
+            &self.emit,
+            conversation_id,
+            ConversationStatus::Streaming,
+        )
+        .await;
+
+        let agent_msg = Message {
+            id: MessageId::new(),
+            conversation_id,
+            author: MessageAuthor::Agent,
+            blocks: vec![],
+            created_at: chrono::Utc::now(),
+        };
+        self.store.insert_message(&agent_msg).await?;
+
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        let store = self.store.clone();
+        let emit = self.emit.clone();
+        let rx = session.updates();
+        let session_loop = session.clone();
+        tokio::spawn(async move {
+            drive_turn(
+                store,
+                emit,
+                conversation_id,
+                agent_msg,
+                rx,
+                session_loop.prompt(&prompt_text),
+                TurnCtx {
+                    human_message_id: None,
+                    done: Some(done_tx),
+                },
+            )
+            .await;
+        });
+        done_rx
+            .await
+            .map_err(|_| {
+                OrchestratorError::Turn("turn driver ended without reporting a result".to_string())
+            })?
+            .map_err(OrchestratorError::Turn)
     }
 
     pub async fn resolve_permission(
@@ -334,6 +837,29 @@ impl<S: Store + 'static> SessionManager<S> {
     }
 }
 
+/// Per-turn bookkeeping threaded through `drive_turn`/`apply_update`.
+pub(crate) struct TurnCtx {
+    /// The human message that opened the turn (`send_message`), for
+    /// `DomainEvent::TurnFinished`. `None` for `run_turn` system prompts.
+    pub human_message_id: Option<MessageId>,
+    /// `run_turn` waiter, resolved exactly once when the turn ends.
+    pub done: Option<tokio::sync::oneshot::Sender<Result<Message, String>>>,
+}
+
+impl TurnCtx {
+    fn succeed(&mut self, msg: &Message) {
+        if let Some(done) = self.done.take() {
+            let _ = done.send(Ok(msg.clone()));
+        }
+    }
+
+    fn fail(&mut self, error: String) {
+        if let Some(done) = self.done.take() {
+            let _ = done.send(Err(error));
+        }
+    }
+}
+
 /// One prompt turn: stream `SessionUpdate`s into `msg`, persist on every
 /// completed block, emit `MessageUpdated`/`MessageDelta`/`MessageAppended`,
 /// then return so the *next* turn's loop owns the broadcast stream. Returns
@@ -345,6 +871,7 @@ pub(crate) async fn drive_turn<S: Store>(
     mut msg: Message,
     mut rx: tokio::sync::broadcast::Receiver<SessionUpdate>,
     prompt: impl std::future::Future<Output = Result<String, mobius_harness::HarnessError>>,
+    mut ctx: TurnCtx,
 ) {
     tokio::pin!(prompt);
     let mut pending: Option<PendingChunk> = None;
@@ -362,6 +889,7 @@ pub(crate) async fn drive_turn<S: Store>(
                     conversation_id,
                     &mut msg,
                     &mut pending,
+                    &mut ctx,
                     update,
                 )
                 .await
@@ -371,7 +899,15 @@ pub(crate) async fn drive_turn<S: Store>(
                 }
             }
             if !finished {
-                finalize(&store, &emit, conversation_id, &mut msg, &mut pending).await;
+                finalize(
+                    &store,
+                    &emit,
+                    conversation_id,
+                    &mut msg,
+                    &mut pending,
+                    &mut ctx,
+                )
+                .await;
             }
             return;
         }
@@ -379,11 +915,14 @@ pub(crate) async fn drive_turn<S: Store>(
             update = rx.recv() => {
                 match update {
                     Ok(u) => {
-                        if apply_update(&store, &emit, conversation_id, &mut msg, &mut pending, u).await {
+                        if apply_update(&store, &emit, conversation_id, &mut msg, &mut pending, &mut ctx, u).await {
                             return;
                         }
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        ctx.fail("session update channel closed".to_string());
+                        return;
+                    }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                 }
             }
@@ -401,6 +940,7 @@ pub(crate) async fn drive_turn<S: Store>(
                         message: msg.clone(),
                     });
                     set_status_now(&store, &emit, conversation_id, ConversationStatus::Idle).await;
+                    ctx.fail(format!("prompt failed: {e}"));
                     return;
                 }
             }
@@ -477,19 +1017,27 @@ async fn flush_and_persist<S: Store>(
     }
 }
 
-/// Flush pending text, emit `MessageAppended`, and set the conversation idle.
+/// Flush pending text, emit `MessageAppended` + `TurnFinished`, resolve the
+/// `run_turn` waiter, and set the conversation idle.
 async fn finalize<S: Store>(
     store: &Arc<S>,
     emit: &EmitFn,
     conversation_id: ConversationId,
     msg: &mut Message,
     pending: &mut Option<PendingChunk>,
+    ctx: &mut TurnCtx,
 ) {
     flush_and_persist(store, emit, conversation_id, msg, pending).await;
     emit(DomainEvent::MessageAppended {
         conversation_id,
         message: msg.clone(),
     });
+    emit(DomainEvent::TurnFinished {
+        conversation_id,
+        human_message_id: ctx.human_message_id,
+        agent_message_id: msg.id,
+    });
+    ctx.succeed(msg);
     set_status_now(store, emit, conversation_id, ConversationStatus::Idle).await;
 }
 
@@ -501,6 +1049,7 @@ async fn apply_update<S: Store>(
     conversation_id: ConversationId,
     msg: &mut Message,
     pending: &mut Option<PendingChunk>,
+    ctx: &mut TurnCtx,
     update: SessionUpdate,
 ) -> bool {
     match update {
@@ -650,7 +1199,7 @@ async fn apply_update<S: Store>(
             }
         }
         SessionUpdate::TurnFinished { .. } => {
-            finalize(store, emit, conversation_id, msg, pending).await;
+            finalize(store, emit, conversation_id, msg, pending, ctx).await;
             return true;
         }
         SessionUpdate::Other { .. } => {}
@@ -659,10 +1208,35 @@ async fn apply_update<S: Store>(
         }
         SessionUpdate::Exited => {
             set_status_now(store, emit, conversation_id, ConversationStatus::Closed).await;
+            ctx.fail("session exited".to_string());
             return true;
         }
     }
     false
+}
+
+/// Markdown memory files under an org dir (organization.md, projects.md,
+/// repos/*.md, projects/*.md) — the coordinator's on-disk memory.
+fn memory_files_in(org_dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for name in ["organization.md", "projects.md"] {
+        let p = org_dir.join(name);
+        if p.exists() {
+            files.push(p);
+        }
+    }
+    for sub in ["repos", "projects"] {
+        if let Ok(entries) = std::fs::read_dir(org_dir.join(sub)) {
+            let mut group: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|e| e == "md"))
+                .collect();
+            group.sort();
+            files.extend(group);
+        }
+    }
+    files
 }
 
 async fn set_status_now<S: Store>(
@@ -700,6 +1274,11 @@ mod tests {
             agent_id: AgentId::new(),
             activity: Activity::Chat,
             model_profile_id: ModelProfileId::new(),
+            organization_id: OrganizationId::new(),
+            project_id: None,
+            kind: ConversationKind::Chat,
+            run_id: None,
+            research_id: None,
             repository_id: None,
             workdir: PathBuf::from("/tmp"),
             title: "t".into(),
@@ -777,7 +1356,19 @@ mod tests {
         })
         .expect("send");
 
-        drive_turn(store.clone(), emit.clone(), cid, m1, rx1, ok_prompt()).await;
+        drive_turn(
+            store.clone(),
+            emit.clone(),
+            cid,
+            m1,
+            rx1,
+            ok_prompt(),
+            TurnCtx {
+                human_message_id: None,
+                done: None,
+            },
+        )
+        .await;
 
         let m1_final = store.get_message(m1_id).await.expect("get").expect("msg1");
         let kinds: Vec<&str> = m1_final
@@ -816,7 +1407,19 @@ mod tests {
         })
         .expect("send");
 
-        drive_turn(store.clone(), emit.clone(), cid, m2, rx2, ok_prompt()).await;
+        drive_turn(
+            store.clone(),
+            emit.clone(),
+            cid,
+            m2,
+            rx2,
+            ok_prompt(),
+            TurnCtx {
+                human_message_id: None,
+                done: None,
+            },
+        )
+        .await;
 
         let m2_final = store.get_message(m2_id).await.expect("get").expect("msg2");
         assert!(
@@ -935,7 +1538,7 @@ mod tests {
     async fn reset_stale_statuses_idles_dead_conversations() {
         let store = Arc::new(InMemoryStore::new());
         let emit: EmitFn = Arc::new(|_| {});
-        let mgr = SessionManager::new(store.clone(), emit);
+        let mgr = SessionManager::new(store.clone(), emit, PathBuf::from("/tmp/data"));
 
         let mut streaming = conv(ConversationId::new());
         streaming.status = ConversationStatus::Streaming;

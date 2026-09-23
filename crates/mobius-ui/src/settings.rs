@@ -7,7 +7,13 @@ use mobius_core::*;
 use std::collections::BTreeMap;
 
 const POLICIES: &[&str] = &["read_only", "workspace_edits", "auto", "ask_human"];
-const ROLES: &[&str] = &["project", "researcher", "reviewer", "housekeeper"];
+const ROLES: &[&str] = &[
+    "organization",
+    "project",
+    "researcher",
+    "reviewer",
+    "housekeeper",
+];
 const EFFORTS: &[&str] = &["", "low", "medium", "high", "max"];
 const PROJECT_STATUSES: &[&str] = &["active", "paused", "archived"];
 const AGENT_STATUSES: &[&str] = &["idle", "busy", "disabled"];
@@ -215,7 +221,8 @@ fn ProjectRow(
 pub fn ProjectsPage() -> Element {
     let mut data: Data = use_context();
     let mut editing = use_signal(|| None::<ProjectId>);
-    let mut repo = use_signal(String::new);
+    let mut org = use_signal(String::new);
+    let mut repos_hint = use_signal(Vec::<RepositoryId>::new);
     let mut name = use_signal(String::new);
     let mut slug = use_signal(String::new);
     let mut desc = use_signal(String::new);
@@ -225,7 +232,8 @@ pub fn ProjectsPage() -> Element {
 
     let on_edit = Callback::new(move |p: Project| {
         editing.set(Some(p.id));
-        repo.set(p.repository_id.to_string());
+        org.set(p.organization_id.to_string());
+        repos_hint.set(p.repository_ids.clone());
         name.set(p.name.clone());
         slug.set(p.slug.clone());
         desc.set(p.description.clone());
@@ -238,10 +246,9 @@ pub fn ProjectsPage() -> Element {
     });
 
     let submit = move |_| {
-        let Ok(rid) = repo.read().parse::<RepositoryId>() else {
-            data.error.set(Some("pick a repository".into()));
-            return;
-        };
+        let oid = org.read().parse::<OrganizationId>().ok();
+        // Related repositories are a routing hint, not an ownership link.
+        let rids: Vec<RepositoryId> = repos_hint.read().clone();
         let scope = ProjectScope {
             paths: vec![],
             labels: csv(&labels.read()),
@@ -267,6 +274,7 @@ pub fn ProjectsPage() -> Element {
                         description: d,
                         scope,
                         status: st,
+                        repository_ids: rids,
                     },
                 )
                 .await
@@ -275,7 +283,8 @@ pub fn ProjectsPage() -> Element {
                 api::post::<CreateProject, Project>(
                     "/projects",
                     &CreateProject {
-                        repository_id: rid,
+                        organization_id: oid,
+                        repository_ids: rids,
                         name: n,
                         slug: sl,
                         description: d,
@@ -308,11 +317,31 @@ pub fn ProjectsPage() -> Element {
         }
         h3 { if editing().is_some() { "Edit project" } else { "New project" } }
         div { class: "form",
-            label { "Repository" }
-            select { onchange: move |e| repo.set(e.value()),
+            label { "Organization" }
+            select { onchange: move |e| org.set(e.value()),
                 option { value: "", "—" }
+                for o in data.orgs.read().clone() {
+                    option { key: "{o.id}", value: "{o.id}", selected: org() == o.id.to_string(), "{o.name}" }
+                }
+            }
+            label { "Related repositories (hint)" }
+            div { class: "checklist",
                 for r in data.repos.read().clone() {
-                    option { key: "{r.id}", value: "{r.id}", selected: repo() == r.id.to_string(), "{r.owner}/{r.name}" }
+                    label { class: "checkrow", key: "{r.id}",
+                        input {
+                            r#type: "checkbox",
+                            checked: repos_hint.read().contains(&r.id),
+                            onchange: move |e| {
+                                let id = r.id;
+                                if e.checked() {
+                                    repos_hint.write().push(id);
+                                } else {
+                                    repos_hint.write().retain(|x| *x != id);
+                                }
+                            },
+                        }
+                        " {r.owner}/{r.name}"
+                    }
                 }
             }
             label { "Name" }
@@ -659,6 +688,7 @@ pub fn AgentsPage() -> Element {
     let mut agent_status = use_signal(|| "idle".to_string());
     let mut instructions = use_signal(String::new);
     let mut default_profile = use_signal(String::new);
+    let mut org = use_signal(String::new);
     let mut project = use_signal(String::new);
     let mut repo = use_signal(String::new);
     // activity string -> profile id string ("" = use default)
@@ -667,6 +697,7 @@ pub fn AgentsPage() -> Element {
     let on_edit = Callback::new(move |a: Agent| {
         editing.set(Some(a.id));
         name.set(a.name.clone());
+        org.set(a.organization_id.to_string());
         role.set(a.role.to_string());
         policy.set(a.permission_policy.to_string());
         agent_status.set(a.status.to_string());
@@ -710,17 +741,23 @@ pub fn AgentsPage() -> Element {
             .read()
             .parse::<AgentStatus>()
             .unwrap_or(AgentStatus::Idle);
+        let oid = org.read().parse::<OrganizationId>().ok();
         let proj = project.read().parse::<ProjectId>().ok();
         let rep = repo.read().parse::<RepositoryId>().ok();
         let (n, ins) = (name.read().clone(), instructions.read().clone());
         let edit = editing();
         spawn(async move {
             let r = if let Some(id) = edit {
+                let Some(oid) = oid else {
+                    data.error.set(Some("pick an organization".into()));
+                    return;
+                };
                 api::put::<UpdateAgent, Agent>(
                     &format!("/agents/{id}"),
                     &UpdateAgent {
                         name: n,
                         role: role_v,
+                        organization_id: oid,
                         default_profile: dp,
                         profile_overrides: ov,
                         project_id: proj,
@@ -738,6 +775,7 @@ pub fn AgentsPage() -> Element {
                     &CreateAgent {
                         name: n,
                         role: role_v,
+                        organization_id: oid,
                         default_profile: dp,
                         profile_overrides: ov,
                         project_id: proj,
@@ -798,6 +836,13 @@ pub fn AgentsPage() -> Element {
             select { onchange: move |e| agent_status.set(e.value()),
                 for s in AGENT_STATUSES {
                     option { key: "{s}", value: "{s}", selected: agent_status() == *s, "{s}" }
+                }
+            }
+            label { "Organization" }
+            select { onchange: move |e| org.set(e.value()),
+                option { value: "", "—" }
+                for o in data.orgs.read().clone() {
+                    option { key: "{o.id}", value: "{o.id}", selected: org() == o.id.to_string(), "{o.name}" }
                 }
             }
             label { "Project (optional)" }

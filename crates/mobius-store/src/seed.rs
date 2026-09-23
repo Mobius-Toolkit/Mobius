@@ -1,5 +1,7 @@
 //! Idempotent seeding: default harnesses on every startup, and the
-//! `seed-dev` dogfooding fixture.
+//! `seed-dev` dogfooding fixture — the `mobius` organization, the local
+//! checkout as a repository, the organization coordinator agent, the model
+//! profiles, and the starter projects. Nothing is ever deleted.
 
 use mobius_core::*;
 use std::path::Path;
@@ -8,6 +10,17 @@ use std::process::Command;
 fn now() -> chrono::DateTime<chrono::Utc> {
     chrono::Utc::now()
 }
+
+/// Instructions for the organization coordinator (`mobius`). Coordinators
+/// never get repository local paths — they research and delegate.
+const ORG_COORDINATOR_INSTRUCTIONS: &str = "\
+You are the organization coordinator for Mobius. You advise the human and \
+coordinate work across the organization's repositories — you do NOT edit \
+code yourself, and you do not have filesystem access to repository \
+checkouts. When you need code facts, use `mobius research start` to \
+delegate research; never guess. When something must physically change, \
+direct it to the owning project's coordinator so a task can be created. \
+Write durable knowledge to memory explicitly with `mobius memory add`.";
 
 fn harness(name: &str, command: &str, args: &[&str], model_arg_template: &[&str]) -> Harness {
     Harness {
@@ -107,7 +120,7 @@ fn current_branch(repo_path: &Path) -> String {
 pub struct DevSeed {
     pub organization: Organization,
     pub repository: Repository,
-    pub project: Project,
+    pub projects: Vec<Project>,
     pub profiles: Vec<ModelProfile>,
     pub agent: Agent,
 }
@@ -150,35 +163,6 @@ pub async fn dev_fixture<S: Store>(store: &S, repo_path: &Path) -> StoreResult<D
         }
     };
 
-    let project = match store
-        .find_project_by_slug(repository.id, "mobius-core")
-        .await?
-    {
-        Some(project) => project,
-        None => {
-            let project = Project {
-                id: ProjectId::new(),
-                repository_id: repository.id,
-                name: "Mobius Core".to_string(),
-                slug: "mobius-core".to_string(),
-                description: "Core orchestrator, store, harness and UI of Mobius itself."
-                    .to_string(),
-                scope: ProjectScope {
-                    paths: vec!["crates/".to_string()],
-                    labels: vec!["mobius".to_string()],
-                    keywords: ["mobius", "core", "harness", "acp", "ui", "server", "store"]
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect(),
-                },
-                status: ProjectStatus::Active,
-                created_at: now(),
-            };
-            store.insert_project(&project).await?;
-            project
-        }
-    };
-
     let devin = store.find_harness_by_name("devin").await?.ok_or_else(|| {
         StoreError::NotFound(
             "harness 'devin' missing; run ensure_default_harnesses first".to_string(),
@@ -209,30 +193,38 @@ pub async fn dev_fixture<S: Store>(store: &S, repo_path: &Path) -> StoreResult<D
         };
         profiles.push(profile);
     }
+    let profile_id = |name: &str| {
+        profiles
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.id)
+            .unwrap_or(profiles[0].id)
+    };
 
-    let agent = match store.find_agent_by_name("mobius-dev").await? {
+    // The organization coordinator — long-lived, read-only, no repo paths.
+    let agent = match store
+        .find_agent_by_role_and_org(organization.id, AgentRole::Organization)
+        .await?
+    {
         Some(agent) => agent,
         None => {
             let mut overrides = std::collections::BTreeMap::new();
-            overrides.insert(Activity::Plan, profiles[0].id);
-            overrides.insert(Activity::Research, profiles[2].id);
+            overrides.insert(Activity::Plan, profile_id("swe2-max"));
+            overrides.insert(Activity::Research, profile_id("swe2-low"));
+            overrides.insert(Activity::Implement, profile_id("swe2-high"));
             let agent = Agent {
                 id: AgentId::new(),
-                name: "mobius-dev".to_string(),
-                role: AgentRole::Project,
+                name: "mobius".to_string(),
+                role: AgentRole::Organization,
+                organization_id: organization.id,
                 profiles: ActivityProfiles {
-                    default: profiles[1].id,
+                    default: profile_id("swe2-high"),
                     overrides,
                 },
-                project_id: Some(project.id),
-                repository_id: Some(repository.id),
-                instructions: "You are the project agent for Mobius Core. Read \
-                               AGENTS.md and docs/ in the workdir before making \
-                               changes. Follow the workspace conventions: \
-                               edition 2024, cargo fmt, cargo clippy -D warnings, \
-                               typed ids, no unwrap in library code."
-                    .to_string(),
-                permission_policy: PermissionPolicy::AskHuman,
+                project_id: None,
+                repository_id: None,
+                instructions: ORG_COORDINATOR_INSTRUCTIONS.to_string(),
+                permission_policy: PermissionPolicy::ReadOnly,
                 status: AgentStatus::Idle,
                 created_at: now(),
             };
@@ -241,10 +233,45 @@ pub async fn dev_fixture<S: Store>(store: &S, repo_path: &Path) -> StoreResult<D
         }
     };
 
+    let mut projects = Vec::new();
+    for (slug, name, description) in [
+        (
+            "chat",
+            "Chat",
+            "Human chat surface, streaming and permissions",
+        ),
+        (
+            "memory",
+            "Memory",
+            "Organization, repository and project memory",
+        ),
+        ("ingestion", "Ingestion", "Signal ingestion and routing"),
+    ] {
+        let project = match store.find_project_by_slug(organization.id, slug).await? {
+            Some(project) => project,
+            None => {
+                let project = Project {
+                    id: ProjectId::new(),
+                    organization_id: organization.id,
+                    repository_ids: vec![repository.id],
+                    name: name.to_string(),
+                    slug: slug.to_string(),
+                    description: description.to_string(),
+                    scope: ProjectScope::default(),
+                    status: ProjectStatus::Active,
+                    created_at: now(),
+                };
+                store.insert_project(&project).await?;
+                project
+            }
+        };
+        projects.push(project);
+    }
+
     Ok(DevSeed {
         organization,
         repository,
-        project,
+        projects,
         profiles,
         agent,
     })

@@ -67,4 +67,5 @@ typed_id!(
     ConversationId,
     MessageId,
     PermissionRequestId,
+    ResearchId,
 );

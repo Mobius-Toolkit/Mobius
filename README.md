@@ -6,14 +6,16 @@ and Antigravity `agy`, Claude Code, Codex via ACP adapters) through the
 [Agent Client Protocol](https://agentclientprotocol.com) instead of building
 custom LLM agents.
 
-Humans define **Projects** — a scope inside a repository — each owned by a
-long-lived **Project Agent** that receives inbound **Signals** (GitHub
-issues/comments/PRs, human input), spawns **Tasks**, and executes them as
-**Runs**: one ACP session in a dedicated git worktree. A three-level
-**Memory** (Organization → Repository → Project) lives in SQLite and is
-periodically dumped as markdown. Humans talk to agents directly through a
-built-in chat UI with streaming, tool-call cards, permission approvals and
-model/effort switching.
+Humans define **Projects** — a feature/domain scope inside an
+**Organization** (with repository routing hints) — each coordinated by a
+long-lived **Project Agent**. Coordinators answer questions in chat, run
+read-only **Research** investigations over repo checkouts, and delegate
+physical change as **Tasks** executed as **Runs** in dedicated git
+worktrees. A three-level **Memory** (Organization → Repository → Project)
+lives in SQLite and is dumped as markdown on startup, on events, and every
+five minutes. Humans talk to coordinators through a built-in chat UI with
+streaming, tool-call cards, permission approvals, model/effort switching,
+and Memory/Research/Tasks side panels.
 
 ## Motivation
 
@@ -35,7 +37,7 @@ person can run and pay for:
   pluggable behind a trait.
 
 Mobius is being built for my own projects first — [makeadir.com](https://makeadir.com)
-is the first production tenant — and it develops itself: after the M0
+is the first production tenant — and it develops itself: with the M1 scoped
 foundation, work on Mobius happens through Mobius.
 
 ## Quick start
@@ -68,6 +70,24 @@ cargo run -p mobius-harness --example smoke -- devin --model swe --effort max \
     "Reply with exactly the word PONG"
 ```
 
+## `mobius` CLI
+
+`scripts/mobius.sh` builds `target/release/mobius` next to
+`mobius-server` — the server prepends that directory to every harness's
+`PATH`, so agents inside sessions can call back into Mobius (and you can
+too). `--url`/`MOBIUS_URL` point it at a server; `--json` prints raw
+responses; `MOBIUS_ORG`/`MOBIUS_PROJECT`/`MOBIUS_CONVERSATION` supply
+scope defaults (the server sets them for harness processes).
+
+```bash
+mobius project list | mobius repo list
+mobius task create --title "…" --brief "…" --repo owner/name --project SLUG
+mobius task run ID | mobius task list [--project SLUG] [--status S]
+mobius research start --question "…" [--repo owner/name]… [--wait]
+mobius memory add --kind fact|decision|convention|gotcha "…" [--scope project|org|repo:owner/name]
+mobius memory list [--scope …]
+```
+
 ## Crate map
 
 | Crate | Purpose |
@@ -78,16 +98,18 @@ cargo run -p mobius-harness --example smoke -- devin --model swe --effort max \
 | `mobius-harness` | ACP session layer (`HarnessSession`), config-option matching, permission routing. |
 | `mobius-ingest` | `SignalSource` contract, polling `SourceRegistry`, `ManualSource`. |
 | `mobius-ingest-github` | GitHub polling via the `gh` CLI. |
-| `mobius-orchestrator` | `ProfileResolver`, `Dispatcher` (signal→task→run), `SessionManager` (chat), `WorktreeManager`. |
+| `mobius-orchestrator` | `ProfileResolver`, `AgentProvisioner`, `Dispatcher` (signal→task→run), `SessionManager` (chats + `run_turn`), `ResearchService`, `WorktreeManager`. |
 | `mobius-server` | axum REST + SSE binary, `mobius.toml` infra config, `seed-dev`. |
+| `mobius-cli` | `mobius` binary — agent/human CLI talking to the REST API. |
 | `mobius-ui` | Dioxus 0.7 web SPA. |
 
 ## Documentation
 
 - `docs/architecture/` — vision, domain model, system architecture, memory,
-  harnesses/ACP, ingestion, GitHub workflow, human chat, model profiles.
+  harnesses/ACP, ingestion, GitHub workflow, human chat, model profiles,
+  delegation CLI.
 - `docs/adr/` — architecture decision records.
-- `docs/ROADMAP.md` — M0 → M5.
+- `docs/ROADMAP.md` — milestone plan.
 
 ## License
 

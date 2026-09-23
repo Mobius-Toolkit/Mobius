@@ -18,8 +18,8 @@ components rustfmt + clippy, target `wasm32-unknown-unknown`).
 
 ## Crate layout
 
-`crates/mobius-{core,api,store,harness,ingest,ingest-github,orchestrator,server,ui}`.
-Dependency direction: `core → api/store → harness/ingest(-github) → orchestrator → server/ui`.
+`crates/mobius-{core,api,store,harness,ingest,ingest-github,orchestrator,server,cli,ui}`.
+Dependency direction: `core → api/store → harness/ingest(-github) → orchestrator → server`, plus `cli` (REST client) and `ui` (wasm).
 `mobius-core` and `mobius-api` must stay wasm-compatible: no tokio, no sqlx,
 no `std::process`.
 
@@ -50,3 +50,22 @@ Runs two turns on one session and prints the harness's advertised
 scripts/mobius.sh seed   # dogfood fixture (idempotent)
 scripts/mobius.sh        # serve; MOBIUS_CONFIG overrides the config path
 ```
+
+## CLI smoke (no harness spawn)
+
+Never point a test server at the real `.mobius-data/` — use a temp data dir
+and a temp config on a different port:
+
+```bash
+DATA=/tmp/mobius-smoke && mkdir -p "$DATA"
+sed -e 's|data_dir.*|data_dir = "'"$DATA"'"|' -e 's|127.0.0.1:8787|127.0.0.1:8791|' \
+    mobius.example.toml > /tmp/mobius-smoke.toml
+cargo build --release -p mobius-server -p mobius-cli
+MOBIUS_CONFIG=/tmp/mobius-smoke.toml ./target/release/mobius-server &
+./target/release/mobius-server --config /tmp/mobius-smoke.toml seed-dev --repo .
+MOBIUS_URL=http://127.0.0.1:8791 ./target/release/mobius project list
+MOBIUS_URL=http://127.0.0.1:8791 ./target/release/mobius memory add --kind fact "smoke" --scope org
+```
+
+Do not run `mobius task run` or `mobius research start` in the smoke — they
+spawn a real Devin harness.
