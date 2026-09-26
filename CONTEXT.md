@@ -23,7 +23,7 @@ An external coding-agent program (for example Claude Code, Antigravity CLI, Devi
 _Avoid_: Provider, backend, model
 
 **Mobius App**:
-The GitHub App of one Mobius server, and the only GitHub identity under which agents act.
+The GitHub App of one Mobius server. Agents act on GitHub as the App. The Chat session acts as the Owner through the App.
 _Avoid_: Bot account, machine user
 
 **Trusted user**:
@@ -53,7 +53,7 @@ The top-level agent of one Workstream, and the only agent that the Owner talks t
 _Avoid_: Orchestrator, manager, coordinator
 
 **Chat session**:
-The Lead session that talks with the Owner. It starts when the Owner writes and closes when it is idle.
+The Lead session that talks with the Owner. It starts when the Owner writes and closes when it is idle. It acts on GitHub as the Owner, through the Mobius App.
 _Avoid_: Conversation, main session
 
 **Event session**:
