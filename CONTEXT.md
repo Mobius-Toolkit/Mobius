@@ -72,3 +72,11 @@ _Avoid_: Root issue, epic
 **Brief**:
 The Owner's description of the goal and the limits of one Workstream.
 _Avoid_: Description, charter, spec
+
+**Local check**:
+The command of a repository that Mobius runs in a worktree before each push of agent work.
+_Avoid_: CI, pre-push hook
+
+**Fix round**:
+One pass in which the Implementer changes a pull request to answer its unresolved review threads.
+_Avoid_: Iteration, cycle
