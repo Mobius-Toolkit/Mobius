@@ -15,7 +15,7 @@ The installed Mobius process that holds the web UI, the API, and the agent runti
 _Avoid_: Orchestrator, daemon, proxy
 
 **Harness**:
-An external coding-agent program (for example Claude Code, Codex, Devin) that Mobius controls through the Agent Client Protocol. The Owner installs and logs in to each Harness.
+An external coding-agent program (for example Claude Code, Antigravity CLI, Devin) that Mobius controls through the Agent Client Protocol. The Owner installs and logs in to each Harness.
 _Avoid_: Provider, backend, model
 
 **Mobius App**:
@@ -92,6 +92,10 @@ _Avoid_: Root issue, epic
 **Brief**:
 The Owner's description of the goal and the limits of one Workstream.
 _Avoid_: Description, charter, spec
+
+**Autopilot**:
+A Workstream mode that a trusted user turns on with a label. In this mode, the Lead can dispatch the issues of its Workstream.
+_Avoid_: Auto mode, YOLO mode
 
 **Local check**:
 The command of a repository that Mobius runs in a worktree before each push of agent work.
