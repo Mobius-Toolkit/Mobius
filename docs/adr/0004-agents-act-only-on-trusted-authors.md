@@ -6,7 +6,7 @@ Mobius acts only on GitHub input from a trusted author: a login in the config li
 
 - **Act on all authors:** rejected. A stranger can then start agent work on the Owner's Harness accounts and inject instructions.
 - **Only the Owner:** rejected. A small team shares one repository and one Mobius server, and each member must be able to label and comment.
-- **User accounts in Mobius:** rejected. Trusted users act through GitHub, and all people who open the UI share the one UI password. Mobius has no teams and no memberships.
+- **User accounts in Mobius:** rejected. Trusted users act through GitHub, and all people who open the UI share the access password. Mobius has no teams and no memberships.
 
 ## Consequences
 

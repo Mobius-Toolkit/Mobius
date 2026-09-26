@@ -14,6 +14,10 @@ _Avoid_: User, tenant, member
 The installed Mobius process that holds the web UI, the API, and the agent runtime.
 _Avoid_: Orchestrator, daemon, proxy
 
+**Access password**:
+The one password that opens the Mobius UI. The Owner sets it, and all people who open the UI share it.
+_Avoid_: Owner password, UI password
+
 **Harness**:
 An external coding-agent program (for example Claude Code, Antigravity CLI, Devin) that Mobius controls through the Agent Client Protocol. The Owner installs and logs in to each Harness.
 _Avoid_: Provider, backend, model
