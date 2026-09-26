@@ -64,6 +64,10 @@ _Avoid_: Background session, event handler
 The top-level agent that helps the Owner compose a new Workstream and its Brief, and that proposes a Workstream for an issue with no Workstream.
 _Avoid_: Dispatcher, router, concierge
 
+**Server agent**:
+A top-level agent that works for the whole Mobius server and belongs to no Workstream, for example the Triager.
+_Avoid_: Background agent, global agent
+
 **Worker**:
 An agent that a Lead starts to do one piece of work; the Owner never talks to it directly.
 _Avoid_: Sub-agent, child agent
