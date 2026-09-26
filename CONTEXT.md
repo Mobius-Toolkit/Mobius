@@ -40,6 +40,10 @@ _Avoid_: Agent type, persona
 The Owner's choice of Harness and model for one Role.
 _Avoid_: Agent config, profile
 
+**Role prompt**:
+The fixed instructions that Mobius gives to each session of one Role.
+_Avoid_: System prompt, persona
+
 **Lead**:
 The top-level agent of one Workstream, and the only agent that the Owner talks to about the work of that Workstream. It works in one chat session and in event sessions.
 _Avoid_: Orchestrator, manager, coordinator
@@ -49,7 +53,7 @@ The Lead session that talks with the Owner. It starts when the Owner writes and 
 _Avoid_: Conversation, main session
 
 **Event session**:
-A short Lead session with no memory that handles one batch of events from GitHub and from Workers.
+A Lead session that handles events from GitHub and from Workers, one event in each turn, and closes when it is idle.
 _Avoid_: Background session, event handler
 
 **Triager**:
