@@ -1,6 +1,6 @@
 # Agents reach GitHub only through the Mobius MCP server
 
-Only Mobius reads and writes GitHub. An agent gets no GitHub token. It acts on GitHub only through the tools of one HTTP MCP server inside the Mobius server process. Mobius injects this server in `session/new` with the URL `http://127.0.0.1:<port>/mcp/<session-key>`. The key is random for each session and stops when the session ends. From the key, Mobius knows the Role, the Workstream, and the task of the caller. So Mobius shows only the tools of that Role, checks the scope of each call, and applies the trusted-author filter of ADR 0004 to all reads. Agents keep all other tools of their Harness.
+Only Mobius reads and writes GitHub. An agent gets no GitHub token. It acts on GitHub only through the tools of one HTTP MCP server inside the Mobius server process. Mobius injects this server in `session/new` with the URL `http://127.0.0.1:<port>/mcp/<session-key>`. The key is random for each session and stops when the session ends. From the key, Mobius knows the Role, the Workstream, and the task of the caller. So Mobius shows only the tools of that Role, checks the scope of each call, and applies the trusted-author filter of ADR 0004 to all reads. Agents keep all other tools of their Harness. The Lead chat session is the one exception: it also gets `gh` as the Owner (ADR 0009).
 
 ## Considered Options
 
@@ -11,7 +11,7 @@ Only Mobius reads and writes GitHub. An agent gets no GitHub token. It acts on G
 
 ## Consequences
 
-- Each Harness process gets `GH_CONFIG_DIR` set to an empty directory, `GIT_CONFIG_GLOBAL` set to a Mobius file with no credential helper, and `GIT_TERMINAL_PROMPT=0`. A stub `gh` comes first on `PATH` and tells the agent to use the Mobius tools. This guard stops mistakes but is not a security boundary. An agent can still read public pages, for example with `curl`.
+- Each Harness process gets `GH_CONFIG_DIR` set to an empty directory, `GIT_CONFIG_GLOBAL` set to a Mobius file with no credential helper, and `GIT_TERMINAL_PROMPT=0`. A stub `gh` comes first on `PATH` and tells the agent to use the Mobius tools. In the Lead chat session, a `gh` wrapper takes the place of the stub. This guard stops mistakes but is not a security boundary. An agent can still read public pages, for example with `curl`.
 - The Implementer commits with the bot identity in the config of its worktree. Only Mobius pushes, with the App token, after the local check.
 - Claude Code hides MCP tools behind a search step by default, and Antigravity always does. Mobius marks each tool "always load" for Claude Code.
 - Only some Harnesses check the arguments against the JSON Schema of a tool. Mobius validates all arguments on the server.
