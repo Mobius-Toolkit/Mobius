@@ -18,10 +18,14 @@ _Avoid_: Orchestrator, daemon, proxy
 An external coding-agent program (for example Claude Code, Codex, Devin) that Mobius controls through the Agent Client Protocol. The Owner installs and logs in to each Harness.
 _Avoid_: Provider, backend, model
 
+**Mobius App**:
+The GitHub App of one Mobius server, and the only GitHub identity under which agents act.
+_Avoid_: Bot account, machine user
+
 ### Agents
 
 **Role**:
-A kind of job that an agent does: Lead, Implementer, Researcher, Reviewer.
+A kind of job that an agent does: Lead, Triager, Implementer, Researcher, Reviewer.
 _Avoid_: Agent type, persona
 
 **Role binding**:
@@ -29,8 +33,12 @@ The Owner's choice of Harness and model for one Role.
 _Avoid_: Agent config, profile
 
 **Lead**:
-The top-level agent of one Workstream, and the only agent that the Owner talks to.
+The top-level agent of one Workstream, and the only agent that the Owner talks to about the work of that Workstream.
 _Avoid_: Orchestrator, manager, coordinator
+
+**Triager**:
+The top-level agent that helps the Owner compose a new Workstream and its Brief, and that proposes a Workstream for an issue with no Workstream.
+_Avoid_: Dispatcher, router, concierge
 
 **Worker**:
 An agent that a Lead starts to do one piece of work; the Owner never talks to it directly.
@@ -56,3 +64,11 @@ _Avoid_: Supervisor, janitor
 **Workstream**:
 A long-lived scope of work (for example "Integrate loyalty plans") that owns a task list, a memory, and one Lead.
 _Avoid_: Project, epic, context
+
+**Workstream issue**:
+The GitHub issue that stands for one Workstream. Each issue below it in the parent tree belongs to that Workstream.
+_Avoid_: Root issue, epic
+
+**Brief**:
+The Owner's description of the goal and the limits of one Workstream.
+_Avoid_: Description, charter, spec
