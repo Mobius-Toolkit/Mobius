@@ -1,6 +1,6 @@
 # A Workstream is a parent issue tree on GitHub
 
-Each Workstream is one GitHub issue with the label `mobius:workstream`. Its body is the Brief. A `mobius:ready` issue belongs to the first Workstream issue in its parent chain, and Mobius reads that chain one time, at dispatch. GitHub gives each issue only one parent, so each issue has at most one Workstream, and the Owner gets a hierarchical task list with no extra tool.
+Each Workstream is one GitHub issue with the label `mobius:workstream`. Its body is the Brief. A `mobius:ready` issue belongs to the first Workstream issue in its parent chain. Mobius checks that chain when it first sees `mobius:ready`, and it routes the issue from a second read at dispatch. GitHub gives each issue only one parent, so each issue has at most one Workstream, and the Owner gets a hierarchical task list with no extra tool.
 
 ## Considered Options
 
@@ -12,5 +12,5 @@ Each Workstream is one GitHub issue with the label `mobius:workstream`. Its body
 
 - A parent holds a maximum of 100 sub-issues, and closed sub-issues count. The Owner and the Lead put groups (a map, a spec, a month) below the Workstream issue. Mobius code does not restructure the tree.
 - A change of parent moves an issue to another Workstream. A task that runs already stays with its Lead until it ends.
-- An issue with no Workstream issue in its parent chain goes to the Triager, not to a default Workstream.
+- An issue with no Workstream issue in its parent chain goes to the Triager, not to a default Workstream. This occurs at the first check, also when the issue has open blockers, so the Owner knows early.
 - Mobius reads `Issue.parent` directly. The `parent-issue:` search qualifier returned no results in the API.

@@ -22,10 +22,18 @@ _Avoid_: Provider, backend, model
 The GitHub App of one Mobius server, and the only GitHub identity under which agents act.
 _Avoid_: Bot account, machine user
 
+**Trusted user**:
+A GitHub user whose labels and comments Mobius acts on. The Owner is one trusted user.
+_Avoid_: Member, collaborator, maintainer
+
+**Trusted author**:
+A trusted user, a bot that the Owner trusts, or the Mobius App. Mobius drops all GitHub input from other authors.
+_Avoid_: Allowed user, whitelist
+
 ### Agents
 
 **Role**:
-A kind of job that an agent does: Lead, Triager, Implementer, Researcher, Reviewer.
+A kind of job that an agent does: Lead, Triager, Implementer, Researcher, Reviewer, Judge.
 _Avoid_: Agent type, persona
 
 **Role binding**:
@@ -55,6 +63,10 @@ A Worker Role that finds facts and reports them to its Lead without code changes
 A Worker Role that checks a pull request against its task for correctness, missing requirements, and unwanted side effects.
 _Avoid_: Checker, QA
 
+**Judge**:
+A Role that sorts new pull request comments into actions (fix, question, follow-up, reject) in one short session with no memory.
+_Avoid_: Classifier, triage bot
+
 **Housekeeper**:
 The part of Mobius that watches all agents, restarts dead ones, and removes stale workspaces.
 _Avoid_: Supervisor, janitor
@@ -80,3 +92,11 @@ _Avoid_: CI, pre-push hook
 **Fix round**:
 One pass in which the Implementer changes a pull request to answer its unresolved review threads.
 _Avoid_: Iteration, cycle
+
+**Conflict round**:
+One pass in which the Implementer merges the base branch into a pull request to remove a merge conflict.
+_Avoid_: Rebase, sync
+
+**Inbox**:
+The list of all tasks that wait for a human, across all Workstreams.
+_Avoid_: Notifications, queue
