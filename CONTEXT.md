@@ -83,6 +83,10 @@ _Avoid_: Classifier, triage bot
 The part of Mobius that watches all agents, restarts dead ones, and removes stale workspaces.
 _Avoid_: Supervisor, janitor
 
+**Transcript**:
+The full record of one agent session: the prompts from Mobius, the updates from the Harness, and the calls to the Mobius tools.
+_Avoid_: Log, history
+
 ### Work
 
 **Workstream**:
