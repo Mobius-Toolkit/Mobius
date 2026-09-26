@@ -41,8 +41,16 @@ The Owner's choice of Harness and model for one Role.
 _Avoid_: Agent config, profile
 
 **Lead**:
-The top-level agent of one Workstream, and the only agent that the Owner talks to about the work of that Workstream.
+The top-level agent of one Workstream, and the only agent that the Owner talks to about the work of that Workstream. It works in one chat session and in event sessions.
 _Avoid_: Orchestrator, manager, coordinator
+
+**Chat session**:
+The Lead session that talks with the Owner. It starts when the Owner writes and closes when it is idle.
+_Avoid_: Conversation, main session
+
+**Event session**:
+A short Lead session with no memory that handles one batch of events from GitHub and from Workers.
+_Avoid_: Background session, event handler
 
 **Triager**:
 The top-level agent that helps the Owner compose a new Workstream and its Brief, and that proposes a Workstream for an issue with no Workstream.
