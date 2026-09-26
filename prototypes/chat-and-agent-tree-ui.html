@@ -1,0 +1,661 @@
+<title>Mobius UI Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#e9ece8; --surface:#f7f8f6; --raised:#ffffff; --ink:#1c2220; --muted:#66706b; --line:#d5dad5;
+  --accent:#2d5f8b; --accent-soft:#dde7f0; --ok:#2f7a4c; --ok-soft:#dcefe2; --warn:#a86a14; --warn-soft:#f6e9d2;
+  --crit:#b03a3a; --crit-soft:#f5dcdc; --owner:#e3ebe4; --tell:#f3ecd9; --bar:#1c2220; --bar-ink:#f2f4f1;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --ground:#121614; --surface:#1a1f1d; --raised:#222826; --ink:#e3e8e5; --muted:#8f9994; --line:#323a36;
+    --accent:#7fb0dc; --accent-soft:#1f3244; --ok:#6cc08c; --ok-soft:#1c3326; --warn:#e0a54c; --warn-soft:#3a2d17;
+    --crit:#e27d7d; --crit-soft:#3d2020; --owner:#223029; --tell:#332d1c; --bar:#e3e8e5; --bar-ink:#121614;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --ground:#121614; --surface:#1a1f1d; --raised:#222826; --ink:#e3e8e5; --muted:#8f9994; --line:#323a36;
+  --accent:#7fb0dc; --accent-soft:#1f3244; --ok:#6cc08c; --ok-soft:#1c3326; --warn:#e0a54c; --warn-soft:#3a2d17;
+  --crit:#e27d7d; --crit-soft:#3d2020; --owner:#223029; --tell:#332d1c; --bar:#e3e8e5; --bar-ink:#121614;
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;padding-inline:16px;padding-block:16px 96px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.intro{max-width:1180px;margin:0 auto 12px;display:flex;flex-wrap:wrap;gap:4px 16px;align-items:baseline}
+.intro h1{font-size:16px;font-weight:600;margin:0}
+.intro p{margin:0;color:var(--muted);font-size:13px}
+.stage{overflow-x:auto;padding-bottom:8px}
+.device{container-type:inline-size;margin:0 auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.device.desktop{width:1180px;height:740px}
+.device.phone{width:min(390px,100%);height:780px;border-radius:28px;border-width:8px;border-color:var(--ink)}
+.app{flex:1;min-height:0;display:flex;flex-direction:column}
+.mono{font-family:var(--mono);font-size:12.5px}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.row{display:flex;gap:8px;align-items:center}
+.grow{flex:1;min-width:0}
+.scroll{overflow-y:auto;min-height:0}
+.ellip{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn{border:1px solid var(--line);background:var(--raised);border-radius:6px;padding:5px 10px;font-size:13px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.btn.danger{color:var(--crit);border-color:var(--crit)}
+.btn.ghost{border-color:transparent;background:transparent}
+.chip{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:500;padding:1px 7px;border-radius:999px;white-space:nowrap;letter-spacing:.01em}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.crit{background:var(--crit-soft);color:var(--crit)}
+.chip.info{background:var(--accent-soft);color:var(--accent)}
+.chip.plain{background:var(--ground);color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--muted)}
+.dot.live{background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
+.dot.queued{background:var(--warn)}
+.dot.ended{background:transparent;border:1.5px solid var(--muted)}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600}
+.count{background:var(--crit);color:var(--surface);border-radius:999px;font-size:11px;font-weight:600;padding:0 6px;font-variant-numeric:tabular-nums}
+.head{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--surface);min-height:48px}
+.head h2{font-size:15px;margin:0;font-weight:600}
+.back{border:none;background:none;color:var(--accent);padding:4px 6px 4px 0;font-size:14px}
+
+/* chat */
+.chat{display:flex;flex-direction:column;flex:1;min-height:0}
+.msgs{flex:1;display:flex;flex-direction:column;gap:10px;padding:14px;overflow-y:auto;min-height:0}
+.msg{max-width:82%;padding:8px 11px;border-radius:10px;background:var(--raised);border:1px solid var(--line)}
+.msg.owner{align-self:flex-end;background:var(--owner);border-color:transparent}
+.msg.tell{background:var(--tell);border-color:transparent}
+.msg.sys{align-self:center;background:var(--warn-soft);color:var(--warn);border:none;font-size:13px;max-width:92%}
+.msg .meta{font-size:11.5px;color:var(--muted);margin-bottom:2px;display:flex;gap:6px;flex-wrap:wrap}
+.msg p{margin:0}
+.msg .brief{margin-top:8px;border:1px dashed var(--line);border-radius:6px;padding:8px;background:var(--surface);font-size:13px}
+.typing{align-self:flex-start;color:var(--muted);font-size:13px;display:flex;gap:8px;align-items:center}
+.composer{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line);background:var(--surface);align-items:flex-end}
+.composer textarea{flex:1;resize:none;height:40px;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:inherit;background:var(--raised);color:var(--ink)}
+
+/* lists */
+.list{display:flex;flex-direction:column}
+.item{display:flex;gap:10px;align-items:flex-start;padding:10px 14px;border-bottom:1px solid var(--line);background:none;border-left:none;border-right:none;border-top:none;text-align:left;width:100%}
+.item:hover{background:var(--raised)}
+.item.sel{background:var(--accent-soft)}
+.item .t{font-weight:500}
+.tasks .item{align-items:center}
+.num{font-family:var(--mono);font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* tree */
+.tree{padding:6px 0}
+.node{display:flex;gap:8px;align-items:center;width:100%;border:none;background:none;text-align:left;padding:6px 12px;font-size:13.5px}
+.node:hover{background:var(--raised)}
+.node.sel{background:var(--accent-soft)}
+.node .role{font-weight:600}
+.node .h{font-size:12px;color:var(--muted)}
+.guide{font-family:var(--mono);color:var(--line);white-space:pre;font-size:13px}
+.group{padding:10px 12px 4px}
+
+/* transcript */
+.tx{padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.tr{display:grid;grid-template-columns:44px 64px 1fr;gap:8px;align-items:baseline;padding:6px 8px;border-radius:6px}
+.tr:hover{background:var(--raised)}
+.tr .k{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.tr .k.prompt{color:var(--accent)}
+.tr .k.update{color:var(--muted)}
+.tr .k.mcp{color:var(--ok)}
+.tr .k.err{color:var(--crit)}
+.tr pre{margin:4px 0 0;font-family:var(--mono);font-size:12px;background:var(--ground);padding:6px 8px;border-radius:4px;white-space:pre-wrap;word-break:break-word}
+.readonly{font-size:12px;color:var(--muted);padding:8px 14px;border-top:1px solid var(--line);background:var(--surface)}
+
+/* feed, inbox */
+.feed .item{font-size:13px}
+.time{font-family:var(--mono);font-size:12px;color:var(--muted);width:40px;flex:none;font-variant-numeric:tabular-nums}
+.filter{display:flex;gap:6px;padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.filter button{border:1px solid var(--line);background:var(--raised);border-radius:999px;padding:2px 10px;font-size:12px}
+.filter button.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+
+/* tabs */
+.tabs{display:flex;border-bottom:1px solid var(--line);background:var(--surface);overflow-x:auto}
+.tabs button{border:none;background:none;padding:10px 14px;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
+.tabs button.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}
+.bottomnav{display:flex;border-top:1px solid var(--line);background:var(--surface)}
+.bottomnav button{flex:1;border:none;background:none;padding:9px 0 11px;font-size:12px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px}
+.bottomnav button.on{color:var(--accent);font-weight:600}
+.bottomnav .glyph{font-size:16px;line-height:1}
+
+/* variant A */
+.va{flex:1;display:flex;min-height:0}
+.va .rail{width:240px;border-right:1px solid var(--line);display:flex;flex-direction:column;background:var(--surface)}
+.va .center{flex:1;display:flex;flex-direction:column;min-width:0}
+.va .side{width:360px;border-left:1px solid var(--line);display:flex;flex-direction:column;background:var(--surface)}
+.navbtn{display:flex;align-items:center;gap:8px;border:none;background:none;width:100%;text-align:left;padding:7px 14px;font-size:13.5px}
+.navbtn:hover{background:var(--raised)}
+.navbtn.sel{background:var(--accent-soft);color:var(--accent);font-weight:500}
+.brand{font-weight:600;padding:14px;letter-spacing:.02em;display:flex;align-items:center;gap:8px}
+.brand .ring{width:14px;height:14px;border:3px solid var(--accent);border-radius:50%;border-right-color:transparent}
+.sheet{position:absolute;inset:auto 0 0 0;height:72%;background:var(--surface);border-top-left-radius:14px;border-top-right-radius:14px;box-shadow:0 -8px 30px rgba(0,0,0,.18);display:flex;flex-direction:column}
+.sheet .grab{width:40px;height:4px;border-radius:2px;background:var(--line);margin:8px auto 0}
+
+/* variant B */
+.vb-top{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--surface)}
+.vb-home{flex:1;display:grid;grid-template-columns:1fr;gap:14px;padding:14px;overflow-y:auto;min-height:0;align-content:start}
+.panel{background:var(--raised);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.panel > .ph{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line)}
+.panel > .ph h3{margin:0;font-size:13.5px;font-weight:600}
+.wscards{display:grid;grid-template-columns:1fr;gap:0}
+.wscard{padding:12px;border:none;border-bottom:1px solid var(--line);background:none;text-align:left;display:flex;flex-direction:column;gap:6px;width:100%}
+.wscard:hover{background:var(--surface)}
+.bars{display:flex;gap:3px}
+.bars span{height:6px;border-radius:2px;flex:1}
+@container (min-width: 760px){
+  .vb-home{grid-template-columns:1.1fr 1fr}
+  .vb-home .span{grid-column:1 / -1}
+  .wscards{grid-template-columns:repeat(3,1fr)}
+  .wscard{border-bottom:none;border-right:1px solid var(--line)}
+  .wscard:last-child{border-right:none}
+}
+.vb-ws{flex:1;display:flex;flex-direction:column;min-height:0}
+.vb-split{flex:1;display:flex;min-height:0}
+.vb-split > .main{flex:1;display:flex;flex-direction:column;min-width:0}
+.vb-split > .aside{display:none}
+@container (min-width: 760px){
+  .vb-split > .aside{display:flex;flex-direction:column;width:340px;border-left:1px solid var(--line);background:var(--surface)}
+}
+
+/* variant C */
+.vc{flex:1;display:flex;min-height:0}
+.vc .nav{width:300px;border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column}
+.vc .main{flex:1;display:flex;flex-direction:column;min-width:0}
+.crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.crumbs button{border:none;background:none;padding:0;color:var(--accent)}
+.detail{padding:14px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;min-height:0}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:4px 12px;font-size:13px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0}
+
+/* login, devices */
+.login{flex:1;display:flex;align-items:center;justify-content:center;padding:24px}
+.login form{width:min(320px,100%);display:flex;flex-direction:column;gap:12px}
+.login input{border:1px solid var(--line);border-radius:8px;padding:10px;font:inherit;background:var(--raised);color:var(--ink)}
+.login .err{color:var(--crit);font-size:13px;min-height:18px}
+.devices .item{align-items:center}
+
+/* switcher */
+.switcher{position:fixed;left:50%;transform:translateX(-50%);bottom:0;margin-bottom:calc(12px + env(safe-area-inset-bottom,0px));background:var(--bar);color:var(--bar-ink);border-radius:999px;display:flex;align-items:center;gap:2px;padding:4px;box-shadow:0 6px 24px rgba(0,0,0,.28);font-size:13px;z-index:10;max-width:calc(100% - 16px);flex-wrap:wrap;justify-content:center}
+.switcher button{border:none;background:none;color:inherit;padding:6px 10px;border-radius:999px}
+.switcher button:hover{background:rgba(127,127,127,.25)}
+.switcher button.on{background:var(--bar-ink);color:var(--bar)}
+.switcher .name{padding:0 8px;font-weight:600;white-space:nowrap}
+.switcher .sep{width:1px;height:18px;background:rgba(127,127,127,.5);margin:0 4px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="intro">
+  <h1>Mobius UI prototype</h1>
+  <p>Three layouts of the same data. Use the bar at the bottom, or the ← and → keys. Sample data only. This prototype is throwaway.</p>
+</div>
+<div class="stage"><div id="device" class="device desktop"><div id="app" class="app"></div></div></div>
+<div class="switcher" id="switcher"></div>
+
+<script>
+const REPO = 'acme/shop';
+
+const WS = [
+  {n:120, title:'Integrate loyalty plans', autopilot:true, lead:'Claude Code', unread:2, brief:'Add loyalty plans to checkout. Customers pick a plan, and the price rule applies at checkout. Use integer cents. Do not change the payment provider.'},
+  {n:134, title:'Billing cleanup', autopilot:false, lead:'Antigravity', unread:1, brief:'Remove the old invoice code and move all invoices to the new totals module.'},
+  {n:151, title:'Checkout speed', autopilot:false, lead:'Claude Code', unread:0, brief:'Make the checkout page load in less than 1 second on a 4G phone.'},
+];
+
+const TASKS = {
+  120:[
+    {n:141, title:'Add plan model', state:'working', text:'PR #145 draft, Mobius success, fix round 1/3'},
+    {n:142, title:'Plan API', state:'ready', text:'blocked by #141'},
+    {n:143, title:'Plan UI', state:'queued', text:'no free Devin slot (2/2)'},
+    {n:144, title:'Price rounding', state:'needs-human', text:'PR #147, Mobius failure'},
+    {n:146, title:'Invoice totals', state:'ready', text:'blocked by #88 (Workstream "Billing cleanup")'},
+    {n:148, title:'Plan emails', state:'none', text:''},
+  ],
+  134:[
+    {n:88, title:'Move invoices to totals module', state:'working', text:'PR #152 draft, check queued'},
+    {n:89, title:'Delete old invoice code', state:'ready', text:'blocked by #88'},
+  ],
+  151:[
+    {n:155, title:'Measure checkout load time', state:'none', text:''},
+  ],
+};
+
+const STATE_CHIP = {
+  'working':['info','working'], 'ready':['plain','ready'], 'queued':['warn','queued'],
+  'needs-human':['crit','needs human'], 'none':['plain','no label'],
+};
+
+const SESSIONS = [
+  {id:'s1', ws:120, role:'Lead', kind:'chat session', harness:'Claude Code', model:'opus', status:'live', start:'13:40', parent:null},
+  {id:'s2', ws:120, role:'Lead', kind:'event session', harness:'Claude Code', model:'opus', status:'ended', start:'14:02', end:'14:17', reason:'idle', parent:null},
+  {id:'s3', ws:120, role:'Implementer', task:141, harness:'Devin', model:'swe-1.5', status:'live', start:'13:42', parent:'s1'},
+  {id:'s4', ws:120, role:'Reviewer', task:141, harness:'Antigravity', model:'gemini-3-pro', status:'ended', start:'14:05', end:'14:09', reason:'done', parent:'s3'},
+  {id:'s5', ws:120, role:'Implementer', task:144, harness:'Devin', model:'swe-1.5', status:'ended', start:'13:20', end:'13:58', reason:'done', parent:'s2'},
+  {id:'s6', ws:120, role:'Judge', task:144, harness:'Claude Code', model:'haiku', status:'ended', start:'14:01', end:'14:01', reason:'done', parent:'s5'},
+  {id:'s7', ws:120, role:'Researcher', q:'Where does the code round prices?', harness:'Claude Code', model:'sonnet', status:'ended', start:'13:30', end:'13:36', reason:'done', parent:'s1'},
+  {id:'s8', ws:120, role:'Implementer', task:143, harness:'Devin', status:'queued', start:'', parent:'s1'},
+  {id:'s9', ws:134, role:'Lead', kind:'chat session', harness:'Antigravity', model:'gemini-3-pro', status:'paused', start:'14:10', parent:null},
+  {id:'s10', ws:134, role:'Implementer', task:88, harness:'Devin', model:'swe-1.5', status:'live', start:'13:55', parent:null},
+  {id:'s11', ws:null, role:'Triager', kind:'issue #160 with no Workstream', harness:'Claude Code', model:'sonnet', status:'ended', start:'12:40', end:'12:44', reason:'done', parent:null},
+  {id:'s12', ws:null, role:'Triager', kind:'New Workstream chat', harness:'Claude Code', model:'sonnet', status:'ended', start:'12:30', end:'12:45', reason:'idle', parent:null},
+];
+
+const CHAT = {
+  120:[
+    {who:'Owner', t:'13:40', text:'Start with the plan model. Use cents for all prices.'},
+    {who:'Lead', t:'13:41', text:'I created #141 Add plan model and #142 Plan API. #142 waits for #141. Autopilot is on, so I started an Implementer on #141. I also asked a Researcher where the code rounds prices.'},
+    {who:'tell_owner', t:'14:02', text:'#144 Price rounding needs your answer: round half-up or half-even? The Judge found a question in the PR comments. See the Inbox.'},
+    {who:'Owner', t:'14:12', text:'Half-up. Add a test for 0.005.'},
+  ],
+  134:[
+    {who:'Owner', t:'14:10', text:'What blocks #89?'},
+    {who:'sys', t:'14:10', text:'Antigravity: usage limit, resumes 15:00. Mobius sends your message again at 15:00.'},
+  ],
+  151:[],
+  triager:[
+    {who:'Owner', t:'12:30', text:'I want a Workstream for a faster checkout page.'},
+    {who:'Triager', t:'12:31', text:'Here is a draft Brief. Tell me what to change, or approve it.', brief:'Checkout speed\n\nMake the checkout page load in less than 1 second on a 4G phone. Do not change the payment provider. Measure first, then fix the slowest parts.'},
+    {who:'Owner', t:'12:33', text:'Approve.'},
+    {who:'Triager', t:'12:33', text:'I created the Workstream issue #151 Checkout speed. The chat of its Lead opens now.'},
+  ],
+};
+
+const TRANSCRIPT = [
+  {t:'13:42', k:'prompt', text:'Role prompt: Implementer', body:'You are an Implementer. Change code in this worktree and finish when the task is done. Do not use gh. Use the Mobius tools. …', fold:true},
+  {t:'13:42', k:'prompt', text:'Brief, issue #141 "Add plan model", Lead instructions', body:'Lead instructions: Add a Plan struct with price_cents: i64. Do not add the API. #142 does that.'},
+  {t:'13:42', k:'update', text:'agent message', body:'I read the order model first, so the plan model uses the same money type.'},
+  {t:'13:43', k:'update', text:'tool call · read · src/orders/model.rs', status:'ok'},
+  {t:'13:45', k:'update', text:'tool call · edit · src/plans/model.rs  +84 −0', status:'ok'},
+  {t:'13:47', k:'update', text:'tool call · execute · cargo test plans', body:'test result: ok. 12 passed; 0 failed', status:'ok'},
+  {t:'13:48', k:'mcp', text:'mobius · reply_thread', raw:'mcp__mobius__reply_thread', body:'{"thread":"PRRT_kw…","text":"Fixed in the next push.","resolve":true}\n→ held until the push'},
+  {t:'13:49', k:'err', text:'mobius · create_issue', raw:'mcp__mobius__create_issue', body:'→ validation error: Implementer has no tool create_issue'},
+  {t:'13:50', k:'update', text:'agent message', body:'The plan model is done. The tests pass.'},
+  {t:'13:50', k:'update', text:'end of turn · done'},
+];
+
+const INBOX = [
+  {kind:'question', cls:'crit', ws:120, n:144, text:'Price rounding: round half-up or half-even?', t:'14:02'},
+  {kind:'ready for review', cls:'ok', ws:134, n:139, text:'PR #139 "Totals module" is ready for review.', t:'13:50'},
+  {kind:'usage limit', cls:'warn', ws:null, text:'Antigravity: usage limit, resumes 15:00.', t:'14:10', resume:true},
+  {kind:'stale PR', cls:'plain', ws:120, n:118, text:'PR #118 has no activity for 14 days.', t:'09:00'},
+  {kind:'stopped', cls:'crit', ws:134, n:90, text:'#90 stopped: a human removed mobius:working.', t:'11:21'},
+];
+
+const FEED = [
+  {t:'14:12', ws:120, text:'Owner message in chat'},
+  {t:'14:10', ws:134, text:'Antigravity paused until 15:00 (usage limit)'},
+  {t:'14:09', ws:120, text:'#141 Reviewer round 1: 2 threads'},
+  {t:'14:06', ws:120, text:'#141 Mobius check: success'},
+  {t:'14:02', ws:120, text:'#144 Judge: 1 question, 1 fix → needs human'},
+  {t:'13:58', ws:120, text:'#143 queued: no free Devin slot (2/2)'},
+  {t:'13:55', ws:134, text:'#88 Implementer started (Devin)'},
+  {t:'13:50', ws:134, text:'PR #139 ready for review'},
+  {t:'13:42', ws:120, text:'#141 Implementer started (Devin)'},
+  {t:'12:44', ws:null, text:'#160 moved to Workstream "Checkout speed" by Triager'},
+];
+
+const DEVICES = [
+  {ua:'Firefox 131, macOS', t:'2026-09-26 14:02', me:true},
+  {ua:'Safari, iPhone iOS 19', t:'2026-09-20 09:11'},
+  {ua:'Chrome 140, Linux', t:'2026-08-02 18:45'},
+];
+
+const VARIANTS = [
+  {key:'a', name:'Chat first'},
+  {key:'b', name:'Inbox first'},
+  {key:'c', name:'Tree first'},
+];
+
+const S = {variant:'a', device:'desktop', screen:'app', view:'chat', ws:120, session:null, tab:'chat', feedWs:'all', sheet:false, loginErr:''};
+
+function wsOf(n){ return WS.find(w => w.n === n); }
+function sess(id){ return SESSIONS.find(s => s.id === id); }
+function nav(o){ return `data-nav='${JSON.stringify(o)}'`; }
+function isPhone(){ return S.device === 'phone'; }
+function inboxCount(){ return INBOX.length; }
+
+function chip([cls, text]){ return `<span class="chip ${cls}">${text}</span>`; }
+function sessLabel(s){
+  if (s.role === 'Lead') return s.kind;
+  if (s.task) return `#${s.task} ${(TASKS[s.ws] || []).find(t => t.n === s.task)?.title ?? ''}`;
+  if (s.q) return s.q;
+  return s.kind || '';
+}
+function statusChip(s){
+  if (s.status === 'live') return chip(['ok','live']);
+  if (s.status === 'queued') return chip(['warn','queued']);
+  if (s.status === 'paused') return chip(['warn','paused until 15:00']);
+  return chip(['plain', `ended · ${s.reason}`]);
+}
+function dotCls(s){ return s.status === 'live' ? 'live' : (s.status === 'queued' || s.status === 'paused') ? 'queued' : 'ended'; }
+
+function autopilotChip(w){ return w.autopilot ? chip(['info','Autopilot on']) : chip(['plain','Autopilot off']); }
+
+function chatView(key){
+  const msgs = CHAT[key] || [];
+  const isTriager = key === 'triager';
+  const live = key === 120;
+  const body = msgs.map(m => {
+    if (m.who === 'sys') return `<div class="msg sys">${m.t} · ${m.text}</div>`;
+    const cls = m.who === 'Owner' ? 'owner' : m.who === 'tell_owner' ? 'tell' : '';
+    const who = m.who === 'tell_owner' ? 'Lead · event session' : m.who;
+    return `<div class="msg ${cls}"><div class="meta"><span>${who}</span><span>${m.t}</span></div><p>${m.text}</p>${m.brief ? `<div class="brief"><div class="label">Draft Brief</div><div style="white-space:pre-wrap">${m.brief}</div></div>` : ''}</div>`;
+  }).join('') || `<div class="muted small" style="margin:auto">No messages. Write to start a chat session.</div>`;
+  return `<div class="chat">
+    <div class="msgs">${body}${live ? `<div class="typing"><span class="dot live"></span>The Lead writes a reply.</div>` : ''}</div>
+    <div class="composer">
+      <textarea id="composer-${key}" placeholder="${isTriager ? 'Describe the new Workstream' : 'Message the Lead'}"></textarea>
+      ${live ? `<button class="btn danger">Stop</button>` : ''}
+      <button class="btn primary">Send</button>
+    </div>
+  </div>`;
+}
+
+function taskList(n){
+  return `<div class="list tasks">${(TASKS[n] || []).map(t => `
+    <div class="item"><span class="num">#${t.n}</span><div class="grow"><div class="t ellip">${t.title}</div>${t.text ? `<div class="muted small ellip">${t.text}</div>` : ''}</div>${chip(STATE_CHIP[t.state])}</div>`).join('')}</div>`;
+}
+
+function treeRows(list, depth, onPick){
+  let out = '';
+  for (const s of list) {
+    const kids = SESSIONS.filter(k => k.parent === s.id);
+    out += `<button class="node ${S.session === s.id ? 'sel' : ''}" ${nav(onPick(s))} style="padding-left:${12 + depth * 18}px">
+      <span class="dot ${dotCls(s)}"></span>
+      <span class="grow"><span class="role">${s.role}</span> <span class="ellip">${sessLabel(s)}</span><br><span class="h">${s.harness}${s.model ? ' · ' + s.model : ''}${s.start ? ' · ' + s.start + (s.end ? '–' + s.end : '') : ''}</span></span>
+      ${s.status === 'live' ? '' : s.status === 'queued' ? chip(['warn','queued']) : s.status === 'paused' ? chip(['warn','paused']) : ''}
+    </button>`;
+    out += treeRows(kids, depth + 1, onPick);
+  }
+  return out;
+}
+function agentTree(wsN, onPick){
+  const roots = SESSIONS.filter(s => s.ws === wsN && !s.parent);
+  return `<div class="tree">${treeRows(roots, 0, onPick)}</div>`;
+}
+
+function transcriptView(id){
+  const s = sess(id);
+  const rows = s.status === 'queued'
+    ? `<div class="muted small" style="padding:14px">This session waits for a free Devin slot (2/2). The transcript starts when it starts.</div>`
+    : TRANSCRIPT.map(r => `<div class="tr">
+      <span class="time">${r.t}</span>
+      <span class="k ${r.k}">${r.k === 'err' ? 'mcp ✕' : r.k}</span>
+      <div><div class="${r.k === 'mcp' || r.k === 'err' ? 'mono' : ''}">${r.text}${r.raw ? ` <span class="muted small">(${r.raw})</span>` : ''}${r.fold ? ' <button class="btn ghost small">Show</button>' : ''}</div>${r.body && !r.fold ? `<pre>${r.body}</pre>` : ''}</div>
+    </div>`).join('');
+  return `<div class="grow scroll"><div class="tx">
+    <div class="row small muted" style="flex-wrap:wrap;gap:6px 10px"><span>${s.role} · ${s.harness}${s.model ? ' · ' + s.model : ''}</span>${statusChip(s)}<span>started by ${s.parent ? sess(s.parent).role + ' ' + sessLabel(sess(s.parent)) : 'Mobius'}</span></div>
+    ${rows}
+  </div></div><div class="readonly">Read only. The Owner talks only to the Lead.</div>`;
+}
+
+function inboxView(){
+  return `<div class="list">${INBOX.map(i => `
+    <div class="item"><div class="grow"><div class="row" style="flex-wrap:wrap">${chip([i.cls, i.kind])}<span class="muted small">${i.ws ? wsOf(i.ws).title : 'All Workstreams'}${i.n ? ' · #' + i.n : ''}</span><span class="grow"></span><span class="time">${i.t}</span></div><div style="margin-top:4px">${i.text}</div>
+    <div class="row" style="margin-top:6px">${i.resume ? '<button class="btn primary">Resume now</button>' : i.n ? `<button class="btn">Open on GitHub</button>` : ''}<button class="btn ghost">Dismiss</button></div></div></div>`).join('')}</div>`;
+}
+
+function feedView(fixedWs){
+  const f = fixedWs ?? S.feedWs;
+  const rows = FEED.filter(e => f === 'all' || e.ws === f);
+  const filter = fixedWs ? '' : `<div class="filter"><button class="${S.feedWs === 'all' ? 'on' : ''}" ${nav({feedWs:'all'})}>All</button>${WS.map(w => `<button class="${S.feedWs === w.n ? 'on' : ''}" ${nav({feedWs:w.n})}>${w.title}</button>`).join('')}</div>`;
+  return `${filter}<div class="list feed">${rows.map(e => `<div class="item"><span class="time">${e.t}</span><div class="grow">${e.text}${!fixedWs ? `<div class="muted small">${e.ws ? wsOf(e.ws).title : 'Triager'}</div>` : ''}</div></div>`).join('')}</div>`;
+}
+
+function devicesView(){
+  return `<div class="list devices">${DEVICES.map(d => `<div class="item"><div class="grow"><div class="t">${d.ua}</div><div class="muted small">logged in ${d.t}</div></div>${d.me ? chip(['info','this device']) : ''}<button class="btn" ${d.me ? nav({screen:'login'}) : ''}>Log out</button></div>`).join('')}</div>
+  <p class="muted small" style="padding:0 14px">To log out all devices, change the access password in the config file and restart Mobius.</p>`;
+}
+
+function loginView(){
+  return `<div class="login"><form id="login-form">
+    <div class="brand" style="padding:0"><span class="ring"></span>Mobius</div>
+    <label for="pw" class="label">Access password</label>
+    <input id="pw" type="password" autocomplete="current-password" placeholder="Type any text, or 'letmein'">
+    <div class="err" id="login-err">${S.loginErr}</div>
+    <button class="btn primary" type="submit">Log in</button>
+  </form></div>`;
+}
+
+/* ---------- Variant A: chat first ---------- */
+function variantA(){
+  const w = wsOf(S.ws);
+  const railItems = `
+    <div class="brand"><span class="ring"></span>Mobius</div>
+    <button class="navbtn ${S.view === 'inbox' ? 'sel' : ''}" ${nav({view:'inbox'})}>Inbox <span class="grow"></span><span class="count">${inboxCount()}</span></button>
+    <button class="navbtn ${S.view === 'feed' ? 'sel' : ''}" ${nav({view:'feed'})}>Activity</button>
+    <button class="navbtn ${S.view === 'triagerSessions' ? 'sel' : ''}" ${nav({view:'triagerSessions', session:null})}>Triager</button>
+    <div class="group label">Workstreams</div>
+    ${WS.map(x => `<button class="navbtn ${S.view === 'chat' && S.ws === x.n ? 'sel' : ''}" ${nav({view:'chat', ws:x.n, session:null})}><span class="grow ellip">${x.title}</span>${x.unread ? `<span class="count">${x.unread}</span>` : ''}</button>`).join('')}
+    <button class="navbtn ${S.view === 'triager' ? 'sel' : ''}" ${nav({view:'triager'})} style="color:var(--accent)">+ New Workstream</button>
+    <div class="grow"></div>
+    <button class="navbtn ${S.view === 'devices' ? 'sel' : ''}" ${nav({view:'devices'})}>Devices</button>`;
+
+  const pick = s => ({session:s.id, sheet:true});
+
+  if (!isPhone()) {
+    let center, side = '';
+    if (S.view === 'chat') {
+      center = `<div class="head"><h2 class="ellip">${w.title}</h2><span class="num">#${w.n}</span>${autopilotChip(w)}<span class="grow"></span><span class="muted small">Lead: ${w.lead}</span></div>${chatView(w.n)}`;
+      side = S.session
+        ? `<div class="head"><button class="back" ${nav({session:null})}>‹ Agents</button><h2 class="ellip">${sess(S.session).role} ${sessLabel(sess(S.session))}</h2></div>${transcriptView(S.session)}`
+        : `<div class="tabs">${['agents','tasks'].map(t => `<button class="${S.tab === t || (t === 'agents' && S.tab === 'chat') ? 'on' : ''}" ${nav({tab:t})}>${t === 'agents' ? 'Agents' : 'Tasks'}</button>`).join('')}</div><div class="grow scroll">${S.tab === 'tasks' ? taskList(w.n) : agentTree(w.n, pick)}</div>`;
+    } else if (S.view === 'triager') {
+      center = `<div class="head"><h2>New Workstream</h2><span class="muted small">Triager · Claude Code</span></div>${chatView('triager')}`;
+    } else if (S.view === 'inbox') {
+      center = `<div class="head"><h2>Inbox</h2></div><div class="grow scroll">${inboxView()}</div>`;
+    } else if (S.view === 'feed') {
+      center = `<div class="head"><h2>Activity</h2></div><div class="grow scroll">${feedView()}</div>`;
+    } else if (S.view === 'triagerSessions') {
+      center = `<div class="head"><h2>Triager</h2><span class="muted small">Sessions of the Triager: New Workstream chats and issues with no Workstream</span></div><div class="grow scroll">${agentTree(null, s => ({session:s.id}))}</div>`;
+      side = S.session ? `<div class="head"><h2 class="ellip">${sess(S.session).role} ${sessLabel(sess(S.session))}</h2></div>${transcriptView(S.session)}` : '';
+    } else {
+      center = `<div class="head"><h2>Devices</h2></div><div class="grow scroll">${devicesView()}</div>`;
+    }
+    return `<div class="va"><div class="rail">${railItems}</div><div class="center">${center}</div>${side ? `<div class="side">${side}</div>` : ''}</div>`;
+  }
+
+  let screen;
+  const tab = S.view === 'inbox' ? 'inbox' : S.view === 'feed' ? 'feed' : S.view === 'devices' ? 'devices' : 'ws';
+  if (S.view === 'chat') {
+    const sheet = S.sheet ? `<div class="sheet">
+      <div class="grab"></div>
+      ${S.session
+        ? `<div class="head"><button class="back" ${nav({session:null})}>‹ Agents</button><h2 class="ellip">${sess(S.session).role}</h2><span class="grow"></span><button class="btn ghost" ${nav({sheet:false, session:null})}>Close</button></div>${transcriptView(S.session)}`
+        : `<div class="head"><h2>Agents</h2><span class="grow"></span><button class="btn ghost" ${nav({sheet:false})}>Close</button></div><div class="tabs">${['agents','tasks'].map(t => `<button class="${S.tab === t || (t === 'agents' && S.tab === 'chat') ? 'on' : ''}" ${nav({tab:t})}>${t === 'agents' ? 'Agents' : 'Tasks'}</button>`).join('')}</div><div class="grow scroll">${S.tab === 'tasks' ? taskList(w.n) : agentTree(w.n, pick)}</div>`}
+    </div>` : '';
+    screen = `<div class="head"><button class="back" ${nav({view:'list'})}>‹</button><div class="grow"><h2 class="ellip">${w.title}</h2><div class="small muted">${w.autopilot ? 'Autopilot on' : 'Autopilot off'} · Lead: ${w.lead}</div></div><button class="btn" ${nav({sheet:true})}>Agents</button></div>
+      <div style="position:relative;flex:1;display:flex;flex-direction:column;min-height:0">${chatView(w.n)}${sheet}</div>`;
+  } else if (S.view === 'triager') {
+    screen = `<div class="head"><button class="back" ${nav({view:'list'})}>‹</button><h2>New Workstream</h2></div>${chatView('triager')}`;
+  } else if (S.view === 'inbox') {
+    screen = `<div class="head"><h2>Inbox</h2></div><div class="grow scroll">${inboxView()}</div>`;
+  } else if (S.view === 'feed') {
+    screen = `<div class="head"><h2>Activity</h2></div><div class="grow scroll">${feedView()}</div>`;
+  } else if (S.view === 'devices') {
+    screen = `<div class="head"><h2>Devices</h2></div><div class="grow scroll">${devicesView()}</div>`;
+  } else if (S.view === 'triagerSessions') {
+    screen = S.session
+      ? `<div class="head"><button class="back" ${nav({session:null})}>‹ Triager</button><h2 class="ellip">${sessLabel(sess(S.session))}</h2></div>${transcriptView(S.session)}`
+      : `<div class="head"><button class="back" ${nav({view:'list'})}>‹</button><h2>Triager</h2></div><div class="grow scroll">${agentTree(null, s => ({session:s.id}))}</div>`;
+  } else {
+    screen = `<div class="head"><h2>Workstreams</h2><span class="grow"></span><button class="btn" ${nav({view:'triager'})}>+ New</button></div>
+      <div class="grow scroll list">${WS.map(x => `<button class="item" ${nav({view:'chat', ws:x.n, session:null, sheet:false})}><div class="grow"><div class="t">${x.title}</div><div class="muted small">${x.autopilot ? 'Autopilot on · ' : ''}${SESSIONS.filter(s => s.ws === x.n && s.status === 'live').length} agents live</div></div>${x.unread ? `<span class="count">${x.unread}</span>` : ''}</button>`).join('')}
+      <button class="item" ${nav({view:'triagerSessions', session:null})}><div class="grow"><div class="t">Triager</div><div class="muted small">${SESSIONS.filter(s => s.role === 'Triager').length} sessions</div></div></button></div>`;
+  }
+  return `${screen}<div class="bottomnav">
+    <button class="${tab === 'ws' ? 'on' : ''}" ${nav({view:'list'})}><span class="glyph">◎</span>Workstreams</button>
+    <button class="${tab === 'inbox' ? 'on' : ''}" ${nav({view:'inbox'})}><span class="glyph">▤</span>Inbox ${inboxCount()}</button>
+    <button class="${tab === 'feed' ? 'on' : ''}" ${nav({view:'feed'})}><span class="glyph">≡</span>Activity</button>
+    <button class="${tab === 'devices' ? 'on' : ''}" ${nav({view:'devices'})}><span class="glyph">▢</span>Devices</button>
+  </div>`;
+}
+
+/* ---------- Variant B: inbox first ---------- */
+function variantB(){
+  const top = `<div class="vb-top"><div class="brand" style="padding:0"><span class="ring"></span>Mobius</div><span class="grow"></span>
+    ${S.view === 'home' ? '' : `<button class="btn ghost" ${nav({view:'home', session:null})}>Home</button>`}
+    <button class="btn ghost" ${nav({view:'devices'})}>Devices</button></div>`;
+
+  if (S.view === 'devices') return `${top}<div class="head"><h2>Devices</h2></div><div class="grow scroll">${devicesView()}</div>`;
+  if (S.view === 'triager') return `${top}<div class="head"><button class="back" ${nav({view:'home'})}>‹ Home</button><h2>New Workstream</h2></div>${chatView('triager')}`;
+
+  if (S.view === 'session') {
+    const s = sess(S.session);
+    return `${top}<div class="head"><button class="back" ${nav({view:'ws', tab:'agents', session:null})}>‹ ${wsOf(s.ws).title}</button><h2 class="ellip">${s.role} ${sessLabel(s)}</h2></div>${transcriptView(S.session)}`;
+  }
+
+  if (S.view === 'ws') {
+    const w = wsOf(S.ws);
+    const tabs = ['chat','tasks','agents','activity'];
+    const cur = tabs.includes(S.tab) ? S.tab : 'chat';
+    const pick = s => ({view:'session', session:s.id});
+    const content = cur === 'chat' ? chatView(w.n)
+      : cur === 'tasks' ? `<div class="grow scroll">${taskList(w.n)}</div>`
+      : cur === 'agents' ? `<div class="grow scroll">${agentTree(w.n, pick)}</div>`
+      : `<div class="grow scroll">${feedView(w.n)}</div>`;
+    const aside = `<div class="head"><h2>Tasks</h2></div><div class="grow scroll">${taskList(w.n)}<div class="group label">Agents</div>${agentTree(w.n, pick)}</div>`;
+    const phoneTabs = isPhone() ? tabs : ['chat','activity'];
+    return `${top}<div class="vb-ws">
+      <div class="head"><button class="back" ${nav({view:'home'})}>‹</button><h2 class="ellip">${w.title}</h2><span class="num">#${w.n}</span>${autopilotChip(w)}</div>
+      <div class="tabs">${phoneTabs.map(t => `<button class="${cur === t ? 'on' : ''}" ${nav({tab:t})}>${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
+      <div class="vb-split"><div class="main">${!isPhone() && (cur === 'tasks' || cur === 'agents') ? chatView(w.n) : content}</div><div class="aside">${aside}</div></div>
+    </div>`;
+  }
+
+  const live = SESSIONS.filter(s => s.status === 'live').length;
+  const queued = SESSIONS.filter(s => s.status === 'queued').length;
+  return `${top}<div class="vb-home">
+    <div class="panel span"><div class="ph"><h3>Inbox</h3><span class="count">${inboxCount()}</span><span class="grow"></span><span class="muted small">${live} agents live · ${queued} queued · Antigravity paused</span></div>${inboxView()}</div>
+    <div class="panel span"><div class="ph"><h3>Workstreams</h3><span class="grow"></span><button class="btn" ${nav({view:'triager'})}>+ New Workstream</button></div>
+      <div class="wscards">${WS.map(w => {
+        const ts = TASKS[w.n] || [];
+        const col = {working:'var(--accent)', ready:'var(--line)', queued:'var(--warn)', 'needs-human':'var(--crit)', none:'var(--ground)'};
+        return `<button class="wscard" ${nav({view:'ws', ws:w.n, tab:'chat'})}>
+          <div class="row"><span class="t grow ellip" style="font-weight:600">${w.title}</span>${w.unread ? `<span class="count">${w.unread}</span>` : ''}</div>
+          <div class="bars">${ts.map(t => `<span style="background:${col[t.state]}" title="#${t.n} ${t.state}"></span>`).join('')}</div>
+          <div class="muted small">${ts.length} tasks · ${ts.filter(t => t.state === 'working').length} working · ${ts.filter(t => t.state === 'needs-human').length} need you${w.autopilot ? ' · Autopilot' : ''}</div>
+          <div class="small ellip">${(CHAT[w.n] || []).slice(-1).map(m => `<span class="muted">${m.who === 'Owner' ? 'You' : 'Lead'}:</span> ${m.text}`).join('') || '<span class="muted">No chat yet</span>'}</div>
+        </button>`;}).join('')}</div></div>
+    <div class="panel span"><div class="ph"><h3>Activity</h3></div>${feedView()}</div>
+  </div>`;
+}
+
+/* ---------- Variant C: tree first ---------- */
+function variantC(){
+  const pick = s => ({view:'session', session:s.id});
+  const treeNav = `<div class="brand"><span class="ring"></span>Mobius</div>
+    <button class="navbtn ${S.view === 'inbox' ? 'sel' : ''}" ${nav({view:'inbox', session:null})}>Inbox <span class="grow"></span><span class="count">${inboxCount()}</span></button>
+    <button class="navbtn ${S.view === 'feed' ? 'sel' : ''}" ${nav({view:'feed', session:null})}>Activity</button>
+    ${WS.map(w => `
+      <button class="node ${S.view === 'chat' && S.ws === w.n ? 'sel' : ''}" ${nav({view:'chat', ws:w.n, session:null})} style="margin-top:6px"><span class="role grow ellip">${w.title}</span>${w.autopilot ? chip(['info','Autopilot']) : ''}${w.unread ? `<span class="count">${w.unread}</span>` : ''}</button>
+      <button class="node ${S.view === 'tasks' && S.ws === w.n ? 'sel' : ''}" ${nav({view:'tasks', ws:w.n, session:null})} style="padding-left:30px"><span class="h grow">Tasks (${(TASKS[w.n] || []).length})</span></button>
+      ${treeRows(SESSIONS.filter(s => s.ws === w.n && !s.parent), 1, pick)}`).join('')}
+    <div class="group label">Triager</div>
+    <button class="node ${S.view === 'triager' ? 'sel' : ''}" ${nav({view:'triager', session:null})}><span class="grow" style="color:var(--accent)">+ New Workstream</span></button>
+    ${treeRows(SESSIONS.filter(s => s.ws === null), 0, pick)}
+    <div class="grow" style="min-height:12px"></div>
+    <button class="navbtn ${S.view === 'devices' ? 'sel' : ''}" ${nav({view:'devices', session:null})}>Devices</button>`;
+
+  const crumbs = parts => `<div class="head"><div class="crumbs">${isPhone() ? `<button ${nav({view:'nav'})}>☰ Tree</button><span>/</span>` : ''}${parts}</div></div>`;
+
+  let main;
+  if (S.view === 'session') {
+    const s = sess(S.session);
+    if (s.role === 'Lead' && s.kind === 'chat session') {
+      main = `${crumbs(`<span>${wsOf(s.ws).title}</span><span>/</span><span>Lead chat</span>`)}${chatView(s.ws)}`;
+    } else {
+      main = `${crumbs(`<span>${s.ws ? wsOf(s.ws).title : 'Triager'}</span><span>/</span><span>${s.role} ${sessLabel(s)}</span>`)}${transcriptView(S.session)}`;
+    }
+  } else if (S.view === 'chat') {
+    const w = wsOf(S.ws);
+    main = `${crumbs(`<span>${w.title}</span><span>/</span><span>Lead chat</span>`)}${chatView(w.n)}`;
+  } else if (S.view === 'tasks') {
+    const w = wsOf(S.ws);
+    main = `${crumbs(`<span>${w.title}</span><span>/</span><span>Tasks</span>`)}<div class="detail">
+      <dl class="kv"><dt>Workstream issue</dt><dd>#${w.n}</dd><dt>Autopilot</dt><dd>${w.autopilot ? 'on' : 'off'}</dd><dt>Lead</dt><dd>${w.lead}</dd><dt>Brief</dt><dd>${w.brief}</dd></dl>
+      <div class="panel">${taskList(w.n)}</div></div>`;
+  } else if (S.view === 'triager') {
+    main = `${crumbs('<span>New Workstream</span>')}${chatView('triager')}`;
+  } else if (S.view === 'inbox') {
+    main = `${crumbs('<span>Inbox</span>')}<div class="grow scroll">${inboxView()}</div>`;
+  } else if (S.view === 'feed') {
+    main = `${crumbs('<span>Activity</span>')}<div class="grow scroll">${feedView()}</div>`;
+  } else if (S.view === 'devices') {
+    main = `${crumbs('<span>Devices</span>')}<div class="grow scroll">${devicesView()}</div>`;
+  } else {
+    main = '';
+  }
+
+  if (isPhone()) {
+    if (S.view === 'nav' || !main) return `<div class="grow scroll" style="display:flex;flex-direction:column">${treeNav}</div>`;
+    return main;
+  }
+  return `<div class="vc"><div class="nav scroll">${treeNav}</div><div class="main">${main || '<div class="muted" style="margin:auto">Pick a node in the tree.</div>'}</div></div>`;
+}
+
+const RENDER = {a:variantA, b:variantB, c:variantC};
+const START_VIEW = {a:'chat', b:'home', c:'chat'};
+
+function render(){
+  const dev = document.getElementById('device');
+  dev.className = `device ${S.device}`;
+  document.getElementById('app').innerHTML = S.screen === 'login' ? loginView() : RENDER[S.variant]();
+  const i = VARIANTS.findIndex(v => v.key === S.variant);
+  document.getElementById('switcher').innerHTML = `
+    <button data-cycle="-1" aria-label="Previous variant">←</button>
+    <span class="name">${S.variant.toUpperCase()} · ${VARIANTS[i].name}</span>
+    <button data-cycle="1" aria-label="Next variant">→</button>
+    <span class="sep"></span>
+    <button class="${S.device === 'desktop' ? 'on' : ''}" data-device="desktop">Desktop</button>
+    <button class="${S.device === 'phone' ? 'on' : ''}" data-device="phone">Phone</button>
+    <span class="sep"></span>
+    <button class="${S.screen === 'login' ? 'on' : ''}" data-login>Login screen</button>`;
+  history.replaceState(null, '', `#${S.variant}-${S.device}`);
+}
+
+function setVariant(key){
+  S.variant = key; S.view = START_VIEW[key]; S.session = null; S.tab = 'chat'; S.sheet = false; S.screen = 'app';
+  render();
+}
+
+document.addEventListener('click', e => {
+  const n = e.target.closest('[data-nav]');
+  if (n) { Object.assign(S, JSON.parse(n.dataset.nav)); render(); return; }
+  const c = e.target.closest('[data-cycle]');
+  if (c) { const i = VARIANTS.findIndex(v => v.key === S.variant); setVariant(VARIANTS[(i + Number(c.dataset.cycle) + VARIANTS.length) % VARIANTS.length].key); return; }
+  const d = e.target.closest('[data-device]');
+  if (d) { S.device = d.dataset.device; if (S.device === 'phone' && S.variant === 'c') S.view = 'nav'; if (S.device === 'phone' && S.variant === 'a') S.view = 'list'; render(); return; }
+  if (e.target.closest('[data-login]')) { S.screen = S.screen === 'login' ? 'app' : 'login'; S.loginErr = ''; render(); }
+});
+
+document.addEventListener('submit', e => {
+  if (e.target.id !== 'login-form') return;
+  e.preventDefault();
+  const ok = document.getElementById('pw').value === 'letmein';
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  setTimeout(() => {
+    if (ok) { S.screen = 'app'; S.loginErr = ''; } else { S.loginErr = 'Wrong password.'; }
+    render();
+  }, ok ? 0 : 1000);
+});
+
+document.addEventListener('keydown', e => {
+  if (e.target.closest('input, textarea, [contenteditable]')) return;
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const i = VARIANTS.findIndex(v => v.key === S.variant);
+  setVariant(VARIANTS[(i + (e.key === 'ArrowRight' ? 1 : -1) + VARIANTS.length) % VARIANTS.length].key);
+});
+
+const m = location.hash.match(/^#([abc])-(desktop|phone)$/);
+if (m) { S.variant = m[1]; S.device = m[2]; S.view = START_VIEW[m[1]]; }
+else if (window.innerWidth < 700) S.device = 'phone';
+if (S.device === 'phone' && S.variant === 'a') S.view = 'list';
+if (S.device === 'phone' && S.variant === 'c') S.view = 'nav';
+render();
+</script>
