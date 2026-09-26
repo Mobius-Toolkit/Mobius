@@ -124,3 +124,7 @@ _Avoid_: Rebase, sync
 **Inbox**:
 The list of all tasks that wait for a human, across all Workstreams.
 _Avoid_: Notifications, queue
+
+**Activity feed**:
+The live list of task events across all Workstreams. It does not show the Transcripts of the agents.
+_Avoid_: Log, timeline
