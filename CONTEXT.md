@@ -41,7 +41,7 @@ A kind of job that an agent does: Lead, Triager, Implementer, Researcher, Review
 _Avoid_: Agent type, persona
 
 **Role binding**:
-The Owner's choice of Harness and model for one Role.
+The Owner's choice of Harness, model, and effort level for one Role.
 _Avoid_: Agent config, profile
 
 **Role prompt**:
