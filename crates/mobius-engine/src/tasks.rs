@@ -75,6 +75,7 @@ mod tests {
             body: None,
             state: "open".to_string(),
             html_url: "https://github.com/owner/shop/issues/41".to_string(),
+            repository_url: "https://api.github.com/repos/owner/shop".to_string(),
             updated_at: time::OffsetDateTime::UNIX_EPOCH,
             labels: labels
                 .iter()

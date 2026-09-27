@@ -288,7 +288,10 @@ async fn a_conflict_round_that_does_not_merge_the_base_branch_stops_the_task() {
             .labels(REPOSITORY, 41)
             .contains(&"mobius:needs-human".to_string())
     );
-    assert_eq!(task_state(&engine, 41).await.as_deref(), Some("stopped"));
+    assert_eq!(
+        task_state(&engine, 41).await.as_deref(),
+        Some("needs_human")
+    );
     let implementers = sessions(&engine, "implementer").await;
     assert_eq!(implementers.len(), 2);
     assert_eq!(implementers[1].end_reason.as_deref(), Some("not_merged"));

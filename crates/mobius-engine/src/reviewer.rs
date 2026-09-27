@@ -6,7 +6,7 @@ use time::OffsetDateTime;
 
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
-use crate::{Engine, TIME_FORMAT, implementer, inbox, issues, lead_events, mcp, workers};
+use crate::{Engine, TIME_FORMAT, ends, implementer, inbox, issues, lead_events, mcp, workers};
 
 pub(crate) const ROLE: &str = "reviewer";
 const ROLE_PROMPT: &str = include_str!("prompts/reviewer.md");
@@ -31,7 +31,9 @@ pub(crate) async fn run(engine: Engine, job: Job) {
         "mobius: Reviewer of {}#{}: {error}",
         job.repository, job.number
     );
-    if let Err(failure) = implementer::stop(&engine, &job.repository, job.task, job.number).await {
+    if let Err(failure) =
+        implementer::hand_to_human(&engine, &job.repository, job.task, job.number).await
+    {
         eprintln!(
             "mobius: stop of {}#{}: {failure}",
             job.repository, job.number
@@ -40,6 +42,8 @@ pub(crate) async fn run(engine: Engine, job: Job) {
 }
 
 async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // The subscription comes before the first state change, so the session gets each stop of the task.
+    let mut stops = engine.stops.subscribe();
     // A task that the Lead declined during the Implementer session gets no Reviewer.
     if !engine.store.tasks().queue(job.task, "working").await? {
         return Ok(());
@@ -72,13 +76,26 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
             }),
         },
     )?;
-    let result = review(engine, job, session, &key, &mut recorder).await;
+    let result = tokio::select! {
+        result = review(engine, job, session, &key, &mut recorder) => result.map(|()| "done"),
+        () = ends::stopped(&mut stops, job.task) => Ok("stopped"),
+    };
     mcp::close(engine, &key);
-    if let Err(error) = result {
-        recorder.fail(&error.to_string()).await?;
-        return Err(error);
+    if let Ok("stopped") = result {
+        let data_dir = &engine.config.data_dir;
+        let dir = mobius_runner::review_dir(data_dir, &job.repository, session);
+        let _git = engine.git.lock().await;
+        if dir.exists() {
+            mobius_runner::remove_worktree(data_dir, &job.repository, &dir).await?;
+        }
     }
-    lead::end_session(engine, session, "done").await
+    match result {
+        Ok(reason) => lead::end_session(engine, session, reason).await,
+        Err(error) => {
+            recorder.fail(&error.to_string()).await?;
+            Err(error)
+        }
+    }
 }
 
 async fn review(

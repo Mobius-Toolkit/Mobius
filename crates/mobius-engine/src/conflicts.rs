@@ -8,30 +8,17 @@ use time::OffsetDateTime;
 
 use crate::{Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, implementer, inbox, lead_events};
 
-pub(crate) async fn check(
+pub(crate) async fn on_conflict(
     engine: &Engine,
     repository: &Repository,
+    task: &Task,
+    pull_request: PullRequest,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let tasks = engine
-        .store
-        .tasks()
-        .in_state(&repository.full_name, "ready_for_review")
-        .await?;
-    for task in tasks {
-        let Some(number) = task.pull_request else {
-            continue;
-        };
-        let pull_request = repository.pull_request(number).await?;
-        if pull_request.mergeable != Some(false) {
-            continue;
-        }
-        if OffsetDateTime::now_utc() - pull_request.created_at > engine.config.stale_pr_age {
-            stale(engine, repository, &task, &pull_request).await?;
-        } else {
-            implementer::conflict_round(engine, repository, &task, pull_request).await?;
-        }
+    if OffsetDateTime::now_utc() - pull_request.created_at > engine.config.stale_pr_age {
+        stale(engine, repository, task, &pull_request).await
+    } else {
+        implementer::conflict_round(engine, repository, task, pull_request).await
     }
-    Ok(())
 }
 
 async fn stale(

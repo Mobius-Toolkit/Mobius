@@ -272,7 +272,7 @@ async fn cannot_do_goes_to_the_lead_and_a_pull_that_is_not_a_fast_forward_stops_
             .then_some(())
     })
     .await;
-    assert_eq!(task_state(&engine).await.as_deref(), Some("stopped"));
+    assert_eq!(task_state(&engine).await.as_deref(), Some("needs_human"));
     assert!(github.pull_requests(REPOSITORY).is_empty());
     let rows = transcript(&engine, sessions[1].id).await;
     assert!(prompts(&rows).is_empty());
@@ -427,7 +427,7 @@ async fn after_max_check_attempts_mobius_pushes_marks_the_check_run_as_failed_an
             .labels(REPOSITORY, 41)
             .contains(&"mobius:needs-human".to_string())
     );
-    assert_eq!(task_state(&engine).await.as_deref(), Some("stopped"));
+    assert_eq!(task_state(&engine).await.as_deref(), Some("needs_human"));
     assert!(sessions(&engine, "reviewer").await.is_empty());
     let sessions = ended_implementers(&engine, 1).await;
     assert_eq!(sessions[0].id, session.id);

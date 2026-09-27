@@ -55,6 +55,8 @@ pub struct Issue {
     pub body: Option<String>,
     pub state: String,
     pub html_url: String,
+    // After a transfer, the URL names the new repository, because the client follows the redirect.
+    pub repository_url: String,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
     pub labels: Vec<Label>,
@@ -130,11 +132,19 @@ pub struct PullRequest {
     pub number: i64,
     pub node_id: String,
     pub html_url: String,
+    pub state: String,
+    pub merged: bool,
+    pub head: Head,
     pub draft: bool,
     // GitHub gives `null` while it computes the value.
     pub mergeable: Option<bool>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct Head {
+    pub sha: String,
 }
 
 #[derive(Deserialize)]
@@ -830,7 +840,8 @@ fn found<T>(
     match response {
         Ok(value) => Ok(Some(value)),
         Err(octocrab::Error::GitHub { source, .. })
-            if source.status_code == StatusCode::NOT_FOUND =>
+            if source.status_code == StatusCode::NOT_FOUND
+                || source.status_code == StatusCode::GONE =>
         {
             Ok(None)
         }
