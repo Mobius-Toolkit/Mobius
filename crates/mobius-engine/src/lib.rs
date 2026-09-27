@@ -1,17 +1,21 @@
 pub mod activity;
 pub mod auth;
+pub mod chat;
 pub mod config;
 pub mod github;
 mod poll;
+mod tasks;
 mod trust;
 pub mod workstreams;
 
+use std::collections::HashMap;
 use std::error::Error;
-use std::ffi::OsStr;
-use std::sync::{Arc, RwLock};
+use std::ffi::{OsStr, OsString};
+use std::sync::{Arc, Mutex, RwLock};
 
+use chat::ChatHandle;
 use config::Config;
-use mobius_domain::FeedRow;
+use mobius_domain::Live;
 use mobius_github::{GitHub, Repository};
 use mobius_store::Store;
 use tokio::sync::broadcast;
@@ -23,8 +27,27 @@ pub struct Engine {
     pub config: Arc<Config>,
     pub store: Store,
     pub github: GitHub,
+    harness_path: Arc<OsString>,
     repositories: Arc<RwLock<Vec<Repository>>>,
-    live: broadcast::Sender<FeedRow>,
+    chats: Arc<Mutex<HashMap<(String, i64), ChatHandle>>>,
+    live: broadcast::Sender<Live>,
+}
+
+impl Engine {
+    fn repository(&self, name: &str) -> Result<Repository, String> {
+        self.repositories
+            .read()
+            .unwrap()
+            .iter()
+            .find(|repository| repository.full_name == name)
+            .cloned()
+            .ok_or_else(|| format!("The Mobius App has no access to {name}."))
+    }
+
+    fn broadcast(&self, live: Live) {
+        // With no open feed, the channel has no receiver and the send fails.
+        let _ = self.live.send(live);
+    }
 }
 
 pub async fn start(
@@ -32,12 +55,16 @@ pub async fn start(
     store: Store,
     github_api_url: &str,
     github_web_url: &str,
+    harness_path: OsString,
 ) -> Result<Engine, Box<dyn Error + Send + Sync>> {
+    mobius_runner::prepare(&config.data_dir)?;
     let engine = Engine {
         config: Arc::new(config),
         store,
         github: GitHub::new(github_api_url, github_web_url)?,
+        harness_path: Arc::new(harness_path),
         repositories: Arc::default(),
+        chats: Arc::default(),
         live: broadcast::channel(256).0,
     };
     auth::start(&engine).await?;

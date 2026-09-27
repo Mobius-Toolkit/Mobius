@@ -1,7 +1,10 @@
+mod chat_messages;
 mod device_logins;
 mod events;
 mod github_app;
+mod sessions;
 mod sync_cursors;
+mod transcript;
 
 use std::error::Error;
 use std::fs;
@@ -9,10 +12,13 @@ use std::path::Path;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool};
 
+pub use chat_messages::ChatMessages;
 pub use device_logins::DeviceLogins;
 pub use events::Events;
 pub use github_app::{GitHubApp, GitHubAppRow};
+pub use sessions::Sessions;
 pub use sync_cursors::{SyncCursor, SyncCursors};
+pub use transcript::Transcript;
 
 #[derive(Clone)]
 pub struct Store {
@@ -31,6 +37,10 @@ impl Store {
         Ok(Store { pool })
     }
 
+    pub fn chat_messages(&self) -> ChatMessages<'_> {
+        ChatMessages { pool: &self.pool }
+    }
+
     pub fn device_logins(&self) -> DeviceLogins<'_> {
         DeviceLogins { pool: &self.pool }
     }
@@ -43,7 +53,15 @@ impl Store {
         GitHubApp { pool: &self.pool }
     }
 
+    pub fn sessions(&self) -> Sessions<'_> {
+        Sessions { pool: &self.pool }
+    }
+
     pub fn sync_cursors(&self) -> SyncCursors<'_> {
         SyncCursors { pool: &self.pool }
+    }
+
+    pub fn transcript(&self) -> Transcript<'_> {
+        Transcript { pool: &self.pool }
     }
 }

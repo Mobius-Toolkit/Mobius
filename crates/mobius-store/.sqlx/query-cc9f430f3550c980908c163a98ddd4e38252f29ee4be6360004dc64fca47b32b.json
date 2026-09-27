@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, repository, workstream, author, time AS \"time: OffsetDateTime\", text\n               FROM chat_messages WHERE repository = ? AND workstream = ? ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "repository",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "repository"
+          }
+        }
+      },
+      {
+        "name": "workstream",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "workstream"
+          }
+        }
+      },
+      {
+        "name": "author",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "author"
+          }
+        }
+      },
+      {
+        "name": "time: OffsetDateTime",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "time"
+          }
+        }
+      },
+      {
+        "name": "text",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "text"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "cc9f430f3550c980908c163a98ddd4e38252f29ee4be6360004dc64fca47b32b"
+}

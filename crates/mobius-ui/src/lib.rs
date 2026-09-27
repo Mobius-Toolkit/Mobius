@@ -1,6 +1,11 @@
+use std::collections::HashMap;
+
 use dioxus::prelude::*;
-use mobius_api::{devices, github_app, github_manifest, live, login, logout, workstreams};
-use mobius_domain::{FeedRow, Workstream};
+use mobius_api::{
+    chat_seen, chat_send, chat_stop, chat_view, devices, github_app, github_manifest, live, login,
+    logout, unread, workstreams,
+};
+use mobius_domain::{Author, ChatMessage, FeedRow, Live, Workstream};
 use time::macros::format_description;
 
 #[derive(Clone, PartialEq, Routable)]
@@ -10,6 +15,8 @@ pub enum Route {
         #[redirect("/", || Route::WorkstreamList {})]
         #[route("/workstreams")]
         WorkstreamList {},
+        #[route("/workstreams/:owner/:repo/:number")]
+        Chat { owner: String, repo: String, number: i64 },
         #[route("/activity")]
         Activity {},
         #[route("/devices")]
@@ -27,8 +34,21 @@ struct AppSlug(Resource<ServerFnResult<Option<String>>>);
 #[derive(Clone, Copy)]
 struct Workstreams(Resource<ServerFnResult<Vec<Workstream>>>);
 
+type ChatKey = (String, i64);
+
+#[derive(Clone, PartialEq)]
+struct LeadState {
+    writing: bool,
+    error: Option<String>,
+}
+
 #[derive(Clone, Copy)]
-struct Feed(Signal<Vec<FeedRow>>);
+struct LiveState {
+    feed: Signal<Vec<FeedRow>>,
+    messages: Signal<Vec<ChatMessage>>,
+    leads: Signal<HashMap<ChatKey, LeadState>>,
+    unread: Signal<HashMap<ChatKey, i64>>,
+}
 
 fn unauthorized(error: &ServerFnError) -> bool {
     matches!(error, ServerFnError::ServerError { code: 401, .. })
@@ -50,28 +70,65 @@ fn Shell() -> Element {
     rsx! { Frame {} }
 }
 
+fn upsert(messages: &mut Vec<ChatMessage>, message: ChatMessage) {
+    match messages.iter_mut().find(|known| known.id == message.id) {
+        Some(known) => *known = message,
+        None => messages.push(message),
+    }
+}
+
 async fn follow_live(
-    mut feed: Signal<Vec<FeedRow>>,
+    mut state: LiveState,
     mut workstream_list: Resource<ServerFnResult<Vec<Workstream>>>,
     mut login_shown: Signal<bool>,
 ) {
     let mut after = None;
     loop {
+        if let Ok(counts) = unread().await {
+            state.unread.set(
+                counts
+                    .into_iter()
+                    .map(|unread| ((unread.repository, unread.workstream), unread.count))
+                    .collect(),
+            );
+        }
         match live(after).await {
             Ok(mut events) => {
-                while let Some(Ok(row)) = events.recv().await {
-                    after = Some(row.id);
-                    let known = match &*workstream_list.peek() {
-                        Some(Ok(list)) => list.iter().any(|workstream| {
-                            workstream.repository == row.repository
-                                && workstream.number == row.workstream
-                        }),
-                        _ => false,
-                    };
-                    if !known && !workstream_list.pending() {
-                        workstream_list.restart();
+                while let Some(Ok(event)) = events.recv().await {
+                    match event {
+                        Live::Feed(row) => {
+                            after = Some(row.id);
+                            let known = match &*workstream_list.peek() {
+                                Some(Ok(list)) => list.iter().any(|workstream| {
+                                    workstream.repository == row.repository
+                                        && workstream.number == row.workstream
+                                }),
+                                _ => false,
+                            };
+                            if !known && !workstream_list.pending() {
+                                workstream_list.restart();
+                            }
+                            state.feed.write().push(row);
+                        }
+                        Live::Message(message) => upsert(&mut state.messages.write(), message),
+                        Live::Lead {
+                            repository,
+                            workstream,
+                            writing,
+                            error,
+                        } => {
+                            state
+                                .leads
+                                .write()
+                                .insert((repository, workstream), LeadState { writing, error });
+                        }
+                        Live::Unread(unread) => {
+                            state
+                                .unread
+                                .write()
+                                .insert((unread.repository, unread.workstream), unread.count);
+                        }
                     }
-                    feed.write().push(row);
                 }
             }
             Err(error) if unauthorized(&error) => {
@@ -92,7 +149,12 @@ fn Frame() -> Element {
     use_context_provider(|| AppSlug(app_slug));
     let workstream_list = use_resource(workstreams);
     use_context_provider(|| Workstreams(workstream_list));
-    let Feed(feed) = use_context_provider(|| Feed(Signal::new(Vec::new())));
+    let state = use_context_provider(|| LiveState {
+        feed: Signal::new(Vec::new()),
+        messages: Signal::new(Vec::new()),
+        leads: Signal::new(HashMap::new()),
+        unread: Signal::new(HashMap::new()),
+    });
     use_effect(move || {
         if let Some(Err(error)) = &*app_slug.read()
             && unauthorized(error)
@@ -101,7 +163,7 @@ fn Frame() -> Element {
         }
     });
     use_effect(move || {
-        spawn(follow_live(feed, workstream_list, login_shown));
+        spawn(follow_live(state, workstream_list, login_shown));
     });
     match &*app_slug.read() {
         Some(Ok(Some(_))) => rsx! {
@@ -136,14 +198,35 @@ fn WorkstreamEntries() -> Element {
     match &*workstream_list.read() {
         Some(Ok(list)) => rsx! {
             for workstream in list.clone() {
-                div { key: "{workstream.repository}#{workstream.number}", class: "entry",
-                    span { class: "grow", "{workstream.title}" }
-                    span { class: "muted small", "#{workstream.number}" }
-                }
+                WorkstreamEntry { key: "{workstream.repository}#{workstream.number}", workstream }
             }
         },
         Some(Err(error)) => rsx! { div { class: "error entry", {error_text(error)} } },
         None => rsx! {},
+    }
+}
+
+#[component]
+fn WorkstreamEntry(workstream: Workstream) -> Element {
+    let state: LiveState = use_context();
+    let (owner, repo) = workstream.repository.split_once('/').unwrap_or_default();
+    let unread = state
+        .unread
+        .read()
+        .get(&(workstream.repository.clone(), workstream.number))
+        .copied()
+        .unwrap_or(0);
+    rsx! {
+        Link {
+            class: "entry",
+            active_class: "sel",
+            to: Route::Chat { owner: owner.to_string(), repo: repo.to_string(), number: workstream.number },
+            span { class: "grow", "{workstream.title}" }
+            span { class: "muted small", "#{workstream.number}" }
+            if unread > 0 {
+                span { class: "count", "{unread}" }
+            }
+        }
     }
 }
 
@@ -158,7 +241,7 @@ fn WorkstreamList() -> Element {
 #[component]
 fn Activity() -> Element {
     let Workstreams(workstream_list) = use_context();
-    let Feed(feed) = use_context();
+    let LiveState { feed, .. } = use_context();
     let mut selected = use_signal(|| None::<(String, i64)>);
     let chips = match &*workstream_list.read() {
         Some(Ok(list)) => list.clone(),
@@ -201,6 +284,155 @@ fn Activity() -> Element {
                     span { class: "grow", "@{row.actor} {row.text}" }
                     a { href: "{row.link}", target: "_blank", "#{row.issue}" }
                 }
+            }
+        }
+    }
+}
+
+#[component]
+fn Chat(owner: String, repo: String, number: i64) -> Element {
+    let repository = format!("{owner}/{repo}");
+    let key = (repository.clone(), number);
+    let Workstreams(workstream_list) = use_context();
+    let state: LiveState = use_context();
+    let history = use_resource(use_reactive(
+        (&repository, &number),
+        |(repository, number)| async move { chat_view(repository, number).await },
+    ));
+    let mut text = use_signal(String::new);
+    let mut send_error = use_signal(String::new);
+
+    let workstream = match &*workstream_list.read() {
+        Some(Ok(list)) => list
+            .iter()
+            .find(|workstream| workstream.repository == repository && workstream.number == number)
+            .cloned(),
+        _ => None,
+    };
+    let (mut messages, history_writing, lead) = match &*history.read() {
+        Some(Ok(view)) => (view.messages.clone(), view.writing, Some(view.lead)),
+        _ => (Vec::new(), false, None),
+    };
+    for message in state.messages.read().iter() {
+        if message.repository != repository || message.workstream != number {
+            continue;
+        }
+        upsert(&mut messages, message.clone());
+    }
+    messages.sort_by_key(|message| message.id);
+    let lead_state = state.leads.read().get(&key).cloned().unwrap_or(LeadState {
+        writing: history_writing,
+        error: None,
+    });
+    let last_lead_message = messages
+        .iter()
+        .rev()
+        .find(|message| message.author == Author::Lead)
+        .map(|message| message.id);
+    let unread = state.unread.read().get(&key).copied().unwrap_or(0);
+    use_effect(use_reactive(
+        (&repository, &number, &last_lead_message, &unread),
+        |(repository, number, last_lead_message, unread)| {
+            if unread > 0
+                && let Some(message) = last_lead_message
+            {
+                spawn(async move {
+                    // A failed call keeps the count, and the next Lead message calls again.
+                    let _ = chat_seen(repository, number, message).await;
+                });
+            }
+        },
+    ));
+
+    let send_repository = repository.clone();
+    let stop_repository = repository.clone();
+    rsx! {
+        div { class: "head",
+            h2 { class: "ellip", {workstream.as_ref().map(|workstream| workstream.title.clone())} }
+            span { class: "num", "#{number}" }
+            if workstream.as_ref().is_some_and(|workstream| workstream.autopilot) {
+                span { class: "chip info", "Autopilot on" }
+            } else {
+                span { class: "chip plain", "Autopilot off" }
+            }
+            span { class: "grow" }
+            if let Some(lead) = lead {
+                span { class: "muted small", "Lead: {lead.name()}" }
+            }
+        }
+        div { class: "chat",
+            div { class: "msgs",
+                if let Some(Err(error)) = &*history.read() {
+                    div { class: "error", {error_text(error)} }
+                }
+                if messages.is_empty() {
+                    div { class: "muted small empty", "No messages. Write to start a chat session." }
+                }
+                for message in messages {
+                    div {
+                        key: "{message.id}",
+                        class: if message.author == Author::Owner { "msg owner" } else { "msg" },
+                        div { class: "meta",
+                            span { {message.author.name()} }
+                            span {
+                                {message.time.format(format_description!("[hour]:[minute]")).unwrap_or_default()}
+                            }
+                        }
+                        p { "{message.text}" }
+                    }
+                }
+                if lead_state.writing {
+                    div { class: "typing",
+                        span { class: "dot live" }
+                        "The Lead writes a reply."
+                    }
+                }
+                if let Some(error) = lead_state.error {
+                    div { class: "error", "The chat session failed: {error}" }
+                }
+            }
+            form {
+                class: "composer",
+                onsubmit: move |event: FormEvent| {
+                    let repository = send_repository.clone();
+                    async move {
+                        event.prevent_default();
+                        if text().trim().is_empty() {
+                            return;
+                        }
+                        match chat_send(repository, number, text()).await {
+                            Ok(()) => {
+                                text.set(String::new());
+                                send_error.set(String::new());
+                            }
+                            Err(failure) => send_error.set(error_text(&failure)),
+                        }
+                    }
+                },
+                div { class: "grow",
+                    textarea {
+                        placeholder: "Write to the Lead",
+                        value: text,
+                        oninput: move |event| text.set(event.value()),
+                    }
+                    div { class: "error", {send_error} }
+                }
+                if lead_state.writing {
+                    button {
+                        class: "btn danger",
+                        r#type: "button",
+                        onclick: move |_| {
+                            let repository = stop_repository.clone();
+                            async move {
+                                if let Err(failure) = chat_stop(repository, number).await {
+                                    send_error.set(error_text(&failure));
+                                }
+                            }
+                        },
+                        "Stop"
+                    }
+                }
+                button { class: "btn primary", r#type: "submit", "Send" }
             }
         }
     }

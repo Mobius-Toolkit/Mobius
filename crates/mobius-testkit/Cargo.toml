@@ -5,13 +5,15 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+agent-client-protocol = { workspace = true }
 axum = { workspace = true }
 mobius-engine = { workspace = true }
 mobius-store = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing"] }
-tokio = { workspace = true, features = ["net", "time"] }
+tokio = { workspace = true, features = ["macros", "net", "sync", "time"] }
+toml = { workspace = true }
 
 [dev-dependencies]
 dioxus = { workspace = true, features = ["fullstack", "server"] }

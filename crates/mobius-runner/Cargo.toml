@@ -4,4 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+agent-client-protocol = { workspace = true }
 mobius-domain = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "process", "sync"] }
+tokio-util = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

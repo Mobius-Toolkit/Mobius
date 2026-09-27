@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE sessions SET acp_session_id = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "ae11e47c55f665c446cbcc951f3af7c9c5cfd5fa245a4fa9d6a3bdbdd7d91db6"
+}

@@ -1,0 +1,122 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, role, harness, repository, workstream, acp_session_id,\n                      started_at AS \"started_at: OffsetDateTime\",\n                      ended_at AS \"ended_at: OffsetDateTime\", end_reason\n               FROM sessions WHERE repository = ? AND workstream = ? ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "role",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "name": "harness",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "harness"
+          }
+        }
+      },
+      {
+        "name": "repository",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "repository"
+          }
+        }
+      },
+      {
+        "name": "workstream",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "workstream"
+          }
+        }
+      },
+      {
+        "name": "acp_session_id",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "acp_session_id"
+          }
+        }
+      },
+      {
+        "name": "started_at: OffsetDateTime",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "name": "ended_at: OffsetDateTime",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "ended_at"
+          }
+        }
+      },
+      {
+        "name": "end_reason",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "end_reason"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "7f2b7bb4dd8a83013a7cbe3b1ef8d031bc93dfa5579825f455e6f71c7ac37fda"
+}

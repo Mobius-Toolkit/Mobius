@@ -27,8 +27,8 @@ fn serve() {
         });
     let config = mobius_engine::config::load(&config_path).unwrap_or_else(|error| fail(error));
 
-    let missing =
-        mobius_engine::missing_commands(&config, &env::var_os("PATH").unwrap_or_default());
+    let path = env::var_os("PATH").unwrap_or_default();
+    let missing = mobius_engine::missing_commands(&config, &path);
     for program in &missing {
         eprintln!("mobius: `{program}` is not on PATH");
     }
@@ -62,6 +62,7 @@ fn serve() {
             store.clone(),
             "https://api.github.com",
             "https://github.com",
+            path,
         ))
         .unwrap_or_else(|error| fail(error));
 
