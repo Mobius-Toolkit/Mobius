@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::path::Path;
 
-use mobius_github::Repository;
+use mobius_github::{PullRequest, Repository};
 use mobius_runner::{Check, Session};
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -9,7 +9,9 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
-use crate::{Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, dispatch, issues, lead_events, mcp, workers};
+use crate::{
+    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, dispatch, issues, lead_events, mcp, reviewer, workers,
+};
 
 pub(crate) const ROLE: &str = "implementer";
 const ROLE_PROMPT: &str = include_str!("prompts/implementer.md");
@@ -28,9 +30,15 @@ struct Job {
 }
 
 enum Outcome {
-    Done,
+    Done(Pushed),
     CannotDo(String),
     CheckFailed(String),
+}
+
+struct Pushed {
+    pull_request: PullRequest,
+    head: String,
+    check_run: i64,
 }
 
 pub(crate) async fn start(
@@ -50,7 +58,7 @@ pub(crate) async fn start(
         .title;
     let trusted = trust::trusted_authors(engine).await?;
     let issue = issues::read_issue(repository, number, &trusted).await?;
-    if !engine.store.tasks().queue(task.id).await? {
+    if !engine.store.tasks().queue(task.id, "dispatched").await? {
         return Err(format!("The task of #{number} is {}, not dispatched.", task.state).into());
     }
     let job = Job {
@@ -76,7 +84,7 @@ async fn run(engine: Engine, job: Job) {
         "mobius: Implementer of {}#{}: {error}",
         job.repository, job.number
     );
-    if let Err(failure) = stop(&engine, &job).await {
+    if let Err(failure) = stop(&engine, &job.repository, job.task, job.number).await {
         eprintln!(
             "mobius: stop of {}#{}: {failure}",
             job.repository, job.number
@@ -85,16 +93,21 @@ async fn run(engine: Engine, job: Job) {
 }
 
 // Gives `false` when the task is not queued or working, for example after a decline of the Lead.
-async fn stop(engine: &Engine, job: &Job) -> Result<bool, Box<dyn Error + Send + Sync>> {
+pub(crate) async fn stop(
+    engine: &Engine,
+    repository: &str,
+    task: i64,
+    number: i64,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
     let tasks = engine.store.tasks();
-    if !tasks.set_state(job.task, "working", "stopped").await?
-        && !tasks.set_state(job.task, "queued", "stopped").await?
+    if !tasks.set_state(task, "working", "stopped").await?
+        && !tasks.set_state(task, "queued", "stopped").await?
     {
         return Ok(false);
     }
     engine
-        .repository(&job.repository)?
-        .add_label(job.number, NEEDS_HUMAN_LABEL)
+        .repository(repository)?
+        .add_label(number, NEEDS_HUMAN_LABEL)
         .await?;
     Ok(true)
 }
@@ -130,15 +143,32 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
             repository: job.repository.clone(),
             workstream: job.workstream,
             cannot_do: Some(cannot_do),
+            review: None,
         },
     )?;
     let result = implement(engine, job, session, &key, &mut recorder, &mut reasons).await;
     mcp::close(engine, &key);
     match result {
-        Ok(Outcome::Done) => lead::end_session(engine, session, "done").await,
+        Ok(Outcome::Done(pushed)) => {
+            lead::end_session(engine, session, "done").await?;
+            tokio::spawn(reviewer::run(
+                engine.clone(),
+                reviewer::Job {
+                    repository: job.repository.clone(),
+                    workstream: job.workstream,
+                    task: job.task,
+                    number: job.number,
+                    title: job.title.clone(),
+                    pull_request: pushed.pull_request,
+                    head: pushed.head,
+                    check_run: pushed.check_run,
+                },
+            ));
+            Ok(())
+        }
         Ok(Outcome::CheckFailed(_)) => {
             lead::end_session(engine, session, "check_failed").await?;
-            if !stop(engine, job).await? {
+            if !stop(engine, &job.repository, job.task, job.number).await? {
                 return Ok(());
             }
             let text = stop_text(
@@ -234,16 +264,17 @@ async fn implement(
     )
     .await;
     session.close().await;
-    let outcome = outcome?;
-    if let Outcome::CannotDo(_) = outcome {
-        return Ok(outcome);
-    }
+    let log = match outcome? {
+        Some(Outcome::CheckFailed(log)) => Some(log),
+        Some(outcome) => return Ok(outcome),
+        None => None,
+    };
     let repository = engine.repository(name)?;
     let sha = {
         let _git = engine.git.lock().await;
         mobius_runner::push(data_dir, &worktree, repository.token(), &branch).await?
     };
-    repository
+    let pull_request = repository
         .create_draft_pull_request(
             &job.title,
             &branch,
@@ -251,25 +282,27 @@ async fn implement(
             &format!("Closes #{}", job.number),
         )
         .await?;
-    match &outcome {
-        Outcome::CheckFailed(log) => {
-            let summary = format!(
-                "`.mobius/check` failed {} times. The last output ends with these lines:\n\n```\n{log}\n```",
-                engine.config.max_check_attempts
-            );
-            repository
-                .create_failed_check_run(CHECK_RUN, &sha, "Local check failed", &summary)
-                .await?;
-        }
-        _ => {
-            repository
-                .create_check_run(CHECK_RUN, &sha, "in_progress")
-                .await?;
-        }
-    }
-    Ok(outcome)
+    let Some(log) = log else {
+        let check_run = repository
+            .create_check_run(CHECK_RUN, &sha, "in_progress")
+            .await?;
+        return Ok(Outcome::Done(Pushed {
+            pull_request,
+            head: sha,
+            check_run,
+        }));
+    };
+    let summary = format!(
+        "`.mobius/check` failed {} times. The last output ends with these lines:\n\n```\n{log}\n```",
+        engine.config.max_check_attempts
+    );
+    repository
+        .create_failed_check_run(CHECK_RUN, &sha, "Local check failed", &summary)
+        .await?;
+    Ok(Outcome::CheckFailed(log))
 }
 
+// Gives `None` when the local check passes.
 async fn turns_and_checks(
     engine: &Engine,
     job: &Job,
@@ -278,12 +311,12 @@ async fn turns_and_checks(
     updates: &mut UnboundedReceiver<Value>,
     recorder: &mut Recorder,
     reasons: &mut UnboundedReceiver<String>,
-) -> Result<Outcome, Box<dyn Error + Send + Sync>> {
+) -> Result<Option<Outcome>, Box<dyn Error + Send + Sync>> {
     let mut prompt = job.prompt.clone();
     let mut attempts = 0;
     loop {
         if let Some(reason) = turn(session, &prompt, updates, recorder, reasons).await? {
-            return Ok(Outcome::CannotDo(reason));
+            return Ok(Some(Outcome::CannotDo(reason)));
         }
         let check = {
             let _check = engine.checks.acquire().await?;
@@ -296,12 +329,12 @@ async fn turns_and_checks(
             .await?
         };
         let Check::Failed(log) = check else {
-            return Ok(Outcome::Done);
+            return Ok(None);
         };
         attempts += 1;
         let log = tail(&log);
         if attempts >= engine.config.max_check_attempts {
-            return Ok(Outcome::CheckFailed(log));
+            return Ok(Some(Outcome::CheckFailed(log)));
         }
         prompt = format!(
             "The local check `.mobius/check` failed. Fix the code and commit your work. The output ends with these lines:\n\n```\n{log}\n```"

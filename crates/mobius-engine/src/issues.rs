@@ -54,7 +54,17 @@ pub(crate) async fn read_issue(
         }
     }
     text.push_str("\n# Review threads\n");
-    // GitHub gives each reply the id of the first comment of its thread as `in_reply_to_id`.
+    text.push_str(&review_threads(repository, number, trusted).await?);
+    Ok(text)
+}
+
+// GitHub gives each reply the id of the first comment of its thread as `in_reply_to_id`.
+pub(crate) async fn review_threads(
+    repository: &Repository,
+    number: i64,
+    trusted: impl Fn(&str) -> bool,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let mut text = String::new();
     let comments = repository.review_comments(number).await?;
     for root in &comments {
         if root.in_reply_to_id.is_some() || !trusted(&root.user.login) {

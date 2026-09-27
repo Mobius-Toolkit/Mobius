@@ -164,6 +164,13 @@ pub fn task_dir(data_dir: &Path, repository: &str, number: i64) -> PathBuf {
         .join(format!("task-{number}"))
 }
 
+pub fn review_dir(data_dir: &Path, repository: &str, id: i64) -> PathBuf {
+    data_dir
+        .join("worktrees")
+        .join(repository)
+        .join(format!("review-{id}"))
+}
+
 // The clone gets its config in a temporary directory, so a failed start leaves no bare clone with part of its config.
 pub async fn fetch(
     data_dir: &Path,
@@ -232,6 +239,37 @@ pub async fn add_worktree(
     run(git(&dir, data_dir, None).args(["config", "--worktree", "user.email", author_email]))
         .await?;
     Ok(branch)
+}
+
+pub async fn add_detached_worktree(
+    data_dir: &Path,
+    repository: &str,
+    dir: &Path,
+    commit: &str,
+) -> Result<(), String> {
+    run(git(&bare_dir(data_dir, repository), data_dir, None)
+        .args(["worktree", "add", "--detach"])
+        .arg(dir)
+        .arg(commit))
+    .await?;
+    Ok(())
+}
+
+pub async fn remove_worktree(data_dir: &Path, repository: &str, dir: &Path) -> Result<(), String> {
+    run(git(&bare_dir(data_dir, repository), data_dir, None)
+        .args(["worktree", "remove", "--force"])
+        .arg(dir))
+    .await?;
+    Ok(())
+}
+
+pub async fn merge_base(
+    data_dir: &Path,
+    repository: &str,
+    one: &str,
+    other: &str,
+) -> Result<String, String> {
+    run(git(&bare_dir(data_dir, repository), data_dir, None).args(["merge-base", one, other])).await
 }
 
 // Takes the commits of `origin/<branch>` from the last `fetch` with a fast-forward only.

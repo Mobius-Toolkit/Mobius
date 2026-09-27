@@ -13,6 +13,7 @@ mod lead;
 mod lead_events;
 pub mod mcp;
 mod poll;
+mod reviewer;
 pub mod tasks;
 pub mod transcript;
 mod trust;

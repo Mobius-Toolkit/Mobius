@@ -55,13 +55,14 @@ impl Tasks<'_> {
         Ok(task)
     }
 
-    // Gives `false` when the task is not dispatched.
-    pub async fn queue(&self, id: i64) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    // Gives `false` when the task is not in the state `from`.
+    pub async fn queue(&self, id: i64, from: &str) -> Result<bool, Box<dyn Error + Send + Sync>> {
         let queued_at = OffsetDateTime::now_utc();
         let result = sqlx::query!(
-            "UPDATE tasks SET state = 'queued', queued_at = ? WHERE id = ? AND state = 'dispatched'",
+            "UPDATE tasks SET state = 'queued', queued_at = ? WHERE id = ? AND state = ?",
             queued_at,
-            id
+            id,
+            from
         )
         .execute(self.pool)
         .await?;
