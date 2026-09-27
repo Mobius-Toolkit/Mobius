@@ -94,9 +94,12 @@ async fn task_state(engine: &Engine) -> Option<String> {
         .map(|task| task.state)
 }
 
+// Mobius adds the Inbox item after the state change.
 async fn ready_for_review(engine: &Engine) {
     wait_for(async || {
-        (task_state(engine).await.as_deref() == Some("ready_for_review")).then_some(())
+        (task_state(engine).await.as_deref() == Some("ready_for_review")
+            && !inbox::list(engine).await.unwrap().is_empty())
+        .then_some(())
     })
     .await;
 }
