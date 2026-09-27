@@ -51,6 +51,8 @@ pub struct Engine {
     event_sessions: Arc<Mutex<HashMap<(String, i64), lead_events::Wakes>>>,
     callers: Arc<Mutex<HashMap<String, mcp::Caller>>>,
     live: broadcast::Sender<Live>,
+    // All tasks of a repository share one bare clone, and two git commands that write its refs at the same time can fail on a ref lock.
+    git: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl Engine {
@@ -91,6 +93,7 @@ pub async fn start(
         event_sessions: Arc::default(),
         callers: Arc::default(),
         live: broadcast::channel(256).0,
+        git: Arc::default(),
     };
     auth::start(&engine).await?;
     poll::spawn(engine.clone());

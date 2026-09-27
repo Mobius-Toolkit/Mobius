@@ -5,6 +5,7 @@ use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::Duration;
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
@@ -21,6 +22,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use mobius_domain::Harness;
 use serde_json::Value;
+use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -256,27 +258,17 @@ pub async fn push(
     run(git(worktree, data_dir, None).args(["rev-parse", "HEAD"])).await
 }
 
-fn command(
-    harness: Harness,
+fn repository_command(
+    program: &str,
     cwd: &Path,
     data_dir: &Path,
+    bin: PathBuf,
     path: &OsStr,
-    gh_token_url: Option<&str>,
 ) -> Command {
     let agent_env = agent_env(data_dir);
-    let mut command = Command::new(program(harness));
-    let bin = match gh_token_url {
-        Some(url) => {
-            command.env("MOBIUS_GH_TOKEN_URL", url);
-            agent_env.join("chat-bin")
-        }
-        None => agent_env.join("bin"),
-    };
     let mut dirs = vec![bin];
     dirs.extend(env::split_paths(path));
-    if harness == Harness::Devin {
-        command.arg("acp");
-    }
+    let mut command = Command::new(program);
     command
         .current_dir(cwd)
         .env("GH_CONFIG_DIR", agent_env.join("gh-config"))
@@ -285,11 +277,93 @@ fn command(
         .env_remove("GH_TOKEN")
         .env_remove("GITHUB_TOKEN")
         .env("PATH", env::join_paths(dirs).unwrap_or_default())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
         .kill_on_drop(true);
     command
+}
+
+fn command(
+    harness: Harness,
+    cwd: &Path,
+    data_dir: &Path,
+    path: &OsStr,
+    gh_token_url: Option<&str>,
+) -> Command {
+    let bin = match gh_token_url {
+        Some(_) => agent_env(data_dir).join("chat-bin"),
+        None => agent_env(data_dir).join("bin"),
+    };
+    let mut command = repository_command(program(harness), cwd, data_dir, bin, path);
+    if let Some(url) = gh_token_url {
+        command.env("MOBIUS_GH_TOKEN_URL", url);
+    }
+    if harness == Harness::Devin {
+        command.arg("acp");
+    }
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    command
+}
+
+pub enum Check {
+    Passed,
+    Failed(String),
+}
+
+// With no `.mobius/check` in the worktree, the check passes. The output has stdout and stderr in the order of the writes.
+pub async fn check(
+    data_dir: &Path,
+    worktree: &Path,
+    path: &OsStr,
+    timeout: Duration,
+) -> Result<Check, String> {
+    if !worktree.join(".mobius/check").exists() {
+        return Ok(Check::Passed);
+    }
+    let mut child = repository_command(
+        "/bin/sh",
+        worktree,
+        data_dir,
+        agent_env(data_dir).join("bin"),
+        path,
+    )
+    .args(["-c", "exec ./.mobius/check 2>&1"])
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null())
+    .process_group(0)
+    .spawn()
+    .map_err(|error| format!(".mobius/check: {error}"))?;
+    let (Some(id), Some(mut stdout)) = (child.id(), child.stdout.take()) else {
+        return Err(".mobius/check: the child has no id or no stdout pipe".to_string());
+    };
+    let reader = tokio::spawn(async move {
+        let mut output = Vec::new();
+        stdout.read_to_end(&mut output).await.map(|_| output)
+    });
+    let finished = tokio::time::timeout(timeout, child.wait()).await;
+    // The check leads its own process group, so the kill also ends each process that it started. Until then, such a process can hold the pipe open.
+    let _ = Command::new("kill")
+        .args(["-KILL", "--", &format!("-{id}")])
+        .status()
+        .await;
+    let _ = child.kill().await;
+    let output = reader
+        .await
+        .map_err(|error| format!(".mobius/check: {error}"))?
+        .map_err(|error| format!(".mobius/check: {error}"))?;
+    let mut log = String::from_utf8_lossy(&output).into_owned();
+    match finished {
+        Ok(status) => {
+            let status = status.map_err(|error| format!(".mobius/check: {error}"))?;
+            if status.success() {
+                return Ok(Check::Passed);
+            }
+        }
+        Err(_) => log.push_str(&format!("\n.mobius/check did not end in {timeout:?}.\n")),
+    }
+    Ok(Check::Failed(log))
 }
 
 pub struct Session {
