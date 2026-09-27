@@ -76,6 +76,7 @@ async fn run(
             repository: repository.clone(),
             workstream,
             cannot_do: None,
+            review: None,
         },
     ) {
         Ok(key) => {
@@ -169,7 +170,7 @@ async fn events(
     Ok(())
 }
 
-async fn turn(
+pub(crate) async fn turn(
     session: &Session,
     prompt: &str,
     recorder: &mut Recorder,

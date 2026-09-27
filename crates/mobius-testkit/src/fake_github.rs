@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -53,6 +53,23 @@ pub struct CheckRunOutput {
     pub summary: String,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SubmittedReview {
+    pub commit_id: String,
+    pub body: String,
+    pub event: String,
+    pub comments: Vec<InlineComment>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct InlineComment {
+    pub path: String,
+    pub line: i64,
+    pub body: String,
+}
+
 #[derive(Default)]
 struct Records {
     account_types: HashMap<String, &'static str>,
@@ -65,7 +82,9 @@ struct Records {
     remotes: PathBuf,
     issues: BTreeMap<(String, i64), Issue>,
     pull_requests: Vec<(String, PullRequest)>,
+    // The id of a check run is its index plus 1.
     check_runs: Vec<(String, CheckRun)>,
+    submitted_reviews: Vec<(String, i64, SubmittedReview)>,
     last_review_comment_id: i64,
     clock: i64,
     not_modified: u32,
@@ -116,6 +135,34 @@ impl Records {
         issue.comments.push(comment.clone());
         issue.updated_at = now;
         comment
+    }
+
+    // Gives the id of the new review comment.
+    fn review_comment(
+        &mut self,
+        repository: &str,
+        number: i64,
+        in_reply_to: Option<i64>,
+        author: &str,
+        comment: &InlineComment,
+    ) -> i64 {
+        let now = self.tick();
+        self.last_review_comment_id += 1;
+        let id = self.last_review_comment_id;
+        self.issues
+            .get_mut(&(repository.to_string(), number))
+            .unwrap()
+            .review_comments
+            .push(json!({
+                "id": id,
+                "user": { "login": author },
+                "body": comment.body,
+                "path": comment.path,
+                "line": comment.line,
+                "in_reply_to_id": in_reply_to,
+                "created_at": timestamp(now)
+            }));
+        id
     }
 
     fn label(&mut self, repository: &str, number: i64, label: &str, actor: &str) {
@@ -228,7 +275,15 @@ impl FakeGitHub {
             )
             .route("/repos/{owner}/{repo}/pulls", post(create_pull_request))
             .route("/repos/{owner}/{repo}/check-runs", post(create_check_run))
-            .route("/repos/{owner}/{repo}/pulls/{number}/reviews", get(reviews))
+            .route(
+                "/repos/{owner}/{repo}/check-runs/{id}",
+                patch(update_check_run),
+            )
+            .route(
+                "/repos/{owner}/{repo}/pulls/{number}/reviews",
+                get(reviews).post(submit_review),
+            )
+            .route("/graphql", post(graphql))
             .route(
                 "/repos/{owner}/{repo}/pulls/{number}/comments",
                 get(review_comments),
@@ -380,6 +435,17 @@ impl FakeGitHub {
             .collect()
     }
 
+    pub fn submitted_reviews(&self, full_name: &str, number: i64) -> Vec<SubmittedReview> {
+        self.state
+            .lock()
+            .unwrap()
+            .submitted_reviews
+            .iter()
+            .filter(|(name, pull_request, _)| name == full_name && *pull_request == number)
+            .map(|(_, _, review)| review.clone())
+            .collect()
+    }
+
     pub fn set_author(&self, repository: &str, number: i64, author: &str) {
         self.state
             .lock()
@@ -450,25 +516,17 @@ impl FakeGitHub {
         author: &str,
         body: &str,
     ) -> i64 {
-        let mut records = self.state.lock().unwrap();
-        let now = records.tick();
-        records.last_review_comment_id += 1;
-        let id = records.last_review_comment_id;
-        records
-            .issues
-            .get_mut(&(repository.to_string(), number))
-            .unwrap()
-            .review_comments
-            .push(json!({
-                "id": id,
-                "user": { "login": author },
-                "body": body,
-                "path": "src/plan.rs",
-                "line": 12,
-                "in_reply_to_id": in_reply_to,
-                "created_at": timestamp(now)
-            }));
-        id
+        self.state.lock().unwrap().review_comment(
+            repository,
+            number,
+            in_reply_to,
+            author,
+            &InlineComment {
+                path: "src/plan.rs".to_string(),
+                line: 12,
+                body: body.to_string(),
+            },
+        )
     }
 
     pub fn set_body(&self, repository: &str, number: i64, body: &str) {
@@ -871,6 +929,7 @@ async fn create_pull_request(
         StatusCode::CREATED,
         Json(json!({
             "number": number,
+            "node_id": format!("PR_{number}"),
             "html_url": format!("https://github.com/{repository}/pull/{number}")
         })),
     )
@@ -892,7 +951,8 @@ async fn create_check_run(
     Path((owner, repo)): Path<(String, String)>,
     Json(new): Json<NewCheckRun>,
 ) -> Response {
-    state.lock().unwrap().check_runs.push((
+    let mut records = state.lock().unwrap();
+    records.check_runs.push((
         format!("{owner}/{repo}"),
         CheckRun {
             name: new.name,
@@ -902,7 +962,128 @@ async fn create_check_run(
             output: new.output,
         },
     ));
-    (StatusCode::CREATED, Json(json!({ "id": 1 }))).into_response()
+    let id = records.check_runs.len();
+    (StatusCode::CREATED, Json(json!({ "id": id }))).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckRunUpdate {
+    status: String,
+    conclusion: String,
+}
+
+async fn update_check_run(
+    State(state): State<Shared>,
+    Path((owner, repo, id)): Path<(String, String, usize)>,
+    Json(update): Json<CheckRunUpdate>,
+) -> Response {
+    let mut records = state.lock().unwrap();
+    let Some((repository, check_run)) = records.check_runs.get_mut(id - 1) else {
+        return not_found();
+    };
+    if *repository != format!("{owner}/{repo}") {
+        return not_found();
+    }
+    check_run.status = update.status;
+    check_run.conclusion = Some(update.conclusion);
+    Json(json!({ "id": id })).into_response()
+}
+
+async fn submit_review(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    Json(review): Json<SubmittedReview>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    let now = records.tick();
+    records
+        .issues
+        .get_mut(&(repository.clone(), number))
+        .unwrap()
+        .reviews
+        .push(json!({
+            "user": { "login": app_login() },
+            "body": review.body,
+            "state": "COMMENTED",
+            "submitted_at": timestamp(now)
+        }));
+    for comment in &review.comments {
+        records.review_comment(&repository, number, None, &app_login(), comment);
+    }
+    records.submitted_reviews.push((repository, number, review));
+    Json(json!({ "id": 1 })).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphQl {
+    query: String,
+    variables: Value,
+}
+
+// Answers the review threads query and the mutation `markPullRequestReadyForReview`, each in one page.
+async fn graphql(State(state): State<Shared>, Json(request): Json<GraphQl>) -> Response {
+    let variables = &request.variables;
+    let mut records = state.lock().unwrap();
+    if request.query.contains("markPullRequestReadyForReview") {
+        let Some((_, pull_request)) = records
+            .pull_requests
+            .iter_mut()
+            .find(|(_, pull_request)| format!("PR_{}", pull_request.number) == variables["id"])
+        else {
+            return Json(
+                json!({ "data": null, "errors": [{ "message": "Could not resolve to a node" }] }),
+            )
+            .into_response();
+        };
+        pull_request.draft = false;
+        return Json(json!({
+            "data": { "markPullRequestReadyForReview": { "clientMutationId": null } }
+        }))
+        .into_response();
+    }
+    let repository = format!(
+        "{}/{}",
+        variables["owner"].as_str().unwrap(),
+        variables["name"].as_str().unwrap()
+    );
+    let number = variables["number"].as_i64().unwrap();
+    let comments = &records.issues[&(repository, number)].review_comments;
+    let threads: Vec<Value> = comments
+        .iter()
+        .filter(|root| root["in_reply_to_id"].is_null())
+        .map(|root| {
+            let authors: Vec<Value> = comments
+                .iter()
+                .filter(|comment| {
+                    comment["id"] == root["id"] || comment["in_reply_to_id"] == root["id"]
+                })
+                .map(|comment| {
+                    let login = comment["user"]["login"].as_str().unwrap();
+                    match login.strip_suffix("[bot]") {
+                        Some(bot) => json!({ "author": { "__typename": "Bot", "login": bot } }),
+                        None => json!({ "author": { "__typename": "User", "login": login } }),
+                    }
+                })
+                .collect();
+            json!({ "isResolved": false, "comments": { "nodes": authors } })
+        })
+        .collect();
+    Json(json!({
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "nodes": threads,
+                        "pageInfo": { "hasNextPage": false, "endCursor": null }
+                    }
+                }
+            }
+        }
+    }))
+    .into_response()
 }
 
 async fn remove_label(

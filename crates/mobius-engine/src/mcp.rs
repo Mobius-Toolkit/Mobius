@@ -6,6 +6,7 @@ use axum::extract::{Path, Request, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
+use mobius_github::NewReviewComment;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorData, JsonObject,
     ListToolsResult, MetaObject, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
@@ -20,7 +21,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{Engine, chat, dispatch, implementer, issues, lead_events, tasks, trust};
+use crate::{Engine, chat, dispatch, implementer, issues, lead_events, reviewer, tasks, trust};
 
 #[derive(Clone)]
 pub(crate) struct Caller {
@@ -30,6 +31,14 @@ pub(crate) struct Caller {
     pub(crate) workstream: i64,
     // The Implementer session reads the reason of `cannot_do` from the receiver.
     pub(crate) cannot_do: Option<UnboundedSender<String>>,
+    // The pull request and the head commit that the Reviewer session reviews.
+    pub(crate) review: Option<Review>,
+}
+
+#[derive(Clone)]
+pub(crate) struct Review {
+    pub(crate) pull_request: i64,
+    pub(crate) head: String,
 }
 
 // The key is valid until `close`.
@@ -153,6 +162,43 @@ fn tools(role: &str) -> Vec<Tool> {
                 }
             })),
         )],
+        reviewer::ROLE => vec![tool(
+            "submit_review",
+            "Post your review on the pull request as one GitHub review with inline comments. Call it one time. With no findings, do not call it.",
+            object(json!({
+                "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The summary of the review."
+                },
+                "comments": {
+                    "type": "array",
+                    "description": "One inline comment for each finding.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "The file path, relative to the repository root."
+                            },
+                            "line": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": "The line in the new version of the file. It must be in the diff."
+                            },
+                            "body": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "The finding."
+                            }
+                        },
+                        "required": ["path", "line", "body"],
+                        "additionalProperties": false
+                    }
+                }
+            })),
+        )],
         _ => Vec::new(),
     };
     if role == lead_events::ROLE {
@@ -205,6 +251,13 @@ struct StartImplementer {
 #[serde(deny_unknown_fields)]
 struct CannotDo {
     reason: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SubmitReview {
+    body: String,
+    comments: Vec<NewReviewComment>,
 }
 
 #[derive(Deserialize)]
@@ -298,6 +351,26 @@ impl Handler {
                     .ok_or_else(unknown)?
                     .send(reason)?;
                 Ok("Mobius ends this turn.".to_string())
+            }
+            "submit_review" => {
+                let SubmitReview { body, comments } = parse(tool, arguments)?;
+                if body.trim().is_empty() {
+                    return Err("body must not be empty.".into());
+                }
+                if comments.iter().any(|comment| {
+                    comment.path.trim().is_empty()
+                        || comment.line < 1
+                        || comment.body.trim().is_empty()
+                }) {
+                    return Err(
+                        "Each comment needs a path, a line of 1 or more, and a body.".into(),
+                    );
+                }
+                let review = self.caller.review.as_ref().ok_or_else(unknown)?;
+                repository
+                    .submit_review(review.pull_request, &review.head, &body, &comments)
+                    .await?;
+                Ok("Posted the review.".to_string())
             }
             "ask" => {
                 let Ask { n, text } = parse(tool, arguments)?;

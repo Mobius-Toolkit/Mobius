@@ -160,15 +160,21 @@ pub struct TranscriptLine {
 pub enum InboxKind {
     Question,
     Lead,
+    ReadyForReview,
 }
 
 impl InboxKind {
-    pub const ALL: [InboxKind; 2] = [InboxKind::Question, InboxKind::Lead];
+    pub const ALL: [InboxKind; 3] = [
+        InboxKind::Question,
+        InboxKind::Lead,
+        InboxKind::ReadyForReview,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             InboxKind::Question => "question",
             InboxKind::Lead => "Lead",
+            InboxKind::ReadyForReview => "ready for review",
         }
     }
 }

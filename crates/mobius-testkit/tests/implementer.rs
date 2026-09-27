@@ -429,6 +429,7 @@ async fn after_max_check_attempts_mobius_pushes_marks_the_check_run_as_failed_an
             .contains(&"mobius:needs-human".to_string())
     );
     assert_eq!(task_state(&engine).await.as_deref(), Some("stopped"));
+    assert!(sessions(&engine, "reviewer").await.is_empty());
     let sessions = ended_implementers(&engine, 1).await;
     assert_eq!(sessions[0].id, session.id);
     assert_eq!(sessions[0].end_reason.as_deref(), Some("check_failed"));

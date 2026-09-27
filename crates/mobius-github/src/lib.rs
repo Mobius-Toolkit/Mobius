@@ -6,8 +6,8 @@ use jsonwebtoken::EncodingKey;
 use octocrab::Octocrab;
 use octocrab::models::{AppId, InstallationId};
 use secrecy::ExposeSecret;
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -123,6 +123,32 @@ pub struct ReviewComment {
     pub in_reply_to_id: Option<i64>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+}
+
+#[derive(Deserialize)]
+pub struct PullRequest {
+    pub number: i64,
+    pub node_id: String,
+    pub html_url: String,
+}
+
+#[derive(Deserialize)]
+struct Created {
+    id: i64,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NewReviewComment {
+    pub path: String,
+    pub line: i64,
+    pub body: String,
+}
+
+pub struct ReviewThread {
+    pub resolved: bool,
+    // The REST login of the author of each comment, in order.
+    pub authors: Vec<String>,
 }
 
 pub struct IssuePage {
@@ -341,8 +367,8 @@ impl Repository {
         head: &str,
         base: &str,
         body: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let _: serde_json::Value = self
+    ) -> Result<PullRequest, Box<dyn Error + Send + Sync>> {
+        Ok(self
             .client
             .post(
                 format!("/repos/{}/pulls", self.full_name),
@@ -354,21 +380,36 @@ impl Repository {
                     "draft": true
                 })),
             )
-            .await?;
-        Ok(())
+            .await?)
     }
 
+    // Gives the id of the check run.
     pub async fn create_check_run(
         &self,
         name: &str,
         head_sha: &str,
         status: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let _: serde_json::Value = self
+    ) -> Result<i64, Box<dyn Error + Send + Sync>> {
+        let created: Created = self
             .client
             .post(
                 format!("/repos/{}/check-runs", self.full_name),
                 Some(&json!({ "name": name, "head_sha": head_sha, "status": status })),
+            )
+            .await?;
+        Ok(created.id)
+    }
+
+    pub async fn set_check_run_conclusion(
+        &self,
+        id: i64,
+        conclusion: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .patch(
+                format!("/repos/{}/check-runs/{id}", self.full_name),
+                Some(&json!({ "status": "completed", "conclusion": conclusion })),
             )
             .await?;
         Ok(())
@@ -517,6 +558,97 @@ impl Repository {
         .await
     }
 
+    pub async fn submit_review(
+        &self,
+        number: i64,
+        commit_id: &str,
+        body: &str,
+        comments: &[NewReviewComment],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .post(
+                format!("/repos/{}/pulls/{number}/reviews", self.full_name),
+                Some(&json!({
+                    "commit_id": commit_id,
+                    "body": body,
+                    "event": "COMMENT",
+                    "comments": comments
+                })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn review_threads(
+        &self,
+        number: i64,
+    ) -> Result<Vec<ReviewThread>, Box<dyn Error + Send + Sync>> {
+        let (owner, name) = self
+            .full_name
+            .split_once('/')
+            .ok_or_else(|| format!("{} has no owner.", self.full_name))?;
+        let mut threads = Vec::new();
+        let mut after = serde_json::Value::Null;
+        loop {
+            let data: serde_json::Value = self
+                .client
+                .graphql(&json!({
+                    "query": "query($owner: String!, $name: String!, $number: Int!, $after: String) {
+                        repository(owner: $owner, name: $name) {
+                            pullRequest(number: $number) {
+                                reviewThreads(first: 100, after: $after) {
+                                    nodes {
+                                        isResolved
+                                        comments(first: 100) { nodes { author { __typename login } } }
+                                    }
+                                    pageInfo { hasNextPage endCursor }
+                                }
+                            }
+                        }
+                    }",
+                    "variables": { "owner": owner, "name": name, "number": number, "after": after }
+                }))
+                .await?;
+            let page = &data["repository"]["pullRequest"]["reviewThreads"];
+            for node in page["nodes"]
+                .as_array()
+                .ok_or("GitHub gave no review threads.")?
+            {
+                let authors = node["comments"]["nodes"]
+                    .as_array()
+                    .ok_or("GitHub gave no review thread comments.")?
+                    .iter()
+                    .map(|comment| rest_login(&comment["author"]))
+                    .collect();
+                threads.push(ReviewThread {
+                    resolved: node["isResolved"] == true,
+                    authors,
+                });
+            }
+            if page["pageInfo"]["hasNextPage"] != true {
+                return Ok(threads);
+            }
+            after = page["pageInfo"]["endCursor"].clone();
+        }
+    }
+
+    pub async fn mark_ready_for_review(
+        &self,
+        node_id: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .graphql(&json!({
+                "query": "mutation($id: ID!) {
+                    markPullRequestReadyForReview(input: { pullRequestId: $id }) { clientMutationId }
+                }",
+                "variables": { "id": node_id }
+            }))
+            .await?;
+        Ok(())
+    }
+
     pub async fn sub_issues(
         &self,
         number: i64,
@@ -614,6 +746,15 @@ impl Repository {
             |page: Vec<IssueEvent>| page,
         )
         .await
+    }
+}
+
+// GraphQL gives a bot login with no `[bot]`, and no author for a deleted account.
+fn rest_login(author: &serde_json::Value) -> String {
+    match (author["__typename"].as_str(), author["login"].as_str()) {
+        (Some("Bot"), Some(login)) => format!("{login}[bot]"),
+        (_, Some(login)) => login.to_string(),
+        _ => "ghost".to_string(),
     }
 }
 
