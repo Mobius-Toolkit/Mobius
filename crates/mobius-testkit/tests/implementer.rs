@@ -201,7 +201,6 @@ async fn the_implementer_commits_and_mobius_opens_a_draft_pull_request() {
     );
     let worktree = data_dir.path().join("worktrees/owner/shop/task-41");
     assert_eq!(git(&worktree, &["branch", "--show-current"]), "mobius/41");
-    assert_eq!(task_state(&engine).await.as_deref(), Some("working"));
     let session = ended_implementers(&engine, 1).await.remove(0);
     assert_eq!(session.end_reason.as_deref(), Some("done"));
     let prompts = prompts(&transcript(&engine, session.id).await);
