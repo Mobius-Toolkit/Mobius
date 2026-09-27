@@ -23,6 +23,7 @@ async fn manifest_form_posts_the_manifest_to_the_settings_of_an_organization() {
     assert_eq!(
         manifest,
         json!({
+            "name": "Möbius",
             "url": "https://github.com/Mobius-Toolkit/Mobius",
             "redirect_url": "https://mobius.example.ts.net/api/github/manifest-callback",
             "callback_urls": ["https://mobius.example.ts.net/api/github/user-callback"],
