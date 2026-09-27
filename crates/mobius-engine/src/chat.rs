@@ -7,7 +7,7 @@ use mobius_runner::Session;
 use serde_json::{Value, json};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use crate::{Engine, TIME_FORMAT, mcp, tasks, trust};
+use crate::{Engine, TIME_FORMAT, agents, mcp, tasks, trust};
 
 pub(crate) const ROLE: &str = "lead_chat";
 const ROLE_PROMPT: &str = include_str!("prompts/lead.md");
@@ -126,10 +126,14 @@ async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver
     let session = match engine
         .store
         .sessions()
-        .add(ROLE, lead.harness, &repository, workstream)
+        .add(ROLE, lead.harness, &lead.model, &repository, workstream)
         .await
     {
-        Ok(session) => session,
+        Ok(session) => {
+            let id = session.id;
+            engine.broadcast(Live::Agent(agents::node(session)));
+            id
+        }
         Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
     };
     let caller = mcp::Caller {
@@ -160,11 +164,10 @@ async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver
     .await;
     mcp::close(&engine, &key);
     match result {
-        Ok(()) => {
-            if let Err(failure) = engine.store.sessions().end(session, "idle").await {
-                eprintln!("mobius: chat session {session}: {failure}");
-            }
-        }
+        Ok(()) => match engine.store.sessions().end(session, "idle").await {
+            Ok(ended) => engine.broadcast(Live::Agent(agents::node(ended))),
+            Err(failure) => eprintln!("mobius: chat session {session}: {failure}"),
+        },
         Err(error) => {
             let error = error.to_string();
             if let Err(failure) = recorder.fail(&error).await {
@@ -435,10 +438,13 @@ impl Recorder {
                 &json!({ "message": error }).to_string(),
             )
             .await?;
-        self.engine
+        let ended = self
+            .engine
             .store
             .sessions()
             .end(self.session, "failed")
-            .await
+            .await?;
+        self.engine.broadcast(Live::Agent(agents::node(ended)));
+        Ok(())
     }
 }

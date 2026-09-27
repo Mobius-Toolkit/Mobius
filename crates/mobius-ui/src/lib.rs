@@ -1,11 +1,12 @@
+use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use mobius_api::{
-    chat_seen, chat_send, chat_stop, chat_view, devices, github_app, github_manifest, live, login,
-    logout, unread, workstreams,
+    agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_app, github_manifest,
+    live, login, logout, transcript_lines, unread, workstreams,
 };
-use mobius_domain::{Author, ChatMessage, FeedRow, Live, Workstream};
+use mobius_domain::{AgentNode, Author, ChatMessage, FeedRow, Live, TranscriptLine, Workstream};
 use time::macros::format_description;
 
 #[derive(Clone, PartialEq, Routable)]
@@ -48,6 +49,7 @@ struct LiveState {
     messages: Signal<Vec<ChatMessage>>,
     leads: Signal<HashMap<ChatKey, LeadState>>,
     unread: Signal<HashMap<ChatKey, i64>>,
+    agents: Signal<HashMap<i64, AgentNode>>,
 }
 
 fn unauthorized(error: &ServerFnError) -> bool {
@@ -128,6 +130,9 @@ async fn follow_live(
                                 .write()
                                 .insert((unread.repository, unread.workstream), unread.count);
                         }
+                        Live::Agent(node) => {
+                            state.agents.write().insert(node.session.id, node);
+                        }
                     }
                 }
             }
@@ -154,6 +159,7 @@ fn Frame() -> Element {
         messages: Signal::new(Vec::new()),
         leads: Signal::new(HashMap::new()),
         unread: Signal::new(HashMap::new()),
+        agents: Signal::new(HashMap::new()),
     });
     use_effect(move || {
         if let Some(Err(error)) = &*app_slug.read()
@@ -301,6 +307,7 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     ));
     let mut text = use_signal(String::new);
     let mut send_error = use_signal(String::new);
+    let mut sheet = use_signal(|| false);
 
     let workstream = match &*workstream_list.read() {
         Some(Ok(list)) => list
@@ -347,92 +354,257 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     let send_repository = repository.clone();
     let stop_repository = repository.clone();
     rsx! {
-        div { class: "head",
-            h2 { class: "ellip", {workstream.as_ref().map(|workstream| workstream.title.clone())} }
-            span { class: "num", "#{number}" }
-            if workstream.as_ref().is_some_and(|workstream| workstream.autopilot) {
-                span { class: "chip info", "Autopilot on" }
-            } else {
-                span { class: "chip plain", "Autopilot off" }
-            }
-            span { class: "grow" }
-            if let Some(lead) = lead {
-                span { class: "muted small", "Lead: {lead.name()}" }
-            }
-        }
-        div { class: "chat",
-            div { class: "msgs",
-                if let Some(Err(error)) = &*history.read() {
-                    div { class: "error", {error_text(error)} }
+        div { class: "page",
+            div { class: "column",
+                div { class: "head",
+                    h2 { class: "ellip", {workstream.as_ref().map(|workstream| workstream.title.clone())} }
+                    span { class: "num", "#{number}" }
+                    if workstream.as_ref().is_some_and(|workstream| workstream.autopilot) {
+                        span { class: "chip info", "Autopilot on" }
+                    } else {
+                        span { class: "chip plain", "Autopilot off" }
+                    }
+                    span { class: "grow" }
+                    if let Some(lead) = lead {
+                        span { class: "muted small", "Lead: {lead.name()}" }
+                    }
+                    button { class: "btn phone", onclick: move |_| sheet.set(true), "Agents" }
                 }
-                if messages.is_empty() {
-                    div { class: "muted small empty", "No messages. Write to start a chat session." }
-                }
-                for message in messages {
-                    div {
-                        key: "{message.id}",
-                        class: if message.author == Author::Owner { "msg owner" } else { "msg" },
-                        div { class: "meta",
-                            span { {message.author.name()} }
-                            span {
-                                {message.time.format(format_description!("[hour]:[minute]")).unwrap_or_default()}
+                div { class: "chat",
+                    div { class: "msgs",
+                        if let Some(Err(error)) = &*history.read() {
+                            div { class: "error", {error_text(error)} }
+                        }
+                        if messages.is_empty() {
+                            div { class: "muted small empty", "No messages. Write to start a chat session." }
+                        }
+                        for message in messages {
+                            div {
+                                key: "{message.id}",
+                                class: if message.author == Author::Owner { "msg owner" } else { "msg" },
+                                div { class: "meta",
+                                    span { {message.author.name()} }
+                                    span {
+                                        {message.time.format(format_description!("[hour]:[minute]")).unwrap_or_default()}
+                                    }
+                                }
+                                p { "{message.text}" }
                             }
                         }
-                        p { "{message.text}" }
-                    }
-                }
-                if lead_state.writing {
-                    div { class: "typing",
-                        span { class: "dot live" }
-                        "The Lead writes a reply."
-                    }
-                }
-                if let Some(error) = lead_state.error {
-                    div { class: "error", "The chat session failed: {error}" }
-                }
-            }
-            form {
-                class: "composer",
-                onsubmit: move |event: FormEvent| {
-                    let repository = send_repository.clone();
-                    async move {
-                        event.prevent_default();
-                        if text().trim().is_empty() {
-                            return;
-                        }
-                        match chat_send(repository, number, text()).await {
-                            Ok(()) => {
-                                text.set(String::new());
-                                send_error.set(String::new());
+                        if lead_state.writing {
+                            div { class: "typing",
+                                span { class: "dot live" }
+                                "The Lead writes a reply."
                             }
-                            Err(failure) => send_error.set(error_text(&failure)),
+                        }
+                        if let Some(error) = lead_state.error {
+                            div { class: "error", "The chat session failed: {error}" }
                         }
                     }
-                },
-                div { class: "grow",
-                    textarea {
-                        placeholder: "Write to the Lead",
-                        value: text,
-                        oninput: move |event| text.set(event.value()),
-                    }
-                    div { class: "error", {send_error} }
-                }
-                if lead_state.writing {
-                    button {
-                        class: "btn danger",
-                        r#type: "button",
-                        onclick: move |_| {
-                            let repository = stop_repository.clone();
+                    form {
+                        class: "composer",
+                        onsubmit: move |event: FormEvent| {
+                            let repository = send_repository.clone();
                             async move {
-                                if let Err(failure) = chat_stop(repository, number).await {
-                                    send_error.set(error_text(&failure));
+                                event.prevent_default();
+                                if text().trim().is_empty() {
+                                    return;
+                                }
+                                match chat_send(repository, number, text()).await {
+                                    Ok(()) => {
+                                        text.set(String::new());
+                                        send_error.set(String::new());
+                                    }
+                                    Err(failure) => send_error.set(error_text(&failure)),
                                 }
                             }
                         },
-                        "Stop"
+                        div { class: "grow",
+                            textarea {
+                                placeholder: "Write to the Lead",
+                                value: text,
+                                oninput: move |event| text.set(event.value()),
+                            }
+                            div { class: "error", {send_error} }
+                        }
+                        if lead_state.writing {
+                            button {
+                                class: "btn danger",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    let repository = stop_repository.clone();
+                                    async move {
+                                        if let Err(failure) = chat_stop(repository, number).await {
+                                            send_error.set(error_text(&failure));
+                                        }
+                                    }
+                                },
+                                "Stop"
+                            }
+                        }
+                        button { class: "btn primary", r#type: "submit", "Send" }
                     }
                 }
-                button { class: "btn primary", r#type: "submit", "Send" }
+            }
+            aside { class: "side",
+                Agents { repository: repository.clone(), number }
+            }
+            if sheet() {
+                div { class: "sheet",
+                    Agents { repository: repository.clone(), number, on_close: move |_| sheet.set(false) }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn Agents(repository: String, number: i64, on_close: Option<EventHandler>) -> Element {
+    let state: LiveState = use_context();
+    let tree = use_resource(use_reactive(
+        (&repository, &number),
+        |(repository, number)| async move { agent_tree(repository, number).await },
+    ));
+    let mut tasks_tab = use_signal(|| false);
+    let mut selected = use_signal(|| None::<i64>);
+
+    let mut nodes: HashMap<i64, AgentNode> = match &*tree.read() {
+        Some(Ok(list)) => list
+            .iter()
+            .map(|node| (node.session.id, node.clone()))
+            .collect(),
+        _ => HashMap::new(),
+    };
+    for node in state.agents.read().values() {
+        if node.session.repository != repository || node.session.workstream != number {
+            continue;
+        }
+        // A session never starts again, so an ended node is newer than a live node.
+        let known = nodes.get(&node.session.id);
+        if known.is_none_or(|known| known.session.ended_at.is_none()) {
+            nodes.insert(node.session.id, node.clone());
+        }
+    }
+    let mut nodes: Vec<AgentNode> = nodes.into_values().collect();
+    nodes.sort_by_key(|node| Reverse(node.session.id));
+    let close = on_close.map(|on_close| {
+        rsx! {
+            button { class: "btn ghost", onclick: move |_| on_close.call(()), "Close" }
+        }
+    });
+
+    if let Some(node) = selected().and_then(|id| nodes.iter().find(|node| node.session.id == id)) {
+        return rsx! {
+            div { class: "head",
+                button { class: "back", onclick: move |_| selected.set(None), "‹ Agents" }
+                h2 { class: "ellip grow", "{node.role} {node.title}" }
+                {close}
+            }
+            Transcript { session: node.session.id }
+        };
+    }
+    rsx! {
+        div { class: "sidetabs",
+            button { class: if !tasks_tab() { "on" }, onclick: move |_| tasks_tab.set(false), "Agents" }
+            button { class: if tasks_tab() { "on" }, onclick: move |_| tasks_tab.set(true), "Tasks" }
+            span { class: "grow" }
+            {close}
+        }
+        div { class: "scroll",
+            if tasks_tab() {
+                div { class: "muted small note", "No tasks." }
+            } else {
+                if let Some(Err(error)) = &*tree.read() {
+                    div { class: "error note", {error_text(error)} }
+                }
+                for node in nodes {
+                    AgentEntry {
+                        key: "{node.session.id}",
+                        node: node.clone(),
+                        onclick: move |_| selected.set(Some(node.session.id)),
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn AgentEntry(node: AgentNode, onclick: EventHandler<MouseEvent>) -> Element {
+    let session = &node.session;
+    let time = format_description!("[month]-[day] [hour]:[minute]");
+    let start = session.started_at.format(time).unwrap_or_default();
+    let end = session
+        .ended_at
+        .map(|ended_at| {
+            format!(
+                "–{}",
+                ended_at
+                    .format(format_description!("[hour]:[minute]"))
+                    .unwrap_or_default()
+            )
+        })
+        .unwrap_or_default();
+    rsx! {
+        button { class: "node", onclick: move |event| onclick.call(event),
+            span { class: if session.ended_at.is_none() { "dot live" } else { "dot ended" } }
+            span { class: "grow",
+                span { class: "role", "{node.role}" }
+                " {node.title}"
+                div { class: "muted small", "{session.harness.name()} · {session.model} · {start}{end}" }
+            }
+        }
+    }
+}
+
+#[component]
+fn Transcript(session: i64) -> Element {
+    let lines = use_resource(use_reactive(&session, |session| async move {
+        transcript_lines(session).await
+    }));
+    rsx! {
+        div { class: "scroll tx",
+            match &*lines.read() {
+                Some(Ok(lines)) => rsx! {
+                    for line in lines.clone() {
+                        TranscriptEntry { key: "{line.id}", line }
+                    }
+                },
+                Some(Err(error)) => rsx! { div { class: "error", {error_text(error)} } },
+                None => rsx! {},
+            }
+        }
+        div { class: "readonly", "Read only. The Owner talks only to the Lead." }
+    }
+}
+
+#[component]
+fn TranscriptEntry(line: TranscriptLine) -> Element {
+    let mut open = use_signal(|| !line.folded);
+    let mut raw = use_signal(|| false);
+    rsx! {
+        div { class: if line.error { "tr crit" } else { "tr" },
+            span { class: "num",
+                {line.time.format(format_description!("[hour]:[minute]")).unwrap_or_default()}
+            }
+            span { class: "k", "{line.kind}" }
+            div {
+                span { "{line.text}" }
+                if let Some(name) = &line.harness_tool_name {
+                    span { class: "muted small", " {name}" }
+                }
+                if line.folded && line.body.is_some() {
+                    button { class: "btn ghost small", onclick: move |_| open.toggle(),
+                        if open() { "Hide" } else { "Show" }
+                    }
+                }
+                button { class: "btn ghost small", onclick: move |_| raw.toggle(), "Raw" }
+                if let Some(body) = line.body.as_ref().filter(|_| open()) {
+                    pre { "{body}" }
+                }
+                if raw() {
+                    pre { "{line.raw}" }
+                }
             }
         }
     }

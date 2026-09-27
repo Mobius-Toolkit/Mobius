@@ -106,6 +106,7 @@ pub struct Session {
     pub id: i64,
     pub role: String,
     pub harness: Harness,
+    pub model: String,
     pub repository: String,
     pub workstream: i64,
     pub acp_session_id: Option<String>,
@@ -115,12 +116,32 @@ pub struct Session {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AgentNode {
+    pub session: Session,
+    pub role: String,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TranscriptRow {
     pub id: i64,
     pub session: i64,
     pub time: OffsetDateTime,
     pub kind: String,
     pub json: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TranscriptLine {
+    pub id: i64,
+    pub time: OffsetDateTime,
+    pub kind: String,
+    pub text: String,
+    pub harness_tool_name: Option<String>,
+    pub body: Option<String>,
+    pub folded: bool,
+    pub error: bool,
+    pub raw: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -134,4 +155,5 @@ pub enum Live {
         error: Option<String>,
     },
     Unread(Unread),
+    Agent(AgentNode),
 }

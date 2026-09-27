@@ -2,6 +2,7 @@ CREATE TABLE sessions (
     id INTEGER PRIMARY KEY,
     role TEXT NOT NULL,
     harness TEXT NOT NULL,
+    model TEXT NOT NULL,
     repository TEXT NOT NULL,
     workstream INTEGER NOT NULL,
     acp_session_id TEXT,
