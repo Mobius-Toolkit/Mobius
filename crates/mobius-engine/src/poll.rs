@@ -3,7 +3,7 @@ use std::error::Error;
 use mobius_github::Repository;
 
 use crate::trust::trusted_author;
-use crate::{Engine, WORKING_LABEL, WORKSTREAM_LABEL, activity, conflicts, dispatch};
+use crate::{Engine, WORKING_LABEL, WORKSTREAM_LABEL, activity, dispatch, ends};
 
 const ISSUES: &str = "issues";
 
@@ -27,6 +27,7 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
         .repositories(app.app_id, &app.private_key)
         .await?;
     *engine.repositories.write().unwrap() = repositories.clone();
+    ends::lost_access(engine, &repositories).await?;
     for repository in &repositories {
         if let Err(error) = poll_repository(engine, &app.slug, repository).await {
             eprintln!("mobius: GitHub poll of {}: {error}", repository.full_name);
@@ -42,7 +43,7 @@ async fn poll_repository(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     changed_issues(engine, app_slug, repository).await?;
     dispatch::dispatch_ready(engine, app_slug, repository).await?;
-    conflicts::check(engine, repository).await
+    ends::check(engine, app_slug, repository).await
 }
 
 async fn changed_issues(

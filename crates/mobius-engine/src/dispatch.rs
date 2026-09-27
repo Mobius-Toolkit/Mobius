@@ -557,6 +557,7 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
             "body": null,
             "state": "open",
             "html_url": "https://github.com/owner/shop/issues/42",
+            "repository_url": "https://api.github.com/repos/owner/shop",
             "updated_at": "2026-09-27T14:02:00Z",
             "labels": [],
             "pull_request": null,

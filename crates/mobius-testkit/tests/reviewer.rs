@@ -447,7 +447,10 @@ async fn a_finding_after_max_fix_rounds_stops_the_task_until_a_comment_of_a_trus
             .contains(&"mobius:needs-human".to_string())
     );
     assert!(inbox::list(&engine).await.unwrap().is_empty());
-    assert_eq!(task_state(&engine, 41).await.as_deref(), Some("stopped"));
+    assert_eq!(
+        task_state(&engine, 41).await.as_deref(),
+        Some("needs_human")
+    );
     assert_eq!(fix_rounds(&engine, 41).await, 1);
 
     github.add_comment(REPOSITORY, 42, "owner", "Store the unit in the name.");

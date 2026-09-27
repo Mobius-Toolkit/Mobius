@@ -5,6 +5,7 @@ pub mod chat;
 pub mod config;
 mod conflicts;
 mod dispatch;
+mod ends;
 pub mod gh;
 pub mod github;
 mod implementer;
@@ -58,6 +59,8 @@ pub struct Engine {
     git: Arc<tokio::sync::Mutex<()>>,
     workers: Arc<workers::Workers>,
     checks: Arc<tokio::sync::Semaphore>,
+    // Each send carries the id of a task that stops or ends.
+    stops: broadcast::Sender<i64>,
 }
 
 impl Engine {
@@ -102,6 +105,7 @@ pub async fn start(
         git: Arc::default(),
         workers: Arc::default(),
         checks,
+        stops: broadcast::channel(64).0,
     };
     auth::start(&engine).await?;
     poll::spawn(engine.clone());

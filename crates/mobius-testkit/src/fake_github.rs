@@ -107,6 +107,7 @@ struct Issue {
     body: String,
     author: String,
     pull_request: bool,
+    merged_at: Option<i64>,
     state: &'static str,
     sub_issues: Vec<i64>,
     blocked_by: Vec<i64>,
@@ -195,6 +196,27 @@ impl Records {
         }));
     }
 
+    // Gives `false` when the issue does not have the label.
+    fn unlabel(&mut self, repository: &str, number: i64, label: &str, actor: &str) -> bool {
+        let now = self.tick();
+        let issue = self
+            .issues
+            .get_mut(&(repository.to_string(), number))
+            .unwrap();
+        if !issue.labels.iter().any(|name| name == label) {
+            return false;
+        }
+        issue.labels.retain(|name| name != label);
+        issue.updated_at = now;
+        issue.events.push(json!({
+            "event": "unlabeled",
+            "actor": { "login": actor },
+            "label": { "name": label },
+            "created_at": timestamp(now)
+        }));
+        true
+    }
+
     fn issue_json(&self, repository: &str, number: i64) -> Value {
         let issue = &self.issues[&(repository.to_string(), number)];
         let open_blockers = issue
@@ -208,6 +230,7 @@ impl Records {
             "body": issue.body,
             "user": { "login": issue.author },
             "html_url": format!("https://github.com/{repository}/issues/{number}"),
+            "repository_url": format!("https://api.github.com/repos/{repository}"),
             "state": issue.state,
             "updated_at": timestamp(issue.updated_at),
             "labels": issue.labels.iter().map(|name| json!({ "name": name })).collect::<Vec<_>>(),
@@ -381,6 +404,7 @@ impl FakeGitHub {
                 body: String::new(),
                 author: "owner".to_string(),
                 pull_request,
+                merged_at: None,
                 state: "open",
                 sub_issues: Vec::new(),
                 blocked_by: Vec::new(),
@@ -608,6 +632,28 @@ impl FakeGitHub {
             .unwrap();
         issue.state = "closed";
         issue.updated_at = now;
+    }
+
+    // The branch stays.
+    pub fn merge_pull_request(&self, repository: &str, number: i64) {
+        let mut records = self.state.lock().unwrap();
+        let now = records.tick();
+        let issue = records
+            .issues
+            .get_mut(&(repository.to_string(), number))
+            .unwrap();
+        issue.state = "closed";
+        issue.merged_at = Some(now);
+        issue.updated_at = now;
+    }
+
+    pub fn remove_label(&self, repository: &str, number: i64, label: &str, actor: &str) {
+        assert!(
+            self.state
+                .lock()
+                .unwrap()
+                .unlabel(repository, number, label, actor)
+        );
     }
 
     pub fn add_sub_issue(&self, repository: &str, parent: i64, child: i64) {
@@ -962,6 +1008,7 @@ async fn create_pull_request(
             body: new.body.clone(),
             author: app_login(),
             pull_request: true,
+            merged_at: None,
             state: "open",
             sub_issues: Vec::new(),
             blocked_by: Vec::new(),
@@ -999,22 +1046,29 @@ fn pull_request_json(records: &Records, repository: &str, number: i64) -> Value 
         .iter()
         .find(|(name, pull_request)| name == repository && pull_request.number == number)
         .unwrap();
-    let merge = Command::new("git")
-        .current_dir(records.remotes.join(format!("{repository}.git")))
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .args([
-            "merge-tree",
-            "--write-tree",
-            &pull_request.base,
-            &pull_request.head,
-        ])
-        .output()
-        .unwrap();
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .current_dir(records.remotes.join(format!("{repository}.git")))
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let merge = git(&[
+        "merge-tree",
+        "--write-tree",
+        &pull_request.base,
+        &pull_request.head,
+    ]);
+    let head = git(&["rev-parse", &pull_request.head]);
     json!({
         "number": number,
         "node_id": format!("PR_{number}"),
         "html_url": format!("https://github.com/{repository}/pull/{number}"),
+        "state": records.issues[&(repository.to_string(), number)].state,
+        "merged": records.issues[&(repository.to_string(), number)].merged_at.is_some(),
+        "head": { "sha": String::from_utf8(head.stdout).unwrap().trim() },
         "draft": pull_request.draft,
         "mergeable": merge.status.success(),
         "created_at": timestamp(records.pull_request_created_at[&(repository.to_string(), number)])
@@ -1250,22 +1304,9 @@ async fn remove_label(
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    let now = records.tick();
-    let issue = records
-        .issues
-        .get_mut(&(repository.clone(), number))
-        .unwrap();
-    if !issue.labels.contains(&name) {
+    if !records.unlabel(&repository, number, &name, &app_login()) {
         return not_found();
     }
-    issue.labels.retain(|label| *label != name);
-    issue.updated_at = now;
-    issue.events.push(json!({
-        "event": "unlabeled",
-        "actor": { "login": app_login() },
-        "label": { "name": name },
-        "created_at": timestamp(now)
-    }));
     Json(label_list(&records, &repository, number)).into_response()
 }
 

@@ -12,12 +12,13 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
 use crate::{
-    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, dispatch, issues, lead_events, mcp, reviewer, workers,
+    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, dispatch, ends, issues, lead_events, mcp, reviewer,
+    workers,
 };
 
 pub(crate) const ROLE: &str = "implementer";
 const ROLE_PROMPT: &str = include_str!("prompts/implementer.md");
-const CHECK_RUN: &str = "Mobius";
+pub(crate) const CHECK_RUN: &str = "Mobius";
 // GitHub allows a maximum of 65535 characters in the summary of a check run.
 const LOG_TAIL: usize = 60_000;
 
@@ -39,6 +40,7 @@ enum Outcome {
     CannotDo(String),
     CheckFailed(String),
     NotMerged,
+    Stopped,
 }
 
 struct Pushed {
@@ -99,7 +101,7 @@ pub(crate) async fn fix_round(
     let tasks = engine.store.tasks();
     let max = engine.config.max_fix_rounds;
     if !tasks.add_fix_round(review.task, max).await? {
-        if !stop(engine, &review.repository, review.task, review.number).await? {
+        if !hand_to_human(engine, &review.repository, review.task, review.number).await? {
             return Ok(());
         }
         repository
@@ -197,7 +199,7 @@ fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> + Send>> {
             "mobius: Implementer of {}#{}: {error}",
             job.repository, job.number
         );
-        if let Err(failure) = stop(&engine, &job.repository, job.task, job.number).await {
+        if let Err(failure) = hand_to_human(&engine, &job.repository, job.task, job.number).await {
             eprintln!(
                 "mobius: stop of {}#{}: {failure}",
                 job.repository, job.number
@@ -207,15 +209,15 @@ fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> + Send>> {
 }
 
 // Gives `false` when the task is not queued or working, for example after a decline of the Lead.
-pub(crate) async fn stop(
+pub(crate) async fn hand_to_human(
     engine: &Engine,
     repository: &str,
     task: i64,
     number: i64,
 ) -> Result<bool, Box<dyn Error + Send + Sync>> {
     let tasks = engine.store.tasks();
-    if !tasks.set_state(task, "working", "stopped").await?
-        && !tasks.set_state(task, "queued", "stopped").await?
+    if !tasks.set_state(task, "working", "needs_human").await?
+        && !tasks.set_state(task, "queued", "needs_human").await?
     {
         return Ok(false);
     }
@@ -227,6 +229,8 @@ pub(crate) async fn stop(
 }
 
 async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // The subscription comes before the first state change, so the session gets each stop of the task.
+    let mut stops = engine.stops.subscribe();
     let session = lead::add_session(
         engine,
         ROLE,
@@ -265,18 +269,21 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
             review: None,
         },
     )?;
-    let result = implement(
-        engine,
-        job,
-        session,
-        &key,
-        &mut recorder,
-        &mut reasons,
-        &mut held,
-    )
-    .await;
+    let result = tokio::select! {
+        result = implement(
+            engine,
+            job,
+            session,
+            &key,
+            &mut recorder,
+            &mut reasons,
+            &mut held,
+        ) => result,
+        () = ends::stopped(&mut stops, job.task) => Ok(Outcome::Stopped),
+    };
     mcp::close(engine, &key);
     match result {
+        Ok(Outcome::Stopped) => lead::end_session(engine, session, "stopped").await,
         Ok(Outcome::Done(pushed)) => {
             lead::end_session(engine, session, "done").await?;
             tokio::spawn(reviewer::run(
@@ -297,7 +304,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         }
         Ok(Outcome::CheckFailed(_)) => {
             lead::end_session(engine, session, "check_failed").await?;
-            if !stop(engine, &job.repository, job.task, job.number).await? {
+            if !hand_to_human(engine, &job.repository, job.task, job.number).await? {
                 return Ok(());
             }
             let text = stop_text(
@@ -313,7 +320,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         }
         Ok(Outcome::NotMerged) => {
             lead::end_session(engine, session, "not_merged").await?;
-            if !stop(engine, &job.repository, job.task, job.number).await? {
+            if !hand_to_human(engine, &job.repository, job.task, job.number).await? {
                 return Ok(());
             }
             let text = stop_text(

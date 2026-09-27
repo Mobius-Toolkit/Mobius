@@ -125,21 +125,27 @@ impl Tasks<'_> {
         Ok(())
     }
 
-    pub async fn in_state(
+    pub async fn live_in(
         &self,
         repository: &str,
-        state: &str,
     ) -> Result<Vec<Task>, Box<dyn Error + Send + Sync>> {
         let tasks = sqlx::query_as!(
             Task,
             r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request FROM tasks
-               WHERE repository = ? AND state = ?"#,
-            repository,
-            state
+               WHERE repository = ? AND state <> 'ended'"#,
+            repository
         )
         .fetch_all(self.pool)
         .await?;
         Ok(tasks)
+    }
+
+    pub async fn live_repositories(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        let repositories =
+            sqlx::query_scalar!("SELECT DISTINCT repository FROM tasks WHERE state <> 'ended'")
+                .fetch_all(self.pool)
+                .await?;
+        Ok(repositories)
     }
 
     pub async fn live_by_pull_request(
@@ -180,6 +186,17 @@ impl Tasks<'_> {
             .execute(self.pool)
             .await?;
         Ok(())
+    }
+
+    // Gives `false` when the task is already stopped or ended.
+    pub async fn stop(&self, id: i64) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let result = sqlx::query!(
+            "UPDATE tasks SET state = 'stopped' WHERE id = ? AND state NOT IN ('stopped', 'ended')",
+            id
+        )
+        .execute(self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
     }
 
     pub async fn end(&self, id: i64) -> Result<(), Box<dyn Error + Send + Sync>> {
