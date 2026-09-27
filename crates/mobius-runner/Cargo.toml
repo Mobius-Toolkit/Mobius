@@ -1,0 +1,7 @@
+[package]
+name = "mobius-runner"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mobius-domain = { workspace = true }

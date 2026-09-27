@@ -1,0 +1,12 @@
+[package]
+name = "mobius-ui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dioxus = { workspace = true }
+mobius-api = { workspace = true }
+
+[features]
+web = ["dioxus/web"]
+server = ["mobius-api/server"]

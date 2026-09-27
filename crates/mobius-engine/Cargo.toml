@@ -1,0 +1,14 @@
+[package]
+name = "mobius-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+humantime-serde = { workspace = true }
+mobius-domain = { workspace = true }
+mobius-github = { workspace = true }
+mobius-runner = { workspace = true }
+mobius-store = { workspace = true }
+serde = { workspace = true }
+serde_path_to_error = { workspace = true }
+toml = { workspace = true }

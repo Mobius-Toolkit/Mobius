@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+dioxus = "=0.7.10"
+agent-client-protocol = "=2.2.0"
+rmcp = "=3.4.1"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+octocrab = "0.54"
+humantime-serde = "1"
+serde = { version = "1", features = ["derive"] }
+serde_path_to_error = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+toml = "1"
+
+mobius-ui = { path = "crates/mobius-ui" }
+mobius-api = { path = "crates/mobius-api" }
+mobius-domain = { path = "crates/mobius-domain" }
+mobius-engine = { path = "crates/mobius-engine" }
+mobius-store = { path = "crates/mobius-store" }
+mobius-github = { path = "crates/mobius-github" }
+mobius-runner = { path = "crates/mobius-runner" }
