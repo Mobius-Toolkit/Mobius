@@ -1,10 +1,10 @@
 use std::collections::VecDeque;
 use std::error::Error;
 
-use mobius_domain::TaskLine;
-use mobius_github::Issue;
+use mobius_domain::{Blocker, TaskLine};
+use mobius_github::{Issue, Repository};
 
-use crate::{Engine, WORKSTREAM_LABEL, trust};
+use crate::{Engine, WORKSTREAM_LABEL, ends, trust, workstreams};
 
 // Issues below a Workstream issue of their own belong to that Workstream.
 pub async fn list(
@@ -23,6 +23,9 @@ pub async fn list(
             }
             if issue.state == "open" && trusted(&issue.user.login) {
                 let mut line = task_line(&issue);
+                if issue.issue_dependencies_summary.blocked_by > 0 {
+                    line.blocked_by = blockers(&repository, workstream, issue.number).await?;
+                }
                 if line.state == "working"
                     && engine
                         .store
@@ -41,6 +44,31 @@ pub async fn list(
     Ok(lines)
 }
 
+async fn blockers(
+    repository: &Repository,
+    workstream: i64,
+    number: i64,
+) -> Result<Vec<Blocker>, Box<dyn Error + Send + Sync>> {
+    let mut blockers = Vec::new();
+    for blocker in repository.blocked_by(number).await? {
+        if blocker.state != "open" {
+            continue;
+        }
+        if ends::in_other_repository(&blocker, &repository.full_name) {
+            continue;
+        }
+        let other_workstream = match workstreams::workstream_of(repository, blocker.number).await? {
+            Some(number) if number != workstream => repository.issue(number).await?,
+            _ => None,
+        };
+        blockers.push(Blocker {
+            number: blocker.number,
+            workstream_title: other_workstream.map(|issue| issue.title),
+        });
+    }
+    Ok(blockers)
+}
+
 fn task_line(issue: &Issue) -> TaskLine {
     let state = issue
         .labels
@@ -52,13 +80,32 @@ fn task_line(issue: &Issue) -> TaskLine {
         title: issue.title.clone(),
         state: state.to_string(),
         url: issue.html_url.clone(),
+        blocked_by: Vec::new(),
     }
 }
 
 pub(crate) fn text(lines: &[TaskLine]) -> String {
     lines
         .iter()
-        .map(|line| format!("#{} {}: {}\n", line.number, line.title, line.state))
+        .map(|line| {
+            let blockers: Vec<String> = line
+                .blocked_by
+                .iter()
+                .map(|blocker| match &blocker.workstream_title {
+                    Some(title) => format!("#{} (Workstream \"{title}\")", blocker.number),
+                    None => format!("#{}", blocker.number),
+                })
+                .collect();
+            let blocked_by = if blockers.is_empty() {
+                String::new()
+            } else {
+                format!(", blocked by {}", blockers.join(", "))
+            };
+            format!(
+                "#{} {}: {}{blocked_by}\n",
+                line.number, line.title, line.state
+            )
+        })
         .collect()
 }
 
@@ -70,6 +117,7 @@ mod tests {
 
     fn issue(labels: &[&str]) -> Issue {
         Issue {
+            id: 100_041,
             number: 41,
             title: "Add plan model".to_string(),
             body: None,
@@ -96,6 +144,26 @@ mod tests {
         assert_eq!(
             text(&[task_line(&issue(&["bug", "mobius:working"]))]),
             "#41 Add plan model: working\n"
+        );
+    }
+
+    #[test]
+    fn a_task_line_shows_its_blockers_and_the_workstream_of_a_blocker_in_another_workstream() {
+        let mut line = task_line(&issue(&["mobius:ready"]));
+        line.blocked_by = vec![
+            Blocker {
+                number: 40,
+                workstream_title: None,
+            },
+            Blocker {
+                number: 88,
+                workstream_title: Some("Billing".to_string()),
+            },
+        ];
+
+        assert_eq!(
+            text(&[line]),
+            "#41 Add plan model: ready, blocked by #40, #88 (Workstream \"Billing\")\n"
         );
     }
 

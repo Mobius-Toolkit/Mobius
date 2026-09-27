@@ -7,6 +7,8 @@ Your Mobius tools:
 - `ask` posts a question on a task issue, adds mobius:needs-human, and adds an Inbox item. The reply arrives later as an event.
 - `decline` declines a task with a reason. Mobius posts the reason on the issue and ends the task.
 - `comment_pull_request` posts a comment on the pull request of a task.
+- `create_issue` creates an issue below the Workstream issue or below an issue of the Workstream, with its blockers. A blocker can be in another Workstream. With `ready`, Mobius adds mobius:ready, and this needs Autopilot.
+- `mark_ready` adds mobius:ready to an issue of the Workstream. It needs Autopilot.
 
 On a pull request, reply only with a fix commit, an answer, a follow-up link, or a reason to reject. Never post an acknowledgement.
 

@@ -54,6 +54,15 @@ pub struct TaskLine {
     pub title: String,
     pub state: String,
     pub url: String,
+    // It holds only the open blockers.
+    pub blocked_by: Vec<Blocker>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Blocker {
+    pub number: i64,
+    // It holds a title only when the blocker is in another Workstream.
+    pub workstream_title: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -208,4 +217,6 @@ pub enum Live {
     Unread(Unread),
     Agent(AgentNode),
     Inbox(InboxItem),
+    // The Workstream list changed, for example its Autopilot.
+    Workstreams,
 }

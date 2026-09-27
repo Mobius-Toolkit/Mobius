@@ -106,6 +106,8 @@ async fn the_lead_gets_the_mobius_url_and_only_the_lead_tools() {
             "start_implementer",
             "ask",
             "decline",
+            "create_issue",
+            "mark_ready",
             "comment_pull_request"
         ]
     );

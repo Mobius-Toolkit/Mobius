@@ -37,7 +37,7 @@ async fn check_task(
     let Some(issue) = repository
         .issue(task.issue)
         .await?
-        .filter(|issue| !moved(issue, name))
+        .filter(|issue| !in_other_repository(issue, name))
     else {
         end(engine, repository, task).await?;
         return Ok(());
@@ -196,7 +196,7 @@ async fn stop_workers(
     Ok(())
 }
 
-fn moved(issue: &Issue, repository: &str) -> bool {
+pub(crate) fn in_other_repository(issue: &Issue, repository: &str) -> bool {
     !issue
         .repository_url
         .to_lowercase()
@@ -209,6 +209,7 @@ mod tests {
 
     fn issue(repository_url: &str) -> Issue {
         serde_json::from_value(serde_json::json!({
+            "id": 100_041,
             "number": 41,
             "title": "Add plan model",
             "body": null,
@@ -225,20 +226,20 @@ mod tests {
     }
 
     #[test]
-    fn an_issue_of_the_same_repository_in_each_letter_case_is_not_moved() {
-        assert!(!moved(
+    fn an_issue_of_the_same_repository_in_each_letter_case_is_not_in_another_repository() {
+        assert!(!in_other_repository(
             &issue("https://api.github.com/repos/Owner/Shop"),
             "owner/shop"
         ));
     }
 
     #[test]
-    fn an_issue_of_another_repository_is_moved() {
-        assert!(moved(
+    fn an_issue_of_another_repository_is_in_another_repository() {
+        assert!(in_other_repository(
             &issue("https://api.github.com/repos/owner/billing"),
             "owner/shop"
         ));
-        assert!(moved(
+        assert!(in_other_repository(
             &issue("https://api.github.com/repos/owner/workshop"),
             "owner/shop"
         ));

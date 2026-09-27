@@ -50,6 +50,8 @@ struct RepositoryName {
 
 #[derive(Deserialize)]
 pub struct Issue {
+    // Sub-issues and dependencies take this id, not the number.
+    pub id: i64,
     pub number: i64,
     pub title: String,
     pub body: Option<String>,
@@ -723,6 +725,68 @@ impl Repository {
             }))
             .await?;
         Ok(())
+    }
+
+    pub async fn create_issue(
+        &self,
+        title: &str,
+        body: &str,
+    ) -> Result<Issue, Box<dyn Error + Send + Sync>> {
+        Ok(self
+            .client
+            .post(
+                format!("/repos/{}/issues", self.full_name),
+                Some(&json!({ "title": title, "body": body })),
+            )
+            .await?)
+    }
+
+    pub async fn add_sub_issue(
+        &self,
+        parent: i64,
+        child_id: i64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .post(
+                format!("/repos/{}/issues/{parent}/sub_issues", self.full_name),
+                Some(&json!({ "sub_issue_id": child_id })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn add_blocked_by(
+        &self,
+        number: i64,
+        blocker_id: i64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .post(
+                format!(
+                    "/repos/{}/issues/{number}/dependencies/blocked_by",
+                    self.full_name
+                ),
+                Some(&json!({ "issue_id": blocker_id })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn blocked_by(
+        &self,
+        number: i64,
+    ) -> Result<Vec<Issue>, Box<dyn Error + Send + Sync>> {
+        all_pages(
+            &self.client,
+            &format!(
+                "/repos/{}/issues/{number}/dependencies/blocked_by",
+                self.full_name
+            ),
+            |page: Vec<Issue>| page,
+        )
+        .await
     }
 
     pub async fn sub_issues(
