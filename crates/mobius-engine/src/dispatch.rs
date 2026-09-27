@@ -129,6 +129,12 @@ pub(crate) async fn comment_events(
         return Ok(());
     };
     let comments = repository.issue_comments(issue.number).await?;
+    let authors = comments
+        .iter()
+        .map(|comment| (comment.user.login.as_str(), comment.created_at));
+    if new_trusted_user_comment(&engine.config, authors, since) {
+        engine.store.tasks().reset_counters(task.id).await?;
+    }
     let (replies, answered) = replies(&engine.config, app_slug, &comments, since);
     if answered && issue.has_label(NEEDS_HUMAN_LABEL) {
         repository
@@ -146,6 +152,49 @@ pub(crate) async fn comment_events(
         lead_events::add(engine, name, task.workstream, "comment", &text).await?;
     }
     Ok(())
+}
+
+pub(crate) async fn pull_request_comments(
+    engine: &Engine,
+    repository: &Repository,
+    number: i64,
+    since: Option<OffsetDateTime>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let tasks = engine.store.tasks();
+    let Some(task) = tasks
+        .live_by_pull_request(&repository.full_name, number)
+        .await?
+    else {
+        return Ok(());
+    };
+    let comments = repository.issue_comments(number).await?;
+    let review_comments = repository.review_comments(number).await?;
+    let authors = comments
+        .iter()
+        .map(|comment| (comment.user.login.as_str(), comment.created_at))
+        .chain(
+            review_comments
+                .iter()
+                .map(|comment| (comment.user.login.as_str(), comment.created_at)),
+        );
+    if new_trusted_user_comment(&engine.config, authors, since) {
+        tasks.reset_counters(task.id).await?;
+    }
+    Ok(())
+}
+
+fn new_trusted_user_comment<'a>(
+    config: &Config,
+    authors: impl IntoIterator<Item = (&'a str, OffsetDateTime)>,
+    since: Option<OffsetDateTime>,
+) -> bool {
+    authors.into_iter().any(|(login, created_at)| {
+        since.is_none_or(|since| created_at > since)
+            && config
+                .trusted_users
+                .iter()
+                .any(|user| user.eq_ignore_ascii_case(login))
+    })
 }
 
 // Gives the new comments that are Lead events. The `bool` is `true` when the newest of them is newer than the last comment of the Mobius App, the question.
@@ -464,6 +513,40 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
         assert_eq!(replies.len(), 1);
         assert_eq!(replies[0].created_at.unix_timestamp(), 3);
         assert!(answered);
+    }
+
+    #[test]
+    fn a_new_comment_of_a_trusted_user_resets_the_counters() {
+        let since = OffsetDateTime::from_unix_timestamp(2).ok();
+        let at = |seconds| OffsetDateTime::from_unix_timestamp(seconds).unwrap();
+
+        assert!(new_trusted_user_comment(
+            &config(),
+            [("mallory", at(3)), ("Owner", at(3))],
+            since
+        ));
+        assert!(new_trusted_user_comment(
+            &config(),
+            [("owner", at(1))],
+            None
+        ));
+    }
+
+    #[test]
+    fn an_old_comment_or_a_comment_of_a_bot_or_a_stranger_does_not_reset_the_counters() {
+        let since = OffsetDateTime::from_unix_timestamp(2).ok();
+        let at = |seconds| OffsetDateTime::from_unix_timestamp(seconds).unwrap();
+
+        assert!(!new_trusted_user_comment(
+            &config(),
+            [
+                ("owner", at(2)),
+                ("coderabbitai[bot]", at(3)),
+                ("mobius-app[bot]", at(3)),
+                ("mallory", at(3))
+            ],
+            since
+        ));
     }
 
     #[test]

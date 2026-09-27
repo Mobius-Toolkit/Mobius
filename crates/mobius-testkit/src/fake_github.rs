@@ -70,6 +70,13 @@ pub struct InlineComment {
     pub body: String,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Thread {
+    pub resolved: bool,
+    // The author and the body of each comment, in order.
+    pub comments: Vec<(String, String)>,
+}
+
 #[derive(Default)]
 struct Records {
     account_types: HashMap<String, &'static str>,
@@ -86,6 +93,8 @@ struct Records {
     check_runs: Vec<(String, CheckRun)>,
     submitted_reviews: Vec<(String, i64, SubmittedReview)>,
     last_review_comment_id: i64,
+    // The id of the first comment of each resolved review thread.
+    resolved_threads: HashSet<i64>,
     clock: i64,
     not_modified: u32,
 }
@@ -274,6 +283,7 @@ impl FakeGitHub {
                 delete(remove_label),
             )
             .route("/repos/{owner}/{repo}/pulls", post(create_pull_request))
+            .route("/repos/{owner}/{repo}/pulls/{number}", get(pull_request))
             .route("/repos/{owner}/{repo}/check-runs", post(create_check_run))
             .route(
                 "/repos/{owner}/{repo}/check-runs/{id}",
@@ -287,6 +297,10 @@ impl FakeGitHub {
             .route(
                 "/repos/{owner}/{repo}/pulls/{number}/comments",
                 get(review_comments),
+            )
+            .route(
+                "/repos/{owner}/{repo}/pulls/{number}/comments/{id}/replies",
+                post(reply_to_review_comment),
             )
             .with_state(state.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -527,6 +541,26 @@ impl FakeGitHub {
                 body: body.to_string(),
             },
         )
+    }
+
+    // Gives the review thread that starts with the comment `root`.
+    pub fn review_thread(&self, repository: &str, number: i64, root: i64) -> Thread {
+        let records = self.state.lock().unwrap();
+        let comments = records.issues[&(repository.to_string(), number)]
+            .review_comments
+            .iter()
+            .filter(|comment| comment["id"] == root || comment["in_reply_to_id"] == root)
+            .map(|comment| {
+                (
+                    comment["user"]["login"].as_str().unwrap().to_string(),
+                    comment["body"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        Thread {
+            resolved: records.resolved_threads.contains(&root),
+            comments,
+        }
     }
 
     pub fn set_body(&self, repository: &str, number: i64, body: &str) {
@@ -936,6 +970,28 @@ async fn create_pull_request(
         .into_response()
 }
 
+async fn pull_request(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    if !state
+        .lock()
+        .unwrap()
+        .pull_requests
+        .iter()
+        .any(|(name, pull_request)| *name == repository && pull_request.number == number)
+    {
+        return not_found();
+    }
+    Json(json!({
+        "number": number,
+        "node_id": format!("PR_{number}"),
+        "html_url": format!("https://github.com/{repository}/pull/{number}")
+    }))
+    .into_response()
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NewCheckRun {
@@ -1023,10 +1079,61 @@ struct GraphQl {
     variables: Value,
 }
 
-// Answers the review threads query and the mutation `markPullRequestReadyForReview`, each in one page.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Reply {
+    body: String,
+}
+
+async fn reply_to_review_comment(
+    State(state): State<Shared>,
+    Path((owner, repo, number, id)): Path<(String, String, i64, i64)>,
+    Json(reply): Json<Reply>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    let Some(root) = records
+        .issues
+        .get(&(repository.clone(), number))
+        .and_then(|issue| {
+            issue
+                .review_comments
+                .iter()
+                .find(|comment| comment["id"] == id && comment["in_reply_to_id"].is_null())
+        })
+    else {
+        return not_found();
+    };
+    let comment = InlineComment {
+        path: root["path"].as_str().unwrap().to_string(),
+        line: root["line"].as_i64().unwrap(),
+        body: reply.body,
+    };
+    let id = records.review_comment(&repository, number, Some(id), &app_login(), &comment);
+    (StatusCode::CREATED, Json(json!({ "id": id }))).into_response()
+}
+
+// Answers the review threads query and the mutations `markPullRequestReadyForReview` and `resolveReviewThread`, each in one page. The node id of a thread is `RT_` and the id of its first comment.
 async fn graphql(State(state): State<Shared>, Json(request): Json<GraphQl>) -> Response {
     let variables = &request.variables;
     let mut records = state.lock().unwrap();
+    if request.query.contains("resolveReviewThread") {
+        let Some(root) = variables["id"]
+            .as_str()
+            .and_then(|id| id.strip_prefix("RT_"))
+            .and_then(|root| root.parse().ok())
+        else {
+            return Json(
+                json!({ "data": null, "errors": [{ "message": "Could not resolve to a node" }] }),
+            )
+            .into_response();
+        };
+        records.resolved_threads.insert(root);
+        return Json(json!({
+            "data": { "resolveReviewThread": { "clientMutationId": null } }
+        }))
+        .into_response();
+    }
     if request.query.contains("markPullRequestReadyForReview") {
         let Some((_, pull_request)) = records
             .pull_requests
@@ -1062,13 +1169,19 @@ async fn graphql(State(state): State<Shared>, Json(request): Json<GraphQl>) -> R
                 })
                 .map(|comment| {
                     let login = comment["user"]["login"].as_str().unwrap();
-                    match login.strip_suffix("[bot]") {
-                        Some(bot) => json!({ "author": { "__typename": "Bot", "login": bot } }),
-                        None => json!({ "author": { "__typename": "User", "login": login } }),
-                    }
+                    let author = match login.strip_suffix("[bot]") {
+                        Some(bot) => json!({ "__typename": "Bot", "login": bot }),
+                        None => json!({ "__typename": "User", "login": login }),
+                    };
+                    json!({ "databaseId": comment["id"], "author": author })
                 })
                 .collect();
-            json!({ "isResolved": false, "comments": { "nodes": authors } })
+            let root = root["id"].as_i64().unwrap();
+            json!({
+                "id": format!("RT_{root}"),
+                "isResolved": records.resolved_threads.contains(&root),
+                "comments": { "nodes": authors }
+            })
         })
         .collect();
     Json(json!({

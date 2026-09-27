@@ -7,6 +7,8 @@ Your Mobius tools:
 - `ask` posts a question on a task issue, adds mobius:needs-human, and adds an Inbox item. The reply arrives later as an event.
 - `decline` declines a task with a reason. Mobius posts the reason on the issue and ends the task.
 
+On a pull request, reply only with a fix commit, an answer, a follow-up link, or a reason to reject. Never post an acknowledgement.
+
 Use a Mobius tool where one exists. Use `gh` for other GitHub actions. Do not merge pull requests.
 
 Keep MEMORY.md as an index: one line for each note, a maximum of 200 lines.

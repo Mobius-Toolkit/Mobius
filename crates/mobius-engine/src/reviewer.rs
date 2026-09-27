@@ -17,6 +17,7 @@ pub(crate) struct Job {
     pub(crate) task: i64,
     pub(crate) number: i64,
     pub(crate) title: String,
+    pub(crate) branch: String,
     pub(crate) pull_request: PullRequest,
     pub(crate) head: String,
     pub(crate) check_run: i64,
@@ -64,6 +65,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
             repository: job.repository.clone(),
             workstream: job.workstream,
             cannot_do: None,
+            fix: None,
             review: Some(mcp::Review {
                 pull_request: job.pull_request.number,
                 head: job.head.clone(),
@@ -140,15 +142,28 @@ async fn review(
         .await?
         .ok_or("The Mobius App does not exist.")?;
     let app_login = app_login(&app.slug);
-    if repository
-        .review_threads(job.pull_request.number)
-        .await?
+    let threads = repository.review_threads(job.pull_request.number).await?;
+    let open: Vec<&ReviewThread> = threads
         .iter()
-        .any(|thread| is_open(thread, &trusted, &app_login))
-    {
+        .filter(|thread| is_open(thread, &trusted, &app_login))
+        .collect();
+    if open.is_empty() {
+        return ready_for_review(engine, &repository, job).await;
+    }
+    let findings: Vec<i64> = open
+        .iter()
+        .filter(|thread| {
+            thread
+                .authors
+                .first()
+                .is_some_and(|author| author.eq_ignore_ascii_case(&app_login))
+        })
+        .map(|thread| thread.comment)
+        .collect();
+    if findings.is_empty() {
         return Ok(());
     }
-    ready_for_review(engine, &repository, job).await
+    implementer::fix_round(engine, &repository, job, &findings).await
 }
 
 async fn ready_for_review(
@@ -228,6 +243,8 @@ mod tests {
 
     fn thread(resolved: bool, authors: &[&str]) -> ReviewThread {
         ReviewThread {
+            id: "RT_1".to_string(),
+            comment: 1,
             resolved,
             authors: authors.iter().map(|author| author.to_string()).collect(),
         }

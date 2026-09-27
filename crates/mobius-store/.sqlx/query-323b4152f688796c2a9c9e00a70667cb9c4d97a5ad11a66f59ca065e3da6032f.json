@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE tasks SET fix_rounds = fix_rounds + 1 WHERE id = ? AND fix_rounds < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "323b4152f688796c2a9c9e00a70667cb9c4d97a5ad11a66f59ca065e3da6032f"
+}
