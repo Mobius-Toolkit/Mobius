@@ -11,8 +11,17 @@ use mobius_engine::Engine;
 use mobius_store::Store;
 use tokio::net::TcpListener;
 
-// The Harness `PATH` is `harnesses` and then the `PATH` of the test. The `gh` in `harnesses` prints its arguments and `GH_TOKEN`.
 pub async fn start(data_dir: &Path, access_password: &str, github_url: &str) -> Engine {
+    start_with_config(data_dir, access_password, github_url, "").await
+}
+
+// The Harness `PATH` is `harnesses` and then the `PATH` of the test. The `gh` in `harnesses` prints its arguments and `GH_TOKEN`.
+pub async fn start_with_config(
+    data_dir: &Path,
+    access_password: &str,
+    github_url: &str,
+    extra_config: &str,
+) -> Engine {
     let harnesses = data_dir.join("harnesses");
     fs::create_dir_all(&harnesses).unwrap();
     let gh = harnesses.join("gh");
@@ -28,6 +37,7 @@ data_dir = "{}"
 poll_interval = "50ms"
 lead_idle_timeout = "300ms"
 event_idle_timeout = "1s"
+{extra_config}
 
 [roles]
 lead        = {{ harness = "claude-code", model = "opus",    effort = "high" }}

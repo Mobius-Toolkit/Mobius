@@ -1,8 +1,10 @@
 use std::error::Error;
+use std::path::Path;
 
 use mobius_github::Repository;
+use mobius_runner::{Check, Session};
+use serde_json::Value;
 use time::OffsetDateTime;
-use tokio::sync::Mutex;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 
 use crate::lead::{self, Recorder};
@@ -12,9 +14,8 @@ use crate::{Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, dispatch, issues, lead_event
 pub(crate) const ROLE: &str = "implementer";
 const ROLE_PROMPT: &str = include_str!("prompts/implementer.md");
 const CHECK_RUN: &str = "Mobius";
-
-// All tasks of a repository share one bare clone, and two git commands that write its refs at the same time can fail on a ref lock.
-static GIT: Mutex<()> = Mutex::const_new(());
+// GitHub allows a maximum of 65535 characters in the summary of a check run.
+const LOG_TAIL: usize = 60_000;
 
 struct Job {
     repository: String,
@@ -29,6 +30,7 @@ struct Job {
 enum Outcome {
     Done,
     CannotDo(String),
+    CheckFailed(String),
 }
 
 pub(crate) async fn start(
@@ -87,19 +89,21 @@ async fn run(engine: Engine, job: Job) {
     }
 }
 
-async fn stop(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send + Sync>> {
-    if engine
+// Gives `false` when the task is not working, for example after a decline of the Lead.
+async fn stop(engine: &Engine, job: &Job) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    if !engine
         .store
         .tasks()
         .set_state(job.task, "working", "stopped")
         .await?
     {
-        engine
-            .repository(&job.repository)?
-            .add_label(job.number, NEEDS_HUMAN_LABEL)
-            .await?;
+        return Ok(false);
     }
-    Ok(())
+    engine
+        .repository(&job.repository)?
+        .add_label(job.number, NEEDS_HUMAN_LABEL)
+        .await?;
+    Ok(true)
 }
 
 async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -127,6 +131,18 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
     mcp::close(engine, &key);
     match result {
         Ok(Outcome::Done) => lead::end_session(engine, session, "done").await,
+        Ok(Outcome::CheckFailed(_)) => {
+            lead::end_session(engine, session, "check_failed").await?;
+            if !stop(engine, job).await? {
+                return Ok(());
+            }
+            let text = stop_text(
+                OffsetDateTime::now_utc(),
+                job,
+                engine.config.max_check_attempts,
+            )?;
+            lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
+        }
         Ok(Outcome::CannotDo(reason)) => {
             lead::end_session(engine, session, "cannot_do").await?;
             // A task that the Lead declined during the turn gets no event.
@@ -162,7 +178,7 @@ async fn implement(
     // A new branch is free on `origin`, so only a branch of an earlier session needs a pull.
     let branch = match &job.branch {
         Some(branch) => {
-            let _git = GIT.lock().await;
+            let _git = engine.git.lock().await;
             let repository = engine.repository(name)?;
             mobius_runner::fetch(data_dir, name, &repository.clone_url, repository.token()).await?;
             mobius_runner::pull(data_dir, &worktree, branch).await?;
@@ -177,7 +193,7 @@ async fn implement(
                 .ok_or("The Mobius App does not exist.")?;
             let login = app_login(&app.slug);
             let id = engine.github.user_id(&login).await?;
-            let _git = GIT.lock().await;
+            let _git = engine.git.lock().await;
             let repository = engine.repository(name)?;
             mobius_runner::fetch(data_dir, name, &repository.clone_url, repository.token()).await?;
             let branch = mobius_runner::add_worktree(
@@ -202,10 +218,101 @@ async fn implement(
         None,
     )
     .await?;
-    recorder.prompt(&job.prompt).await?;
+    let outcome = turns_and_checks(
+        engine,
+        job,
+        &worktree,
+        &session,
+        &mut updates,
+        recorder,
+        reasons,
+    )
+    .await;
+    session.close().await;
+    let outcome = outcome?;
+    if let Outcome::CannotDo(_) = outcome {
+        return Ok(outcome);
+    }
+    let repository = engine.repository(name)?;
+    let sha = {
+        let _git = engine.git.lock().await;
+        mobius_runner::push(data_dir, &worktree, repository.token(), &branch).await?
+    };
+    repository
+        .create_draft_pull_request(
+            &job.title,
+            &branch,
+            &repository.default_branch,
+            &format!("Closes #{}", job.number),
+        )
+        .await?;
+    match &outcome {
+        Outcome::CheckFailed(log) => {
+            let summary = format!(
+                "`.mobius/check` failed {} times. The last output ends with these lines:\n\n```\n{log}\n```",
+                engine.config.max_check_attempts
+            );
+            repository
+                .create_failed_check_run(CHECK_RUN, &sha, "Local check failed", &summary)
+                .await?;
+        }
+        _ => {
+            repository
+                .create_check_run(CHECK_RUN, &sha, "in_progress")
+                .await?;
+        }
+    }
+    Ok(outcome)
+}
+
+async fn turns_and_checks(
+    engine: &Engine,
+    job: &Job,
+    worktree: &Path,
+    session: &Session,
+    updates: &mut UnboundedReceiver<Value>,
+    recorder: &mut Recorder,
+    reasons: &mut UnboundedReceiver<String>,
+) -> Result<Outcome, Box<dyn Error + Send + Sync>> {
+    let mut prompt = job.prompt.clone();
+    let mut attempts = 0;
+    loop {
+        if let Some(reason) = turn(session, &prompt, updates, recorder, reasons).await? {
+            return Ok(Outcome::CannotDo(reason));
+        }
+        let check = mobius_runner::check(
+            &engine.config.data_dir,
+            worktree,
+            &engine.harness_path,
+            engine.config.check_timeout,
+        )
+        .await?;
+        let Check::Failed(log) = check else {
+            return Ok(Outcome::Done);
+        };
+        attempts += 1;
+        let log = tail(&log);
+        if attempts >= engine.config.max_check_attempts {
+            return Ok(Outcome::CheckFailed(log));
+        }
+        prompt = format!(
+            "The local check `.mobius/check` failed. Fix the code and commit your work. The output ends with these lines:\n\n```\n{log}\n```"
+        );
+    }
+}
+
+// Gives the reason when the Implementer calls `cannot_do`.
+async fn turn(
+    session: &Session,
+    prompt: &str,
+    updates: &mut UnboundedReceiver<Value>,
+    recorder: &mut Recorder,
+    reasons: &mut UnboundedReceiver<String>,
+) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    recorder.prompt(prompt).await?;
     let mut reason = None;
     let result = {
-        let turn = session.prompt(&job.prompt);
+        let turn = session.prompt(prompt);
         tokio::pin!(turn);
         loop {
             tokio::select! {
@@ -223,29 +330,17 @@ async fn implement(
     while let Ok(update) = updates.try_recv() {
         recorder.update(update).await?;
     }
-    session.close().await;
     // With `biased`, the end of the turn wins over a reason that arrived just before it.
     if let Some(reason) = reason.or_else(|| reasons.try_recv().ok()) {
-        return Ok(Outcome::CannotDo(reason));
+        return Ok(Some(reason));
     }
     result?;
-    let repository = engine.repository(name)?;
-    let sha = {
-        let _git = GIT.lock().await;
-        mobius_runner::push(data_dir, &worktree, repository.token(), &branch).await?
-    };
-    repository
-        .create_draft_pull_request(
-            &job.title,
-            &branch,
-            &repository.default_branch,
-            &format!("Closes #{}", job.number),
-        )
-        .await?;
-    repository
-        .create_check_run(CHECK_RUN, &sha, "in_progress")
-        .await?;
-    Ok(Outcome::Done)
+    Ok(None)
+}
+
+fn tail(log: &str) -> String {
+    let count = log.chars().count();
+    log.chars().skip(count.saturating_sub(LOG_TAIL)).collect()
 }
 
 fn cannot_do_text(
@@ -260,5 +355,18 @@ fn cannot_do_text(
         job.number,
         job.title,
         quoted.join("\n")
+    ))
+}
+
+fn stop_text(
+    time: OffsetDateTime,
+    job: &Job,
+    attempts: u32,
+) -> Result<String, time::error::Format> {
+    Ok(format!(
+        "{} stop of #{} \"{}\": .mobius/check failed {attempts} times. Mobius pushed the work to a draft pull request and added mobius:needs-human.",
+        time.format(TIME_FORMAT)?,
+        job.number,
+        job.title
     ))
 }

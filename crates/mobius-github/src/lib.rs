@@ -374,6 +374,29 @@ impl Repository {
         Ok(())
     }
 
+    pub async fn create_failed_check_run(
+        &self,
+        name: &str,
+        head_sha: &str,
+        title: &str,
+        summary: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .post(
+                format!("/repos/{}/check-runs", self.full_name),
+                Some(&json!({
+                    "name": name,
+                    "head_sha": head_sha,
+                    "status": "completed",
+                    "conclusion": "failure",
+                    "output": { "title": title, "summary": summary }
+                })),
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn open_issues_with_label(
         &self,
         label: &str,

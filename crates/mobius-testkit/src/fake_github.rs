@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -40,6 +42,15 @@ pub struct CheckRun {
     pub name: String,
     pub head_sha: String,
     pub status: String,
+    pub conclusion: Option<String>,
+    pub output: Option<CheckRunOutput>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CheckRunOutput {
+    pub title: String,
+    pub summary: String,
 }
 
 #[derive(Default)]
@@ -328,6 +339,23 @@ impl FakeGitHub {
             work.path(),
             &["push", "origin", &format!("HEAD:refs/heads/{branch}")],
         );
+    }
+
+    // Commits `script` as an executable `.mobius/check` on `main`.
+    pub fn set_check(&self, full_name: &str, script: &str) {
+        let remote = self.remote(full_name);
+        let work = TempDir::new().unwrap();
+        git(
+            work.path(),
+            &["clone", "--branch=main", remote.to_str().unwrap(), "."],
+        );
+        let check = work.path().join(".mobius/check");
+        fs::create_dir_all(check.parent().unwrap()).unwrap();
+        fs::write(&check, format!("#!/bin/sh\n{script}\n")).unwrap();
+        fs::set_permissions(&check, fs::Permissions::from_mode(0o755)).unwrap();
+        git(work.path(), &["add", ".mobius/check"]);
+        git(work.path(), &["commit", "-m", "Add the local check"]);
+        git(work.path(), &["push", "origin", "HEAD:refs/heads/main"]);
     }
 
     pub fn pull_requests(&self, full_name: &str) -> Vec<PullRequest> {
@@ -850,10 +878,13 @@ async fn create_pull_request(
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct NewCheckRun {
     name: String,
     head_sha: String,
     status: String,
+    conclusion: Option<String>,
+    output: Option<CheckRunOutput>,
 }
 
 async fn create_check_run(
@@ -867,6 +898,8 @@ async fn create_check_run(
             name: new.name,
             head_sha: new.head_sha,
             status: new.status,
+            conclusion: new.conclusion,
+            output: new.output,
         },
     ));
     (StatusCode::CREATED, Json(json!({ "id": 1 }))).into_response()
