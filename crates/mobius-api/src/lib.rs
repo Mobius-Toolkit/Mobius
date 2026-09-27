@@ -1,6 +1,8 @@
 use dioxus::fullstack::{Redirect, ServerEvents, SetCookie, SetHeader};
 use dioxus::prelude::*;
-use mobius_domain::{ChatView, Devices, Live, ManifestForm, Unread, Workstream};
+use mobius_domain::{
+    AgentNode, ChatView, Devices, Live, ManifestForm, TranscriptLine, Unread, Workstream,
+};
 
 #[cfg(feature = "server")]
 use dioxus::fullstack::headers::UserAgent;
@@ -13,7 +15,7 @@ use dioxus::server::axum::extract::{FromRequestParts, Query};
 #[cfg(feature = "server")]
 use dioxus::server::http::request::Parts;
 #[cfg(feature = "server")]
-use mobius_engine::{Engine, activity, auth, chat, github, workstreams};
+use mobius_engine::{Engine, activity, agents, auth, chat, github, transcript, workstreams};
 #[cfg(feature = "server")]
 use mobius_store::Store;
 #[cfg(feature = "server")]
@@ -181,6 +183,20 @@ pub async fn unread() -> ServerFnResult<Vec<Unread>> {
     store
         .chat_messages()
         .unread()
+        .await
+        .map_err(ServerFnError::new)
+}
+
+#[post("/api/agents", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn agent_tree(repository: String, workstream: i64) -> ServerFnResult<Vec<AgentNode>> {
+    agents::tree(&engine, &repository, workstream)
+        .await
+        .map_err(ServerFnError::new)
+}
+
+#[post("/api/transcript", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn transcript_lines(session: i64) -> ServerFnResult<Vec<TranscriptLine>> {
+    transcript::lines(&engine, session)
         .await
         .map_err(ServerFnError::new)
 }

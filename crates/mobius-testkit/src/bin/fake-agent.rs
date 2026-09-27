@@ -31,6 +31,9 @@ struct Script {
 struct Prompt {
     #[serde(default)]
     reply: Vec<String>,
+    // The JSON of each `session/update` to send before the reply.
+    #[serde(default)]
+    updates: Vec<String>,
     #[serde(default)]
     hang: bool,
     // The Lead reply is the JSON of the Mobius tool list.
@@ -113,6 +116,10 @@ async fn play(
     mcp_url: &str,
     cancel: &Notify,
 ) -> Result<StopReason, Error> {
+    for update in &prompt.updates {
+        let update: SessionUpdate = serde_json::from_str(update).unwrap();
+        connection.send_notification(SessionNotification::new(session.clone(), update))?;
+    }
     let mobius = mobius_reply(mcp_url, prompt).await;
     for text in prompt.reply.iter().chain(&mobius) {
         connection.send_notification(SessionNotification::new(

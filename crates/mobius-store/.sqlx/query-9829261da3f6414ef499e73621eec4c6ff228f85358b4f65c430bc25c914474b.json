@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, role, harness, repository, workstream, acp_session_id,\n                      started_at AS \"started_at: OffsetDateTime\",\n                      ended_at AS \"ended_at: OffsetDateTime\", end_reason\n               FROM sessions WHERE repository = ? AND workstream = ? ORDER BY id",
+  "query": "INSERT INTO sessions (role, harness, model, repository, workstream, started_at)\n               VALUES (?, ?, ?, ?, ?, ?)\n               RETURNING id AS \"id!\", role, harness, model, repository, workstream, acp_session_id,\n                         started_at AS \"started_at: OffsetDateTime\",\n                         ended_at AS \"ended_at: OffsetDateTime\", end_reason",
   "describe": {
     "columns": [
       {
-        "name": "id",
+        "name": "id!",
         "ordinal": 0,
         "type_info": "Integer",
         "origin": {
@@ -37,8 +37,19 @@
         }
       },
       {
-        "name": "repository",
+        "name": "model",
         "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "model"
+          }
+        }
+      },
+      {
+        "name": "repository",
+        "ordinal": 4,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -49,7 +60,7 @@
       },
       {
         "name": "workstream",
-        "ordinal": 4,
+        "ordinal": 5,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "acp_session_id",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -71,7 +82,7 @@
       },
       {
         "name": "started_at: OffsetDateTime",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "ended_at: OffsetDateTime",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "end_reason",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -104,9 +115,10 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 6
     },
     "nullable": [
+      false,
       false,
       false,
       false,
@@ -118,5 +130,5 @@
       true
     ]
   },
-  "hash": "7f2b7bb4dd8a83013a7cbe3b1ef8d031bc93dfa5579825f455e6f71c7ac37fda"
+  "hash": "9829261da3f6414ef499e73621eec4c6ff228f85358b4f65c430bc25c914474b"
 }

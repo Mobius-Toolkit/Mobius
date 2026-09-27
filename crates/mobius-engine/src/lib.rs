@@ -1,4 +1,5 @@
 pub mod activity;
+pub mod agents;
 pub mod auth;
 pub mod chat;
 pub mod config;
@@ -7,6 +8,7 @@ mod issues;
 pub mod mcp;
 mod poll;
 mod tasks;
+pub mod transcript;
 mod trust;
 pub mod workstreams;
 
