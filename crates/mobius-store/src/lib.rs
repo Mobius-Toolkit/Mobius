@@ -2,8 +2,10 @@ mod chat_messages;
 mod device_logins;
 mod events;
 mod github_app;
+mod lead_events;
 mod sessions;
 mod sync_cursors;
+mod tasks;
 mod transcript;
 
 use std::error::Error;
@@ -16,8 +18,10 @@ pub use chat_messages::ChatMessages;
 pub use device_logins::DeviceLogins;
 pub use events::Events;
 pub use github_app::{GitHubApp, GitHubAppRow};
+pub use lead_events::{LeadEvent, LeadEvents};
 pub use sessions::Sessions;
 pub use sync_cursors::{SyncCursor, SyncCursors};
+pub use tasks::{Task, Tasks};
 pub use transcript::Transcript;
 
 #[derive(Clone)]
@@ -53,12 +57,20 @@ impl Store {
         GitHubApp { pool: &self.pool }
     }
 
+    pub fn lead_events(&self) -> LeadEvents<'_> {
+        LeadEvents { pool: &self.pool }
+    }
+
     pub fn sessions(&self) -> Sessions<'_> {
         Sessions { pool: &self.pool }
     }
 
     pub fn sync_cursors(&self) -> SyncCursors<'_> {
         SyncCursors { pool: &self.pool }
+    }
+
+    pub fn tasks(&self) -> Tasks<'_> {
+        Tasks { pool: &self.pool }
     }
 
     pub fn transcript(&self) -> Transcript<'_> {

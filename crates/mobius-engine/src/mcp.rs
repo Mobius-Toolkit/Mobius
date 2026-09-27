@@ -19,7 +19,7 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use crate::{Engine, chat, issues, tasks, trust};
+use crate::{Engine, chat, dispatch, issues, lead_events, tasks, trust};
 
 #[derive(Clone)]
 pub(crate) struct Caller {
@@ -73,7 +73,7 @@ async fn serve(
 
 fn tools(role: &str) -> Vec<Tool> {
     match role {
-        chat::ROLE => vec![
+        chat::ROLE | lead_events::ROLE => vec![
             tool(
                 "list_tasks",
                 "Give the task list of the Workstream: one line for each open issue.",
@@ -87,6 +87,22 @@ fn tools(role: &str) -> Vec<Tool> {
                         "type": "integer",
                         "minimum": 1,
                         "description": "The number of the issue or the pull request."
+                    }
+                })),
+            ),
+            tool(
+                "decline",
+                "Decline a task. Mobius posts the reason as a comment on the issue, removes mobius:working, and ends the task.",
+                object(json!({
+                    "n": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the task issue."
+                    },
+                    "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The reason for the people on the issue."
                     }
                 })),
             ),
@@ -118,6 +134,13 @@ struct ReadIssue {
     n: i64,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Decline {
+    n: i64,
+    reason: String,
+}
+
 fn parse<T: DeserializeOwned>(tool: &str, arguments: &Value) -> Result<T, String> {
     T::deserialize(arguments).map_err(|error| format!("Invalid arguments for {tool}: {error}."))
 }
@@ -145,8 +168,13 @@ impl Handler {
         match tool {
             "list_tasks" => {
                 let ListTasks {} = parse(tool, arguments)?;
-                let trusted = trust::trusted_authors(&self.engine).await?;
-                tasks::task_list(&repository, self.caller.workstream, &trusted).await
+                let lines = tasks::list(
+                    &self.engine,
+                    &self.caller.repository,
+                    self.caller.workstream,
+                )
+                .await?;
+                Ok(tasks::text(&lines))
             }
             "read_issue" => {
                 let ReadIssue { n } = parse(tool, arguments)?;
@@ -155,6 +183,31 @@ impl Handler {
                 }
                 let trusted = trust::trusted_authors(&self.engine).await?;
                 issues::read_issue(&repository, n, &trusted).await
+            }
+            "decline" => {
+                let Decline { n, reason } = parse(tool, arguments)?;
+                if n < 1 {
+                    return Err("n must be 1 or more.".into());
+                }
+                if reason.trim().is_empty() {
+                    return Err("reason must not be empty.".into());
+                }
+                let app = self
+                    .engine
+                    .store
+                    .github_app()
+                    .get()
+                    .await?
+                    .ok_or("The Mobius App does not exist.")?;
+                dispatch::decline(
+                    &self.engine,
+                    &app.slug,
+                    &repository,
+                    self.caller.workstream,
+                    n,
+                    &reason,
+                )
+                .await
             }
             _ => Err(unknown().into()),
         }

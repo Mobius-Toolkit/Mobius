@@ -4,14 +4,14 @@ use std::path::Path;
 
 use mobius_domain::{Author, ChatMessage, ChatView, Live};
 use mobius_runner::Session;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use crate::{Engine, TIME_FORMAT, agents, gh, mcp, tasks, trust};
+use crate::lead::{self, Recorder, SAVE_PROMPT};
+use crate::{Engine, TIME_FORMAT, gh, mcp};
 
 pub(crate) const ROLE: &str = "lead_chat";
 const ROLE_PROMPT: &str = include_str!("prompts/lead.md");
-const SAVE_PROMPT: &str = "Save in the Workstream memory what the next session needs.";
 const HISTORY_SIZE: i64 = 20;
 
 pub(crate) struct ChatHandle {
@@ -121,19 +121,9 @@ pub async fn seen(
 }
 
 async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver<Command>) {
-    let lead = &engine.config.roles.lead;
     let (repository, workstream) = (first.repository.clone(), first.workstream);
-    let session = match engine
-        .store
-        .sessions()
-        .add(ROLE, lead.harness, &lead.model, &repository, workstream)
-        .await
-    {
-        Ok(session) => {
-            let id = session.id;
-            engine.broadcast(Live::Agent(agents::node(session)));
-            id
-        }
+    let session = match lead::add_session(&engine, ROLE, &repository, workstream).await {
+        Ok(session) => session,
         Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
     };
     let caller = mcp::Caller {
@@ -146,21 +136,15 @@ async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver
         Ok(key) => key,
         Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
     };
-    let mut recorder = Recorder {
-        engine: engine.clone(),
-        session,
-        repository: repository.clone(),
-        workstream,
-        chunk: None,
-        message: None,
-    };
-    let result = chat(&engine, &first, &key, &mut recorder, &mut commands).await;
+    let mut recorder = Recorder::new(&engine, session, &repository, workstream, true);
+    let result = chat(&engine, &first, session, &key, &mut recorder, &mut commands).await;
     mcp::close(&engine, &key);
     match result {
-        Ok(()) => match engine.store.sessions().end(session, "idle").await {
-            Ok(ended) => engine.broadcast(Live::Agent(agents::node(ended))),
-            Err(failure) => eprintln!("mobius: chat session {session}: {failure}"),
-        },
+        Ok(()) => {
+            if let Err(failure) = lead::end_session(&engine, session, "idle").await {
+                eprintln!("mobius: chat session {session}: {failure}");
+            }
+        }
         Err(error) => {
             let error = error.to_string();
             if let Err(failure) = recorder.fail(&error).await {
@@ -188,32 +172,23 @@ fn finish(engine: &Engine, repository: &str, workstream: i64, error: Option<Stri
 async fn chat(
     engine: &Engine,
     first: &ChatMessage,
+    session_id: i64,
     session_key: &str,
     recorder: &mut Recorder,
     commands: &mut UnboundedReceiver<Command>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let (repository, workstream) = (first.repository.as_str(), first.workstream);
     let key = (repository.to_string(), workstream);
-    let lead = &engine.config.roles.lead;
     let dir = mobius_runner::lead_dir(&engine.config.data_dir, repository, workstream)?;
     let prompt = first_prompt(engine, &dir, first).await?;
-    let (mut session, mut updates) = mobius_runner::start(
-        lead.harness,
+    let (session, mut updates) = lead::start(
+        engine,
+        session_id,
         &dir,
-        &engine.config.data_dir,
-        &engine.harness_path,
-        &mcp::url(engine, session_key),
+        session_key,
         Some(&gh::url(engine, session_key)),
     )
     .await?;
-    engine
-        .store
-        .sessions()
-        .set_acp_session_id(recorder.session, session.acp_id())
-        .await?;
-    session
-        .configure(&lead.model, lead.effort.as_deref())
-        .await?;
     let mut queue = VecDeque::from([prompt]);
     loop {
         while let Some(prompt) = queue.pop_front() {
@@ -316,24 +291,13 @@ async fn first_prompt(
     dir: &Path,
     first: &ChatMessage,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let github = engine.repository(&first.repository)?;
-    let brief = github
-        .issue(first.workstream)
-        .await?
-        .ok_or("The Workstream issue does not exist.")?
-        .body
-        .unwrap_or_default();
-    let memory = mobius_runner::memory(dir)?;
-    let trusted = trust::trusted_authors(engine).await?;
-    let tasks = tasks::task_list(&github, first.workstream, &trusted).await?;
+    let context = lead::context(engine, dir, &first.repository, first.workstream).await?;
     let history = engine
         .store
         .chat_messages()
         .before(&first.repository, first.workstream, first.id, HISTORY_SIZE)
         .await?;
-    let mut prompt = format!(
-        "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# MEMORY.md\n\n{memory}\n\n# Task list\n\n{tasks}\n\n# Chat history\n\n"
-    );
+    let mut prompt = format!("{ROLE_PROMPT}\n{context}# Chat history\n\n");
     for message in history {
         let author = message.author.name();
         let time = message.time.format(TIME_FORMAT)?;
@@ -341,104 +305,4 @@ async fn first_prompt(
     }
     prompt.push_str(&format!("# Owner message\n\n{}", first.text));
     Ok(prompt)
-}
-
-struct Recorder {
-    engine: Engine,
-    session: i64,
-    repository: String,
-    workstream: i64,
-    // The last transcript row while it is a chunk, and its JSON.
-    chunk: Option<(i64, Value)>,
-    // The Lead chat message that the text chunks grow until the next prompt or tool call.
-    message: Option<i64>,
-}
-
-impl Recorder {
-    async fn prompt(&mut self, text: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.chunk = None;
-        self.message = None;
-        self.engine
-            .store
-            .transcript()
-            .add(self.session, "prompt", &json!({ "text": text }).to_string())
-            .await?;
-        Ok(())
-    }
-
-    async fn update(&mut self, mut update: Value) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let transcript = self.engine.store.transcript();
-        let kind = update["update"]["sessionUpdate"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string();
-        let text = update["update"]["content"]["text"]
-            .as_str()
-            .map(str::to_string);
-        let chunk = matches!(kind.as_str(), "agent_message_chunk" | "agent_thought_chunk");
-        match (&mut self.chunk, &text) {
-            (Some((id, last)), Some(text)) if chunk && last["update"]["sessionUpdate"] == kind => {
-                let merged = format!(
-                    "{}{text}",
-                    last["update"]["content"]["text"]
-                        .as_str()
-                        .unwrap_or_default()
-                );
-                last["update"]["content"]["text"] = Value::String(merged);
-                transcript.set_json(*id, &last.to_string()).await?;
-            }
-            _ => {
-                let id = transcript
-                    .add(self.session, "update", &update.to_string())
-                    .await?;
-                self.chunk = (chunk && text.is_some()).then(|| (id, update.take()));
-            }
-        }
-        if kind == "tool_call" {
-            self.message = None;
-        }
-        let (Some(text), "agent_message_chunk") = (text, kind.as_str()) else {
-            return Ok(());
-        };
-        let chat_messages = self.engine.store.chat_messages();
-        let message = match self.message {
-            Some(id) => chat_messages.append(id, &text).await?,
-            None => {
-                chat_messages
-                    .add(&self.repository, self.workstream, Author::Lead, &text)
-                    .await?
-            }
-        };
-        let new = self.message.is_none();
-        self.message = Some(message.id);
-        self.engine.broadcast(Live::Message(message));
-        if new {
-            self.engine.broadcast(Live::Unread(
-                chat_messages
-                    .unread_of(&self.repository, self.workstream)
-                    .await?,
-            ));
-        }
-        Ok(())
-    }
-
-    async fn fail(&mut self, error: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.engine
-            .store
-            .transcript()
-            .add(
-                self.session,
-                "error",
-                &json!({ "message": error }).to_string(),
-            )
-            .await?;
-        let ended = self
-            .engine
-            .store
-            .sessions()
-            .end(self.session, "failed")
-            .await?;
-        self.engine.broadcast(Live::Agent(agents::node(ended)));
-        Ok(())
-    }
 }

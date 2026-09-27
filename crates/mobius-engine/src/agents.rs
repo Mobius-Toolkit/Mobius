@@ -2,11 +2,12 @@ use std::error::Error;
 
 use mobius_domain::{AgentNode, Session};
 
-use crate::{Engine, chat};
+use crate::{Engine, chat, lead_events};
 
 pub(crate) fn node(session: Session) -> AgentNode {
     let (role, title) = match session.role.as_str() {
         chat::ROLE => ("Lead".to_string(), "chat session".to_string()),
+        lead_events::ROLE => ("Lead".to_string(), "event session".to_string()),
         role => (role.to_string(), String::new()),
     };
     AgentNode {

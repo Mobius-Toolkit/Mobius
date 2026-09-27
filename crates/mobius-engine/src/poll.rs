@@ -3,7 +3,7 @@ use std::error::Error;
 use mobius_github::Repository;
 
 use crate::trust::trusted_author;
-use crate::{Engine, WORKSTREAM_LABEL, activity};
+use crate::{Engine, WORKING_LABEL, WORKSTREAM_LABEL, activity, dispatch};
 
 const ISSUES: &str = "issues";
 
@@ -40,6 +40,15 @@ async fn poll_repository(
     app_slug: &str,
     repository: &Repository,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    changed_issues(engine, app_slug, repository).await?;
+    dispatch::dispatch_ready(engine, app_slug, repository).await
+}
+
+async fn changed_issues(
+    engine: &Engine,
+    app_slug: &str,
+    repository: &Repository,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let name = &repository.full_name;
     let cursor = engine.store.sync_cursors().get(name, ISSUES).await?;
     let Some(page) = repository
@@ -49,7 +58,13 @@ async fn poll_repository(
         return Ok(());
     };
     for issue in &page.issues {
-        if issue.pull_request.is_some() || !issue.has_label(WORKSTREAM_LABEL) {
+        if issue.pull_request.is_some() {
+            continue;
+        }
+        if issue.has_label(WORKING_LABEL) {
+            dispatch::comment_events(engine, app_slug, repository, issue, cursor.since).await?;
+        }
+        if !issue.has_label(WORKSTREAM_LABEL) {
             continue;
         }
         for event in repository.issue_events(issue.number).await? {

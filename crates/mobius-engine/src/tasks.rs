@@ -1,17 +1,20 @@
 use std::collections::VecDeque;
 use std::error::Error;
 
-use mobius_github::{Issue, Repository};
+use mobius_domain::TaskLine;
+use mobius_github::Issue;
 
-use crate::WORKSTREAM_LABEL;
+use crate::{Engine, WORKSTREAM_LABEL, trust};
 
 // Issues below a Workstream issue of their own belong to that Workstream.
-pub(crate) async fn task_list(
-    repository: &Repository,
+pub async fn list(
+    engine: &Engine,
+    repository: &str,
     workstream: i64,
-    trusted: impl Fn(&str) -> bool,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let mut lines = String::new();
+) -> Result<Vec<TaskLine>, Box<dyn Error + Send + Sync>> {
+    let repository = engine.repository(repository)?;
+    let trusted = trust::trusted_authors(engine).await?;
+    let mut lines = Vec::new();
     let mut parents = VecDeque::from([workstream]);
     while let Some(parent) = parents.pop_front() {
         for issue in repository.sub_issues(parent).await? {
@@ -19,7 +22,7 @@ pub(crate) async fn task_list(
                 continue;
             }
             if issue.state == "open" && trusted(&issue.user.login) {
-                lines.push_str(&task_line(&issue));
+                lines.push(task_line(&issue));
             }
             parents.push_back(issue.number);
         }
@@ -27,18 +30,30 @@ pub(crate) async fn task_list(
     Ok(lines)
 }
 
-fn task_line(issue: &Issue) -> String {
+fn task_line(issue: &Issue) -> TaskLine {
     let state = issue
         .labels
         .iter()
         .find_map(|label| label.name.strip_prefix("mobius:"))
         .unwrap_or("open");
-    format!("#{} {}: {state}\n", issue.number, issue.title)
+    TaskLine {
+        number: issue.number,
+        title: issue.title.clone(),
+        state: state.to_string(),
+        url: issue.html_url.clone(),
+    }
+}
+
+pub(crate) fn text(lines: &[TaskLine]) -> String {
+    lines
+        .iter()
+        .map(|line| format!("#{} {}: {}\n", line.number, line.title, line.state))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use mobius_github::{Label, User};
+    use mobius_github::{DependenciesSummary, Label, User};
 
     use super::*;
 
@@ -60,19 +75,23 @@ mod tests {
             user: User {
                 login: "owner".to_string(),
             },
+            issue_dependencies_summary: DependenciesSummary { blocked_by: 0 },
         }
     }
 
     #[test]
     fn a_task_line_shows_the_mobius_label() {
         assert_eq!(
-            task_line(&issue(&["bug", "mobius:working"])),
+            text(&[task_line(&issue(&["bug", "mobius:working"]))]),
             "#41 Add plan model: working\n"
         );
     }
 
     #[test]
     fn a_task_line_with_no_mobius_label_shows_open() {
-        assert_eq!(task_line(&issue(&["bug"])), "#41 Add plan model: open\n");
+        assert_eq!(
+            text(&[task_line(&issue(&["bug"]))]),
+            "#41 Add plan model: open\n"
+        );
     }
 }
