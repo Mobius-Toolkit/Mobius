@@ -125,6 +125,10 @@ _Avoid_: Iteration, cycle
 One pass in which the Implementer merges the base branch into a pull request to remove a merge conflict.
 _Avoid_: Rebase, sync
 
+**Stale pull request**:
+A pull request with a merge conflict that is older than `stale_pr_age`. It gets no conflict round, and a human decides if it closes.
+_Avoid_: Old PR, abandoned PR
+
 **Inbox**:
 The list of all tasks that wait for a human, across all Workstreams.
 _Avoid_: Notifications, queue

@@ -4,6 +4,7 @@ use std::pin::Pin;
 
 use mobius_github::{PullRequest, Repository};
 use mobius_runner::{Check, Session};
+use mobius_store::Task;
 use serde_json::Value;
 use time::OffsetDateTime;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
@@ -27,8 +28,9 @@ struct Job {
     number: i64,
     title: String,
     branch: Option<String>,
-    // A fix round, or a start after `cannot_do` in a fix round, works on the pull request of an earlier session.
+    // A fix round, a conflict round, or a start after `cannot_do` in one of them works on the pull request of an earlier session.
     pull_request: Option<PullRequest>,
+    conflict_round: bool,
     prompt: String,
 }
 
@@ -36,6 +38,7 @@ enum Outcome {
     Done(Pushed),
     CannotDo(String),
     CheckFailed(String),
+    NotMerged,
 }
 
 struct Pushed {
@@ -77,6 +80,7 @@ pub(crate) async fn start(
         title,
         branch: task.branch,
         pull_request,
+        conflict_round: false,
         prompt: format!(
             "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n{issue}\n# Lead instructions\n\n{instructions}"
         ),
@@ -132,12 +136,52 @@ pub(crate) async fn fix_round(
         title: review.title.clone(),
         branch: Some(review.branch.clone()),
         pull_request: Some(review.pull_request.clone()),
+        conflict_round: false,
         prompt: format!(
             "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Open review threads\n{threads}",
             review.number,
             issue.title,
             issue.body.unwrap_or_default()
         ),
+    };
+    tokio::spawn(run(engine.clone(), job));
+    Ok(())
+}
+
+pub(crate) async fn conflict_round(
+    engine: &Engine,
+    repository: &Repository,
+    task: &Task,
+    pull_request: PullRequest,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let brief = lead::brief(repository, task.workstream).await?;
+    let title = repository
+        .issue(task.issue)
+        .await?
+        .ok_or_else(|| format!("#{} does not exist.", task.issue))?
+        .title;
+    if !engine
+        .store
+        .tasks()
+        .queue(task.id, "ready_for_review")
+        .await?
+    {
+        return Ok(());
+    }
+    let prompt = format!(
+        "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {title}\n\n# Base branch\n\norigin/{}\n\nMerge the base branch and remove the conflicts.",
+        task.issue, repository.default_branch
+    );
+    let job = Job {
+        repository: repository.full_name.clone(),
+        workstream: task.workstream,
+        task: task.id,
+        number: task.issue,
+        title,
+        branch: task.branch.clone(),
+        pull_request: Some(pull_request),
+        conflict_round: true,
+        prompt,
     };
     tokio::spawn(run(engine.clone(), job));
     Ok(())
@@ -261,9 +305,22 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                 job.number,
                 &job.title,
                 &format!(
-                    ".mobius/check failed {} times. Mobius pushed the work to a draft pull request and added mobius:needs-human.",
+                    ".mobius/check failed {} times. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.",
                     engine.config.max_check_attempts
                 ),
+            )?;
+            lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
+        }
+        Ok(Outcome::NotMerged) => {
+            lead::end_session(engine, session, "not_merged").await?;
+            if !stop(engine, &job.repository, job.task, job.number).await? {
+                return Ok(());
+            }
+            let text = stop_text(
+                OffsetDateTime::now_utc(),
+                job.number,
+                &job.title,
+                "the conflict round did not merge the base branch. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.",
             )?;
             lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
         }
@@ -360,6 +417,9 @@ async fn implement(
         None => None,
     };
     let repository = engine.repository(name)?;
+    let base = format!("origin/{}", repository.default_branch);
+    let merged =
+        !job.conflict_round || mobius_runner::head_contains(data_dir, &worktree, &base).await?;
     let sha = {
         let _git = engine.git.lock().await;
         mobius_runner::push(data_dir, &worktree, repository.token(), &branch).await?
@@ -390,6 +450,17 @@ async fn implement(
         if reply.resolve {
             repository.resolve_review_thread(&reply.thread).await?;
         }
+    }
+    if log.is_none() && !merged {
+        repository
+            .create_failed_check_run(
+                CHECK_RUN,
+                &sha,
+                "Conflict round failed",
+                &format!("The Implementer did not merge `{base}`."),
+            )
+            .await?;
+        return Ok(Outcome::NotMerged);
     }
     let Some(log) = log else {
         let check_run = repository

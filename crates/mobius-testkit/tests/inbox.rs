@@ -282,6 +282,7 @@ async fn only_the_event_session_has_tell_owner() {
             "start_implementer",
             "ask",
             "decline",
+            "comment_pull_request",
             "tell_owner"
         ]
     );

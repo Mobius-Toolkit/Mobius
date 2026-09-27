@@ -389,6 +389,7 @@ async fn a_finding_after_max_fix_rounds_stops_the_task_until_a_comment_of_a_trus
 
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
 
+    ended_reviewers(&engine, 1).await;
     wait_for(async || {
         lead_event_prompts(&engine)
             .await

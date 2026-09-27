@@ -105,7 +105,8 @@ async fn the_lead_gets_the_mobius_url_and_only_the_lead_tools() {
             "read_issue",
             "start_implementer",
             "ask",
-            "decline"
+            "decline",
+            "comment_pull_request"
         ]
     );
     for tool in &tools {

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)\n               VALUES (?, ?, ?, 'dispatched', ?)\n               RETURNING id AS \"id!\", workstream, state, branch, fix_rounds, pull_request",
+  "query": "INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)\n               VALUES (?, ?, ?, 'dispatched', ?)\n               RETURNING id AS \"id!\", issue, workstream, state, branch, fix_rounds, pull_request",
   "describe": {
     "columns": [
       {
@@ -15,8 +15,19 @@
         }
       },
       {
-        "name": "workstream",
+        "name": "issue",
         "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "issue"
+          }
+        }
+      },
+      {
+        "name": "workstream",
+        "ordinal": 2,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -27,7 +38,7 @@
       },
       {
         "name": "state",
-        "ordinal": 2,
+        "ordinal": 3,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -38,7 +49,7 @@
       },
       {
         "name": "branch",
-        "ordinal": 3,
+        "ordinal": 4,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -49,7 +60,7 @@
       },
       {
         "name": "fix_rounds",
-        "ordinal": 4,
+        "ordinal": 5,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "pull_request",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -77,10 +88,11 @@
       false,
       false,
       false,
+      false,
       true,
       false,
       true
     ]
   },
-  "hash": "5dd7b6becaf061f5204f85bfbc776ab956becece87fe0f09bd19bb2b045d018e"
+  "hash": "582a3af5111f43688fb458bdbbffdeb6c0591807c30f9e4dfaf737f27f84479d"
 }

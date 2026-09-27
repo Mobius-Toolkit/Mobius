@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, issue, workstream, state, branch, fix_rounds, pull_request FROM tasks\n               WHERE repository = ? AND pull_request = ? AND state <> 'ended'",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "issue",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "issue"
+          }
+        }
+      },
+      {
+        "name": "workstream",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "workstream"
+          }
+        }
+      },
+      {
+        "name": "state",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "state"
+          }
+        }
+      },
+      {
+        "name": "branch",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "branch"
+          }
+        }
+      },
+      {
+        "name": "fix_rounds",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "fix_rounds"
+          }
+        }
+      },
+      {
+        "name": "pull_request",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "pull_request"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "27cb931fdd6c4e85a5f444acc96d1129c1712d0cb0787c20bc1f75fee39c6e2f"
+}

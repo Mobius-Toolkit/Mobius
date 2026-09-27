@@ -3,7 +3,7 @@ use std::error::Error;
 use mobius_github::Repository;
 
 use crate::trust::trusted_author;
-use crate::{Engine, WORKING_LABEL, WORKSTREAM_LABEL, activity, dispatch};
+use crate::{Engine, WORKING_LABEL, WORKSTREAM_LABEL, activity, conflicts, dispatch};
 
 const ISSUES: &str = "issues";
 
@@ -41,7 +41,8 @@ async fn poll_repository(
     repository: &Repository,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     changed_issues(engine, app_slug, repository).await?;
-    dispatch::dispatch_ready(engine, app_slug, repository).await
+    dispatch::dispatch_ready(engine, app_slug, repository).await?;
+    conflicts::check(engine, repository).await
 }
 
 async fn changed_issues(

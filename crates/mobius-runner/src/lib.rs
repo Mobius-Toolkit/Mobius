@@ -153,6 +153,15 @@ async fn has_ref(dir: &Path, data_dir: &Path, name: &str) -> Result<bool, String
     Ok(status.success())
 }
 
+pub async fn head_contains(data_dir: &Path, worktree: &Path, commit: &str) -> Result<bool, String> {
+    let status = git(worktree, data_dir, None)
+        .args(["merge-base", "--is-ancestor", commit, "HEAD"])
+        .status()
+        .await
+        .map_err(|error| format!("git merge-base --is-ancestor {commit} HEAD: {error}"))?;
+    Ok(status.success())
+}
+
 fn bare_dir(data_dir: &Path, repository: &str) -> PathBuf {
     data_dir.join("repos").join(format!("{repository}.git"))
 }
