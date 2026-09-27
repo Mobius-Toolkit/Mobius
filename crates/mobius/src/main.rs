@@ -63,6 +63,7 @@ fn serve() {
             "https://api.github.com",
             "https://github.com",
             path,
+            dioxus::cli_config::server_port().unwrap_or(8080),
         ))
         .unwrap_or_else(|error| fail(error));
 
@@ -71,6 +72,7 @@ fn serve() {
         let store = store.clone();
         async move {
             Ok(dioxus::server::router(App)
+                .merge(mobius_engine::mcp::router(engine.clone()))
                 .layer(Extension(engine))
                 .layer(Extension(store)))
         }

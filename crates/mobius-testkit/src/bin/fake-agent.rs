@@ -3,13 +3,17 @@ use std::sync::{Arc, Mutex};
 
 use agent_client_protocol::schema::v1::{
     CancelNotification, ConfigOptionUpdate, ContentBlock, ContentChunk, InitializeRequest,
-    InitializeResponse, NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse,
-    SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption,
-    SessionId, SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
-    SetSessionConfigOptionResponse, StopReason,
+    InitializeResponse, McpServer, NewSessionRequest, NewSessionResponse, PromptRequest,
+    PromptResponse, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
+    SessionConfigSelectOption, SessionId, SessionNotification, SessionUpdate,
+    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, StopReason,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Error, Responder, Stdio};
+use rmcp::ServiceExt;
+use rmcp::model::CallToolRequestParams;
+use rmcp::transport::StreamableHttpClientTransport;
 use serde::Deserialize;
+use serde_json::{Map, Value};
 use tokio::sync::Notify;
 
 #[derive(Deserialize)]
@@ -29,12 +33,26 @@ struct Prompt {
     reply: Vec<String>,
     #[serde(default)]
     hang: bool,
+    // The Lead reply is the JSON of the Mobius tool list.
+    #[serde(default)]
+    list_tools: bool,
+    // The Lead reply is the text of the tool result, after `error: ` for an error result.
+    call: Option<Call>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Call {
+    tool: String,
+    #[serde(default)]
+    arguments: Map<String, Value>,
 }
 
 struct State {
     script: Script,
     options: Vec<SessionConfigOption>,
     prompts_done: usize,
+    mcp_url: Option<String>,
     // The cancel signal of the turn that runs. A `session/cancel` with no turn has no effect.
     turn: Option<Arc<Notify>>,
 }
@@ -62,13 +80,41 @@ fn options(script: &Script) -> Vec<SessionConfigOption> {
         .collect()
 }
 
+async fn mobius_reply(mcp_url: &str, prompt: &Prompt) -> Option<String> {
+    if !prompt.list_tools && prompt.call.is_none() {
+        return None;
+    }
+    let client = ().serve(StreamableHttpClientTransport::from_uri(mcp_url)).await.unwrap();
+    let reply = match &prompt.call {
+        Some(call) => {
+            let result = client
+                .call_tool(
+                    CallToolRequestParams::new(call.tool.clone())
+                        .with_arguments(call.arguments.clone()),
+                )
+                .await
+                .unwrap();
+            let text = &result.content[0].as_text().unwrap().text;
+            match result.is_error {
+                Some(true) => format!("error: {text}"),
+                _ => text.clone(),
+            }
+        }
+        None => serde_json::to_string(&client.list_all_tools().await.unwrap()).unwrap(),
+    };
+    client.cancel().await.unwrap();
+    Some(reply)
+}
+
 async fn play(
     connection: &ConnectionTo<Client>,
     session: &SessionId,
     prompt: &Prompt,
+    mcp_url: &str,
     cancel: &Notify,
 ) -> Result<StopReason, Error> {
-    for text in &prompt.reply {
+    let mobius = mobius_reply(mcp_url, prompt).await;
+    for text in prompt.reply.iter().chain(&mobius) {
         connection.send_notification(SessionNotification::new(
             session.clone(),
             SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::from(text.as_str()))),
@@ -86,11 +132,13 @@ async fn main() -> Result<(), Error> {
     let path = std::env::args()
         .nth(1)
         .expect("usage: fake-agent <script.toml>");
-    let script: Script = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let script: Script = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let mcp_url_path = std::path::Path::new(&path).with_file_name("mcp_url");
     let state = Shared::new(Mutex::new(State {
         options: options(&script),
         script,
         prompts_done: 0,
+        mcp_url: None,
         turn: None,
     }));
     let new_session = state.clone();
@@ -108,13 +156,19 @@ async fn main() -> Result<(), Error> {
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
-            async move |_request: NewSessionRequest,
+            async move |request: NewSessionRequest,
                         responder: Responder<NewSessionResponse>,
                         _connection| {
-                let state = new_session.lock().unwrap();
+                let mut state = new_session.lock().unwrap();
                 if state.script.login_required {
                     return responder.respond_with_error(Error::auth_required());
                 }
+                let mcp_url = request.mcp_servers.iter().find_map(|server| match server {
+                    McpServer::Http(http) if http.name == "mobius" => Some(http.url.clone()),
+                    _ => None,
+                });
+                std::fs::write(&mcp_url_path, mcp_url.as_deref().unwrap_or_default()).unwrap();
+                state.mcp_url = mcp_url;
                 responder.respond(
                     NewSessionResponse::new("fake-session").config_options(state.options.clone()),
                 )
@@ -154,7 +208,7 @@ async fn main() -> Result<(), Error> {
             async move |request: PromptRequest,
                         responder: Responder<PromptResponse>,
                         connection: ConnectionTo<Client>| {
-                let (script_prompt, cancel) = {
+                let (script_prompt, mcp_url, cancel) = {
                     let mut state = prompt.lock().unwrap();
                     let script_prompt = state
                         .script
@@ -165,15 +219,25 @@ async fn main() -> Result<(), Error> {
                     state.prompts_done += 1;
                     let cancel = Arc::new(Notify::new());
                     state.turn = Some(cancel.clone());
-                    (script_prompt, cancel)
+                    (
+                        script_prompt,
+                        state.mcp_url.clone().unwrap_or_default(),
+                        cancel,
+                    )
                 };
                 let state = prompt.clone();
                 // The work leaves the dispatch loop, so a `session/cancel` can arrive during the turn.
                 connection.spawn({
                     let connection = connection.clone();
                     async move {
-                        let stop_reason =
-                            play(&connection, &request.session_id, &script_prompt, &cancel).await;
+                        let stop_reason = play(
+                            &connection,
+                            &request.session_id,
+                            &script_prompt,
+                            &mcp_url,
+                            &cancel,
+                        )
+                        .await;
                         state.lock().unwrap().turn = None;
                         responder.respond_with_result(stop_reason.map(PromptResponse::new))
                     }

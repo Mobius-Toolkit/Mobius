@@ -4,12 +4,14 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-getrandom = { workspace = true }
+axum = { workspace = true }
+getrandom = { workspace = true, features = ["std"] }
 humantime-serde = { workspace = true }
 mobius-domain = { workspace = true }
 mobius-github = { workspace = true }
 mobius-runner = { workspace = true }
 mobius-store = { workspace = true }
+rmcp = { workspace = true, features = ["server", "transport-streamable-http-server"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_path_to_error = { workspace = true }

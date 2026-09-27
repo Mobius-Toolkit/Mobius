@@ -3,6 +3,8 @@ pub mod auth;
 pub mod chat;
 pub mod config;
 pub mod github;
+mod issues;
+pub mod mcp;
 mod poll;
 mod tasks;
 mod trust;
@@ -18,9 +20,13 @@ use config::Config;
 use mobius_domain::Live;
 use mobius_github::{GitHub, Repository};
 use mobius_store::Store;
+use time::format_description::BorrowedFormatItem;
+use time::macros::format_description;
 use tokio::sync::broadcast;
 
 const WORKSTREAM_LABEL: &str = "mobius:workstream";
+const TIME_FORMAT: &[BorrowedFormatItem] =
+    format_description!("[year]-[month]-[day] [hour]:[minute] UTC");
 
 #[derive(Clone)]
 pub struct Engine {
@@ -28,8 +34,10 @@ pub struct Engine {
     pub store: Store,
     pub github: GitHub,
     harness_path: Arc<OsString>,
+    port: u16,
     repositories: Arc<RwLock<Vec<Repository>>>,
     chats: Arc<Mutex<HashMap<(String, i64), ChatHandle>>>,
+    callers: Arc<Mutex<HashMap<String, mcp::Caller>>>,
     live: broadcast::Sender<Live>,
 }
 
@@ -56,6 +64,7 @@ pub async fn start(
     github_api_url: &str,
     github_web_url: &str,
     harness_path: OsString,
+    port: u16,
 ) -> Result<Engine, Box<dyn Error + Send + Sync>> {
     mobius_runner::prepare(&config.data_dir)?;
     let engine = Engine {
@@ -63,13 +72,21 @@ pub async fn start(
         store,
         github: GitHub::new(github_api_url, github_web_url)?,
         harness_path: Arc::new(harness_path),
+        port,
         repositories: Arc::default(),
         chats: Arc::default(),
+        callers: Arc::default(),
         live: broadcast::channel(256).0,
     };
     auth::start(&engine).await?;
     poll::spawn(engine.clone());
     Ok(engine)
+}
+
+fn random_hex() -> Result<String, getrandom::Error> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes)?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 pub fn missing_commands(config: &Config, path: &OsStr) -> Vec<&'static str> {

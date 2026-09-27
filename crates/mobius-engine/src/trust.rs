@@ -1,4 +1,19 @@
+use std::error::Error;
+
+use crate::Engine;
 use crate::config::Config;
+
+pub(crate) async fn trusted_authors(
+    engine: &Engine,
+) -> Result<impl Fn(&str) -> bool + '_, Box<dyn Error + Send + Sync>> {
+    let app = engine
+        .store
+        .github_app()
+        .get()
+        .await?
+        .ok_or("The Mobius App does not exist.")?;
+    Ok(move |login: &str| trusted_author(&engine.config, &app.slug, login))
+}
 
 pub fn trusted_author(config: &Config, app_slug: &str, login: &str) -> bool {
     login.eq_ignore_ascii_case(&format!("{app_slug}[bot]"))

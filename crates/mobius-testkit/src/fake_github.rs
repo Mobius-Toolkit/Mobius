@@ -28,6 +28,7 @@ struct Records {
     tokens_given: u32,
     repositories: Vec<String>,
     issues: BTreeMap<(String, i64), Issue>,
+    last_review_comment_id: i64,
     clock: i64,
     not_modified: u32,
 }
@@ -35,11 +36,16 @@ struct Records {
 struct Issue {
     title: String,
     body: String,
+    author: String,
+    pull_request: bool,
     state: &'static str,
     sub_issues: Vec<i64>,
     labels: Vec<String>,
     updated_at: i64,
     events: Vec<Value>,
+    comments: Vec<Value>,
+    reviews: Vec<Value>,
+    review_comments: Vec<Value>,
 }
 
 impl Records {
@@ -90,6 +96,15 @@ impl FakeGitHub {
                 "/repos/{owner}/{repo}/issues/{number}/events",
                 get(issue_events),
             )
+            .route(
+                "/repos/{owner}/{repo}/issues/{number}/comments",
+                get(issue_comments),
+            )
+            .route("/repos/{owner}/{repo}/pulls/{number}/reviews", get(reviews))
+            .route(
+                "/repos/{owner}/{repo}/pulls/{number}/comments",
+                get(review_comments),
+            )
             .with_state(state.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -129,7 +144,16 @@ impl FakeGitHub {
             .push(full_name.to_string());
     }
 
+    // The author is `owner`.
     pub fn add_issue(&self, repository: &str, number: i64, title: &str) {
+        self.insert_issue(repository, number, title, false);
+    }
+
+    pub fn add_pull_request(&self, repository: &str, number: i64, title: &str) {
+        self.insert_issue(repository, number, title, true);
+    }
+
+    fn insert_issue(&self, repository: &str, number: i64, title: &str, pull_request: bool) {
         let mut records = self.state.lock().unwrap();
         let updated_at = records.tick();
         records.issues.insert(
@@ -137,13 +161,89 @@ impl FakeGitHub {
             Issue {
                 title: title.to_string(),
                 body: String::new(),
+                author: "owner".to_string(),
+                pull_request,
                 state: "open",
                 sub_issues: Vec::new(),
                 labels: Vec::new(),
                 updated_at,
                 events: Vec::new(),
+                comments: Vec::new(),
+                reviews: Vec::new(),
+                review_comments: Vec::new(),
             },
         );
+    }
+
+    pub fn set_author(&self, repository: &str, number: i64, author: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .issues
+            .get_mut(&(repository.to_string(), number))
+            .unwrap()
+            .author = author.to_string();
+    }
+
+    pub fn add_comment(&self, repository: &str, number: i64, author: &str, body: &str) {
+        let mut records = self.state.lock().unwrap();
+        let now = records.tick();
+        records
+            .issues
+            .get_mut(&(repository.to_string(), number))
+            .unwrap()
+            .comments
+            .push(json!({
+                "user": { "login": author },
+                "body": body,
+                "created_at": timestamp(now)
+            }));
+    }
+
+    pub fn add_review(&self, repository: &str, number: i64, author: &str, state: &str, body: &str) {
+        let mut records = self.state.lock().unwrap();
+        let now = records.tick();
+        records
+            .issues
+            .get_mut(&(repository.to_string(), number))
+            .unwrap()
+            .reviews
+            .push(json!({
+                "user": { "login": author },
+                "body": body,
+                "state": state,
+                "submitted_at": timestamp(now)
+            }));
+    }
+
+    // Gives the id of the new review comment. A reply has the id of the first comment of its thread in `in_reply_to`.
+    pub fn add_review_comment(
+        &self,
+        repository: &str,
+        number: i64,
+        in_reply_to: Option<i64>,
+        author: &str,
+        body: &str,
+    ) -> i64 {
+        let mut records = self.state.lock().unwrap();
+        let now = records.tick();
+        records.last_review_comment_id += 1;
+        let id = records.last_review_comment_id;
+        records
+            .issues
+            .get_mut(&(repository.to_string(), number))
+            .unwrap()
+            .review_comments
+            .push(json!({
+                "id": id,
+                "user": { "login": author },
+                "body": body,
+                "path": "src/plan.rs",
+                "line": 12,
+                "in_reply_to_id": in_reply_to,
+                "created_at": timestamp(now)
+            }));
+        id
     }
 
     pub fn set_body(&self, repository: &str, number: i64, body: &str) {
@@ -202,15 +302,21 @@ impl FakeGitHub {
 }
 
 fn issue_json(repository: &str, number: i64, issue: &Issue) -> Value {
-    json!({
+    let mut json = json!({
         "number": number,
         "title": issue.title,
         "body": issue.body,
+        "user": { "login": issue.author },
         "html_url": format!("https://github.com/{repository}/issues/{number}"),
         "state": issue.state,
         "updated_at": timestamp(issue.updated_at),
         "labels": issue.labels.iter().map(|name| json!({ "name": name })).collect::<Vec<_>>()
-    })
+    });
+    if issue.pull_request {
+        json["pull_request"] =
+            json!({ "url": format!("https://api.github.com/repos/{repository}/pulls/{number}") });
+    }
+    json
 }
 
 fn not_found() -> Response {
@@ -444,13 +550,50 @@ async fn issue_events(
     Path((owner, repo, number)): Path<(String, String, i64)>,
     Query(page): Query<Page>,
 ) -> Response {
+    issue_list(&state, owner, repo, number, &page, |issue| &issue.events)
+}
+
+fn issue_list(
+    state: &Shared,
+    owner: String,
+    repo: String,
+    number: i64,
+    page: &Page,
+    list: impl Fn(&Issue) -> &Vec<Value>,
+) -> Response {
     match state
         .lock()
         .unwrap()
         .issues
         .get(&(format!("{owner}/{repo}"), number))
     {
-        Some(issue) => Json(page.of(issue.events.clone())).into_response(),
+        Some(issue) => Json(page.of(list(issue).clone())).into_response(),
         None => not_found(),
     }
+}
+
+async fn issue_comments(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    Query(page): Query<Page>,
+) -> Response {
+    issue_list(&state, owner, repo, number, &page, |issue| &issue.comments)
+}
+
+async fn reviews(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    Query(page): Query<Page>,
+) -> Response {
+    issue_list(&state, owner, repo, number, &page, |issue| &issue.reviews)
+}
+
+async fn review_comments(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    Query(page): Query<Page>,
+) -> Response {
+    issue_list(&state, owner, repo, number, &page, |issue| {
+        &issue.review_comments
+    })
 }

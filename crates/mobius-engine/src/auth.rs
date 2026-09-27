@@ -25,9 +25,7 @@ pub async fn login(
         tokio::time::sleep(Duration::from_secs(1)).await;
         return Ok(None);
     }
-    let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes)?;
-    let token: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    let token = crate::random_hex()?;
     engine
         .store
         .device_logins()
