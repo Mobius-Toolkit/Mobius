@@ -3,3 +3,14 @@ name = "mobius-testkit"
 version.workspace = true
 edition.workspace = true
 publish = false
+
+[dev-dependencies]
+dioxus = { workspace = true, features = ["fullstack", "server"] }
+mobius-api = { workspace = true, features = ["server"] }
+mobius-domain = { workspace = true }
+mobius-engine = { workspace = true }
+mobius-store = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+tower = { workspace = true, features = ["util"] }

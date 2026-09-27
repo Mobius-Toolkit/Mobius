@@ -4,8 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-dioxus = { workspace = true }
+dioxus = { workspace = true, features = ["router"] }
 mobius-api = { workspace = true }
+time = { workspace = true, features = ["formatting", "macros"] }
 
 [features]
 web = ["dioxus/web"]

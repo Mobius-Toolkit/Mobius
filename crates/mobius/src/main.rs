@@ -56,7 +56,9 @@ fn serve() {
                 config.data_dir.join("mobius.db").display()
             ))
         });
-    let engine = mobius_engine::start(config, store.clone());
+    let engine = runtime
+        .block_on(mobius_engine::start(config, store.clone()))
+        .unwrap_or_else(|error| fail(error));
 
     dioxus::serve(move || {
         let engine = engine.clone();
@@ -79,6 +81,6 @@ fn fail(message: impl std::fmt::Display) -> ! {
 fn App() -> Element {
     rsx! {
         document::Stylesheet { href: MAIN_CSS }
-        mobius_ui::Shell {}
+        Router::<mobius_ui::Route> {}
     }
 }

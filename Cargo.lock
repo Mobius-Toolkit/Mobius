@@ -669,6 +669,9 @@ name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "derive_more"
@@ -735,6 +738,7 @@ dependencies = [
  "dioxus-html",
  "dioxus-liveview",
  "dioxus-logger",
+ "dioxus-router",
  "dioxus-server",
  "dioxus-signals",
  "dioxus-ssr",
@@ -1428,6 +1432,12 @@ dependencies = [
  "parking",
  "pin-project-lite",
 ]
+
+[[package]]
+name = "fastrand"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "find-msvc-tools"
@@ -2432,12 +2442,14 @@ name = "mobius-domain"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "time",
 ]
 
 [[package]]
 name = "mobius-engine"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.3.4",
  "humantime-serde",
  "mobius-domain",
  "mobius-github",
@@ -2445,6 +2457,9 @@ dependencies = [
  "mobius-store",
  "serde",
  "serde_path_to_error",
+ "sha2 0.10.9",
+ "subtle",
+ "tokio",
  "toml",
 ]
 
@@ -2465,11 +2480,23 @@ version = "0.1.0"
 dependencies = [
  "mobius-domain",
  "sqlx",
+ "time",
 ]
 
 [[package]]
 name = "mobius-testkit"
 version = "0.1.0"
+dependencies = [
+ "dioxus",
+ "mobius-api",
+ "mobius-domain",
+ "mobius-engine",
+ "mobius-store",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower",
+]
 
 [[package]]
 name = "mobius-ui"
@@ -2477,6 +2504,7 @@ version = "0.1.0"
 dependencies = [
  "dioxus",
  "mobius-api",
+ "time",
 ]
 
 [[package]]
@@ -3347,6 +3375,7 @@ dependencies = [
  "sha2 0.10.9",
  "smallvec",
  "thiserror 2.0.21",
+ "time",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -3383,6 +3412,8 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "sqlx-core",
+ "sqlx-mysql",
+ "sqlx-postgres",
  "sqlx-sqlite",
  "syn 2.0.119",
  "thiserror 2.0.21",
@@ -3413,6 +3444,7 @@ dependencies = [
  "sha2 0.11.0",
  "sqlx-core",
  "thiserror 2.0.21",
+ "time",
  "tracing",
 ]
 
@@ -3447,6 +3479,7 @@ dependencies = [
  "sqlx-core",
  "stringprep",
  "thiserror 2.0.21",
+ "time",
  "tracing",
  "whoami",
 ]
@@ -3471,6 +3504,7 @@ dependencies = [
  "serde",
  "sqlx-core",
  "thiserror 2.0.21",
+ "time",
  "tracing",
  "url",
 ]
@@ -3587,6 +3621,19 @@ checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
 dependencies = [
  "core-foundation-sys",
  "libc",
+]
+
+[[package]]
+name = "tempfile"
+version = "3.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+dependencies = [
+ "fastrand",
+ "getrandom 0.4.3",
+ "once_cell",
+ "rustix",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

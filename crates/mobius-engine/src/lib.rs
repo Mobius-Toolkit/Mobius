@@ -1,5 +1,7 @@
+pub mod auth;
 pub mod config;
 
+use std::error::Error;
 use std::ffi::OsStr;
 use std::sync::Arc;
 
@@ -12,11 +14,13 @@ pub struct Engine {
     pub store: Store,
 }
 
-pub fn start(config: Config, store: Store) -> Engine {
-    Engine {
+pub async fn start(config: Config, store: Store) -> Result<Engine, Box<dyn Error + Send + Sync>> {
+    let engine = Engine {
         config: Arc::new(config),
         store,
-    }
+    };
+    auth::start(&engine).await?;
+    Ok(engine)
 }
 
 pub fn missing_commands(config: &Config, path: &OsStr) -> Vec<&'static str> {
