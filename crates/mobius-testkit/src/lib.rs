@@ -1,5 +1,6 @@
 pub mod fake_github;
 
+use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -9,7 +10,15 @@ use mobius_engine::Engine;
 use mobius_store::Store;
 use tokio::net::TcpListener;
 
+// The Harness `PATH` is `harnesses` and then the `PATH` of the test. The `gh` in `harnesses` prints its arguments and `GH_TOKEN`.
 pub async fn start(data_dir: &Path, access_password: &str, github_url: &str) -> Engine {
+    let harnesses = data_dir.join("harnesses");
+    fs::create_dir_all(&harnesses).unwrap();
+    let gh = harnesses.join("gh");
+    fs::write(&gh, "#!/bin/sh\necho \"gh $* with GH_TOKEN=$GH_TOKEN\"\n").unwrap();
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut path = vec![harnesses];
+    path.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
     let config = mobius_engine::config::parse(&format!(
         r#"
 access_password = "{access_password}"
@@ -36,12 +45,13 @@ judge       = {{ harness = "claude-code", model = "haiku",   effort = "low" }}
         store,
         github_url,
         github_url,
-        data_dir.join("harnesses").into(),
+        env::join_paths(path).unwrap(),
         listener.local_addr().unwrap().port(),
     )
     .await
     .unwrap();
-    let router = mobius_engine::mcp::router(engine.clone());
+    let router =
+        mobius_engine::mcp::router(engine.clone()).merge(mobius_engine::gh::router(engine.clone()));
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
     engine
 }

@@ -34,29 +34,43 @@ pub fn program(harness: Harness) -> &'static str {
     }
 }
 
-pub fn on_path(program: &str, path: &OsStr) -> bool {
-    env::split_paths(path).any(|dir| {
-        fs::metadata(dir.join(program))
-            .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
-    })
+pub fn find(program: &str, path: &OsStr) -> Option<PathBuf> {
+    env::split_paths(path)
+        .map(|dir| dir.join(program))
+        .find(|file| {
+            fs::metadata(file).is_ok_and(|metadata| {
+                metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+            })
+        })
 }
 
 fn agent_env(data_dir: &Path) -> PathBuf {
     data_dir.join("agent-env")
 }
 
-pub fn prepare(data_dir: &Path) -> io::Result<()> {
+fn write_script(file: &Path, text: &str) -> io::Result<()> {
+    fs::write(file, text)?;
+    fs::set_permissions(file, fs::Permissions::from_mode(0o755))
+}
+
+pub fn prepare(data_dir: &Path, gh: &Path) -> io::Result<()> {
     let agent_env = agent_env(data_dir);
     fs::create_dir_all(agent_env.join("gh-config"))?;
     fs::create_dir_all(agent_env.join("bin"))?;
+    fs::create_dir_all(agent_env.join("chat-bin"))?;
     // An empty helper clears the credential helpers of the system git config.
     fs::write(agent_env.join("gitconfig"), "[credential]\n\thelper =\n")?;
-    let gh = agent_env.join("bin/gh");
-    fs::write(
-        &gh,
+    write_script(
+        &agent_env.join("bin/gh"),
         "#!/bin/sh\necho \"Do not use gh. Use the Mobius tools.\" >&2\nexit 1\n",
     )?;
-    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755))
+    write_script(
+        &agent_env.join("chat-bin/gh"),
+        &format!(
+            "#!/bin/sh\nif ! token=$(curl -sS --fail-with-body \"$MOBIUS_GH_TOKEN_URL\"); then\n    echo \"$token\" >&2\n    exit 1\nfi\nGH_TOKEN=$token exec '{}' \"$@\"\n",
+            gh.display()
+        ),
+    )
 }
 
 pub fn lead_dir(data_dir: &Path, repository: &str, workstream: i64) -> io::Result<PathBuf> {
@@ -84,11 +98,24 @@ pub fn memory(dir: &Path) -> io::Result<String> {
     ))
 }
 
-fn command(harness: Harness, cwd: &Path, data_dir: &Path, path: &OsStr) -> Command {
+fn command(
+    harness: Harness,
+    cwd: &Path,
+    data_dir: &Path,
+    path: &OsStr,
+    gh_token_url: Option<&str>,
+) -> Command {
     let agent_env = agent_env(data_dir);
-    let mut dirs = vec![agent_env.join("bin")];
-    dirs.extend(env::split_paths(path));
     let mut command = Command::new(program(harness));
+    let bin = match gh_token_url {
+        Some(url) => {
+            command.env("MOBIUS_GH_TOKEN_URL", url);
+            agent_env.join("chat-bin")
+        }
+        None => agent_env.join("bin"),
+    };
+    let mut dirs = vec![bin];
+    dirs.extend(env::split_paths(path));
     if harness == Harness::Devin {
         command.arg("acp");
     }
@@ -131,8 +158,9 @@ pub async fn start(
     data_dir: &Path,
     path: &OsStr,
     mcp_url: &str,
+    gh_token_url: Option<&str>,
 ) -> Result<(Session, mpsc::UnboundedReceiver<Value>), String> {
-    let mut child = command(harness, cwd, data_dir, path)
+    let mut child = command(harness, cwd, data_dir, path, gh_token_url)
         .spawn()
         .map_err(|error| format!("{}: {error}", program(harness)))?;
     let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
@@ -346,6 +374,82 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn env(command: &Command, name: &str) -> Option<String> {
+        command
+            .as_std()
+            .get_envs()
+            .find(|(key, _)| *key == name)
+            .and_then(|(_, value)| value)
+            .map(|value| value.to_string_lossy().into_owned())
+    }
+
+    fn first_path_dir(command: &Command) -> PathBuf {
+        env::split_paths(&env(command, "PATH").unwrap())
+            .next()
+            .unwrap()
+    }
+
+    #[test]
+    fn find_gives_the_path_of_an_executable_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("gh");
+        fs::write(&program, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(dir.path().join("curl"), "#!/bin/sh\n").unwrap();
+        let path = env::join_paths([dir.path()]).unwrap();
+
+        assert_eq!(find("gh", &path), Some(program));
+        assert_eq!(find("curl", &path), None);
+        assert_eq!(find("git", &path), None);
+    }
+
+    #[test]
+    fn a_session_with_no_gh_token_url_gets_the_gh_stub() {
+        let data_dir = tempfile::tempdir().unwrap();
+        prepare(data_dir.path(), Path::new("/usr/bin/gh")).unwrap();
+
+        let command = command(
+            Harness::ClaudeCode,
+            data_dir.path(),
+            data_dir.path(),
+            OsStr::new("/usr/bin"),
+            None,
+        );
+
+        let bin = first_path_dir(&command);
+        assert_eq!(bin, data_dir.path().join("agent-env/bin"));
+        assert_eq!(env(&command, "MOBIUS_GH_TOKEN_URL"), None);
+        let gh = std::process::Command::new(bin.join("gh")).output().unwrap();
+        assert!(!gh.status.success());
+        assert_eq!(
+            String::from_utf8(gh.stderr).unwrap(),
+            "Do not use gh. Use the Mobius tools.\n"
+        );
+    }
+
+    #[test]
+    fn a_session_with_a_gh_token_url_gets_the_gh_wrapper() {
+        let data_dir = tempfile::tempdir().unwrap();
+        prepare(data_dir.path(), Path::new("/usr/bin/gh")).unwrap();
+
+        let command = command(
+            Harness::ClaudeCode,
+            data_dir.path(),
+            data_dir.path(),
+            OsStr::new("/usr/bin"),
+            Some("http://127.0.0.1:8080/gh-token/abc"),
+        );
+
+        assert_eq!(
+            first_path_dir(&command),
+            data_dir.path().join("agent-env/chat-bin")
+        );
+        assert_eq!(
+            env(&command, "MOBIUS_GH_TOKEN_URL").as_deref(),
+            Some("http://127.0.0.1:8080/gh-token/abc")
+        );
+    }
 
     #[test]
     fn memory_is_empty_with_no_file() {

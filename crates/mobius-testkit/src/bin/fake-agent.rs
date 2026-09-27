@@ -41,6 +41,8 @@ struct Prompt {
     list_tools: bool,
     // The Lead reply is the text of the tool result, after `error: ` for an error result.
     call: Option<Call>,
+    // The Lead reply is the stdout and the stderr of `/bin/sh -c` with this command, then `exit <code>`.
+    shell: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -121,7 +123,20 @@ async fn play(
         connection.send_notification(SessionNotification::new(session.clone(), update))?;
     }
     let mobius = mobius_reply(mcp_url, prompt).await;
-    for text in prompt.reply.iter().chain(&mobius) {
+    let shell = prompt.shell.as_ref().map(|command| {
+        let output = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(command)
+            .output()
+            .unwrap();
+        format!(
+            "{}{}exit {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+            output.status.code().unwrap()
+        )
+    });
+    for text in prompt.reply.iter().chain(&mobius).chain(&shell) {
         connection.send_notification(SessionNotification::new(
             session.clone(),
             SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::from(text.as_str()))),

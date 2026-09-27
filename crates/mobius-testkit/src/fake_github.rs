@@ -25,6 +25,7 @@ struct Records {
     manifest_codes: HashSet<String>,
     user_codes: HashMap<String, String>,
     user_tokens: HashMap<String, String>,
+    refresh_tokens: HashMap<String, String>,
     tokens_given: u32,
     repositories: Vec<String>,
     issues: BTreeMap<(String, i64), Issue>,
@@ -355,7 +356,9 @@ async fn convert_manifest(State(state): State<Shared>, Path(code): Path<String>)
 struct CodeExchange {
     client_id: String,
     client_secret: String,
-    code: String,
+    code: Option<String>,
+    grant_type: Option<String>,
+    refresh_token: Option<String>,
 }
 
 async fn exchange_code(
@@ -370,16 +373,39 @@ async fn exchange_code(
         }))
         .into_response();
     }
-    let Some(login) = records.user_codes.remove(&exchange.code) else {
-        return Json(json!({
-            "error": "bad_verification_code",
-            "error_description": "The code passed is incorrect or expired."
-        }))
-        .into_response();
+    let login = if exchange.grant_type.as_deref() == Some("refresh_token") {
+        let Some(login) = exchange
+            .refresh_token
+            .and_then(|token| records.refresh_tokens.remove(&token))
+        else {
+            return Json(json!({
+                "error": "bad_refresh_token",
+                "error_description": "The refresh token passed is incorrect or expired."
+            }))
+            .into_response();
+        };
+        login
+    } else {
+        let Some(login) = exchange
+            .code
+            .and_then(|code| records.user_codes.remove(&code))
+        else {
+            return Json(json!({
+                "error": "bad_verification_code",
+                "error_description": "The code passed is incorrect or expired."
+            }))
+            .into_response();
+        };
+        login
     };
     records.tokens_given += 1;
     let number = records.tokens_given;
-    records.user_tokens.insert(format!("ghu_{number}"), login);
+    records
+        .user_tokens
+        .insert(format!("ghu_{number}"), login.clone());
+    records
+        .refresh_tokens
+        .insert(format!("ghr_{number}"), login);
     Json(json!({
         "access_token": format!("ghu_{number}"),
         "expires_in": 28800,

@@ -130,6 +130,8 @@ pub struct NewApp {
 pub struct UserTokens {
     pub access_token: String,
     pub refresh_token: String,
+    // Seconds.
+    pub expires_in: i64,
 }
 
 #[derive(Deserialize)]
@@ -235,22 +237,49 @@ impl GitHub {
             .await?)
     }
 
+    pub fn authorize_url(&self, client_id: &str) -> String {
+        format!(
+            "{}/login/oauth/authorize?client_id={client_id}",
+            self.web_url
+        )
+    }
+
     pub async fn user_tokens(
         &self,
         client_id: &str,
         client_secret: &str,
         code: &str,
     ) -> Result<UserTokens, Box<dyn Error + Send + Sync>> {
+        self.exchange(json!({
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "code": code
+        }))
+        .await
+    }
+
+    pub async fn refresh_user_tokens(
+        &self,
+        client_id: &str,
+        client_secret: &str,
+        refresh_token: &str,
+    ) -> Result<UserTokens, Box<dyn Error + Send + Sync>> {
+        self.exchange(json!({
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token
+        }))
+        .await
+    }
+
+    async fn exchange(
+        &self,
+        body: serde_json::Value,
+    ) -> Result<UserTokens, Box<dyn Error + Send + Sync>> {
         let exchange: CodeExchange = self
             .web
-            .post(
-                "/login/oauth/access_token",
-                Some(&json!({
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "code": code
-                })),
-            )
+            .post("/login/oauth/access_token", Some(&body))
             .await?;
         match exchange {
             CodeExchange::Tokens(tokens) => Ok(tokens),

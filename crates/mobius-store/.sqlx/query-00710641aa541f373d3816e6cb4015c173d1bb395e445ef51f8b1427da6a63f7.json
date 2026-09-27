@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE github_app SET user_token = ?, refresh_token = ?, user_token_expires_at = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "00710641aa541f373d3816e6cb4015c173d1bb395e445ef51f8b1427da6a63f7"
+}
