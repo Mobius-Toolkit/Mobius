@@ -232,11 +232,13 @@ async fn dismiss_removes_the_item_from_the_inbox() {
     inbox::dismiss(&engine, item.id).await.unwrap();
 
     assert!(inbox::list(&engine).await.unwrap().is_empty());
+    // Mobius writes a new item before it sends it, so the feed can give the new item first.
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            if let Live::Inbox(dismissed) = feed.next().await.unwrap() {
+            if let Live::Inbox(dismissed) = feed.next().await.unwrap()
+                && dismissed.dismissed_at.is_some()
+            {
                 assert_eq!(dismissed.id, item.id);
-                assert!(dismissed.dismissed_at.is_some());
                 break;
             }
         }
