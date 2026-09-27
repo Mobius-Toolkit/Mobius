@@ -57,7 +57,12 @@ fn serve() {
             ))
         });
     let engine = runtime
-        .block_on(mobius_engine::start(config, store.clone()))
+        .block_on(mobius_engine::start(
+            config,
+            store.clone(),
+            "https://api.github.com",
+            "https://github.com",
+        ))
         .unwrap_or_else(|error| fail(error));
 
     dioxus::serve(move || {

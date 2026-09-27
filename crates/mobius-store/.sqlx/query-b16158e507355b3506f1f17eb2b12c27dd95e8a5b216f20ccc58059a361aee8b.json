@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT app_id, slug, private_key, client_id, client_secret, user_token, refresh_token\n             FROM github_app",
+  "describe": {
+    "columns": [
+      {
+        "name": "app_id",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "github_app",
+            "name": "app_id"
+          }
+        }
+      },
+      {
+        "name": "slug",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_app",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "name": "private_key",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_app",
+            "name": "private_key"
+          }
+        }
+      },
+      {
+        "name": "client_id",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_app",
+            "name": "client_id"
+          }
+        }
+      },
+      {
+        "name": "client_secret",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_app",
+            "name": "client_secret"
+          }
+        }
+      },
+      {
+        "name": "user_token",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_app",
+            "name": "user_token"
+          }
+        }
+      },
+      {
+        "name": "refresh_token",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_app",
+            "name": "refresh_token"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "b16158e507355b3506f1f17eb2b12c27dd95e8a5b216f20ccc58059a361aee8b"
+}

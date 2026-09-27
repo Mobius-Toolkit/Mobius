@@ -185,7 +185,16 @@ button {
   gap: 12px;
 }
 
-.login input {
+.connect {
+  width: min(320px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.login input,
+.connect input {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px;

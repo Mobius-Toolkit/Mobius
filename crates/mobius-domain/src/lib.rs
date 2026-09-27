@@ -33,3 +33,9 @@ pub struct Devices {
     pub this_device: i64,
     pub logins: Vec<DeviceLogin>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ManifestForm {
+    pub url: String,
+    pub manifest: String,
+}

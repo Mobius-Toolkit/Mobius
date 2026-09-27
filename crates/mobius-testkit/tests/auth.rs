@@ -8,31 +8,10 @@ use dioxus::server::{DioxusRouterExt, FullstackState, ServerFunction};
 use mobius_api as _;
 use mobius_domain::Devices;
 use mobius_engine::{Engine, auth};
-use mobius_store::Store;
+use mobius_testkit::fake_github::FakeGitHub;
+use mobius_testkit::start;
 use tempfile::TempDir;
 use tower::ServiceExt;
-
-async fn start(data_dir: &TempDir, access_password: &str) -> Engine {
-    let config = mobius_engine::config::parse(&format!(
-        r#"
-access_password = "{access_password}"
-trusted_users = ["owner"]
-data_dir = "{}"
-
-[roles]
-lead        = {{ harness = "claude-code", model = "opus",    effort = "high" }}
-triager     = {{ harness = "claude-code", model = "sonnet",  effort = "medium" }}
-implementer = {{ harness = "devin",       model = "swe-1.5", effort = "high" }}
-researcher  = {{ harness = "antigravity", model = "gemini-3-pro" }}
-reviewer    = {{ harness = "claude-code", model = "opus",    effort = "high" }}
-judge       = {{ harness = "claude-code", model = "haiku",   effort = "low" }}
-"#,
-        data_dir.path().display()
-    ))
-    .unwrap();
-    let store = Store::open(&config.data_dir).await.unwrap();
-    mobius_engine::start(config, store).await.unwrap()
-}
 
 fn api(engine: &Engine) -> Router {
     Router::new()
@@ -45,7 +24,8 @@ fn api(engine: &Engine) -> Router {
 #[tokio::test]
 async fn login_with_the_access_password_gives_a_token_that_check_accepts() {
     let data_dir = TempDir::new().unwrap();
-    let engine = start(&data_dir, "correct horse").await;
+    let github = FakeGitHub::start().await;
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
 
     let token = auth::login(&engine, "correct horse", "Firefox")
         .await
@@ -58,7 +38,8 @@ async fn login_with_the_access_password_gives_a_token_that_check_accepts() {
 #[tokio::test]
 async fn login_with_a_wrong_password_fails_after_one_second() {
     let data_dir = TempDir::new().unwrap();
-    let engine = start(&data_dir, "correct horse").await;
+    let github = FakeGitHub::start().await;
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
 
     let started = Instant::now();
     let token = auth::login(&engine, "battery staple", "Firefox")
@@ -72,7 +53,8 @@ async fn login_with_a_wrong_password_fails_after_one_second() {
 #[tokio::test]
 async fn logout_makes_check_refuse_the_token() {
     let data_dir = TempDir::new().unwrap();
-    let engine = start(&data_dir, "correct horse").await;
+    let github = FakeGitHub::start().await;
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
     let token = auth::login(&engine, "correct horse", "Firefox")
         .await
         .unwrap()
@@ -87,25 +69,27 @@ async fn logout_makes_check_refuse_the_token() {
 #[tokio::test]
 async fn start_keeps_the_logins_until_the_access_password_changes() {
     let data_dir = TempDir::new().unwrap();
-    let engine = start(&data_dir, "correct horse").await;
+    let github = FakeGitHub::start().await;
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
     let token = auth::login(&engine, "correct horse", "Firefox")
         .await
         .unwrap()
         .unwrap();
     engine.store.pool.close().await;
 
-    let engine = start(&data_dir, "correct horse").await;
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
     assert!(auth::check(&engine, &token).await.unwrap().is_some());
     engine.store.pool.close().await;
 
-    let engine = start(&data_dir, "battery staple").await;
+    let engine = start(data_dir.path(), "battery staple", &github.url).await;
     assert_eq!(auth::check(&engine, &token).await.unwrap(), None);
 }
 
 #[tokio::test]
 async fn login_sets_the_session_cookie_that_opens_the_api() {
     let data_dir = TempDir::new().unwrap();
-    let engine = start(&data_dir, "correct horse").await;
+    let github = FakeGitHub::start().await;
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
 
     let response = api(&engine)
         .oneshot(
@@ -146,7 +130,8 @@ async fn login_sets_the_session_cookie_that_opens_the_api() {
 #[tokio::test]
 async fn each_api_path_except_login_needs_the_session_cookie() {
     let data_dir = TempDir::new().unwrap();
-    let engine = start(&data_dir, "correct horse").await;
+    let github = FakeGitHub::start().await;
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
     let functions: Vec<_> = ServerFunction::collect()
         .into_iter()
         .filter(|function| function.path() != "/api/login")

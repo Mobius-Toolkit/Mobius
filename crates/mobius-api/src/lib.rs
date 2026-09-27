@@ -1,6 +1,6 @@
-use dioxus::fullstack::{SetCookie, SetHeader};
+use dioxus::fullstack::{Redirect, SetCookie, SetHeader};
 use dioxus::prelude::*;
-use mobius_domain::Devices;
+use mobius_domain::{Devices, ManifestForm};
 
 #[cfg(feature = "server")]
 use dioxus::fullstack::headers::UserAgent;
@@ -9,13 +9,15 @@ use dioxus::fullstack::{Cookie, TypedHeader};
 #[cfg(feature = "server")]
 use dioxus::server::axum::Extension;
 #[cfg(feature = "server")]
-use dioxus::server::axum::extract::FromRequestParts;
+use dioxus::server::axum::extract::{FromRequestParts, Query};
 #[cfg(feature = "server")]
 use dioxus::server::http::request::Parts;
 #[cfg(feature = "server")]
-use mobius_engine::{Engine, auth};
+use mobius_engine::{Engine, auth, github};
 #[cfg(feature = "server")]
 use mobius_store::Store;
+#[cfg(feature = "server")]
+use serde::Deserialize;
 
 #[cfg(feature = "server")]
 const SESSION_MAX_AGE_SECONDS: u32 = 400 * 24 * 60 * 60;
@@ -44,6 +46,12 @@ impl<S: Send + Sync> FromRequestParts<S> for DeviceId {
             Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
         }
     }
+}
+
+#[cfg(feature = "server")]
+#[derive(Deserialize)]
+pub struct Callback {
+    code: String,
 }
 
 #[post("/api/login", engine: Extension<Engine>, user_agent: TypedHeader<UserAgent>)]
@@ -80,4 +88,45 @@ pub async fn logout(id: i64) -> ServerFnResult<()> {
         .await
         .map_err(ServerFnError::new)?;
     Ok(())
+}
+
+#[get("/api/github/app", _device: DeviceId, store: Extension<Store>)]
+pub async fn github_app() -> ServerFnResult<Option<String>> {
+    Ok(store
+        .github_app()
+        .get()
+        .await
+        .map_err(ServerFnError::new)?
+        .map(|app| app.slug))
+}
+
+#[post("/api/github/manifest", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn github_manifest(account: String, origin: String) -> ServerFnResult<ManifestForm> {
+    github::manifest_form(&engine, &account, &origin)
+        .await
+        .map_err(ServerFnError::new)
+}
+
+// The query is an extractor after `DeviceId`, so a request with no cookie gets 401 before the query is parsed.
+#[get("/api/github/manifest-callback", _device: DeviceId, query: Query<Callback>, engine: Extension<Engine>)]
+pub async fn github_manifest_callback() -> ServerFnResult<Redirect> {
+    github::convert_manifest(&engine, &query.code)
+        .await
+        .map_err(ServerFnError::new)?;
+    Ok(Redirect::to("/github"))
+}
+
+#[get("/api/github/user-callback", _device: DeviceId, query: Query<Callback>, engine: Extension<Engine>)]
+pub async fn github_user_callback() -> ServerFnResult<Redirect> {
+    if !github::authorize_user(&engine, &query.code)
+        .await
+        .map_err(ServerFnError::new)?
+    {
+        return Err(HttpError::new(
+            StatusCode::FORBIDDEN,
+            "The GitHub login is not a trusted user.",
+        )
+        .into());
+    }
+    Ok(Redirect::to("/github"))
 }
