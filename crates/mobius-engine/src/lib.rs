@@ -3,6 +3,7 @@ pub mod agents;
 pub mod auth;
 pub mod chat;
 pub mod config;
+pub mod gh;
 pub mod github;
 mod issues;
 pub mod mcp;
@@ -68,7 +69,8 @@ pub async fn start(
     harness_path: OsString,
     port: u16,
 ) -> Result<Engine, Box<dyn Error + Send + Sync>> {
-    mobius_runner::prepare(&config.data_dir)?;
+    let gh = mobius_runner::find("gh", &harness_path).ok_or("`gh` is not on PATH")?;
+    mobius_runner::prepare(&config.data_dir, &gh)?;
     let engine = Engine {
         config: Arc::new(config),
         store,
@@ -99,8 +101,9 @@ pub fn missing_commands(config: &Config, path: &OsStr) -> Vec<&'static str> {
         .map(|(_, binding)| mobius_runner::program(binding.harness))
         .collect();
     programs.push("gh");
+    programs.push("curl");
     programs.sort();
     programs.dedup();
-    programs.retain(|program| !mobius_runner::on_path(program, path));
+    programs.retain(|program| mobius_runner::find(program, path).is_none());
     programs
 }

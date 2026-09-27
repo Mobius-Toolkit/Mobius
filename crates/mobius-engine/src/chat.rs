@@ -7,7 +7,7 @@ use mobius_runner::Session;
 use serde_json::{Value, json};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use crate::{Engine, TIME_FORMAT, agents, mcp, tasks, trust};
+use crate::{Engine, TIME_FORMAT, agents, gh, mcp, tasks, trust};
 
 pub(crate) const ROLE: &str = "lead_chat";
 const ROLE_PROMPT: &str = include_str!("prompts/lead.md");
@@ -154,14 +154,7 @@ async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver
         chunk: None,
         message: None,
     };
-    let result = chat(
-        &engine,
-        &first,
-        &mcp::url(&engine, &key),
-        &mut recorder,
-        &mut commands,
-    )
-    .await;
+    let result = chat(&engine, &first, &key, &mut recorder, &mut commands).await;
     mcp::close(&engine, &key);
     match result {
         Ok(()) => match engine.store.sessions().end(session, "idle").await {
@@ -195,7 +188,7 @@ fn finish(engine: &Engine, repository: &str, workstream: i64, error: Option<Stri
 async fn chat(
     engine: &Engine,
     first: &ChatMessage,
-    mcp_url: &str,
+    session_key: &str,
     recorder: &mut Recorder,
     commands: &mut UnboundedReceiver<Command>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -209,7 +202,8 @@ async fn chat(
         &dir,
         &engine.config.data_dir,
         &engine.harness_path,
-        mcp_url,
+        &mcp::url(engine, session_key),
+        Some(&gh::url(engine, session_key)),
     )
     .await?;
     engine

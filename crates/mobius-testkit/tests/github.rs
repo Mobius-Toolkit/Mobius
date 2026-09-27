@@ -3,6 +3,7 @@ use mobius_testkit::fake_github::{self, FakeGitHub};
 use mobius_testkit::start;
 use serde_json::{Value, json};
 use tempfile::TempDir;
+use time::{Duration, OffsetDateTime};
 
 #[tokio::test]
 async fn manifest_form_posts_the_manifest_to_the_settings_of_an_organization() {
@@ -73,6 +74,7 @@ async fn manifest_callback_stores_the_app() {
     assert_eq!(app.client_secret, fake_github::APP_CLIENT_SECRET);
     assert_eq!(app.user_token, None);
     assert_eq!(app.refresh_token, None);
+    assert_eq!(app.user_token_expires_at, None);
 }
 
 #[tokio::test]
@@ -91,6 +93,7 @@ async fn user_callback_stores_the_tokens_and_a_new_authorization_replaces_them()
     let app = engine.store.github_app().get().await.unwrap().unwrap();
     assert_eq!(app.user_token.as_deref(), Some("ghu_1"));
     assert_eq!(app.refresh_token.as_deref(), Some("ghr_1"));
+    assert!(app.user_token_expires_at.unwrap() > OffsetDateTime::now_utc() + Duration::hours(7));
 
     assert!(
         github::authorize_user(&engine, "second-code")

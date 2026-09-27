@@ -73,6 +73,7 @@ fn serve() {
         async move {
             Ok(dioxus::server::router(App)
                 .merge(mobius_engine::mcp::router(engine.clone()))
+                .merge(mobius_engine::gh::router(engine.clone()))
                 .layer(Extension(engine))
                 .layer(Extension(store)))
         }

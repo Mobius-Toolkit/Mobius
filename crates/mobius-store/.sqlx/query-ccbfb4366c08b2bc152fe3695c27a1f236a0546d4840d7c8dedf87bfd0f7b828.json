@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT app_id, slug, private_key, client_id, client_secret, user_token, refresh_token\n             FROM github_app",
+  "query": "SELECT app_id, slug, private_key, client_id, client_secret, user_token, refresh_token,\n                      user_token_expires_at AS \"user_token_expires_at: OffsetDateTime\"\n               FROM github_app",
   "describe": {
     "columns": [
       {
@@ -79,6 +79,17 @@
             "name": "refresh_token"
           }
         }
+      },
+      {
+        "name": "user_token_expires_at: OffsetDateTime",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_app",
+            "name": "user_token_expires_at"
+          }
+        }
       }
     ],
     "parameters": {
@@ -91,8 +102,9 @@
       false,
       false,
       true,
+      true,
       true
     ]
   },
-  "hash": "b16158e507355b3506f1f17eb2b12c27dd95e8a5b216f20ccc58059a361aee8b"
+  "hash": "ccbfb4366c08b2bc152fe3695c27a1f236a0546d4840d7c8dedf87bfd0f7b828"
 }

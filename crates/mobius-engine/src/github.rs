@@ -1,8 +1,16 @@
 use std::error::Error;
 
 use mobius_domain::ManifestForm;
+use mobius_github::UserTokens;
+use time::{Duration, OffsetDateTime};
+use tokio::sync::Mutex;
 
 use crate::Engine;
+
+const REFRESH_MARGIN: Duration = Duration::minutes(5);
+
+// Each refresh stops the refresh token that it uses.
+static REFRESH: Mutex<()> = Mutex::const_new(());
 
 pub async fn manifest_form(
     engine: &Engine,
@@ -60,10 +68,53 @@ pub async fn authorize_user(
     {
         return Ok(false);
     }
+    store_user_tokens(engine, &tokens).await?;
+    Ok(true)
+}
+
+async fn store_user_tokens(
+    engine: &Engine,
+    tokens: &UserTokens,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     engine
         .store
         .github_app()
-        .set_user_tokens(&tokens.access_token, &tokens.refresh_token)
-        .await?;
-    Ok(true)
+        .set_user_tokens(
+            &tokens.access_token,
+            &tokens.refresh_token,
+            OffsetDateTime::now_utc() + Duration::seconds(tokens.expires_in),
+        )
+        .await
+}
+
+pub(crate) async fn user_token(engine: &Engine) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let _refresh = REFRESH.lock().await;
+    let app = engine
+        .store
+        .github_app()
+        .get()
+        .await?
+        .ok_or("The Mobius App does not exist.")?;
+    if let (Some(token), Some(expires_at)) = (app.user_token, app.user_token_expires_at)
+        && expires_at > OffsetDateTime::now_utc() + REFRESH_MARGIN
+    {
+        return Ok(token);
+    }
+    let refreshed = match &app.refresh_token {
+        Some(refresh_token) => {
+            engine
+                .github
+                .refresh_user_tokens(&app.client_id, &app.client_secret, refresh_token)
+                .await
+        }
+        None => Err("The Owner did not authorize the Mobius App.".into()),
+    };
+    let tokens = refreshed.map_err(|error| {
+        format!(
+            "{error} Tell the Owner to open {} and authorize the Mobius App.",
+            engine.github.authorize_url(&app.client_id)
+        )
+    })?;
+    store_user_tokens(engine, &tokens).await?;
+    Ok(tokens.access_token)
 }

@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
 use mobius_domain::{Author, ChatMessage, Live, Session, TranscriptRow, Unread};
@@ -167,13 +166,7 @@ async fn the_harness_process_gets_the_agent_env_guard_in_the_lead_directory() {
     assert_eq!(env_value(data_dir, "GIT_TERMINAL_PROMPT"), "0");
     let path = env_value(data_dir, "PATH");
     let first = path.split(':').next().unwrap();
-    assert_eq!(first, agent_env.join("bin").display().to_string());
-    let gh = Command::new(Path::new(first).join("gh")).output().unwrap();
-    assert!(!gh.status.success());
-    assert_eq!(
-        String::from_utf8(gh.stderr).unwrap(),
-        "Do not use gh. Use the Mobius tools.\n"
-    );
+    assert_eq!(first, agent_env.join("chat-bin").display().to_string());
 }
 
 #[tokio::test]

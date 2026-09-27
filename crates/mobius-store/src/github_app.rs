@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use sqlx::sqlite::SqlitePool;
+use time::OffsetDateTime;
 
 pub struct GitHubApp<'a> {
     pub(crate) pool: &'a SqlitePool,
@@ -14,6 +15,7 @@ pub struct GitHubAppRow {
     pub client_secret: String,
     pub user_token: Option<String>,
     pub refresh_token: Option<String>,
+    pub user_token_expires_at: Option<OffsetDateTime>,
 }
 
 impl GitHubApp<'_> {
@@ -42,8 +44,9 @@ impl GitHubApp<'_> {
     pub async fn get(&self) -> Result<Option<GitHubAppRow>, Box<dyn Error + Send + Sync>> {
         let row = sqlx::query_as!(
             GitHubAppRow,
-            "SELECT app_id, slug, private_key, client_id, client_secret, user_token, refresh_token
-             FROM github_app"
+            r#"SELECT app_id, slug, private_key, client_id, client_secret, user_token, refresh_token,
+                      user_token_expires_at AS "user_token_expires_at: OffsetDateTime"
+               FROM github_app"#
         )
         .fetch_optional(self.pool)
         .await?;
@@ -54,11 +57,13 @@ impl GitHubApp<'_> {
         &self,
         user_token: &str,
         refresh_token: &str,
+        user_token_expires_at: OffsetDateTime,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         sqlx::query!(
-            "UPDATE github_app SET user_token = ?, refresh_token = ?",
+            "UPDATE github_app SET user_token = ?, refresh_token = ?, user_token_expires_at = ?",
             user_token,
-            refresh_token
+            refresh_token,
+            user_token_expires_at
         )
         .execute(self.pool)
         .await?;
