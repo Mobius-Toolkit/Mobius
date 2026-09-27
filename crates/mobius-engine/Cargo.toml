@@ -11,8 +11,10 @@ mobius-github = { workspace = true }
 mobius-runner = { workspace = true }
 mobius-store = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 serde_path_to_error = { workspace = true }
 sha2 = { workspace = true }
 subtle = { workspace = true }
-tokio = { workspace = true, features = ["sync", "time"] }
+time = { workspace = true, features = ["formatting", "macros"] }
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
 toml = { workspace = true }

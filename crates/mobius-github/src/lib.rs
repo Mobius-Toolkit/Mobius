@@ -46,6 +46,8 @@ struct RepositoryName {
 pub struct Issue {
     pub number: i64,
     pub title: String,
+    pub body: Option<String>,
+    pub state: String,
     pub html_url: String,
     #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
@@ -253,6 +255,28 @@ impl Repository {
             .into_iter()
             .filter(|issue| issue.pull_request.is_none())
             .collect())
+    }
+
+    pub async fn issue(&self, number: i64) -> Result<Issue, Box<dyn Error + Send + Sync>> {
+        Ok(self
+            .client
+            .get(
+                format!("/repos/{}/issues/{number}", self.full_name),
+                None::<&()>,
+            )
+            .await?)
+    }
+
+    pub async fn sub_issues(
+        &self,
+        number: i64,
+    ) -> Result<Vec<Issue>, Box<dyn Error + Send + Sync>> {
+        all_pages(
+            &self.client,
+            &format!("/repos/{}/issues/{number}/sub_issues", self.full_name),
+            |page: Vec<Issue>| page,
+        )
+        .await
     }
 
     // Gives `None` when GitHub answers `304 Not Modified` to `etag`.

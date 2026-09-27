@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use mobius_domain::{FeedRow, Workstream};
+use mobius_domain::{FeedRow, Live, Workstream};
 use mobius_engine::activity::{self, Feed};
 use mobius_engine::{Engine, github, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
@@ -20,10 +20,15 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
 }
 
 async fn next_row(feed: &mut Feed) -> FeedRow {
-    tokio::time::timeout(Duration::from_secs(5), feed.next())
-        .await
-        .unwrap()
-        .unwrap()
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Live::Feed(row) = feed.next().await.unwrap() {
+                return row;
+            }
+        }
+    })
+    .await
+    .unwrap()
 }
 
 #[tokio::test]
@@ -47,6 +52,7 @@ async fn a_workstream_label_shows_the_issue_in_the_workstream_list() {
             repository: REPOSITORY.to_string(),
             number: 12,
             title: "Integrate loyalty plans".to_string(),
+            autopilot: false,
         }]
     );
 }

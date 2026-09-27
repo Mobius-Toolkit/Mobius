@@ -1,6 +1,6 @@
 use dioxus::fullstack::{Redirect, ServerEvents, SetCookie, SetHeader};
 use dioxus::prelude::*;
-use mobius_domain::{Devices, FeedRow, ManifestForm, Workstream};
+use mobius_domain::{ChatView, Devices, Live, ManifestForm, Unread, Workstream};
 
 #[cfg(feature = "server")]
 use dioxus::fullstack::headers::UserAgent;
@@ -13,7 +13,7 @@ use dioxus::server::axum::extract::{FromRequestParts, Query};
 #[cfg(feature = "server")]
 use dioxus::server::http::request::Parts;
 #[cfg(feature = "server")]
-use mobius_engine::{Engine, activity, auth, github, workstreams};
+use mobius_engine::{Engine, activity, auth, chat, github, workstreams};
 #[cfg(feature = "server")]
 use mobius_store::Store;
 #[cfg(feature = "server")]
@@ -137,15 +137,50 @@ pub async fn workstreams() -> ServerFnResult<Vec<Workstream>> {
 }
 
 #[get("/api/live?after", _device: DeviceId, engine: Extension<Engine>)]
-pub async fn live(after: Option<i64>) -> ServerFnResult<ServerEvents<FeedRow>> {
+pub async fn live(after: Option<i64>) -> ServerFnResult<ServerEvents<Live>> {
     let mut feed = activity::feed(&engine, after)
         .await
         .map_err(ServerFnError::new)?;
     Ok(ServerEvents::new(move |mut sender| async move {
-        while let Some(row) = feed.next().await {
-            if sender.send(row).await.is_err() {
+        while let Some(live) = feed.next().await {
+            if sender.send(live).await.is_err() {
                 break;
             }
         }
     }))
+}
+
+#[post("/api/chat", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn chat_view(repository: String, workstream: i64) -> ServerFnResult<ChatView> {
+    chat::view(&engine, &repository, workstream)
+        .await
+        .map_err(ServerFnError::new)
+}
+
+#[post("/api/chat/send", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn chat_send(repository: String, workstream: i64, text: String) -> ServerFnResult<()> {
+    chat::send(&engine, &repository, workstream, &text)
+        .await
+        .map_err(ServerFnError::new)
+}
+
+#[post("/api/chat/stop", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn chat_stop(repository: String, workstream: i64) -> ServerFnResult<()> {
+    chat::stop(&engine, &repository, workstream).map_err(ServerFnError::new)
+}
+
+#[post("/api/chat/seen", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn chat_seen(repository: String, workstream: i64, message: i64) -> ServerFnResult<()> {
+    chat::seen(&engine, &repository, workstream, message)
+        .await
+        .map_err(ServerFnError::new)
+}
+
+#[get("/api/unread", _device: DeviceId, store: Extension<Store>)]
+pub async fn unread() -> ServerFnResult<Vec<Unread>> {
+    store
+        .chat_messages()
+        .unread()
+        .await
+        .map_err(ServerFnError::new)
 }

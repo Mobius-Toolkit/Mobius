@@ -1,5 +1,7 @@
 pub mod fake_github;
 
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::Duration;
 
@@ -13,6 +15,7 @@ access_password = "{access_password}"
 trusted_users = ["owner"]
 data_dir = "{}"
 poll_interval = "50ms"
+lead_idle_timeout = "300ms"
 
 [roles]
 lead        = {{ harness = "claude-code", model = "opus",    effort = "high" }}
@@ -26,9 +29,36 @@ judge       = {{ harness = "claude-code", model = "haiku",   effort = "low" }}
     ))
     .unwrap();
     let store = Store::open(&config.data_dir).await.unwrap();
-    mobius_engine::start(config, store, github_url, github_url)
-        .await
-        .unwrap()
+    mobius_engine::start(
+        config,
+        store,
+        github_url,
+        github_url,
+        data_dir.join("harnesses").into(),
+    )
+    .await
+    .unwrap()
+}
+
+// Each Harness command runs `fake_agent` with `script`, and writes its environment to `harnesses/env` and its working directory to `harnesses/pwd`.
+pub fn install_fake_agent(data_dir: &Path, fake_agent: &str, script: &str) {
+    let harnesses = data_dir.join("harnesses");
+    fs::create_dir_all(&harnesses).unwrap();
+    let script_path = harnesses.join("script.toml");
+    fs::write(&script_path, script).unwrap();
+    for program in ["claude-agent-acp", "agy_acp_server", "devin"] {
+        let wrapper = harnesses.join(program);
+        fs::write(
+            &wrapper,
+            format!(
+                "#!/bin/sh\n/usr/bin/env > '{0}/env'\npwd > '{0}/pwd'\nexec '{fake_agent}' '{1}'\n",
+                harnesses.display(),
+                script_path.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    }
 }
 
 pub async fn wait_for<T>(mut check: impl AsyncFnMut() -> Option<T>) -> T {

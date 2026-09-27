@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::error::Error;
 
-use mobius_domain::FeedRow;
+use mobius_domain::{FeedRow, Live};
 use tokio::sync::broadcast::Receiver;
 
 use crate::Engine;
@@ -10,22 +10,25 @@ const BACKLOG_SIZE: i64 = 100;
 
 pub struct Feed {
     backlog: VecDeque<FeedRow>,
-    updates: Receiver<FeedRow>,
+    updates: Receiver<Live>,
     last_id: i64,
 }
 
 impl Feed {
     // Gives `None` when the live channel drops rows that this feed did not read. The client then opens a new feed after its last row.
-    pub async fn next(&mut self) -> Option<FeedRow> {
+    pub async fn next(&mut self) -> Option<Live> {
         if let Some(row) = self.backlog.pop_front() {
             self.last_id = row.id;
-            return Some(row);
+            return Some(Live::Feed(row));
         }
         loop {
-            let row = self.updates.recv().await.ok()?;
-            if row.id > self.last_id {
-                self.last_id = row.id;
-                return Some(row);
+            match self.updates.recv().await.ok()? {
+                Live::Feed(row) if row.id <= self.last_id => {}
+                Live::Feed(row) => {
+                    self.last_id = row.id;
+                    return Some(Live::Feed(row));
+                }
+                live => return Some(live),
             }
         }
     }
@@ -61,7 +64,6 @@ pub(crate) async fn add(
         .events()
         .add(repository, workstream, issue, actor, text, link)
         .await?;
-    // With no open feed, the channel has no receiver and the send fails.
-    let _ = engine.live.send(row);
+    engine.broadcast(Live::Feed(row));
     Ok(())
 }

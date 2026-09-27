@@ -9,6 +9,10 @@
   --accent: #2d5f8b;
   --accent-soft: #dde7f0;
   --crit: #b03a3a;
+  --ok: #2f7a4c;
+  --ok-soft: #dcefe2;
+  --owner: #e3ebe4;
+  --mono: ui-monospace, Menlo, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
@@ -23,6 +27,9 @@
     --accent: #7fb0dc;
     --accent-soft: #1f3244;
     --crit: #e27d7d;
+    --ok: #6cc08c;
+    --ok-soft: #1c3326;
+    --owner: #223029;
   }
 }
 
@@ -92,6 +99,11 @@ button {
   color: var(--surface);
 }
 
+.btn.danger {
+  color: var(--crit);
+  border-color: var(--crit);
+}
+
 .chip {
   font-size: 11.5px;
   font-weight: 500;
@@ -100,6 +112,40 @@ button {
   white-space: nowrap;
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+.chip.plain {
+  background: var(--ground);
+  color: var(--muted);
+}
+
+.count {
+  background: var(--crit);
+  color: var(--surface);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--muted);
+}
+
+.dot.live {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+.ellip {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .shell {
@@ -143,6 +189,14 @@ button {
   align-items: baseline;
   gap: 8px;
   padding: 6px 8px;
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.entry.sel {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .list .entry {
@@ -183,6 +237,7 @@ button.chip.on {
 .head {
   display: flex;
   align-items: center;
+  gap: 8px;
   padding: 10px 14px;
   min-height: 48px;
   background: var(--surface);
@@ -205,6 +260,88 @@ button.chip.on {
 
 .note {
   padding: 0 14px;
+}
+
+.num {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 48px);
+}
+
+.msgs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.msgs .empty {
+  margin: auto;
+}
+
+.msg {
+  max-width: 82%;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+}
+
+.msg.owner {
+  align-self: flex-end;
+  background: var(--owner);
+  border-color: transparent;
+}
+
+.msg .meta {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.msg p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.typing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.composer {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+
+.composer textarea {
+  width: 100%;
+  height: 40px;
+  resize: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font: inherit;
+  background: var(--raised);
+  color: var(--ink);
 }
 
 .tabs {
@@ -255,6 +392,10 @@ button.chip.on {
 
   .center {
     padding-bottom: 56px;
+  }
+
+  .chat {
+    height: calc(100dvh - 48px - 56px);
   }
 
   .tabs {

@@ -34,6 +34,9 @@ struct Records {
 
 struct Issue {
     title: String,
+    body: String,
+    state: &'static str,
+    sub_issues: Vec<i64>,
     labels: Vec<String>,
     updated_at: i64,
     events: Vec<Value>,
@@ -78,6 +81,11 @@ impl FakeGitHub {
             )
             .route("/installation/repositories", get(installation_repositories))
             .route("/repos/{owner}/{repo}/issues", get(issues))
+            .route("/repos/{owner}/{repo}/issues/{number}", get(issue))
+            .route(
+                "/repos/{owner}/{repo}/issues/{number}/sub_issues",
+                get(sub_issues),
+            )
             .route(
                 "/repos/{owner}/{repo}/issues/{number}/events",
                 get(issue_events),
@@ -128,11 +136,47 @@ impl FakeGitHub {
             (repository.to_string(), number),
             Issue {
                 title: title.to_string(),
+                body: String::new(),
+                state: "open",
+                sub_issues: Vec::new(),
                 labels: Vec::new(),
                 updated_at,
                 events: Vec::new(),
             },
         );
+    }
+
+    pub fn set_body(&self, repository: &str, number: i64, body: &str) {
+        let mut records = self.state.lock().unwrap();
+        let now = records.tick();
+        let issue = records
+            .issues
+            .get_mut(&(repository.to_string(), number))
+            .unwrap();
+        issue.body = body.to_string();
+        issue.updated_at = now;
+    }
+
+    pub fn close_issue(&self, repository: &str, number: i64) {
+        let mut records = self.state.lock().unwrap();
+        let now = records.tick();
+        let issue = records
+            .issues
+            .get_mut(&(repository.to_string(), number))
+            .unwrap();
+        issue.state = "closed";
+        issue.updated_at = now;
+    }
+
+    pub fn add_sub_issue(&self, repository: &str, parent: i64, child: i64) {
+        self.state
+            .lock()
+            .unwrap()
+            .issues
+            .get_mut(&(repository.to_string(), parent))
+            .unwrap()
+            .sub_issues
+            .push(child);
     }
 
     pub fn add_label(&self, repository: &str, number: i64, label: &str, actor: &str) {
@@ -155,6 +199,18 @@ impl FakeGitHub {
     pub fn not_modified_count(&self) -> u32 {
         self.state.lock().unwrap().not_modified
     }
+}
+
+fn issue_json(repository: &str, number: i64, issue: &Issue) -> Value {
+    json!({
+        "number": number,
+        "title": issue.title,
+        "body": issue.body,
+        "html_url": format!("https://github.com/{repository}/issues/{number}"),
+        "state": issue.state,
+        "updated_at": timestamp(issue.updated_at),
+        "labels": issue.labels.iter().map(|name| json!({ "name": name })).collect::<Vec<_>>()
+    })
 }
 
 fn not_found() -> Response {
@@ -325,21 +381,10 @@ async fn issues(
         .collect();
     found.sort_by_key(|((_, number), issue)| (issue.updated_at, *number));
     let body = Value::Array(
-        page.of(
-            found
-                .into_iter()
-                .map(|((_, number), issue)| {
-                    json!({
-                        "number": number,
-                        "title": issue.title,
-                        "html_url": format!("https://github.com/{repository}/issues/{number}"),
-                        "state": "open",
-                        "updated_at": timestamp(issue.updated_at),
-                        "labels": issue.labels.iter().map(|name| json!({ "name": name })).collect::<Vec<_>>()
-                    })
-                })
-                .collect(),
-        ),
+        page.of(found
+            .into_iter()
+            .map(|((_, number), issue)| issue_json(&repository, *number, issue))
+            .collect()),
     );
     let mut hasher = DefaultHasher::new();
     body.to_string().hash(&mut hasher);
@@ -352,6 +397,46 @@ async fn issues(
         return StatusCode::NOT_MODIFIED.into_response();
     }
     ([(header::ETAG, etag)], Json(body)).into_response()
+}
+
+async fn issue(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    match state
+        .lock()
+        .unwrap()
+        .issues
+        .get(&(repository.clone(), number))
+    {
+        Some(issue) => Json(issue_json(&repository, number, issue)).into_response(),
+        None => not_found(),
+    }
+}
+
+async fn sub_issues(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    Query(page): Query<Page>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let records = state.lock().unwrap();
+    let Some(parent) = records.issues.get(&(repository.clone(), number)) else {
+        return not_found();
+    };
+    let children = parent
+        .sub_issues
+        .iter()
+        .map(|child| {
+            issue_json(
+                &repository,
+                *child,
+                &records.issues[&(repository.clone(), *child)],
+            )
+        })
+        .collect();
+    Json(page.of(children)).into_response()
 }
 
 async fn issue_events(
