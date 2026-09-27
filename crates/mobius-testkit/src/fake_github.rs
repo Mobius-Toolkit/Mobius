@@ -3,6 +3,7 @@ use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{Path, Query, State};
@@ -89,6 +90,8 @@ struct Records {
     remotes: PathBuf,
     issues: BTreeMap<(String, i64), Issue>,
     pull_requests: Vec<(String, PullRequest)>,
+    // The creation time of each pull request, in seconds after the Unix epoch.
+    pull_request_created_at: HashMap<(String, i64), i64>,
     // The id of a check run is its index plus 1.
     check_runs: Vec<(String, CheckRun)>,
     submitted_reviews: Vec<(String, i64, SubmittedReview)>,
@@ -408,6 +411,28 @@ impl FakeGitHub {
             work.path(),
             &["push", "origin", &format!("HEAD:refs/heads/{branch}")],
         );
+    }
+
+    pub fn commit_file(&self, full_name: &str, path: &str, content: &str, message: &str) {
+        let remote = self.remote(full_name);
+        let work = TempDir::new().unwrap();
+        git(
+            work.path(),
+            &["clone", "--branch=main", remote.to_str().unwrap(), "."],
+        );
+        fs::write(work.path().join(path), content).unwrap();
+        git(work.path(), &["add", path]);
+        git(work.path(), &["commit", "-m", message]);
+        git(work.path(), &["push", "origin", "HEAD:refs/heads/main"]);
+    }
+
+    // Sets the creation time of a pull request to `seconds` after the Unix epoch.
+    pub fn set_created_at(&self, full_name: &str, number: i64, seconds: i64) {
+        self.state
+            .lock()
+            .unwrap()
+            .pull_request_created_at
+            .insert((full_name.to_string(), number), seconds);
     }
 
     // Commits `script` as an executable `.mobius/check` on `main`.
@@ -948,6 +973,9 @@ async fn create_pull_request(
             review_comments: Vec::new(),
         },
     );
+    records
+        .pull_request_created_at
+        .insert((repository.clone(), number), updated_at);
     records.pull_requests.push((
         repository.clone(),
         PullRequest {
@@ -959,15 +987,38 @@ async fn create_pull_request(
             draft: new.draft,
         },
     ));
-    (
-        StatusCode::CREATED,
-        Json(json!({
-            "number": number,
-            "node_id": format!("PR_{number}"),
-            "html_url": format!("https://github.com/{repository}/pull/{number}")
-        })),
-    )
-        .into_response()
+    let mut json = pull_request_json(&records, &repository, number);
+    json["mergeable"] = Value::Null;
+    (StatusCode::CREATED, Json(json)).into_response()
+}
+
+// `mergeable` is `false` when `git merge-tree` of the base and the head in the remote finds a conflict.
+fn pull_request_json(records: &Records, repository: &str, number: i64) -> Value {
+    let (_, pull_request) = records
+        .pull_requests
+        .iter()
+        .find(|(name, pull_request)| name == repository && pull_request.number == number)
+        .unwrap();
+    let merge = Command::new("git")
+        .current_dir(records.remotes.join(format!("{repository}.git")))
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .args([
+            "merge-tree",
+            "--write-tree",
+            &pull_request.base,
+            &pull_request.head,
+        ])
+        .output()
+        .unwrap();
+    json!({
+        "number": number,
+        "node_id": format!("PR_{number}"),
+        "html_url": format!("https://github.com/{repository}/pull/{number}"),
+        "draft": pull_request.draft,
+        "mergeable": merge.status.success(),
+        "created_at": timestamp(records.pull_request_created_at[&(repository.to_string(), number)])
+    })
 }
 
 async fn pull_request(
@@ -975,21 +1026,15 @@ async fn pull_request(
     Path((owner, repo, number)): Path<(String, String, i64)>,
 ) -> Response {
     let repository = format!("{owner}/{repo}");
-    if !state
-        .lock()
-        .unwrap()
+    let records = state.lock().unwrap();
+    if !records
         .pull_requests
         .iter()
         .any(|(name, pull_request)| *name == repository && pull_request.number == number)
     {
         return not_found();
     }
-    Json(json!({
-        "number": number,
-        "node_id": format!("PR_{number}"),
-        "html_url": format!("https://github.com/{repository}/pull/{number}")
-    }))
-    .into_response()
+    Json(pull_request_json(&records, &repository, number)).into_response()
 }
 
 #[derive(Deserialize)]

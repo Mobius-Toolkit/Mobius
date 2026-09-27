@@ -183,9 +183,11 @@ async fn ready_for_review(
     repository
         .set_check_run_conclusion(job.check_run, "success")
         .await?;
-    repository
-        .mark_ready_for_review(&job.pull_request.node_id)
-        .await?;
+    if job.pull_request.draft {
+        repository
+            .mark_ready_for_review(&job.pull_request.node_id)
+            .await?;
+    }
     inbox::add(
         engine,
         InboxKind::ReadyForReview,

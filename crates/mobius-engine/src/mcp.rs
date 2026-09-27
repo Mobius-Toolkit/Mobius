@@ -166,6 +166,22 @@ fn tools(role: &str) -> Vec<Tool> {
                     }
                 })),
             ),
+            tool(
+                "comment_pull_request",
+                "Post a comment on the pull request of a task, for example to propose that a human closes a stale pull request.",
+                object(json!({
+                    "n": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the pull request."
+                    },
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The comment."
+                    }
+                })),
+            ),
         ],
         implementer::ROLE => vec![
             tool(
@@ -318,6 +334,13 @@ struct Ask {
 struct Decline {
     n: i64,
     reason: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommentPullRequest {
+    n: i64,
+    text: String,
 }
 
 #[derive(Deserialize)]
@@ -485,6 +508,26 @@ impl Handler {
                     &reason,
                 )
                 .await
+            }
+            "comment_pull_request" => {
+                let CommentPullRequest { n, text } = parse(tool, arguments)?;
+                if n < 1 {
+                    return Err("n must be 1 or more.".into());
+                }
+                if text.trim().is_empty() {
+                    return Err("text must not be empty.".into());
+                }
+                self.engine
+                    .store
+                    .tasks()
+                    .live_by_pull_request(&self.caller.repository, n)
+                    .await?
+                    .filter(|task| task.workstream == self.caller.workstream)
+                    .ok_or_else(|| {
+                        format!("#{n} is not the pull request of a live task in this Workstream.")
+                    })?;
+                repository.add_comment(n, &text).await?;
+                Ok(format!("Commented on #{n}."))
             }
             "tell_owner" => {
                 let TellOwner { text } = parse(tool, arguments)?;

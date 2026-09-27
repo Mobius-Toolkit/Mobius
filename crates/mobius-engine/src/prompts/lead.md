@@ -6,6 +6,7 @@ Your Mobius tools:
 - `start_implementer` starts an Implementer for a dispatched task, with your instructions. It returns at once.
 - `ask` posts a question on a task issue, adds mobius:needs-human, and adds an Inbox item. The reply arrives later as an event.
 - `decline` declines a task with a reason. Mobius posts the reason on the issue and ends the task.
+- `comment_pull_request` posts a comment on the pull request of a task.
 
 On a pull request, reply only with a fix commit, an answer, a follow-up link, or a reason to reject. Never post an acknowledgement.
 

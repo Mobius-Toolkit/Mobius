@@ -130,6 +130,11 @@ pub struct PullRequest {
     pub number: i64,
     pub node_id: String,
     pub html_url: String,
+    pub draft: bool,
+    // GitHub gives `null` while it computes the value.
+    pub mergeable: Option<bool>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
 }
 
 #[derive(Deserialize)]

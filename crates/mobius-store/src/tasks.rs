@@ -10,6 +10,7 @@ pub struct Tasks<'a> {
 #[derive(Debug, PartialEq)]
 pub struct Task {
     pub id: i64,
+    pub issue: i64,
     pub workstream: i64,
     pub state: String,
     pub branch: Option<String>,
@@ -29,7 +30,7 @@ impl Tasks<'_> {
             Task,
             r#"INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
                VALUES (?, ?, ?, 'dispatched', ?)
-               RETURNING id AS "id!", workstream, state, branch, fix_rounds, pull_request"#,
+               RETURNING id AS "id!", issue, workstream, state, branch, fix_rounds, pull_request"#,
             repository,
             issue,
             workstream,
@@ -47,7 +48,7 @@ impl Tasks<'_> {
     ) -> Result<Option<Task>, Box<dyn Error + Send + Sync>> {
         let task = sqlx::query_as!(
             Task,
-            r#"SELECT id, workstream, state, branch, fix_rounds, pull_request FROM tasks
+            r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request FROM tasks
                WHERE repository = ? AND issue = ? AND state <> 'ended'"#,
             repository,
             issue
@@ -124,6 +125,23 @@ impl Tasks<'_> {
         Ok(())
     }
 
+    pub async fn in_state(
+        &self,
+        repository: &str,
+        state: &str,
+    ) -> Result<Vec<Task>, Box<dyn Error + Send + Sync>> {
+        let tasks = sqlx::query_as!(
+            Task,
+            r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request FROM tasks
+               WHERE repository = ? AND state = ?"#,
+            repository,
+            state
+        )
+        .fetch_all(self.pool)
+        .await?;
+        Ok(tasks)
+    }
+
     pub async fn live_by_pull_request(
         &self,
         repository: &str,
@@ -131,7 +149,7 @@ impl Tasks<'_> {
     ) -> Result<Option<Task>, Box<dyn Error + Send + Sync>> {
         let task = sqlx::query_as!(
             Task,
-            r#"SELECT id, workstream, state, branch, fix_rounds, pull_request FROM tasks
+            r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request FROM tasks
                WHERE repository = ? AND pull_request = ? AND state <> 'ended'"#,
             repository,
             pull_request
