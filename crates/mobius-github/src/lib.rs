@@ -113,6 +113,7 @@ pub struct User {
 
 pub fn manifest(origin: &str) -> String {
     json!({
+        "name": "Möbius",
         "url": "https://github.com/Mobius-Toolkit/Mobius",
         "redirect_url": format!("{origin}/api/github/manifest-callback"),
         "callback_urls": [format!("{origin}/api/github/user-callback")],
