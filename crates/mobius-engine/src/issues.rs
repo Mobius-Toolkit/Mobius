@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use mobius_github::Repository;
+use mobius_github::{Repository, ReviewComment};
 use time::OffsetDateTime;
 
 use crate::TIME_FORMAT;
@@ -58,34 +58,61 @@ pub(crate) async fn read_issue(
     Ok(text)
 }
 
-// GitHub gives each reply the id of the first comment of its thread as `in_reply_to_id`.
 pub(crate) async fn review_threads(
     repository: &Repository,
     number: i64,
     trusted: impl Fn(&str) -> bool,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let mut text = String::new();
     let comments = repository.review_comments(number).await?;
+    let mut text = String::new();
     for root in &comments {
-        if root.in_reply_to_id.is_some() || !trusted(&root.user.login) {
-            continue;
+        if root.in_reply_to_id.is_none() && trusted(&root.user.login) {
+            text.push_str(&thread(&comments, root, &trusted)?);
         }
-        let line = root
-            .line
-            .map(|line| format!(" line {line}"))
-            .unwrap_or_default();
-        text.push_str(&format!("\nThread {}, {}{line}:\n", root.id, root.path));
-        for comment in &comments {
-            if (comment.id == root.id || comment.in_reply_to_id == Some(root.id))
-                && trusted(&comment.user.login)
-            {
-                text.push_str(&entry(
-                    &comment.user.login,
-                    comment.created_at,
-                    "",
-                    &comment.body,
-                )?);
-            }
+    }
+    Ok(text)
+}
+
+// Gives each thread that starts with a comment in `roots`, with the action `fix`.
+pub(crate) async fn fix_threads(
+    repository: &Repository,
+    number: i64,
+    roots: &[i64],
+    trusted: impl Fn(&str) -> bool,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let comments = repository.review_comments(number).await?;
+    let mut text = String::new();
+    for root in comments
+        .iter()
+        .filter(|comment| roots.contains(&comment.id))
+    {
+        text.push_str(&thread(&comments, root, &trusted)?);
+        text.push_str("\nAction: fix\n");
+    }
+    Ok(text)
+}
+
+// GitHub gives each reply the id of the first comment of its thread as `in_reply_to_id`.
+fn thread(
+    comments: &[ReviewComment],
+    root: &ReviewComment,
+    trusted: impl Fn(&str) -> bool,
+) -> Result<String, time::error::Format> {
+    let line = root
+        .line
+        .map(|line| format!(" line {line}"))
+        .unwrap_or_default();
+    let mut text = format!("\nThread {}, {}{line}:\n", root.id, root.path);
+    for comment in comments {
+        if (comment.id == root.id || comment.in_reply_to_id == Some(root.id))
+            && trusted(&comment.user.login)
+        {
+            text.push_str(&entry(
+                &comment.user.login,
+                comment.created_at,
+                "",
+                &comment.body,
+            )?);
         }
     }
     Ok(text)

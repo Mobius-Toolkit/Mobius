@@ -76,6 +76,7 @@ async fn run(
             repository: repository.clone(),
             workstream,
             cannot_do: None,
+            fix: None,
             review: None,
         },
     ) {

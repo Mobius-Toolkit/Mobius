@@ -41,9 +41,9 @@ struct Prompt {
     // The Lead reply is the JSON of the Mobius tool list.
     #[serde(default)]
     list_tools: bool,
-    // The Lead reply is the text of the tool result, after `error: ` for an error result.
+    // The Lead reply is the text of the tool result, after `error: ` for an error result. Each `{shell}` in a string argument becomes the trimmed stdout of `shell`.
     call: Option<Call>,
-    // The Lead reply is the stdout and the stderr of `/bin/sh -c` with this command, then `exit <code>`.
+    // The Lead reply is the stdout and the stderr of `/bin/sh -c` with this command, then `exit <code>`. The command runs before `call`.
     shell: Option<String>,
 }
 
@@ -87,18 +87,26 @@ fn options(script: &Script) -> Vec<SessionConfigOption> {
         .collect()
 }
 
-async fn mobius_reply(mcp_url: &str, prompt: &Prompt) -> Option<String> {
+async fn mobius_reply(mcp_url: &str, prompt: &Prompt, stdout: &str) -> Option<String> {
     if !prompt.list_tools && prompt.call.is_none() {
         return None;
     }
     let client = ().serve(StreamableHttpClientTransport::from_uri(mcp_url)).await.unwrap();
     let reply = match &prompt.call {
         Some(call) => {
+            let arguments = call
+                .arguments
+                .iter()
+                .map(|(name, value)| {
+                    let value = match value {
+                        Value::String(text) => Value::String(text.replace("{shell}", stdout)),
+                        other => other.clone(),
+                    };
+                    (name.clone(), value)
+                })
+                .collect();
             let result = client
-                .call_tool(
-                    CallToolRequestParams::new(call.tool.clone())
-                        .with_arguments(call.arguments.clone()),
-                )
+                .call_tool(CallToolRequestParams::new(call.tool.clone()).with_arguments(arguments))
                 .await
                 .unwrap();
             let text = &result.content[0].as_text().unwrap().text;
@@ -124,13 +132,19 @@ async fn play(
         let update: SessionUpdate = serde_json::from_str(update).unwrap();
         connection.send_notification(SessionNotification::new(session.clone(), update))?;
     }
-    let mobius = mobius_reply(mcp_url, prompt).await;
-    let shell = prompt.shell.as_ref().map(|command| {
-        let output = std::process::Command::new("/bin/sh")
+    let output = prompt.shell.as_ref().map(|command| {
+        std::process::Command::new("/bin/sh")
             .arg("-c")
             .arg(command)
             .output()
-            .unwrap();
+            .unwrap()
+    });
+    let stdout = output
+        .as_ref()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .unwrap_or_default();
+    let mobius = mobius_reply(mcp_url, prompt, &stdout).await;
+    let shell = output.map(|output| {
         format!(
             "{}{}exit {}",
             String::from_utf8_lossy(&output.stdout),

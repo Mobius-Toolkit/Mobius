@@ -59,6 +59,7 @@ async fn changed_issues(
     };
     for issue in &page.issues {
         if issue.pull_request.is_some() {
+            dispatch::pull_request_comments(engine, repository, issue.number, cursor.since).await?;
             continue;
         }
         if issue.has_label(WORKING_LABEL) {

@@ -1,6 +1,6 @@
 use mobius_domain::{InboxKind, Session, TranscriptRow};
 use mobius_engine::{Engine, github, inbox, workstreams};
-use mobius_testkit::fake_github::{CheckRun, FakeGitHub, InlineComment, SubmittedReview};
+use mobius_testkit::fake_github::{CheckRun, FakeGitHub, InlineComment, SubmittedReview, Thread};
 use mobius_testkit::{git, install_fake_harness, start_with_config, wait_for};
 use serde_json::Value;
 use tempfile::TempDir;
@@ -21,14 +21,25 @@ thought_level = ["high"]
 [[prompts]]
 shell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'"
 "#;
+const FINDING: &str = r#"[[prompts]]
+when = "You are the Reviewer"
+call = { tool = "submit_review", arguments = { body = "One finding.", comments = [{ path = "plan.txt", line = 1, body = "Store the unit." }] } }
+"#;
+const FIX: &str = r#"[[prompts]]
+when = "Action: fix"
+shell = "echo 'cents per month' > plan.txt && git commit -q -am 'Store the unit' && git rev-parse HEAD"
+call = { tool = "reply_thread", arguments = { thread = 1, text = "Fixed in {shell}.", resolve = true } }
+"#;
+const APP_LOGIN: &str = "mobius-test[bot]";
 const START: &str = "[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"start_implementer\", arguments = { n = 41, instructions = \"Store plans in cents.\" } }\n";
 
-// The Lead and the Reviewer share the Harness `claude-agent-acp`, so `reviewer` gets a `when` for the Reviewer prompt.
+// The Lead and the Reviewer share the Harness `claude-agent-acp`, so `reviewer` gets a `when` for the Reviewer prompt. Each Implementer session is a new process, so `fix` gets a `when` for the prompt of a fix round.
 async fn connect(
     data_dir: &TempDir,
     github: &FakeGitHub,
     extra_config: &str,
     reviewer: &str,
+    fix: &str,
 ) -> Engine {
     github.add_manifest_code("manifest-code");
     github.add_repository(REPOSITORY);
@@ -44,7 +55,12 @@ async fn connect(
         "claude-agent-acp",
         &format!("{CLAUDE_OPTIONS}\n{reviewer}\n{START}"),
     );
-    install_fake_harness(data_dir.path(), FAKE_AGENT, "devin", IMPLEMENTER);
+    install_fake_harness(
+        data_dir.path(),
+        FAKE_AGENT,
+        "devin",
+        &format!("{IMPLEMENTER}\n{fix}"),
+    );
     let engine =
         start_with_config(data_dir.path(), "correct horse", &github.url, extra_config).await;
     github::convert_manifest(&engine, "manifest-code")
@@ -114,6 +130,29 @@ async fn task_state(engine: &Engine, number: i64) -> Option<String> {
         .map(|task| task.state)
 }
 
+async fn fix_rounds(engine: &Engine, number: i64) -> i64 {
+    engine
+        .store
+        .tasks()
+        .live(REPOSITORY, number)
+        .await
+        .unwrap()
+        .unwrap()
+        .fix_rounds
+}
+
+fn positions_are_sorted(prompt: &str, parts: &[String]) {
+    let positions: Vec<usize> = parts
+        .iter()
+        .map(|part| {
+            prompt
+                .find(part.as_str())
+                .unwrap_or_else(|| panic!("{part:?} in {prompt}"))
+        })
+        .collect();
+    assert!(positions.is_sorted(), "{prompt}");
+}
+
 #[tokio::test]
 async fn a_reviewer_that_finds_nothing_takes_the_task_to_ready_for_review() {
     let data_dir = TempDir::new().unwrap();
@@ -123,6 +162,7 @@ async fn a_reviewer_that_finds_nothing_takes_the_task_to_ready_for_review() {
         &github,
         "",
         "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"pwd && git rev-parse HEAD && git rev-parse --abbrev-ref HEAD\"\n",
+        "",
     )
     .await;
     github.set_check(REPOSITORY, "grep -q cents plan.txt");
@@ -178,15 +218,7 @@ async fn a_reviewer_that_finds_nothing_takes_the_task_to_ready_for_review() {
         format!("Base commit: {base}\nHead commit: {head}\n"),
         "# Review threads\n".to_string(),
     ];
-    let positions: Vec<usize> = parts
-        .iter()
-        .map(|part| {
-            prompts[0]
-                .find(part.as_str())
-                .unwrap_or_else(|| panic!("{part:?} in {}", prompts[0]))
-        })
-        .collect();
-    assert!(positions.is_sorted(), "{}", prompts[0]);
+    positions_are_sorted(&prompts[0], &parts);
     let reply = texts(&rows, "update").concat();
     assert!(
         reply.contains(&format!(
@@ -202,46 +234,224 @@ async fn a_reviewer_that_finds_nothing_takes_the_task_to_ready_for_review() {
 }
 
 #[tokio::test]
-async fn the_review_goes_to_github_and_its_finding_keeps_the_pull_request_a_draft() {
+async fn a_fix_round_replies_with_the_pushed_fix_commit_and_resolves_the_thread() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let engine = connect(
         &data_dir,
         &github,
         "",
-        r#"[[prompts]]
-when = "You are the Reviewer"
-call = { tool = "submit_review", arguments = { body = "One finding.", comments = [{ path = "plan.txt", line = 1, body = "Store the unit." }] } }
-"#,
+        &format!("[[prompts]]\nwhen = \"Thread 1, plan.txt line 1:\"\nshell = \"true\"\n{FINDING}"),
+        FIX,
     )
     .await;
 
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
 
-    let session = ended_reviewers(&engine, 1).await.remove(0);
-    assert_eq!(session.end_reason.as_deref(), Some("done"));
+    wait_for(async || (!github.pull_requests(REPOSITORY).is_empty()).then_some(())).await;
+    let reply = wait_for(async || {
+        github
+            .review_thread(REPOSITORY, 42, 1)
+            .comments
+            .get(1)
+            .map(|(_, body)| body.clone())
+    })
+    .await;
     let remote = github.remote(REPOSITORY);
+    let fix = reply
+        .strip_prefix("Fixed in ")
+        .and_then(|rest| rest.strip_suffix('.'))
+        .unwrap();
+    assert_eq!(git(&remote, &["cat-file", "-t", fix]), "commit");
+    wait_for(async || {
+        lead_event_prompts(&engine)
+            .await
+            .iter()
+            .any(|prompt| prompt.contains(" ready for review of #41 \"Add plan model\""))
+            .then_some(())
+    })
+    .await;
+    let head = git(&remote, &["rev-parse", "mobius/41"]);
+    let first = git(&remote, &["rev-parse", "mobius/41~1"]);
+    assert_eq!(fix, head);
+    assert_eq!(
+        github.review_thread(REPOSITORY, 42, 1),
+        Thread {
+            resolved: true,
+            comments: vec![
+                (APP_LOGIN.to_string(), "Store the unit.".to_string()),
+                (APP_LOGIN.to_string(), format!("Fixed in {head}.")),
+            ],
+        }
+    );
+    let check_runs: Vec<(String, String, Option<String>)> = github
+        .check_runs(REPOSITORY)
+        .into_iter()
+        .map(|check_run| (check_run.head_sha, check_run.status, check_run.conclusion))
+        .collect();
+    assert_eq!(
+        check_runs,
+        [
+            (first, "in_progress".to_string(), None),
+            (head, "completed".to_string(), Some("success".to_string())),
+        ]
+    );
+    let pull_requests = github.pull_requests(REPOSITORY);
+    assert_eq!(pull_requests.len(), 1);
+    assert!(!pull_requests[0].draft);
+    assert_eq!(fix_rounds(&engine, 41).await, 1);
+    let implementers = sessions(&engine, "implementer").await;
+    assert_eq!(implementers.len(), 2);
+    let prompts = texts(&transcript(&engine, implementers[1].id).await, "prompt");
+    assert_eq!(prompts.len(), 1, "{prompts:?}");
+    positions_are_sorted(
+        &prompts[0],
+        &[
+            "You are the Implementer".to_string(),
+            "# Brief\n\nShip loyalty plans to all shops.\n".to_string(),
+            "# Issue\n\n#41 Add plan model\n\nPlans have a price.\n".to_string(),
+            format!("# Open review threads\n\nThread 1, plan.txt line 1:\n\n@{APP_LOGIN}, "),
+            "Store the unit.\n\nAction: fix\n".to_string(),
+        ],
+    );
+}
+
+#[tokio::test]
+async fn an_implementer_after_cannot_do_in_a_fix_round_continues_the_pull_request() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        "",
+        &format!(
+            "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = {{ tool = \"start_implementer\", arguments = {{ n = 41, instructions = \"Store the unit in the plan.\" }} }}\n[[prompts]]\nwhen = \"Thread 1, plan.txt line 1:\"\nshell = \"true\"\n{FINDING}"
+        ),
+        &format!(
+            "[[prompts]]\nwhen = \"Action: fix\"\ncall = {{ tool = \"cannot_do\", arguments = {{ reason = \"The unit is not clear.\" }} }}\n{}",
+            FIX.replace("Action: fix", "Store the unit in the plan.")
+        ),
+    )
+    .await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    wait_for(async || {
+        sessions(&engine, "implementer")
+            .await
+            .iter()
+            .any(|session| session.end_reason.as_deref() == Some("cannot_do"))
+            .then_some(())
+    })
+    .await;
+    wait_for(async || {
+        lead_event_prompts(&engine)
+            .await
+            .iter()
+            .any(|prompt| prompt.contains(" ready for review of #41 \"Add plan model\""))
+            .then_some(())
+    })
+    .await;
+    let head = git(&github.remote(REPOSITORY), &["rev-parse", "mobius/41"]);
+    assert_eq!(
+        github.review_thread(REPOSITORY, 42, 1),
+        Thread {
+            resolved: true,
+            comments: vec![
+                (APP_LOGIN.to_string(), "Store the unit.".to_string()),
+                (APP_LOGIN.to_string(), format!("Fixed in {head}.")),
+            ],
+        }
+    );
+    let pull_requests = github.pull_requests(REPOSITORY);
+    assert_eq!(pull_requests.len(), 1);
+    assert!(!pull_requests[0].draft);
+    let end_reasons: Vec<Option<String>> = sessions(&engine, "implementer")
+        .await
+        .into_iter()
+        .map(|session| session.end_reason)
+        .collect();
+    assert_eq!(
+        end_reasons,
+        [
+            Some("done".to_string()),
+            Some("cannot_do".to_string()),
+            Some("done".to_string())
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_finding_after_max_fix_rounds_stops_the_task_until_a_comment_of_a_trusted_user() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, "max_fix_rounds = 1", FINDING, FIX).await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    wait_for(async || {
+        lead_event_prompts(&engine)
+            .await
+            .iter()
+            .any(|prompt| {
+                prompt.contains(
+                    " stop of #41 \"Add plan model\": the review threads stay open after 1 fix rounds. Mobius set the Mobius check to failure and added mobius:needs-human.",
+                )
+            })
+            .then_some(())
+    })
+    .await;
+    let reviewers = ended_reviewers(&engine, 2).await;
+    let reply = texts(&transcript(&engine, reviewers[0].id).await, "update").concat();
+    assert_eq!(reply, "Posted the review.");
+    let remote = github.remote(REPOSITORY);
+    let head = git(&remote, &["rev-parse", "mobius/41"]);
+    let first = git(&remote, &["rev-parse", "mobius/41~1"]);
+    let finding = SubmittedReview {
+        commit_id: first.clone(),
+        body: "One finding.".to_string(),
+        event: "COMMENT".to_string(),
+        comments: vec![InlineComment {
+            path: "plan.txt".to_string(),
+            line: 1,
+            body: "Store the unit.".to_string(),
+        }],
+    };
     assert_eq!(
         github.submitted_reviews(REPOSITORY, 42),
-        [SubmittedReview {
-            commit_id: git(&remote, &["rev-parse", "mobius/41"]),
-            body: "One finding.".to_string(),
-            event: "COMMENT".to_string(),
-            comments: vec![InlineComment {
-                path: "plan.txt".to_string(),
-                line: 1,
-                body: "Store the unit.".to_string(),
-            }],
-        }]
+        [
+            finding.clone(),
+            SubmittedReview {
+                commit_id: head.clone(),
+                ..finding
+            }
+        ]
     );
-    let reply = texts(&transcript(&engine, session.id).await, "update").concat();
-    assert_eq!(reply, "Posted the review.");
-    let check_runs = github.check_runs(REPOSITORY);
-    assert_eq!(check_runs.len(), 1);
-    assert_eq!(check_runs[0].status, "in_progress");
+    let check_runs: Vec<(String, String, Option<String>)> = github
+        .check_runs(REPOSITORY)
+        .into_iter()
+        .map(|check_run| (check_run.head_sha, check_run.status, check_run.conclusion))
+        .collect();
+    assert_eq!(
+        check_runs,
+        [
+            (first, "in_progress".to_string(), None),
+            (head, "completed".to_string(), Some("failure".to_string())),
+        ]
+    );
     assert!(github.pull_requests(REPOSITORY)[0].draft);
+    assert!(
+        github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:needs-human".to_string())
+    );
     assert!(inbox::list(&engine).await.unwrap().is_empty());
-    assert_eq!(task_state(&engine, 41).await.as_deref(), Some("working"));
+    assert_eq!(task_state(&engine, 41).await.as_deref(), Some("stopped"));
+    assert_eq!(fix_rounds(&engine, 41).await, 1);
+
+    github.add_comment(REPOSITORY, 42, "owner", "Store the unit in the name.");
+
+    wait_for(async || (fix_rounds(&engine, 41).await == 0).then_some(())).await;
 }
 
 #[tokio::test]
@@ -257,6 +467,7 @@ async fn a_queued_reviewer_gets_the_earlier_threads_of_trusted_authors() {
             "[[prompts]]\nwhen = \"# Issue\\n\\n#43 Add plan price\"\nshell = \"while [ ! -e '{}' ]; do sleep 0.05; done\"\n[[prompts]]\nwhen = \"dispatch of #43\"\ncall = {{ tool = \"start_implementer\", arguments = {{ n = 43, instructions = \"Add a price.\" }} }}\n",
             go.display()
         ),
+        "",
     )
     .await;
     github.add_issue(REPOSITORY, 43, "Add plan price");

@@ -31,6 +31,8 @@ pub(crate) struct Caller {
     pub(crate) workstream: i64,
     // The Implementer session reads the reason of `cannot_do` from the receiver.
     pub(crate) cannot_do: Option<UnboundedSender<String>>,
+    // The Implementer session of a fix round reads the held `reply_thread` calls from the receiver.
+    pub(crate) fix: Option<Fix>,
     // The pull request and the head commit that the Reviewer session reviews.
     pub(crate) review: Option<Review>,
 }
@@ -39,6 +41,20 @@ pub(crate) struct Caller {
 pub(crate) struct Review {
     pub(crate) pull_request: i64,
     pub(crate) head: String,
+}
+
+#[derive(Clone)]
+pub(crate) struct Fix {
+    pub(crate) pull_request: i64,
+    pub(crate) replies: UnboundedSender<Reply>,
+}
+
+pub(crate) struct Reply {
+    pub(crate) comment: i64,
+    // The GraphQL node id of the thread.
+    pub(crate) thread: String,
+    pub(crate) text: String,
+    pub(crate) resolve: bool,
 }
 
 // The key is valid until `close`.
@@ -151,17 +167,39 @@ fn tools(role: &str) -> Vec<Tool> {
                 })),
             ),
         ],
-        implementer::ROLE => vec![tool(
-            "cannot_do",
-            "Tell the Lead that you cannot do the task. Mobius ends your turn and pushes nothing.",
-            object(json!({
-                "reason": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "The reason for the Lead."
-                }
-            })),
-        )],
+        implementer::ROLE => vec![
+            tool(
+                "cannot_do",
+                "Tell the Lead that you cannot do the task. Mobius ends your turn and pushes nothing.",
+                object(json!({
+                    "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The reason for the Lead."
+                    }
+                })),
+            ),
+            tool(
+                "reply_thread",
+                "Reply in a review thread of the pull request in a fix round. Mobius posts the reply after it pushes your commits, so the SHA of a fix commit in the text links to a pushed commit.",
+                object(json!({
+                    "thread": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the thread in the prompt."
+                    },
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The SHA of the fix commit, an answer, a follow-up link, or a reason to reject. Do not write an acknowledgement."
+                    },
+                    "resolve": {
+                        "type": "boolean",
+                        "description": "true when your commit fixes the thread."
+                    }
+                })),
+            ),
+        ],
         reviewer::ROLE => vec![tool(
             "submit_review",
             "Post your review on the pull request as one GitHub review with inline comments. Call it one time. With no findings, do not call it.",
@@ -251,6 +289,14 @@ struct StartImplementer {
 #[serde(deny_unknown_fields)]
 struct CannotDo {
     reason: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReplyThread {
+    thread: i64,
+    text: String,
+    resolve: bool,
 }
 
 #[derive(Deserialize)]
@@ -351,6 +397,39 @@ impl Handler {
                     .ok_or_else(unknown)?
                     .send(reason)?;
                 Ok("Mobius ends this turn.".to_string())
+            }
+            "reply_thread" => {
+                let ReplyThread {
+                    thread,
+                    text,
+                    resolve,
+                } = parse(tool, arguments)?;
+                if text.trim().is_empty() {
+                    return Err("text must not be empty.".into());
+                }
+                let fix = self
+                    .caller
+                    .fix
+                    .as_ref()
+                    .ok_or("Only an Implementer of a fix round can reply in a thread.")?;
+                let found = repository
+                    .review_threads(fix.pull_request)
+                    .await?
+                    .into_iter()
+                    .find(|found| found.comment == thread)
+                    .ok_or_else(|| {
+                        format!(
+                            "Thread {thread} is not a review thread of pull request #{}.",
+                            fix.pull_request
+                        )
+                    })?;
+                fix.replies.send(Reply {
+                    comment: thread,
+                    thread: found.id,
+                    text,
+                    resolve,
+                })?;
+                Ok("Mobius posts the reply after it pushes your commits.".to_string())
             }
             "submit_review" => {
                 let SubmitReview { body, comments } = parse(tool, arguments)?;

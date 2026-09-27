@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::path::Path;
+use std::pin::Pin;
 
 use mobius_github::{PullRequest, Repository};
 use mobius_runner::{Check, Session};
@@ -26,6 +27,8 @@ struct Job {
     number: i64,
     title: String,
     branch: Option<String>,
+    // A fix round, or a start after `cannot_do` in a fix round, works on the pull request of an earlier session.
+    pull_request: Option<PullRequest>,
     prompt: String,
 }
 
@@ -36,6 +39,7 @@ enum Outcome {
 }
 
 struct Pushed {
+    branch: String,
     pull_request: PullRequest,
     head: String,
     check_run: i64,
@@ -58,6 +62,10 @@ pub(crate) async fn start(
         .title;
     let trusted = trust::trusted_authors(engine).await?;
     let issue = issues::read_issue(repository, number, &trusted).await?;
+    let pull_request = match task.pull_request {
+        Some(number) => Some(repository.pull_request(number).await?),
+        None => None,
+    };
     if !engine.store.tasks().queue(task.id, "dispatched").await? {
         return Err(format!("The task of #{number} is {}, not dispatched.", task.state).into());
     }
@@ -68,6 +76,7 @@ pub(crate) async fn start(
         number,
         title,
         branch: task.branch,
+        pull_request,
         prompt: format!(
             "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n{issue}\n# Lead instructions\n\n{instructions}"
         ),
@@ -76,20 +85,81 @@ pub(crate) async fn start(
     Ok(format!("Started an Implementer for #{number}."))
 }
 
-async fn run(engine: Engine, job: Job) {
-    let Err(error) = session(&engine, &job).await else {
-        return;
+// Starts a fix round for the Reviewer findings that start with a comment in `findings`, or stops the task at `max_fix_rounds`.
+pub(crate) async fn fix_round(
+    engine: &Engine,
+    repository: &Repository,
+    review: &reviewer::Job,
+    findings: &[i64],
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let tasks = engine.store.tasks();
+    let max = engine.config.max_fix_rounds;
+    if !tasks.add_fix_round(review.task, max).await? {
+        if !stop(engine, &review.repository, review.task, review.number).await? {
+            return Ok(());
+        }
+        repository
+            .set_check_run_conclusion(review.check_run, "failure")
+            .await?;
+        let text = stop_text(
+            OffsetDateTime::now_utc(),
+            review.number,
+            &review.title,
+            &format!(
+                "the review threads stay open after {max} fix rounds. Mobius set the Mobius check to failure and added mobius:needs-human."
+            ),
+        )?;
+        return lead_events::add(engine, &review.repository, review.workstream, "stop", &text)
+            .await;
+    }
+    let brief = lead::brief(repository, review.workstream).await?;
+    let issue = repository
+        .issue(review.number)
+        .await?
+        .ok_or_else(|| format!("#{} does not exist.", review.number))?;
+    let trusted = trust::trusted_authors(engine).await?;
+    let threads =
+        issues::fix_threads(repository, review.pull_request.number, findings, &trusted).await?;
+    // A task that the Lead declined during the review gets no fix round.
+    if !tasks.queue(review.task, "working").await? {
+        return Ok(());
+    }
+    let job = Job {
+        repository: review.repository.clone(),
+        workstream: review.workstream,
+        task: review.task,
+        number: review.number,
+        title: review.title.clone(),
+        branch: Some(review.branch.clone()),
+        pull_request: Some(review.pull_request.clone()),
+        prompt: format!(
+            "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Open review threads\n{threads}",
+            review.number,
+            issue.title,
+            issue.body.unwrap_or_default()
+        ),
     };
-    eprintln!(
-        "mobius: Implementer of {}#{}: {error}",
-        job.repository, job.number
-    );
-    if let Err(failure) = stop(&engine, &job.repository, job.task, job.number).await {
+    tokio::spawn(run(engine.clone(), job));
+    Ok(())
+}
+
+// The future has a named type, because it and the future of `reviewer::run` start each other.
+fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    Box::pin(async move {
+        let Err(error) = session(&engine, &job).await else {
+            return;
+        };
         eprintln!(
-            "mobius: stop of {}#{}: {failure}",
+            "mobius: Implementer of {}#{}: {error}",
             job.repository, job.number
         );
-    }
+        if let Err(failure) = stop(&engine, &job.repository, job.task, job.number).await {
+            eprintln!(
+                "mobius: stop of {}#{}: {failure}",
+                job.repository, job.number
+            );
+        }
+    })
 }
 
 // Gives `false` when the task is not queued or working, for example after a decline of the Lead.
@@ -135,6 +205,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         return lead::end_session(engine, session, "declined").await;
     };
     let (cannot_do, mut reasons) = mpsc::unbounded_channel();
+    let (replies, mut held) = mpsc::unbounded_channel();
     let key = mcp::open(
         engine,
         mcp::Caller {
@@ -143,10 +214,23 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
             repository: job.repository.clone(),
             workstream: job.workstream,
             cannot_do: Some(cannot_do),
+            fix: job.pull_request.as_ref().map(|pull_request| mcp::Fix {
+                pull_request: pull_request.number,
+                replies,
+            }),
             review: None,
         },
     )?;
-    let result = implement(engine, job, session, &key, &mut recorder, &mut reasons).await;
+    let result = implement(
+        engine,
+        job,
+        session,
+        &key,
+        &mut recorder,
+        &mut reasons,
+        &mut held,
+    )
+    .await;
     mcp::close(engine, &key);
     match result {
         Ok(Outcome::Done(pushed)) => {
@@ -159,6 +243,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                     task: job.task,
                     number: job.number,
                     title: job.title.clone(),
+                    branch: pushed.branch,
                     pull_request: pushed.pull_request,
                     head: pushed.head,
                     check_run: pushed.check_run,
@@ -173,8 +258,12 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
             }
             let text = stop_text(
                 OffsetDateTime::now_utc(),
-                job,
-                engine.config.max_check_attempts,
+                job.number,
+                &job.title,
+                &format!(
+                    ".mobius/check failed {} times. Mobius pushed the work to a draft pull request and added mobius:needs-human.",
+                    engine.config.max_check_attempts
+                ),
             )?;
             lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
         }
@@ -206,6 +295,7 @@ async fn implement(
     session_key: &str,
     recorder: &mut Recorder,
     reasons: &mut UnboundedReceiver<String>,
+    held: &mut UnboundedReceiver<mcp::Reply>,
 ) -> Result<Outcome, Box<dyn Error + Send + Sync>> {
     let data_dir = &engine.config.data_dir;
     let name = &job.repository;
@@ -274,19 +364,39 @@ async fn implement(
         let _git = engine.git.lock().await;
         mobius_runner::push(data_dir, &worktree, repository.token(), &branch).await?
     };
-    let pull_request = repository
-        .create_draft_pull_request(
-            &job.title,
-            &branch,
-            &repository.default_branch,
-            &format!("Closes #{}", job.number),
-        )
-        .await?;
+    let pull_request = match &job.pull_request {
+        Some(pull_request) => pull_request.clone(),
+        None => {
+            let pull_request = repository
+                .create_draft_pull_request(
+                    &job.title,
+                    &branch,
+                    &repository.default_branch,
+                    &format!("Closes #{}", job.number),
+                )
+                .await?;
+            engine
+                .store
+                .tasks()
+                .set_pull_request(job.task, pull_request.number)
+                .await?;
+            pull_request
+        }
+    };
+    while let Ok(reply) = held.try_recv() {
+        repository
+            .reply_to_review_comment(pull_request.number, reply.comment, &reply.text)
+            .await?;
+        if reply.resolve {
+            repository.resolve_review_thread(&reply.thread).await?;
+        }
+    }
     let Some(log) = log else {
         let check_run = repository
             .create_check_run(CHECK_RUN, &sha, "in_progress")
             .await?;
         return Ok(Outcome::Done(Pushed {
+            branch,
             pull_request,
             head: sha,
             check_run,
@@ -401,13 +511,12 @@ fn cannot_do_text(
 
 fn stop_text(
     time: OffsetDateTime,
-    job: &Job,
-    attempts: u32,
+    number: i64,
+    title: &str,
+    reason: &str,
 ) -> Result<String, time::error::Format> {
     Ok(format!(
-        "{} stop of #{} \"{}\": .mobius/check failed {attempts} times. Mobius pushed the work to a draft pull request and added mobius:needs-human.",
-        time.format(TIME_FORMAT)?,
-        job.number,
-        job.title
+        "{} stop of #{number} \"{title}\": {reason}",
+        time.format(TIME_FORMAT)?
     ))
 }

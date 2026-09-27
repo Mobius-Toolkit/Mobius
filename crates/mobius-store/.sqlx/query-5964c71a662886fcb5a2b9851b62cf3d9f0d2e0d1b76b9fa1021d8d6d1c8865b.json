@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, workstream, state, branch FROM tasks\n               WHERE repository = ? AND issue = ? AND state <> 'ended'",
+  "query": "SELECT id, workstream, state, branch, fix_rounds, pull_request FROM tasks\n               WHERE repository = ? AND pull_request = ? AND state <> 'ended'",
   "describe": {
     "columns": [
       {
@@ -46,6 +46,28 @@
             "name": "branch"
           }
         }
+      },
+      {
+        "name": "fix_rounds",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "fix_rounds"
+          }
+        }
+      },
+      {
+        "name": "pull_request",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "pull_request"
+          }
+        }
       }
     ],
     "parameters": {
@@ -55,8 +77,10 @@
       false,
       false,
       false,
+      true,
+      false,
       true
     ]
   },
-  "hash": "e2b30e6f215daddce75dfad834a5be7b5cfa9410aa2b41de76c444a4350cd055"
+  "hash": "5964c71a662886fcb5a2b9851b62cf3d9f0d2e0d1b76b9fa1021d8d6d1c8865b"
 }

@@ -13,6 +13,8 @@ pub struct Task {
     pub workstream: i64,
     pub state: String,
     pub branch: Option<String>,
+    pub fix_rounds: i64,
+    pub pull_request: Option<i64>,
 }
 
 impl Tasks<'_> {
@@ -27,7 +29,7 @@ impl Tasks<'_> {
             Task,
             r#"INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
                VALUES (?, ?, ?, 'dispatched', ?)
-               RETURNING id AS "id!", workstream, state, branch"#,
+               RETURNING id AS "id!", workstream, state, branch, fix_rounds, pull_request"#,
             repository,
             issue,
             workstream,
@@ -45,7 +47,7 @@ impl Tasks<'_> {
     ) -> Result<Option<Task>, Box<dyn Error + Send + Sync>> {
         let task = sqlx::query_as!(
             Task,
-            r#"SELECT id, workstream, state, branch FROM tasks
+            r#"SELECT id, workstream, state, branch, fix_rounds, pull_request FROM tasks
                WHERE repository = ? AND issue = ? AND state <> 'ended'"#,
             repository,
             issue
@@ -102,6 +104,61 @@ impl Tasks<'_> {
         branch: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         sqlx::query!("UPDATE tasks SET branch = ? WHERE id = ?", branch, id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_pull_request(
+        &self,
+        id: i64,
+        pull_request: i64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query!(
+            "UPDATE tasks SET pull_request = ? WHERE id = ?",
+            pull_request,
+            id
+        )
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn live_by_pull_request(
+        &self,
+        repository: &str,
+        pull_request: i64,
+    ) -> Result<Option<Task>, Box<dyn Error + Send + Sync>> {
+        let task = sqlx::query_as!(
+            Task,
+            r#"SELECT id, workstream, state, branch, fix_rounds, pull_request FROM tasks
+               WHERE repository = ? AND pull_request = ? AND state <> 'ended'"#,
+            repository,
+            pull_request
+        )
+        .fetch_optional(self.pool)
+        .await?;
+        Ok(task)
+    }
+
+    // Gives `false` when the task has `max` fix rounds.
+    pub async fn add_fix_round(
+        &self,
+        id: i64,
+        max: u32,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let result = sqlx::query!(
+            "UPDATE tasks SET fix_rounds = fix_rounds + 1 WHERE id = ? AND fix_rounds < ?",
+            id,
+            max
+        )
+        .execute(self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn reset_counters(&self, id: i64) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query!("UPDATE tasks SET fix_rounds = 0 WHERE id = ?", id)
             .execute(self.pool)
             .await?;
         Ok(())

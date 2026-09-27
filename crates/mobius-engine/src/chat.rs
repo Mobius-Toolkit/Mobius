@@ -173,6 +173,7 @@ async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver
         repository: repository.clone(),
         workstream,
         cannot_do: None,
+        fix: None,
         review: None,
     };
     let key = match mcp::open(&engine, caller) {

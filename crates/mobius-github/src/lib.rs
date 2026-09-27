@@ -125,7 +125,7 @@ pub struct ReviewComment {
     pub created_at: OffsetDateTime,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct PullRequest {
     pub number: i64,
     pub node_id: String,
@@ -146,6 +146,10 @@ pub struct NewReviewComment {
 }
 
 pub struct ReviewThread {
+    // The GraphQL node id.
+    pub id: String,
+    // The REST id of the first comment.
+    pub comment: i64,
     pub resolved: bool,
     // The REST login of the author of each comment, in order.
     pub authors: Vec<String>,
@@ -383,6 +387,19 @@ impl Repository {
             .await?)
     }
 
+    pub async fn pull_request(
+        &self,
+        number: i64,
+    ) -> Result<PullRequest, Box<dyn Error + Send + Sync>> {
+        Ok(self
+            .client
+            .get(
+                format!("/repos/{}/pulls/{number}", self.full_name),
+                None::<&()>,
+            )
+            .await?)
+    }
+
     // Gives the id of the check run.
     pub async fn create_check_run(
         &self,
@@ -599,8 +616,9 @@ impl Repository {
                             pullRequest(number: $number) {
                                 reviewThreads(first: 100, after: $after) {
                                     nodes {
+                                        id
                                         isResolved
-                                        comments(first: 100) { nodes { author { __typename login } } }
+                                        comments(first: 100) { nodes { databaseId author { __typename login } } }
                                     }
                                     pageInfo { hasNextPage endCursor }
                                 }
@@ -615,15 +633,23 @@ impl Repository {
                 .as_array()
                 .ok_or("GitHub gave no review threads.")?
             {
-                let authors = node["comments"]["nodes"]
+                let comments = node["comments"]["nodes"]
                     .as_array()
-                    .ok_or("GitHub gave no review thread comments.")?
-                    .iter()
-                    .map(|comment| rest_login(&comment["author"]))
-                    .collect();
+                    .ok_or("GitHub gave no review thread comments.")?;
                 threads.push(ReviewThread {
+                    id: node["id"]
+                        .as_str()
+                        .ok_or("GitHub gave no review thread id.")?
+                        .to_string(),
+                    comment: comments
+                        .first()
+                        .and_then(|comment| comment["databaseId"].as_i64())
+                        .ok_or("GitHub gave a review thread with no comment.")?,
                     resolved: node["isResolved"] == true,
-                    authors,
+                    authors: comments
+                        .iter()
+                        .map(|comment| rest_login(&comment["author"]))
+                        .collect(),
                 });
             }
             if page["pageInfo"]["hasNextPage"] != true {
@@ -631,6 +657,41 @@ impl Repository {
             }
             after = page["pageInfo"]["endCursor"].clone();
         }
+    }
+
+    pub async fn reply_to_review_comment(
+        &self,
+        number: i64,
+        comment: i64,
+        body: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .post(
+                format!(
+                    "/repos/{}/pulls/{number}/comments/{comment}/replies",
+                    self.full_name
+                ),
+                Some(&json!({ "body": body })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn resolve_review_thread(
+        &self,
+        id: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .graphql(&json!({
+                "query": "mutation($id: ID!) {
+                    resolveReviewThread(input: { threadId: $id }) { clientMutationId }
+                }",
+                "variables": { "id": id }
+            }))
+            .await?;
+        Ok(())
     }
 
     pub async fn mark_ready_for_review(
