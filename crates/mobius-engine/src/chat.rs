@@ -5,12 +5,11 @@ use std::path::Path;
 use mobius_domain::{Author, ChatMessage, ChatView, Live};
 use mobius_runner::Session;
 use serde_json::{Value, json};
-use time::macros::format_description;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use crate::{Engine, tasks};
+use crate::{Engine, TIME_FORMAT, mcp, tasks, trust};
 
-const ROLE: &str = "lead_chat";
+pub(crate) const ROLE: &str = "lead_chat";
 const ROLE_PROMPT: &str = include_str!("prompts/lead.md");
 const SAVE_PROMPT: &str = "Save in the Workstream memory what the next session needs.";
 const HISTORY_SIZE: i64 = 20;
@@ -133,6 +132,16 @@ async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver
         Ok(session) => session,
         Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
     };
+    let caller = mcp::Caller {
+        session,
+        role: ROLE,
+        repository: repository.clone(),
+        workstream,
+    };
+    let key = match mcp::open(&engine, caller) {
+        Ok(key) => key,
+        Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
+    };
     let mut recorder = Recorder {
         engine: engine.clone(),
         session,
@@ -141,7 +150,16 @@ async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver
         chunk: None,
         message: None,
     };
-    match chat(&engine, &first, &mut recorder, &mut commands).await {
+    let result = chat(
+        &engine,
+        &first,
+        &mcp::url(&engine, &key),
+        &mut recorder,
+        &mut commands,
+    )
+    .await;
+    mcp::close(&engine, &key);
+    match result {
         Ok(()) => {
             if let Err(failure) = engine.store.sessions().end(session, "idle").await {
                 eprintln!("mobius: chat session {session}: {failure}");
@@ -174,6 +192,7 @@ fn finish(engine: &Engine, repository: &str, workstream: i64, error: Option<Stri
 async fn chat(
     engine: &Engine,
     first: &ChatMessage,
+    mcp_url: &str,
     recorder: &mut Recorder,
     commands: &mut UnboundedReceiver<Command>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -187,6 +206,7 @@ async fn chat(
         &dir,
         &engine.config.data_dir,
         &engine.harness_path,
+        mcp_url,
     )
     .await?;
     engine
@@ -303,10 +323,12 @@ async fn first_prompt(
     let brief = github
         .issue(first.workstream)
         .await?
+        .ok_or("The Workstream issue does not exist.")?
         .body
         .unwrap_or_default();
     let memory = mobius_runner::memory(dir)?;
-    let tasks = tasks::task_list(&github, first.workstream).await?;
+    let trusted = trust::trusted_authors(engine).await?;
+    let tasks = tasks::task_list(&github, first.workstream, &trusted).await?;
     let history = engine
         .store
         .chat_messages()
@@ -317,9 +339,7 @@ async fn first_prompt(
     );
     for message in history {
         let author = message.author.name();
-        let time = message.time.format(format_description!(
-            "[year]-[month]-[day] [hour]:[minute] UTC"
-        ))?;
+        let time = message.time.format(TIME_FORMAT)?;
         prompt.push_str(&format!("{author} ({time}):\n{}\n\n", message.text));
     }
     prompt.push_str(&format!("# Owner message\n\n{}", first.text));

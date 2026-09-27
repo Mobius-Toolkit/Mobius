@@ -53,6 +53,7 @@ pub struct Issue {
     pub updated_at: OffsetDateTime,
     pub labels: Vec<Label>,
     pub pull_request: Option<serde_json::Value>,
+    pub user: User,
 }
 
 impl Issue {
@@ -71,6 +72,36 @@ pub struct IssueEvent {
     pub event: String,
     pub actor: Option<User>,
     pub label: Option<Label>,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Deserialize)]
+pub struct Comment {
+    pub user: User,
+    pub body: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Deserialize)]
+pub struct Review {
+    pub user: User,
+    pub body: String,
+    pub state: String,
+    // GitHub gives no time for a pending review.
+    #[serde(default, with = "time::serde::rfc3339::option")]
+    pub submitted_at: Option<OffsetDateTime>,
+}
+
+#[derive(Deserialize)]
+pub struct ReviewComment {
+    pub id: i64,
+    pub user: User,
+    pub body: String,
+    pub path: String,
+    pub line: Option<i64>,
+    pub in_reply_to_id: Option<i64>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
@@ -257,14 +288,57 @@ impl Repository {
             .collect())
     }
 
-    pub async fn issue(&self, number: i64) -> Result<Issue, Box<dyn Error + Send + Sync>> {
-        Ok(self
+    // Gives `None` when the repository has no issue or pull request with this number.
+    pub async fn issue(&self, number: i64) -> Result<Option<Issue>, Box<dyn Error + Send + Sync>> {
+        match self
             .client
             .get(
                 format!("/repos/{}/issues/{number}", self.full_name),
                 None::<&()>,
             )
-            .await?)
+            .await
+        {
+            Ok(issue) => Ok(Some(issue)),
+            Err(octocrab::Error::GitHub { source, .. })
+                if source.status_code == StatusCode::NOT_FOUND =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub async fn issue_comments(
+        &self,
+        number: i64,
+    ) -> Result<Vec<Comment>, Box<dyn Error + Send + Sync>> {
+        all_pages(
+            &self.client,
+            &format!("/repos/{}/issues/{number}/comments", self.full_name),
+            |page: Vec<Comment>| page,
+        )
+        .await
+    }
+
+    pub async fn reviews(&self, number: i64) -> Result<Vec<Review>, Box<dyn Error + Send + Sync>> {
+        all_pages(
+            &self.client,
+            &format!("/repos/{}/pulls/{number}/reviews", self.full_name),
+            |page: Vec<Review>| page,
+        )
+        .await
+    }
+
+    pub async fn review_comments(
+        &self,
+        number: i64,
+    ) -> Result<Vec<ReviewComment>, Box<dyn Error + Send + Sync>> {
+        all_pages(
+            &self.client,
+            &format!("/repos/{}/pulls/{number}/comments", self.full_name),
+            |page: Vec<ReviewComment>| page,
+        )
+        .await
     }
 
     pub async fn sub_issues(

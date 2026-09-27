@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use mobius_engine::Engine;
 use mobius_store::Store;
+use tokio::net::TcpListener;
 
 pub async fn start(data_dir: &Path, access_password: &str, github_url: &str) -> Engine {
     let config = mobius_engine::config::parse(&format!(
@@ -29,15 +30,20 @@ judge       = {{ harness = "claude-code", model = "haiku",   effort = "low" }}
     ))
     .unwrap();
     let store = Store::open(&config.data_dir).await.unwrap();
-    mobius_engine::start(
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let engine = mobius_engine::start(
         config,
         store,
         github_url,
         github_url,
         data_dir.join("harnesses").into(),
+        listener.local_addr().unwrap().port(),
     )
     .await
-    .unwrap()
+    .unwrap();
+    let router = mobius_engine::mcp::router(engine.clone());
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    engine
 }
 
 // Each Harness command runs `fake_agent` with `script`, and writes its environment to `harnesses/env` and its working directory to `harnesses/pwd`.

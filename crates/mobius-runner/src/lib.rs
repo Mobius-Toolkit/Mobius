@@ -8,11 +8,11 @@ use std::process::Stdio;
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
-    CancelNotification, ContentBlock, InitializeRequest, NewSessionRequest, NewSessionResponse,
-    PermissionOptionKind, PromptRequest, RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, SelectedPermissionOutcome, SessionConfigKind, SessionConfigOption,
-    SessionConfigOptionCategory, SessionConfigSelectOptions, SessionId,
-    SetSessionConfigOptionRequest, TextContent,
+    CancelNotification, ContentBlock, InitializeRequest, McpServer, McpServerHttp,
+    NewSessionRequest, NewSessionResponse, PermissionOptionKind, PromptRequest,
+    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SelectedPermissionOutcome, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
+    SessionConfigSelectOptions, SessionId, SetSessionConfigOptionRequest, TextContent,
 };
 use agent_client_protocol::{
     Agent, ByteStreams, Client, ConnectionTo, Error, Responder, UntypedMessage,
@@ -130,6 +130,7 @@ pub async fn start(
     cwd: &Path,
     data_dir: &Path,
     path: &OsStr,
+    mcp_url: &str,
 ) -> Result<(Session, mpsc::UnboundedReceiver<Value>), String> {
     let mut child = command(harness, cwd, data_dir, path)
         .spawn()
@@ -142,6 +143,7 @@ pub async fn start(
     let (ready_sender, ready) = oneshot::channel();
     let (stop, stopped) = oneshot::channel::<()>();
     let cwd = cwd.to_path_buf();
+    let mcp_url = mcp_url.to_string();
     let connection = Client
         .builder()
         .on_receive_notification(
@@ -182,7 +184,7 @@ pub async fn start(
             agent_client_protocol::on_receive_request!(),
         )
         .connect_with(transport, async move |connection: ConnectionTo<Agent>| {
-            let opened = open(&connection, cwd).await;
+            let opened = open(&connection, cwd, mcp_url).await;
             let failed = opened.is_err();
             let _ = ready_sender.send(opened.map(|response| (connection.clone(), response)));
             if !failed {
@@ -212,13 +214,20 @@ pub async fn start(
     ))
 }
 
-async fn open(connection: &ConnectionTo<Agent>, cwd: PathBuf) -> Result<NewSessionResponse, Error> {
+async fn open(
+    connection: &ConnectionTo<Agent>,
+    cwd: PathBuf,
+    mcp_url: String,
+) -> Result<NewSessionResponse, Error> {
     connection
         .send_request(InitializeRequest::new(ProtocolVersion::V1))
         .block_task()
         .await?;
     connection
-        .send_request(NewSessionRequest::new(cwd))
+        .send_request(
+            NewSessionRequest::new(cwd)
+                .mcp_servers(vec![McpServer::Http(McpServerHttp::new("mobius", mcp_url))]),
+        )
         .block_task()
         .await
 }

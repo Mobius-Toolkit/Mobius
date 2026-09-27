@@ -9,6 +9,7 @@ use crate::WORKSTREAM_LABEL;
 pub(crate) async fn task_list(
     repository: &Repository,
     workstream: i64,
+    trusted: impl Fn(&str) -> bool,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let mut lines = String::new();
     let mut parents = VecDeque::from([workstream]);
@@ -17,7 +18,7 @@ pub(crate) async fn task_list(
             if issue.has_label(WORKSTREAM_LABEL) {
                 continue;
             }
-            if issue.state == "open" {
+            if issue.state == "open" && trusted(&issue.user.login) {
                 lines.push_str(&task_line(&issue));
             }
             parents.push_back(issue.number);
@@ -37,7 +38,7 @@ fn task_line(issue: &Issue) -> String {
 
 #[cfg(test)]
 mod tests {
-    use mobius_github::Label;
+    use mobius_github::{Label, User};
 
     use super::*;
 
@@ -56,6 +57,9 @@ mod tests {
                 })
                 .collect(),
             pull_request: None,
+            user: User {
+                login: "owner".to_string(),
+            },
         }
     }
 
