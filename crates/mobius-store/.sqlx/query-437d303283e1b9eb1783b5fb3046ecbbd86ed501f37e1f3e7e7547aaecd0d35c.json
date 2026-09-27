@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO sessions (role, harness, model, repository, workstream, started_at)\n               VALUES (?, ?, ?, ?, ?, ?)\n               RETURNING id AS \"id!\", role, harness, model, repository, workstream, acp_session_id,\n                         started_at AS \"started_at: OffsetDateTime\",\n                         ended_at AS \"ended_at: OffsetDateTime\", end_reason",
+  "query": "INSERT INTO sessions (role, harness, model, repository, workstream, started_at)\n               VALUES (?, ?, ?, ?, ?, ?)\n               RETURNING id AS \"id!\", role, harness, model, repository, workstream, acp_session_id,\n                         started_at AS \"started_at: OffsetDateTime\",\n                         ended_at AS \"ended_at: OffsetDateTime\", end_reason, queue_reason",
   "describe": {
     "columns": [
       {
@@ -112,6 +112,17 @@
             "name": "end_reason"
           }
         }
+      },
+      {
+        "name": "queue_reason",
+        "ordinal": 10,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "queue_reason"
+          }
+        }
       }
     ],
     "parameters": {
@@ -127,8 +138,9 @@
       true,
       false,
       true,
+      true,
       true
     ]
   },
-  "hash": "9829261da3f6414ef499e73621eec4c6ff228f85358b4f65c430bc25c914474b"
+  "hash": "437d303283e1b9eb1783b5fb3046ecbbd86ed501f37e1f3e7e7547aaecd0d35c"
 }

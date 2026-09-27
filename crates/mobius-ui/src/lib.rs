@@ -670,13 +670,25 @@ fn AgentEntry(node: AgentNode, onclick: EventHandler<MouseEvent>) -> Element {
             )
         })
         .unwrap_or_default();
+    let dot = match (&session.queue_reason, session.ended_at) {
+        (Some(_), _) => "dot queued",
+        (None, None) => "dot live",
+        (None, Some(_)) => "dot ended",
+    };
+    let detail = session
+        .queue_reason
+        .clone()
+        .unwrap_or_else(|| format!("{start}{end}"));
     rsx! {
         button { class: "node", onclick: move |event| onclick.call(event),
-            span { class: if session.ended_at.is_none() { "dot live" } else { "dot ended" } }
+            span { class: dot }
             span { class: "grow",
                 span { class: "role", "{node.role}" }
                 " {node.title}"
-                div { class: "muted small", "{session.harness.name()} · {session.model} · {start}{end}" }
+                div { class: "muted small", "{session.harness.name()} · {session.model} · {detail}" }
+            }
+            if session.queue_reason.is_some() {
+                span { class: "chip warn", "queued" }
             }
         }
     }

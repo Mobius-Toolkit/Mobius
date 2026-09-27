@@ -16,6 +16,7 @@ mod poll;
 pub mod tasks;
 pub mod transcript;
 mod trust;
+mod workers;
 pub mod workstreams;
 
 use std::collections::HashMap;
@@ -53,6 +54,8 @@ pub struct Engine {
     live: broadcast::Sender<Live>,
     // All tasks of a repository share one bare clone, and two git commands that write its refs at the same time can fail on a ref lock.
     git: Arc<tokio::sync::Mutex<()>>,
+    workers: Arc<workers::Workers>,
+    checks: Arc<tokio::sync::Semaphore>,
 }
 
 impl Engine {
@@ -82,6 +85,7 @@ pub async fn start(
 ) -> Result<Engine, Box<dyn Error + Send + Sync>> {
     let gh = mobius_runner::find("gh", &harness_path).ok_or("`gh` is not on PATH")?;
     mobius_runner::prepare(&config.data_dir, &gh)?;
+    let checks = Arc::new(tokio::sync::Semaphore::new(config.max_checks as usize));
     let engine = Engine {
         config: Arc::new(config),
         store,
@@ -94,6 +98,8 @@ pub async fn start(
         callers: Arc::default(),
         live: broadcast::channel(256).0,
         git: Arc::default(),
+        workers: Arc::default(),
+        checks,
     };
     auth::start(&engine).await?;
     poll::spawn(engine.clone());

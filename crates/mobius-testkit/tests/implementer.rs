@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use mobius_domain::{Session, TranscriptRow};
-use mobius_engine::{Engine, github, workstreams};
+use mobius_engine::{Engine, github, tasks, workstreams};
 use mobius_testkit::fake_github::{
     BOT_USER_ID, CheckRun, FakeGitHub, INSTALLATION_TOKEN, PullRequest,
 };
@@ -30,6 +30,7 @@ const COMMIT_DOLLARS: &str = "shell = \"echo dollars > plan.txt && git add plan.
 const FIX_CENTS: &str =
     "shell = \"echo cents > plan.txt && git commit -q -am 'Store plans in cents'\"\n";
 const CANNOT_DO: &str = "call = { tool = \"cannot_do\", arguments = { reason = \"The plan table does not exist.\" } }\n";
+const START_TWO: &str = "[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"start_implementer\", arguments = { n = 41, instructions = \"Store plans in cents.\" } }\n[[prompts]]\nwhen = \"dispatch of #43\"\ncall = { tool = \"start_implementer\", arguments = { n = 43, instructions = \"Round prices down.\" } }\n";
 
 async fn connect(
     data_dir: &TempDir,
@@ -121,6 +122,14 @@ async fn task_state(engine: &Engine) -> Option<String> {
         .await
         .unwrap()
         .map(|task| task.state)
+}
+
+// #43 is a second task of the Workstream.
+fn dispatch_two(github: &FakeGitHub) {
+    github.add_issue(REPOSITORY, 43, "Add plan price");
+    github.add_sub_issue(REPOSITORY, 12, 43);
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    github.add_label(REPOSITORY, 43, "mobius:ready", "owner");
 }
 
 fn files_with(dir: &Path, text: &str) -> Vec<String> {
@@ -426,4 +435,99 @@ async fn after_max_check_attempts_mobius_pushes_marks_the_check_run_as_failed_an
     let prompts = prompts(&transcript(&engine, session.id).await);
     assert_eq!(prompts.len(), 3, "{prompts:?}");
     assert!(prompts[2].contains("tests failed"), "{}", prompts[2]);
+}
+
+#[tokio::test]
+async fn with_one_worker_slot_the_second_implementer_waits_in_the_queue_until_the_first_ends() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        "max_workers_total = 1",
+        START_TWO,
+        &format!("[[prompts]]\n{COMMIT}"),
+    )
+    .await;
+    let go = data_dir.path().join("go");
+    github.set_check(
+        REPOSITORY,
+        &format!("while [ ! -e '{}' ]; do sleep 0.05; done", go.display()),
+    );
+
+    dispatch_two(&github);
+
+    let queued = wait_for(async || {
+        sessions(&engine, "implementer")
+            .await
+            .into_iter()
+            .find(|session| session.queue_reason.is_some())
+    })
+    .await;
+    assert_eq!(
+        queued.queue_reason.as_deref(),
+        Some("no free Worker slot (1/1)")
+    );
+    let mut states = Vec::new();
+    for number in [41, 43] {
+        let task = engine.store.tasks().live(REPOSITORY, number).await.unwrap();
+        states.push(task.unwrap().state);
+    }
+    states.sort();
+    assert_eq!(states, ["queued", "working"]);
+    let mut lines: Vec<String> = tasks::list(&engine, REPOSITORY, 12)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|line| line.state)
+        .collect();
+    lines.sort();
+    assert_eq!(lines, ["queued", "working"]);
+
+    fs::write(&go, "").unwrap();
+
+    let ended = ended_implementers(&engine, 2).await;
+    let (second, first): (Vec<Session>, Vec<Session>) = ended
+        .into_iter()
+        .partition(|session| session.id == queued.id);
+    assert_eq!(first[0].end_reason.as_deref(), Some("done"));
+    assert_eq!(second[0].end_reason.as_deref(), Some("done"));
+    assert_eq!(second[0].queue_reason, None);
+    assert!(second[0].started_at >= first[0].ended_at.unwrap());
+    wait_for(async || (github.pull_requests(REPOSITORY).len() == 2).then_some(())).await;
+}
+
+#[tokio::test]
+async fn with_one_check_slot_the_local_checks_do_not_run_at_the_same_time() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        "max_checks = 1",
+        START_TWO,
+        &format!("[[prompts]]\n{COMMIT}"),
+    )
+    .await;
+    let log = data_dir.path().join("checks.log");
+    github.set_check(
+        REPOSITORY,
+        &format!(
+            "echo start >> '{0}'\nsleep 0.2\necho end >> '{0}'",
+            log.display()
+        ),
+    );
+
+    dispatch_two(&github);
+
+    let sessions = ended_implementers(&engine, 2).await;
+    assert!(
+        sessions
+            .iter()
+            .all(|session| session.end_reason.as_deref() == Some("done"))
+    );
+    assert_eq!(
+        fs::read_to_string(&log).unwrap(),
+        "start\nend\nstart\nend\n"
+    );
 }
