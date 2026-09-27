@@ -17,6 +17,8 @@ use agent_client_protocol::schema::v1::{
 use agent_client_protocol::{
     Agent, ByteStreams, Client, ConnectionTo, Error, Responder, UntypedMessage,
 };
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use mobius_domain::Harness;
 use serde_json::Value;
 use tokio::process::{Child, Command};
@@ -96,6 +98,162 @@ pub fn memory(dir: &Path) -> io::Result<String> {
         "{}\nMEMORY.md is too long. Make it shorter.\n",
         lines[..MEMORY_LINES].join("\n")
     ))
+}
+
+// The token goes to git only in the environment of the process, so no file and no process list shows it. No hook runs, so no code of the repository gets that environment.
+fn git(dir: &Path, data_dir: &Path, token: Option<&str>) -> Command {
+    let mut command = Command::new("git");
+    command
+        .args(["-c", "core.hooksPath=/dev/null"])
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", agent_env(data_dir).join("gitconfig"))
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .kill_on_drop(true);
+    if let Some(token) = token {
+        let credentials = STANDARD.encode(format!("x-access-token:{token}"));
+        command
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "http.extraHeader")
+            .env(
+                "GIT_CONFIG_VALUE_0",
+                format!("AUTHORIZATION: basic {credentials}"),
+            );
+    }
+    command
+}
+
+async fn run(command: &mut Command) -> Result<String, String> {
+    let args: Vec<String> = command
+        .as_std()
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    let output = command
+        .output()
+        .await
+        .map_err(|error| format!("git {}: {error}", args.join(" ")))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+async fn has_ref(dir: &Path, data_dir: &Path, name: &str) -> Result<bool, String> {
+    let status = git(dir, data_dir, None)
+        .args(["show-ref", "--verify", "--quiet", name])
+        .status()
+        .await
+        .map_err(|error| format!("git show-ref {name}: {error}"))?;
+    Ok(status.success())
+}
+
+fn bare_dir(data_dir: &Path, repository: &str) -> PathBuf {
+    data_dir.join("repos").join(format!("{repository}.git"))
+}
+
+pub fn task_dir(data_dir: &Path, repository: &str, number: i64) -> PathBuf {
+    data_dir
+        .join("worktrees")
+        .join(repository)
+        .join(format!("task-{number}"))
+}
+
+// The clone gets its config in a temporary directory, so a failed start leaves no bare clone with part of its config.
+pub async fn fetch(
+    data_dir: &Path,
+    repository: &str,
+    clone_url: &str,
+    token: &str,
+) -> Result<(), String> {
+    let bare = bare_dir(data_dir, repository);
+    if !bare.exists() {
+        let new = bare.with_extension("new");
+        if new.exists() {
+            fs::remove_dir_all(&new).map_err(|error| format!("{}: {error}", new.display()))?;
+        }
+        run(git(data_dir, data_dir, Some(token))
+            .args(["clone", "--bare", clone_url])
+            .arg(&new))
+        .await?;
+        run(git(&new, data_dir, None).args([
+            "config",
+            "remote.origin.fetch",
+            "+refs/heads/*:refs/remotes/origin/*",
+        ]))
+        .await?;
+        // With `extensions.worktreeConfig`, a `core.bare` in the shared config applies to each worktree.
+        run(git(&new, data_dir, None).args(["config", "extensions.worktreeConfig", "true"]))
+            .await?;
+        run(git(&new, data_dir, None).args(["config", "--worktree", "core.bare", "true"])).await?;
+        run(git(&new, data_dir, None).args(["config", "--unset", "core.bare"])).await?;
+        fs::rename(&new, &bare).map_err(|error| format!("{}: {error}", bare.display()))?;
+    }
+    run(git(&bare, data_dir, Some(token)).args(["fetch", "--prune", "origin"])).await?;
+    Ok(())
+}
+
+// Makes `task-<n>` on the first branch of `mobius/<n>`, `mobius/<n>-2`, ... that is free locally and on `origin`, and gives the branch.
+pub async fn add_worktree(
+    data_dir: &Path,
+    repository: &str,
+    number: i64,
+    base: &str,
+    author_name: &str,
+    author_email: &str,
+) -> Result<String, String> {
+    let bare = bare_dir(data_dir, repository);
+    let dir = task_dir(data_dir, repository, number);
+    if dir.exists() {
+        run(git(&bare, data_dir, None)
+            .args(["worktree", "remove", "--force"])
+            .arg(&dir))
+        .await?;
+    }
+    let mut branch = format!("mobius/{number}");
+    let mut next = 2;
+    while has_ref(&bare, data_dir, &format!("refs/heads/{branch}")).await?
+        || has_ref(&bare, data_dir, &format!("refs/remotes/origin/{branch}")).await?
+    {
+        branch = format!("mobius/{number}-{next}");
+        next += 1;
+    }
+    run(git(&bare, data_dir, None)
+        .args(["worktree", "add", "--no-track", "-b", &branch])
+        .arg(&dir)
+        .arg(format!("origin/{base}")))
+    .await?;
+    run(git(&dir, data_dir, None).args(["config", "--worktree", "user.name", author_name])).await?;
+    run(git(&dir, data_dir, None).args(["config", "--worktree", "user.email", author_email]))
+        .await?;
+    Ok(branch)
+}
+
+// Takes the commits of `origin/<branch>` from the last `fetch` with a fast-forward only.
+pub async fn pull(data_dir: &Path, worktree: &Path, branch: &str) -> Result<(), String> {
+    let remote = format!("refs/remotes/origin/{branch}");
+    if has_ref(worktree, data_dir, &remote).await? {
+        run(git(worktree, data_dir, None).args(["merge", "--ff-only", &remote])).await?;
+    }
+    Ok(())
+}
+
+pub async fn push(
+    data_dir: &Path,
+    worktree: &Path,
+    token: &str,
+    branch: &str,
+) -> Result<String, String> {
+    run(git(worktree, data_dir, Some(token)).args([
+        "push",
+        "origin",
+        &format!("HEAD:refs/heads/{branch}"),
+    ]))
+    .await?;
+    run(git(worktree, data_dir, None).args(["rev-parse", "HEAD"])).await
 }
 
 fn command(
@@ -449,6 +607,46 @@ mod tests {
             env(&command, "MOBIUS_GH_TOKEN_URL").as_deref(),
             Some("http://127.0.0.1:8080/gh-token/abc")
         );
+    }
+
+    #[test]
+    fn a_git_command_gets_the_token_only_in_its_environment() {
+        let data_dir = tempfile::tempdir().unwrap();
+
+        let command = git(data_dir.path(), data_dir.path(), Some("ghs_secret"));
+
+        assert_eq!(env(&command, "GIT_CONFIG_COUNT").as_deref(), Some("1"));
+        assert_eq!(
+            env(&command, "GIT_CONFIG_KEY_0").as_deref(),
+            Some("http.extraHeader")
+        );
+        assert_eq!(
+            env(&command, "GIT_CONFIG_VALUE_0").as_deref(),
+            Some("AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46Z2hzX3NlY3JldA==")
+        );
+        assert_eq!(
+            env(&command, "GIT_CONFIG_GLOBAL"),
+            Some(
+                data_dir
+                    .path()
+                    .join("agent-env/gitconfig")
+                    .display()
+                    .to_string()
+            )
+        );
+        assert_eq!(env(&command, "GIT_TERMINAL_PROMPT").as_deref(), Some("0"));
+        let args: Vec<_> = command.as_std().get_args().collect();
+        assert_eq!(args, ["-c", "core.hooksPath=/dev/null"]);
+    }
+
+    #[test]
+    fn a_git_command_with_no_token_has_no_extra_header() {
+        let data_dir = tempfile::tempdir().unwrap();
+
+        let command = git(data_dir.path(), data_dir.path(), None);
+
+        assert_eq!(env(&command, "GIT_CONFIG_COUNT"), None);
+        assert_eq!(env(&command, "GIT_CONFIG_VALUE_0"), None);
     }
 
     #[test]

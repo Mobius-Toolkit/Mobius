@@ -52,7 +52,15 @@ async fn run(
     workstream: i64,
     mut wakes: UnboundedReceiver<()>,
 ) {
-    let session = match lead::add_session(&engine, ROLE, &repository, workstream).await {
+    let session = match lead::add_session(
+        &engine,
+        ROLE,
+        &engine.config.roles.lead,
+        &repository,
+        workstream,
+    )
+    .await
+    {
         Ok(session) => session,
         Err(error) => {
             eprintln!("mobius: event session of {repository}#{workstream}: {error}");
@@ -67,6 +75,7 @@ async fn run(
             role: ROLE,
             repository: repository.clone(),
             workstream,
+            cannot_do: None,
         },
     ) {
         Ok(key) => {
@@ -118,7 +127,15 @@ async fn events(
     let dir = mobius_runner::lead_dir(&engine.config.data_dir, repository, workstream)?;
     let context = lead::context(engine, &dir, repository, workstream).await?;
     let mut first = Some(format!("{ROLE_PROMPT}\n{context}# Event\n\n"));
-    let (session, mut updates) = lead::start(engine, session_id, &dir, session_key, None).await?;
+    let (session, mut updates) = lead::start(
+        engine,
+        &engine.config.roles.lead,
+        session_id,
+        &dir,
+        session_key,
+        None,
+    )
+    .await?;
     let queue = engine.store.lead_events();
     loop {
         while wakes.try_recv().is_ok() {}

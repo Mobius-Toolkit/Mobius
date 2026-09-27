@@ -98,7 +98,16 @@ async fn the_lead_gets_the_mobius_url_and_only_the_lead_tools() {
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["list_tasks", "read_issue", "ask", "decline"]);
+    assert_eq!(
+        names,
+        [
+            "list_tasks",
+            "read_issue",
+            "start_implementer",
+            "ask",
+            "decline"
+        ]
+    );
     for tool in &tools {
         assert_eq!(tool["_meta"]["anthropic/alwaysLoad"], true, "{tool}");
     }

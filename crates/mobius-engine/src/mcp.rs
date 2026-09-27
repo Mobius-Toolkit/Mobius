@@ -18,8 +18,9 @@ use rmcp::{RoleServer, ServerHandler};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{Engine, chat, dispatch, issues, lead_events, tasks, trust};
+use crate::{Engine, chat, dispatch, implementer, issues, lead_events, tasks, trust};
 
 #[derive(Clone)]
 pub(crate) struct Caller {
@@ -27,6 +28,8 @@ pub(crate) struct Caller {
     pub(crate) role: &'static str,
     pub(crate) repository: String,
     pub(crate) workstream: i64,
+    // The Implementer session reads the reason of `cannot_do` from the receiver.
+    pub(crate) cannot_do: Option<UnboundedSender<String>>,
 }
 
 // The key is valid until `close`.
@@ -91,6 +94,22 @@ fn tools(role: &str) -> Vec<Tool> {
                 })),
             ),
             tool(
+                "start_implementer",
+                "Start an Implementer for a dispatched task. The Implementer sees only the Brief, the issue, and your instructions. Mobius pushes its commits and opens a draft pull request. Returns at once.",
+                object(json!({
+                    "n": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the task issue."
+                    },
+                    "instructions": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The goal, the limits, and what \"done\" means."
+                    }
+                })),
+            ),
+            tool(
                 "ask",
                 "Ask the people on a task issue a question. Mobius posts the question as a comment, adds mobius:needs-human, and adds an Inbox item for the Owner. The reply arrives later as an event.",
                 object(json!({
@@ -123,6 +142,17 @@ fn tools(role: &str) -> Vec<Tool> {
                 })),
             ),
         ],
+        implementer::ROLE => vec![tool(
+            "cannot_do",
+            "Tell the Lead that you cannot do the task. Mobius ends your turn and pushes nothing.",
+            object(json!({
+                "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The reason for the Lead."
+                }
+            })),
+        )],
         _ => Vec::new(),
     };
     if role == lead_events::ROLE {
@@ -162,6 +192,19 @@ struct ListTasks {}
 #[serde(deny_unknown_fields)]
 struct ReadIssue {
     n: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StartImplementer {
+    n: i64,
+    instructions: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CannotDo {
+    reason: String,
 }
 
 #[derive(Deserialize)]
@@ -226,6 +269,35 @@ impl Handler {
                 }
                 let trusted = trust::trusted_authors(&self.engine).await?;
                 issues::read_issue(&repository, n, &trusted).await
+            }
+            "start_implementer" => {
+                let StartImplementer { n, instructions } = parse(tool, arguments)?;
+                if n < 1 {
+                    return Err("n must be 1 or more.".into());
+                }
+                if instructions.trim().is_empty() {
+                    return Err("instructions must not be empty.".into());
+                }
+                implementer::start(
+                    &self.engine,
+                    &repository,
+                    self.caller.workstream,
+                    n,
+                    &instructions,
+                )
+                .await
+            }
+            "cannot_do" => {
+                let CannotDo { reason } = parse(tool, arguments)?;
+                if reason.trim().is_empty() {
+                    return Err("reason must not be empty.".into());
+                }
+                self.caller
+                    .cannot_do
+                    .as_ref()
+                    .ok_or_else(unknown)?
+                    .send(reason)?;
+                Ok("Mobius ends this turn.".to_string())
             }
             "ask" => {
                 let Ask { n, text } = parse(tool, arguments)?;

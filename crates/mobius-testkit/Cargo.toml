@@ -12,6 +12,7 @@ mobius-store = { workspace = true }
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 time = { workspace = true, features = ["formatting", "parsing"] }
 tokio = { workspace = true, features = ["macros", "net", "sync", "time"] }
 toml = { workspace = true }
@@ -20,6 +21,5 @@ toml = { workspace = true }
 dioxus = { workspace = true, features = ["fullstack", "server"] }
 mobius-api = { workspace = true, features = ["server"] }
 mobius-domain = { workspace = true }
-tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tower = { workspace = true, features = ["util"] }

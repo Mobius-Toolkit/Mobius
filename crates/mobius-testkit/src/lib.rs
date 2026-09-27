@@ -4,6 +4,7 @@ use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use std::process::Command;
 use std::time::Duration;
 
 use mobius_engine::Engine;
@@ -57,25 +58,53 @@ judge       = {{ harness = "claude-code", model = "haiku",   effort = "low" }}
     engine
 }
 
-// Each Harness command runs `fake_agent` with `script`, and writes its environment to `harnesses/env` and its working directory to `harnesses/pwd`.
+// Each Harness command runs `fake_agent` with `script`.
 pub fn install_fake_agent(data_dir: &Path, fake_agent: &str, script: &str) {
+    for program in ["claude-agent-acp", "agy_acp_server", "devin"] {
+        install_fake_harness(data_dir, fake_agent, program, script);
+    }
+}
+
+// The Harness command `program` runs `fake_agent` with `script`, and writes its environment to `harnesses/env` and its working directory to `harnesses/pwd`.
+pub fn install_fake_harness(data_dir: &Path, fake_agent: &str, program: &str, script: &str) {
     let harnesses = data_dir.join("harnesses");
     fs::create_dir_all(&harnesses).unwrap();
-    let script_path = harnesses.join("script.toml");
+    let script_path = harnesses.join(format!("{program}.toml"));
     fs::write(&script_path, script).unwrap();
-    for program in ["claude-agent-acp", "agy_acp_server", "devin"] {
-        let wrapper = harnesses.join(program);
-        fs::write(
-            &wrapper,
-            format!(
-                "#!/bin/sh\n/usr/bin/env > '{0}/env'\npwd > '{0}/pwd'\nexec '{fake_agent}' '{1}'\n",
-                harnesses.display(),
-                script_path.display()
-            ),
-        )
+    let wrapper = harnesses.join(program);
+    fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\n/usr/bin/env > '{0}/env'\npwd > '{0}/pwd'\nexec '{fake_agent}' '{1}'\n",
+            harnesses.display(),
+            script_path.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+// Gives the trimmed stdout. The system and user git config do not apply.
+pub fn git(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .args([
+            "-c",
+            "user.name=owner",
+            "-c",
+            "user.email=owner@example.com",
+        ])
+        .args(args)
+        .output()
         .unwrap();
-        fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_string()
 }
 
 pub async fn wait_for<T>(mut check: impl AsyncFnMut() -> Option<T>) -> T {

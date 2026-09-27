@@ -26,9 +26,11 @@ struct Script {
     prompts: Vec<Prompt>,
 }
 
+// A prompt with `when` answers each prompt that contains its text. The other prompts answer in order.
 #[derive(Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Prompt {
+    when: Option<String>,
     #[serde(default)]
     reply: Vec<String>,
     // The JSON of each `session/update` to send before the reply.
@@ -232,13 +234,31 @@ async fn main() -> Result<(), Error> {
                         connection: ConnectionTo<Client>| {
                 let (script_prompt, mcp_url, cancel) = {
                     let mut state = prompt.lock().unwrap();
-                    let script_prompt = state
-                        .script
-                        .prompts
-                        .get(state.prompts_done)
-                        .cloned()
-                        .unwrap_or_default();
-                    state.prompts_done += 1;
+                    let text: String = request
+                        .prompt
+                        .iter()
+                        .filter_map(|block| match block {
+                            ContentBlock::Text(text) => Some(text.text.as_str()),
+                            _ => None,
+                        })
+                        .collect();
+                    let prompts = &state.script.prompts;
+                    let script_prompt = match prompts
+                        .iter()
+                        .find(|prompt| prompt.when.as_ref().is_some_and(|when| text.contains(when)))
+                    {
+                        Some(prompt) => prompt.clone(),
+                        None => {
+                            let prompt = prompts
+                                .iter()
+                                .filter(|prompt| prompt.when.is_none())
+                                .nth(state.prompts_done)
+                                .cloned()
+                                .unwrap_or_default();
+                            state.prompts_done += 1;
+                            prompt
+                        }
+                    };
                     let cancel = Arc::new(Notify::new());
                     state.turn = Some(cancel.clone());
                     (

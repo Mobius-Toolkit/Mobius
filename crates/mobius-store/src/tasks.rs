@@ -11,6 +11,8 @@ pub struct Tasks<'a> {
 pub struct Task {
     pub id: i64,
     pub workstream: i64,
+    pub state: String,
+    pub branch: Option<String>,
 }
 
 impl Tasks<'_> {
@@ -25,7 +27,7 @@ impl Tasks<'_> {
             Task,
             r#"INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
                VALUES (?, ?, ?, 'dispatched', ?)
-               RETURNING id AS "id!", workstream"#,
+               RETURNING id AS "id!", workstream, state, branch"#,
             repository,
             issue,
             workstream,
@@ -43,7 +45,7 @@ impl Tasks<'_> {
     ) -> Result<Option<Task>, Box<dyn Error + Send + Sync>> {
         let task = sqlx::query_as!(
             Task,
-            r#"SELECT id, workstream FROM tasks
+            r#"SELECT id, workstream, state, branch FROM tasks
                WHERE repository = ? AND issue = ? AND state <> 'ended'"#,
             repository,
             issue
@@ -51,6 +53,35 @@ impl Tasks<'_> {
         .fetch_optional(self.pool)
         .await?;
         Ok(task)
+    }
+
+    // Gives `false` when the task is not in the state `from`.
+    pub async fn set_state(
+        &self,
+        id: i64,
+        from: &str,
+        to: &str,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let result = sqlx::query!(
+            "UPDATE tasks SET state = ? WHERE id = ? AND state = ?",
+            to,
+            id,
+            from
+        )
+        .execute(self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn set_branch(
+        &self,
+        id: i64,
+        branch: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query!("UPDATE tasks SET branch = ? WHERE id = ?", branch, id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn end(&self, id: i64) -> Result<(), Box<dyn Error + Send + Sync>> {

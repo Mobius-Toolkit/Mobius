@@ -176,7 +176,7 @@ fn replies<'a>(
     (replies, answered)
 }
 
-async fn live_task(
+pub(crate) async fn live_task(
     engine: &Engine,
     repository: &str,
     workstream: i64,

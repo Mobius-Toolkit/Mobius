@@ -7,6 +7,7 @@ edition.workspace = true
 http = { workspace = true }
 jsonwebtoken = { workspace = true }
 octocrab = { workspace = true }
+secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true, features = ["serde", "parsing", "formatting"] }
