@@ -39,3 +39,22 @@ pub struct ManifestForm {
     pub url: String,
     pub manifest: String,
 }
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Workstream {
+    pub repository: String,
+    pub number: i64,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FeedRow {
+    pub id: i64,
+    pub time: OffsetDateTime,
+    pub repository: String,
+    pub workstream: i64,
+    pub issue: i64,
+    pub actor: String,
+    pub text: String,
+    pub link: String,
+}

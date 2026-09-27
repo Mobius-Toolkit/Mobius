@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT since AS \"since: OffsetDateTime\", etag\n               FROM sync_cursors WHERE repository = ? AND endpoint = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "since: OffsetDateTime",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sync_cursors",
+            "name": "since"
+          }
+        }
+      },
+      {
+        "name": "etag",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sync_cursors",
+            "name": "etag"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "df74c68691a6adab8db444aecf31c12a210d8a3e640770ae34851ed1cc3c1942"
+}

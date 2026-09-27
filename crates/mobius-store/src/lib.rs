@@ -1,5 +1,7 @@
 mod device_logins;
+mod events;
 mod github_app;
+mod sync_cursors;
 
 use std::error::Error;
 use std::fs;
@@ -8,7 +10,9 @@ use std::path::Path;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool};
 
 pub use device_logins::DeviceLogins;
+pub use events::Events;
 pub use github_app::{GitHubApp, GitHubAppRow};
+pub use sync_cursors::{SyncCursor, SyncCursors};
 
 #[derive(Clone)]
 pub struct Store {
@@ -31,7 +35,15 @@ impl Store {
         DeviceLogins { pool: &self.pool }
     }
 
+    pub fn events(&self) -> Events<'_> {
+        Events { pool: &self.pool }
+    }
+
     pub fn github_app(&self) -> GitHubApp<'_> {
         GitHubApp { pool: &self.pool }
+    }
+
+    pub fn sync_cursors(&self) -> SyncCursors<'_> {
+        SyncCursors { pool: &self.pool }
     }
 }
