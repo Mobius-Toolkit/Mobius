@@ -1,6 +1,6 @@
-use dioxus::fullstack::{Redirect, SetCookie, SetHeader};
+use dioxus::fullstack::{Redirect, ServerEvents, SetCookie, SetHeader};
 use dioxus::prelude::*;
-use mobius_domain::{Devices, ManifestForm};
+use mobius_domain::{Devices, FeedRow, ManifestForm, Workstream};
 
 #[cfg(feature = "server")]
 use dioxus::fullstack::headers::UserAgent;
@@ -13,7 +13,7 @@ use dioxus::server::axum::extract::{FromRequestParts, Query};
 #[cfg(feature = "server")]
 use dioxus::server::http::request::Parts;
 #[cfg(feature = "server")]
-use mobius_engine::{Engine, auth, github};
+use mobius_engine::{Engine, activity, auth, github, workstreams};
 #[cfg(feature = "server")]
 use mobius_store::Store;
 #[cfg(feature = "server")]
@@ -129,4 +129,23 @@ pub async fn github_user_callback() -> ServerFnResult<Redirect> {
         .into());
     }
     Ok(Redirect::to("/github"))
+}
+
+#[get("/api/workstreams", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn workstreams() -> ServerFnResult<Vec<Workstream>> {
+    workstreams::list(&engine).await.map_err(ServerFnError::new)
+}
+
+#[get("/api/live?after", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn live(after: Option<i64>) -> ServerFnResult<ServerEvents<FeedRow>> {
+    let mut feed = activity::feed(&engine, after)
+        .await
+        .map_err(ServerFnError::new)?;
+    Ok(ServerEvents::new(move |mut sender| async move {
+        while let Some(row) = feed.next().await {
+            if sender.send(row).await.is_err() {
+                break;
+            }
+        }
+    }))
 }

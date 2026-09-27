@@ -134,6 +134,47 @@ button {
   color: var(--accent);
 }
 
+.rail .section {
+  padding: 14px 8px 4px;
+}
+
+.entry {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 8px;
+}
+
+.list .entry {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+button.chip {
+  border: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--muted);
+}
+
+button.chip.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.item a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
 .center {
   flex: 1;
   min-width: 0;

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES (?, ?, ?, ?)\n             ON CONFLICT (repository, endpoint) DO UPDATE SET since = excluded.since, etag = excluded.etag",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "689ad6e34440b06542f8927b1869ee1d52829a800b328ddbbcddefd7af3cac22"
+}

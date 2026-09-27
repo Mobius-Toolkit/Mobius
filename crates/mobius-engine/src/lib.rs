@@ -1,20 +1,30 @@
+pub mod activity;
 pub mod auth;
 pub mod config;
 pub mod github;
+mod poll;
+mod trust;
+pub mod workstreams;
 
 use std::error::Error;
 use std::ffi::OsStr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use config::Config;
-use mobius_github::GitHub;
+use mobius_domain::FeedRow;
+use mobius_github::{GitHub, Repository};
 use mobius_store::Store;
+use tokio::sync::broadcast;
+
+const WORKSTREAM_LABEL: &str = "mobius:workstream";
 
 #[derive(Clone)]
 pub struct Engine {
     pub config: Arc<Config>,
     pub store: Store,
     pub github: GitHub,
+    repositories: Arc<RwLock<Vec<Repository>>>,
+    live: broadcast::Sender<FeedRow>,
 }
 
 pub async fn start(
@@ -27,8 +37,11 @@ pub async fn start(
         config: Arc::new(config),
         store,
         github: GitHub::new(github_api_url, github_web_url)?,
+        repositories: Arc::default(),
+        live: broadcast::channel(256).0,
     };
     auth::start(&engine).await?;
+    poll::spawn(engine.clone());
     Ok(engine)
 }
 

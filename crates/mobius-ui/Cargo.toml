@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 dioxus = { workspace = true, features = ["router"] }
 mobius-api = { workspace = true }
+mobius-domain = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true, features = ["formatting", "macros"] }
 

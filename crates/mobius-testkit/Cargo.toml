@@ -10,7 +10,8 @@ mobius-engine = { workspace = true }
 mobius-store = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["net"] }
+time = { workspace = true, features = ["formatting", "parsing"] }
+tokio = { workspace = true, features = ["net", "time"] }
 
 [dev-dependencies]
 dioxus = { workspace = true, features = ["fullstack", "server"] }

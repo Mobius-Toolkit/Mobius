@@ -2755,9 +2755,11 @@ name = "mobius-github"
 version = "0.1.0"
 dependencies = [
  "http",
+ "jsonwebtoken",
  "octocrab",
  "serde",
  "serde_json",
+ "time",
 ]
 
 [[package]]
@@ -2789,6 +2791,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "time",
  "tokio",
  "tower",
 ]
@@ -2799,6 +2802,7 @@ version = "0.1.0"
 dependencies = [
  "dioxus",
  "mobius-api",
+ "mobius-domain",
  "serde_json",
  "time",
 ]

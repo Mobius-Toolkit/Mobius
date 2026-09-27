@@ -12,6 +12,7 @@ agent-client-protocol = "=2.2.0"
 rmcp = "=3.4.1"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros", "time"] }
 octocrab = "0.54"
+jsonwebtoken = { version = "10", default-features = false, features = ["use_pem"] }
 humantime-serde = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

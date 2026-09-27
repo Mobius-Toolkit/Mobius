@@ -1,0 +1,110 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO events (time, repository, workstream, issue, actor, text, link)\n               VALUES (?, ?, ?, ?, ?, ?, ?)\n               RETURNING id, time AS \"time: OffsetDateTime\", repository, workstream, issue, actor, text, link",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "time: OffsetDateTime",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "time"
+          }
+        }
+      },
+      {
+        "name": "repository",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "repository"
+          }
+        }
+      },
+      {
+        "name": "workstream",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "workstream"
+          }
+        }
+      },
+      {
+        "name": "issue",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "issue"
+          }
+        }
+      },
+      {
+        "name": "actor",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "actor"
+          }
+        }
+      },
+      {
+        "name": "text",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "text"
+          }
+        }
+      },
+      {
+        "name": "link",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "link"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d34a636cdb0b8f826e01c83ff5bbefaf0271e52a64b6264f4227835c9f62a49a"
+}
