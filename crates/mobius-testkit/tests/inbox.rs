@@ -110,12 +110,20 @@ async fn the_lead_asks_a_question_and_a_trusted_reply_goes_to_the_lead_as_the_ne
 
     dispatch(&github, 41, "Add plan model");
 
-    wait_for(async || {
-        (github.comments(REPOSITORY, 41) == [(APP.to_string(), "Cents or dollars?".to_string())]
-            && github.labels(REPOSITORY, 41) == ["mobius:working", "mobius:needs-human"])
-        .then_some(())
+    let results = wait_for(async || {
+        let results = mcp_results(&engine, "lead_event").await;
+        (!results.is_empty()).then_some(results)
     })
     .await;
+    assert_eq!(results[0]["result"], "Asked on #41.");
+    assert_eq!(
+        github.comments(REPOSITORY, 41),
+        [(APP.to_string(), "Cents or dollars?".to_string())]
+    );
+    assert_eq!(
+        github.labels(REPOSITORY, 41),
+        ["mobius:working", "mobius:needs-human"]
+    );
     let items = inbox::list(&engine).await.unwrap();
     assert_eq!(items.len(), 1, "{items:?}");
     assert_eq!(items[0].kind, InboxKind::Question);
@@ -130,10 +138,6 @@ async fn the_lead_asks_a_question_and_a_trusted_reply_goes_to_the_lead_as_the_ne
     assert_eq!(items[0].text, "Cents or dollars?");
     assert_eq!(items[0].link, "https://github.com/owner/shop/issues/41");
     assert_eq!(items[0].dismissed_at, None);
-    assert_eq!(
-        mcp_results(&engine, "lead_event").await[0]["result"],
-        "Asked on #41."
-    );
 
     github.add_comment(REPOSITORY, 41, "owner", "Cents.");
 
