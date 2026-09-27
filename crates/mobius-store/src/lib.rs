@@ -1,4 +1,5 @@
 mod device_logins;
+mod github_app;
 
 use std::error::Error;
 use std::fs;
@@ -7,6 +8,7 @@ use std::path::Path;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool};
 
 pub use device_logins::DeviceLogins;
+pub use github_app::{GitHubApp, GitHubAppRow};
 
 #[derive(Clone)]
 pub struct Store {
@@ -27,5 +29,9 @@ impl Store {
 
     pub fn device_logins(&self) -> DeviceLogins<'_> {
         DeviceLogins { pool: &self.pool }
+    }
+
+    pub fn github_app(&self) -> GitHubApp<'_> {
+        GitHubApp { pool: &self.pool }
     }
 }

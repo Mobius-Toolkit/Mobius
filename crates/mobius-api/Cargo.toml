@@ -8,7 +8,8 @@ dioxus = { workspace = true, features = ["fullstack"] }
 mobius-domain = { workspace = true }
 mobius-engine = { workspace = true, optional = true }
 mobius-store = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 
 [features]
 web = ["dioxus/web"]
-server = ["dioxus/server", "dep:mobius-engine", "dep:mobius-store"]
+server = ["dioxus/server", "dep:mobius-engine", "dep:mobius-store", "dep:serde"]
