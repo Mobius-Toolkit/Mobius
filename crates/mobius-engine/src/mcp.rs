@@ -72,7 +72,7 @@ async fn serve(
 }
 
 fn tools(role: &str) -> Vec<Tool> {
-    match role {
+    let mut tools = match role {
         chat::ROLE | lead_events::ROLE => vec![
             tool(
                 "list_tasks",
@@ -87,6 +87,22 @@ fn tools(role: &str) -> Vec<Tool> {
                         "type": "integer",
                         "minimum": 1,
                         "description": "The number of the issue or the pull request."
+                    }
+                })),
+            ),
+            tool(
+                "ask",
+                "Ask the people on a task issue a question. Mobius posts the question as a comment, adds mobius:needs-human, and adds an Inbox item for the Owner. The reply arrives later as an event.",
+                object(json!({
+                    "n": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the task issue."
+                    },
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The question for the people on the issue."
                     }
                 })),
             ),
@@ -108,7 +124,21 @@ fn tools(role: &str) -> Vec<Tool> {
             ),
         ],
         _ => Vec::new(),
+    };
+    if role == lead_events::ROLE {
+        tools.push(tool(
+            "tell_owner",
+            "Tell the Owner something. Mobius adds the text to the Lead chat and adds an Inbox item.",
+            object(json!({
+                "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The text for the Owner."
+                }
+            })),
+        ));
     }
+    tools
 }
 
 fn tool(name: &'static str, description: &'static str, properties: JsonObject) -> Tool {
@@ -136,9 +166,22 @@ struct ReadIssue {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct Ask {
+    n: i64,
+    text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Decline {
     n: i64,
     reason: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TellOwner {
+    text: String,
 }
 
 fn parse<T: DeserializeOwned>(tool: &str, arguments: &Value) -> Result<T, String> {
@@ -184,6 +227,16 @@ impl Handler {
                 let trusted = trust::trusted_authors(&self.engine).await?;
                 issues::read_issue(&repository, n, &trusted).await
             }
+            "ask" => {
+                let Ask { n, text } = parse(tool, arguments)?;
+                if n < 1 {
+                    return Err("n must be 1 or more.".into());
+                }
+                if text.trim().is_empty() {
+                    return Err("text must not be empty.".into());
+                }
+                dispatch::ask(&self.engine, &repository, self.caller.workstream, n, &text).await
+            }
             "decline" => {
                 let Decline { n, reason } = parse(tool, arguments)?;
                 if n < 1 {
@@ -208,6 +261,13 @@ impl Handler {
                     &reason,
                 )
                 .await
+            }
+            "tell_owner" => {
+                let TellOwner { text } = parse(tool, arguments)?;
+                if text.trim().is_empty() {
+                    return Err("text must not be empty.".into());
+                }
+                chat::tell_owner(&self.engine, &repository, self.caller.workstream, &text).await
             }
             _ => Err(unknown().into()),
         }

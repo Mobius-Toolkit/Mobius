@@ -2,6 +2,7 @@ mod chat_messages;
 mod device_logins;
 mod events;
 mod github_app;
+mod inbox_items;
 mod lead_events;
 mod sessions;
 mod sync_cursors;
@@ -18,6 +19,7 @@ pub use chat_messages::ChatMessages;
 pub use device_logins::DeviceLogins;
 pub use events::Events;
 pub use github_app::{GitHubApp, GitHubAppRow};
+pub use inbox_items::InboxItems;
 pub use lead_events::{LeadEvent, LeadEvents};
 pub use sessions::Sessions;
 pub use sync_cursors::{SyncCursor, SyncCursors};
@@ -55,6 +57,10 @@ impl Store {
 
     pub fn github_app(&self) -> GitHubApp<'_> {
         GitHubApp { pool: &self.pool }
+    }
+
+    pub fn inbox_items(&self) -> InboxItems<'_> {
+        InboxItems { pool: &self.pool }
     }
 
     pub fn lead_events(&self) -> LeadEvents<'_> {

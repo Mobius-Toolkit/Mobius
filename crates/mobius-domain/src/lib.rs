@@ -72,15 +72,17 @@ pub struct FeedRow {
 pub enum Author {
     Owner,
     Lead,
+    TellOwner,
 }
 
 impl Author {
-    pub const ALL: [Author; 2] = [Author::Owner, Author::Lead];
+    pub const ALL: [Author; 3] = [Author::Owner, Author::Lead, Author::TellOwner];
 
     pub fn name(self) -> &'static str {
         match self {
             Author::Owner => "Owner",
             Author::Lead => "Lead",
+            Author::TellOwner => "tell_owner",
         }
     }
 }
@@ -152,6 +154,36 @@ pub struct TranscriptLine {
     pub raw: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InboxKind {
+    Question,
+    Lead,
+}
+
+impl InboxKind {
+    pub const ALL: [InboxKind; 2] = [InboxKind::Question, InboxKind::Lead];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            InboxKind::Question => "question",
+            InboxKind::Lead => "Lead",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct InboxItem {
+    pub id: i64,
+    pub kind: InboxKind,
+    pub repository: String,
+    pub workstream: i64,
+    pub issue: i64,
+    pub text: String,
+    pub link: String,
+    pub time: OffsetDateTime,
+    pub dismissed_at: Option<OffsetDateTime>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Live {
     Feed(FeedRow),
@@ -164,4 +196,5 @@ pub enum Live {
     },
     Unread(Unread),
     Agent(AgentNode),
+    Inbox(InboxItem),
 }
