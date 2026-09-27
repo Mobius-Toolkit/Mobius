@@ -1,0 +1,4 @@
+[package]
+name = "mobius-github"
+version.workspace = true
+edition.workspace = true

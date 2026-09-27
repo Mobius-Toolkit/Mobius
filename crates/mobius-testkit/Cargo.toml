@@ -1,0 +1,5 @@
+[package]
+name = "mobius-testkit"
+version.workspace = true
+edition.workspace = true
+publish = false

@@ -1,0 +1,15 @@
+[package]
+name = "mobius"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dioxus = { workspace = true, features = ["fullstack"] }
+mobius-ui = { workspace = true }
+mobius-engine = { workspace = true, optional = true }
+mobius-store = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+
+[features]
+web = ["dioxus/web"]
+server = ["dioxus/server", "mobius-ui/server", "dep:mobius-engine", "dep:mobius-store", "dep:tokio"]

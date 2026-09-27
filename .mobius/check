@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+cargo fmt --check
+cargo clippy --workspace --all-targets --features mobius/server -- -D warnings
+cargo clippy -p mobius --features web --target wasm32-unknown-unknown -- -D warnings
+
+database_dir="$(mktemp -d)"
+trap 'rm -rf "$database_dir"' EXIT
+export DATABASE_URL="sqlite://$database_dir/check.db?mode=rwc"
+(cd crates/mobius-store && cargo sqlx migrate run && cargo sqlx prepare --check)
+
+cargo test --workspace --features mobius/server

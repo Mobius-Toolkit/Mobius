@@ -1,0 +1,5 @@
+[application]
+name = "mobius"
+
+[web.app]
+title = "Mobius"

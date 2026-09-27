@@ -1,0 +1,8 @@
+[package]
+name = "mobius-store"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mobius-domain = { workspace = true }
+sqlx = { workspace = true }
