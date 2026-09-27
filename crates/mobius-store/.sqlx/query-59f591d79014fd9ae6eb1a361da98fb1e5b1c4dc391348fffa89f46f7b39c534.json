@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)\n             VALUES (?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "59f591d79014fd9ae6eb1a361da98fb1e5b1c4dc391348fffa89f46f7b39c534"
+}

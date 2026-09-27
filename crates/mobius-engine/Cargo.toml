@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+getrandom = { workspace = true }
 humantime-serde = { workspace = true }
 mobius-domain = { workspace = true }
 mobius-github = { workspace = true }
@@ -11,4 +12,7 @@ mobius-runner = { workspace = true }
 mobius-store = { workspace = true }
 serde = { workspace = true }
 serde_path_to_error = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time"] }
 toml = { workspace = true }

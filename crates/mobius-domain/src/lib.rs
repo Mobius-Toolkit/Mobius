@@ -1,4 +1,5 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -18,4 +19,17 @@ impl Harness {
             Harness::Devin => "devin",
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DeviceLogin {
+    pub id: i64,
+    pub user_agent: String,
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Devices {
+    pub this_device: i64,
+    pub logins: Vec<DeviceLogin>,
 }

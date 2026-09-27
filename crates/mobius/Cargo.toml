@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-dioxus = { workspace = true, features = ["fullstack"] }
+dioxus = { workspace = true, features = ["fullstack", "router"] }
 mobius-ui = { workspace = true }
 mobius-engine = { workspace = true, optional = true }
 mobius-store = { workspace = true, optional = true }

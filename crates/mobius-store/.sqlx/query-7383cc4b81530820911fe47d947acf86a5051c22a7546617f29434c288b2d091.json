@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM device_logins WHERE password_fingerprint != ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "7383cc4b81530820911fe47d947acf86a5051c22a7546617f29434c288b2d091"
+}
