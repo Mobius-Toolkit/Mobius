@@ -15,8 +15,12 @@ pub(crate) async fn trusted_authors(
     Ok(move |login: &str| trusted_author(&engine.config, &app.slug, login))
 }
 
+pub(crate) fn app_login(app_slug: &str) -> String {
+    format!("{app_slug}[bot]")
+}
+
 pub fn trusted_author(config: &Config, app_slug: &str, login: &str) -> bool {
-    login.eq_ignore_ascii_case(&format!("{app_slug}[bot]"))
+    login.eq_ignore_ascii_case(&app_login(app_slug))
         || config
             .trusted_users
             .iter()

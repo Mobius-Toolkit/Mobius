@@ -3,12 +3,15 @@ pub mod agents;
 pub mod auth;
 pub mod chat;
 pub mod config;
+mod dispatch;
 pub mod gh;
 pub mod github;
 mod issues;
+mod lead;
+mod lead_events;
 pub mod mcp;
 mod poll;
-mod tasks;
+pub mod tasks;
 pub mod transcript;
 mod trust;
 pub mod workstreams;
@@ -28,6 +31,8 @@ use time::macros::format_description;
 use tokio::sync::broadcast;
 
 const WORKSTREAM_LABEL: &str = "mobius:workstream";
+const READY_LABEL: &str = "mobius:ready";
+const WORKING_LABEL: &str = "mobius:working";
 const TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[year]-[month]-[day] [hour]:[minute] UTC");
 
@@ -40,6 +45,7 @@ pub struct Engine {
     port: u16,
     repositories: Arc<RwLock<Vec<Repository>>>,
     chats: Arc<Mutex<HashMap<(String, i64), ChatHandle>>>,
+    event_sessions: Arc<Mutex<HashMap<(String, i64), lead_events::Wakes>>>,
     callers: Arc<Mutex<HashMap<String, mcp::Caller>>>,
     live: broadcast::Sender<Live>,
 }
@@ -79,6 +85,7 @@ pub async fn start(
         port,
         repositories: Arc::default(),
         chats: Arc::default(),
+        event_sessions: Arc::default(),
         callers: Arc::default(),
         live: broadcast::channel(256).0,
     };

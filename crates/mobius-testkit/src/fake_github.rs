@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -41,6 +41,7 @@ struct Issue {
     pull_request: bool,
     state: &'static str,
     sub_issues: Vec<i64>,
+    blocked_by: Vec<i64>,
     labels: Vec<String>,
     updated_at: i64,
     events: Vec<Value>,
@@ -55,6 +56,81 @@ impl Records {
         self.clock += 1;
         self.clock
     }
+
+    fn comment(
+        &mut self,
+        repository: &str,
+        number: i64,
+        author: &str,
+        body: &str,
+        app: Option<&str>,
+    ) -> Value {
+        let now = self.tick();
+        let comment = json!({
+            "user": { "login": author },
+            "body": body,
+            "created_at": timestamp(now),
+            "performed_via_github_app": app.map(|slug| json!({ "slug": slug }))
+        });
+        let issue = self
+            .issues
+            .get_mut(&(repository.to_string(), number))
+            .unwrap();
+        issue.comments.push(comment.clone());
+        issue.updated_at = now;
+        comment
+    }
+
+    fn label(&mut self, repository: &str, number: i64, label: &str, actor: &str) {
+        let now = self.tick();
+        let issue = self
+            .issues
+            .get_mut(&(repository.to_string(), number))
+            .unwrap();
+        if !issue.labels.iter().any(|name| name == label) {
+            issue.labels.push(label.to_string());
+        }
+        issue.updated_at = now;
+        issue.events.push(json!({
+            "event": "labeled",
+            "actor": { "login": actor },
+            "label": { "name": label },
+            "created_at": timestamp(now)
+        }));
+    }
+
+    fn issue_json(&self, repository: &str, number: i64) -> Value {
+        let issue = &self.issues[&(repository.to_string(), number)];
+        let open_blockers = issue
+            .blocked_by
+            .iter()
+            .filter(|blocker| self.issues[&(repository.to_string(), **blocker)].state == "open")
+            .count();
+        let mut json = json!({
+            "number": number,
+            "title": issue.title,
+            "body": issue.body,
+            "user": { "login": issue.author },
+            "html_url": format!("https://github.com/{repository}/issues/{number}"),
+            "state": issue.state,
+            "updated_at": timestamp(issue.updated_at),
+            "labels": issue.labels.iter().map(|name| json!({ "name": name })).collect::<Vec<_>>(),
+            "issue_dependencies_summary": {
+                "blocked_by": open_blockers,
+                "total_blocked_by": issue.blocked_by.len()
+            }
+        });
+        if issue.pull_request {
+            json["pull_request"] = json!({
+                "url": format!("https://api.github.com/repos/{repository}/pulls/{number}")
+            });
+        }
+        json
+    }
+}
+
+fn app_login() -> String {
+    format!("{APP_SLUG}[bot]")
 }
 
 fn timestamp(seconds: i64) -> String {
@@ -93,13 +169,22 @@ impl FakeGitHub {
                 "/repos/{owner}/{repo}/issues/{number}/sub_issues",
                 get(sub_issues),
             )
+            .route("/repos/{owner}/{repo}/issues/{number}/parent", get(parent))
             .route(
                 "/repos/{owner}/{repo}/issues/{number}/events",
                 get(issue_events),
             )
             .route(
                 "/repos/{owner}/{repo}/issues/{number}/comments",
-                get(issue_comments),
+                get(issue_comments).post(add_issue_comment),
+            )
+            .route(
+                "/repos/{owner}/{repo}/issues/{number}/labels",
+                post(add_labels),
+            )
+            .route(
+                "/repos/{owner}/{repo}/issues/{number}/labels/{name}",
+                delete(remove_label),
             )
             .route("/repos/{owner}/{repo}/pulls/{number}/reviews", get(reviews))
             .route(
@@ -166,6 +251,7 @@ impl FakeGitHub {
                 pull_request,
                 state: "open",
                 sub_issues: Vec::new(),
+                blocked_by: Vec::new(),
                 labels: Vec::new(),
                 updated_at,
                 events: Vec::new(),
@@ -187,18 +273,38 @@ impl FakeGitHub {
     }
 
     pub fn add_comment(&self, repository: &str, number: i64, author: &str, body: &str) {
-        let mut records = self.state.lock().unwrap();
-        let now = records.tick();
-        records
-            .issues
-            .get_mut(&(repository.to_string(), number))
+        self.state
+            .lock()
             .unwrap()
+            .comment(repository, number, author, body, None);
+    }
+
+    // A comment that `author` posts through the Mobius App, as the `gh` of the Lead chat session does.
+    pub fn add_app_comment(&self, repository: &str, number: i64, author: &str, body: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .comment(repository, number, author, body, Some(APP_SLUG));
+    }
+
+    // Gives the author and the body of each comment.
+    pub fn comments(&self, repository: &str, number: i64) -> Vec<(String, String)> {
+        self.state.lock().unwrap().issues[&(repository.to_string(), number)]
             .comments
-            .push(json!({
-                "user": { "login": author },
-                "body": body,
-                "created_at": timestamp(now)
-            }));
+            .iter()
+            .map(|comment| {
+                (
+                    comment["user"]["login"].as_str().unwrap().to_string(),
+                    comment["body"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    }
+
+    pub fn labels(&self, repository: &str, number: i64) -> Vec<String> {
+        self.state.lock().unwrap().issues[&(repository.to_string(), number)]
+            .labels
+            .clone()
     }
 
     pub fn add_review(&self, repository: &str, number: i64, author: &str, state: &str, body: &str) {
@@ -281,43 +387,26 @@ impl FakeGitHub {
     }
 
     pub fn add_label(&self, repository: &str, number: i64, label: &str, actor: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .label(repository, number, label, actor);
+    }
+
+    pub fn add_blocker(&self, repository: &str, number: i64, blocker: i64) {
         let mut records = self.state.lock().unwrap();
         let now = records.tick();
         let issue = records
             .issues
             .get_mut(&(repository.to_string(), number))
             .unwrap();
-        issue.labels.push(label.to_string());
+        issue.blocked_by.push(blocker);
         issue.updated_at = now;
-        issue.events.push(json!({
-            "event": "labeled",
-            "actor": { "login": actor },
-            "label": { "name": label },
-            "created_at": timestamp(now)
-        }));
     }
 
     pub fn not_modified_count(&self) -> u32 {
         self.state.lock().unwrap().not_modified
     }
-}
-
-fn issue_json(repository: &str, number: i64, issue: &Issue) -> Value {
-    let mut json = json!({
-        "number": number,
-        "title": issue.title,
-        "body": issue.body,
-        "user": { "login": issue.author },
-        "html_url": format!("https://github.com/{repository}/issues/{number}"),
-        "state": issue.state,
-        "updated_at": timestamp(issue.updated_at),
-        "labels": issue.labels.iter().map(|name| json!({ "name": name })).collect::<Vec<_>>()
-    });
-    if issue.pull_request {
-        json["pull_request"] =
-            json!({ "url": format!("https://api.github.com/repos/{repository}/pulls/{number}") });
-    }
-    json
 }
 
 fn not_found() -> Response {
@@ -512,10 +601,11 @@ async fn issues(
         })
         .collect();
     found.sort_by_key(|((_, number), issue)| (issue.updated_at, *number));
+    let numbers: Vec<i64> = found.into_iter().map(|((_, number), _)| *number).collect();
     let body = Value::Array(
-        page.of(found
+        page.of(numbers
             .into_iter()
-            .map(|((_, number), issue)| issue_json(&repository, *number, issue))
+            .map(|number| records.issue_json(&repository, number))
             .collect()),
     );
     let mut hasher = DefaultHasher::new();
@@ -536,15 +626,98 @@ async fn issue(
     Path((owner, repo, number)): Path<(String, String, i64)>,
 ) -> Response {
     let repository = format!("{owner}/{repo}");
-    match state
-        .lock()
-        .unwrap()
+    let records = state.lock().unwrap();
+    if !records.issues.contains_key(&(repository.clone(), number)) {
+        return not_found();
+    }
+    Json(records.issue_json(&repository, number)).into_response()
+}
+
+async fn parent(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let records = state.lock().unwrap();
+    let parent = records
         .issues
-        .get(&(repository.clone(), number))
-    {
-        Some(issue) => Json(issue_json(&repository, number, issue)).into_response(),
+        .iter()
+        .find(|((name, _), issue)| *name == repository && issue.sub_issues.contains(&number));
+    match parent {
+        Some(((_, parent), _)) => Json(records.issue_json(&repository, *parent)).into_response(),
         None => not_found(),
     }
+}
+
+#[derive(Deserialize)]
+struct NewComment {
+    body: String,
+}
+
+async fn add_issue_comment(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    Json(comment): Json<NewComment>,
+) -> Response {
+    let comment = state.lock().unwrap().comment(
+        &format!("{owner}/{repo}"),
+        number,
+        &app_login(),
+        &comment.body,
+        None,
+    );
+    (StatusCode::CREATED, Json(comment)).into_response()
+}
+
+#[derive(Deserialize)]
+struct NewLabels {
+    labels: Vec<String>,
+}
+
+async fn add_labels(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    Json(new): Json<NewLabels>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    for label in &new.labels {
+        records.label(&repository, number, label, &app_login());
+    }
+    Json(label_list(&records, &repository, number)).into_response()
+}
+
+async fn remove_label(
+    State(state): State<Shared>,
+    Path((owner, repo, number, name)): Path<(String, String, i64, String)>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    let now = records.tick();
+    let issue = records
+        .issues
+        .get_mut(&(repository.clone(), number))
+        .unwrap();
+    if !issue.labels.contains(&name) {
+        return not_found();
+    }
+    issue.labels.retain(|label| *label != name);
+    issue.updated_at = now;
+    issue.events.push(json!({
+        "event": "unlabeled",
+        "actor": { "login": app_login() },
+        "label": { "name": name },
+        "created_at": timestamp(now)
+    }));
+    Json(label_list(&records, &repository, number)).into_response()
+}
+
+fn label_list(records: &Records, repository: &str, number: i64) -> Vec<Value> {
+    records.issues[&(repository.to_string(), number)]
+        .labels
+        .iter()
+        .map(|name| json!({ "name": name }))
+        .collect()
 }
 
 async fn sub_issues(
@@ -560,13 +733,7 @@ async fn sub_issues(
     let children = parent
         .sub_issues
         .iter()
-        .map(|child| {
-            issue_json(
-                &repository,
-                *child,
-                &records.issues[&(repository.clone(), *child)],
-            )
-        })
+        .map(|child| records.issue_json(&repository, *child))
         .collect();
     Json(page.of(children)).into_response()
 }

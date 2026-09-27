@@ -1,0 +1,379 @@
+use std::error::Error;
+
+use mobius_github::{Comment, Issue, IssueEvent, Repository};
+use time::OffsetDateTime;
+
+use crate::config::Config;
+use crate::trust::{app_login, trusted_author};
+use crate::{
+    Engine, READY_LABEL, TIME_FORMAT, WORKING_LABEL, WORKSTREAM_LABEL, activity, lead_events,
+};
+
+const READY_CURSOR: &str = "ready";
+
+// With no Workstream in the parent chain, the issue keeps `mobius:ready` and does not dispatch.
+pub(crate) async fn dispatch_ready(
+    engine: &Engine,
+    app_slug: &str,
+    repository: &Repository,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let name = &repository.full_name;
+    let cursor = engine.store.sync_cursors().get(name, READY_CURSOR).await?;
+    let Some(page) = repository
+        .labeled_issues(READY_LABEL, cursor.etag.as_deref())
+        .await?
+    else {
+        return Ok(());
+    };
+    for issue in &page.issues {
+        if issue.pull_request.is_some() {
+            continue;
+        }
+        let events = repository.issue_events(issue.number).await?;
+        let Some(actor) = ready_actor(&events) else {
+            continue;
+        };
+        if !may_dispatch(&engine.config, app_slug, actor) {
+            continue;
+        }
+        if let Some(task) = engine.store.tasks().live(name, issue.number).await? {
+            repository.remove_label(issue.number, READY_LABEL).await?;
+            activity::add(
+                engine,
+                name,
+                task.workstream,
+                issue.number,
+                actor,
+                &format!("No effect: \"{}\" has a live task", issue.title),
+                &issue.html_url,
+            )
+            .await?;
+            continue;
+        }
+        if issue.issue_dependencies_summary.blocked_by > 0 {
+            continue;
+        }
+        if let Some(workstream) = workstream_of(repository, issue.number).await? {
+            dispatch(engine, repository, issue, workstream, actor).await?;
+        }
+    }
+    engine
+        .store
+        .sync_cursors()
+        .set(name, READY_CURSOR, None, page.etag.as_deref())
+        .await
+}
+
+async fn workstream_of(
+    repository: &Repository,
+    number: i64,
+) -> Result<Option<i64>, Box<dyn Error + Send + Sync>> {
+    let mut number = number;
+    while let Some(parent) = repository.parent(number).await? {
+        if parent.has_label(WORKSTREAM_LABEL) {
+            return Ok(Some(parent.number));
+        }
+        number = parent.number;
+    }
+    Ok(None)
+}
+
+// `mobius:working` goes on before `mobius:ready` goes off, so a failure between the two leaves the issue in the ready list.
+async fn dispatch(
+    engine: &Engine,
+    repository: &Repository,
+    issue: &Issue,
+    workstream: i64,
+    actor: &str,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let name = &repository.full_name;
+    repository.add_label(issue.number, WORKING_LABEL).await?;
+    repository.remove_label(issue.number, READY_LABEL).await?;
+    engine
+        .store
+        .tasks()
+        .add(name, issue.number, workstream)
+        .await?;
+    activity::add(
+        engine,
+        name,
+        workstream,
+        issue.number,
+        actor,
+        &format!("Dispatched \"{}\"", issue.title),
+        &issue.html_url,
+    )
+    .await?;
+    let text = event_text(
+        OffsetDateTime::now_utc(),
+        "dispatch of",
+        issue,
+        actor,
+        issue.body.as_deref().unwrap_or_default(),
+    )?;
+    lead_events::add(engine, name, workstream, "dispatch", &text).await
+}
+
+pub(crate) async fn comment_events(
+    engine: &Engine,
+    app_slug: &str,
+    repository: &Repository,
+    issue: &Issue,
+    since: Option<OffsetDateTime>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let name = &repository.full_name;
+    let Some(task) = engine.store.tasks().live(name, issue.number).await? else {
+        return Ok(());
+    };
+    for comment in repository.issue_comments(issue.number).await? {
+        if since.is_none_or(|since| comment.created_at > since)
+            && comment_is_lead_event(&engine.config, app_slug, &comment)
+        {
+            let text = event_text(
+                comment.created_at,
+                "comment on",
+                issue,
+                &comment.user.login,
+                &comment.body,
+            )?;
+            lead_events::add(engine, name, task.workstream, "comment", &text).await?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn decline(
+    engine: &Engine,
+    app_slug: &str,
+    repository: &Repository,
+    workstream: i64,
+    number: i64,
+    reason: &str,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let name = &repository.full_name;
+    let task = engine
+        .store
+        .tasks()
+        .live(name, number)
+        .await?
+        .filter(|task| task.workstream == workstream)
+        .ok_or_else(|| format!("#{number} has no live task in this Workstream."))?;
+    repository.add_comment(number, reason).await?;
+    repository.remove_label(number, WORKING_LABEL).await?;
+    engine.store.tasks().end(task.id).await?;
+    let issue = repository
+        .issue(number)
+        .await?
+        .ok_or_else(|| format!("#{number} does not exist."))?;
+    activity::add(
+        engine,
+        name,
+        workstream,
+        number,
+        &app_login(app_slug),
+        &format!("Declined \"{}\"", issue.title),
+        &issue.html_url,
+    )
+    .await?;
+    Ok(format!("Declined #{number}."))
+}
+
+fn ready_actor(events: &[IssueEvent]) -> Option<&str> {
+    events
+        .iter()
+        .rev()
+        .find(|event| {
+            event.event == "labeled"
+                && event
+                    .label
+                    .as_ref()
+                    .is_some_and(|label| label.name == READY_LABEL)
+        })?
+        .actor
+        .as_ref()
+        .map(|actor| actor.login.as_str())
+}
+
+// A `mobius:ready` of the Mobius App needs Autopilot, so it does not dispatch here.
+fn may_dispatch(config: &Config, app_slug: &str, actor: &str) -> bool {
+    !actor.eq_ignore_ascii_case(&app_login(app_slug)) && trusted_author(config, app_slug, actor)
+}
+
+// A comment of the Lead chat session has a trusted user as author and the Mobius App in `performed_via_github_app`.
+fn comment_is_lead_event(config: &Config, app_slug: &str, comment: &Comment) -> bool {
+    config
+        .trusted_users
+        .iter()
+        .any(|user| user.eq_ignore_ascii_case(&comment.user.login))
+        && comment
+            .performed_via_github_app
+            .as_ref()
+            .is_none_or(|app| app.slug != app_slug)
+}
+
+fn event_text(
+    time: OffsetDateTime,
+    what: &str,
+    issue: &Issue,
+    actor: &str,
+    body: &str,
+) -> Result<String, time::error::Format> {
+    let quoted: Vec<String> = body.lines().map(|line| format!("> {line}")).collect();
+    Ok(format!(
+        "{} {what} #{} \"{}\" by @{actor}:\n\n{}",
+        time.format(TIME_FORMAT)?,
+        issue.number,
+        issue.title,
+        quoted.join("\n")
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use mobius_github::{AppRef, Label, User};
+
+    use super::*;
+
+    fn config() -> Config {
+        crate::config::parse(
+            r#"
+access_password = "correct horse"
+trusted_users = ["owner"]
+trusted_bots = ["coderabbitai[bot]"]
+
+[roles]
+lead        = { harness = "claude-code", model = "opus",    effort = "high" }
+triager     = { harness = "claude-code", model = "sonnet",  effort = "medium" }
+implementer = { harness = "devin",       model = "swe-1.5", effort = "high" }
+researcher  = { harness = "antigravity", model = "gemini-3-pro" }
+reviewer    = { harness = "claude-code", model = "opus",    effort = "high" }
+judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
+"#,
+        )
+        .unwrap()
+    }
+
+    fn event(event: &str, label: &str, actor: &str) -> IssueEvent {
+        IssueEvent {
+            event: event.to_string(),
+            actor: Some(User {
+                login: actor.to_string(),
+            }),
+            label: Some(Label {
+                name: label.to_string(),
+            }),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    fn comment(author: &str, app: Option<&str>) -> Comment {
+        Comment {
+            user: User {
+                login: author.to_string(),
+            },
+            body: "Use cents.".to_string(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            performed_via_github_app: app.map(|slug| AppRef {
+                slug: slug.to_string(),
+            }),
+        }
+    }
+
+    #[test]
+    fn the_ready_actor_is_the_actor_of_the_last_ready_label() {
+        let events = [
+            event("labeled", "mobius:ready", "mallory"),
+            event("unlabeled", "mobius:ready", "mallory"),
+            event("labeled", "mobius:ready", "owner"),
+            event("labeled", "bug", "mallory"),
+            event("unlabeled", "mobius:ready", "mallory"),
+        ];
+
+        assert_eq!(ready_actor(&events), Some("owner"));
+    }
+
+    #[test]
+    fn an_issue_with_no_ready_label_event_has_no_ready_actor() {
+        assert_eq!(ready_actor(&[event("labeled", "bug", "owner")]), None);
+    }
+
+    #[test]
+    fn a_trusted_user_or_a_trusted_bot_may_dispatch() {
+        assert!(may_dispatch(&config(), "mobius-app", "Owner"));
+        assert!(may_dispatch(&config(), "mobius-app", "coderabbitai[bot]"));
+    }
+
+    #[test]
+    fn the_mobius_app_and_other_authors_may_not_dispatch() {
+        assert!(!may_dispatch(&config(), "mobius-app", "mobius-app[bot]"));
+        assert!(!may_dispatch(&config(), "mobius-app", "mallory"));
+    }
+
+    #[test]
+    fn a_comment_of_a_trusted_user_is_a_lead_event() {
+        assert!(comment_is_lead_event(
+            &config(),
+            "mobius-app",
+            &comment("Owner", None)
+        ));
+        assert!(comment_is_lead_event(
+            &config(),
+            "mobius-app",
+            &comment("owner", Some("other-app"))
+        ));
+    }
+
+    #[test]
+    fn a_comment_of_the_chat_session_a_bot_or_a_stranger_is_not_a_lead_event() {
+        assert!(!comment_is_lead_event(
+            &config(),
+            "mobius-app",
+            &comment("owner", Some("mobius-app"))
+        ));
+        assert!(!comment_is_lead_event(
+            &config(),
+            "mobius-app",
+            &comment("coderabbitai[bot]", None)
+        ));
+        assert!(!comment_is_lead_event(
+            &config(),
+            "mobius-app",
+            &comment("mobius-app[bot]", None)
+        ));
+        assert!(!comment_is_lead_event(
+            &config(),
+            "mobius-app",
+            &comment("mallory", None)
+        ));
+    }
+
+    #[test]
+    fn the_event_text_has_the_time_the_kind_the_issue_and_the_quoted_text() {
+        let issue: Issue = serde_json::from_value(serde_json::json!({
+            "number": 42,
+            "title": "Plan API",
+            "body": null,
+            "state": "open",
+            "html_url": "https://github.com/owner/shop/issues/42",
+            "updated_at": "2026-09-27T14:02:00Z",
+            "labels": [],
+            "pull_request": null,
+            "user": { "login": "owner" },
+            "issue_dependencies_summary": { "blocked_by": 0 }
+        }))
+        .unwrap();
+        let time = time::macros::datetime!(2026-09-27 14:02 UTC);
+
+        assert_eq!(
+            event_text(
+                time,
+                "comment on",
+                &issue,
+                "owner",
+                "Use cents.\nRound down."
+            )
+            .unwrap(),
+            "2026-09-27 14:02 UTC comment on #42 \"Plan API\" by @owner:\n\n> Use cents.\n> Round down."
+        );
+    }
+}

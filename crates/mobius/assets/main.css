@@ -440,6 +440,11 @@ button.chip.on {
   text-align: left;
 }
 
+a.node {
+  color: inherit;
+  text-decoration: none;
+}
+
 .node:hover {
   background: var(--raised);
 }

@@ -1,7 +1,7 @@
 use dioxus::fullstack::{Redirect, ServerEvents, SetCookie, SetHeader};
 use dioxus::prelude::*;
 use mobius_domain::{
-    AgentNode, ChatView, Devices, Live, ManifestForm, TranscriptLine, Unread, Workstream,
+    AgentNode, ChatView, Devices, Live, ManifestForm, TaskLine, TranscriptLine, Unread, Workstream,
 };
 
 #[cfg(feature = "server")]
@@ -15,7 +15,7 @@ use dioxus::server::axum::extract::{FromRequestParts, Query};
 #[cfg(feature = "server")]
 use dioxus::server::http::request::Parts;
 #[cfg(feature = "server")]
-use mobius_engine::{Engine, activity, agents, auth, chat, github, transcript, workstreams};
+use mobius_engine::{Engine, activity, agents, auth, chat, github, tasks, transcript, workstreams};
 #[cfg(feature = "server")]
 use mobius_store::Store;
 #[cfg(feature = "server")]
@@ -190,6 +190,13 @@ pub async fn unread() -> ServerFnResult<Vec<Unread>> {
 #[post("/api/agents", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn agent_tree(repository: String, workstream: i64) -> ServerFnResult<Vec<AgentNode>> {
     agents::tree(&engine, &repository, workstream)
+        .await
+        .map_err(ServerFnError::new)
+}
+
+#[post("/api/tasks", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn task_list(repository: String, workstream: i64) -> ServerFnResult<Vec<TaskLine>> {
+    tasks::list(&engine, &repository, workstream)
         .await
         .map_err(ServerFnError::new)
 }

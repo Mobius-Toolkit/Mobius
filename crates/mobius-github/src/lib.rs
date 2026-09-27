@@ -54,6 +54,13 @@ pub struct Issue {
     pub labels: Vec<Label>,
     pub pull_request: Option<serde_json::Value>,
     pub user: User,
+    pub issue_dependencies_summary: DependenciesSummary,
+}
+
+#[derive(Deserialize)]
+pub struct DependenciesSummary {
+    // The open blockers only.
+    pub blocked_by: i64,
 }
 
 impl Issue {
@@ -82,6 +89,12 @@ pub struct Comment {
     pub body: String,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    pub performed_via_github_app: Option<AppRef>,
+}
+
+#[derive(Deserialize)]
+pub struct AppRef {
+    pub slug: String,
 }
 
 #[derive(Deserialize)]
@@ -319,22 +332,73 @@ impl Repository {
 
     // Gives `None` when the repository has no issue or pull request with this number.
     pub async fn issue(&self, number: i64) -> Result<Option<Issue>, Box<dyn Error + Send + Sync>> {
-        match self
+        found(
+            self.client
+                .get(
+                    format!("/repos/{}/issues/{number}", self.full_name),
+                    None::<&()>,
+                )
+                .await,
+        )
+    }
+
+    // Gives `None` when the issue has no parent.
+    pub async fn parent(&self, number: i64) -> Result<Option<Issue>, Box<dyn Error + Send + Sync>> {
+        found(
+            self.client
+                .get(
+                    format!("/repos/{}/issues/{number}/parent", self.full_name),
+                    None::<&()>,
+                )
+                .await,
+        )
+    }
+
+    pub async fn add_label(
+        &self,
+        number: i64,
+        label: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
             .client
-            .get(
-                format!("/repos/{}/issues/{number}", self.full_name),
-                None::<&()>,
+            .post(
+                format!("/repos/{}/issues/{number}/labels", self.full_name),
+                Some(&json!({ "labels": [label] })),
             )
-            .await
-        {
-            Ok(issue) => Ok(Some(issue)),
-            Err(octocrab::Error::GitHub { source, .. })
-                if source.status_code == StatusCode::NOT_FOUND =>
-            {
-                Ok(None)
-            }
-            Err(error) => Err(error.into()),
-        }
+            .await?;
+        Ok(())
+    }
+
+    // An issue that does not have the label is not an error.
+    pub async fn remove_label(
+        &self,
+        number: i64,
+        label: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        found(
+            self.client
+                .delete::<serde_json::Value, _, _>(
+                    format!("/repos/{}/issues/{number}/labels/{label}", self.full_name),
+                    None::<&()>,
+                )
+                .await,
+        )?;
+        Ok(())
+    }
+
+    pub async fn add_comment(
+        &self,
+        number: i64,
+        body: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .post(
+                format!("/repos/{}/issues/{number}/comments", self.full_name),
+                Some(&json!({ "body": body })),
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn issue_comments(
@@ -392,6 +456,28 @@ impl Repository {
             Some(since) => format!("&since={}", since.format(&Rfc3339)?),
             None => String::new(),
         };
+        self.issue_pages(
+            &format!("state=all&sort=updated&direction=asc{since}"),
+            etag,
+        )
+        .await
+    }
+
+    // Gives the open issues and pull requests with the label, or `None` when GitHub answers `304 Not Modified` to `etag`.
+    pub async fn labeled_issues(
+        &self,
+        label: &str,
+        etag: Option<&str>,
+    ) -> Result<Option<IssuePage>, Box<dyn Error + Send + Sync>> {
+        self.issue_pages(&format!("state=open&labels={label}"), etag)
+            .await
+    }
+
+    async fn issue_pages(
+        &self,
+        query: &str,
+        etag: Option<&str>,
+    ) -> Result<Option<IssuePage>, Box<dyn Error + Send + Sync>> {
         let mut issues = Vec::new();
         let mut first_etag = None;
         let mut pages = 0;
@@ -404,7 +490,7 @@ impl Repository {
                 headers.insert(IF_NONE_MATCH, HeaderValue::from_str(etag)?);
             }
             let uri = format!(
-                "/repos/{}/issues?state=all&sort=updated&direction=asc&per_page={PAGE_SIZE}&page={page}{since}",
+                "/repos/{}/issues?{query}&per_page={PAGE_SIZE}&page={page}",
                 self.full_name
             );
             let response = self.client._get_with_headers(uri, Some(headers)).await?;
@@ -445,6 +531,20 @@ impl Repository {
             |page: Vec<IssueEvent>| page,
         )
         .await
+    }
+}
+
+fn found<T>(
+    response: Result<T, octocrab::Error>,
+) -> Result<Option<T>, Box<dyn Error + Send + Sync>> {
+    match response {
+        Ok(value) => Ok(Some(value)),
+        Err(octocrab::Error::GitHub { source, .. })
+            if source.status_code == StatusCode::NOT_FOUND =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error.into()),
     }
 }
 

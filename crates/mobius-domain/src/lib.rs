@@ -49,6 +49,14 @@ pub struct Workstream {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TaskLine {
+    pub number: i64,
+    pub title: String,
+    pub state: String,
+    pub url: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FeedRow {
     pub id: i64,
     pub time: OffsetDateTime,

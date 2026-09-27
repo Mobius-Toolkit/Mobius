@@ -4,9 +4,11 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use mobius_api::{
     agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_app, github_manifest,
-    live, login, logout, transcript_lines, unread, workstreams,
+    live, login, logout, task_list, transcript_lines, unread, workstreams,
 };
-use mobius_domain::{AgentNode, Author, ChatMessage, FeedRow, Live, TranscriptLine, Workstream};
+use mobius_domain::{
+    AgentNode, Author, ChatMessage, FeedRow, Live, TaskLine, TranscriptLine, Workstream,
+};
 use time::macros::format_description;
 
 #[derive(Clone, PartialEq, Routable)]
@@ -512,7 +514,7 @@ fn Agents(repository: String, number: i64, on_close: Option<EventHandler>) -> El
         }
         div { class: "scroll",
             if tasks_tab() {
-                div { class: "muted small note", "No tasks." }
+                Tasks { repository: repository.clone(), number }
             } else {
                 if let Some(Err(error)) = &*tree.read() {
                     div { class: "error note", {error_text(error)} }
@@ -525,6 +527,39 @@ fn Agents(repository: String, number: i64, on_close: Option<EventHandler>) -> El
                     }
                 }
             }
+        }
+    }
+}
+
+// The tab mounts this component each time it opens, so each open reads the list again.
+#[component]
+fn Tasks(repository: String, number: i64) -> Element {
+    let lines = use_resource(use_reactive(
+        (&repository, &number),
+        |(repository, number)| async move { task_list(repository, number).await },
+    ));
+    match &*lines.read() {
+        None => rsx! {},
+        Some(Err(error)) => rsx! {
+            div { class: "error note", {error_text(error)} }
+        },
+        Some(Ok(lines)) if lines.is_empty() => rsx! {
+            div { class: "muted small note", "No tasks." }
+        },
+        Some(Ok(lines)) => rsx! {
+            for line in lines.iter().cloned() {
+                TaskEntry { key: "{line.number}", line }
+            }
+        },
+    }
+}
+
+#[component]
+fn TaskEntry(line: TaskLine) -> Element {
+    rsx! {
+        a { class: "node", href: "{line.url}", target: "_blank",
+            span { class: "grow", "#{line.number} {line.title}" }
+            span { class: if line.state == "open" { "chip plain" } else { "chip" }, "{line.state}" }
         }
     }
 }
