@@ -9,7 +9,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
-use crate::{Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, dispatch, issues, lead_events, mcp};
+use crate::{Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, dispatch, issues, lead_events, mcp, workers};
 
 pub(crate) const ROLE: &str = "implementer";
 const ROLE_PROMPT: &str = include_str!("prompts/implementer.md");
@@ -50,12 +50,7 @@ pub(crate) async fn start(
         .title;
     let trusted = trust::trusted_authors(engine).await?;
     let issue = issues::read_issue(repository, number, &trusted).await?;
-    if !engine
-        .store
-        .tasks()
-        .set_state(task.id, "dispatched", "working")
-        .await?
-    {
+    if !engine.store.tasks().queue(task.id).await? {
         return Err(format!("The task of #{number} is {}, not dispatched.", task.state).into());
     }
     let job = Job {
@@ -89,13 +84,11 @@ async fn run(engine: Engine, job: Job) {
     }
 }
 
-// Gives `false` when the task is not working, for example after a decline of the Lead.
+// Gives `false` when the task is not queued or working, for example after a decline of the Lead.
 async fn stop(engine: &Engine, job: &Job) -> Result<bool, Box<dyn Error + Send + Sync>> {
-    if !engine
-        .store
-        .tasks()
-        .set_state(job.task, "working", "stopped")
-        .await?
+    let tasks = engine.store.tasks();
+    if !tasks.set_state(job.task, "working", "stopped").await?
+        && !tasks.set_state(job.task, "queued", "stopped").await?
     {
         return Ok(false);
     }
@@ -116,6 +109,18 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
     )
     .await?;
     let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, false);
+    let harness = engine.config.roles.implementer.harness;
+    let slot = match workers::slot(engine, job.task, session, harness).await {
+        Ok(slot) => slot,
+        Err(error) => {
+            recorder.fail(&error.to_string()).await?;
+            return Err(error);
+        }
+    };
+    // The Implementer keeps its slot until this function returns, also while its check waits and runs.
+    let Some(_slot) = slot else {
+        return lead::end_session(engine, session, "declined").await;
+    };
     let (cannot_do, mut reasons) = mpsc::unbounded_channel();
     let key = mcp::open(
         engine,
@@ -280,13 +285,16 @@ async fn turns_and_checks(
         if let Some(reason) = turn(session, &prompt, updates, recorder, reasons).await? {
             return Ok(Outcome::CannotDo(reason));
         }
-        let check = mobius_runner::check(
-            &engine.config.data_dir,
-            worktree,
-            &engine.harness_path,
-            engine.config.check_timeout,
-        )
-        .await?;
+        let check = {
+            let _check = engine.checks.acquire().await?;
+            mobius_runner::check(
+                &engine.config.data_dir,
+                worktree,
+                &engine.harness_path,
+                engine.config.check_timeout,
+            )
+            .await?
+        };
         let Check::Failed(log) = check else {
             return Ok(Outcome::Done);
         };

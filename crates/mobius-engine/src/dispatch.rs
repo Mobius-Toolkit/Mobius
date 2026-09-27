@@ -232,6 +232,7 @@ pub(crate) async fn decline(
     repository.add_comment(number, reason).await?;
     repository.remove_label(number, WORKING_LABEL).await?;
     engine.store.tasks().end(task.id).await?;
+    engine.workers.changed.notify_waiters();
     let issue = repository
         .issue(number)
         .await?

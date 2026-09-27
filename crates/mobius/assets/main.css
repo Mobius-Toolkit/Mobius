@@ -11,6 +11,8 @@
   --crit: #b03a3a;
   --ok: #2f7a4c;
   --ok-soft: #dcefe2;
+  --warn: #a86a14;
+  --warn-soft: #f6e9d2;
   --owner: #e3ebe4;
   --mono: ui-monospace, Menlo, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -29,6 +31,8 @@
     --crit: #e27d7d;
     --ok: #6cc08c;
     --ok-soft: #1c3326;
+    --warn: #e0a54c;
+    --warn-soft: #3a2d17;
     --owner: #223029;
   }
 }
@@ -128,6 +132,11 @@ button {
   color: var(--muted);
 }
 
+.chip.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
 .count {
   background: var(--crit);
   color: var(--surface);
@@ -149,6 +158,10 @@ button {
 .dot.live {
   background: var(--ok);
   box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+.dot.queued {
+  background: var(--warn);
 }
 
 .dot.ended {

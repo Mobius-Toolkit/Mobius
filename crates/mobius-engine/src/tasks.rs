@@ -22,7 +22,18 @@ pub async fn list(
                 continue;
             }
             if issue.state == "open" && trusted(&issue.user.login) {
-                lines.push(task_line(&issue));
+                let mut line = task_line(&issue);
+                if line.state == "working"
+                    && engine
+                        .store
+                        .tasks()
+                        .live(&repository.full_name, issue.number)
+                        .await?
+                        .is_some_and(|task| task.state == "queued")
+                {
+                    line.state = "queued".to_string();
+                }
+                lines.push(line);
             }
             parents.push_back(issue.number);
         }
