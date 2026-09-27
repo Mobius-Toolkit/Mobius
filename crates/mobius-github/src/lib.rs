@@ -5,6 +5,7 @@ use http::header::{ACCEPT, ETAG, HeaderMap, HeaderValue, IF_NONE_MATCH};
 use jsonwebtoken::EncodingKey;
 use octocrab::Octocrab;
 use octocrab::models::{AppId, InstallationId};
+use secrecy::ExposeSecret;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -24,7 +25,10 @@ pub struct GitHub {
 #[derive(Clone)]
 pub struct Repository {
     pub full_name: String,
+    pub clone_url: String,
+    pub default_branch: String,
     client: Octocrab,
+    token: String,
 }
 
 #[derive(Deserialize)]
@@ -40,6 +44,8 @@ struct InstallationRepositories {
 #[derive(Deserialize)]
 struct RepositoryName {
     full_name: String,
+    clone_url: String,
+    default_branch: String,
 }
 
 #[derive(Deserialize)]
@@ -126,6 +132,7 @@ pub struct IssuePage {
 
 #[derive(Deserialize)]
 struct Account {
+    id: i64,
     #[serde(rename = "type")]
     account_type: String,
 }
@@ -208,7 +215,7 @@ impl GitHub {
         let mut repositories = Vec::new();
         for installation in installations {
             // This call gets the token before the clones, so each clone holds the token.
-            let (client, _) = app
+            let (client, token) = app
                 .installation_and_token(InstallationId(installation.id))
                 .await?;
             let names = all_pages(
@@ -219,7 +226,10 @@ impl GitHub {
             .await?;
             repositories.extend(names.into_iter().map(|repository| Repository {
                 full_name: repository.full_name,
+                clone_url: repository.clone_url,
+                default_branch: repository.default_branch,
                 client: client.clone(),
+                token: token.expose_secret().to_string(),
             }));
         }
         Ok(repositories)
@@ -238,6 +248,12 @@ impl GitHub {
         } else {
             format!("{}/settings/apps/new", self.web_url)
         })
+    }
+
+    pub async fn user_id(&self, login: &str) -> Result<i64, Box<dyn Error + Send + Sync>> {
+        let login = login.replace('[', "%5B").replace(']', "%5D");
+        let found: Account = self.api.get(format!("/users/{login}"), None::<&()>).await?;
+        Ok(found.id)
     }
 
     pub async fn convert_manifest(
@@ -314,6 +330,50 @@ impl GitHub {
 }
 
 impl Repository {
+    // The installation token of the last poll.
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    pub async fn create_draft_pull_request(
+        &self,
+        title: &str,
+        head: &str,
+        base: &str,
+        body: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .post(
+                format!("/repos/{}/pulls", self.full_name),
+                Some(&json!({
+                    "title": title,
+                    "head": head,
+                    "base": base,
+                    "body": body,
+                    "draft": true
+                })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn create_check_run(
+        &self,
+        name: &str,
+        head_sha: &str,
+        status: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .post(
+                format!("/repos/{}/check-runs", self.full_name),
+                Some(&json!({ "name": name, "head_sha": head_sha, "status": status })),
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn open_issues_with_label(
         &self,
         label: &str,

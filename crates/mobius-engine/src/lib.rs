@@ -6,6 +6,7 @@ pub mod config;
 mod dispatch;
 pub mod gh;
 pub mod github;
+mod implementer;
 pub mod inbox;
 mod issues;
 mod lead;

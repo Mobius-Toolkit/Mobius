@@ -272,7 +272,14 @@ async fn only_the_event_session_has_tell_owner() {
         .collect();
     assert_eq!(
         names,
-        ["list_tasks", "read_issue", "ask", "decline", "tell_owner"]
+        [
+            "list_tasks",
+            "read_issue",
+            "start_implementer",
+            "ask",
+            "decline",
+            "tell_owner"
+        ]
     );
 }
 

@@ -2,10 +2,12 @@ use std::error::Error;
 use std::path::Path;
 
 use mobius_domain::{Author, Live};
+use mobius_github::Repository;
 use mobius_runner::Session;
 use serde_json::{Value, json};
 use tokio::sync::mpsc::UnboundedReceiver;
 
+use crate::config::RoleBinding;
 use crate::{Engine, agents, mcp, tasks};
 
 pub(crate) const SAVE_PROMPT: &str = "Save in the Workstream memory what the next session needs.";
@@ -13,14 +15,20 @@ pub(crate) const SAVE_PROMPT: &str = "Save in the Workstream memory what the nex
 pub(crate) async fn add_session(
     engine: &Engine,
     role: &str,
+    binding: &RoleBinding,
     repository: &str,
     workstream: i64,
 ) -> Result<i64, Box<dyn Error + Send + Sync>> {
-    let lead = &engine.config.roles.lead;
     let session = engine
         .store
         .sessions()
-        .add(role, lead.harness, &lead.model, repository, workstream)
+        .add(
+            role,
+            binding.harness,
+            &binding.model,
+            repository,
+            workstream,
+        )
         .await?;
     let id = session.id;
     engine.broadcast(Live::Agent(agents::node(session)));
@@ -39,14 +47,14 @@ pub(crate) async fn end_session(
 
 pub(crate) async fn start(
     engine: &Engine,
+    binding: &RoleBinding,
     session_id: i64,
     dir: &Path,
     session_key: &str,
     gh_token_url: Option<&str>,
 ) -> Result<(Session, UnboundedReceiver<Value>), Box<dyn Error + Send + Sync>> {
-    let lead = &engine.config.roles.lead;
     let (mut session, updates) = mobius_runner::start(
-        lead.harness,
+        binding.harness,
         dir,
         &engine.config.data_dir,
         &engine.harness_path,
@@ -60,7 +68,7 @@ pub(crate) async fn start(
         .set_acp_session_id(session_id, session.acp_id())
         .await?;
     session
-        .configure(&lead.model, lead.effort.as_deref())
+        .configure(&binding.model, binding.effort.as_deref())
         .await?;
     Ok((session, updates))
 }
@@ -71,18 +79,24 @@ pub(crate) async fn context(
     repository: &str,
     workstream: i64,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let brief = engine
-        .repository(repository)?
-        .issue(workstream)
-        .await?
-        .ok_or("The Workstream issue does not exist.")?
-        .body
-        .unwrap_or_default();
+    let brief = brief(&engine.repository(repository)?, workstream).await?;
     let memory = mobius_runner::memory(dir)?;
     let tasks = tasks::text(&tasks::list(engine, repository, workstream).await?);
     Ok(format!(
         "# Brief\n\n{brief}\n\n# MEMORY.md\n\n{memory}\n\n# Task list\n\n{tasks}\n\n"
     ))
+}
+
+pub(crate) async fn brief(
+    repository: &Repository,
+    workstream: i64,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    Ok(repository
+        .issue(workstream)
+        .await?
+        .ok_or("The Workstream issue does not exist.")?
+        .body
+        .unwrap_or_default())
 }
 
 pub(crate) struct Recorder {

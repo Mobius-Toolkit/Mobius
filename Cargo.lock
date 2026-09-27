@@ -3123,6 +3123,7 @@ dependencies = [
  "http",
  "jsonwebtoken",
  "octocrab",
+ "secrecy",
  "serde",
  "serde_json",
  "time",
@@ -3133,6 +3134,7 @@ name = "mobius-runner"
 version = "0.1.0"
 dependencies = [
  "agent-client-protocol",
+ "base64 0.22.1",
  "mobius-domain",
  "serde_json",
  "tempfile",

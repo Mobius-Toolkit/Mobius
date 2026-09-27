@@ -155,7 +155,15 @@ pub(crate) async fn tell_owner(
 
 async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver<Command>) {
     let (repository, workstream) = (first.repository.clone(), first.workstream);
-    let session = match lead::add_session(&engine, ROLE, &repository, workstream).await {
+    let session = match lead::add_session(
+        &engine,
+        ROLE,
+        &engine.config.roles.lead,
+        &repository,
+        workstream,
+    )
+    .await
+    {
         Ok(session) => session,
         Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
     };
@@ -164,6 +172,7 @@ async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver
         role: ROLE,
         repository: repository.clone(),
         workstream,
+        cannot_do: None,
     };
     let key = match mcp::open(&engine, caller) {
         Ok(key) => key,
@@ -216,6 +225,7 @@ async fn chat(
     let prompt = first_prompt(engine, &dir, first).await?;
     let (session, mut updates) = lead::start(
         engine,
+        &engine.config.roles.lead,
         session_id,
         &dir,
         session_key,

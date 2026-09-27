@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{Path, Query, State};
@@ -9,15 +10,37 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use tempfile::TempDir;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tokio::net::TcpListener;
+
+use crate::git;
 
 pub const APP_ID: i64 = 7;
 pub const APP_SLUG: &str = "mobius-test";
 pub const APP_PRIVATE_KEY: &str = include_str!("app_private_key.pem");
 pub const APP_CLIENT_ID: &str = "Iv23test";
 pub const APP_CLIENT_SECRET: &str = "client-secret";
+pub const BOT_USER_ID: i64 = 41898282;
+pub const INSTALLATION_TOKEN: &str = "ghs_installation";
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PullRequest {
+    pub number: i64,
+    pub title: String,
+    pub body: String,
+    pub head: String,
+    pub base: String,
+    pub draft: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CheckRun {
+    pub name: String,
+    pub head_sha: String,
+    pub status: String,
+}
 
 #[derive(Default)]
 struct Records {
@@ -28,7 +51,10 @@ struct Records {
     refresh_tokens: HashMap<String, String>,
     tokens_given: u32,
     repositories: Vec<String>,
+    remotes: PathBuf,
     issues: BTreeMap<(String, i64), Issue>,
+    pull_requests: Vec<(String, PullRequest)>,
+    check_runs: Vec<(String, CheckRun)>,
     last_review_comment_id: i64,
     clock: i64,
     not_modified: u32,
@@ -144,12 +170,15 @@ type Shared = Arc<Mutex<Records>>;
 pub struct FakeGitHub {
     pub url: String,
     state: Shared,
+    remotes: TempDir,
 }
 
 impl FakeGitHub {
     pub async fn start() -> FakeGitHub {
+        let remotes = TempDir::new().unwrap();
         let state = Shared::new(Mutex::new(Records {
             clock: OffsetDateTime::now_utc().unix_timestamp(),
+            remotes: remotes.path().to_path_buf(),
             ..Records::default()
         }));
         let router = Router::new()
@@ -186,6 +215,8 @@ impl FakeGitHub {
                 "/repos/{owner}/{repo}/issues/{number}/labels/{name}",
                 delete(remove_label),
             )
+            .route("/repos/{owner}/{repo}/pulls", post(create_pull_request))
+            .route("/repos/{owner}/{repo}/check-runs", post(create_check_run))
             .route("/repos/{owner}/{repo}/pulls/{number}/reviews", get(reviews))
             .route(
                 "/repos/{owner}/{repo}/pulls/{number}/comments",
@@ -195,7 +226,11 @@ impl FakeGitHub {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-        FakeGitHub { url, state }
+        FakeGitHub {
+            url,
+            state,
+            remotes,
+        }
     }
 
     pub fn add_account(&self, login: &str, account_type: &'static str) {
@@ -222,7 +257,21 @@ impl FakeGitHub {
             .insert(code.to_string(), login.to_string());
     }
 
+    // The repository gets a bare git repository with one commit on `main` as its `clone_url`.
     pub fn add_repository(&self, full_name: &str) {
+        let remote = self.remote(full_name);
+        std::fs::create_dir_all(&remote).unwrap();
+        git(&remote, &["init", "--bare", "--initial-branch=main"]);
+        let work = TempDir::new().unwrap();
+        git(work.path(), &["init", "--initial-branch=main"]);
+        git(
+            work.path(),
+            &["commit", "--allow-empty", "-m", "Initial commit"],
+        );
+        git(
+            work.path(),
+            &["push", remote.to_str().unwrap(), "main:refs/heads/main"],
+        );
         self.state
             .lock()
             .unwrap()
@@ -260,6 +309,47 @@ impl FakeGitHub {
                 review_comments: Vec::new(),
             },
         );
+    }
+
+    pub fn remote(&self, full_name: &str) -> PathBuf {
+        self.remotes.path().join(format!("{full_name}.git"))
+    }
+
+    // Pushes one new commit on top of `main` to `branch`, as a human push.
+    pub fn push_commit(&self, full_name: &str, branch: &str, message: &str) {
+        let remote = self.remote(full_name);
+        let work = TempDir::new().unwrap();
+        git(
+            work.path(),
+            &["clone", "--branch=main", remote.to_str().unwrap(), "."],
+        );
+        git(work.path(), &["commit", "--allow-empty", "-m", message]);
+        git(
+            work.path(),
+            &["push", "origin", &format!("HEAD:refs/heads/{branch}")],
+        );
+    }
+
+    pub fn pull_requests(&self, full_name: &str) -> Vec<PullRequest> {
+        self.state
+            .lock()
+            .unwrap()
+            .pull_requests
+            .iter()
+            .filter(|(name, _)| name == full_name)
+            .map(|(_, pull_request)| pull_request.clone())
+            .collect()
+    }
+
+    pub fn check_runs(&self, full_name: &str) -> Vec<CheckRun> {
+        self.state
+            .lock()
+            .unwrap()
+            .check_runs
+            .iter()
+            .filter(|(name, _)| name == full_name)
+            .map(|(_, check_run)| check_run.clone())
+            .collect()
     }
 
     pub fn set_author(&self, repository: &str, number: i64, author: &str) {
@@ -418,8 +508,13 @@ fn not_found() -> Response {
 }
 
 async fn account(State(state): State<Shared>, Path(name): Path<String>) -> Response {
+    if name == app_login() {
+        return Json(json!({ "login": name, "id": BOT_USER_ID, "type": "Bot" })).into_response();
+    }
     match state.lock().unwrap().account_types.get(&name) {
-        Some(account_type) => Json(json!({ "login": name, "type": account_type })).into_response(),
+        Some(account_type) => {
+            Json(json!({ "login": name, "id": 1, "type": account_type })).into_response()
+        }
         None => not_found(),
     }
 }
@@ -533,7 +628,7 @@ async fn installation_token() -> Response {
     (
         StatusCode::CREATED,
         Json(json!({
-            "token": "ghs_installation",
+            "token": INSTALLATION_TOKEN,
             "expires_at": "2099-01-01T00:00:00Z",
             "permissions": {}
         })),
@@ -548,7 +643,11 @@ async fn installation_repositories(State(state): State<Shared>) -> Response {
         "repositories": records
             .repositories
             .iter()
-            .map(|full_name| json!({ "full_name": full_name }))
+            .map(|full_name| json!({
+                "full_name": full_name,
+                "clone_url": format!("file://{}/{full_name}.git", records.remotes.display()),
+                "default_branch": "main"
+            }))
             .collect::<Vec<_>>()
     }))
     .into_response()
@@ -685,6 +784,92 @@ async fn add_labels(
         records.label(&repository, number, label, &app_login());
     }
     Json(label_list(&records, &repository, number)).into_response()
+}
+
+#[derive(Deserialize)]
+struct NewPullRequest {
+    title: String,
+    head: String,
+    base: String,
+    body: String,
+    draft: bool,
+}
+
+async fn create_pull_request(
+    State(state): State<Shared>,
+    Path((owner, repo)): Path<(String, String)>,
+    Json(new): Json<NewPullRequest>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    let number = records
+        .issues
+        .keys()
+        .filter(|(name, _)| *name == repository)
+        .map(|(_, number)| number + 1)
+        .max()
+        .unwrap_or(1);
+    let updated_at = records.tick();
+    records.issues.insert(
+        (repository.clone(), number),
+        Issue {
+            title: new.title.clone(),
+            body: new.body.clone(),
+            author: app_login(),
+            pull_request: true,
+            state: "open",
+            sub_issues: Vec::new(),
+            blocked_by: Vec::new(),
+            labels: Vec::new(),
+            updated_at,
+            events: Vec::new(),
+            comments: Vec::new(),
+            reviews: Vec::new(),
+            review_comments: Vec::new(),
+        },
+    );
+    records.pull_requests.push((
+        repository.clone(),
+        PullRequest {
+            number,
+            title: new.title,
+            body: new.body,
+            head: new.head,
+            base: new.base,
+            draft: new.draft,
+        },
+    ));
+    (
+        StatusCode::CREATED,
+        Json(json!({
+            "number": number,
+            "html_url": format!("https://github.com/{repository}/pull/{number}")
+        })),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+struct NewCheckRun {
+    name: String,
+    head_sha: String,
+    status: String,
+}
+
+async fn create_check_run(
+    State(state): State<Shared>,
+    Path((owner, repo)): Path<(String, String)>,
+    Json(new): Json<NewCheckRun>,
+) -> Response {
+    state.lock().unwrap().check_runs.push((
+        format!("{owner}/{repo}"),
+        CheckRun {
+            name: new.name,
+            head_sha: new.head_sha,
+            status: new.status,
+        },
+    ));
+    (StatusCode::CREATED, Json(json!({ "id": 1 }))).into_response()
 }
 
 async fn remove_label(
