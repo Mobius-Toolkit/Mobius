@@ -1,7 +1,8 @@
 use dioxus::fullstack::{Redirect, ServerEvents, SetCookie, SetHeader};
 use dioxus::prelude::*;
 use mobius_domain::{
-    AgentNode, ChatView, Devices, Live, ManifestForm, TaskLine, TranscriptLine, Unread, Workstream,
+    AgentNode, ChatView, Devices, InboxItem, Live, ManifestForm, TaskLine, TranscriptLine, Unread,
+    Workstream,
 };
 
 #[cfg(feature = "server")]
@@ -15,7 +16,9 @@ use dioxus::server::axum::extract::{FromRequestParts, Query};
 #[cfg(feature = "server")]
 use dioxus::server::http::request::Parts;
 #[cfg(feature = "server")]
-use mobius_engine::{Engine, activity, agents, auth, chat, github, tasks, transcript, workstreams};
+use mobius_engine::{
+    Engine, activity, agents, auth, chat, github, inbox, tasks, transcript, workstreams,
+};
 #[cfg(feature = "server")]
 use mobius_store::Store;
 #[cfg(feature = "server")]
@@ -183,6 +186,18 @@ pub async fn unread() -> ServerFnResult<Vec<Unread>> {
     store
         .chat_messages()
         .unread()
+        .await
+        .map_err(ServerFnError::new)
+}
+
+#[get("/api/inbox", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn inbox_items() -> ServerFnResult<Vec<InboxItem>> {
+    inbox::list(&engine).await.map_err(ServerFnError::new)
+}
+
+#[post("/api/inbox/dismiss", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn inbox_dismiss(id: i64) -> ServerFnResult<()> {
+    inbox::dismiss(&engine, id)
         .await
         .map_err(ServerFnError::new)
 }

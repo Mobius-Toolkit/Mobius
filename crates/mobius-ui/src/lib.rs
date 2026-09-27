@@ -4,10 +4,11 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use mobius_api::{
     agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_app, github_manifest,
-    live, login, logout, task_list, transcript_lines, unread, workstreams,
+    inbox_dismiss, inbox_items, live, login, logout, task_list, transcript_lines, unread,
+    workstreams,
 };
 use mobius_domain::{
-    AgentNode, Author, ChatMessage, FeedRow, Live, TaskLine, TranscriptLine, Workstream,
+    AgentNode, Author, ChatMessage, FeedRow, InboxItem, Live, TaskLine, TranscriptLine, Workstream,
 };
 use time::macros::format_description;
 
@@ -20,6 +21,8 @@ pub enum Route {
         WorkstreamList {},
         #[route("/workstreams/:owner/:repo/:number")]
         Chat { owner: String, repo: String, number: i64 },
+        #[route("/inbox")]
+        Inbox {},
         #[route("/activity")]
         Activity {},
         #[route("/devices")]
@@ -52,6 +55,7 @@ struct LiveState {
     leads: Signal<HashMap<ChatKey, LeadState>>,
     unread: Signal<HashMap<ChatKey, i64>>,
     agents: Signal<HashMap<i64, AgentNode>>,
+    inbox: Signal<HashMap<i64, InboxItem>>,
 }
 
 fn unauthorized(error: &ServerFnError) -> bool {
@@ -96,6 +100,11 @@ async fn follow_live(
                     .collect(),
             );
         }
+        if let Ok(items) = inbox_items().await {
+            state
+                .inbox
+                .set(items.into_iter().map(|item| (item.id, item)).collect());
+        }
         match live(after).await {
             Ok(mut events) => {
                 while let Some(Ok(event)) = events.recv().await {
@@ -135,6 +144,12 @@ async fn follow_live(
                         Live::Agent(node) => {
                             state.agents.write().insert(node.session.id, node);
                         }
+                        Live::Inbox(item) if item.dismissed_at.is_some() => {
+                            state.inbox.write().remove(&item.id);
+                        }
+                        Live::Inbox(item) => {
+                            state.inbox.write().insert(item.id, item);
+                        }
                     }
                 }
             }
@@ -162,6 +177,7 @@ fn Frame() -> Element {
         leads: Signal::new(HashMap::new()),
         unread: Signal::new(HashMap::new()),
         agents: Signal::new(HashMap::new()),
+        inbox: Signal::new(HashMap::new()),
     });
     use_effect(move || {
         if let Some(Err(error)) = &*app_slug.read()
@@ -173,11 +189,18 @@ fn Frame() -> Element {
     use_effect(move || {
         spawn(follow_live(state, workstream_list, login_shown));
     });
+    let inbox_count = state.inbox.read().len();
     match &*app_slug.read() {
         Some(Ok(Some(_))) => rsx! {
             div { class: "shell",
                 nav { class: "rail",
                     div { class: "brand", "Mobius" }
+                    Link { class: "entry", active_class: "sel", to: Route::Inbox {},
+                        span { class: "grow", "Inbox" }
+                        if inbox_count > 0 {
+                            span { class: "count", "{inbox_count}" }
+                        }
+                    }
                     Link { class: "navbtn", active_class: "sel", to: Route::Activity {}, "Activity" }
                     div { class: "label section", "Workstreams" }
                     WorkstreamEntries {}
@@ -188,6 +211,13 @@ fn Frame() -> Element {
                 main { class: "center", Outlet::<Route> {} }
                 nav { class: "tabs",
                     Link { active_class: "on", to: Route::WorkstreamList {}, "Workstreams" }
+                    Link { active_class: "on", to: Route::Inbox {},
+                        "Inbox"
+                        if inbox_count > 0 {
+                            " "
+                            span { class: "count", "{inbox_count}" }
+                        }
+                    }
                     Link { active_class: "on", to: Route::Activity {}, "Activity" }
                     Link { active_class: "on", to: Route::GitHub {}, "GitHub" }
                     Link { active_class: "on", to: Route::Devices {}, "Devices" }
@@ -243,6 +273,60 @@ fn WorkstreamList() -> Element {
     rsx! {
         div { class: "head", h2 { "Workstreams" } }
         div { class: "list", WorkstreamEntries {} }
+    }
+}
+
+#[component]
+fn Inbox() -> Element {
+    let Workstreams(workstream_list) = use_context();
+    let LiveState { inbox, .. } = use_context();
+    let mut error = use_signal(String::new);
+    let mut items: Vec<InboxItem> = inbox.read().values().cloned().collect();
+    items.sort_by_key(|item| Reverse(item.id));
+    let titles: HashMap<(String, i64), String> = match &*workstream_list.read() {
+        Some(Ok(list)) => list
+            .iter()
+            .map(|workstream| {
+                (
+                    (workstream.repository.clone(), workstream.number),
+                    workstream.title.clone(),
+                )
+            })
+            .collect(),
+        _ => HashMap::new(),
+    };
+    rsx! {
+        div { class: "head", h2 { "Inbox" } }
+        div { class: "error note", {error} }
+        div { class: "list",
+            if items.is_empty() {
+                div { class: "muted small note", "Nothing waits for you." }
+            }
+            for item in items {
+                div { key: "{item.id}", class: "item",
+                    span { class: "chip", {item.kind.name()} }
+                    div { class: "grow",
+                        div { "{item.text}" }
+                        div { class: "muted small",
+                            {titles.get(&(item.repository.clone(), item.workstream)).cloned().unwrap_or_else(|| format!("#{}", item.workstream))}
+                            " · #{item.issue} · "
+                            {item.time.format(format_description!("[month]-[day] [hour]:[minute]")).unwrap_or_default()}
+                        }
+                    }
+                    a { href: "{item.link}", target: "_blank", "Open on GitHub" }
+                    button {
+                        class: "btn",
+                        onclick: move |_| async move {
+                            match inbox_dismiss(item.id).await {
+                                Ok(()) => error.set(String::new()),
+                                Err(failure) => error.set(error_text(&failure)),
+                            }
+                        },
+                        "Dismiss"
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -336,7 +420,7 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     let last_lead_message = messages
         .iter()
         .rev()
-        .find(|message| message.author == Author::Lead)
+        .find(|message| message.author != Author::Owner)
         .map(|message| message.id);
     let unread = state.unread.read().get(&key).copied().unwrap_or(0);
     use_effect(use_reactive(
@@ -385,7 +469,13 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
                                 key: "{message.id}",
                                 class: if message.author == Author::Owner { "msg owner" } else { "msg" },
                                 div { class: "meta",
-                                    span { {message.author.name()} }
+                                    span {
+                                        if message.author == Author::TellOwner {
+                                            "Lead · event session"
+                                        } else {
+                                            {message.author.name()}
+                                        }
+                                    }
                                     span {
                                         {message.time.format(format_description!("[hour]:[minute]")).unwrap_or_default()}
                                     }

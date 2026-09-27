@@ -1,0 +1,122 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE inbox_items SET dismissed_at = ? WHERE id = ?\n               RETURNING id AS \"id!\", kind, repository, workstream, issue, text, link,\n                         time AS \"time: OffsetDateTime\",\n                         dismissed_at AS \"dismissed_at: OffsetDateTime\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "inbox_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "kind",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_items",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "name": "repository",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_items",
+            "name": "repository"
+          }
+        }
+      },
+      {
+        "name": "workstream",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "inbox_items",
+            "name": "workstream"
+          }
+        }
+      },
+      {
+        "name": "issue",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "inbox_items",
+            "name": "issue"
+          }
+        }
+      },
+      {
+        "name": "text",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_items",
+            "name": "text"
+          }
+        }
+      },
+      {
+        "name": "link",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_items",
+            "name": "link"
+          }
+        }
+      },
+      {
+        "name": "time: OffsetDateTime",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_items",
+            "name": "time"
+          }
+        }
+      },
+      {
+        "name": "dismissed_at: OffsetDateTime",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_items",
+            "name": "dismissed_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "572b9ef332c589d50353905e672a039a042d0b2046ba6febe6abda7d37dd6a78"
+}

@@ -2,13 +2,14 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::path::Path;
 
-use mobius_domain::{Author, ChatMessage, ChatView, Live};
+use mobius_domain::{Author, ChatMessage, ChatView, InboxKind, Live};
+use mobius_github::Repository;
 use mobius_runner::Session;
 use serde_json::Value;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
-use crate::{Engine, TIME_FORMAT, gh, mcp};
+use crate::{Engine, TIME_FORMAT, gh, inbox, mcp};
 
 pub(crate) const ROLE: &str = "lead_chat";
 const ROLE_PROMPT: &str = include_str!("prompts/lead.md");
@@ -120,6 +121,38 @@ pub async fn seen(
     Ok(())
 }
 
+pub(crate) async fn tell_owner(
+    engine: &Engine,
+    repository: &Repository,
+    workstream: i64,
+    text: &str,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let name = &repository.full_name;
+    let issue = repository
+        .issue(workstream)
+        .await?
+        .ok_or("The Workstream issue does not exist.")?;
+    let chat_messages = engine.store.chat_messages();
+    let message = chat_messages
+        .add(name, workstream, Author::TellOwner, text)
+        .await?;
+    engine.broadcast(Live::Message(message));
+    engine.broadcast(Live::Unread(
+        chat_messages.unread_of(name, workstream).await?,
+    ));
+    inbox::add(
+        engine,
+        InboxKind::Lead,
+        name,
+        workstream,
+        workstream,
+        text,
+        &issue.html_url,
+    )
+    .await?;
+    Ok("Sent to the Owner.".to_string())
+}
+
 async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver<Command>) {
     let (repository, workstream) = (first.repository.clone(), first.workstream);
     let session = match lead::add_session(&engine, ROLE, &repository, workstream).await {
@@ -189,9 +222,20 @@ async fn chat(
         Some(&gh::url(engine, session_key)),
     )
     .await?;
-    let mut queue = VecDeque::from([prompt]);
+    let mut queue = VecDeque::new();
+    let mut last = first.id;
+    turn(
+        &session,
+        &prompt,
+        recorder,
+        &mut updates,
+        commands,
+        &mut queue,
+    )
+    .await?;
     loop {
-        while let Some(prompt) = queue.pop_front() {
+        while let Some(message) = queue.pop_front() {
+            let prompt = owner_prompt(engine, &message, &mut last).await?;
             turn(
                 &session,
                 &prompt,
@@ -230,7 +274,7 @@ async fn chat(
             Err(_) => None,
         };
         match command {
-            Some(Command::Prompt(message)) => queue.push_back(message.text),
+            Some(Command::Prompt(message)) => queue.push_back(message),
             Some(Command::Stop) => {}
             None => {
                 turn(
@@ -260,7 +304,7 @@ async fn turn(
     recorder: &mut Recorder,
     updates: &mut UnboundedReceiver<Value>,
     commands: &mut UnboundedReceiver<Command>,
-    queue: &mut VecDeque<String>,
+    queue: &mut VecDeque<ChatMessage>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     recorder.prompt(prompt).await?;
     let result = {
@@ -274,7 +318,7 @@ async fn turn(
                 Some(update) = updates.recv() => recorder.update(update).await?,
                 Some(command) = commands.recv() => match command {
                     Command::Stop => session.cancel(),
-                    Command::Prompt(message) => queue.push_back(message.text),
+                    Command::Prompt(message) => queue.push_back(message),
                 },
             }
         }
@@ -299,10 +343,45 @@ async fn first_prompt(
         .await?;
     let mut prompt = format!("{ROLE_PROMPT}\n{context}# Chat history\n\n");
     for message in history {
-        let author = message.author.name();
-        let time = message.time.format(TIME_FORMAT)?;
-        prompt.push_str(&format!("{author} ({time}):\n{}\n\n", message.text));
+        prompt.push_str(&block(&message)?);
     }
     prompt.push_str(&format!("# Owner message\n\n{}", first.text));
     Ok(prompt)
+}
+
+// The session already has each `tell_owner` message with an id up to `last`.
+async fn owner_prompt(
+    engine: &Engine,
+    message: &ChatMessage,
+    last: &mut i64,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let told = engine
+        .store
+        .chat_messages()
+        .after(
+            &message.repository,
+            message.workstream,
+            Author::TellOwner,
+            *last,
+        )
+        .await?;
+    let Some(newest) = told.last() else {
+        return Ok(message.text.clone());
+    };
+    *last = newest.id;
+    let mut prompt = "# Event session messages\n\n".to_string();
+    for told in &told {
+        prompt.push_str(&block(told)?);
+    }
+    prompt.push_str(&format!("# Owner message\n\n{}", message.text));
+    Ok(prompt)
+}
+
+fn block(message: &ChatMessage) -> Result<String, time::error::Format> {
+    Ok(format!(
+        "{} ({}):\n{}\n\n",
+        message.author.name(),
+        message.time.format(TIME_FORMAT)?,
+        message.text
+    ))
 }

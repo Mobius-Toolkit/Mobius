@@ -1,12 +1,15 @@
 use std::error::Error;
 
+use mobius_domain::InboxKind;
 use mobius_github::{Comment, Issue, IssueEvent, Repository};
+use mobius_store::Task;
 use time::OffsetDateTime;
 
 use crate::config::Config;
 use crate::trust::{app_login, trusted_author};
 use crate::{
-    Engine, READY_LABEL, TIME_FORMAT, WORKING_LABEL, WORKSTREAM_LABEL, activity, lead_events,
+    Engine, NEEDS_HUMAN_LABEL, READY_LABEL, TIME_FORMAT, WORKING_LABEL, WORKSTREAM_LABEL, activity,
+    inbox, lead_events,
 };
 
 const READY_CURSOR: &str = "ready";
@@ -125,21 +128,95 @@ pub(crate) async fn comment_events(
     let Some(task) = engine.store.tasks().live(name, issue.number).await? else {
         return Ok(());
     };
-    for comment in repository.issue_comments(issue.number).await? {
-        if since.is_none_or(|since| comment.created_at > since)
-            && comment_is_lead_event(&engine.config, app_slug, &comment)
-        {
-            let text = event_text(
-                comment.created_at,
-                "comment on",
-                issue,
-                &comment.user.login,
-                &comment.body,
-            )?;
-            lead_events::add(engine, name, task.workstream, "comment", &text).await?;
-        }
+    let comments = repository.issue_comments(issue.number).await?;
+    let (replies, answered) = replies(&engine.config, app_slug, &comments, since);
+    if answered && issue.has_label(NEEDS_HUMAN_LABEL) {
+        repository
+            .remove_label(issue.number, NEEDS_HUMAN_LABEL)
+            .await?;
+    }
+    for comment in replies {
+        let text = event_text(
+            comment.created_at,
+            "comment on",
+            issue,
+            &comment.user.login,
+            &comment.body,
+        )?;
+        lead_events::add(engine, name, task.workstream, "comment", &text).await?;
     }
     Ok(())
+}
+
+// Gives the new comments that are Lead events. The `bool` is `true` when the newest of them is newer than the last comment of the Mobius App, the question.
+fn replies<'a>(
+    config: &Config,
+    app_slug: &str,
+    comments: &'a [Comment],
+    since: Option<OffsetDateTime>,
+) -> (Vec<&'a Comment>, bool) {
+    let asked_at = comments
+        .iter()
+        .filter(|comment| {
+            comment
+                .user
+                .login
+                .eq_ignore_ascii_case(&app_login(app_slug))
+        })
+        .map(|comment| comment.created_at)
+        .max();
+    let replies: Vec<&Comment> = comments
+        .iter()
+        .filter(|comment| {
+            since.is_none_or(|since| comment.created_at > since)
+                && comment_is_lead_event(config, app_slug, comment)
+        })
+        .collect();
+    let answered = replies.iter().map(|comment| comment.created_at).max() > asked_at;
+    (replies, answered)
+}
+
+async fn live_task(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+    number: i64,
+) -> Result<Task, Box<dyn Error + Send + Sync>> {
+    Ok(engine
+        .store
+        .tasks()
+        .live(repository, number)
+        .await?
+        .filter(|task| task.workstream == workstream)
+        .ok_or_else(|| format!("#{number} has no live task in this Workstream."))?)
+}
+
+pub(crate) async fn ask(
+    engine: &Engine,
+    repository: &Repository,
+    workstream: i64,
+    number: i64,
+    text: &str,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let name = &repository.full_name;
+    live_task(engine, name, workstream, number).await?;
+    let issue = repository
+        .issue(number)
+        .await?
+        .ok_or_else(|| format!("#{number} does not exist."))?;
+    repository.add_comment(number, text).await?;
+    repository.add_label(number, NEEDS_HUMAN_LABEL).await?;
+    inbox::add(
+        engine,
+        InboxKind::Question,
+        name,
+        workstream,
+        number,
+        text,
+        &issue.html_url,
+    )
+    .await?;
+    Ok(format!("Asked on #{number}."))
 }
 
 pub(crate) async fn decline(
@@ -151,13 +228,7 @@ pub(crate) async fn decline(
     reason: &str,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let name = &repository.full_name;
-    let task = engine
-        .store
-        .tasks()
-        .live(name, number)
-        .await?
-        .filter(|task| task.workstream == workstream)
-        .ok_or_else(|| format!("#{number} has no live task in this Workstream."))?;
+    let task = live_task(engine, name, workstream, number).await?;
     repository.add_comment(number, reason).await?;
     repository.remove_label(number, WORKING_LABEL).await?;
     engine.store.tasks().end(task.id).await?;
@@ -345,6 +416,53 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
             "mobius-app",
             &comment("mallory", None)
         ));
+    }
+
+    fn comment_at(author: &str, seconds: i64) -> Comment {
+        Comment {
+            created_at: OffsetDateTime::from_unix_timestamp(seconds).unwrap(),
+            ..comment(author, None)
+        }
+    }
+
+    #[test]
+    fn a_reply_after_the_last_comment_of_the_mobius_app_answers_it() {
+        let comments = [
+            comment_at("owner", 1),
+            comment_at("mobius-app[bot]", 2),
+            comment_at("owner", 3),
+        ];
+
+        let (replies, answered) = replies(&config(), "mobius-app", &comments, None);
+
+        assert_eq!(replies.len(), 2);
+        assert!(answered);
+    }
+
+    #[test]
+    fn a_reply_before_the_last_comment_of_the_mobius_app_does_not_answer_it() {
+        let comments = [
+            comment_at("owner", 1),
+            comment_at("mobius-app[bot]", 2),
+            comment_at("mallory", 3),
+        ];
+
+        let (replies, answered) = replies(&config(), "mobius-app", &comments, None);
+
+        assert_eq!(replies.len(), 1);
+        assert!(!answered);
+    }
+
+    #[test]
+    fn only_a_comment_after_the_cursor_is_a_reply() {
+        let comments = [comment_at("owner", 1), comment_at("owner", 3)];
+        let since = OffsetDateTime::from_unix_timestamp(2).ok();
+
+        let (replies, answered) = replies(&config(), "mobius-app", &comments, since);
+
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0].created_at.unix_timestamp(), 3);
+        assert!(answered);
     }
 
     #[test]

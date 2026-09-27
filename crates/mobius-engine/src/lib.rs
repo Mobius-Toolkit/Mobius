@@ -6,6 +6,7 @@ pub mod config;
 mod dispatch;
 pub mod gh;
 pub mod github;
+pub mod inbox;
 mod issues;
 mod lead;
 mod lead_events;
@@ -33,6 +34,7 @@ use tokio::sync::broadcast;
 const WORKSTREAM_LABEL: &str = "mobius:workstream";
 const READY_LABEL: &str = "mobius:ready";
 const WORKING_LABEL: &str = "mobius:working";
+const NEEDS_HUMAN_LABEL: &str = "mobius:needs-human";
 const TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[year]-[month]-[day] [hour]:[minute] UTC");
 
