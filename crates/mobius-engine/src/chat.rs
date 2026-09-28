@@ -33,11 +33,30 @@ pub async fn send(
     workstream: i64,
     text: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    post(engine, repository, workstream, Author::Owner, text).await
+}
+
+pub(crate) async fn post(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+    author: Author,
+    text: &str,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let message = engine
         .store
         .chat_messages()
-        .add(repository, workstream, Author::Owner, text)
+        .add(repository, workstream, author, text)
         .await?;
+    if author != Author::Owner {
+        engine.broadcast(Live::Unread(
+            engine
+                .store
+                .chat_messages()
+                .unread_of(repository, workstream)
+                .await?,
+        ));
+    }
     engine.broadcast(Live::Message(message.clone()));
     let mut chats = engine.chats.lock().unwrap();
     let key = (repository.to_string(), workstream);
@@ -266,7 +285,7 @@ async fn chat(
     .await?;
     loop {
         while let Some(message) = queue.pop_front() {
-            let prompt = owner_prompt(engine, &message, &mut last).await?;
+            let prompt = message_prompt(engine, &message, &mut last).await?;
             turn(
                 &session,
                 &prompt,
@@ -376,12 +395,16 @@ async fn first_prompt(
     for message in history {
         prompt.push_str(&block(&message)?);
     }
-    prompt.push_str(&format!("# Owner message\n\n{}", first.text));
+    prompt.push_str(&format!(
+        "# {} message\n\n{}",
+        first.author.name(),
+        first.text
+    ));
     Ok(prompt)
 }
 
 // The session already has each `tell_owner` message with an id up to `last`.
-async fn owner_prompt(
+async fn message_prompt(
     engine: &Engine,
     message: &ChatMessage,
     last: &mut i64,
@@ -396,15 +419,19 @@ async fn owner_prompt(
             *last,
         )
         .await?;
+    let heading = format!("# {} message\n\n", message.author.name());
     let Some(newest) = told.last() else {
-        return Ok(message.text.clone());
+        return Ok(match message.author {
+            Author::Owner => message.text.clone(),
+            _ => format!("{heading}{}", message.text),
+        });
     };
     *last = newest.id;
     let mut prompt = "# Event session messages\n\n".to_string();
     for told in &told {
         prompt.push_str(&block(told)?);
     }
-    prompt.push_str(&format!("# Owner message\n\n{}", message.text));
+    prompt.push_str(&format!("{heading}{}", message.text));
     Ok(prompt)
 }
 

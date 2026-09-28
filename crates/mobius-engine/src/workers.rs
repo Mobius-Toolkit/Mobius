@@ -3,6 +3,7 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 use mobius_domain::{Harness, Live};
+use time::OffsetDateTime;
 use tokio::sync::Notify;
 
 use crate::config::Config;
@@ -55,7 +56,7 @@ pub(crate) async fn slot(
         .unwrap()
         .queued
         .insert(task, harness);
-    let slot = wait(engine, task, session, harness).await;
+    let slot = wait(engine, Place::Task(task), session, harness).await;
     engine.workers.counts.lock().unwrap().queued.remove(&task);
     engine.workers.changed.notify_waiters();
     let Some(slot) = slot? else {
@@ -74,9 +75,27 @@ pub(crate) async fn slot(
     Ok(Some(slot))
 }
 
+pub(crate) async fn research_slot(
+    engine: &Engine,
+    session: i64,
+    harness: Harness,
+) -> Result<Option<Slot>, Box<dyn Error + Send + Sync>> {
+    let since = OffsetDateTime::now_utc();
+    let slot = wait(engine, Place::Since(since), session, harness).await?;
+    let started = engine.store.sessions().start(session).await?;
+    engine.broadcast(Live::Agent(agents::node(started)));
+    Ok(slot)
+}
+
+// A Researcher has no task, so it waits behind each task that queued before it.
+enum Place {
+    Task(i64),
+    Since(OffsetDateTime),
+}
+
 async fn wait(
     engine: &Engine,
-    task: i64,
+    place: Place,
     session: i64,
     harness: Harness,
 ) -> Result<Option<Slot>, Box<dyn Error + Send + Sync>> {
@@ -86,18 +105,26 @@ async fn wait(
         tokio::pin!(changed);
         changed.as_mut().enable();
         let queue = engine.store.tasks().queued().await?;
-        let Some(position) = queue.iter().position(|id| *id == task) else {
-            return Ok(None);
+        let position = match place {
+            Place::Task(task) => {
+                let Some(position) = queue.iter().position(|(id, _)| *id == task) else {
+                    return Ok(None);
+                };
+                position
+            }
+            Place::Since(since) => queue.iter().filter(|(_, at)| *at <= since).count(),
         };
         let text = {
             let mut counts = engine.workers.counts.lock().unwrap();
             let earlier: Vec<Harness> = queue[..position]
                 .iter()
-                .filter_map(|id| counts.queued.get(id).copied())
+                .filter_map(|(id, _)| counts.queued.get(id).copied())
                 .collect();
             let Some(text) = reason(&engine.config, &counts.running, &earlier, harness) else {
                 *counts.running.entry(harness).or_default() += 1;
-                counts.queued.remove(&task);
+                if let Place::Task(task) = place {
+                    counts.queued.remove(&task);
+                }
                 return Ok(Some(Slot {
                     workers: engine.workers.clone(),
                     harness,
