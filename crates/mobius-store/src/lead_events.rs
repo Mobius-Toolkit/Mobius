@@ -54,6 +54,24 @@ impl LeadEvents<'_> {
         Ok(event)
     }
 
+    pub async fn undelivered(
+        &self,
+        repository: &str,
+        workstream: i64,
+    ) -> Result<Vec<LeadEvent>, Box<dyn Error + Send + Sync>> {
+        let events = sqlx::query_as!(
+            LeadEvent,
+            r#"SELECT id, payload FROM lead_events
+               WHERE repository = ? AND workstream = ? AND delivered_at IS NULL
+               ORDER BY id"#,
+            repository,
+            workstream
+        )
+        .fetch_all(self.pool)
+        .await?;
+        Ok(events)
+    }
+
     pub async fn deliver_all(
         &self,
         repository: &str,

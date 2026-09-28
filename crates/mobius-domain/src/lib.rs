@@ -188,15 +188,17 @@ pub enum InboxKind {
     ReadyForReview,
     StalePullRequest,
     UsageLimit,
+    LeadFailed,
 }
 
 impl InboxKind {
-    pub const ALL: [InboxKind; 5] = [
+    pub const ALL: [InboxKind; 6] = [
         InboxKind::Question,
         InboxKind::Lead,
         InboxKind::ReadyForReview,
         InboxKind::StalePullRequest,
         InboxKind::UsageLimit,
+        InboxKind::LeadFailed,
     ];
 
     pub fn name(self) -> &'static str {
@@ -206,6 +208,7 @@ impl InboxKind {
             InboxKind::ReadyForReview => "ready for review",
             InboxKind::StalePullRequest => "stale pull request",
             InboxKind::UsageLimit => "usage limit",
+            InboxKind::LeadFailed => "Lead failed",
         }
     }
 }

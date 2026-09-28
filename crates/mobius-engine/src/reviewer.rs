@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::pin::Pin;
 
 use mobius_domain::InboxKind;
 use mobius_github::{PullRequest, Repository, ReviewThread};
@@ -6,11 +7,14 @@ use time::OffsetDateTime;
 
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
-use crate::{Engine, TIME_FORMAT, ends, implementer, inbox, issues, lead_events, mcp, workers};
+use crate::{
+    Engine, TIME_FORMAT, ends, housekeeper, implementer, inbox, issues, lead_events, mcp, workers,
+};
 
 pub(crate) const ROLE: &str = "reviewer";
 const ROLE_PROMPT: &str = include_str!("prompts/reviewer.md");
 
+#[derive(Clone)]
 pub(crate) struct Job {
     pub(crate) repository: String,
     pub(crate) workstream: i64,
@@ -23,22 +27,36 @@ pub(crate) struct Job {
     pub(crate) check_run: i64,
 }
 
-pub(crate) async fn run(engine: Engine, job: Job) {
-    let Err(error) = session(&engine, &job).await else {
-        return;
-    };
-    eprintln!(
-        "mobius: Reviewer of {}#{}: {error}",
-        job.repository, job.number
-    );
-    if let Err(failure) =
-        implementer::hand_to_human(&engine, &job.repository, job.task, job.number).await
-    {
+// The future has a named type, because it starts itself again after a failure.
+pub(crate) fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+    Box::pin(async move {
+        let Err(error) = session(&engine, &job).await else {
+            return;
+        };
         eprintln!(
-            "mobius: stop of {}#{}: {failure}",
+            "mobius: Reviewer of {}#{}: {error}",
             job.repository, job.number
         );
-    }
+        match housekeeper::restart(
+            &engine,
+            &job.repository,
+            job.workstream,
+            job.task,
+            job.number,
+            &job.title,
+        )
+        .await
+        {
+            Ok(true) => {
+                tokio::spawn(run(engine.clone(), job));
+            }
+            Ok(false) => {}
+            Err(failure) => eprintln!(
+                "mobius: restart of {}#{}: {failure}",
+                job.repository, job.number
+            ),
+        }
+    })
 }
 
 async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send + Sync>> {

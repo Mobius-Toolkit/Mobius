@@ -220,10 +220,29 @@ impl Tasks<'_> {
         Ok(())
     }
 
+    // Gives `false` when the task has `max` Worker restarts.
+    pub async fn add_worker_restart(
+        &self,
+        id: i64,
+        max: u32,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let result = sqlx::query!(
+            "UPDATE tasks SET worker_restarts = worker_restarts + 1 WHERE id = ? AND worker_restarts < ?",
+            id,
+            max
+        )
+        .execute(self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn reset_counters(&self, id: i64) -> Result<(), Box<dyn Error + Send + Sync>> {
-        sqlx::query!("UPDATE tasks SET fix_rounds = 0 WHERE id = ?", id)
-            .execute(self.pool)
-            .await?;
+        sqlx::query!(
+            "UPDATE tasks SET fix_rounds = 0, worker_restarts = 0 WHERE id = ?",
+            id
+        )
+        .execute(self.pool)
+        .await?;
         Ok(())
     }
 

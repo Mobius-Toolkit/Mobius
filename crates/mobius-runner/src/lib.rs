@@ -174,6 +174,48 @@ pub fn task_dir(data_dir: &Path, repository: &str, number: i64) -> PathBuf {
         .join(format!("task-{number}"))
 }
 
+// Each item is a repository and the name of one of its directories below `worktrees/`, for example ("owner/shop", "task-41").
+pub fn worktree_dirs(data_dir: &Path) -> io::Result<Vec<(String, String)>> {
+    let mut dirs = Vec::new();
+    for owner in subdirectories(&data_dir.join("worktrees"))? {
+        for repository in subdirectories(&data_dir.join("worktrees").join(&owner))? {
+            let path = data_dir.join("worktrees").join(&owner).join(&repository);
+            for name in subdirectories(&path)? {
+                dirs.push((format!("{owner}/{repository}"), name));
+            }
+        }
+    }
+    Ok(dirs)
+}
+
+pub fn scratch_ids(data_dir: &Path) -> io::Result<Vec<String>> {
+    subdirectories(&data_dir.join("scratch"))
+}
+
+// A directory that does not exist has no subdirectories.
+fn subdirectories(dir: &Path) -> io::Result<Vec<String>> {
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut names = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            names.push(entry.file_name().to_string_lossy().into_owned());
+        }
+    }
+    Ok(names)
+}
+
+// A directory of a worktree can go away with `fs`, and `git worktree prune` then removes its record from the bare clone.
+pub async fn prune(data_dir: &Path, repository: &str) -> Result<(), String> {
+    let bare = bare_dir(data_dir, repository);
+    if bare.exists() {
+        run(git(&bare, data_dir, None).args(["worktree", "prune"])).await?;
+    }
+    Ok(())
+}
+
 pub fn scratch_dir(data_dir: &Path, id: i64) -> PathBuf {
     data_dir.join("scratch").join(id.to_string())
 }

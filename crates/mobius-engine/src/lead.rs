@@ -3,7 +3,7 @@ use std::path::Path;
 
 use mobius_domain::{Author, Live};
 use mobius_github::Repository;
-use mobius_runner::Session;
+use mobius_runner::{PromptError, Session};
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use tokio::sync::broadcast;
@@ -256,4 +256,18 @@ pub(crate) async fn stopped(
             return;
         }
     }
+}
+
+// A new Lead session starts after a crash a maximum of this number of times. Then the prompts go to the Inbox as "Lead failed".
+pub(crate) const MAX_CRASHES: u32 = 3;
+
+// A context error starts a new session with a new first prompt, and it does not count as a crash.
+pub(crate) fn context_error(error: &(dyn Error + Send + Sync + 'static)) -> bool {
+    let Some(error) = error.downcast_ref::<PromptError>() else {
+        return false;
+    };
+    let text = error.to_string().to_lowercase();
+    text.contains("prompt is too long")
+        || text.contains("context window")
+        || text.contains("context length")
 }
