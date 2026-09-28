@@ -3,6 +3,7 @@ use std::pin::Pin;
 
 use mobius_domain::InboxKind;
 use mobius_github::{PullRequest, Repository, ReviewThread};
+use mobius_store::Task;
 use time::OffsetDateTime;
 
 use crate::lead::{self, Recorder};
@@ -27,6 +28,58 @@ pub(crate) struct Job {
     pub(crate) check_run: i64,
 }
 
+// Gives `false` when the task is not `working`, for example after a decline of the Lead.
+pub(crate) async fn queue(
+    engine: &Engine,
+    task: i64,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    let tasks = engine.store.tasks();
+    if !tasks.queue(task, "working").await? {
+        return Ok(false);
+    }
+    tasks.set_worker(task, ROLE, None).await?;
+    Ok(true)
+}
+
+// The head of the pull request gets a new `Mobius` check run, because the store has no id of the old one.
+pub(crate) async fn restart(
+    engine: &Engine,
+    repository: &Repository,
+    task: &Task,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let (Some(number), Some(branch)) = (task.pull_request, task.branch.clone()) else {
+        return Ok(());
+    };
+    let pull_request = repository.pull_request(number).await?;
+    let title = repository
+        .issue(task.issue)
+        .await?
+        .ok_or_else(|| format!("#{} does not exist.", task.issue))?
+        .title;
+    let head = pull_request.head.sha.clone();
+    if !engine.store.tasks().requeue(task.id).await? {
+        return Ok(());
+    }
+    let check_run = repository
+        .create_check_run(implementer::CHECK_RUN, &head, "in_progress")
+        .await?;
+    tokio::spawn(run(
+        engine.clone(),
+        Job {
+            repository: repository.full_name.clone(),
+            workstream: task.workstream,
+            task: task.id,
+            number: task.issue,
+            title,
+            branch,
+            pull_request,
+            head,
+            check_run,
+        },
+    ));
+    Ok(())
+}
+
 // The future has a named type, because it starts itself again after a failure.
 pub(crate) fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> + Send>> {
     Box::pin(async move {
@@ -47,9 +100,16 @@ pub(crate) fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> +
         )
         .await
         {
-            Ok(true) => {
-                tokio::spawn(run(engine.clone(), job));
-            }
+            Ok(true) => match queue(&engine, job.task).await {
+                Ok(true) => {
+                    tokio::spawn(run(engine.clone(), job));
+                }
+                Ok(false) => {}
+                Err(failure) => eprintln!(
+                    "mobius: restart of {}#{}: {failure}",
+                    job.repository, job.number
+                ),
+            },
             Ok(false) => {}
             Err(failure) => eprintln!(
                 "mobius: restart of {}#{}: {failure}",
@@ -62,10 +122,6 @@ pub(crate) fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> +
 async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send + Sync>> {
     // The subscription comes before the first state change, so the session gets each stop of the task.
     let mut stops = engine.stops.subscribe();
-    // A task that the Lead declined during the Implementer session gets no Reviewer.
-    if !engine.store.tasks().queue(job.task, "working").await? {
-        return Ok(());
-    }
     let binding = &engine.config.roles.reviewer;
     let session = lead::add_session(engine, ROLE, binding, &job.repository, job.workstream).await?;
     let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, None);

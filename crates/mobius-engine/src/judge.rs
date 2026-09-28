@@ -127,6 +127,11 @@ pub(crate) async fn check(
     {
         return Ok(());
     }
+    engine
+        .store
+        .tasks()
+        .set_worker(task.id, ROLE, Some(&task.state))
+        .await?;
     tokio::spawn(run(
         engine.clone(),
         stops,

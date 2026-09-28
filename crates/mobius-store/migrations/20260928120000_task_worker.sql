@@ -1,0 +1,2 @@
+ALTER TABLE tasks ADD COLUMN worker TEXT;
+ALTER TABLE tasks ADD COLUMN worker_input TEXT;

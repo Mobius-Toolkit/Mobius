@@ -27,6 +27,12 @@ pub(crate) async fn add(
         .lead_events()
         .add(repository, workstream, kind, payload)
         .await?;
+    wake(engine, repository, workstream);
+    Ok(())
+}
+
+// An event session starts when none runs, and it reads each undelivered event of the Workstream.
+pub(crate) fn wake(engine: &Engine, repository: &str, workstream: i64) {
     let mut sessions = engine.event_sessions.lock().unwrap();
     let key = (repository.to_string(), workstream);
     match sessions.get(&key) {
@@ -47,7 +53,6 @@ pub(crate) async fn add(
             ));
         }
     }
-    Ok(())
 }
 
 // After a crash, a new session gets the same event, because an event stays in the queue until its turn ends.

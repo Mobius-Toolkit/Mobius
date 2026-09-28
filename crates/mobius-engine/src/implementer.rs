@@ -19,6 +19,8 @@ use crate::{
 pub(crate) const ROLE: &str = "implementer";
 const ROLE_PROMPT: &str = include_str!("prompts/implementer.md");
 pub(crate) const CHECK_RUN: &str = "Mobius";
+// The Worker kind of a task in a conflict round.
+pub(crate) const CONFLICT_ROUND: &str = "conflict_round";
 // GitHub allows a maximum of 65535 characters in the summary of a check run.
 const LOG_TAIL: usize = 60_000;
 
@@ -88,6 +90,11 @@ pub(crate) async fn start(
             "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n{issue}\n# Lead instructions\n\n{instructions}"
         ),
     };
+    engine
+        .store
+        .tasks()
+        .set_worker(task.id, ROLE, Some(&job.prompt))
+        .await?;
     tokio::spawn(run(engine.clone(), job));
     Ok(format!("Started an Implementer for #{number}."))
 }
@@ -170,6 +177,42 @@ pub(crate) async fn fix_round(
             round.items
         ),
     };
+    tasks.set_worker(job.task, ROLE, Some(&job.prompt)).await?;
+    tokio::spawn(run(engine.clone(), job));
+    Ok(())
+}
+
+pub(crate) async fn restart(
+    engine: &Engine,
+    repository: &Repository,
+    task: &Task,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let Some(prompt) = task.worker_input.clone() else {
+        return Ok(());
+    };
+    let title = repository
+        .issue(task.issue)
+        .await?
+        .ok_or_else(|| format!("#{} does not exist.", task.issue))?
+        .title;
+    let pull_request = match task.pull_request {
+        Some(number) => Some(repository.pull_request(number).await?),
+        None => None,
+    };
+    if !engine.store.tasks().requeue(task.id).await? {
+        return Ok(());
+    }
+    let job = Job {
+        repository: repository.full_name.clone(),
+        workstream: task.workstream,
+        task: task.id,
+        number: task.issue,
+        title,
+        branch: task.branch.clone(),
+        pull_request,
+        conflict_round: task.worker.as_deref() == Some(CONFLICT_ROUND),
+        prompt,
+    };
     tokio::spawn(run(engine.clone(), job));
     Ok(())
 }
@@ -209,6 +252,11 @@ pub(crate) async fn conflict_round(
         conflict_round: true,
         prompt,
     };
+    engine
+        .store
+        .tasks()
+        .set_worker(task.id, CONFLICT_ROUND, Some(&job.prompt))
+        .await?;
     tokio::spawn(run(engine.clone(), job));
     Ok(())
 }
@@ -331,6 +379,10 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         Ok(Outcome::Stopped) => lead::end_session(engine, session, "stopped").await,
         Ok(Outcome::Done(pushed)) => {
             lead::end_session(engine, session, "done").await?;
+            // A task that the Lead declined during the Implementer session gets no Reviewer.
+            if !reviewer::queue(engine, job.task).await? {
+                return Ok(());
+            }
             tokio::spawn(reviewer::run(
                 engine.clone(),
                 reviewer::Job {
