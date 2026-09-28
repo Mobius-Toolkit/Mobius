@@ -13,6 +13,8 @@ use mobius_domain::{
 };
 use time::macros::format_description;
 
+const MAIN_CSS: Asset = asset!("/assets/main.css");
+
 #[derive(Clone, PartialEq, Routable)]
 #[rustfmt::skip]
 pub enum Route {
@@ -34,6 +36,16 @@ pub enum Route {
         Devices {},
         #[route("/github")]
         GitHub {},
+        #[route("/settings")]
+        Settings {},
+}
+
+#[component]
+pub fn App() -> Element {
+    rsx! {
+        document::Stylesheet { href: MAIN_CSS }
+        Router::<Route> {}
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -225,17 +237,29 @@ fn Frame() -> Element {
                 }
                 main { class: "center", Outlet::<Route> {} }
                 nav { class: "tabs",
-                    Link { active_class: "on", to: Route::WorkstreamList {}, "Workstreams" }
+                    Link { active_class: "on", to: Route::WorkstreamList {},
+                        span { class: "glyph", "◎" }
+                        "Workstreams"
+                    }
                     Link { active_class: "on", to: Route::Inbox {},
-                        "Inbox"
-                        if inbox_count > 0 {
-                            " "
-                            span { class: "count", "{inbox_count}" }
+                        span { class: "glyph", "▤" }
+                        span {
+                            "Inbox"
+                            if inbox_count > 0 {
+                                " "
+                                span { class: "count", "{inbox_count}" }
+                            }
                         }
                     }
-                    Link { active_class: "on", to: Route::Activity {}, "Activity" }
-                    Link { active_class: "on", to: Route::GitHub {}, "GitHub" }
-                    Link { active_class: "on", to: Route::Devices {}, "Devices" }
+                    Link { active_class: "on", to: Route::Activity {},
+                        span { class: "glyph", "≡" }
+                        "Activity"
+                    }
+                    Link { active_class: "on", to: Route::Settings {},
+                        // U+FE0E selects the text form of the gear, not the emoji.
+                        span { class: "glyph", "\u{2699}\u{fe0e}" }
+                        "Settings"
+                    }
                 }
             }
         },
@@ -294,6 +318,21 @@ fn WorkstreamList() -> Element {
             WorkstreamEntries {}
             Link { class: "entry", to: Route::ServerAgents {},
                 span { class: "grow", "Server agents" }
+            }
+        }
+    }
+}
+
+#[component]
+fn Settings() -> Element {
+    rsx! {
+        div { class: "head", h2 { "Settings" } }
+        div { class: "list",
+            Link { class: "entry", to: Route::GitHub {},
+                span { class: "grow", "GitHub" }
+            }
+            Link { class: "entry", to: Route::Devices {},
+                span { class: "grow", "Devices" }
             }
         }
     }

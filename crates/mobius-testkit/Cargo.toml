@@ -18,8 +18,14 @@ tokio = { workspace = true, features = ["macros", "net", "sync", "time"] }
 toml = { workspace = true }
 
 [dev-dependencies]
+chromiumoxide = { workspace = true }
 dioxus = { workspace = true, features = ["fullstack", "server"] }
+futures-util = { workspace = true }
 mobius-api = { workspace = true, features = ["server"] }
 mobius-domain = { workspace = true }
+mobius-ui = { workspace = true, features = ["server"] }
+png = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["macros"] }
 tower = { workspace = true, features = ["util"] }
