@@ -13,7 +13,7 @@ pub async fn list(
     workstream: i64,
 ) -> Result<Vec<TaskLine>, Box<dyn Error + Send + Sync>> {
     let repository = engine.repository(repository)?;
-    let trusted = trust::trusted_authors(engine).await?;
+    let trusted = trust::trusted_authors(engine, &repository);
     let mut lines = Vec::new();
     let mut parents = VecDeque::from([workstream]);
     while let Some(parent) = parents.pop_front() {

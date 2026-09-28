@@ -95,14 +95,16 @@ pub async fn logout(id: i64) -> ServerFnResult<()> {
     Ok(())
 }
 
-#[get("/api/github/app", _device: DeviceId, store: Extension<Store>)]
-pub async fn github_app() -> ServerFnResult<Option<String>> {
+#[get("/api/github/apps", _device: DeviceId, store: Extension<Store>)]
+pub async fn github_apps() -> ServerFnResult<Vec<String>> {
     Ok(store
-        .github_app()
-        .get()
+        .github_apps()
+        .list()
         .await
         .map_err(ServerFnError::new)?
-        .map(|app| app.slug))
+        .into_iter()
+        .map(|app| app.slug)
+        .collect())
 }
 
 #[post("/api/github/manifest", _device: DeviceId, engine: Extension<Engine>)]
@@ -138,6 +140,11 @@ pub async fn github_user_callback() -> ServerFnResult<Redirect> {
         .into());
     }
     Ok(Redirect::to("/github"))
+}
+
+#[get("/api/organizations", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn organizations() -> ServerFnResult<Vec<String>> {
+    Ok(workstreams::organizations(&engine))
 }
 
 #[get("/api/workstreams", _device: DeviceId, engine: Extension<Engine>)]

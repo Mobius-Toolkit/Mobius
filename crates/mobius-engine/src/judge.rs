@@ -81,13 +81,7 @@ pub(crate) async fn check(
     task: &Task,
     pull_request: PullRequest,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let app = engine
-        .store
-        .github_app()
-        .get()
-        .await?
-        .ok_or("The Mobius App does not exist.")?;
-    let app_login = app_login(&app.slug);
+    let app_login = app_login(&repository.app_slug);
     let items = new_items(engine, repository, task, pull_request.number, &app_login).await?;
     // Only a trusted user continues a task that waits for a human.
     if task.state == "needs_human" && items.iter().all(|item| item.bot) {
@@ -158,7 +152,7 @@ async fn new_items(
     pull_request: i64,
     app_login: &str,
 ) -> Result<Vec<Item>, Box<dyn Error + Send + Sync>> {
-    let trusted = trust::trusted_authors(engine).await?;
+    let trusted = trust::trusted_authors(engine, repository);
     let bot = |login: &str| {
         engine
             .config
@@ -223,7 +217,7 @@ async fn ready(
     pull_request: PullRequest,
     app_login: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let trusted = trust::trusted_authors(engine).await?;
+    let trusted = trust::trusted_authors(engine, repository);
     if repository
         .review_threads(pull_request.number)
         .await?

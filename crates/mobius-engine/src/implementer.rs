@@ -68,7 +68,7 @@ pub(crate) async fn start(
         .await?
         .ok_or_else(|| format!("#{number} does not exist."))?
         .title;
-    let trusted = trust::trusted_authors(engine).await?;
+    let trusted = trust::trusted_authors(engine, repository);
     let issue = issues::read_issue(repository, number, &trusted).await?;
     let pull_request = match task.pull_request {
         Some(number) => Some(repository.pull_request(number).await?),
@@ -471,16 +471,10 @@ async fn implement(
             branch.clone()
         }
         None => {
-            let app = engine
-                .store
-                .github_app()
-                .get()
-                .await?
-                .ok_or("The Mobius App does not exist.")?;
-            let login = app_login(&app.slug);
+            let repository = engine.repository(name)?;
+            let login = app_login(&repository.app_slug);
             let id = engine.github.user_id(&login).await?;
             let _git = engine.git.lock().await;
-            let repository = engine.repository(name)?;
             mobius_runner::fetch(data_dir, name, &repository.clone_url, repository.token()).await?;
             let branch = mobius_runner::add_worktree(
                 data_dir,

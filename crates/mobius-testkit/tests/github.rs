@@ -71,7 +71,13 @@ async fn manifest_callback_stores_the_app() {
         .await
         .unwrap();
 
-    let app = engine.store.github_app().get().await.unwrap().unwrap();
+    let app = engine
+        .store
+        .github_apps()
+        .get(fake_github::APP_ID)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(app.app_id, fake_github::APP_ID);
     assert_eq!(app.slug, fake_github::APP_SLUG);
     assert_eq!(app.private_key, fake_github::APP_PRIVATE_KEY);
@@ -95,7 +101,13 @@ async fn user_callback_stores_the_tokens_and_a_new_authorization_replaces_them()
         .unwrap();
 
     assert!(github::authorize_user(&engine, "first-code").await.unwrap());
-    let app = engine.store.github_app().get().await.unwrap().unwrap();
+    let app = engine
+        .store
+        .github_apps()
+        .get(fake_github::APP_ID)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(app.user_token.as_deref(), Some("ghu_1"));
     assert_eq!(app.refresh_token.as_deref(), Some("ghr_1"));
     assert!(app.user_token_expires_at.unwrap() > OffsetDateTime::now_utc() + Duration::hours(7));
@@ -105,7 +117,13 @@ async fn user_callback_stores_the_tokens_and_a_new_authorization_replaces_them()
             .await
             .unwrap()
     );
-    let app = engine.store.github_app().get().await.unwrap().unwrap();
+    let app = engine
+        .store
+        .github_apps()
+        .get(fake_github::APP_ID)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(app.user_token.as_deref(), Some("ghu_2"));
     assert_eq!(app.refresh_token.as_deref(), Some("ghr_2"));
 }
@@ -127,13 +145,19 @@ async fn user_callback_refuses_a_login_that_is_not_trusted() {
             .unwrap()
     );
 
-    let app = engine.store.github_app().get().await.unwrap().unwrap();
+    let app = engine
+        .store
+        .github_apps()
+        .get(fake_github::APP_ID)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(app.user_token, None);
     assert_eq!(app.refresh_token, None);
 }
 
 #[tokio::test]
-async fn manifest_callback_refuses_a_second_app() {
+async fn manifest_callback_adds_a_second_app() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     github.add_manifest_code("first-code");
@@ -143,11 +167,44 @@ async fn manifest_callback_refuses_a_second_app() {
         .await
         .unwrap();
 
-    let error = github::convert_manifest(&engine, "second-code")
+    github::convert_manifest(&engine, "second-code")
         .await
-        .unwrap_err();
+        .unwrap();
 
-    assert_eq!(error.to_string(), "The Mobius App already exists.");
+    let slugs: Vec<String> = engine
+        .store
+        .github_apps()
+        .list()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|app| app.slug)
+        .collect();
+    assert_eq!(slugs, [fake_github::APP_SLUG, fake_github::SECOND_APP_SLUG]);
+}
+
+#[tokio::test]
+async fn user_callback_stores_the_tokens_on_the_app_of_the_code() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("first-code");
+    github.add_manifest_code("second-code");
+    github.add_second_app_user_code("user-code", "owner");
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    github::convert_manifest(&engine, "first-code")
+        .await
+        .unwrap();
+    github::convert_manifest(&engine, "second-code")
+        .await
+        .unwrap();
+
+    assert!(github::authorize_user(&engine, "user-code").await.unwrap());
+
+    let apps = engine.store.github_apps();
+    let first = apps.get(fake_github::APP_ID).await.unwrap().unwrap();
+    let second = apps.get(fake_github::SECOND_APP_ID).await.unwrap().unwrap();
+    assert_eq!(first.user_token, None);
+    assert_eq!(second.user_token.as_deref(), Some("ghu_1"));
 }
 
 #[tokio::test]

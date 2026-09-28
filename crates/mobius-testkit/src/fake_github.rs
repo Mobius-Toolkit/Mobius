@@ -11,6 +11,8 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -25,10 +27,41 @@ pub const APP_SLUG: &str = "mobius-test";
 pub const APP_PRIVATE_KEY: &str = include_str!("app_private_key.pem");
 pub const APP_CLIENT_ID: &str = "Iv23test";
 pub const APP_CLIENT_SECRET: &str = "client-secret";
+pub const SECOND_APP_ID: i64 = 8;
+pub const SECOND_APP_SLUG: &str = "mobius-second";
+pub const SECOND_APP_CLIENT_ID: &str = "Iv23second";
+pub const SECOND_APP_CLIENT_SECRET: &str = "second-client-secret";
 pub const BOT_USER_ID: i64 = 41898282;
 pub const INSTALLATION_TOKEN: &str = "ghs_installation";
+const SECOND_INSTALLATION_TOKEN: &str = "ghs_second_installation";
 // The id of an issue is its number plus this offset, so a number in place of an id finds no issue.
 pub const ISSUE_ID_OFFSET: i64 = 100_000;
+
+struct App {
+    id: i64,
+    slug: &'static str,
+    client_id: &'static str,
+    client_secret: &'static str,
+    installation_token: &'static str,
+}
+
+// The manifest conversions create the Apps in this order. The installation id of an App is its index plus 1.
+const APPS: [App; 2] = [
+    App {
+        id: APP_ID,
+        slug: APP_SLUG,
+        client_id: APP_CLIENT_ID,
+        client_secret: APP_CLIENT_SECRET,
+        installation_token: INSTALLATION_TOKEN,
+    },
+    App {
+        id: SECOND_APP_ID,
+        slug: SECOND_APP_SLUG,
+        client_id: SECOND_APP_CLIENT_ID,
+        client_secret: SECOND_APP_CLIENT_SECRET,
+        installation_token: SECOND_INSTALLATION_TOKEN,
+    },
+];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PullRequest {
@@ -84,9 +117,15 @@ pub struct Thread {
 struct Records {
     account_types: HashMap<String, &'static str>,
     manifest_codes: HashSet<String>,
-    user_codes: HashMap<String, String>,
+    apps_created: usize,
+    // The accounts that installed the second App. The first App has all other accounts.
+    second_app_accounts: HashSet<String>,
+    // The ids of the Apps whose installation list fails.
+    failed_apps: HashSet<i64>,
+    // The login and the App index of each code and refresh token.
+    user_codes: HashMap<String, (String, usize)>,
     user_tokens: HashMap<String, String>,
-    refresh_tokens: HashMap<String, String>,
+    refresh_tokens: HashMap<String, (String, usize)>,
     tokens_given: u32,
     repositories: Vec<String>,
     remotes: PathBuf,
@@ -124,6 +163,15 @@ struct Issue {
 }
 
 impl Records {
+    fn app_index(&self, repository: &str) -> usize {
+        let account = repository.split('/').next().unwrap_or_default();
+        usize::from(self.second_app_accounts.contains(account))
+    }
+
+    fn app_login(&self, repository: &str) -> String {
+        format!("{}[bot]", APPS[self.app_index(repository)].slug)
+    }
+
     fn insert_issue(
         &mut self,
         repository: &str,
@@ -316,10 +364,6 @@ impl Records {
     }
 }
 
-fn app_login() -> String {
-    format!("{APP_SLUG}[bot]")
-}
-
 fn timestamp(seconds: i64) -> String {
     (OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(seconds))
         .format(&Rfc3339)
@@ -441,7 +485,27 @@ impl FakeGitHub {
             .lock()
             .unwrap()
             .user_codes
-            .insert(code.to_string(), login.to_string());
+            .insert(code.to_string(), (login.to_string(), 0));
+    }
+
+    pub fn add_second_app_user_code(&self, code: &str, login: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .user_codes
+            .insert(code.to_string(), (login.to_string(), 1));
+    }
+
+    pub fn install_second_app(&self, account: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .second_app_accounts
+            .insert(account.to_string());
+    }
+
+    pub fn fail_installations(&self, app_id: i64) {
+        self.state.lock().unwrap().failed_apps.insert(app_id);
     }
 
     // The repository gets a bare git repository with one commit on `main` as its `clone_url`.
@@ -797,7 +861,7 @@ fn not_found() -> Response {
 }
 
 async fn account(State(state): State<Shared>, Path(name): Path<String>) -> Response {
-    if name == app_login() {
+    if APPS.iter().any(|app| name == format!("{}[bot]", app.slug)) {
         return Json(json!({ "login": name, "id": BOT_USER_ID, "type": "Bot" })).into_response();
     }
     match state.lock().unwrap().account_types.get(&name) {
@@ -809,17 +873,20 @@ async fn account(State(state): State<Shared>, Path(name): Path<String>) -> Respo
 }
 
 async fn convert_manifest(State(state): State<Shared>, Path(code): Path<String>) -> Response {
-    if !state.lock().unwrap().manifest_codes.remove(&code) {
+    let mut records = state.lock().unwrap();
+    if !records.manifest_codes.remove(&code) {
         return not_found();
     }
+    let app = &APPS[records.apps_created];
+    records.apps_created += 1;
     (
         StatusCode::CREATED,
         Json(json!({
-            "id": APP_ID,
-            "slug": APP_SLUG,
+            "id": app.id,
+            "slug": app.slug,
             "pem": APP_PRIVATE_KEY,
-            "client_id": APP_CLIENT_ID,
-            "client_secret": APP_CLIENT_SECRET
+            "client_id": app.client_id,
+            "client_secret": app.client_secret
         })),
     )
         .into_response()
@@ -839,17 +906,26 @@ async fn exchange_code(
     Json(exchange): Json<CodeExchange>,
 ) -> Response {
     let mut records = state.lock().unwrap();
-    if exchange.client_id != APP_CLIENT_ID || exchange.client_secret != APP_CLIENT_SECRET {
+    let Some(app) = APPS.iter().position(|app| {
+        exchange.client_id == app.client_id && exchange.client_secret == app.client_secret
+    }) else {
         return Json(json!({
             "error": "incorrect_client_credentials",
             "error_description": "The client_id and/or client_secret passed are incorrect."
         }))
         .into_response();
-    }
+    };
     let login = if exchange.grant_type.as_deref() == Some("refresh_token") {
         let Some(login) = exchange
             .refresh_token
+            .filter(|token| {
+                records
+                    .refresh_tokens
+                    .get(token)
+                    .is_some_and(|(_, of)| *of == app)
+            })
             .and_then(|token| records.refresh_tokens.remove(&token))
+            .map(|(login, _)| login)
         else {
             return Json(json!({
                 "error": "bad_refresh_token",
@@ -861,7 +937,14 @@ async fn exchange_code(
     } else {
         let Some(login) = exchange
             .code
+            .filter(|code| {
+                records
+                    .user_codes
+                    .get(code)
+                    .is_some_and(|(_, of)| *of == app)
+            })
             .and_then(|code| records.user_codes.remove(&code))
+            .map(|(login, _)| login)
         else {
             return Json(json!({
                 "error": "bad_verification_code",
@@ -878,7 +961,7 @@ async fn exchange_code(
         .insert(format!("ghu_{number}"), login.clone());
     records
         .refresh_tokens
-        .insert(format!("ghr_{number}"), login);
+        .insert(format!("ghr_{number}"), (login, app));
     Json(json!({
         "access_token": format!("ghu_{number}"),
         "expires_in": 28800,
@@ -891,12 +974,7 @@ async fn exchange_code(
 }
 
 async fn user(State(state): State<Shared>, headers: HeaderMap) -> Response {
-    let token = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .unwrap_or_default();
-    match state.lock().unwrap().user_tokens.get(token) {
+    match state.lock().unwrap().user_tokens.get(bearer(&headers)) {
         Some(login) => Json(json!({ "login": login })).into_response(),
         None => (
             StatusCode::UNAUTHORIZED,
@@ -906,18 +984,46 @@ async fn user(State(state): State<Shared>, headers: HeaderMap) -> Response {
     }
 }
 
-async fn installations(State(state): State<Shared>) -> Response {
-    if state.lock().unwrap().repositories.is_empty() {
-        return Json(json!([])).into_response();
-    }
-    Json(json!([{ "id": 1 }])).into_response()
+fn bearer(headers: &HeaderMap) -> &str {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or_default()
 }
 
-async fn installation_token() -> Response {
+// The App signs a JSON Web Token, and the claim `iss` of the token is the App id.
+fn signed_app(headers: &HeaderMap) -> usize {
+    let claims = bearer(headers).split('.').nth(1).unwrap_or_default();
+    let claims: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(claims).unwrap_or_default())
+        .unwrap_or_default();
+    let id = claims["iss"]
+        .as_i64()
+        .or_else(|| claims["iss"].as_str()?.parse().ok());
+    APPS.iter().position(|app| Some(app.id) == id).unwrap()
+}
+
+async fn installations(State(state): State<Shared>, headers: HeaderMap) -> Response {
+    let app = signed_app(&headers);
+    let records = state.lock().unwrap();
+    if records.failed_apps.contains(&APPS[app].id) {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    if !records
+        .repositories
+        .iter()
+        .any(|repository| records.app_index(repository) == app)
+    {
+        return Json(json!([])).into_response();
+    }
+    Json(json!([{ "id": app + 1 }])).into_response()
+}
+
+async fn installation_token(Path(id): Path<usize>) -> Response {
     (
         StatusCode::CREATED,
         Json(json!({
-            "token": INSTALLATION_TOKEN,
+            "token": APPS[id - 1].installation_token,
             "expires_at": "2099-01-01T00:00:00Z",
             "permissions": {}
         })),
@@ -925,12 +1031,20 @@ async fn installation_token() -> Response {
         .into_response()
 }
 
-async fn installation_repositories(State(state): State<Shared>) -> Response {
+async fn installation_repositories(State(state): State<Shared>, headers: HeaderMap) -> Response {
+    let app = APPS
+        .iter()
+        .position(|app| app.installation_token == bearer(&headers))
+        .unwrap();
     let records = state.lock().unwrap();
+    let repositories: Vec<&String> = records
+        .repositories
+        .iter()
+        .filter(|repository| records.app_index(repository) == app)
+        .collect();
     Json(json!({
-        "total_count": records.repositories.len(),
-        "repositories": records
-            .repositories
+        "total_count": repositories.len(),
+        "repositories": repositories
             .iter()
             .map(|full_name| json!({
                 "full_name": full_name,
@@ -1047,13 +1161,10 @@ async fn add_issue_comment(
     Path((owner, repo, number)): Path<(String, String, i64)>,
     Json(comment): Json<NewComment>,
 ) -> Response {
-    let comment = state.lock().unwrap().comment(
-        &format!("{owner}/{repo}"),
-        number,
-        &app_login(),
-        &comment.body,
-        None,
-    );
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    let bot = records.app_login(&repository);
+    let comment = records.comment(&repository, number, &bot, &comment.body, None);
     (StatusCode::CREATED, Json(comment)).into_response()
 }
 
@@ -1069,8 +1180,9 @@ async fn add_labels(
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
+    let bot = records.app_login(&repository);
     for label in &new.labels {
-        records.label(&repository, number, label, &app_login());
+        records.label(&repository, number, label, &bot);
     }
     Json(label_list(&records, &repository, number)).into_response()
 }
@@ -1091,6 +1203,7 @@ async fn create_pull_request(
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
+    let bot = records.app_login(&repository);
     let number = records
         .issues
         .keys()
@@ -1104,7 +1217,7 @@ async fn create_pull_request(
         Issue {
             title: new.title.clone(),
             body: new.body.clone(),
-            author: app_login(),
+            author: bot.clone(),
             pull_request: true,
             merged_at: None,
             state_reason: None,
@@ -1251,6 +1364,7 @@ async fn submit_review(
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
+    let bot = records.app_login(&repository);
     let now = records.tick();
     records
         .issues
@@ -1258,13 +1372,13 @@ async fn submit_review(
         .unwrap()
         .reviews
         .push(json!({
-            "user": { "login": app_login() },
+            "user": { "login": bot },
             "body": review.body,
             "state": "COMMENTED",
             "submitted_at": timestamp(now)
         }));
     for comment in &review.comments {
-        records.review_comment(&repository, number, None, &app_login(), comment);
+        records.review_comment(&repository, number, None, &bot, comment);
     }
     records.submitted_reviews.push((repository, number, review));
     Json(json!({ "id": 1 })).into_response()
@@ -1290,6 +1404,7 @@ async fn reply_to_review_comment(
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
+    let bot = records.app_login(&repository);
     let Some(root) = records
         .issues
         .get(&(repository.clone(), number))
@@ -1307,7 +1422,7 @@ async fn reply_to_review_comment(
         line: root["line"].as_i64().unwrap(),
         body: reply.body,
     };
-    let id = records.review_comment(&repository, number, Some(id), &app_login(), &comment);
+    let id = records.review_comment(&repository, number, Some(id), &bot, &comment);
     (StatusCode::CREATED, Json(json!({ "id": id }))).into_response()
 }
 
@@ -1403,7 +1518,8 @@ async fn remove_label(
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    if !records.unlabel(&repository, number, &name, &app_login()) {
+    let bot = records.app_login(&repository);
+    if !records.unlabel(&repository, number, &name, &bot) {
         return not_found();
     }
     Json(label_list(&records, &repository, number)).into_response()
@@ -1431,6 +1547,7 @@ async fn create_issue(
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
+    let bot = records.app_login(&repository);
     let number = records
         .issues
         .keys()
@@ -1438,14 +1555,7 @@ async fn create_issue(
         .map(|(_, number)| number + 1)
         .max()
         .unwrap_or(1);
-    records.insert_issue(
-        &repository,
-        number,
-        &new.title,
-        &new.body,
-        &app_login(),
-        false,
-    );
+    records.insert_issue(&repository, number, &new.title, &new.body, &bot, false);
     (
         StatusCode::CREATED,
         Json(records.issue_json(&repository, number)),
@@ -1467,16 +1577,11 @@ async fn update_issue(
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
+    let bot = records.app_login(&repository);
     if update.state != "closed" || !records.issues.contains_key(&(repository.clone(), number)) {
         return not_found();
     }
-    records.set_state(
-        &repository,
-        number,
-        "closed",
-        update.state_reason,
-        &app_login(),
-    );
+    records.set_state(&repository, number, "closed", update.state_reason, &bot);
     Json(records.issue_json(&repository, number)).into_response()
 }
 

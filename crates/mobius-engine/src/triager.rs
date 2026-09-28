@@ -15,7 +15,7 @@ use crate::{
 };
 
 pub(crate) const ROLE: &str = "triager";
-// The Triager belongs to no Workstream. Its chat also belongs to no repository, so the key of the chat is ("", CHAT).
+// The Triager belongs to no Workstream. Its chat belongs to an organization, so the key of the chat is (organization, CHAT).
 pub(crate) const CHAT: i64 = 0;
 const ROLE_PROMPT: &str = include_str!("prompts/triager.md");
 
@@ -26,7 +26,7 @@ pub(crate) async fn chat_prompt(
     engine: &Engine,
     first: &ChatMessage,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let repositories = engine.repositories.read().unwrap().clone();
+    let repositories = organization_repositories(engine, &first.repository);
     Ok(format!(
         "{ROLE_PROMPT}\n{}\n# Owner message\n\n{}",
         workstreams(&repositories).await?,
@@ -50,17 +50,27 @@ async fn workstreams(repositories: &[Repository]) -> Result<String, Box<dyn Erro
     Ok(text)
 }
 
-// The Triager of the chat has no repository, so it uses the one repository of the Mobius App.
+fn organization_repositories(engine: &Engine, organization: &str) -> Vec<Repository> {
+    engine
+        .repositories
+        .read()
+        .unwrap()
+        .iter()
+        .filter(|repository| repository.full_name.split('/').next() == Some(organization))
+        .cloned()
+        .collect()
+}
+
+// The Triager of the chat has an organization and no repository, so it uses the one repository of the organization.
 pub(crate) fn repository(engine: &Engine, name: &str) -> Result<Repository, String> {
-    if !name.is_empty() {
+    if name.contains('/') {
         return engine.repository(name);
     }
-    match engine.repositories.read().unwrap().as_slice() {
+    match organization_repositories(engine, name).as_slice() {
         [repository] => Ok(repository.clone()),
-        _ => Err(
-            "The Triager chat needs a Mobius App with access to exactly one repository."
-                .to_string(),
-        ),
+        _ => Err(format!(
+            "The Triager chat needs exactly one repository in {name}."
+        )),
     }
 }
 

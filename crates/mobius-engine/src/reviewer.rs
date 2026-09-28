@@ -201,7 +201,7 @@ async fn review(
         .issue(job.number)
         .await?
         .ok_or_else(|| format!("#{} does not exist.", job.number))?;
-    let trusted = trust::trusted_authors(engine).await?;
+    let trusted = trust::trusted_authors(engine, &repository);
     let threads = issues::review_threads(&repository, job.pull_request.number, &trusted).await?;
     let prompt = format!(
         "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Commits\n\nBase commit: {base}\nHead commit: {}\n\nThe changes are `git diff {base} {}`.\n\n# Review threads\n{threads}",
@@ -227,13 +227,7 @@ async fn review(
         let _git = engine.git.lock().await;
         mobius_runner::remove_worktree(data_dir, name, &dir).await?;
     }
-    let app = engine
-        .store
-        .github_app()
-        .get()
-        .await?
-        .ok_or("The Mobius App does not exist.")?;
-    let app_login = app_login(&app.slug);
+    let app_login = app_login(&repository.app_slug);
     let threads = repository.review_threads(job.pull_request.number).await?;
     let open: Vec<&ReviewThread> = threads
         .iter()

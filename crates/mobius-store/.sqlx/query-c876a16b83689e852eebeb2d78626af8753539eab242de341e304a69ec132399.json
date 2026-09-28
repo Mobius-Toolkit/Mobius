@@ -1,0 +1,110 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT app_id, slug, private_key, client_id, client_secret, user_token, refresh_token,\n                      user_token_expires_at AS \"user_token_expires_at: OffsetDateTime\"\n               FROM github_apps ORDER BY app_id",
+  "describe": {
+    "columns": [
+      {
+        "name": "app_id",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "github_apps",
+            "name": "app_id"
+          }
+        }
+      },
+      {
+        "name": "slug",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_apps",
+            "name": "slug"
+          }
+        }
+      },
+      {
+        "name": "private_key",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_apps",
+            "name": "private_key"
+          }
+        }
+      },
+      {
+        "name": "client_id",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_apps",
+            "name": "client_id"
+          }
+        }
+      },
+      {
+        "name": "client_secret",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_apps",
+            "name": "client_secret"
+          }
+        }
+      },
+      {
+        "name": "user_token",
+        "ordinal": 5,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_apps",
+            "name": "user_token"
+          }
+        }
+      },
+      {
+        "name": "refresh_token",
+        "ordinal": 6,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_apps",
+            "name": "refresh_token"
+          }
+        }
+      },
+      {
+        "name": "user_token_expires_at: OffsetDateTime",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "github_apps",
+            "name": "user_token_expires_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "c876a16b83689e852eebeb2d78626af8753539eab242de341e304a69ec132399"
+}

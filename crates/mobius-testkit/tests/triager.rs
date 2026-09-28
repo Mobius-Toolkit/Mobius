@@ -199,11 +199,16 @@ async fn the_triager_chat_creates_a_workstream_after_the_approval() {
     let engine = connect(&data_dir, &github).await;
     let mut feed = activity::feed(&engine, None).await.unwrap();
 
-    chat::send(&engine, "", 0, "Start a Workstream for loyalty points.")
-        .await
-        .unwrap();
+    chat::send(
+        &engine,
+        "owner",
+        0,
+        "Start a Workstream for loyalty points.",
+    )
+    .await
+    .unwrap();
     wait_for(async || {
-        chat::view(&engine, "", 0)
+        chat::view(&engine, "owner", 0)
             .await
             .unwrap()
             .messages
@@ -211,7 +216,9 @@ async fn the_triager_chat_creates_a_workstream_after_the_approval() {
             .find(|message| message.author == Author::Triager)
     })
     .await;
-    chat::send(&engine, "", 0, "Yes, create it.").await.unwrap();
+    chat::send(&engine, "owner", 0, "Yes, create it.")
+        .await
+        .unwrap();
 
     let created = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
@@ -234,7 +241,7 @@ async fn the_triager_chat_creates_a_workstream_after_the_approval() {
         github.labels(REPOSITORY, 13),
         ["mobius:workstream".to_string()]
     );
-    let session = triagers(&engine, "").await.remove(0);
+    let session = triagers(&engine, "owner").await.remove(0);
     let prompts = texts(&engine, session.id, "prompt").await;
     for part in [
         "You are the Triager",

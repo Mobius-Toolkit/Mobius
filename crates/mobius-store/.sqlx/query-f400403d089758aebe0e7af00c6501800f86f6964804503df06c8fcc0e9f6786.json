@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT app_id, slug, private_key, client_id, client_secret, user_token, refresh_token,\n                      user_token_expires_at AS \"user_token_expires_at: OffsetDateTime\"\n               FROM github_app",
+  "query": "SELECT app_id, slug, private_key, client_id, client_secret, user_token, refresh_token,\n                      user_token_expires_at AS \"user_token_expires_at: OffsetDateTime\"\n               FROM github_apps WHERE app_id = ?",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Integer",
         "origin": {
           "Table": {
-            "table": "github_app",
+            "table": "github_apps",
             "name": "app_id"
           }
         }
@@ -20,7 +20,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "github_app",
+            "table": "github_apps",
             "name": "slug"
           }
         }
@@ -31,7 +31,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "github_app",
+            "table": "github_apps",
             "name": "private_key"
           }
         }
@@ -42,7 +42,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "github_app",
+            "table": "github_apps",
             "name": "client_id"
           }
         }
@@ -53,7 +53,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "github_app",
+            "table": "github_apps",
             "name": "client_secret"
           }
         }
@@ -64,7 +64,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "github_app",
+            "table": "github_apps",
             "name": "user_token"
           }
         }
@@ -75,7 +75,7 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "github_app",
+            "table": "github_apps",
             "name": "refresh_token"
           }
         }
@@ -86,14 +86,14 @@
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "github_app",
+            "table": "github_apps",
             "name": "user_token_expires_at"
           }
         }
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false,
@@ -106,5 +106,5 @@
       true
     ]
   },
-  "hash": "ccbfb4366c08b2bc152fe3695c27a1f236a0546d4840d7c8dedf87bfd0f7b828"
+  "hash": "f400403d089758aebe0e7af00c6501800f86f6964804503df06c8fcc0e9f6786"
 }

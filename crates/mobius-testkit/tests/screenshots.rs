@@ -20,6 +20,8 @@ use time::macros::datetime;
 use tokio::net::TcpListener;
 
 const REPOSITORY: &str = "owner/shop";
+// The organization `plants` has the second App. The switcher selects `owner` first, because `owner` comes first in the sorted list.
+const GARDEN: &str = "plants/garden";
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_fake-agent");
 const CLAUDE: &str = r##"
 [options]
@@ -38,6 +40,10 @@ call = { tool = "tell_owner", arguments = { text = "#42 needs a decision: one pl
 [[prompts]]
 when = "Start a Workstream for gift cards."
 reply = ["Title: Gift cards\n\nBrief: Sell gift cards in the shop."]
+
+[[prompts]]
+when = "Which roses sell best?"
+reply = ["Red roses sell best."]
 
 [[prompts]]
 reply = ["The Implementer works on #41. #42 waits for your decision."]
@@ -89,7 +95,10 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
     github::convert_manifest(engine, "manifest-code")
         .await
         .unwrap();
-    wait_for(async || (!workstreams::list(engine).await.unwrap().is_empty()).then_some(())).await;
+    github::convert_manifest(engine, "second-code")
+        .await
+        .unwrap();
+    wait_for(async || (workstreams::list(engine).await.unwrap().len() == 2).then_some(())).await;
 
     github.add_issue(REPOSITORY, 41, "Add plan model");
     github.add_sub_issue(REPOSITORY, 12, 41);
@@ -122,11 +131,25 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
     })
     .await;
 
-    chat::send(engine, "", 0, "Start a Workstream for gift cards.")
+    // The switcher shows the unread reply in `plants`.
+    chat::send(engine, GARDEN, 12, "Which roses sell best?")
         .await
         .unwrap();
     wait_for(async || {
-        chat::view(engine, "", 0)
+        chat::view(engine, GARDEN, 12)
+            .await
+            .unwrap()
+            .messages
+            .into_iter()
+            .find(|message| message.author == Author::Lead)
+    })
+    .await;
+
+    chat::send(engine, "owner", 0, "Start a Workstream for gift cards.")
+        .await
+        .unwrap();
+    wait_for(async || {
+        chat::view(engine, "owner", 0)
             .await
             .unwrap()
             .messages
@@ -136,7 +159,7 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
     .await;
 
     // The Chat page marks the messages as seen, so an unread count changes while a screenshot waits.
-    for (repository, workstream) in [(REPOSITORY, 12), ("", 0)] {
+    for (repository, workstream) in [(REPOSITORY, 12), ("owner", 0)] {
         let messages = chat::view(engine, repository, workstream)
             .await
             .unwrap()
@@ -291,9 +314,16 @@ async fn screenshots() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     github.add_manifest_code("manifest-code");
-    github.add_repository(REPOSITORY);
-    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
-    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    github.add_manifest_code("second-code");
+    github.install_second_app("plants");
+    for (repository, title) in [
+        (REPOSITORY, "Integrate loyalty plans"),
+        (GARDEN, "Plant roses"),
+    ] {
+        github.add_repository(repository);
+        github.add_issue(repository, 12, title);
+        github.add_label(repository, 12, "mobius:workstream", "owner");
+    }
     install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
     install_fake_harness(data_dir.path(), FAKE_AGENT, "devin", IMPLEMENTER);
     let engine = start(data_dir.path(), "correct horse", &github.url).await;
@@ -332,10 +362,13 @@ async fn screenshots() {
     seed(&engine, &github).await;
     fix_times(&engine).await;
     for viewport in [DESKTOP, PHONE] {
-        let tasks_clicks: &[&str] = if viewport == PHONE {
-            &[".btn.phone", ".sheet .sidetabs button:nth-child(2)"]
+        let (tasks_clicks, switch_clicks): (&[&str], &[&str]) = if viewport == PHONE {
+            (
+                &[".btn.phone", ".sheet .sidetabs button:nth-child(2)"],
+                &[".head .switch"],
+            )
         } else {
-            &[".side .sidetabs button:nth-child(2)"]
+            (&[".side .sidetabs button:nth-child(2)"], &[".rail .switch"])
         };
         let shots = [
             Shot {
@@ -343,6 +376,12 @@ async fn screenshots() {
                 path: "/workstreams",
                 clicks: &[],
                 expected: "Integrate loyalty plans",
+            },
+            Shot {
+                name: "organizations",
+                path: "/workstreams",
+                clicks: switch_clicks,
+                expected: "Organizations",
             },
             Shot {
                 name: "activity",
@@ -396,7 +435,7 @@ async fn screenshots() {
                 name: "github",
                 path: "/github",
                 clicks: &[],
-                expected: "Install the App",
+                expected: "Install mobius-second",
             },
         ];
         for shot in shots {
