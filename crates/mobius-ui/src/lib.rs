@@ -255,6 +255,11 @@ fn Frame() -> Element {
                         span { class: "glyph", "≡" }
                         "Activity"
                     }
+                    Link { active_class: "on", to: Route::Settings {},
+                        // U+FE0E selects the text form of the gear, not the emoji.
+                        span { class: "glyph", "\u{2699}\u{fe0e}" }
+                        "Settings"
+                    }
                 }
             }
         },
@@ -308,8 +313,6 @@ fn WorkstreamList() -> Element {
         div { class: "head",
             h2 { class: "grow", "Workstreams" }
             Link { class: "btn primary", to: Route::NewWorkstream {}, "+ New" }
-            // U+FE0E selects the text form of the gear, not the emoji.
-            Link { class: "icon phone", to: Route::Settings {}, title: "Settings", "\u{2699}\u{fe0e}" }
         }
         div { class: "list",
             WorkstreamEntries {}
