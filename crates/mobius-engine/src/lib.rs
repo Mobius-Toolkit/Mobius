@@ -64,6 +64,8 @@ pub struct Engine {
     checks: Arc<tokio::sync::Semaphore>,
     // Each send carries the id of a task that stops or ends.
     stops: broadcast::Sender<i64>,
+    // Each send carries the repository and the number of a Workstream whose Lead stops.
+    lead_stops: broadcast::Sender<(String, i64)>,
     // For each task, the time of its newest Judge item and the moment when Mobius first saw it.
     quiet: Arc<Mutex<HashMap<i64, (time::OffsetDateTime, std::time::Instant)>>>,
 }
@@ -111,6 +113,7 @@ pub async fn start(
         workers: Arc::default(),
         checks,
         stops: broadcast::channel(64).0,
+        lead_stops: broadcast::channel(16).0,
         quiet: Arc::default(),
     };
     auth::start(&engine).await?;

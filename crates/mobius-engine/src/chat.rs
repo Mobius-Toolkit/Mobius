@@ -6,6 +6,7 @@ use mobius_domain::{Author, ChatMessage, ChatView, InboxKind, Live};
 use mobius_github::Repository;
 use mobius_runner::Session;
 use serde_json::Value;
+use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
@@ -54,7 +55,13 @@ pub async fn send(
                     writing: true,
                 },
             );
-            tokio::spawn(run(engine.clone(), message, receiver));
+            // The subscription comes before the spawn, so the session gets each stop of its Lead.
+            tokio::spawn(run(
+                engine.clone(),
+                engine.lead_stops.subscribe(),
+                message,
+                receiver,
+            ));
         }
     }
     engine.broadcast(Live::Lead {
@@ -153,7 +160,12 @@ pub(crate) async fn tell_owner(
     Ok("Sent to the Owner.".to_string())
 }
 
-async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver<Command>) {
+async fn run(
+    engine: Engine,
+    mut stops: broadcast::Receiver<(String, i64)>,
+    first: ChatMessage,
+    mut commands: UnboundedReceiver<Command>,
+) {
     let (repository, workstream) = (first.repository.clone(), first.workstream);
     let session = match lead::add_session(
         &engine,
@@ -182,11 +194,17 @@ async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver
         Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
     };
     let mut recorder = Recorder::new(&engine, session, &repository, workstream, true);
-    let result = chat(&engine, &first, session, &key, &mut recorder, &mut commands).await;
+    let result = tokio::select! {
+        result = chat(&engine, &first, session, &key, &mut recorder, &mut commands) => result.map(|()| "idle"),
+        () = lead::stopped(&mut stops, &repository, workstream) => Ok("stopped"),
+    };
     mcp::close(&engine, &key);
     match result {
-        Ok(()) => {
-            if let Err(failure) = lead::end_session(&engine, session, "idle").await {
+        Ok(reason) => {
+            if reason == "stopped" {
+                finish(&engine, &repository, workstream, None);
+            }
+            if let Err(failure) = lead::end_session(&engine, session, reason).await {
                 eprintln!("mobius: chat session {session}: {failure}");
             }
         }

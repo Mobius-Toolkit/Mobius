@@ -5,6 +5,7 @@ use mobius_domain::{Author, Live};
 use mobius_github::Repository;
 use mobius_runner::Session;
 use serde_json::{Value, json};
+use tokio::sync::broadcast;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::config::RoleBinding;
@@ -212,5 +213,22 @@ impl Recorder {
             )
             .await?;
         end_session(&self.engine, self.session, "failed").await
+    }
+}
+
+// `Engine` holds the sender, so the channel stays open while a Lead session waits.
+pub(crate) async fn stopped(
+    stops: &mut broadcast::Receiver<(String, i64)>,
+    repository: &str,
+    workstream: i64,
+) {
+    loop {
+        if stops
+            .recv()
+            .await
+            .is_ok_and(|(name, number)| name == repository && number == workstream)
+        {
+            return;
+        }
     }
 }

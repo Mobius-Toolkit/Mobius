@@ -145,6 +145,23 @@ impl Tasks<'_> {
         Ok(tasks)
     }
 
+    // Gives the pull request of each task of the Workstream, also of an ended task.
+    pub async fn pull_requests(
+        &self,
+        repository: &str,
+        workstream: i64,
+    ) -> Result<Vec<i64>, Box<dyn Error + Send + Sync>> {
+        let pull_requests = sqlx::query_scalar!(
+            r#"SELECT pull_request AS "pull_request!" FROM tasks
+               WHERE repository = ? AND workstream = ? AND pull_request IS NOT NULL"#,
+            repository,
+            workstream
+        )
+        .fetch_all(self.pool)
+        .await?;
+        Ok(pull_requests)
+    }
+
     pub async fn live_repositories(&self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
         let repositories =
             sqlx::query_scalar!("SELECT DISTINCT repository FROM tasks WHERE state <> 'ended'")
