@@ -18,6 +18,10 @@ pub struct Task {
     pub pull_request: Option<i64>,
     // The time of the newest comment that the Judge got.
     pub judged_at: Option<OffsetDateTime>,
+    // The kind of the Worker that the task waits for or runs: `implementer`, `conflict_round`, `reviewer`, or `judge`.
+    pub worker: Option<String>,
+    // The first prompt of an Implementer, or the state of the task before a Judge.
+    pub worker_input: Option<String>,
 }
 
 impl Tasks<'_> {
@@ -33,7 +37,7 @@ impl Tasks<'_> {
             r#"INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
                VALUES (?, ?, ?, 'dispatched', ?)
                RETURNING id AS "id!", issue, workstream, state, branch, fix_rounds, pull_request,
-                         judged_at AS "judged_at: OffsetDateTime""#,
+                         judged_at AS "judged_at: OffsetDateTime", worker, worker_input"#,
             repository,
             issue,
             workstream,
@@ -52,7 +56,7 @@ impl Tasks<'_> {
         let task = sqlx::query_as!(
             Task,
             r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request,
-                      judged_at AS "judged_at: OffsetDateTime" FROM tasks
+                      judged_at AS "judged_at: OffsetDateTime", worker, worker_input FROM tasks
                WHERE repository = ? AND issue = ? AND state <> 'ended'"#,
             repository,
             issue
@@ -88,6 +92,34 @@ impl Tasks<'_> {
             .into_iter()
             .map(|row| (row.id, row.queued_at))
             .collect())
+    }
+
+    pub async fn set_worker(
+        &self,
+        id: i64,
+        worker: &str,
+        input: Option<&str>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query!(
+            "UPDATE tasks SET worker = ?, worker_input = ? WHERE id = ?",
+            worker,
+            input,
+            id
+        )
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    // A restart keeps the place of the task in the queue.
+    pub async fn requeue(&self, id: i64) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let result = sqlx::query!(
+            "UPDATE tasks SET state = 'queued' WHERE id = ? AND state IN ('queued', 'working')",
+            id
+        )
+        .execute(self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
     }
 
     // Gives `false` when the task is not in the state `from`.
@@ -141,7 +173,7 @@ impl Tasks<'_> {
         let tasks = sqlx::query_as!(
             Task,
             r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request,
-                      judged_at AS "judged_at: OffsetDateTime" FROM tasks
+                      judged_at AS "judged_at: OffsetDateTime", worker, worker_input FROM tasks
                WHERE repository = ? AND state <> 'ended'"#,
             repository
         )
@@ -183,7 +215,7 @@ impl Tasks<'_> {
         let task = sqlx::query_as!(
             Task,
             r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request,
-                      judged_at AS "judged_at: OffsetDateTime" FROM tasks
+                      judged_at AS "judged_at: OffsetDateTime", worker, worker_input FROM tasks
                WHERE repository = ? AND pull_request = ? AND state <> 'ended'"#,
             repository,
             pull_request

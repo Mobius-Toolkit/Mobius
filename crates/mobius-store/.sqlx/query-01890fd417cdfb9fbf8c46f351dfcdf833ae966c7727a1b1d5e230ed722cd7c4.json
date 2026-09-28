@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)\n               VALUES (?, ?, ?, 'dispatched', ?)\n               RETURNING id AS \"id!\", issue, workstream, state, branch, fix_rounds, pull_request,\n                         judged_at AS \"judged_at: OffsetDateTime\"",
+  "query": "INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)\n               VALUES (?, ?, ?, 'dispatched', ?)\n               RETURNING id AS \"id!\", issue, workstream, state, branch, fix_rounds, pull_request,\n                         judged_at AS \"judged_at: OffsetDateTime\", worker, worker_input",
   "describe": {
     "columns": [
       {
@@ -90,6 +90,28 @@
             "name": "judged_at"
           }
         }
+      },
+      {
+        "name": "worker",
+        "ordinal": 8,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "worker"
+          }
+        }
+      },
+      {
+        "name": "worker_input",
+        "ordinal": 9,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "worker_input"
+          }
+        }
       }
     ],
     "parameters": {
@@ -103,8 +125,10 @@
       true,
       false,
       true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "3452305804beb4b941f6a22ef8a9c68a8cd63ccc22b134a063dd423d88cc0ff4"
+  "hash": "01890fd417cdfb9fbf8c46f351dfcdf833ae966c7727a1b1d5e230ed722cd7c4"
 }

@@ -19,6 +19,7 @@ pub mod limits;
 pub mod mcp;
 mod plans;
 mod poll;
+mod recovery;
 mod researcher;
 mod reviewer;
 pub mod tasks;
@@ -71,6 +72,8 @@ pub struct Engine {
     stops: broadcast::Sender<i64>,
     // Each send carries the repository and the number of a Workstream whose Lead stops.
     lead_stops: broadcast::Sender<(String, i64)>,
+    // The repositories that the first poll after start checked.
+    recovered: Arc<Mutex<std::collections::HashSet<String>>>,
     // Two sessions at the same usage limit make one pause.
     pausing: Arc<tokio::sync::Mutex<()>>,
     // Each end of a pause of a Harness wakes the sessions that wait for it.
@@ -125,6 +128,7 @@ pub async fn start(
         checks,
         stops: broadcast::channel(64).0,
         lead_stops: broadcast::channel(16).0,
+        recovered: Arc::default(),
         pausing: Arc::default(),
         pauses_changed: Arc::default(),
         triages: Arc::default(),
@@ -132,6 +136,7 @@ pub async fn start(
     };
     auth::start(&engine).await?;
     limits::start(&engine).await?;
+    recovery::start(&engine).await?;
     poll::spawn(engine.clone());
     housekeeper::spawn(engine.clone());
     Ok(engine)

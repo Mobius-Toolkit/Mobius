@@ -8,7 +8,7 @@ use crate::trust::trusted_author;
 use crate::workstreams::AUTOPILOT_LABEL;
 use crate::{
     Engine, NO_WORKSTREAM_LABEL, WORKING_LABEL, WORKSTREAM_LABEL, activity, dispatch, ends,
-    lead_events, triager, workstreams,
+    lead_events, recovery, triager, workstreams,
 };
 
 const ISSUES: &str = "issues";
@@ -47,6 +47,7 @@ async fn poll_repository(
     app_slug: &str,
     repository: &Repository,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    recovery::repository(engine, repository).await?;
     changed_issues(engine, app_slug, repository).await?;
     dispatch::dispatch_ready(engine, app_slug, repository).await?;
     ends::check(engine, app_slug, repository).await

@@ -54,6 +54,20 @@ impl LeadEvents<'_> {
         Ok(event)
     }
 
+    pub async fn waiting_workstreams(
+        &self,
+        repository: &str,
+    ) -> Result<Vec<i64>, Box<dyn Error + Send + Sync>> {
+        let workstreams = sqlx::query_scalar!(
+            "SELECT DISTINCT workstream FROM lead_events
+             WHERE repository = ? AND delivered_at IS NULL",
+            repository
+        )
+        .fetch_all(self.pool)
+        .await?;
+        Ok(workstreams)
+    }
+
     pub async fn undelivered(
         &self,
         repository: &str,

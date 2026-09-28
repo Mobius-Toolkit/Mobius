@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT DISTINCT workstream FROM lead_events\n             WHERE repository = ? AND delivered_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "workstream",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "lead_events",
+            "name": "workstream"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2323aba00ba40a4bd684923f41ff8caf01ec114990969b3f5fd991cb2b4d9506"
+}
