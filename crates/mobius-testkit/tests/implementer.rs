@@ -468,13 +468,17 @@ async fn with_one_worker_slot_the_second_implementer_waits_in_the_queue_until_th
         queued.queue_reason.as_deref(),
         Some("no free Worker slot (1/1)")
     );
-    let mut states = Vec::new();
-    for number in [41, 43] {
-        let task = engine.store.tasks().live(REPOSITORY, number).await.unwrap();
-        states.push(task.unwrap().state);
-    }
-    states.sort();
-    assert_eq!(states, ["queued", "working"]);
+    // The first task takes its slot before it writes the state `working`.
+    wait_for(async || {
+        let mut states = Vec::new();
+        for number in [41, 43] {
+            let task = engine.store.tasks().live(REPOSITORY, number).await.unwrap();
+            states.push(task.unwrap().state);
+        }
+        states.sort();
+        (states == ["queued", "working"]).then_some(())
+    })
+    .await;
     let mut lines: Vec<String> = tasks::list(&engine, REPOSITORY, 12)
         .await
         .unwrap()

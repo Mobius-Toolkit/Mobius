@@ -12,9 +12,14 @@ async fn manifest_form_posts_the_manifest_to_the_settings_of_an_organization() {
     github.add_account("acme", "Organization");
     let engine = start(data_dir.path(), "correct horse", &github.url).await;
 
-    let form = github::manifest_form(&engine, "acme", "https://mobius.example.ts.net")
-        .await
-        .unwrap();
+    let form = github::manifest_form(
+        &engine,
+        "acme",
+        " Mobius acme ",
+        "https://mobius.example.ts.net",
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         form.url,
@@ -24,7 +29,7 @@ async fn manifest_form_posts_the_manifest_to_the_settings_of_an_organization() {
     assert_eq!(
         manifest,
         json!({
-            "name": "Möbius",
+            "name": "Mobius acme",
             "url": "https://github.com/Mobius-Toolkit/Mobius",
             "redirect_url": "https://mobius.example.ts.net/api/github/manifest-callback",
             "callback_urls": ["https://mobius.example.ts.net/api/github/user-callback"],
@@ -48,7 +53,7 @@ async fn manifest_form_posts_the_manifest_to_the_personal_settings_of_a_user() {
     github.add_account("owner", "User");
     let engine = start(data_dir.path(), "correct horse", &github.url).await;
 
-    let form = github::manifest_form(&engine, "owner", "http://127.0.0.1:8080")
+    let form = github::manifest_form(&engine, "owner", "Mobius owner", "http://127.0.0.1:8080")
         .await
         .unwrap();
 

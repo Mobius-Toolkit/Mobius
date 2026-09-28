@@ -982,12 +982,12 @@ fn Devices() -> Element {
     }
 }
 
-async fn create_app(account: String) -> Result<(), String> {
+async fn create_app(account: String, name: String) -> Result<(), String> {
     let origin: String = document::eval("return window.location.origin;")
         .join()
         .await
         .map_err(|failure| failure.to_string())?;
-    let form = github_manifest(account, origin)
+    let form = github_manifest(account, name, origin)
         .await
         .map_err(|failure| error_text(&failure))?;
     let url = serde_json::to_string(&form.url).map_err(|failure| failure.to_string())?;
@@ -1013,6 +1013,7 @@ async fn create_app(account: String) -> Result<(), String> {
 fn GitHub() -> Element {
     let AppSlug(app_slug) = use_context();
     let mut account = use_signal(String::new);
+    let mut name = use_signal(String::new);
     let mut error = use_signal(String::new);
     let body = match &*app_slug.read() {
         Some(Ok(Some(slug))) => rsx! {
@@ -1025,7 +1026,7 @@ fn GitHub() -> Element {
                 class: "connect",
                 onsubmit: move |event: FormEvent| async move {
                     event.prevent_default();
-                    if let Err(text) = create_app(account()).await {
+                    if let Err(text) = create_app(account(), name()).await {
                         error.set(text);
                     }
                 },
@@ -1035,6 +1036,14 @@ fn GitHub() -> Element {
                     value: account,
                     oninput: move |event| account.set(event.value()),
                 }
+                label { class: "label", r#for: "name", "App name" }
+                input {
+                    id: "name",
+                    placeholder: "Mobius {account}",
+                    value: name,
+                    oninput: move |event| name.set(event.value()),
+                }
+                p { class: "muted small", "GitHub App names are unique on all of GitHub. Use a name that no other App has, for example with your account name." }
                 div { class: "error", {error} }
                 button { class: "btn primary", r#type: "submit", "Create the App" }
             }

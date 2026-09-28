@@ -12,15 +12,30 @@ const REFRESH_MARGIN: Duration = Duration::minutes(5);
 // Each refresh stops the refresh token that it uses.
 static REFRESH: Mutex<()> = Mutex::const_new(());
 
+// GitHub App names are unique on all of GitHub, and GitHub allows a maximum of 34 characters.
+const MAX_APP_NAME: usize = 34;
+
 pub async fn manifest_form(
     engine: &Engine,
     account: &str,
+    name: &str,
     origin: &str,
 ) -> Result<ManifestForm, Box<dyn Error + Send + Sync>> {
+    let name = app_name(name)?;
     Ok(ManifestForm {
         url: engine.github.manifest_url(account).await?,
-        manifest: mobius_github::manifest(origin),
+        manifest: mobius_github::manifest(origin, name),
     })
+}
+
+fn app_name(name: &str) -> Result<&str, String> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > MAX_APP_NAME {
+        return Err(format!(
+            "The App name must have 1 to {MAX_APP_NAME} characters."
+        ));
+    }
+    Ok(name)
 }
 
 pub async fn convert_manifest(
@@ -117,4 +132,23 @@ pub(crate) async fn user_token(engine: &Engine) -> Result<String, Box<dyn Error 
     })?;
     store_user_tokens(engine, &tokens).await?;
     Ok(tokens.access_token)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_app_name_has_1_to_34_characters_with_no_outer_spaces() {
+        assert_eq!(app_name("  Mobius owner "), Ok("Mobius owner"));
+        assert_eq!(app_name(&"m".repeat(34)), Ok("m".repeat(34).as_str()));
+    }
+
+    #[test]
+    fn an_empty_or_long_app_name_is_refused() {
+        let error = Err("The App name must have 1 to 34 characters.".to_string());
+
+        assert_eq!(app_name("   ").map(str::to_string), error);
+        assert_eq!(app_name(&"m".repeat(35)).map(str::to_string), error);
+    }
 }
