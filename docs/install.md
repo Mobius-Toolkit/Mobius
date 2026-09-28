@@ -141,12 +141,12 @@ Mobius refuses to start when a Harness of your config, `gh`, or `curl` is not on
 
 If necessary, set these variables in the shell before you start Mobius:
 
-- `IP` and `PORT` give the address. The default is `127.0.0.1:8080`. `IP` must be `127.0.0.1` or `0.0.0.0`.
+- `IP` and `PORT` give the address. The default is `127.0.0.1:6363`. `IP` must be `127.0.0.1` or `0.0.0.0`.
 - If your repositories use Rust, set `CARGO_TARGET_DIR` or `RUSTC_WRAPPER=sccache`. Without one of them, each worktree builds from zero.
 
 ## 6. Network
 
-On a laptop, open `http://localhost:8080`.
+On a laptop, open `http://localhost:6363`.
 
 On a server, use Tailscale Serve:
 
@@ -154,12 +154,12 @@ On a server, use Tailscale Serve:
 2. On the server, run:
 
    ```sh
-   tailscale serve --bg 8080
+   tailscale serve --bg 6363
    ```
 
 3. Open `https://<host>.<tailnet>.ts.net` on your device. Only the members of your tailnet can open the UI, and the UI has HTTPS.
 
-Caution: "Mobius works behind each HTTPS tunnel to `127.0.0.1:8080`. Do not open the port to the internet."
+Caution: "Mobius works behind each HTTPS tunnel to `127.0.0.1:6363`. Do not open the port to the internet."
 
 ## 7. Connect GitHub
 

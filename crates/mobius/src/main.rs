@@ -14,6 +14,11 @@ fn serve() {
 
     use dioxus::server::axum::Extension;
 
+    if dioxus::cli_config::server_port().is_none() {
+        // SAFETY: no other thread runs yet. `dioxus::serve` reads the port only from `PORT`.
+        unsafe { env::set_var("PORT", "6363") };
+    }
+
     let config_path = env::var_os("MOBIUS_CONFIG")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -64,7 +69,7 @@ fn serve() {
             "https://api.github.com",
             "https://github.com",
             path,
-            dioxus::cli_config::server_port().unwrap_or(8080),
+            dioxus::cli_config::server_port().unwrap_or(6363),
         ))
         .unwrap_or_else(|error| fail(error));
 
