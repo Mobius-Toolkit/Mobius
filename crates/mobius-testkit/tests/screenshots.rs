@@ -351,6 +351,12 @@ async fn screenshots() {
                 expected: "Sell gift cards in the shop.",
             },
             Shot {
+                name: "settings",
+                path: "/settings",
+                clicks: &[],
+                expected: "Devices",
+            },
+            Shot {
                 name: "server-agents",
                 path: "/server-agents",
                 clicks: &[],
