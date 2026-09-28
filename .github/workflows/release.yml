@@ -7,6 +7,9 @@ on:
 concurrency: release
 
 jobs:
+  check:
+    uses: ./.github/workflows/check.yml
+
   tag:
     runs-on: ubuntu-latest
     outputs:
@@ -25,7 +28,7 @@ jobs:
           fi
 
   bundle:
-    needs: tag
+    needs: check
     strategy:
       matrix:
         include:
