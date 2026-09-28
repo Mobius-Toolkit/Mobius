@@ -162,6 +162,13 @@ impl Sessions<'_> {
         .session()
     }
 
+    pub async fn open_ids(&self) -> Result<Vec<i64>, Box<dyn Error + Send + Sync>> {
+        let ids = sqlx::query_scalar!("SELECT id FROM sessions WHERE ended_at IS NULL")
+            .fetch_all(self.pool)
+            .await?;
+        Ok(ids)
+    }
+
     pub async fn with_role(
         &self,
         role: &str,

@@ -184,6 +184,7 @@ pub(crate) async fn tell_owner(
     Ok("Sent to the Owner.".to_string())
 }
 
+// After a crash, a new session gets the message of the failed turn as its first message. The queue keeps the later messages.
 async fn run(
     engine: Engine,
     mut stops: broadcast::Receiver<(String, i64)>,
@@ -196,47 +197,85 @@ async fn run(
     } else {
         (ROLE, &engine.config.roles.lead, Author::Lead)
     };
-    let session = match lead::add_session(&engine, role, binding, &repository, workstream).await {
-        Ok(session) => session,
-        Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
-    };
-    let caller = mcp::Caller {
-        session,
-        role,
-        repository: repository.clone(),
-        workstream,
-        cannot_do: None,
-        fix: None,
-        review: None,
-        judge: None,
-    };
-    let key = match mcp::open(&engine, caller) {
-        Ok(key) => key,
-        Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
-    };
-    let mut recorder = Recorder::new(&engine, session, &repository, workstream, Some(author));
-    let result = tokio::select! {
-        result = chat(&engine, &first, session, &key, &mut recorder, &mut commands) => result.map(|()| "idle"),
-        () = lead::stopped(&mut stops, &repository, workstream) => Ok("stopped"),
-    };
-    mcp::close(&engine, &key);
-    match result {
-        Ok(reason) => {
-            if reason == "stopped" {
-                finish(&engine, &repository, workstream, None);
+    let mut first = first;
+    let mut queue = VecDeque::new();
+    let mut crashes = 0;
+    loop {
+        let session = match lead::add_session(&engine, role, binding, &repository, workstream).await
+        {
+            Ok(session) => session,
+            Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
+        };
+        let caller = mcp::Caller {
+            session,
+            role,
+            repository: repository.clone(),
+            workstream,
+            cannot_do: None,
+            fix: None,
+            review: None,
+            judge: None,
+        };
+        let key = match mcp::open(&engine, caller) {
+            Ok(key) => key,
+            Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
+        };
+        let mut recorder = Recorder::new(&engine, session, &repository, workstream, Some(author));
+        let mut current = None;
+        let result = tokio::select! {
+            result = chat(&engine, &first, &key, &mut recorder, &mut commands, &mut queue, &mut current) => result.map(|()| "idle"),
+            () = lead::stopped(&mut stops, &repository, workstream) => Ok("stopped"),
+        };
+        mcp::close(&engine, &key);
+        let error = match result {
+            Ok(reason) => {
+                if reason == "stopped" {
+                    finish(&engine, &repository, workstream, None);
+                }
+                if let Err(failure) = lead::end_session(&engine, session, reason).await {
+                    eprintln!("mobius: chat session {session}: {failure}");
+                }
+                return;
             }
-            if let Err(failure) = lead::end_session(&engine, session, reason).await {
+            Err(error) => error,
+        };
+        if let Err(failure) = recorder.fail(&error.to_string()).await {
+            eprintln!("mobius: chat session {session}: {failure}");
+        }
+        if !lead::context_error(&*error) {
+            crashes += 1;
+        }
+        if let Some(message) = current {
+            if crashes <= lead::MAX_CRASHES {
+                first = message;
+                continue;
+            }
+            if let Err(failure) = failed(&engine, &message).await {
                 eprintln!("mobius: chat session {session}: {failure}");
             }
         }
-        Err(error) => {
-            let error = error.to_string();
-            if let Err(failure) = recorder.fail(&error).await {
-                eprintln!("mobius: chat session {session}: {failure}");
-            }
-            finish(&engine, &repository, workstream, Some(error));
-        }
+        return finish(&engine, &repository, workstream, Some(error.to_string()));
     }
+}
+
+async fn failed(
+    engine: &Engine,
+    message: &ChatMessage,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let item = engine
+        .store
+        .inbox_items()
+        .add(
+            InboxKind::LeadFailed,
+            &message.repository,
+            message.workstream,
+            message.workstream,
+            &message.text,
+            "",
+        )
+        .await?;
+    engine.broadcast(Live::Inbox(item));
+    Ok(())
 }
 
 fn finish(engine: &Engine, repository: &str, workstream: i64, error: Option<String>) {
@@ -256,13 +295,16 @@ fn finish(engine: &Engine, repository: &str, workstream: i64, error: Option<Stri
 async fn chat(
     engine: &Engine,
     first: &ChatMessage,
-    session_id: i64,
     session_key: &str,
     recorder: &mut Recorder,
     commands: &mut UnboundedReceiver<Command>,
+    queue: &mut VecDeque<ChatMessage>,
+    // The message of the turn that runs. A crash in this turn sends the message again in a new session.
+    current: &mut Option<ChatMessage>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let (repository, workstream) = (first.repository.as_str(), first.workstream);
     let key = (repository.to_string(), workstream);
+    let session_id = recorder.session();
     let triager = workstream == triager::CHAT;
     let data_dir = &engine.config.data_dir;
     let (dir, prompt, binding, gh_url) = if triager {
@@ -285,29 +327,16 @@ async fn chat(
         gh_url.as_deref(),
     )
     .await?;
-    let mut queue = VecDeque::new();
     let mut last = first.id;
-    turn(
-        &session,
-        &prompt,
-        recorder,
-        &mut updates,
-        commands,
-        &mut queue,
-    )
-    .await?;
+    *current = Some(first.clone());
+    turn(&session, &prompt, recorder, &mut updates, commands, queue).await?;
+    *current = None;
     loop {
         while let Some(message) = queue.pop_front() {
             let prompt = message_prompt(engine, &message, &mut last).await?;
-            turn(
-                &session,
-                &prompt,
-                recorder,
-                &mut updates,
-                commands,
-                &mut queue,
-            )
-            .await?;
+            *current = Some(message);
+            turn(&session, &prompt, recorder, &mut updates, commands, queue).await?;
+            *current = None;
         }
         {
             let mut chats = engine.chats.lock().unwrap();
@@ -348,7 +377,7 @@ async fn chat(
                         recorder,
                         &mut updates,
                         commands,
-                        &mut queue,
+                        queue,
                     )
                     .await?;
                 }

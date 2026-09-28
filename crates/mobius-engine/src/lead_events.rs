@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use mobius_domain::{InboxKind, Live};
 use mobius_runner::Session;
 use serde_json::Value;
 use tokio::sync::broadcast;
@@ -49,6 +50,7 @@ pub(crate) async fn add(
     Ok(())
 }
 
+// After a crash, a new session gets the same event, because an event stays in the queue until its turn ends.
 async fn run(
     engine: Engine,
     mut stops: broadcast::Receiver<(String, i64)>,
@@ -56,67 +58,96 @@ async fn run(
     workstream: i64,
     mut wakes: UnboundedReceiver<()>,
 ) {
-    let session = match lead::add_session(
-        &engine,
+    let mut crashes = 0;
+    loop {
+        let Err(error) = session(&engine, &mut stops, &repository, workstream, &mut wakes).await
+        else {
+            return;
+        };
+        eprintln!("mobius: event session of {repository}#{workstream}: {error}");
+        if !lead::context_error(&*error) {
+            crashes += 1;
+        }
+        if crashes <= lead::MAX_CRASHES {
+            continue;
+        }
+        if let Err(failure) = failed(&engine, &repository, workstream).await {
+            eprintln!("mobius: event session of {repository}#{workstream}: {failure}");
+        }
+        return remove(&engine, &repository, workstream);
+    }
+}
+
+async fn failed(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let events = engine.store.lead_events();
+    for event in events.undelivered(repository, workstream).await? {
+        let item = engine
+            .store
+            .inbox_items()
+            .add(
+                InboxKind::LeadFailed,
+                repository,
+                workstream,
+                workstream,
+                &event.payload,
+                "",
+            )
+            .await?;
+        engine.broadcast(Live::Inbox(item));
+        events.deliver(event.id).await?;
+    }
+    Ok(())
+}
+
+async fn session(
+    engine: &Engine,
+    stops: &mut broadcast::Receiver<(String, i64)>,
+    repository: &str,
+    workstream: i64,
+    wakes: &mut UnboundedReceiver<()>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let session = lead::add_session(
+        engine,
         ROLE,
         &engine.config.roles.lead,
-        &repository,
+        repository,
         workstream,
     )
-    .await
-    {
-        Ok(session) => session,
-        Err(error) => {
-            eprintln!("mobius: event session of {repository}#{workstream}: {error}");
-            return remove(&engine, &repository, workstream);
-        }
-    };
-    let mut recorder = Recorder::new(&engine, session, &repository, workstream, None);
-    let result = match mcp::open(
-        &engine,
+    .await?;
+    let mut recorder = Recorder::new(engine, session, repository, workstream, None);
+    let key = mcp::open(
+        engine,
         mcp::Caller {
             session,
             role: ROLE,
-            repository: repository.clone(),
+            repository: repository.to_string(),
             workstream,
             cannot_do: None,
             fix: None,
             review: None,
             judge: None,
         },
-    ) {
-        Ok(key) => {
-            let result = tokio::select! {
-                result = events(
-                    &engine,
-                    &repository,
-                    workstream,
-                    session,
-                    &key,
-                    &mut recorder,
-                    &mut wakes,
-                ) => result.map(|()| "idle"),
-                () = lead::stopped(&mut stops, &repository, workstream) => Ok("stopped"),
-            };
-            mcp::close(&engine, &key);
-            result
-        }
-        Err(error) => Err(error.into()),
+    )?;
+    let result = tokio::select! {
+        result = events(engine, repository, workstream, session, &key, &mut recorder, wakes) => result.map(|()| "idle"),
+        () = lead::stopped(stops, repository, workstream) => Ok("stopped"),
     };
-    let ended = match result {
+    mcp::close(engine, &key);
+    match result {
         Ok(reason) => {
             if reason == "stopped" {
-                remove(&engine, &repository, workstream);
+                remove(engine, repository, workstream);
             }
-            lead::end_session(&engine, session, reason).await
+            lead::end_session(engine, session, reason).await
         }
         Err(error) => {
-            remove(&engine, &repository, workstream);
-            recorder.fail(&error.to_string()).await
+            recorder.fail(&error.to_string()).await?;
+            Err(error)
         }
-    };
-    if let Err(failure) = ended {
-        eprintln!("mobius: event session {session}: {failure}");
     }
 }
 

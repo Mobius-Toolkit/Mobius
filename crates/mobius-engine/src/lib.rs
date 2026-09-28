@@ -8,6 +8,7 @@ mod dispatch;
 mod ends;
 pub mod gh;
 pub mod github;
+mod housekeeper;
 mod implementer;
 pub mod inbox;
 mod issues;
@@ -132,6 +133,7 @@ pub async fn start(
     auth::start(&engine).await?;
     limits::start(&engine).await?;
     poll::spawn(engine.clone());
+    housekeeper::spawn(engine.clone());
     Ok(engine)
 }
 

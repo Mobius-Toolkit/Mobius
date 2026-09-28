@@ -1,0 +1,232 @@
+use std::fs;
+
+use mobius_domain::{InboxKind, Session};
+use mobius_engine::{Engine, github, inbox, workstreams};
+use mobius_testkit::fake_github::FakeGitHub;
+use mobius_testkit::{install_fake_harness, start_with_config, wait_for};
+use tempfile::TempDir;
+
+const REPOSITORY: &str = "owner/shop";
+const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_fake-agent");
+const CLAUDE_OPTIONS: &str = r#"
+[options]
+model = ["sonnet", "opus"]
+thought_level = ["low", "high"]
+mode = ["default", "bypassPermissions"]
+
+[[prompts]]
+when = "You are the Reviewer"
+shell = "true"
+"#;
+const DEVIN_OPTIONS: &str = r#"
+[options]
+model = ["swe-1.5"]
+thought_level = ["high"]
+"#;
+const START: &str = "call = { tool = \"start_implementer\", arguments = { n = 41, instructions = \"Store plans in cents.\" } }";
+const COMMIT: &str =
+    "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'";
+
+// The shell of `fake-agent` ends its own process, as a Harness that dies in a turn. With a flag file, only the first process dies.
+fn die_once(flag: &std::path::Path, then: &str) -> String {
+    format!(
+        "if [ -e '{0}' ]; then {then}; else touch '{0}'; kill -9 $PPID; fi",
+        flag.display()
+    )
+}
+
+async fn connect(
+    data_dir: &TempDir,
+    github: &FakeGitHub,
+    lead: &str,
+    implementer: &str,
+    extra_config: &str,
+) -> Engine {
+    github.add_manifest_code("manifest-code");
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 41, "Add plan model");
+    github.add_sub_issue(REPOSITORY, 12, 41);
+    install_fake_harness(
+        data_dir.path(),
+        FAKE_AGENT,
+        "claude-agent-acp",
+        &format!("{CLAUDE_OPTIONS}\n{lead}"),
+    );
+    install_fake_harness(
+        data_dir.path(),
+        FAKE_AGENT,
+        "devin",
+        &format!("{DEVIN_OPTIONS}\n{implementer}"),
+    );
+    let engine =
+        start_with_config(data_dir.path(), "correct horse", &github.url, extra_config).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    wait_for(async || (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+    engine
+}
+
+async fn sessions(engine: &Engine, role: &str) -> Vec<Session> {
+    engine
+        .store
+        .sessions()
+        .list(REPOSITORY, 12)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|session| session.role == role)
+        .collect()
+}
+
+fn dispatch_start() -> String {
+    format!("[[prompts]]\nwhen = \"dispatch of #41\"\n{START}\n")
+}
+
+#[tokio::test]
+async fn a_worker_that_dies_starts_again_and_does_the_work() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let flag = data_dir.path().join("died");
+    let implementer = format!(
+        "[[prompts]]\nshell = \"{}\"\n",
+        die_once(&flag, COMMIT).replace('"', "\\\"")
+    );
+    let engine = connect(&data_dir, &github, &dispatch_start(), &implementer, "").await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    wait_for(async || (!github.pull_requests(REPOSITORY).is_empty()).then_some(())).await;
+    let implementers = wait_for(async || {
+        let implementers = sessions(&engine, "implementer").await;
+        implementers
+            .iter()
+            .all(|session| session.ended_at.is_some())
+            .then_some(implementers)
+    })
+    .await;
+    assert_eq!(implementers.len(), 2);
+    assert_eq!(implementers[0].end_reason.as_deref(), Some("failed"));
+    assert_eq!(implementers[1].end_reason.as_deref(), Some("done"));
+}
+
+#[tokio::test]
+async fn a_worker_that_dies_after_max_worker_restarts_goes_to_a_human() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let implementer = "[[prompts]]\nshell = \"kill -9 $PPID\"\n";
+    let engine = connect(
+        &data_dir,
+        &github,
+        &dispatch_start(),
+        implementer,
+        "max_worker_restarts = 1",
+    )
+    .await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    wait_for(async || {
+        github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:needs-human".to_string())
+            .then_some(())
+    })
+    .await;
+    let implementers = sessions(&engine, "implementer").await;
+    assert_eq!(implementers.len(), 2);
+    assert_eq!(
+        engine
+            .store
+            .tasks()
+            .live(REPOSITORY, 41)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        "needs_human"
+    );
+    assert!(github.pull_requests(REPOSITORY).is_empty());
+}
+
+#[tokio::test]
+async fn a_lead_that_crashes_gets_the_same_event_in_a_new_session() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let flag = data_dir.path().join("died");
+    let lead = format!(
+        "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"{}\"\n{START}\n",
+        die_once(&flag, "true").replace('"', "\\\"")
+    );
+    let engine = connect(
+        &data_dir,
+        &github,
+        &lead,
+        &format!("[[prompts]]\nshell = \"{COMMIT}\"\n"),
+        "",
+    )
+    .await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    wait_for(async || (!sessions(&engine, "implementer").await.is_empty()).then_some(())).await;
+    let leads = sessions(&engine, "lead_event").await;
+    assert!(leads.len() >= 2, "{leads:?}");
+    assert_eq!(leads[0].end_reason.as_deref(), Some("failed"));
+}
+
+#[tokio::test]
+async fn a_lead_that_always_crashes_sends_the_event_to_the_inbox() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let lead = "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"kill -9 $PPID\"\n";
+    let engine = connect(&data_dir, &github, lead, "", "").await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    let item = wait_for(async || {
+        inbox::list(&engine)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|item| item.kind == InboxKind::LeadFailed)
+    })
+    .await;
+    assert!(
+        item.text
+            .contains(" dispatch of #41 \"Add plan model\" by @owner:"),
+        "{}",
+        item.text
+    );
+    assert_eq!(sessions(&engine, "lead_event").await.len(), 4);
+}
+
+#[tokio::test]
+async fn the_housekeeper_removes_the_directories_that_nothing_owns() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let worktrees = data_dir.path().join("worktrees/owner/shop");
+    let stale = [
+        worktrees.join("task-99"),
+        worktrees.join("review-12345"),
+        data_dir.path().join("scratch/777"),
+    ];
+    let lead = data_dir.path().join("leads/owner/shop/12");
+    for dir in stale.iter().chain([&lead]) {
+        fs::create_dir_all(dir).unwrap();
+    }
+
+    connect(
+        &data_dir,
+        &github,
+        "",
+        "",
+        "housekeeper_interval = \"100ms\"",
+    )
+    .await;
+
+    wait_for(async || stale.iter().all(|dir| !dir.exists()).then_some(())).await;
+    assert!(lead.exists());
+}

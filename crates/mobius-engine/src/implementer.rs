@@ -12,8 +12,8 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
 use crate::{
-    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, dispatch, ends, issues, lead_events, limits, mcp,
-    reviewer, threads, workers,
+    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, dispatch, ends, housekeeper, issues, lead_events,
+    limits, mcp, reviewer, threads, workers,
 };
 
 pub(crate) const ROLE: &str = "implementer";
@@ -22,6 +22,7 @@ pub(crate) const CHECK_RUN: &str = "Mobius";
 // GitHub allows a maximum of 65535 characters in the summary of a check run.
 const LOG_TAIL: usize = 60_000;
 
+#[derive(Clone)]
 struct Job {
     repository: String,
     workstream: i64,
@@ -222,11 +223,31 @@ fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> + Send>> {
             "mobius: Implementer of {}#{}: {error}",
             job.repository, job.number
         );
-        if let Err(failure) = hand_to_human(&engine, &job.repository, job.task, job.number).await {
-            eprintln!(
-                "mobius: stop of {}#{}: {failure}",
+        let restart = housekeeper::restart(
+            &engine,
+            &job.repository,
+            job.workstream,
+            job.task,
+            job.number,
+            &job.title,
+        )
+        .await;
+        match restart {
+            Ok(true) => match engine.store.tasks().queue(job.task, "working").await {
+                Ok(true) => {
+                    tokio::spawn(run(engine.clone(), job));
+                }
+                Ok(false) => {}
+                Err(failure) => eprintln!(
+                    "mobius: restart of {}#{}: {failure}",
+                    job.repository, job.number
+                ),
+            },
+            Ok(false) => {}
+            Err(failure) => eprintln!(
+                "mobius: restart of {}#{}: {failure}",
                 job.repository, job.number
-            );
+            ),
         }
     })
 }
