@@ -11,6 +11,7 @@ pub mod github;
 mod implementer;
 pub mod inbox;
 mod issues;
+mod judge;
 mod lead;
 mod lead_events;
 pub mod mcp;
@@ -18,6 +19,7 @@ mod plans;
 mod poll;
 mod reviewer;
 pub mod tasks;
+mod threads;
 pub mod transcript;
 mod trust;
 mod workers;
@@ -62,6 +64,8 @@ pub struct Engine {
     checks: Arc<tokio::sync::Semaphore>,
     // Each send carries the id of a task that stops or ends.
     stops: broadcast::Sender<i64>,
+    // For each task, the time of its newest Judge item and the moment when Mobius first saw it.
+    quiet: Arc<Mutex<HashMap<i64, (time::OffsetDateTime, std::time::Instant)>>>,
 }
 
 impl Engine {
@@ -107,6 +111,7 @@ pub async fn start(
         workers: Arc::default(),
         checks,
         stops: broadcast::channel(64).0,
+        quiet: Arc::default(),
     };
     auth::start(&engine).await?;
     poll::spawn(engine.clone());

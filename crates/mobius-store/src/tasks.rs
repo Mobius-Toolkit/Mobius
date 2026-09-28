@@ -16,6 +16,8 @@ pub struct Task {
     pub branch: Option<String>,
     pub fix_rounds: i64,
     pub pull_request: Option<i64>,
+    // The time of the newest comment that the Judge got.
+    pub judged_at: Option<OffsetDateTime>,
 }
 
 impl Tasks<'_> {
@@ -30,7 +32,8 @@ impl Tasks<'_> {
             Task,
             r#"INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
                VALUES (?, ?, ?, 'dispatched', ?)
-               RETURNING id AS "id!", issue, workstream, state, branch, fix_rounds, pull_request"#,
+               RETURNING id AS "id!", issue, workstream, state, branch, fix_rounds, pull_request,
+                         judged_at AS "judged_at: OffsetDateTime""#,
             repository,
             issue,
             workstream,
@@ -48,7 +51,8 @@ impl Tasks<'_> {
     ) -> Result<Option<Task>, Box<dyn Error + Send + Sync>> {
         let task = sqlx::query_as!(
             Task,
-            r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request FROM tasks
+            r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request,
+                      judged_at AS "judged_at: OffsetDateTime" FROM tasks
                WHERE repository = ? AND issue = ? AND state <> 'ended'"#,
             repository,
             issue
@@ -131,7 +135,8 @@ impl Tasks<'_> {
     ) -> Result<Vec<Task>, Box<dyn Error + Send + Sync>> {
         let tasks = sqlx::query_as!(
             Task,
-            r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request FROM tasks
+            r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request,
+                      judged_at AS "judged_at: OffsetDateTime" FROM tasks
                WHERE repository = ? AND state <> 'ended'"#,
             repository
         )
@@ -155,7 +160,8 @@ impl Tasks<'_> {
     ) -> Result<Option<Task>, Box<dyn Error + Send + Sync>> {
         let task = sqlx::query_as!(
             Task,
-            r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request FROM tasks
+            r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request,
+                      judged_at AS "judged_at: OffsetDateTime" FROM tasks
                WHERE repository = ? AND pull_request = ? AND state <> 'ended'"#,
             repository,
             pull_request
@@ -179,6 +185,17 @@ impl Tasks<'_> {
         .execute(self.pool)
         .await?;
         Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn set_judged_at(
+        &self,
+        id: i64,
+        judged_at: OffsetDateTime,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query!("UPDATE tasks SET judged_at = ? WHERE id = ?", judged_at, id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn reset_counters(&self, id: i64) -> Result<(), Box<dyn Error + Send + Sync>> {

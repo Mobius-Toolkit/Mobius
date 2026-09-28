@@ -377,6 +377,7 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
 
     fn comment(author: &str, app: Option<&str>) -> Comment {
         Comment {
+            id: 1,
             user: User {
                 login: author.to_string(),
             },

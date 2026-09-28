@@ -310,7 +310,7 @@ async fn a_fix_round_replies_with_the_pushed_fix_commit_and_resolves_the_thread(
             "You are the Implementer".to_string(),
             "# Brief\n\nShip loyalty plans to all shops.\n".to_string(),
             "# Issue\n\n#41 Add plan model\n\nPlans have a price.\n".to_string(),
-            format!("# Open review threads\n\nThread 1, plan.txt line 1:\n\n@{APP_LOGIN}, "),
+            format!("# Open items\n\nThread 1, plan.txt line 1:\n\n@{APP_LOGIN}, "),
             "Store the unit.\n\nAction: fix\n".to_string(),
         ],
     );
@@ -396,7 +396,7 @@ async fn a_finding_after_max_fix_rounds_stops_the_task_until_a_comment_of_a_trus
             .iter()
             .any(|prompt| {
                 prompt.contains(
-                    " stop of #41 \"Add plan model\": the review threads stay open after 1 fix rounds. Mobius set the Mobius check to failure and added mobius:needs-human.",
+                    " stop of #41 \"Add plan model\": the pull request has open items after 1 fix rounds. Mobius set the Mobius check to failure and added mobius:needs-human.",
                 )
             })
             .then_some(())
@@ -519,5 +519,5 @@ async fn a_queued_reviewer_gets_the_earlier_threads_of_trusted_authors() {
     assert!(prompts[0].contains("Use cents."), "{}", prompts[0]);
     assert!(!prompts[0].contains("servers"), "{}", prompts[0]);
     assert!(github.pull_requests(REPOSITORY)[1].draft);
-    assert_eq!(task_state(&engine, 41).await.as_deref(), Some("working"));
+    assert_eq!(task_state(&engine, 41).await.as_deref(), Some("reviewed"));
 }

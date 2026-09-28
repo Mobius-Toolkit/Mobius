@@ -74,6 +74,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                 pull_request: job.pull_request.number,
                 head: job.head.clone(),
             }),
+            judge: None,
         },
     )?;
     let result = tokio::select! {
@@ -165,34 +166,60 @@ async fn review(
         .filter(|thread| is_open(thread, &trusted, &app_login))
         .collect();
     if open.is_empty() {
-        return ready_for_review(engine, &repository, job).await;
+        return ready_for_review(engine, &repository, job, "working").await;
     }
+    // A finding of the Reviewer has only the first comment. A thread with a reply of a trusted user or bot goes to the Judge.
     let findings: Vec<i64> = open
         .iter()
         .filter(|thread| {
             thread
                 .authors
-                .first()
-                .is_some_and(|author| author.eq_ignore_ascii_case(&app_login))
+                .iter()
+                .filter(|author| trusted(author))
+                .all(|author| author.eq_ignore_ascii_case(&app_login))
         })
         .map(|thread| thread.comment)
         .collect();
     if findings.is_empty() {
+        engine
+            .store
+            .tasks()
+            .set_state(job.task, "working", "reviewed")
+            .await?;
         return Ok(());
     }
-    implementer::fix_round(engine, &repository, job, &findings).await
+    let items =
+        issues::fix_threads(&repository, job.pull_request.number, &findings, &trusted).await?;
+    implementer::fix_round(
+        engine,
+        &repository,
+        implementer::Round {
+            repository: job.repository.clone(),
+            workstream: job.workstream,
+            task: job.task,
+            number: job.number,
+            title: job.title.clone(),
+            branch: job.branch.clone(),
+            pull_request: job.pull_request.clone(),
+            check_run: Some(job.check_run),
+            counts: true,
+            items,
+        },
+    )
+    .await
 }
 
-async fn ready_for_review(
+// A task that is not in the state `from`, for example after a decline of the Lead, stays a draft.
+pub(crate) async fn ready_for_review(
     engine: &Engine,
     repository: &Repository,
     job: &Job,
+    from: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    // A task that the Lead declined during the review stays a draft.
     if !engine
         .store
         .tasks()
-        .set_state(job.task, "working", "ready_for_review")
+        .set_state(job.task, from, "ready_for_review")
         .await?
     {
         return Ok(());
@@ -241,7 +268,11 @@ fn ready_text(time: OffsetDateTime, job: &Job) -> Result<String, time::error::Fo
 }
 
 // A thread is open when it is unresolved, a trusted author started it, and its last trusted comment is not a reply of the Mobius App. The first comment of the Mobius App is a finding of the Reviewer.
-fn is_open(thread: &ReviewThread, trusted: impl Fn(&str) -> bool, app_login: &str) -> bool {
+pub(crate) fn is_open(
+    thread: &ReviewThread,
+    trusted: impl Fn(&str) -> bool,
+    app_login: &str,
+) -> bool {
     let trusted_authors: Vec<&String> = thread
         .authors
         .iter()

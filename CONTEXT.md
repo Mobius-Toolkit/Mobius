@@ -87,6 +87,10 @@ _Avoid_: Checker, QA
 A Role that sorts new pull request comments into actions (fix, question, follow-up, reject) in one short session with no memory.
 _Avoid_: Classifier, triage bot
 
+**Item**:
+An open review thread or a conversation comment of a pull request that the Judge sorts, or that a fix round answers.
+_Avoid_: Finding, ticket
+
 **Housekeeper**:
 The part of Mobius that watches all agents, restarts dead ones, and removes stale workspaces.
 _Avoid_: Supervisor, janitor
@@ -118,7 +122,7 @@ The command of a repository that Mobius runs in a worktree before each push of a
 _Avoid_: CI, pre-push hook
 
 **Fix round**:
-One pass in which the Implementer changes a pull request to answer its unresolved review threads.
+One pass in which the Implementer changes a pull request to answer its open items: the findings of the Reviewer, and the `fix` and `question` actions of the Judge. Only a pass with a `fix` counts toward `max_fix_rounds`.
 _Avoid_: Iteration, cycle
 
 **Conflict round**:

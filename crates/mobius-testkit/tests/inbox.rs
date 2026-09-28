@@ -286,6 +286,7 @@ async fn only_the_event_session_has_tell_owner() {
             "decline",
             "create_issue",
             "mark_ready",
+            "reply_thread",
             "comment_pull_request",
             "tell_owner"
         ]

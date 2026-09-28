@@ -95,6 +95,7 @@ pub struct IssueEvent {
 
 #[derive(Deserialize)]
 pub struct Comment {
+    pub id: i64,
     pub user: User,
     pub body: String,
     #[serde(with = "time::serde::rfc3339")]

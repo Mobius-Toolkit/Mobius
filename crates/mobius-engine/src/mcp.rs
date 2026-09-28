@@ -21,8 +21,10 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::threads::Target;
 use crate::{
-    Engine, chat, dispatch, implementer, issues, lead_events, plans, reviewer, tasks, trust,
+    Engine, chat, dispatch, implementer, issues, judge, lead_events, plans, reviewer, tasks,
+    threads, trust,
 };
 
 #[derive(Clone)]
@@ -37,6 +39,15 @@ pub(crate) struct Caller {
     pub(crate) fix: Option<Fix>,
     // The pull request and the head commit that the Reviewer session reviews.
     pub(crate) review: Option<Review>,
+    // The items of the Judge session and the sender of each valid `submit_verdicts` call.
+    pub(crate) judge: Option<Judge>,
+}
+
+#[derive(Clone)]
+pub(crate) struct Judge {
+    // The id of each item, and `true` for an item of a trusted bot.
+    pub(crate) items: Vec<(i64, bool)>,
+    pub(crate) verdicts: UnboundedSender<Vec<judge::ItemVerdicts>>,
 }
 
 #[derive(Clone)]
@@ -52,9 +63,7 @@ pub(crate) struct Fix {
 }
 
 pub(crate) struct Reply {
-    pub(crate) comment: i64,
-    // The GraphQL node id of the thread.
-    pub(crate) thread: String,
+    pub(crate) target: Target,
     pub(crate) text: String,
     pub(crate) resolve: bool,
 }
@@ -209,6 +218,22 @@ fn tools(role: &str) -> Vec<Tool> {
                 })),
             ),
             tool(
+                "reply_thread",
+                "Reply in a review thread or to a conversation comment of the pull request of a task, for example with the link to a follow-up issue.",
+                object(json!({
+                    "thread": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the thread or the comment in the event."
+                    },
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "A follow-up link, an answer, or a reason to reject. Do not write an acknowledgement."
+                    }
+                })),
+            ),
+            tool(
                 "comment_pull_request",
                 "Post a comment on the pull request of a task, for example to propose that a human closes a stale pull request.",
                 object(json!({
@@ -244,7 +269,7 @@ fn tools(role: &str) -> Vec<Tool> {
                     "thread": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "The number of the thread in the prompt."
+                        "description": "The number of the thread or the comment in the prompt. Mobius cannot resolve a conversation comment."
                     },
                     "text": {
                         "type": "string",
@@ -290,6 +315,46 @@ fn tools(role: &str) -> Vec<Tool> {
                             }
                         },
                         "required": ["path", "line", "body"],
+                        "additionalProperties": false
+                    }
+                }
+            })),
+        )],
+        judge::ROLE => vec![tool(
+            "submit_verdicts",
+            "Give the actions for each item of the batch, one entry for each item. Items of trusted users take fix, question, and follow-up. Items of trusted bots take fix and reject. A later valid call replaces an earlier one.",
+            object(json!({
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "item": {
+                                "type": "integer",
+                                "description": "The number of the thread or the comment in the prompt."
+                            },
+                            "actions": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "verdict": {
+                                            "type": "string",
+                                            "enum": ["fix", "question", "follow-up", "reject"]
+                                        },
+                                        "text": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "description": "For fix and question, the work for the Implementer. For follow-up, the goal of the new issue. For reject, the reason for the author."
+                                        }
+                                    },
+                                    "required": ["verdict", "text"],
+                                    "additionalProperties": false
+                                }
+                            }
+                        },
+                        "required": ["item", "actions"],
                         "additionalProperties": false
                     }
                 }
@@ -355,6 +420,19 @@ struct ReplyThread {
     thread: i64,
     text: String,
     resolve: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SubmitVerdicts {
+    items: Vec<judge::ItemVerdicts>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LeadReplyThread {
+    thread: i64,
+    text: String,
 }
 
 #[derive(Deserialize)]
@@ -469,6 +547,34 @@ impl Handler {
                     .send(reason)?;
                 Ok("Mobius ends this turn.".to_string())
             }
+            "reply_thread" if self.caller.role != implementer::ROLE => {
+                let LeadReplyThread { thread, text } = parse(tool, arguments)?;
+                if text.trim().is_empty() {
+                    return Err("text must not be empty.".into());
+                }
+                for task in self
+                    .engine
+                    .store
+                    .tasks()
+                    .live_in(&self.caller.repository)
+                    .await?
+                    .into_iter()
+                    .filter(|task| task.workstream == self.caller.workstream)
+                {
+                    let Some(pull_request) = task.pull_request else {
+                        continue;
+                    };
+                    if let Some(target) = threads::target(&repository, pull_request, thread).await?
+                    {
+                        threads::reply(&repository, pull_request, &target, &text, false).await?;
+                        return Ok(format!("Replied to {thread}."));
+                    }
+                }
+                Err(format!(
+                    "{thread} is not a review thread or a comment of a pull request of a live task in this Workstream."
+                )
+                .into())
+            }
             "reply_thread" => {
                 let ReplyThread {
                     thread,
@@ -483,24 +589,27 @@ impl Handler {
                     .fix
                     .as_ref()
                     .ok_or("Only an Implementer of a fix round can reply in a thread.")?;
-                let found = repository
-                    .review_threads(fix.pull_request)
+                let target = threads::target(&repository, fix.pull_request, thread)
                     .await?
-                    .into_iter()
-                    .find(|found| found.comment == thread)
                     .ok_or_else(|| {
                         format!(
-                            "Thread {thread} is not a review thread of pull request #{}.",
+                            "{thread} is not a review thread or a comment of pull request #{}.",
                             fix.pull_request
                         )
                     })?;
                 fix.replies.send(Reply {
-                    comment: thread,
-                    thread: found.id,
+                    target,
                     text,
                     resolve,
                 })?;
                 Ok("Mobius posts the reply after it pushes your commits.".to_string())
+            }
+            "submit_verdicts" => {
+                let SubmitVerdicts { items } = parse(tool, arguments)?;
+                let judge = self.caller.judge.as_ref().ok_or_else(unknown)?;
+                judge::validate(&judge.items, &items)?;
+                judge.verdicts.send(items)?;
+                Ok("Mobius routes the actions when your turn ends.".to_string())
             }
             "submit_review" => {
                 let SubmitReview { body, comments } = parse(tool, arguments)?;

@@ -173,6 +173,13 @@ pub fn task_dir(data_dir: &Path, repository: &str, number: i64) -> PathBuf {
         .join(format!("task-{number}"))
 }
 
+pub fn judge_dir(data_dir: &Path, repository: &str, id: i64) -> PathBuf {
+    data_dir
+        .join("worktrees")
+        .join(repository)
+        .join(format!("judge-{id}"))
+}
+
 pub fn review_dir(data_dir: &Path, repository: &str, id: i64) -> PathBuf {
     data_dir
         .join("worktrees")
