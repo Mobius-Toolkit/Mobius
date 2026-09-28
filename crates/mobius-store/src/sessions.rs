@@ -108,6 +108,23 @@ impl Sessions<'_> {
         .session()
     }
 
+    pub async fn clear_queue_reason(
+        &self,
+        id: i64,
+    ) -> Result<Session, Box<dyn Error + Send + Sync>> {
+        sqlx::query_as!(
+            Row,
+            r#"UPDATE sessions SET queue_reason = NULL WHERE id = ?
+               RETURNING id AS "id!", role, harness, model, repository, workstream, acp_session_id,
+                         started_at AS "started_at: OffsetDateTime",
+                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason"#,
+            id
+        )
+        .fetch_one(self.pool)
+        .await?
+        .session()
+    }
+
     pub async fn start(&self, id: i64) -> Result<Session, Box<dyn Error + Send + Sync>> {
         let started_at = OffsetDateTime::now_utc();
         sqlx::query_as!(

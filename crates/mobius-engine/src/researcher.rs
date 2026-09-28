@@ -8,7 +8,7 @@ use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::lead::{self, Recorder};
-use crate::{Engine, TIME_FORMAT, chat, lead_events, mcp, workers};
+use crate::{Engine, TIME_FORMAT, chat, lead_events, limits, mcp, workers};
 
 pub(crate) const ROLE: &str = "researcher";
 const ROLE_PROMPT: &str = include_str!("prompts/researcher.md");
@@ -174,29 +174,36 @@ pub(crate) async fn turn(
     recorder: &mut Recorder,
     updates: &mut UnboundedReceiver<Value>,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
-    recorder.prompt(prompt).await?;
-    let mut report = String::new();
-    let result = {
-        let turn = session.prompt(prompt);
-        tokio::pin!(turn);
-        loop {
-            tokio::select! {
-                biased;
-                result = &mut turn => break result,
-                Some(update) = updates.recv() => {
-                    add(&mut report, &update);
-                    recorder.update(update).await?;
+    loop {
+        recorder.prompt(prompt).await?;
+        let mut report = String::new();
+        let result = {
+            let turn = session.prompt(prompt);
+            tokio::pin!(turn);
+            loop {
+                tokio::select! {
+                    biased;
+                    result = &mut turn => break result,
+                    Some(update) = updates.recv() => {
+                        add(&mut report, &update);
+                        recorder.update(update).await?;
+                    }
                 }
             }
+        };
+        // The connection reads each update of the turn before the answer to the prompt.
+        while let Ok(update) = updates.try_recv() {
+            add(&mut report, &update);
+            recorder.update(update).await?;
         }
-    };
-    // The connection reads each update of the turn before the answer to the prompt.
-    while let Ok(update) = updates.try_recv() {
-        add(&mut report, &update);
-        recorder.update(update).await?;
+        if let Err(error) = &result
+            && limits::wait_out(recorder, session.harness(), error).await?
+        {
+            continue;
+        }
+        result?;
+        return Ok(report);
     }
-    result?;
-    Ok(report)
 }
 
 fn add(report: &mut String, update: &Value) {

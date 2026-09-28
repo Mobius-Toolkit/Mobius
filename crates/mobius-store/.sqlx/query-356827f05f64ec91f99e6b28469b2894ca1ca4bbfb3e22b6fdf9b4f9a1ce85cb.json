@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT harness AS \"harness!\", paused_until AS \"paused_until: OffsetDateTime\", inbox_item\n               FROM harness_pauses WHERE harness = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "harness!",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "harness_pauses",
+            "name": "harness"
+          }
+        }
+      },
+      {
+        "name": "paused_until: OffsetDateTime",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "harness_pauses",
+            "name": "paused_until"
+          }
+        }
+      },
+      {
+        "name": "inbox_item",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "harness_pauses",
+            "name": "inbox_item"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "356827f05f64ec91f99e6b28469b2894ca1ca4bbfb3e22b6fdf9b4f9a1ce85cb"
+}

@@ -12,8 +12,8 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
 use crate::{
-    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, agents, ends, implementer, issues, lead_events, mcp,
-    reviewer, threads,
+    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, agents, ends, implementer, issues, lead_events, limits,
+    mcp, reviewer, threads,
 };
 
 pub(crate) const ROLE: &str = "judge";
@@ -361,6 +361,7 @@ async fn judge(
         "{ROLE_PROMPT}\n# Issue\n\n#{} {}\n\n{}\n\n# Items\n{items}",
         job.number, job.title, job.body
     );
+    limits::wait(engine, engine.config.roles.judge.harness, Some(session_id)).await?;
     let (session, mut updates) = lead::start(
         engine,
         &engine.config.roles.judge,

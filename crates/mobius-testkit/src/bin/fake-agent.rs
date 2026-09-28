@@ -45,6 +45,16 @@ struct Prompt {
     call: Option<Call>,
     // The Lead reply is the stdout and the stderr of `/bin/sh -c` with this command, then `exit <code>`. The command runs before `call`.
     shell: Option<String>,
+    // The turn ends with this JSON-RPC error, for example a usage limit.
+    error: Option<ScriptError>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScriptError {
+    code: i32,
+    message: String,
+    data: Option<Value>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -157,6 +167,9 @@ async fn play(
             session.clone(),
             SessionUpdate::AgentMessageChunk(ContentChunk::new(ContentBlock::from(text.as_str()))),
         ))?;
+    }
+    if let Some(error) = &prompt.error {
+        return Err(Error::new(error.code, error.message.clone()).data(error.data.clone()));
     }
     if prompt.hang {
         cancel.notified().await;

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES (?, ?, ?)\n             ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until,\n                                                 inbox_item = excluded.inbox_item",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "6c922bb7ca5914cb891ec9e0d263eaf8d5a3236a227545d55a3423278a29395d"
+}

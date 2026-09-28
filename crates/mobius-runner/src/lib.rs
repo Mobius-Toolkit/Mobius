@@ -1,5 +1,6 @@
 use std::env;
 use std::ffi::OsStr;
+use std::fmt;
 use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
@@ -441,6 +442,24 @@ pub struct Session {
     child: Child,
 }
 
+#[derive(Debug)]
+pub struct PromptError {
+    pub code: i32,
+    pub message: String,
+    pub data: Option<Value>,
+}
+
+impl fmt::Display for PromptError {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        match &self.data {
+            Some(data) => write!(formatter, "{} {data}", self.message),
+            None => write!(formatter, "{}", self.message),
+        }
+    }
+}
+
+impl std::error::Error for PromptError {}
+
 fn describe(error: &Error) -> String {
     match &error.data {
         Some(data) => format!("{} {data}", error.message),
@@ -642,7 +661,7 @@ impl Session {
     }
 
     // Holds until the turn ends. A turn that `cancel` stops also gives `Ok`.
-    pub async fn prompt(&self, text: &str) -> Result<(), String> {
+    pub async fn prompt(&self, text: &str) -> Result<(), PromptError> {
         self.connection
             .send_request(PromptRequest::new(
                 self.id.clone(),
@@ -651,7 +670,15 @@ impl Session {
             .block_task()
             .await
             .map(|_| ())
-            .map_err(|error| describe(&error))
+            .map_err(|error| PromptError {
+                code: i32::from(error.code),
+                message: error.message,
+                data: error.data,
+            })
+    }
+
+    pub fn harness(&self) -> Harness {
+        self.harness
     }
 
     pub fn cancel(&self) {

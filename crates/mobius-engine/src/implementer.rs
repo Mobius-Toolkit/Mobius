@@ -12,8 +12,8 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
 use crate::{
-    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, dispatch, ends, issues, lead_events, mcp, reviewer,
-    threads, workers,
+    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, dispatch, ends, issues, lead_events, limits, mcp,
+    reviewer, threads, workers,
 };
 
 pub(crate) const ROLE: &str = "implementer";
@@ -564,33 +564,40 @@ async fn turn(
     recorder: &mut Recorder,
     reasons: &mut UnboundedReceiver<String>,
 ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
-    recorder.prompt(prompt).await?;
-    let mut reason = None;
-    let result = {
-        let turn = session.prompt(prompt);
-        tokio::pin!(turn);
-        loop {
-            tokio::select! {
-                biased;
-                result = &mut turn => break result,
-                Some(update) = updates.recv() => recorder.update(update).await?,
-                Some(text) = reasons.recv() => {
-                    session.cancel();
-                    reason = Some(text);
+    loop {
+        recorder.prompt(prompt).await?;
+        let mut reason = None;
+        let result = {
+            let turn = session.prompt(prompt);
+            tokio::pin!(turn);
+            loop {
+                tokio::select! {
+                    biased;
+                    result = &mut turn => break result,
+                    Some(update) = updates.recv() => recorder.update(update).await?,
+                    Some(text) = reasons.recv() => {
+                        session.cancel();
+                        reason = Some(text);
+                    }
                 }
             }
+        };
+        // The connection reads each update of the turn before the answer to the prompt.
+        while let Ok(update) = updates.try_recv() {
+            recorder.update(update).await?;
         }
-    };
-    // The connection reads each update of the turn before the answer to the prompt.
-    while let Ok(update) = updates.try_recv() {
-        recorder.update(update).await?;
+        // With `biased`, the end of the turn wins over a reason that arrived just before it.
+        if let Some(reason) = reason.or_else(|| reasons.try_recv().ok()) {
+            return Ok(Some(reason));
+        }
+        if let Err(error) = &result
+            && limits::wait_out(recorder, session.harness(), error).await?
+        {
+            continue;
+        }
+        result?;
+        return Ok(None);
     }
-    // With `biased`, the end of the turn wins over a reason that arrived just before it.
-    if let Some(reason) = reason.or_else(|| reasons.try_recv().ok()) {
-        return Ok(Some(reason));
-    }
-    result?;
-    Ok(None)
 }
 
 fn tail(log: &str) -> String {
