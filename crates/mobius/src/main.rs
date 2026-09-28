@@ -25,9 +25,18 @@ fn serve() {
                 .unwrap_or_default()
                 .join(".mobius/config.toml")
         });
+    let path = env::var_os("PATH").unwrap_or_default();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap_or_else(|error| fail(error));
+    if env::args().nth(1).as_deref() == Some("init") {
+        let (mut input, mut output) = (std::io::stdin().lock(), std::io::stdout());
+        let init = mobius_engine::init::run(&mut input, &mut output, &config_path, &path);
+        return runtime.block_on(init).unwrap_or_else(|error| fail(error));
+    }
     let config = mobius_engine::config::load(&config_path).unwrap_or_else(|error| fail(error));
 
-    let path = env::var_os("PATH").unwrap_or_default();
     let missing = mobius_engine::missing_commands(&config, &path);
     for program in &missing {
         eprintln!("mobius: `{program}` is not on PATH");
@@ -43,10 +52,6 @@ fn serve() {
         fail(format!("IP: must be 127.0.0.1 or 0.0.0.0, not {ip}"));
     }
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap_or_else(|error| fail(error));
     let _runtime_guard = runtime.enter();
     let store = runtime
         .block_on(mobius_store::Store::open(&config.data_dir))

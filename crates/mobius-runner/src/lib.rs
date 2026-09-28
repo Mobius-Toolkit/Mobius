@@ -484,6 +484,11 @@ pub struct Session {
     child: Child,
 }
 
+pub struct Choices {
+    pub values: Vec<String>,
+    pub current: String,
+}
+
 #[derive(Debug)]
 pub struct PromptError {
     pub code: i32,
@@ -647,6 +652,28 @@ fn full_auto_mode(harness: Harness) -> Option<&'static str> {
 impl Session {
     pub fn acp_id(&self) -> &str {
         &self.id.0
+    }
+
+    pub fn models(&self) -> Option<Choices> {
+        self.choices(SessionConfigOptionCategory::Model)
+    }
+
+    pub fn efforts(&self) -> Option<Choices> {
+        self.choices(SessionConfigOptionCategory::ThoughtLevel)
+    }
+
+    fn choices(&self, category: SessionConfigOptionCategory) -> Option<Choices> {
+        let option = self
+            .config_options
+            .iter()
+            .find(|option| option.category.as_ref() == Some(&category))?;
+        let SessionConfigKind::Select(select) = &option.kind else {
+            return None;
+        };
+        Some(Choices {
+            values: values(option),
+            current: select.current_value.to_string(),
+        })
     }
 
     pub async fn configure(&mut self, model: &str, effort: Option<&str>) -> Result<(), String> {

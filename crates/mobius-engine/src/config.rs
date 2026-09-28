@@ -76,7 +76,7 @@ pub struct RoleBinding {
     pub effort: Option<String>,
 }
 
-const EFFORT_LEVEL_HARNESSES: [Harness; 2] = [Harness::ClaudeCode, Harness::Devin];
+pub(crate) const EFFORT_LEVEL_HARNESSES: [Harness; 2] = [Harness::ClaudeCode, Harness::Devin];
 
 fn default_data_dir() -> PathBuf {
     std::env::home_dir().unwrap_or_default().join(".mobius")

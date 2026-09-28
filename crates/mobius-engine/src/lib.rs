@@ -11,6 +11,7 @@ pub mod github;
 mod housekeeper;
 mod implementer;
 pub mod inbox;
+pub mod init;
 mod issues;
 mod judge;
 mod lead;
