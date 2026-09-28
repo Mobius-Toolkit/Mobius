@@ -91,15 +91,18 @@ async fn an_issue_with_no_workstream_goes_to_the_triager_that_moves_it() {
     let task = wait_for(async || engine.store.tasks().live(REPOSITORY, 50).await.unwrap()).await;
     assert_eq!(task.workstream, 12);
     assert_eq!(github.sub_issue_numbers(REPOSITORY, 12), [50]);
-    let dispatched = engine
-        .store
-        .events()
-        .latest(100)
-        .await
-        .unwrap()
-        .into_iter()
-        .find(|row| row.text == "Dispatched \"Add loyalty points\"")
-        .unwrap();
+    // Mobius adds the feed row after the task.
+    let dispatched = wait_for(async || {
+        engine
+            .store
+            .events()
+            .latest(100)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.text == "Dispatched \"Add loyalty points\"")
+    })
+    .await;
     assert_eq!(dispatched.actor, "owner");
     let session = wait_for(async || {
         triagers(&engine, REPOSITORY)
