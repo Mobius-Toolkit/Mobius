@@ -4,7 +4,10 @@ on:
   push:
     branches: [main]
 
-concurrency: release
+# The GITHUB_TOKEN can create a tag only on the head of main, so a newer push cancels the older run.
+concurrency:
+  group: release
+  cancel-in-progress: true
 
 jobs:
   check:
