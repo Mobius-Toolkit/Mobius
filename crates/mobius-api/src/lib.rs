@@ -106,8 +106,12 @@ pub async fn github_app() -> ServerFnResult<Option<String>> {
 }
 
 #[post("/api/github/manifest", _device: DeviceId, engine: Extension<Engine>)]
-pub async fn github_manifest(account: String, origin: String) -> ServerFnResult<ManifestForm> {
-    github::manifest_form(&engine, &account, &origin)
+pub async fn github_manifest(
+    account: String,
+    name: String,
+    origin: String,
+) -> ServerFnResult<ManifestForm> {
+    github::manifest_form(&engine, &account, &name, &origin)
         .await
         .map_err(ServerFnError::new)
 }
