@@ -225,17 +225,14 @@ fn decode(png: &[u8]) -> (png::OutputInfo, Vec<u8>) {
     (info, pixels)
 }
 
-fn changed_pixels(old: &[u8], new: &[u8]) -> usize {
+fn looks_same(old: &[u8], new: &[u8]) -> bool {
     let (old_info, old) = decode(old);
     let (new_info, new) = decode(new);
-    if (old_info.width, old_info.height) != (new_info.width, new_info.height) {
-        return usize::MAX;
-    }
-    let size = old_info.color_type.samples() * old_info.bit_depth as usize / 8;
-    old.chunks(size)
-        .zip(new.chunks(size))
-        .filter(|(old, new)| old != new)
-        .count()
+    (old_info.width, old_info.height) == (new_info.width, new_info.height)
+        && old
+            .iter()
+            .zip(&new)
+            .all(|(old, new)| old.abs_diff(*new) <= 16)
 }
 
 async fn screenshot(browser: &Browser, url: &str, shot: Shot<'_>, viewport: Viewport) {
@@ -259,8 +256,8 @@ async fn screenshot(browser: &Browser, url: &str, shot: Shot<'_>, viewport: View
     let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("../mobius-ui/screenshots");
     fs::create_dir_all(&directory).unwrap();
     let path = directory.join(format!("{}-{}.png", shot.name, viewport.0));
-    // Chrome can draw some edge pixels differently in each run. A difference of 10 pixels or fewer keeps the old file.
-    if !fs::read(&path).is_ok_and(|old| changed_pixels(&old, &png) <= 10) {
+    // Chrome can draw the edge pixels of text and of round corners a little differently in each run.
+    if !fs::read(&path).is_ok_and(|old| looks_same(&old, &png)) {
         fs::write(path, png).unwrap();
     }
     page.close().await.unwrap();
