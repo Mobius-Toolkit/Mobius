@@ -1,9 +1,12 @@
 use std::error::Error;
 
+use mobius_domain::Live;
 use mobius_github::Repository;
+use time::OffsetDateTime;
 
 use crate::trust::trusted_author;
-use crate::{Engine, WORKING_LABEL, WORKSTREAM_LABEL, activity, dispatch, ends};
+use crate::workstreams::AUTOPILOT_LABEL;
+use crate::{Engine, WORKING_LABEL, WORKSTREAM_LABEL, activity, dispatch, ends, lead_events};
 
 const ISSUES: &str = "issues";
 
@@ -74,9 +77,20 @@ async fn changed_issues(
             let (Some(actor), Some(label)) = (event.actor, event.label) else {
                 continue;
             };
+            if cursor.since.is_some_and(|since| event.created_at <= since) {
+                continue;
+            }
+            // With a new Autopilot, a `mobius:ready` of the Mobius App can dispatch, so the ready list must not answer `304`.
+            if label.name == AUTOPILOT_LABEL {
+                engine
+                    .store
+                    .sync_cursors()
+                    .set(name, dispatch::READY_CURSOR, None, None)
+                    .await?;
+                engine.broadcast(Live::Workstreams);
+            }
             if event.event == "labeled"
                 && label.name == WORKSTREAM_LABEL
-                && cursor.since.is_none_or(|since| event.created_at > since)
                 && trusted_author(&engine.config, app_slug, &actor.login)
             {
                 activity::add(
@@ -89,6 +103,18 @@ async fn changed_issues(
                     &issue.html_url,
                 )
                 .await?;
+                // At the first poll of a repository, Mobius cannot see which Workstream is new.
+                if cursor.since.is_none() {
+                    continue;
+                }
+                let text = dispatch::event_text(
+                    OffsetDateTime::now_utc(),
+                    "creation of Workstream",
+                    issue,
+                    &actor.login,
+                    issue.body.as_deref().unwrap_or_default(),
+                )?;
+                lead_events::add(engine, name, issue.number, "creation", &text).await?;
             }
         }
     }

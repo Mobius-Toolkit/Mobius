@@ -21,7 +21,9 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{Engine, chat, dispatch, implementer, issues, lead_events, reviewer, tasks, trust};
+use crate::{
+    Engine, chat, dispatch, implementer, issues, lead_events, plans, reviewer, tasks, trust,
+};
 
 #[derive(Clone)]
 pub(crate) struct Caller {
@@ -163,6 +165,46 @@ fn tools(role: &str) -> Vec<Tool> {
                         "type": "string",
                         "minLength": 1,
                         "description": "The reason for the people on the issue."
+                    }
+                })),
+            ),
+            tool(
+                "create_issue",
+                "Create an issue below an issue of the Workstream. Mobius adds the blockers as native issue dependencies. With ready, Mobius adds mobius:ready, and this needs Autopilot.",
+                object(json!({
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The title of the issue."
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "The body of the issue: the goal, the limits, and what \"done\" means."
+                    },
+                    "parent": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The Workstream issue or an issue below it."
+                    },
+                    "blocked_by": {
+                        "type": "array",
+                        "items": { "type": "integer", "minimum": 1 },
+                        "description": "The issues that block this issue. They can be in another Workstream."
+                    },
+                    "ready": {
+                        "type": "boolean",
+                        "description": "true to add mobius:ready. This needs Autopilot."
+                    }
+                })),
+            ),
+            tool(
+                "mark_ready",
+                "Add mobius:ready to an issue of the Workstream, so that Mobius dispatches it when it has no open blocker. This needs Autopilot.",
+                object(json!({
+                    "n": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the issue."
                     }
                 })),
             ),
@@ -338,6 +380,12 @@ struct Decline {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct MarkReady {
+    n: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CommentPullRequest {
     n: i64,
     text: String,
@@ -508,6 +556,23 @@ impl Handler {
                     &reason,
                 )
                 .await
+            }
+            "create_issue" => {
+                let new: plans::NewIssue = parse(tool, arguments)?;
+                if new.title.trim().is_empty() {
+                    return Err("title must not be empty.".into());
+                }
+                if new.parent < 1 || new.blocked_by.iter().any(|number| *number < 1) {
+                    return Err("parent and each blocked_by must be 1 or more.".into());
+                }
+                plans::create_issue(&self.engine, &repository, self.caller.workstream, &new).await
+            }
+            "mark_ready" => {
+                let MarkReady { n } = parse(tool, arguments)?;
+                if n < 1 {
+                    return Err("n must be 1 or more.".into());
+                }
+                plans::mark_ready(&self.engine, &repository, self.caller.workstream, n).await
             }
             "comment_pull_request" => {
                 let CommentPullRequest { n, text } = parse(tool, arguments)?;

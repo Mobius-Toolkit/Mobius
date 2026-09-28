@@ -27,6 +27,8 @@ pub const APP_CLIENT_ID: &str = "Iv23test";
 pub const APP_CLIENT_SECRET: &str = "client-secret";
 pub const BOT_USER_ID: i64 = 41898282;
 pub const INSTALLATION_TOKEN: &str = "ghs_installation";
+// The id of an issue is its number plus this offset, so a number in place of an id finds no issue.
+pub const ISSUE_ID_OFFSET: i64 = 100_000;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PullRequest {
@@ -120,6 +122,37 @@ struct Issue {
 }
 
 impl Records {
+    fn insert_issue(
+        &mut self,
+        repository: &str,
+        number: i64,
+        title: &str,
+        body: &str,
+        author: &str,
+        pull_request: bool,
+    ) {
+        let updated_at = self.tick();
+        self.issues.insert(
+            (repository.to_string(), number),
+            Issue {
+                title: title.to_string(),
+                body: body.to_string(),
+                author: author.to_string(),
+                pull_request,
+                merged_at: None,
+                state: "open",
+                sub_issues: Vec::new(),
+                blocked_by: Vec::new(),
+                labels: Vec::new(),
+                updated_at,
+                events: Vec::new(),
+                comments: Vec::new(),
+                reviews: Vec::new(),
+                review_comments: Vec::new(),
+            },
+        );
+    }
+
     // Each write is one second after the last, so `since` compares exactly.
     fn tick(&mut self) -> i64 {
         self.clock += 1;
@@ -225,6 +258,7 @@ impl Records {
             .filter(|blocker| self.issues[&(repository.to_string(), **blocker)].state == "open")
             .count();
         let mut json = json!({
+            "id": number + ISSUE_ID_OFFSET,
             "number": number,
             "title": issue.title,
             "body": issue.body,
@@ -285,11 +319,18 @@ impl FakeGitHub {
                 post(installation_token),
             )
             .route("/installation/repositories", get(installation_repositories))
-            .route("/repos/{owner}/{repo}/issues", get(issues))
+            .route(
+                "/repos/{owner}/{repo}/issues",
+                get(issues).post(create_issue),
+            )
             .route("/repos/{owner}/{repo}/issues/{number}", get(issue))
             .route(
                 "/repos/{owner}/{repo}/issues/{number}/sub_issues",
-                get(sub_issues),
+                get(sub_issues).post(add_sub_issue),
+            )
+            .route(
+                "/repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by",
+                get(blocked_by).post(add_blocked_by),
             )
             .route("/repos/{owner}/{repo}/issues/{number}/parent", get(parent))
             .route(
@@ -395,27 +436,32 @@ impl FakeGitHub {
     }
 
     fn insert_issue(&self, repository: &str, number: i64, title: &str, pull_request: bool) {
-        let mut records = self.state.lock().unwrap();
-        let updated_at = records.tick();
-        records.issues.insert(
-            (repository.to_string(), number),
-            Issue {
-                title: title.to_string(),
-                body: String::new(),
-                author: "owner".to_string(),
-                pull_request,
-                merged_at: None,
-                state: "open",
-                sub_issues: Vec::new(),
-                blocked_by: Vec::new(),
-                labels: Vec::new(),
-                updated_at,
-                events: Vec::new(),
-                comments: Vec::new(),
-                reviews: Vec::new(),
-                review_comments: Vec::new(),
-            },
+        self.state.lock().unwrap().insert_issue(
+            repository,
+            number,
+            title,
+            "",
+            "owner",
+            pull_request,
         );
+    }
+
+    pub fn sub_issue_numbers(&self, repository: &str, number: i64) -> Vec<i64> {
+        self.state.lock().unwrap().issues[&(repository.to_string(), number)]
+            .sub_issues
+            .clone()
+    }
+
+    pub fn blocker_numbers(&self, repository: &str, number: i64) -> Vec<i64> {
+        self.state.lock().unwrap().issues[&(repository.to_string(), number)]
+            .blocked_by
+            .clone()
+    }
+
+    pub fn issue(&self, repository: &str, number: i64) -> (String, String) {
+        let records = self.state.lock().unwrap();
+        let issue = &records.issues[&(repository.to_string(), number)];
+        (issue.title.clone(), issue.body.clone())
     }
 
     pub fn remote(&self, full_name: &str) -> PathBuf {
@@ -1316,6 +1362,118 @@ fn label_list(records: &Records, repository: &str, number: i64) -> Vec<Value> {
         .iter()
         .map(|name| json!({ "name": name }))
         .collect()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewIssue {
+    title: String,
+    body: String,
+}
+
+async fn create_issue(
+    State(state): State<Shared>,
+    Path((owner, repo)): Path<(String, String)>,
+    Json(new): Json<NewIssue>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    let number = records
+        .issues
+        .keys()
+        .filter(|(name, _)| *name == repository)
+        .map(|(_, number)| number + 1)
+        .max()
+        .unwrap_or(1);
+    records.insert_issue(
+        &repository,
+        number,
+        &new.title,
+        &new.body,
+        &app_login(),
+        false,
+    );
+    (
+        StatusCode::CREATED,
+        Json(records.issue_json(&repository, number)),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewSubIssue {
+    sub_issue_id: i64,
+}
+
+async fn add_sub_issue(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    Json(new): Json<NewSubIssue>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    let child = new.sub_issue_id - ISSUE_ID_OFFSET;
+    if !records.issues.contains_key(&(repository.clone(), child)) {
+        return not_found();
+    }
+    let Some(parent) = records.issues.get_mut(&(repository.clone(), number)) else {
+        return not_found();
+    };
+    parent.sub_issues.push(child);
+    (
+        StatusCode::CREATED,
+        Json(records.issue_json(&repository, number)),
+    )
+        .into_response()
+}
+
+async fn blocked_by(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    Query(page): Query<Page>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let records = state.lock().unwrap();
+    let Some(issue) = records.issues.get(&(repository.clone(), number)) else {
+        return not_found();
+    };
+    let blockers = issue
+        .blocked_by
+        .iter()
+        .map(|blocker| records.issue_json(&repository, *blocker))
+        .collect();
+    Json(page.of(blockers)).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewBlocker {
+    issue_id: i64,
+}
+
+async fn add_blocked_by(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    Json(new): Json<NewBlocker>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    let blocker = new.issue_id - ISSUE_ID_OFFSET;
+    if !records.issues.contains_key(&(repository.clone(), blocker)) {
+        return not_found();
+    }
+    let now = records.tick();
+    let Some(issue) = records.issues.get_mut(&(repository.clone(), number)) else {
+        return not_found();
+    };
+    issue.blocked_by.push(blocker);
+    issue.updated_at = now;
+    (
+        StatusCode::CREATED,
+        Json(records.issue_json(&repository, blocker)),
+    )
+        .into_response()
 }
 
 async fn sub_issues(

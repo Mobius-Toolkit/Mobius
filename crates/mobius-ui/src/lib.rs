@@ -150,6 +150,7 @@ async fn follow_live(
                         Live::Inbox(item) => {
                             state.inbox.write().insert(item.id, item);
                         }
+                        Live::Workstreams => workstream_list.restart(),
                     }
                 }
             }
@@ -649,6 +650,14 @@ fn TaskEntry(line: TaskLine) -> Element {
     rsx! {
         a { class: "node", href: "{line.url}", target: "_blank",
             span { class: "grow", "#{line.number} {line.title}" }
+            for blocker in line.blocked_by.iter() {
+                span { class: "muted small",
+                    match &blocker.workstream_title {
+                        Some(title) => format!("blocked by #{} (Workstream \"{title}\")", blocker.number),
+                        None => format!("blocked by #{}", blocker.number),
+                    }
+                }
+            }
             span { class: if line.state == "open" { "chip plain" } else { "chip" }, "{line.state}" }
         }
     }
