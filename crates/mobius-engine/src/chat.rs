@@ -11,7 +11,7 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
-use crate::{Engine, TIME_FORMAT, gh, inbox, mcp, triager};
+use crate::{Engine, TIME_FORMAT, gh, inbox, limits, mcp, triager};
 
 pub(crate) const ROLE: &str = "lead_chat";
 const ROLE_PROMPT: &str = include_str!("prompts/lead.md");
@@ -375,28 +375,35 @@ async fn turn(
     commands: &mut UnboundedReceiver<Command>,
     queue: &mut VecDeque<ChatMessage>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    recorder.prompt(prompt).await?;
-    let result = {
-        let turn = session.prompt(prompt);
-        tokio::pin!(turn);
-        loop {
-            // The first poll of `turn` sends the prompt, so a `session/cancel` never goes before it.
-            tokio::select! {
-                biased;
-                result = &mut turn => break result,
-                Some(update) = updates.recv() => recorder.update(update).await?,
-                Some(command) = commands.recv() => match command {
-                    Command::Stop => session.cancel(),
-                    Command::Prompt(message) => queue.push_back(message),
-                },
+    loop {
+        recorder.prompt(prompt).await?;
+        let result = {
+            let turn = session.prompt(prompt);
+            tokio::pin!(turn);
+            loop {
+                // The first poll of `turn` sends the prompt, so a `session/cancel` never goes before it.
+                tokio::select! {
+                    biased;
+                    result = &mut turn => break result,
+                    Some(update) = updates.recv() => recorder.update(update).await?,
+                    Some(command) = commands.recv() => match command {
+                        Command::Stop => session.cancel(),
+                        Command::Prompt(message) => queue.push_back(message),
+                    },
+                }
             }
+        };
+        // The connection reads each update of the turn before the answer to the prompt.
+        while let Ok(update) = updates.try_recv() {
+            recorder.update(update).await?;
         }
-    };
-    // The connection reads each update of the turn before the answer to the prompt.
-    while let Ok(update) = updates.try_recv() {
-        recorder.update(update).await?;
+        if let Err(error) = &result
+            && limits::wait_out(recorder, session.harness(), error).await?
+        {
+            continue;
+        }
+        return Ok(result?);
     }
-    Ok(result?)
 }
 
 async fn first_prompt(

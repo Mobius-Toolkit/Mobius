@@ -5,6 +5,7 @@ use mobius_domain::{Author, Live};
 use mobius_github::Repository;
 use mobius_runner::Session;
 use serde_json::{Value, json};
+use time::OffsetDateTime;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -111,6 +112,8 @@ pub(crate) struct Recorder {
     chunk: Option<(i64, Value)>,
     // The Lead chat message that the text chunks grow until the next prompt or tool call.
     message: Option<i64>,
+    // The last `_claude/rateLimit.resetsAt` of a `usage_update` of the session.
+    reset_hint: Option<OffsetDateTime>,
 }
 
 impl Recorder {
@@ -129,7 +132,24 @@ impl Recorder {
             chat,
             chunk: None,
             message: None,
+            reset_hint: None,
         }
+    }
+
+    pub(crate) fn engine(&self) -> &Engine {
+        &self.engine
+    }
+
+    pub(crate) fn chat_key(&self) -> (&str, i64) {
+        (&self.repository, self.workstream)
+    }
+
+    pub(crate) fn session(&self) -> i64 {
+        self.session
+    }
+
+    pub(crate) fn reset_hint(&self) -> Option<OffsetDateTime> {
+        self.reset_hint
     }
 
     pub(crate) async fn prompt(&mut self, text: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -152,6 +172,10 @@ impl Recorder {
             .as_str()
             .unwrap_or_default()
             .to_string();
+        // Mobius reads `resetsAt` as Unix seconds.
+        if let Some(seconds) = update["update"]["_meta"]["_claude/rateLimit"]["resetsAt"].as_i64() {
+            self.reset_hint = OffsetDateTime::from_unix_timestamp(seconds).ok();
+        }
         let text = update["update"]["content"]["text"]
             .as_str()
             .map(str::to_string);

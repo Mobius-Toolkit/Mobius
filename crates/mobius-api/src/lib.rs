@@ -17,7 +17,7 @@ use dioxus::server::axum::extract::{FromRequestParts, Query};
 use dioxus::server::http::request::Parts;
 #[cfg(feature = "server")]
 use mobius_engine::{
-    Engine, activity, agents, auth, chat, github, inbox, tasks, transcript, workstreams,
+    Engine, activity, agents, auth, chat, github, inbox, limits, tasks, transcript, workstreams,
 };
 #[cfg(feature = "server")]
 use mobius_store::Store;
@@ -198,6 +198,13 @@ pub async fn inbox_items() -> ServerFnResult<Vec<InboxItem>> {
 #[post("/api/inbox/dismiss", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn inbox_dismiss(id: i64) -> ServerFnResult<()> {
     inbox::dismiss(&engine, id)
+        .await
+        .map_err(ServerFnError::new)
+}
+
+#[post("/api/inbox/resume", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn inbox_resume(id: i64) -> ServerFnResult<()> {
+    limits::resume(&engine, id)
         .await
         .map_err(ServerFnError::new)
 }

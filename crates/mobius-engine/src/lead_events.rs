@@ -6,7 +6,7 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
-use crate::{Engine, mcp};
+use crate::{Engine, limits, mcp};
 
 pub(crate) const ROLE: &str = "lead_event";
 const ROLE_PROMPT: &str = include_str!("prompts/lead_event.md");
@@ -141,6 +141,7 @@ async fn events(
     let dir = mobius_runner::lead_dir(&engine.config.data_dir, repository, workstream)?;
     let context = lead::context(engine, &dir, repository, workstream).await?;
     let mut first = Some(format!("{ROLE_PROMPT}\n{context}# Event\n\n"));
+    limits::wait(engine, engine.config.roles.lead.harness, Some(session_id)).await?;
     let (session, mut updates) = lead::start(
         engine,
         &engine.config.roles.lead,
@@ -189,21 +190,28 @@ pub(crate) async fn turn(
     recorder: &mut Recorder,
     updates: &mut UnboundedReceiver<Value>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    recorder.prompt(prompt).await?;
-    let result = {
-        let turn = session.prompt(prompt);
-        tokio::pin!(turn);
-        loop {
-            tokio::select! {
-                biased;
-                result = &mut turn => break result,
-                Some(update) = updates.recv() => recorder.update(update).await?,
+    loop {
+        recorder.prompt(prompt).await?;
+        let result = {
+            let turn = session.prompt(prompt);
+            tokio::pin!(turn);
+            loop {
+                tokio::select! {
+                    biased;
+                    result = &mut turn => break result,
+                    Some(update) = updates.recv() => recorder.update(update).await?,
+                }
             }
+        };
+        // The connection reads each update of the turn before the answer to the prompt.
+        while let Ok(update) = updates.try_recv() {
+            recorder.update(update).await?;
         }
-    };
-    // The connection reads each update of the turn before the answer to the prompt.
-    while let Ok(update) = updates.try_recv() {
-        recorder.update(update).await?;
+        if let Err(error) = &result
+            && limits::wait_out(recorder, session.harness(), error).await?
+        {
+            continue;
+        }
+        return Ok(result?);
     }
-    Ok(result?)
 }

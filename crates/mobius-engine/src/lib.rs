@@ -14,6 +14,7 @@ mod issues;
 mod judge;
 mod lead;
 mod lead_events;
+pub mod limits;
 pub mod mcp;
 mod plans;
 mod poll;
@@ -69,6 +70,10 @@ pub struct Engine {
     stops: broadcast::Sender<i64>,
     // Each send carries the repository and the number of a Workstream whose Lead stops.
     lead_stops: broadcast::Sender<(String, i64)>,
+    // Two sessions at the same usage limit make one pause.
+    pausing: Arc<tokio::sync::Mutex<()>>,
+    // Each end of a pause of a Harness wakes the sessions that wait for it.
+    pauses_changed: Arc<tokio::sync::Notify>,
     // The stop signal of the Triager session of each issue.
     triages: Arc<Mutex<HashMap<(String, i64), triager::Stop>>>,
     // For each task, the time of its newest Judge item and the moment when Mobius first saw it.
@@ -119,10 +124,13 @@ pub async fn start(
         checks,
         stops: broadcast::channel(64).0,
         lead_stops: broadcast::channel(16).0,
+        pausing: Arc::default(),
+        pauses_changed: Arc::default(),
         triages: Arc::default(),
         quiet: Arc::default(),
     };
     auth::start(&engine).await?;
+    limits::start(&engine).await?;
     poll::spawn(engine.clone());
     Ok(engine)
 }

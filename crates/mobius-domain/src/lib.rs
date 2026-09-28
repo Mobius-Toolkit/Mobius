@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
+// The queue reason of a session that waits for the end of a pause of its Harness starts with this text.
+pub const PAUSED: &str = "paused until ";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Harness {
@@ -84,15 +87,17 @@ pub enum Author {
     TellOwner,
     Researcher,
     Triager,
+    Mobius,
 }
 
 impl Author {
-    pub const ALL: [Author; 5] = [
+    pub const ALL: [Author; 6] = [
         Author::Owner,
         Author::Lead,
         Author::TellOwner,
         Author::Researcher,
         Author::Triager,
+        Author::Mobius,
     ];
 
     pub fn name(self) -> &'static str {
@@ -102,6 +107,7 @@ impl Author {
             Author::TellOwner => "tell_owner",
             Author::Researcher => "Researcher",
             Author::Triager => "Triager",
+            Author::Mobius => "Mobius",
         }
     }
 }
@@ -181,14 +187,16 @@ pub enum InboxKind {
     Lead,
     ReadyForReview,
     StalePullRequest,
+    UsageLimit,
 }
 
 impl InboxKind {
-    pub const ALL: [InboxKind; 4] = [
+    pub const ALL: [InboxKind; 5] = [
         InboxKind::Question,
         InboxKind::Lead,
         InboxKind::ReadyForReview,
         InboxKind::StalePullRequest,
+        InboxKind::UsageLimit,
     ];
 
     pub fn name(self) -> &'static str {
@@ -197,6 +205,7 @@ impl InboxKind {
             InboxKind::Lead => "Lead",
             InboxKind::ReadyForReview => "ready for review",
             InboxKind::StalePullRequest => "stale pull request",
+            InboxKind::UsageLimit => "usage limit",
         }
     }
 }

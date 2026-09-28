@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use tokio::sync::Notify;
 
 use crate::config::Config;
-use crate::{Engine, agents};
+use crate::{Engine, agents, limits};
 
 #[derive(Default)]
 pub(crate) struct Workers {
@@ -105,6 +105,8 @@ async fn wait(
         tokio::pin!(changed);
         changed.as_mut().enable();
         let queue = engine.store.tasks().queued().await?;
+        // A paused Harness takes no slot, so a pause does not count toward a limit.
+        let pause = engine.store.harness_pauses().get(harness).await?;
         let position = match place {
             Place::Task(task) => {
                 let Some(position) = queue.iter().position(|(id, _)| *id == task) else {
@@ -120,7 +122,11 @@ async fn wait(
                 .iter()
                 .filter_map(|(id, _)| counts.queued.get(id).copied())
                 .collect();
-            let Some(text) = reason(&engine.config, &counts.running, &earlier, harness) else {
+            let text = match &pause {
+                Some(pause) => Some(limits::reason(pause)?),
+                None => reason(&engine.config, &counts.running, &earlier, harness),
+            };
+            let Some(text) = text else {
                 *counts.running.entry(harness).or_default() += 1;
                 if let Place::Task(task) = place {
                     counts.queued.remove(&task);

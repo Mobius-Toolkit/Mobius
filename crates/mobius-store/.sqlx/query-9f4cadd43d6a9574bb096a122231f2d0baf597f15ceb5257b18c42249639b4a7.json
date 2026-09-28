@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM harness_pauses WHERE harness = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "9f4cadd43d6a9574bb096a122231f2d0baf597f15ceb5257b18c42249639b4a7"
+}

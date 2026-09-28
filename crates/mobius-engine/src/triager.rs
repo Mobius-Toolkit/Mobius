@@ -10,7 +10,8 @@ use tokio::sync::Notify;
 use crate::lead::{self, Recorder};
 use crate::trust::app_login;
 use crate::{
-    Engine, NO_WORKSTREAM_LABEL, READY_LABEL, WORKSTREAM_LABEL, mcp, researcher, workstreams,
+    Engine, NO_WORKSTREAM_LABEL, READY_LABEL, WORKSTREAM_LABEL, limits, mcp, researcher,
+    workstreams,
 };
 
 pub(crate) const ROLE: &str = "triager";
@@ -198,6 +199,12 @@ async fn propose(
         issue.body.unwrap_or_default()
     );
     fs::create_dir_all(dir)?;
+    limits::wait(
+        engine,
+        engine.config.roles.triager.harness,
+        Some(session_id),
+    )
+    .await?;
     let (session, mut updates) = lead::start(
         engine,
         &engine.config.roles.triager,

@@ -4,11 +4,12 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use mobius_api::{
     agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_app, github_manifest,
-    inbox_dismiss, inbox_items, live, login, logout, server_agents, task_list, transcript_lines,
-    unread, workstreams,
+    inbox_dismiss, inbox_items, inbox_resume, live, login, logout, server_agents, task_list,
+    transcript_lines, unread, workstreams,
 };
 use mobius_domain::{
-    AgentNode, Author, ChatMessage, FeedRow, InboxItem, Live, TaskLine, TranscriptLine, Workstream,
+    AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, Live, PAUSED, TaskLine,
+    TranscriptLine, Workstream,
 };
 use time::macros::format_description;
 
@@ -420,7 +421,20 @@ fn Inbox() -> Element {
                             {item.time.format(format_description!("[month]-[day] [hour]:[minute]")).unwrap_or_default()}
                         }
                     }
-                    a { href: "{item.link}", target: "_blank", "Open on GitHub" }
+                    if item.kind == InboxKind::UsageLimit {
+                        button {
+                            class: "btn primary",
+                            onclick: move |_| async move {
+                                match inbox_resume(item.id).await {
+                                    Ok(()) => error.set(String::new()),
+                                    Err(failure) => error.set(error_text(&failure)),
+                                }
+                            },
+                            "Resume now"
+                        }
+                    } else {
+                        a { href: "{item.link}", target: "_blank", "Open on GitHub" }
+                    }
                     button {
                         class: "btn",
                         onclick: move |_| async move {
@@ -825,8 +839,12 @@ fn AgentEntry(node: AgentNode, onclick: EventHandler<MouseEvent>) -> Element {
                 " {node.title}"
                 div { class: "muted small", "{session.harness.name()} · {session.model} · {detail}" }
             }
-            if session.queue_reason.is_some() {
-                span { class: "chip warn", "queued" }
+            if let Some(reason) = &session.queue_reason {
+                if reason.starts_with(PAUSED) {
+                    span { class: "chip warn", "paused" }
+                } else {
+                    span { class: "chip warn", "queued" }
+                }
             }
         }
     }
