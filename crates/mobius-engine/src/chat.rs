@@ -175,6 +175,7 @@ async fn run(engine: Engine, first: ChatMessage, mut commands: UnboundedReceiver
         cannot_do: None,
         fix: None,
         review: None,
+        judge: None,
     };
     let key = match mcp::open(&engine, caller) {
         Ok(key) => key,

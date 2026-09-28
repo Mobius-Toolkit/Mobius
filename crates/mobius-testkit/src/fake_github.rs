@@ -97,7 +97,8 @@ struct Records {
     // The id of a check run is its index plus 1.
     check_runs: Vec<(String, CheckRun)>,
     submitted_reviews: Vec<(String, i64, SubmittedReview)>,
-    last_review_comment_id: i64,
+    // Issue comments and review comments share the ids, so an id names one comment.
+    last_comment_id: i64,
     // The id of the first comment of each resolved review thread.
     resolved_threads: HashSet<i64>,
     clock: i64,
@@ -168,7 +169,9 @@ impl Records {
         app: Option<&str>,
     ) -> Value {
         let now = self.tick();
+        self.last_comment_id += 1;
         let comment = json!({
+            "id": self.last_comment_id,
             "user": { "login": author },
             "body": body,
             "created_at": timestamp(now),
@@ -193,8 +196,8 @@ impl Records {
         comment: &InlineComment,
     ) -> i64 {
         let now = self.tick();
-        self.last_review_comment_id += 1;
-        let id = self.last_review_comment_id;
+        self.last_comment_id += 1;
+        let id = self.last_comment_id;
         self.issues
             .get_mut(&(repository.to_string(), number))
             .unwrap()
@@ -565,11 +568,13 @@ impl FakeGitHub {
             .author = author.to_string();
     }
 
-    pub fn add_comment(&self, repository: &str, number: i64, author: &str, body: &str) {
+    pub fn add_comment(&self, repository: &str, number: i64, author: &str, body: &str) -> i64 {
         self.state
             .lock()
             .unwrap()
-            .comment(repository, number, author, body, None);
+            .comment(repository, number, author, body, None)["id"]
+            .as_i64()
+            .unwrap()
     }
 
     // A comment that `author` posts through the Mobius App, as the `gh` of the Lead chat session does.

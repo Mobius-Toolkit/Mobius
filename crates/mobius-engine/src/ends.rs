@@ -7,7 +7,7 @@ use tokio::sync::broadcast::Receiver;
 
 use crate::trust::app_login;
 use crate::{
-    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, WORKING_LABEL, activity, conflicts, implementer,
+    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, WORKING_LABEL, activity, conflicts, implementer, judge,
     lead_events,
 };
 
@@ -88,13 +88,19 @@ async fn check_task(
         }
         return Ok(());
     }
-    if let Some(pull_request) = pull_request
-        && task.state == "ready_for_review"
-        && pull_request.mergeable == Some(false)
-    {
-        conflicts::on_conflict(engine, repository, task, pull_request).await?;
+    let Some(pull_request) = pull_request else {
+        return Ok(());
+    };
+    if !matches!(
+        task.state.as_str(),
+        "ready_for_review" | "reviewed" | "needs_human"
+    ) {
+        return Ok(());
     }
-    Ok(())
+    if task.state == "ready_for_review" && pull_request.mergeable == Some(false) {
+        return conflicts::on_conflict(engine, repository, task, pull_request).await;
+    }
+    judge::check(engine, repository, task, pull_request).await
 }
 
 pub(crate) async fn lost_access(

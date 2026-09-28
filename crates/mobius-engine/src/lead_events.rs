@@ -78,6 +78,7 @@ async fn run(
             cannot_do: None,
             fix: None,
             review: None,
+            judge: None,
         },
     ) {
         Ok(key) => {

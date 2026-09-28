@@ -93,7 +93,7 @@ pub(crate) async fn fix_threads(
 }
 
 // GitHub gives each reply the id of the first comment of its thread as `in_reply_to_id`.
-fn thread(
+pub(crate) fn thread(
     comments: &[ReviewComment],
     root: &ReviewComment,
     trusted: impl Fn(&str) -> bool,
@@ -118,7 +118,7 @@ fn thread(
     Ok(text)
 }
 
-fn entry(
+pub(crate) fn entry(
     login: &str,
     time: OffsetDateTime,
     state: &str,

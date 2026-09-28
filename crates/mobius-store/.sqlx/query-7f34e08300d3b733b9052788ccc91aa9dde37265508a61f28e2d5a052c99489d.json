@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, issue, workstream, state, branch, fix_rounds, pull_request FROM tasks\n               WHERE repository = ? AND issue = ? AND state <> 'ended'",
+  "query": "SELECT id, issue, workstream, state, branch, fix_rounds, pull_request,\n                      judged_at AS \"judged_at: OffsetDateTime\" FROM tasks\n               WHERE repository = ? AND issue = ? AND state <> 'ended'",
   "describe": {
     "columns": [
       {
@@ -79,6 +79,17 @@
             "name": "pull_request"
           }
         }
+      },
+      {
+        "name": "judged_at: OffsetDateTime",
+        "ordinal": 7,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "judged_at"
+          }
+        }
       }
     ],
     "parameters": {
@@ -91,8 +102,9 @@
       false,
       true,
       false,
+      true,
       true
     ]
   },
-  "hash": "99699000c7ae9c7cd07466d6a745aef80b5970e12cb5b7b8d7707a2a85c5b6b6"
+  "hash": "7f34e08300d3b733b9052788ccc91aa9dde37265508a61f28e2d5a052c99489d"
 }

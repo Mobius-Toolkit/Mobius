@@ -13,7 +13,7 @@ use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
 use crate::{
     Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, dispatch, ends, issues, lead_events, mcp, reviewer,
-    workers,
+    threads, workers,
 };
 
 pub(crate) const ROLE: &str = "implementer";
@@ -91,59 +91,82 @@ pub(crate) async fn start(
     Ok(format!("Started an Implementer for #{number}."))
 }
 
-// Starts a fix round for the Reviewer findings that start with a comment in `findings`, or stops the task at `max_fix_rounds`.
+pub(crate) struct Round {
+    pub(crate) repository: String,
+    pub(crate) workstream: i64,
+    pub(crate) task: i64,
+    pub(crate) number: i64,
+    pub(crate) title: String,
+    pub(crate) branch: String,
+    pub(crate) pull_request: PullRequest,
+    // With no id of the `Mobius` check run of the head, a stop adds a failed check run on the head.
+    pub(crate) check_run: Option<i64>,
+    // A round with no `fix` action does not count toward `max_fix_rounds`.
+    pub(crate) counts: bool,
+    // The prompt text of the open items with their actions.
+    pub(crate) items: String,
+}
+
+// At `max_fix_rounds`, a round that counts stops the task instead.
 pub(crate) async fn fix_round(
     engine: &Engine,
     repository: &Repository,
-    review: &reviewer::Job,
-    findings: &[i64],
+    round: Round,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let tasks = engine.store.tasks();
     let max = engine.config.max_fix_rounds;
-    if !tasks.add_fix_round(review.task, max).await? {
-        if !hand_to_human(engine, &review.repository, review.task, review.number).await? {
+    if round.counts && !tasks.add_fix_round(round.task, max).await? {
+        if !hand_to_human(engine, &round.repository, round.task, round.number).await? {
             return Ok(());
         }
-        repository
-            .set_check_run_conclusion(review.check_run, "failure")
-            .await?;
+        let summary = format!("The pull request has open items after {max} fix rounds.");
+        match round.check_run {
+            Some(id) => repository.set_check_run_conclusion(id, "failure").await?,
+            None => {
+                repository
+                    .create_failed_check_run(
+                        CHECK_RUN,
+                        &round.pull_request.head.sha,
+                        "Fix rounds",
+                        &summary,
+                    )
+                    .await?
+            }
+        }
         let text = stop_text(
             OffsetDateTime::now_utc(),
-            review.number,
-            &review.title,
+            round.number,
+            &round.title,
             &format!(
-                "the review threads stay open after {max} fix rounds. Mobius set the Mobius check to failure and added mobius:needs-human."
+                "the pull request has open items after {max} fix rounds. Mobius set the Mobius check to failure and added mobius:needs-human."
             ),
         )?;
-        return lead_events::add(engine, &review.repository, review.workstream, "stop", &text)
-            .await;
+        return lead_events::add(engine, &round.repository, round.workstream, "stop", &text).await;
     }
-    let brief = lead::brief(repository, review.workstream).await?;
+    let brief = lead::brief(repository, round.workstream).await?;
     let issue = repository
-        .issue(review.number)
+        .issue(round.number)
         .await?
-        .ok_or_else(|| format!("#{} does not exist.", review.number))?;
-    let trusted = trust::trusted_authors(engine).await?;
-    let threads =
-        issues::fix_threads(repository, review.pull_request.number, findings, &trusted).await?;
+        .ok_or_else(|| format!("#{} does not exist.", round.number))?;
     // A task that the Lead declined during the review gets no fix round.
-    if !tasks.queue(review.task, "working").await? {
+    if !tasks.queue(round.task, "working").await? {
         return Ok(());
     }
     let job = Job {
-        repository: review.repository.clone(),
-        workstream: review.workstream,
-        task: review.task,
-        number: review.number,
-        title: review.title.clone(),
-        branch: Some(review.branch.clone()),
-        pull_request: Some(review.pull_request.clone()),
+        repository: round.repository,
+        workstream: round.workstream,
+        task: round.task,
+        number: round.number,
+        title: round.title,
+        branch: Some(round.branch),
+        pull_request: Some(round.pull_request),
         conflict_round: false,
         prompt: format!(
-            "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Open review threads\n{threads}",
-            review.number,
+            "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Open items\n{}",
+            round.number,
             issue.title,
-            issue.body.unwrap_or_default()
+            issue.body.unwrap_or_default(),
+            round.items
         ),
     };
     tokio::spawn(run(engine.clone(), job));
@@ -267,6 +290,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                 replies,
             }),
             review: None,
+            judge: None,
         },
     )?;
     let result = tokio::select! {
@@ -451,12 +475,14 @@ async fn implement(
         }
     };
     while let Ok(reply) = held.try_recv() {
-        repository
-            .reply_to_review_comment(pull_request.number, reply.comment, &reply.text)
-            .await?;
-        if reply.resolve {
-            repository.resolve_review_thread(&reply.thread).await?;
-        }
+        threads::reply(
+            &repository,
+            pull_request.number,
+            &reply.target,
+            &reply.text,
+            reply.resolve,
+        )
+        .await?;
     }
     if log.is_none() && !merged {
         repository
