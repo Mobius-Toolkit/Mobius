@@ -153,7 +153,12 @@ async fn the_judge_routes_one_item_of_each_verdict() {
     assert!(prompts(&engine, "lead_event").await.iter().any(|prompt| prompt.contains(
         " follow-up on pull request #42 of #41 \"Add plan model\", item 3:\n\n> Move the parser to its own crate.\n"
     )));
-    let fixed = reply(&github, fix).await;
+    // Mobius resolves the thread after its reply.
+    let fixed = wait_for(async || {
+        let found = github.review_thread(REPOSITORY, 42, fix);
+        found.resolved.then_some(found)
+    })
+    .await;
     let head = git(&github.remote(REPOSITORY), &["rev-parse", "mobius/41"]);
     assert_eq!(
         fixed,

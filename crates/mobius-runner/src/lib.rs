@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
-    CancelNotification, ContentBlock, InitializeRequest, McpServer, McpServerHttp,
-    NewSessionRequest, NewSessionResponse, PermissionOptionKind, PromptRequest,
+    AuthenticateRequest, CancelNotification, ContentBlock, ErrorCode, InitializeRequest, McpServer,
+    McpServerHttp, NewSessionRequest, NewSessionResponse, PermissionOptionKind, PromptRequest,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
     SessionConfigSelectOptions, SessionId, SetSessionConfigOptionRequest, TextContent,
@@ -603,6 +603,46 @@ pub async fn start(
         },
         updates,
     ))
+}
+
+// Antigravity has no login command. Its login is ACP `authenticate`, which writes a Google link to stderr and waits 300 s for the browser. The function gives `false` when Antigravity is already logged in.
+pub async fn log_in_antigravity(cwd: &Path, data_dir: &Path, path: &OsStr) -> Result<bool, String> {
+    let harness = Harness::Antigravity;
+    let mut child = command(harness, cwd, data_dir, path, None)
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|error| format!("{}: {error}", program(harness)))?;
+    let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+        return Err(format!("{}: no stdio pipes", program(harness)));
+    };
+    let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
+    let cwd = cwd.to_path_buf();
+    let logged_in = Client
+        .builder()
+        .connect_with(transport, async move |connection: ConnectionTo<Agent>| {
+            connection
+                .send_request(InitializeRequest::new(ProtocolVersion::V1))
+                .block_task()
+                .await?;
+            match connection
+                .send_request(NewSessionRequest::new(cwd))
+                .block_task()
+                .await
+            {
+                Ok(_) => Ok(false),
+                Err(error) if error.code == ErrorCode::AuthRequired => {
+                    connection
+                        .send_request(AuthenticateRequest::new("oauth-personal"))
+                        .block_task()
+                        .await?;
+                    Ok(true)
+                }
+                Err(error) => Err(error),
+            }
+        })
+        .await;
+    let _ = child.kill().await;
+    logged_in.map_err(|error| describe(&error))
 }
 
 async fn open(

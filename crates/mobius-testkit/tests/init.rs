@@ -85,7 +85,7 @@ async fn init_writes_a_config_file_that_the_server_starts_with() {
         "{output}"
     );
     assert!(
-        output.contains("Antigravity: Authentication required\n"),
+        output.contains("Antigravity: Internal error \"Onboarding failed: Timed out waiting for the authentication flow to complete.\"\n"),
         "{output}"
     );
     assert!(
@@ -133,6 +133,38 @@ judge = { harness = "claude-code", model = "sonnet", effort = "low" }
     )
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn init_logs_in_to_antigravity_and_offers_it() {
+    let data_dir = TempDir::new().unwrap();
+    let path = harness_path(data_dir.path());
+    install_fake_harness(
+        data_dir.path(),
+        FAKE_AGENT,
+        "agy_acp_server",
+        &format!("login_works = true\n{ANTIGRAVITY}"),
+    );
+    let config_path = data_dir.path().join("config.toml");
+    let mut output = Vec::new();
+    // The Researcher uses Antigravity, and the Implementer uses Devin. The other Roles take the defaults.
+    let answers = "correct horse\ncorrect horse\nowner\n\n\n\n\n\n\n3\n\n\n2\n\n\n\n\n\n\n\n";
+
+    init::run(&mut Cursor::new(answers), &mut output, &config_path, &path)
+        .await
+        .unwrap();
+
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("Antigravity: logged in\n"), "{output}");
+    assert!(
+        output.contains("  1) claude-code\n  2) antigravity\n  3) devin\nHarness [1]: "),
+        "{output}"
+    );
+    assert!(
+        fs::read_to_string(&config_path)
+            .unwrap()
+            .contains("researcher = { harness = \"antigravity\", model = \"gemini-3-pro\" }\n")
+    );
 }
 
 #[tokio::test]
