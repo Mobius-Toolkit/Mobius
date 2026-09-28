@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Cursor;
 use std::path::Path;
 use std::time::Duration;
 
@@ -217,6 +218,26 @@ async fn capture(page: &Page) -> Vec<u8> {
     page.screenshot(params).await.unwrap()
 }
 
+fn decode(png: &[u8]) -> (png::OutputInfo, Vec<u8>) {
+    let mut reader = png::Decoder::new(Cursor::new(png)).read_info().unwrap();
+    let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+    let info = reader.next_frame(&mut pixels).unwrap();
+    (info, pixels)
+}
+
+fn changed_pixels(old: &[u8], new: &[u8]) -> usize {
+    let (old_info, old) = decode(old);
+    let (new_info, new) = decode(new);
+    if (old_info.width, old_info.height) != (new_info.width, new_info.height) {
+        return usize::MAX;
+    }
+    let size = old_info.color_type.samples() * old_info.bit_depth as usize / 8;
+    old.chunks(size)
+        .zip(new.chunks(size))
+        .filter(|(old, new)| old != new)
+        .count()
+}
+
 async fn screenshot(browser: &Browser, url: &str, shot: Shot<'_>, viewport: Viewport) {
     let page = open(browser, &format!("{url}{}", shot.path), viewport).await;
     for selector in shot.clicks {
@@ -237,11 +258,11 @@ async fn screenshot(browser: &Browser, url: &str, shot: Shot<'_>, viewport: View
     .await;
     let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("../mobius-ui/screenshots");
     fs::create_dir_all(&directory).unwrap();
-    fs::write(
-        directory.join(format!("{}-{}.png", shot.name, viewport.0)),
-        png,
-    )
-    .unwrap();
+    let path = directory.join(format!("{}-{}.png", shot.name, viewport.0));
+    // Chrome can draw some edge pixels differently in each run. A difference of 10 pixels or fewer keeps the old file.
+    if !fs::read(&path).is_ok_and(|old| changed_pixels(&old, &png) <= 10) {
+        fs::write(path, png).unwrap();
+    }
     page.close().await.unwrap();
 }
 

@@ -32,6 +32,7 @@ axum = "0.8"
 http = "1"
 chromiumoxide = "0.9"
 futures-util = "0.3"
+png = "0.18"
 
 mobius-ui = { path = "crates/mobius-ui" }
 mobius-api = { path = "crates/mobius-api" }

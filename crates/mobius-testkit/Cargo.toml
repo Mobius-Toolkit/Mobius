@@ -24,6 +24,7 @@ futures-util = { workspace = true }
 mobius-api = { workspace = true, features = ["server"] }
 mobius-domain = { workspace = true }
 mobius-ui = { workspace = true, features = ["server"] }
+png = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true, features = ["macros"] }
 tokio = { workspace = true, features = ["macros"] }
