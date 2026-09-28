@@ -145,6 +145,23 @@ impl Sessions<'_> {
         .session()
     }
 
+    pub async fn with_role(
+        &self,
+        role: &str,
+    ) -> Result<Vec<Session>, Box<dyn Error + Send + Sync>> {
+        let rows = sqlx::query_as!(
+            Row,
+            r#"SELECT id, role, harness, model, repository, workstream, acp_session_id,
+                      started_at AS "started_at: OffsetDateTime",
+                      ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason
+               FROM sessions WHERE role = ? ORDER BY id"#,
+            role
+        )
+        .fetch_all(self.pool)
+        .await?;
+        rows.into_iter().map(Row::session).collect()
+    }
+
     pub async fn list(
         &self,
         repository: &str,

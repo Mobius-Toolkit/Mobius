@@ -1484,6 +1484,7 @@ async fn update_issue(
 #[serde(deny_unknown_fields)]
 struct NewSubIssue {
     sub_issue_id: i64,
+    replace_parent: bool,
 }
 
 async fn add_sub_issue(
@@ -1494,13 +1495,33 @@ async fn add_sub_issue(
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
     let child = new.sub_issue_id - ISSUE_ID_OFFSET;
-    if !records.issues.contains_key(&(repository.clone(), child)) {
+    if !records.issues.contains_key(&(repository.clone(), child))
+        || !records.issues.contains_key(&(repository.clone(), number))
+    {
         return not_found();
     }
-    let Some(parent) = records.issues.get_mut(&(repository.clone(), number)) else {
-        return not_found();
-    };
-    parent.sub_issues.push(child);
+    let has_parent = records
+        .issues
+        .iter()
+        .any(|((name, _), issue)| *name == repository && issue.sub_issues.contains(&child));
+    if has_parent && !new.replace_parent {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "message": "The issue already has a parent." })),
+        )
+            .into_response();
+    }
+    for ((name, _), issue) in records.issues.iter_mut() {
+        if *name == repository {
+            issue.sub_issues.retain(|sub_issue| *sub_issue != child);
+        }
+    }
+    records
+        .issues
+        .get_mut(&(repository.clone(), number))
+        .unwrap()
+        .sub_issues
+        .push(child);
     (
         StatusCode::CREATED,
         Json(records.issue_json(&repository, number)),

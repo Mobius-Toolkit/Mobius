@@ -50,7 +50,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
     }
     let binding = &engine.config.roles.reviewer;
     let session = lead::add_session(engine, ROLE, binding, &job.repository, job.workstream).await?;
-    let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, false);
+    let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, None);
     let slot = match workers::slot(engine, job.task, session, binding.harness).await {
         Ok(slot) => slot,
         Err(error) => {

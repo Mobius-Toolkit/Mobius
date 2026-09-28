@@ -71,7 +71,7 @@ async fn run(
             return remove(&engine, &repository, workstream);
         }
     };
-    let mut recorder = Recorder::new(&engine, session, &repository, workstream, false);
+    let mut recorder = Recorder::new(&engine, session, &repository, workstream, None);
     let result = match mcp::open(
         &engine,
         mcp::Caller {

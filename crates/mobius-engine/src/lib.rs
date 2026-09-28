@@ -22,6 +22,7 @@ mod reviewer;
 pub mod tasks;
 mod threads;
 pub mod transcript;
+mod triager;
 mod trust;
 mod workers;
 pub mod workstreams;
@@ -44,6 +45,7 @@ const WORKSTREAM_LABEL: &str = "mobius:workstream";
 const READY_LABEL: &str = "mobius:ready";
 const WORKING_LABEL: &str = "mobius:working";
 const NEEDS_HUMAN_LABEL: &str = "mobius:needs-human";
+const NO_WORKSTREAM_LABEL: &str = "mobius:no-workstream";
 const TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[year]-[month]-[day] [hour]:[minute] UTC");
 
@@ -67,6 +69,8 @@ pub struct Engine {
     stops: broadcast::Sender<i64>,
     // Each send carries the repository and the number of a Workstream whose Lead stops.
     lead_stops: broadcast::Sender<(String, i64)>,
+    // The stop signal of the Triager session of each issue.
+    triages: Arc<Mutex<HashMap<(String, i64), triager::Stop>>>,
     // For each task, the time of its newest Judge item and the moment when Mobius first saw it.
     quiet: Arc<Mutex<HashMap<i64, (time::OffsetDateTime, std::time::Instant)>>>,
 }
@@ -115,6 +119,7 @@ pub async fn start(
         checks,
         stops: broadcast::channel(64).0,
         lead_stops: broadcast::channel(16).0,
+        triages: Arc::default(),
         quiet: Arc::default(),
     };
     auth::start(&engine).await?;

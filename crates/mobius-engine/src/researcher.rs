@@ -42,7 +42,7 @@ async fn session(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let binding = &engine.config.roles.researcher;
     let session = lead::add_session(engine, ROLE, binding, &job.repository, job.workstream).await?;
-    let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, false);
+    let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, None);
     let slot = match workers::research_slot(engine, session, binding.harness).await {
         Ok(slot) => slot,
         Err(error) => {
@@ -168,7 +168,7 @@ async fn research(
 }
 
 // Gives the last message of the turn: the text after the last tool call.
-async fn turn(
+pub(crate) async fn turn(
     session: &Session,
     prompt: &str,
     recorder: &mut Recorder,

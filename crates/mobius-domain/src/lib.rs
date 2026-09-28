@@ -83,14 +83,16 @@ pub enum Author {
     Lead,
     TellOwner,
     Researcher,
+    Triager,
 }
 
 impl Author {
-    pub const ALL: [Author; 4] = [
+    pub const ALL: [Author; 5] = [
         Author::Owner,
         Author::Lead,
         Author::TellOwner,
         Author::Researcher,
+        Author::Triager,
     ];
 
     pub fn name(self) -> &'static str {
@@ -99,6 +101,7 @@ impl Author {
             Author::Lead => "Lead",
             Author::TellOwner => "tell_owner",
             Author::Researcher => "Researcher",
+            Author::Triager => "Triager",
         }
     }
 }
@@ -226,4 +229,9 @@ pub enum Live {
     Inbox(InboxItem),
     // The Workstream list changed, for example its Autopilot.
     Workstreams,
+    // The Triager chat created this Workstream.
+    WorkstreamCreated {
+        repository: String,
+        number: i64,
+    },
 }

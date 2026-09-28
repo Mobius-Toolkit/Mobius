@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use mobius_api::{
     agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_app, github_manifest,
-    inbox_dismiss, inbox_items, live, login, logout, task_list, transcript_lines, unread,
-    workstreams,
+    inbox_dismiss, inbox_items, live, login, logout, server_agents, task_list, transcript_lines,
+    unread, workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, FeedRow, InboxItem, Live, TaskLine, TranscriptLine, Workstream,
@@ -21,6 +21,10 @@ pub enum Route {
         WorkstreamList {},
         #[route("/workstreams/:owner/:repo/:number")]
         Chat { owner: String, repo: String, number: i64 },
+        #[route("/workstreams/new")]
+        NewWorkstream {},
+        #[route("/server-agents")]
+        ServerAgents {},
         #[route("/inbox")]
         Inbox {},
         #[route("/activity")]
@@ -56,6 +60,8 @@ struct LiveState {
     unread: Signal<HashMap<ChatKey, i64>>,
     agents: Signal<HashMap<i64, AgentNode>>,
     inbox: Signal<HashMap<i64, InboxItem>>,
+    // The Workstream that the Triager chat created last.
+    created: Signal<Option<ChatKey>>,
 }
 
 fn unauthorized(error: &ServerFnError) -> bool {
@@ -151,6 +157,10 @@ async fn follow_live(
                             state.inbox.write().insert(item.id, item);
                         }
                         Live::Workstreams => workstream_list.restart(),
+                        Live::WorkstreamCreated { repository, number } => {
+                            workstream_list.restart();
+                            state.created.set(Some((repository, number)));
+                        }
                     }
                 }
             }
@@ -179,6 +189,7 @@ fn Frame() -> Element {
         unread: Signal::new(HashMap::new()),
         agents: Signal::new(HashMap::new()),
         inbox: Signal::new(HashMap::new()),
+        created: Signal::new(None),
     });
     use_effect(move || {
         if let Some(Err(error)) = &*app_slug.read()
@@ -203,8 +214,10 @@ fn Frame() -> Element {
                         }
                     }
                     Link { class: "navbtn", active_class: "sel", to: Route::Activity {}, "Activity" }
+                    Link { class: "navbtn", active_class: "sel", to: Route::ServerAgents {}, "Server agents" }
                     div { class: "label section", "Workstreams" }
                     WorkstreamEntries {}
+                    Link { class: "navbtn", active_class: "sel", to: Route::NewWorkstream {}, "+ New Workstream" }
                     div { class: "grow" }
                     Link { class: "navbtn", active_class: "sel", to: Route::GitHub {}, "GitHub" }
                     Link { class: "navbtn", active_class: "sel", to: Route::Devices {}, "Devices" }
@@ -272,8 +285,101 @@ fn WorkstreamEntry(workstream: Workstream) -> Element {
 #[component]
 fn WorkstreamList() -> Element {
     rsx! {
-        div { class: "head", h2 { "Workstreams" } }
-        div { class: "list", WorkstreamEntries {} }
+        div { class: "head",
+            h2 { class: "grow", "Workstreams" }
+            Link { class: "btn primary", to: Route::NewWorkstream {}, "+ New" }
+        }
+        div { class: "list",
+            WorkstreamEntries {}
+            Link { class: "entry", to: Route::ServerAgents {},
+                span { class: "grow", "Server agents" }
+            }
+        }
+    }
+}
+
+#[component]
+fn NewWorkstream() -> Element {
+    let state: LiveState = use_context();
+    let mut created = state.created;
+    let navigator = use_navigator();
+    // An earlier Workstream of the Triager chat does not open a chat.
+    use_hook(|| created.set(None));
+    use_effect(move || {
+        if let Some((repository, number)) = created() {
+            created.set(None);
+            let (owner, repo) = repository.split_once('/').unwrap_or_default();
+            navigator.push(Route::Chat {
+                owner: owner.to_string(),
+                repo: repo.to_string(),
+                number,
+            });
+        }
+    });
+    rsx! {
+        div { class: "page",
+            Conversation {
+                repository: String::new(),
+                number: 0,
+                agent: "Triager",
+                head: rsx! { h2 { class: "ellip", "New Workstream" } },
+                tail: rsx! {},
+            }
+        }
+    }
+}
+
+#[component]
+fn ServerAgents() -> Element {
+    let state: LiveState = use_context();
+    let tree = use_resource(server_agents);
+    let mut selected = use_signal(|| None::<i64>);
+    let mut nodes: HashMap<i64, AgentNode> = match &*tree.read() {
+        Some(Ok(list)) => list
+            .iter()
+            .map(|node| (node.session.id, node.clone()))
+            .collect(),
+        _ => HashMap::new(),
+    };
+    for node in state.agents.read().values() {
+        if node.role != "Triager" {
+            continue;
+        }
+        // A session never starts again, so an ended node is newer than a live node.
+        let known = nodes.get(&node.session.id);
+        if known.is_none_or(|known| known.session.ended_at.is_none()) {
+            nodes.insert(node.session.id, node.clone());
+        }
+    }
+    let mut nodes: Vec<AgentNode> = nodes.into_values().collect();
+    nodes.sort_by_key(|node| Reverse(node.session.id));
+    if let Some(node) = selected().and_then(|id| nodes.iter().find(|node| node.session.id == id)) {
+        return rsx! {
+            div { class: "head",
+                button { class: "back", onclick: move |_| selected.set(None), "‹ Server agents" }
+                h2 { class: "ellip grow", "{node.role} {node.title}" }
+            }
+            Transcript { session: node.session.id }
+        };
+    }
+    rsx! {
+        div { class: "head", h2 { "Server agents" } }
+        div { class: "label section", "Triager" }
+        div { class: "list",
+            if let Some(Err(error)) = &*tree.read() {
+                div { class: "error note", {error_text(error)} }
+            }
+            if nodes.is_empty() {
+                div { class: "muted small note", "No Triager sessions." }
+            }
+            for node in nodes {
+                AgentEntry {
+                    key: "{node.session.id}",
+                    node: node.clone(),
+                    onclick: move |_| selected.set(Some(node.session.id)),
+                }
+            }
+        }
     }
 }
 
@@ -385,17 +491,8 @@ fn Activity() -> Element {
 #[component]
 fn Chat(owner: String, repo: String, number: i64) -> Element {
     let repository = format!("{owner}/{repo}");
-    let key = (repository.clone(), number);
     let Workstreams(workstream_list) = use_context();
-    let state: LiveState = use_context();
-    let history = use_resource(use_reactive(
-        (&repository, &number),
-        |(repository, number)| async move { chat_view(repository, number).await },
-    ));
-    let mut text = use_signal(String::new);
-    let mut send_error = use_signal(String::new);
     let mut sheet = use_signal(|| false);
-
     let workstream = match &*workstream_list.read() {
         Some(Ok(list)) => list
             .iter()
@@ -403,7 +500,55 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
             .cloned(),
         _ => None,
     };
-    let (mut messages, history_writing, lead) = match &*history.read() {
+    rsx! {
+        div { class: "page",
+            Conversation {
+                repository: repository.clone(),
+                number,
+                agent: "Lead",
+                head: rsx! {
+                    h2 { class: "ellip", {workstream.as_ref().map(|workstream| workstream.title.clone())} }
+                    span { class: "num", "#{number}" }
+                    if workstream.as_ref().is_some_and(|workstream| workstream.autopilot) {
+                        span { class: "chip info", "Autopilot on" }
+                    } else {
+                        span { class: "chip plain", "Autopilot off" }
+                    }
+                },
+                tail: rsx! {
+                    button { class: "btn phone", onclick: move |_| sheet.set(true), "Agents" }
+                },
+            }
+            aside { class: "side",
+                Agents { repository: repository.clone(), number }
+            }
+            if sheet() {
+                div { class: "sheet",
+                    Agents { repository: repository.clone(), number, on_close: move |_| sheet.set(false) }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn Conversation(
+    repository: String,
+    number: i64,
+    agent: &'static str,
+    head: Element,
+    tail: Element,
+) -> Element {
+    let key = (repository.clone(), number);
+    let state: LiveState = use_context();
+    let history = use_resource(use_reactive(
+        (&repository, &number),
+        |(repository, number)| async move { chat_view(repository, number).await },
+    ));
+    let mut text = use_signal(String::new);
+    let mut send_error = use_signal(String::new);
+
+    let (mut messages, history_writing, harness) = match &*history.read() {
         Some(Ok(view)) => (view.messages.clone(), view.writing, Some(view.lead)),
         _ => (Vec::new(), false, None),
     };
@@ -418,20 +563,20 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
         writing: history_writing,
         error: None,
     });
-    let last_lead_message = messages
+    let last_agent_message = messages
         .iter()
         .rev()
         .find(|message| message.author != Author::Owner)
         .map(|message| message.id);
     let unread = state.unread.read().get(&key).copied().unwrap_or(0);
     use_effect(use_reactive(
-        (&repository, &number, &last_lead_message, &unread),
-        |(repository, number, last_lead_message, unread)| {
+        (&repository, &number, &last_agent_message, &unread),
+        |(repository, number, last_agent_message, unread)| {
             if unread > 0
-                && let Some(message) = last_lead_message
+                && let Some(message) = last_agent_message
             {
                 spawn(async move {
-                    // A failed call keeps the count, and the next Lead message calls again.
+                    // A failed call keeps the count, and the next message of the agent calls again.
                     let _ = chat_seen(repository, number, message).await;
                 });
             }
@@ -441,110 +586,94 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     let send_repository = repository.clone();
     let stop_repository = repository.clone();
     rsx! {
-        div { class: "page",
-            div { class: "column",
-                div { class: "head",
-                    h2 { class: "ellip", {workstream.as_ref().map(|workstream| workstream.title.clone())} }
-                    span { class: "num", "#{number}" }
-                    if workstream.as_ref().is_some_and(|workstream| workstream.autopilot) {
-                        span { class: "chip info", "Autopilot on" }
-                    } else {
-                        span { class: "chip plain", "Autopilot off" }
-                    }
-                    span { class: "grow" }
-                    if let Some(lead) = lead {
-                        span { class: "muted small", "Lead: {lead.name()}" }
-                    }
-                    button { class: "btn phone", onclick: move |_| sheet.set(true), "Agents" }
+        div { class: "column",
+            div { class: "head",
+                {head}
+                span { class: "grow" }
+                if let Some(harness) = harness {
+                    span { class: "muted small", "{agent}: {harness.name()}" }
                 }
-                div { class: "chat",
-                    div { class: "msgs",
-                        if let Some(Err(error)) = &*history.read() {
-                            div { class: "error", {error_text(error)} }
-                        }
-                        if messages.is_empty() {
-                            div { class: "muted small empty", "No messages. Write to start a chat session." }
-                        }
-                        for message in messages {
-                            div {
-                                key: "{message.id}",
-                                class: if message.author == Author::Owner { "msg owner" } else { "msg" },
-                                div { class: "meta",
-                                    span {
-                                        if message.author == Author::TellOwner {
-                                            "Lead · event session"
-                                        } else {
-                                            {message.author.name()}
-                                        }
-                                    }
-                                    span {
-                                        {message.time.format(format_description!("[hour]:[minute]")).unwrap_or_default()}
+                {tail}
+            }
+            div { class: "chat",
+                div { class: "msgs",
+                    if let Some(Err(error)) = &*history.read() {
+                        div { class: "error", {error_text(error)} }
+                    }
+                    if messages.is_empty() {
+                        div { class: "muted small empty", "No messages. Write to start a chat session." }
+                    }
+                    for message in messages {
+                        div {
+                            key: "{message.id}",
+                            class: if message.author == Author::Owner { "msg owner" } else { "msg" },
+                            div { class: "meta",
+                                span {
+                                    if message.author == Author::TellOwner {
+                                        "Lead · event session"
+                                    } else {
+                                        {message.author.name()}
                                     }
                                 }
-                                p { "{message.text}" }
+                                span {
+                                    {message.time.format(format_description!("[hour]:[minute]")).unwrap_or_default()}
+                                }
                             }
-                        }
-                        if lead_state.writing {
-                            div { class: "typing",
-                                span { class: "dot live" }
-                                "The Lead writes a reply."
-                            }
-                        }
-                        if let Some(error) = lead_state.error {
-                            div { class: "error", "The chat session failed: {error}" }
+                            p { "{message.text}" }
                         }
                     }
-                    form {
-                        class: "composer",
-                        onsubmit: move |event: FormEvent| {
-                            let repository = send_repository.clone();
-                            async move {
-                                event.prevent_default();
-                                if text().trim().is_empty() {
-                                    return;
-                                }
-                                match chat_send(repository, number, text()).await {
-                                    Ok(()) => {
-                                        text.set(String::new());
-                                        send_error.set(String::new());
-                                    }
-                                    Err(failure) => send_error.set(error_text(&failure)),
-                                }
-                            }
-                        },
-                        div { class: "grow",
-                            textarea {
-                                placeholder: "Write to the Lead",
-                                value: text,
-                                oninput: move |event| text.set(event.value()),
-                            }
-                            div { class: "error", {send_error} }
+                    if lead_state.writing {
+                        div { class: "typing",
+                            span { class: "dot live" }
+                            "The {agent} writes a reply."
                         }
-                        if lead_state.writing {
-                            button {
-                                class: "btn danger",
-                                r#type: "button",
-                                onclick: move |_| {
-                                    let repository = stop_repository.clone();
-                                    async move {
-                                        if let Err(failure) = chat_stop(repository, number).await {
-                                            send_error.set(error_text(&failure));
-                                        }
-                                    }
-                                },
-                                "Stop"
-                            }
-                        }
-                        button { class: "btn primary", r#type: "submit", "Send" }
+                    }
+                    if let Some(error) = lead_state.error {
+                        div { class: "error", "The chat session failed: {error}" }
                     }
                 }
-            }
-            aside { class: "side",
-                Agents { repository: repository.clone(), number }
-            }
-            if sheet() {
-                div { class: "sheet",
-                    Agents { repository: repository.clone(), number, on_close: move |_| sheet.set(false) }
+                form {
+                    class: "composer",
+                    onsubmit: move |event: FormEvent| {
+                        let repository = send_repository.clone();
+                        async move {
+                            event.prevent_default();
+                            if text().trim().is_empty() {
+                                return;
+                            }
+                            match chat_send(repository, number, text()).await {
+                                Ok(()) => {
+                                    text.set(String::new());
+                                    send_error.set(String::new());
+                                }
+                                Err(failure) => send_error.set(error_text(&failure)),
+                            }
+                        }
+                    },
+                    div { class: "grow",
+                        textarea {
+                            placeholder: "Write to the {agent}",
+                            value: text,
+                            oninput: move |event| text.set(event.value()),
+                        }
+                        div { class: "error", {send_error} }
+                    }
+                    if lead_state.writing {
+                        button {
+                            class: "btn danger",
+                            r#type: "button",
+                            onclick: move |_| {
+                                let repository = stop_repository.clone();
+                                async move {
+                                    if let Err(failure) = chat_stop(repository, number).await {
+                                        send_error.set(error_text(&failure));
+                                    }
+                                }
+                            },
+                            "Stop"
+                        }
+                    }
+                    button { class: "btn primary", r#type: "submit", "Send" }
                 }
             }
         }

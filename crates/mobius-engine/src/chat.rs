@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::error::Error;
+use std::fs;
 use std::path::Path;
 
 use mobius_domain::{Author, ChatMessage, ChatView, InboxKind, Live};
@@ -10,7 +11,7 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
-use crate::{Engine, TIME_FORMAT, gh, inbox, mcp};
+use crate::{Engine, TIME_FORMAT, gh, inbox, mcp, triager};
 
 pub(crate) const ROLE: &str = "lead_chat";
 const ROLE_PROMPT: &str = include_str!("prompts/lead.md");
@@ -127,7 +128,11 @@ pub async fn view(
     Ok(ChatView {
         messages,
         writing,
-        lead: engine.config.roles.lead.harness,
+        lead: if workstream == triager::CHAT {
+            engine.config.roles.triager.harness
+        } else {
+            engine.config.roles.lead.harness
+        },
     })
 }
 
@@ -186,21 +191,18 @@ async fn run(
     mut commands: UnboundedReceiver<Command>,
 ) {
     let (repository, workstream) = (first.repository.clone(), first.workstream);
-    let session = match lead::add_session(
-        &engine,
-        ROLE,
-        &engine.config.roles.lead,
-        &repository,
-        workstream,
-    )
-    .await
-    {
+    let (role, binding, author) = if workstream == triager::CHAT {
+        (triager::ROLE, &engine.config.roles.triager, Author::Triager)
+    } else {
+        (ROLE, &engine.config.roles.lead, Author::Lead)
+    };
+    let session = match lead::add_session(&engine, role, binding, &repository, workstream).await {
         Ok(session) => session,
         Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
     };
     let caller = mcp::Caller {
         session,
-        role: ROLE,
+        role,
         repository: repository.clone(),
         workstream,
         cannot_do: None,
@@ -212,7 +214,7 @@ async fn run(
         Ok(key) => key,
         Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
     };
-    let mut recorder = Recorder::new(&engine, session, &repository, workstream, true);
+    let mut recorder = Recorder::new(&engine, session, &repository, workstream, Some(author));
     let result = tokio::select! {
         result = chat(&engine, &first, session, &key, &mut recorder, &mut commands) => result.map(|()| "idle"),
         () = lead::stopped(&mut stops, &repository, workstream) => Ok("stopped"),
@@ -261,15 +263,26 @@ async fn chat(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let (repository, workstream) = (first.repository.as_str(), first.workstream);
     let key = (repository.to_string(), workstream);
-    let dir = mobius_runner::lead_dir(&engine.config.data_dir, repository, workstream)?;
-    let prompt = first_prompt(engine, &dir, first).await?;
+    let triager = workstream == triager::CHAT;
+    let data_dir = &engine.config.data_dir;
+    let (dir, prompt, binding, gh_url) = if triager {
+        let dir = mobius_runner::scratch_dir(data_dir, session_id);
+        fs::create_dir_all(&dir)?;
+        let prompt = triager::chat_prompt(engine, first).await?;
+        (dir, prompt, &engine.config.roles.triager, None)
+    } else {
+        let dir = mobius_runner::lead_dir(data_dir, repository, workstream)?;
+        let prompt = first_prompt(engine, &dir, first).await?;
+        let url = gh::url(engine, session_key);
+        (dir, prompt, &engine.config.roles.lead, Some(url))
+    };
     let (session, mut updates) = lead::start(
         engine,
-        &engine.config.roles.lead,
+        binding,
         session_id,
         &dir,
         session_key,
-        Some(&gh::url(engine, session_key)),
+        gh_url.as_deref(),
     )
     .await?;
     let mut queue = VecDeque::new();
@@ -326,16 +339,19 @@ async fn chat(
         match command {
             Some(Command::Prompt(message)) => queue.push_back(message),
             Some(Command::Stop) => {}
+            // The Triager has no memory to save.
             None => {
-                turn(
-                    &session,
-                    SAVE_PROMPT,
-                    recorder,
-                    &mut updates,
-                    commands,
-                    &mut queue,
-                )
-                .await?;
+                if !triager {
+                    turn(
+                        &session,
+                        SAVE_PROMPT,
+                        recorder,
+                        &mut updates,
+                        commands,
+                        &mut queue,
+                    )
+                    .await?;
+                }
                 let mut chats = engine.chats.lock().unwrap();
                 if queue.is_empty() && commands.is_empty() {
                     chats.remove(&key);
@@ -345,6 +361,9 @@ async fn chat(
         }
     }
     session.close().await;
+    if triager {
+        fs::remove_dir_all(&dir)?;
+    }
     Ok(())
 }
 

@@ -262,7 +262,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         job.workstream,
     )
     .await?;
-    let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, false);
+    let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, None);
     let harness = engine.config.roles.implementer.harness;
     let slot = match workers::slot(engine, job.task, session, harness).await {
         Ok(slot) => slot,

@@ -7,7 +7,8 @@ use time::OffsetDateTime;
 use crate::trust::trusted_author;
 use crate::workstreams::AUTOPILOT_LABEL;
 use crate::{
-    Engine, WORKING_LABEL, WORKSTREAM_LABEL, activity, dispatch, ends, lead_events, workstreams,
+    Engine, NO_WORKSTREAM_LABEL, WORKING_LABEL, WORKSTREAM_LABEL, activity, dispatch, ends,
+    lead_events, triager, workstreams,
 };
 
 const ISSUES: &str = "issues";
@@ -71,6 +72,9 @@ async fn changed_issues(
         }
         if issue.has_label(WORKING_LABEL) {
             dispatch::comment_events(engine, app_slug, repository, issue, cursor.since).await?;
+        }
+        if !issue.has_label(NO_WORKSTREAM_LABEL) {
+            triager::stop(engine, app_slug, repository, issue.number).await?;
         }
         let labeled = issue.has_label(WORKSTREAM_LABEL);
         if !labeled && !workstreams::has_work(engine, name, issue.number).await? {

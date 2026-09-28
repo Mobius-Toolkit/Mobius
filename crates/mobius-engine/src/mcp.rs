@@ -24,7 +24,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::threads::Target;
 use crate::{
     Engine, chat, dispatch, implementer, issues, judge, lead_events, plans, researcher, reviewer,
-    tasks, threads, trust,
+    tasks, threads, triager, trust,
 };
 
 #[derive(Clone)]
@@ -331,6 +331,40 @@ fn tools(role: &str) -> Vec<Tool> {
                 }
             })),
         )],
+        triager::ROLE => vec![
+            tool(
+                "create_workstream",
+                "Create a Workstream: an issue with mobius:workstream. In the chat, call it only after the Owner approves the exact title and Brief.",
+                object(json!({
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The name of the Workstream."
+                    },
+                    "brief": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The Brief: the goal, the scope, and the limits of the Workstream."
+                    }
+                })),
+            ),
+            tool(
+                "move_issue",
+                "Make an issue a sub-issue of an open Workstream. For an issue with mobius:no-workstream, Mobius then adds mobius:ready again.",
+                object(json!({
+                    "n": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the issue."
+                    },
+                    "workstream": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the Workstream issue."
+                    }
+                })),
+            ),
+        ],
         judge::ROLE => vec![tool(
             "submit_verdicts",
             "Give the actions for each item of the batch, one entry for each item. Items of trusted users take fix, question, and follow-up. Items of trusted bots take fix and reject. A later valid call replaces an earlier one.",
@@ -417,6 +451,20 @@ struct ReadIssue {
 struct StartImplementer {
     n: i64,
     instructions: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateWorkstream {
+    title: String,
+    brief: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MoveIssue {
+    n: i64,
+    workstream: i64,
 }
 
 #[derive(Deserialize)]
@@ -515,7 +563,7 @@ impl Handler {
         {
             return Err(unknown().into());
         }
-        let repository = self.engine.repository(&self.caller.repository)?;
+        let repository = triager::repository(&self.engine, &self.caller.repository)?;
         match tool {
             "list_tasks" => {
                 let ListTasks {} = parse(tool, arguments)?;
@@ -551,6 +599,26 @@ impl Handler {
                     &instructions,
                 )
                 .await
+            }
+            "create_workstream" => {
+                let CreateWorkstream { title, brief } = parse(tool, arguments)?;
+                if !self.caller.repository.is_empty() {
+                    return Err(
+                        "Only the Triager chat creates a Workstream, after the Owner approves it."
+                            .into(),
+                    );
+                }
+                if title.trim().is_empty() || brief.trim().is_empty() {
+                    return Err("title and brief must not be empty.".into());
+                }
+                triager::create_workstream(&self.engine, &repository, &title, &brief).await
+            }
+            "move_issue" => {
+                let MoveIssue { n, workstream } = parse(tool, arguments)?;
+                if n < 1 || workstream < 1 {
+                    return Err("n and workstream must be 1 or more.".into());
+                }
+                triager::move_issue(&repository, n, workstream).await
             }
             "start_researcher" => {
                 let StartResearcher { question } = parse(tool, arguments)?;

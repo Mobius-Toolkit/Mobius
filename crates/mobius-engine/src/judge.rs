@@ -284,7 +284,7 @@ async fn session(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let binding = &engine.config.roles.judge;
     let session = lead::add_session(engine, ROLE, binding, &job.repository, job.workstream).await?;
-    let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, false);
+    let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, None);
     let started = engine.store.sessions().start(session).await?;
     engine.broadcast(Live::Agent(agents::node(started)));
     let (verdicts, mut received) = mpsc::unbounded_channel();
