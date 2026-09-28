@@ -2,22 +2,30 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+
+concurrency: release
 
 jobs:
-  version:
+  tag:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml)
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "The tag $GITHUB_REF_NAME does not match the version $version in Cargo.toml."
-            exit 1
+        with:
+          fetch-depth: 0
+      - id: tag
+        run: |
+          last=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          if [ -z "$last" ]; then
+            echo "tag=v0.1.0" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${last%.*}.$((${last##*.} + 1))" >> "$GITHUB_OUTPUT"
           fi
 
   bundle:
-    needs: version
+    needs: tag
     strategy:
       matrix:
         include:
@@ -45,7 +53,7 @@ jobs:
           path: mobius-${{ matrix.target }}.tar.gz
 
   release:
-    needs: bundle
+    needs: [tag, bundle]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -53,6 +61,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
-      - run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" mobius-*.tar.gz
+      - run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" mobius-*.tar.gz
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.tag.outputs.tag }}
