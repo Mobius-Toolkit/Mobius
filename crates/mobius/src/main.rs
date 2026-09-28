@@ -1,10 +1,6 @@
-use dioxus::prelude::*;
-
-const MAIN_CSS: Asset = asset!("/assets/main.css");
-
 fn main() {
     #[cfg(not(feature = "server"))]
-    dioxus::launch(App);
+    dioxus::launch(mobius_ui::App);
 
     #[cfg(feature = "server")]
     serve();
@@ -76,7 +72,7 @@ fn serve() {
         let engine = engine.clone();
         let store = store.clone();
         async move {
-            Ok(dioxus::server::router(App)
+            Ok(dioxus::server::router(mobius_ui::App)
                 .merge(mobius_engine::mcp::router(engine.clone()))
                 .merge(mobius_engine::gh::router(engine.clone()))
                 .layer(Extension(engine))
@@ -89,12 +85,4 @@ fn serve() {
 fn fail(message: impl std::fmt::Display) -> ! {
     eprintln!("mobius: {message}");
     std::process::exit(1)
-}
-
-#[component]
-fn App() -> Element {
-    rsx! {
-        document::Stylesheet { href: MAIN_CSS }
-        Router::<mobius_ui::Route> {}
-    }
 }

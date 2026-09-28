@@ -30,6 +30,8 @@ tower = "0.5"
 tempfile = "3"
 axum = "0.8"
 http = "1"
+chromiumoxide = "0.9"
+futures-util = "0.3"
 
 mobius-ui = { path = "crates/mobius-ui" }
 mobius-api = { path = "crates/mobius-api" }

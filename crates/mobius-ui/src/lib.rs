@@ -13,6 +13,8 @@ use mobius_domain::{
 };
 use time::macros::format_description;
 
+const MAIN_CSS: Asset = asset!("/assets/main.css");
+
 #[derive(Clone, PartialEq, Routable)]
 #[rustfmt::skip]
 pub enum Route {
@@ -34,6 +36,14 @@ pub enum Route {
         Devices {},
         #[route("/github")]
         GitHub {},
+}
+
+#[component]
+pub fn App() -> Element {
+    rsx! {
+        document::Stylesheet { href: MAIN_CSS }
+        Router::<Route> {}
+    }
 }
 
 #[derive(Clone, Copy)]

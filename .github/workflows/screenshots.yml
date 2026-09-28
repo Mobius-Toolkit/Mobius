@@ -1,0 +1,38 @@
+name: screenshots
+
+on:
+  pull_request:
+
+concurrency:
+  group: screenshots-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # The job pushes to the pull request branch, so it checks out that branch and not the merge commit.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # The dx version must match the dioxus version in Cargo.lock.
+      - run: cargo install dioxus-cli --version 0.7.10 --locked
+      - run: dx bundle --web --release -p mobius --out-dir dist
+      - run: cargo test -p mobius-testkit --test screenshots -- --ignored
+        env:
+          DIOXUS_PUBLIC_PATH: ${{ github.workspace }}/dist/public
+      # A push with the GITHUB_TOKEN starts no workflow, so this commit does not start this job again.
+      - run: |
+          git add crates/mobius-ui/screenshots
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "test: update the UI screenshots"
+          git push
