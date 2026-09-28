@@ -252,3 +252,27 @@ async fn the_triager_chat_creates_a_workstream_after_the_approval() {
     }
     assert_eq!(prompts[1], "Yes, create it.");
 }
+
+#[tokio::test]
+async fn the_triager_chat_refuses_an_unknown_organization() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+
+    let error = chat::send(&engine, "", 0, "Start a Workstream for loyalty points.")
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        "Mobius has no repository in the organization \"\"."
+    );
+    assert!(
+        chat::view(&engine, "", 0)
+            .await
+            .unwrap()
+            .messages
+            .is_empty()
+    );
+    assert!(triagers(&engine, "").await.is_empty());
+}

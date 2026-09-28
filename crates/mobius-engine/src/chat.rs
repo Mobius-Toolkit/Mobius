@@ -11,7 +11,7 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
-use crate::{Engine, TIME_FORMAT, gh, inbox, limits, mcp, triager};
+use crate::{Engine, TIME_FORMAT, gh, inbox, limits, mcp, triager, workstreams};
 
 pub(crate) const ROLE: &str = "lead_chat";
 const ROLE_PROMPT: &str = include_str!("prompts/lead.md");
@@ -34,6 +34,15 @@ pub async fn send(
     workstream: i64,
     text: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if workstream == triager::CHAT
+        && !workstreams::organizations(engine)
+            .iter()
+            .any(|name| name == repository)
+    {
+        return Err(
+            format!("Mobius has no repository in the organization \"{repository}\".").into(),
+        );
+    }
     post(engine, repository, workstream, Author::Owner, text).await
 }
 

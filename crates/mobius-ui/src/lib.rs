@@ -478,6 +478,7 @@ fn Settings() -> Element {
 #[component]
 fn NewWorkstream() -> Element {
     let state: LiveState = use_context();
+    let Organizations(organization_list) = use_context();
     let Organization(organization) = use_context();
     let mut created = state.created;
     let navigator = use_navigator();
@@ -494,6 +495,12 @@ fn NewWorkstream() -> Element {
             });
         }
     });
+    if !matches!(&*organization_list.read(), Some(Ok(list)) if list.contains(&organization())) {
+        return rsx! {
+            div { class: "head", h2 { "New Workstream" } }
+            p { class: "muted note", "Mobius reads the repositories from GitHub. The Triager chat opens after this step." }
+        };
+    }
     rsx! {
         div { class: "page",
             Conversation {
