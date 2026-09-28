@@ -14,5 +14,7 @@ jobs:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo install sqlx-cli --version ^0.9 --no-default-features --features sqlite
       - run: .mobius/check
