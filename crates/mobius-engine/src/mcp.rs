@@ -8,9 +8,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use mobius_github::NewReviewComment;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorData, JsonObject,
-    ListToolsResult, MetaObject, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
-    object,
+    CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorData,
+    JsonObject, ListToolsResult, MetaObject, PaginatedRequestParams, ServerCapabilities,
+    ServerConfig, Tool, object,
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::streamable_http_server::session::never::NeverSessionManager;
@@ -826,7 +826,10 @@ impl ServerHandler for Handler {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult::with_all_items(tools(self.caller.role)))
+        // Protocol 2026-07-28 requires `ttlMs` and `cacheScope`. Claude Code refuses a tool list without them.
+        Ok(ListToolsResult::with_all_items(tools(self.caller.role))
+            .with_ttl_ms(0)
+            .with_cache_scope(CacheScope::Private))
     }
 
     async fn call_tool(
