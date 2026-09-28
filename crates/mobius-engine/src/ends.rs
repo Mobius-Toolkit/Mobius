@@ -133,7 +133,7 @@ pub(crate) async fn stopped(stops: &mut Receiver<i64>, task: i64) {
 }
 
 // The branch stays.
-async fn end(
+pub(crate) async fn end(
     engine: &Engine,
     repository: &Repository,
     task: &Task,

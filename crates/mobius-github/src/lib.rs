@@ -545,6 +545,34 @@ impl Repository {
         Ok(())
     }
 
+    pub async fn close_as_not_planned(
+        &self,
+        number: i64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .patch(
+                format!("/repos/{}/issues/{number}", self.full_name),
+                Some(&json!({ "state": "closed", "state_reason": "not_planned" })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn close_pull_request(
+        &self,
+        number: i64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .patch(
+                format!("/repos/{}/pulls/{number}", self.full_name),
+                Some(&json!({ "state": "closed" })),
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn add_comment(
         &self,
         number: i64,

@@ -1,12 +1,19 @@
+use std::collections::VecDeque;
 use std::error::Error;
 
 use mobius_domain::Workstream;
 use mobius_github::{Issue, IssueEvent, Repository};
+use mobius_store::Task;
+use time::OffsetDateTime;
 
 use crate::config::Config;
-use crate::{Engine, WORKSTREAM_LABEL};
+use crate::{
+    Engine, NEEDS_HUMAN_LABEL, READY_LABEL, WORKING_LABEL, WORKSTREAM_LABEL, dispatch, ends,
+    lead_events,
+};
 
 pub(crate) const AUTOPILOT_LABEL: &str = "mobius:autopilot";
+const CLOSED_TEXT: &str = "Workstream closed";
 
 pub async fn list(engine: &Engine) -> Result<Vec<Workstream>, Box<dyn Error + Send + Sync>> {
     let repositories = engine.repositories.read().unwrap().clone();
@@ -22,6 +29,107 @@ pub async fn list(engine: &Engine) -> Result<Vec<Workstream>, Box<dyn Error + Se
         }
     }
     Ok(workstreams)
+}
+
+// An issue that lost `mobius:workstream` can still have a Lead or live tasks.
+pub(crate) async fn has_work(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    let key = (repository.to_string(), workstream);
+    if engine.chats.lock().unwrap().contains_key(&key)
+        || engine.event_sessions.lock().unwrap().contains_key(&key)
+    {
+        return Ok(true);
+    }
+    Ok(engine
+        .store
+        .tasks()
+        .live_in(repository)
+        .await?
+        .iter()
+        .any(|task| task.workstream == workstream))
+}
+
+// The branches and the Lead directory stay.
+pub(crate) async fn close(
+    engine: &Engine,
+    repository: &Repository,
+    workstream: i64,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let name = &repository.full_name;
+    stop(engine, repository, workstream).await?;
+    // A later reopen needs a new `mobius:autopilot` from a trusted user.
+    repository.remove_label(workstream, AUTOPILOT_LABEL).await?;
+    for number in engine.store.tasks().pull_requests(name, workstream).await? {
+        if repository.pull_request(number).await?.state == "open" {
+            repository.add_comment(number, CLOSED_TEXT).await?;
+            repository.close_pull_request(number).await?;
+        }
+    }
+    let mut parents = VecDeque::from([workstream]);
+    while let Some(parent) = parents.pop_front() {
+        for issue in repository.sub_issues(parent).await? {
+            if issue.has_label(WORKSTREAM_LABEL) || ends::in_other_repository(&issue, name) {
+                continue;
+            }
+            parents.push_back(issue.number);
+            for label in [READY_LABEL, WORKING_LABEL, NEEDS_HUMAN_LABEL] {
+                if issue.has_label(label) {
+                    repository.remove_label(issue.number, label).await?;
+                }
+            }
+            if issue.state == "open" {
+                repository.add_comment(issue.number, CLOSED_TEXT).await?;
+                repository.close_as_not_planned(issue.number).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// The queued events of the Lead go to no later Lead.
+pub(crate) async fn stop(
+    engine: &Engine,
+    repository: &Repository,
+    workstream: i64,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let name = &repository.full_name;
+    let _ = engine.lead_stops.send((name.clone(), workstream));
+    engine
+        .store
+        .lead_events()
+        .deliver_all(name, workstream)
+        .await?;
+    let tasks: Vec<Task> = engine
+        .store
+        .tasks()
+        .live_in(name)
+        .await?
+        .into_iter()
+        .filter(|task| task.workstream == workstream)
+        .collect();
+    for task in &tasks {
+        ends::end(engine, repository, task).await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn reopen(
+    engine: &Engine,
+    repository: &Repository,
+    issue: &Issue,
+    actor: &str,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let text = dispatch::event_text(
+        OffsetDateTime::now_utc(),
+        "reopen of Workstream",
+        issue,
+        actor,
+        issue.body.as_deref().unwrap_or_default(),
+    )?;
+    lead_events::add(engine, &repository.full_name, issue.number, "reopen", &text).await
 }
 
 pub(crate) async fn workstream_of(

@@ -111,6 +111,7 @@ struct Issue {
     author: String,
     pull_request: bool,
     merged_at: Option<i64>,
+    state_reason: Option<String>,
     state: &'static str,
     sub_issues: Vec<i64>,
     blocked_by: Vec<i64>,
@@ -141,6 +142,7 @@ impl Records {
                 author: author.to_string(),
                 pull_request,
                 merged_at: None,
+                state_reason: None,
                 state: "open",
                 sub_issues: Vec::new(),
                 blocked_by: Vec::new(),
@@ -228,6 +230,35 @@ impl Records {
             "event": "labeled",
             "actor": { "login": actor },
             "label": { "name": label },
+            "created_at": timestamp(now)
+        }));
+    }
+
+    fn set_state(
+        &mut self,
+        repository: &str,
+        number: i64,
+        state: &'static str,
+        reason: Option<String>,
+        actor: &str,
+    ) {
+        let now = self.tick();
+        let issue = self
+            .issues
+            .get_mut(&(repository.to_string(), number))
+            .unwrap();
+        issue.state = state;
+        issue.state_reason = reason;
+        issue.updated_at = now;
+        let event = if state == "closed" {
+            "closed"
+        } else {
+            "reopened"
+        };
+        issue.events.push(json!({
+            "event": event,
+            "actor": { "login": actor },
+            "label": null,
             "created_at": timestamp(now)
         }));
     }
@@ -326,7 +357,10 @@ impl FakeGitHub {
                 "/repos/{owner}/{repo}/issues",
                 get(issues).post(create_issue),
             )
-            .route("/repos/{owner}/{repo}/issues/{number}", get(issue))
+            .route(
+                "/repos/{owner}/{repo}/issues/{number}",
+                get(issue).patch(update_issue),
+            )
             .route(
                 "/repos/{owner}/{repo}/issues/{number}/sub_issues",
                 get(sub_issues).post(add_sub_issue),
@@ -353,7 +387,10 @@ impl FakeGitHub {
                 delete(remove_label),
             )
             .route("/repos/{owner}/{repo}/pulls", post(create_pull_request))
-            .route("/repos/{owner}/{repo}/pulls/{number}", get(pull_request))
+            .route(
+                "/repos/{owner}/{repo}/pulls/{number}",
+                get(pull_request).patch(update_issue),
+            )
             .route("/repos/{owner}/{repo}/check-runs", post(create_check_run))
             .route(
                 "/repos/{owner}/{repo}/check-runs/{id}",
@@ -675,14 +712,24 @@ impl FakeGitHub {
     }
 
     pub fn close_issue(&self, repository: &str, number: i64) {
-        let mut records = self.state.lock().unwrap();
-        let now = records.tick();
-        let issue = records
-            .issues
-            .get_mut(&(repository.to_string(), number))
-            .unwrap();
-        issue.state = "closed";
-        issue.updated_at = now;
+        self.state
+            .lock()
+            .unwrap()
+            .set_state(repository, number, "closed", None, "owner");
+    }
+
+    pub fn reopen_issue(&self, repository: &str, number: i64) {
+        self.state
+            .lock()
+            .unwrap()
+            .set_state(repository, number, "open", None, "owner");
+    }
+
+    // Gives the state and the state reason.
+    pub fn state(&self, repository: &str, number: i64) -> (String, Option<String>) {
+        let records = self.state.lock().unwrap();
+        let issue = &records.issues[&(repository.to_string(), number)];
+        (issue.state.to_string(), issue.state_reason.clone())
     }
 
     // The branch stays.
@@ -1060,6 +1107,7 @@ async fn create_pull_request(
             author: app_login(),
             pull_request: true,
             merged_at: None,
+            state_reason: None,
             state: "open",
             sub_issues: Vec::new(),
             blocked_by: Vec::new(),
@@ -1403,6 +1451,33 @@ async fn create_issue(
         Json(records.issue_json(&repository, number)),
     )
         .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IssueUpdate {
+    state: String,
+    state_reason: Option<String>,
+}
+
+async fn update_issue(
+    State(state): State<Shared>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    Json(update): Json<IssueUpdate>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    if update.state != "closed" || !records.issues.contains_key(&(repository.clone(), number)) {
+        return not_found();
+    }
+    records.set_state(
+        &repository,
+        number,
+        "closed",
+        update.state_reason,
+        &app_login(),
+    );
+    Json(records.issue_json(&repository, number)).into_response()
 }
 
 #[derive(Deserialize)]

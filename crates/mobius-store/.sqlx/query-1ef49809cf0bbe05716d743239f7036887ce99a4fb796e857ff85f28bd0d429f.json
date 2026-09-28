@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT pull_request AS \"pull_request!\" FROM tasks\n               WHERE repository = ? AND workstream = ? AND pull_request IS NOT NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "pull_request!",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "pull_request"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "1ef49809cf0bbe05716d743239f7036887ce99a4fb796e857ff85f28bd0d429f"
+}

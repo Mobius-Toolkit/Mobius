@@ -54,6 +54,24 @@ impl LeadEvents<'_> {
         Ok(event)
     }
 
+    pub async fn deliver_all(
+        &self,
+        repository: &str,
+        workstream: i64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let delivered_at = OffsetDateTime::now_utc();
+        sqlx::query!(
+            "UPDATE lead_events SET delivered_at = ?
+             WHERE repository = ? AND workstream = ? AND delivered_at IS NULL",
+            delivered_at,
+            repository,
+            workstream
+        )
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn deliver(&self, id: i64) -> Result<(), Box<dyn Error + Send + Sync>> {
         let delivered_at = OffsetDateTime::now_utc();
         sqlx::query!(

@@ -2,6 +2,7 @@ use std::error::Error;
 
 use mobius_runner::Session;
 use serde_json::Value;
+use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
@@ -35,8 +36,10 @@ pub(crate) async fn add(
         None => {
             let (wakes, receiver) = mpsc::unbounded_channel();
             sessions.insert(key, wakes);
+            // The subscription comes before the spawn, so the session gets each stop of its Lead.
             tokio::spawn(run(
                 engine.clone(),
+                engine.lead_stops.subscribe(),
                 repository.to_string(),
                 workstream,
                 receiver,
@@ -48,6 +51,7 @@ pub(crate) async fn add(
 
 async fn run(
     engine: Engine,
+    mut stops: broadcast::Receiver<(String, i64)>,
     repository: String,
     workstream: i64,
     mut wakes: UnboundedReceiver<()>,
@@ -82,23 +86,30 @@ async fn run(
         },
     ) {
         Ok(key) => {
-            let result = events(
-                &engine,
-                &repository,
-                workstream,
-                session,
-                &key,
-                &mut recorder,
-                &mut wakes,
-            )
-            .await;
+            let result = tokio::select! {
+                result = events(
+                    &engine,
+                    &repository,
+                    workstream,
+                    session,
+                    &key,
+                    &mut recorder,
+                    &mut wakes,
+                ) => result.map(|()| "idle"),
+                () = lead::stopped(&mut stops, &repository, workstream) => Ok("stopped"),
+            };
             mcp::close(&engine, &key);
             result
         }
         Err(error) => Err(error.into()),
     };
     let ended = match result {
-        Ok(()) => lead::end_session(&engine, session, "idle").await,
+        Ok(reason) => {
+            if reason == "stopped" {
+                remove(&engine, &repository, workstream);
+            }
+            lead::end_session(&engine, session, reason).await
+        }
         Err(error) => {
             remove(&engine, &repository, workstream);
             recorder.fail(&error.to_string()).await

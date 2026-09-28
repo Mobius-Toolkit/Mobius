@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE lead_events SET delivered_at = ?\n             WHERE repository = ? AND workstream = ? AND delivered_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "263cb8dbade60e8250759fdcd98d24a855fcc992dddbdd0960412fa654245cf1"
+}

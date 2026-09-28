@@ -6,7 +6,9 @@ use time::OffsetDateTime;
 
 use crate::trust::trusted_author;
 use crate::workstreams::AUTOPILOT_LABEL;
-use crate::{Engine, WORKING_LABEL, WORKSTREAM_LABEL, activity, dispatch, ends, lead_events};
+use crate::{
+    Engine, WORKING_LABEL, WORKSTREAM_LABEL, activity, dispatch, ends, lead_events, workstreams,
+};
 
 const ISSUES: &str = "issues";
 
@@ -70,51 +72,67 @@ async fn changed_issues(
         if issue.has_label(WORKING_LABEL) {
             dispatch::comment_events(engine, app_slug, repository, issue, cursor.since).await?;
         }
-        if !issue.has_label(WORKSTREAM_LABEL) {
+        let labeled = issue.has_label(WORKSTREAM_LABEL);
+        if !labeled && !workstreams::has_work(engine, name, issue.number).await? {
             continue;
         }
         for event in repository.issue_events(issue.number).await? {
-            let (Some(actor), Some(label)) = (event.actor, event.label) else {
+            let Some(actor) = event.actor else {
                 continue;
             };
             if cursor.since.is_some_and(|since| event.created_at <= since) {
                 continue;
             }
-            // With a new Autopilot, a `mobius:ready` of the Mobius App can dispatch, so the ready list must not answer `304`.
-            if label.name == AUTOPILOT_LABEL {
-                engine
-                    .store
-                    .sync_cursors()
-                    .set(name, dispatch::READY_CURSOR, None, None)
-                    .await?;
-                engine.broadcast(Live::Workstreams);
-            }
-            if event.event == "labeled"
-                && label.name == WORKSTREAM_LABEL
-                && trusted_author(&engine.config, app_slug, &actor.login)
-            {
-                activity::add(
-                    engine,
-                    name,
-                    issue.number,
-                    issue.number,
-                    &actor.login,
-                    &format!("New Workstream \"{}\"", issue.title),
-                    &issue.html_url,
-                )
-                .await?;
-                // At the first poll of a repository, Mobius cannot see which Workstream is new.
-                if cursor.since.is_none() {
-                    continue;
+            let trusted = trusted_author(&engine.config, app_slug, &actor.login);
+            // At the first poll of a repository, Mobius cannot see which event is new.
+            let first_poll = cursor.since.is_none();
+            match (
+                event.event.as_str(),
+                event.label.as_ref().map(|label| label.name.as_str()),
+            ) {
+                // With a new Autopilot, a `mobius:ready` of the Mobius App can dispatch, so the ready list must not answer `304`.
+                (_, Some(AUTOPILOT_LABEL)) => {
+                    engine
+                        .store
+                        .sync_cursors()
+                        .set(name, dispatch::READY_CURSOR, None, None)
+                        .await?;
+                    engine.broadcast(Live::Workstreams);
                 }
-                let text = dispatch::event_text(
-                    OffsetDateTime::now_utc(),
-                    "creation of Workstream",
-                    issue,
-                    &actor.login,
-                    issue.body.as_deref().unwrap_or_default(),
-                )?;
-                lead_events::add(engine, name, issue.number, "creation", &text).await?;
+                ("labeled", Some(WORKSTREAM_LABEL)) if trusted => {
+                    activity::add(
+                        engine,
+                        name,
+                        issue.number,
+                        issue.number,
+                        &actor.login,
+                        &format!("New Workstream \"{}\"", issue.title),
+                        &issue.html_url,
+                    )
+                    .await?;
+                    if !first_poll {
+                        let text = dispatch::event_text(
+                            OffsetDateTime::now_utc(),
+                            "creation of Workstream",
+                            issue,
+                            &actor.login,
+                            issue.body.as_deref().unwrap_or_default(),
+                        )?;
+                        lead_events::add(engine, name, issue.number, "creation", &text).await?;
+                    }
+                }
+                // A removal from any author counts, because it only stops work.
+                ("unlabeled", Some(WORKSTREAM_LABEL)) if !first_poll => {
+                    workstreams::stop(engine, repository, issue.number).await?;
+                }
+                // The label can go away before the poll sees the close.
+                ("closed", _) if trusted && !first_poll => {
+                    workstreams::close(engine, repository, issue.number).await?;
+                }
+                ("reopened", _) if trusted && labeled && !first_poll => {
+                    workstreams::reopen(engine, repository, issue, &actor.login).await?;
+                }
+                _ => {}
             }
         }
     }
