@@ -307,8 +307,9 @@ fn WorkstreamList() -> Element {
     rsx! {
         div { class: "head",
             h2 { class: "grow", "Workstreams" }
-            Link { class: "btn phone", to: Route::Settings {}, "Settings" }
             Link { class: "btn primary", to: Route::NewWorkstream {}, "+ New" }
+            // U+FE0E selects the text form of the gear, not the emoji.
+            Link { class: "icon phone", to: Route::Settings {}, title: "Settings", "\u{2699}\u{fe0e}" }
         }
         div { class: "list",
             WorkstreamEntries {}
