@@ -8,6 +8,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use mobius_engine::Engine;
+use mobius_engine::config::Config;
 use mobius_store::Store;
 use tokio::net::TcpListener;
 
@@ -15,21 +16,17 @@ pub async fn start(data_dir: &Path, access_password: &str, github_url: &str) -> 
     start_with_config(data_dir, access_password, github_url, "").await
 }
 
-// The Harness `PATH` is `harnesses` and then the `PATH` of the test. The `gh` in `harnesses` prints its arguments and `GH_TOKEN`.
 pub async fn start_with_config(
     data_dir: &Path,
     access_password: &str,
     github_url: &str,
     extra_config: &str,
 ) -> Engine {
-    let harnesses = data_dir.join("harnesses");
-    fs::create_dir_all(&harnesses).unwrap();
-    let gh = harnesses.join("gh");
-    fs::write(&gh, "#!/bin/sh\necho \"gh $* with GH_TOKEN=$GH_TOKEN\"\n").unwrap();
-    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
-    let mut path = vec![harnesses];
-    path.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
-    let config = mobius_engine::config::parse(&format!(
+    start_engine(config(data_dir, access_password, extra_config), github_url).await
+}
+
+pub fn config(data_dir: &Path, access_password: &str, extra_config: &str) -> Config {
+    mobius_engine::config::parse(&format!(
         r#"
 access_password = "{access_password}"
 trusted_users = ["owner"]
@@ -49,7 +46,18 @@ judge       = {{ harness = "claude-code", model = "haiku",   effort = "low" }}
 "#,
         data_dir.display()
     ))
-    .unwrap();
+    .unwrap()
+}
+
+// The Harness `PATH` is `harnesses` and then the `PATH` of the test. The `gh` in `harnesses` prints its arguments and `GH_TOKEN`.
+pub async fn start_engine(config: Config, github_url: &str) -> Engine {
+    let harnesses = config.data_dir.join("harnesses");
+    fs::create_dir_all(&harnesses).unwrap();
+    let gh = harnesses.join("gh");
+    fs::write(&gh, "#!/bin/sh\necho \"gh $* with GH_TOKEN=$GH_TOKEN\"\n").unwrap();
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut path = vec![harnesses];
+    path.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
     let store = Store::open(&config.data_dir).await.unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let engine = mobius_engine::start(
