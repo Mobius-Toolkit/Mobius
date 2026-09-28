@@ -779,7 +779,7 @@ impl Repository {
             .client
             .post(
                 format!("/repos/{}/issues/{parent}/sub_issues", self.full_name),
-                Some(&json!({ "sub_issue_id": child_id })),
+                Some(&json!({ "sub_issue_id": child_id, "replace_parent": true })),
             )
             .await?;
         Ok(())

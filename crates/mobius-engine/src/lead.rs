@@ -105,8 +105,8 @@ pub(crate) struct Recorder {
     session: i64,
     repository: String,
     workstream: i64,
-    // With `false`, the text of the session goes only to the transcript.
-    chat: bool,
+    // The author of the chat messages of the session. With `None`, the text of the session goes only to the transcript.
+    chat: Option<Author>,
     // The last transcript row while it is a chunk, and its JSON.
     chunk: Option<(i64, Value)>,
     // The Lead chat message that the text chunks grow until the next prompt or tool call.
@@ -119,7 +119,7 @@ impl Recorder {
         session: i64,
         repository: &str,
         workstream: i64,
-        chat: bool,
+        chat: Option<Author>,
     ) -> Recorder {
         Recorder {
             engine: engine.clone(),
@@ -177,7 +177,8 @@ impl Recorder {
         if kind == "tool_call" {
             self.message = None;
         }
-        let (true, Some(text), "agent_message_chunk") = (self.chat, text, kind.as_str()) else {
+        let (Some(author), Some(text), "agent_message_chunk") = (self.chat, text, kind.as_str())
+        else {
             return Ok(());
         };
         let chat_messages = self.engine.store.chat_messages();
@@ -185,7 +186,7 @@ impl Recorder {
             Some(id) => chat_messages.append(id, &text).await?,
             None => {
                 chat_messages
-                    .add(&self.repository, self.workstream, Author::Lead, &text)
+                    .add(&self.repository, self.workstream, author, &text)
                     .await?
             }
         };

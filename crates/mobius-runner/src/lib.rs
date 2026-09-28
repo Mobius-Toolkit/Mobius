@@ -173,6 +173,10 @@ pub fn task_dir(data_dir: &Path, repository: &str, number: i64) -> PathBuf {
         .join(format!("task-{number}"))
 }
 
+pub fn scratch_dir(data_dir: &Path, id: i64) -> PathBuf {
+    data_dir.join("scratch").join(id.to_string())
+}
+
 pub fn research_dir(data_dir: &Path, repository: &str, id: i64) -> PathBuf {
     data_dir
         .join("worktrees")

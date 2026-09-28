@@ -209,6 +209,13 @@ pub async fn agent_tree(repository: String, workstream: i64) -> ServerFnResult<V
         .map_err(ServerFnError::new)
 }
 
+#[get("/api/server-agents", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn server_agents() -> ServerFnResult<Vec<AgentNode>> {
+    agents::triager_tree(&engine)
+        .await
+        .map_err(ServerFnError::new)
+}
+
 #[post("/api/tasks", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn task_list(repository: String, workstream: i64) -> ServerFnResult<Vec<TaskLine>> {
     tasks::list(&engine, &repository, workstream)

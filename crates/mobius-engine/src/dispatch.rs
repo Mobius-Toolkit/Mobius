@@ -8,13 +8,13 @@ use time::OffsetDateTime;
 use crate::config::Config;
 use crate::trust::{app_login, trusted_author};
 use crate::{
-    Engine, NEEDS_HUMAN_LABEL, READY_LABEL, TIME_FORMAT, WORKING_LABEL, activity, inbox,
-    lead_events, workstreams,
+    Engine, NEEDS_HUMAN_LABEL, NO_WORKSTREAM_LABEL, READY_LABEL, TIME_FORMAT, WORKING_LABEL,
+    activity, inbox, lead_events, triager, workstreams,
 };
 
 pub(crate) const READY_CURSOR: &str = "ready";
 
-// With no Workstream in the parent chain, the issue keeps `mobius:ready` and does not dispatch.
+// An issue with no Workstream in the parent chain goes to the Triager, also when it has open blockers.
 pub(crate) async fn dispatch_ready(
     engine: &Engine,
     app_slug: &str,
@@ -33,7 +33,7 @@ pub(crate) async fn dispatch_ready(
             continue;
         }
         let events = repository.issue_events(issue.number).await?;
-        let Some(actor) = ready_actor(&events) else {
+        let Some(actor) = ready_actor(&events, &app_login(app_slug)) else {
             continue;
         };
         if !trusted_author(&engine.config, app_slug, actor) {
@@ -53,12 +53,13 @@ pub(crate) async fn dispatch_ready(
             .await?;
             continue;
         }
+        let Some(workstream) = workstreams::workstream_of(repository, issue.number).await? else {
+            triager::triage(engine, repository, issue.number).await?;
+            continue;
+        };
         if issue.issue_dependencies_summary.blocked_by > 0 {
             continue;
         }
-        let Some(workstream) = workstreams::workstream_of(repository, issue.number).await? else {
-            continue;
-        };
         // A `mobius:ready` of the Mobius App needs Autopilot.
         if actor.eq_ignore_ascii_case(&app_login(app_slug))
             && !workstreams::autopilot(engine, repository, workstream).await?
@@ -292,20 +293,47 @@ pub(crate) async fn decline(
     Ok(format!("Declined #{number}."))
 }
 
-fn ready_actor(events: &[IssueEvent]) -> Option<&str> {
-    events
+// After a `move_issue` of the Triager, the Mobius App removes `mobius:no-workstream` and adds `mobius:ready` again. Only this sequence, after a triage of the Mobius App with no other `mobius:ready` between, counts with the actor of the `mobius:ready` before the triage.
+fn ready_actor<'a>(events: &'a [IssueEvent], app_login: &str) -> Option<&'a str> {
+    let is = |event: &IssueEvent, kind: &str, name: &str| {
+        event.event == kind && event.label.as_ref().is_some_and(|label| label.name == name)
+    };
+    let actor = |event: &'a IssueEvent| event.actor.as_ref().map(|actor| actor.login.as_str());
+    let by_app = |event: &IssueEvent| {
+        event
+            .actor
+            .as_ref()
+            .is_some_and(|actor| actor.login.eq_ignore_ascii_case(app_login))
+    };
+    let last = events
+        .iter()
+        .rposition(|event| is(event, "labeled", READY_LABEL))?;
+    let login = actor(&events[last])?;
+    if !by_app(&events[last]) || last == 0 {
+        return Some(login);
+    }
+    let moved = &events[last - 1];
+    if !(is(moved, "unlabeled", NO_WORKSTREAM_LABEL) && by_app(moved)) {
+        return Some(login);
+    }
+    let Some(triage) = events[..last - 1]
+        .iter()
+        .rposition(|event| is(event, "labeled", NO_WORKSTREAM_LABEL))
+    else {
+        return Some(login);
+    };
+    if !by_app(&events[triage])
+        || events[triage..last]
+            .iter()
+            .any(|event| is(event, "labeled", READY_LABEL))
+    {
+        return Some(login);
+    }
+    events[..triage]
         .iter()
         .rev()
-        .find(|event| {
-            event.event == "labeled"
-                && event
-                    .label
-                    .as_ref()
-                    .is_some_and(|label| label.name == READY_LABEL)
-        })?
-        .actor
-        .as_ref()
-        .map(|actor| actor.login.as_str())
+        .find(|event| is(event, "labeled", READY_LABEL))
+        .and_then(actor)
 }
 
 // A comment of the Lead chat session has a trusted user as author and the Mobius App in `performed_via_github_app`.
@@ -399,12 +427,65 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
             event("unlabeled", "mobius:ready", "mallory"),
         ];
 
-        assert_eq!(ready_actor(&events), Some("owner"));
+        assert_eq!(ready_actor(&events, "mobius-app[bot]"), Some("owner"));
+    }
+
+    #[test]
+    fn after_a_triage_the_actor_of_the_first_ready_label_counts() {
+        let events = [
+            event("labeled", "mobius:ready", "owner"),
+            event("labeled", "mobius:no-workstream", "mobius-app[bot]"),
+            event("unlabeled", "mobius:ready", "mobius-app[bot]"),
+            event("unlabeled", "mobius:no-workstream", "mobius-app[bot]"),
+            event("labeled", "mobius:ready", "mobius-app[bot]"),
+        ];
+
+        assert_eq!(ready_actor(&events, "mobius-app[bot]"), Some("owner"));
+    }
+
+    #[test]
+    fn an_old_triage_or_a_triage_of_a_person_does_not_count() {
+        let old = [
+            event("labeled", "mobius:ready", "owner"),
+            event("labeled", "mobius:no-workstream", "mobius-app[bot]"),
+            event("unlabeled", "mobius:no-workstream", "mobius-app[bot]"),
+            event("labeled", "mobius:ready", "mobius-app[bot]"),
+            event("unlabeled", "mobius:ready", "mobius-app[bot]"),
+            event("labeled", "mobius:ready", "mobius-app[bot]"),
+        ];
+        let person = [
+            event("labeled", "mobius:ready", "owner"),
+            event("labeled", "mobius:no-workstream", "mallory"),
+            event("unlabeled", "mobius:no-workstream", "mobius-app[bot]"),
+            event("labeled", "mobius:ready", "mobius-app[bot]"),
+        ];
+
+        assert_eq!(
+            ready_actor(&old, "mobius-app[bot]"),
+            Some("mobius-app[bot]")
+        );
+        assert_eq!(
+            ready_actor(&person, "mobius-app[bot]"),
+            Some("mobius-app[bot]")
+        );
+    }
+
+    #[test]
+    fn a_ready_label_of_the_mobius_app_with_no_triage_has_the_mobius_app_as_actor() {
+        let events = [event("labeled", "mobius:ready", "mobius-app[bot]")];
+
+        assert_eq!(
+            ready_actor(&events, "mobius-app[bot]"),
+            Some("mobius-app[bot]")
+        );
     }
 
     #[test]
     fn an_issue_with_no_ready_label_event_has_no_ready_actor() {
-        assert_eq!(ready_actor(&[event("labeled", "bug", "owner")]), None);
+        assert_eq!(
+            ready_actor(&[event("labeled", "bug", "owner")], "mobius-app[bot]"),
+            None
+        );
     }
 
     #[test]
