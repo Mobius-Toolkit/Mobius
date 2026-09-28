@@ -19,6 +19,8 @@ const ROLES: [(&str, &str); 6] = [
     ("judge", "Judge"),
 ];
 const START_TIMEOUT: Duration = Duration::from_secs(60);
+// Antigravity waits 300 s for the browser.
+const LOGIN_TIMEOUT: Duration = Duration::from_secs(360);
 // The Harness gets no Mobius tools here, so the MCP URL has no server.
 const NO_MCP_URL: &str = "http://127.0.0.1:1/mcp/init";
 
@@ -122,8 +124,8 @@ async fn offers(
     output: &mut impl Write,
     path: &OsStr,
 ) -> Result<Vec<Offer>, Box<dyn Error + Send + Sync>> {
-    let dir = std::env::temp_dir().join(format!("mobius-init-{}", std::process::id()));
-    fs::create_dir_all(&dir)?;
+    let temp_dir = tempfile::Builder::new().prefix("mobius-init-").tempdir()?;
+    let dir = temp_dir.path();
     let mut offers = Vec::new();
     for harness in Harness::ALL {
         let program = mobius_runner::program(harness);
@@ -131,9 +133,28 @@ async fn offers(
             writeln!(output, "{}: `{program}` is not on PATH", title(harness))?;
             continue;
         }
+        if harness == Harness::Antigravity {
+            let login = tokio::time::timeout(
+                LOGIN_TIMEOUT,
+                mobius_runner::log_in_antigravity(dir, dir, path),
+            )
+            .await;
+            match login {
+                Ok(Ok(true)) => writeln!(output, "Antigravity: logged in")?,
+                Ok(Ok(false)) => {}
+                Ok(Err(error)) => {
+                    writeln!(output, "Antigravity: {error}")?;
+                    continue;
+                }
+                Err(_) => {
+                    writeln!(output, "Antigravity: the login did not end")?;
+                    continue;
+                }
+            }
+        }
         let started = tokio::time::timeout(
             START_TIMEOUT,
-            mobius_runner::start(harness, &dir, &dir, path, NO_MCP_URL, None),
+            mobius_runner::start(harness, dir, dir, path, NO_MCP_URL, None),
         )
         .await;
         let (session, _updates) = match started {
@@ -177,7 +198,6 @@ async fn offers(
             efforts,
         });
     }
-    fs::remove_dir_all(&dir)?;
     Ok(offers)
 }
 

@@ -1,0 +1,58 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "The tag $GITHUB_REF_NAME does not match the version $version in Cargo.toml."
+            exit 1
+          fi
+
+  bundle:
+    needs: version
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          # A binary needs the glibc of its build host or a newer one. Ubuntu 22.04 has an older glibc than Debian 12.
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      # The dx version must match the dioxus version in Cargo.lock.
+      - run: cargo install dioxus-cli --version 0.7.10 --locked
+      - run: dx bundle --web --release -p mobius --out-dir dist
+      # Dioxus reads public/ next to the executable.
+      - run: |
+          mv dist/server dist/mobius
+          tar -czf mobius-${{ matrix.target }}.tar.gz -C dist mobius public
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobius-${{ matrix.target }}
+          path: mobius-${{ matrix.target }}.tar.gz
+
+  release:
+    needs: bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" mobius-*.tar.gz
+        env:
+          GH_TOKEN: ${{ github.token }}

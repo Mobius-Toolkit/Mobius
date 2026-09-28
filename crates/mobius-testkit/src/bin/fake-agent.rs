@@ -2,11 +2,12 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use agent_client_protocol::schema::v1::{
-    CancelNotification, ConfigOptionUpdate, ContentBlock, ContentChunk, InitializeRequest,
-    InitializeResponse, McpServer, NewSessionRequest, NewSessionResponse, PromptRequest,
-    PromptResponse, SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory,
-    SessionConfigSelectOption, SessionId, SessionNotification, SessionUpdate,
-    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, StopReason,
+    AuthenticateRequest, AuthenticateResponse, CancelNotification, ConfigOptionUpdate,
+    ContentBlock, ContentChunk, InitializeRequest, InitializeResponse, McpServer,
+    NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, SessionConfigKind,
+    SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption, SessionId,
+    SessionNotification, SessionUpdate, SetSessionConfigOptionRequest,
+    SetSessionConfigOptionResponse, StopReason,
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Error, Responder, Stdio};
 use rmcp::ServiceExt;
@@ -19,8 +20,11 @@ use tokio::sync::Notify;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Script {
+    // With `login_required`, `session/new` fails until an `authenticate` request logs in. Only with `login_works` does the login succeed.
     #[serde(default)]
     login_required: bool,
+    #[serde(default)]
+    login_works: bool,
     options: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     prompts: Vec<Prompt>,
@@ -185,6 +189,9 @@ async fn main() -> Result<(), Error> {
         .expect("usage: fake-agent <script.toml>");
     let script: Script = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     let mcp_url_path = std::path::Path::new(&path).with_file_name("mcp_url");
+    let logged_in_path = std::path::Path::new(&path).with_extension("logged_in");
+    let login_path = logged_in_path.clone();
+    let login_works = script.login_works;
     let state = Shared::new(Mutex::new(State {
         options: options(&script),
         script,
@@ -207,11 +214,26 @@ async fn main() -> Result<(), Error> {
             agent_client_protocol::on_receive_request!(),
         )
         .on_receive_request(
+            async move |_request: AuthenticateRequest,
+                        responder: Responder<AuthenticateResponse>,
+                        _connection| {
+                eprintln!("Open the following link to authenticate: https://example.com/login");
+                if !login_works {
+                    return responder.respond_with_error(Error::internal_error().data(
+                        "Onboarding failed: Timed out waiting for the authentication flow to complete.",
+                    ));
+                }
+                std::fs::write(&login_path, "").unwrap();
+                responder.respond(AuthenticateResponse::new())
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
             async move |request: NewSessionRequest,
                         responder: Responder<NewSessionResponse>,
                         _connection| {
                 let mut state = new_session.lock().unwrap();
-                if state.script.login_required {
+                if state.script.login_required && !logged_in_path.exists() {
                     return responder.respond_with_error(Error::auth_required());
                 }
                 let mcp_url = request.mcp_servers.iter().find_map(|server| match server {
