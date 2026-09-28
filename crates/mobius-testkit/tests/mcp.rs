@@ -104,6 +104,7 @@ async fn the_lead_gets_the_mobius_url_and_only_the_lead_tools() {
             "list_tasks",
             "read_issue",
             "start_implementer",
+            "start_researcher",
             "ask",
             "decline",
             "create_issue",

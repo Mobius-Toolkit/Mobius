@@ -23,8 +23,8 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::threads::Target;
 use crate::{
-    Engine, chat, dispatch, implementer, issues, judge, lead_events, plans, reviewer, tasks,
-    threads, trust,
+    Engine, chat, dispatch, implementer, issues, judge, lead_events, plans, researcher, reviewer,
+    tasks, threads, trust,
 };
 
 #[derive(Clone)]
@@ -142,6 +142,17 @@ fn tools(role: &str) -> Vec<Tool> {
                         "type": "string",
                         "minLength": 1,
                         "description": "The goal, the limits, and what \"done\" means."
+                    }
+                })),
+            ),
+            tool(
+                "start_researcher",
+                "Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the Brief and the question. The tool returns at once, and the report arrives later.",
+                object(json!({
+                    "question": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The question, with the context that the Researcher needs."
                     }
                 })),
             ),
@@ -410,6 +421,12 @@ struct StartImplementer {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct StartResearcher {
+    question: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CannotDo {
     reason: String,
 }
@@ -534,6 +551,29 @@ impl Handler {
                     &instructions,
                 )
                 .await
+            }
+            "start_researcher" => {
+                let StartResearcher { question } = parse(tool, arguments)?;
+                if question.trim().is_empty() {
+                    return Err("question must not be empty.".into());
+                }
+                let origin = if self.caller.role == chat::ROLE {
+                    researcher::Origin::Chat
+                } else {
+                    researcher::Origin::Events
+                };
+                // The subscription comes before the spawn, so the Researcher gets each stop of its Lead.
+                tokio::spawn(researcher::run(
+                    self.engine.clone(),
+                    self.engine.lead_stops.subscribe(),
+                    researcher::Job {
+                        repository: self.caller.repository.clone(),
+                        workstream: self.caller.workstream,
+                        question,
+                        origin,
+                    },
+                ));
+                Ok("Started a Researcher. The report arrives later.".to_string())
             }
             "cannot_do" => {
                 let CannotDo { reason } = parse(tool, arguments)?;

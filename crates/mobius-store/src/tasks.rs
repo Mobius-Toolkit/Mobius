@@ -76,13 +76,18 @@ impl Tasks<'_> {
         Ok(result.rows_affected() == 1)
     }
 
-    pub async fn queued(&self) -> Result<Vec<i64>, Box<dyn Error + Send + Sync>> {
-        let ids = sqlx::query_scalar!(
-            "SELECT id FROM tasks WHERE state = 'queued' ORDER BY queued_at, id"
+    // Gives the id and the `queued_at` time of each queued task, in queue order.
+    pub async fn queued(&self) -> Result<Vec<(i64, OffsetDateTime)>, Box<dyn Error + Send + Sync>> {
+        let rows = sqlx::query!(
+            r#"SELECT id AS "id!", queued_at AS "queued_at!: OffsetDateTime" FROM tasks
+               WHERE state = 'queued' ORDER BY queued_at, id"#
         )
         .fetch_all(self.pool)
         .await?;
-        Ok(ids)
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.id, row.queued_at))
+            .collect())
     }
 
     // Gives `false` when the task is not in the state `from`.

@@ -17,6 +17,7 @@ mod lead_events;
 pub mod mcp;
 mod plans;
 mod poll;
+mod researcher;
 mod reviewer;
 pub mod tasks;
 mod threads;

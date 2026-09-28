@@ -82,16 +82,23 @@ pub enum Author {
     Owner,
     Lead,
     TellOwner,
+    Researcher,
 }
 
 impl Author {
-    pub const ALL: [Author; 3] = [Author::Owner, Author::Lead, Author::TellOwner];
+    pub const ALL: [Author; 4] = [
+        Author::Owner,
+        Author::Lead,
+        Author::TellOwner,
+        Author::Researcher,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Author::Owner => "Owner",
             Author::Lead => "Lead",
             Author::TellOwner => "tell_owner",
+            Author::Researcher => "Researcher",
         }
     }
 }
