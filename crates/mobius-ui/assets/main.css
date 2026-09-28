@@ -212,6 +212,63 @@ a.btn {
   color: var(--accent);
 }
 
+.orgs {
+  position: relative;
+  min-width: 0;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.rail .orgs {
+  padding-bottom: 8px;
+}
+
+.head .switch {
+  padding-left: 0;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.orgmenu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+}
+
+.orgmenu .label {
+  padding: 6px 8px 4px;
+}
+
+.orgmenu .entry {
+  border: none;
+  background: none;
+  text-align: left;
+  align-items: center;
+}
+
 .rail .section {
   padding: 14px 8px 4px;
 }
@@ -593,6 +650,28 @@ a.node {
 
   .phone {
     display: inline-block;
+  }
+
+  .desktop {
+    display: none;
+  }
+
+  .backdrop {
+    background: rgba(0, 0, 0, 0.18);
+  }
+
+  .orgmenu {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    border: none;
+    border-radius: 14px 14px 0 0;
+    background: var(--surface);
+  }
+
+  .orgmenu .entry {
+    padding: 12px 8px;
   }
 
   .sheet {

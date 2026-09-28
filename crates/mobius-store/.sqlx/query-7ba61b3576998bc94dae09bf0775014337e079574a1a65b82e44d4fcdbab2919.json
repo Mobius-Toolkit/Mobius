@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO github_apps (app_id, slug, private_key, client_id, client_secret)\n             VALUES (?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "7ba61b3576998bc94dae09bf0775014337e079574a1a65b82e44d4fcdbab2919"
+}

@@ -27,6 +27,8 @@ pub struct Repository {
     pub full_name: String,
     pub clone_url: String,
     pub default_branch: String,
+    pub app_id: i64,
+    pub app_slug: String,
     client: Octocrab,
     token: String,
 }
@@ -249,6 +251,7 @@ impl GitHub {
     pub async fn repositories(
         &self,
         app_id: i64,
+        app_slug: &str,
         private_key: &str,
     ) -> Result<Vec<Repository>, Box<dyn Error + Send + Sync>> {
         let app = Octocrab::builder()
@@ -276,6 +279,8 @@ impl GitHub {
                 full_name: repository.full_name,
                 clone_url: repository.clone_url,
                 default_branch: repository.default_branch,
+                app_id,
+                app_slug: app_slug.to_string(),
                 client: client.clone(),
                 token: token.expose_secret().to_string(),
             }));

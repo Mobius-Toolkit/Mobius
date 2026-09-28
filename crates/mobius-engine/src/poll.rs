@@ -25,17 +25,37 @@ pub(crate) fn spawn(engine: Engine) {
 }
 
 async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let Some(app) = engine.store.github_app().get().await? else {
+    let apps = engine.store.github_apps().list().await?;
+    if apps.is_empty() {
         return Ok(());
-    };
-    let repositories = engine
-        .github
-        .repositories(app.app_id, &app.private_key)
-        .await?;
+    }
+    let mut repositories = Vec::new();
+    for app in apps {
+        match engine
+            .github
+            .repositories(app.app_id, &app.slug, &app.private_key)
+            .await
+        {
+            Ok(found) => repositories.extend(found),
+            Err(error) => {
+                eprintln!("mobius: GitHub poll of the App {}: {error}", app.slug);
+                // A failed list keeps the last known repositories of the App, so that `lost_access` ends none of their tasks.
+                repositories.extend(
+                    engine
+                        .repositories
+                        .read()
+                        .unwrap()
+                        .iter()
+                        .filter(|repository| repository.app_id == app.app_id)
+                        .cloned(),
+                );
+            }
+        }
+    }
     *engine.repositories.write().unwrap() = repositories.clone();
     ends::lost_access(engine, &repositories).await?;
     for repository in &repositories {
-        if let Err(error) = poll_repository(engine, &app.slug, repository).await {
+        if let Err(error) = poll_repository(engine, &repository.app_slug, repository).await {
             eprintln!("mobius: GitHub poll of {}: {error}", repository.full_name);
         }
     }

@@ -31,6 +31,20 @@ pub async fn list(engine: &Engine) -> Result<Vec<Workstream>, Box<dyn Error + Se
     Ok(workstreams)
 }
 
+pub fn organizations(engine: &Engine) -> Vec<String> {
+    let mut organizations: Vec<String> = engine
+        .repositories
+        .read()
+        .unwrap()
+        .iter()
+        .filter_map(|repository| repository.full_name.split_once('/'))
+        .map(|(organization, _)| organization.to_string())
+        .collect();
+    organizations.sort();
+    organizations.dedup();
+    organizations
+}
+
 // An issue that lost `mobius:workstream` can still have a Lead or live tasks.
 pub(crate) async fn has_work(
     engine: &Engine,

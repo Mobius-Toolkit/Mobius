@@ -56,7 +56,7 @@ pub(crate) async fn mark_ready(
     workstream: i64,
     number: i64,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let trusted = trust::trusted_authors(engine).await?;
+    let trusted = trust::trusted_authors(engine, repository);
     if !repository
         .issue(number)
         .await?

@@ -3,9 +3,9 @@ use std::collections::HashMap;
 
 use dioxus::prelude::*;
 use mobius_api::{
-    agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_app, github_manifest,
-    inbox_dismiss, inbox_items, inbox_resume, live, login, logout, server_agents, task_list,
-    transcript_lines, unread, workstreams,
+    agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_apps, github_manifest,
+    inbox_dismiss, inbox_items, inbox_resume, live, login, logout, organizations, server_agents,
+    task_list, transcript_lines, unread, workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, Live, PAUSED, TaskLine,
@@ -52,7 +52,14 @@ pub fn App() -> Element {
 struct LoginShown(Signal<bool>);
 
 #[derive(Clone, Copy)]
-struct AppSlug(Resource<ServerFnResult<Option<String>>>);
+struct AppSlugs(Resource<ServerFnResult<Vec<String>>>);
+
+#[derive(Clone, Copy)]
+struct Organizations(Resource<ServerFnResult<Vec<String>>>);
+
+// The organization of the repositories that the pages show.
+#[derive(Clone, Copy)]
+struct Organization(Signal<String>);
 
 #[derive(Clone, Copy)]
 struct Workstreams(Resource<ServerFnResult<Vec<Workstream>>>);
@@ -75,6 +82,29 @@ struct LiveState {
     inbox: Signal<HashMap<i64, InboxItem>>,
     // The Workstream that the Triager chat created last.
     created: Signal<Option<ChatKey>>,
+}
+
+// The Triager chat has the organization name in place of a repository name.
+fn owner(repository: &str) -> &str {
+    repository
+        .split_once('/')
+        .map_or(repository, |(owner, _)| owner)
+}
+
+fn select_organization(mut organization: Signal<String>, name: String) {
+    if *organization.peek() == name {
+        return;
+    }
+    let value = serde_json::to_string(&name).unwrap_or_default();
+    document::eval(&format!(
+        "try {{ localStorage.setItem('organization', {value}); }} catch {{}}"
+    ));
+    organization.set(name);
+}
+
+fn switchable() -> bool {
+    let Organizations(list) = use_context();
+    matches!(&*list.read(), Some(Ok(list)) if list.len() > 1)
 }
 
 fn unauthorized(error: &ServerFnError) -> bool {
@@ -191,10 +221,18 @@ async fn follow_live(
 #[component]
 fn Frame() -> Element {
     let LoginShown(mut login_shown) = use_context();
-    let app_slug = use_resource(github_app);
-    use_context_provider(|| AppSlug(app_slug));
+    let app_slugs = use_resource(github_apps);
+    use_context_provider(|| AppSlugs(app_slugs));
     let workstream_list = use_resource(workstreams);
     use_context_provider(|| Workstreams(workstream_list));
+    // The poll finds a new organization when it finds its repositories, and the Workstream list then loads again.
+    let organization_list = use_resource(move || async move {
+        workstream_list.read();
+        organizations().await
+    });
+    use_context_provider(|| Organizations(organization_list));
+    let Organization(organization) =
+        use_context_provider(|| Organization(Signal::new(String::new())));
     let state = use_context_provider(|| LiveState {
         feed: Signal::new(Vec::new()),
         messages: Signal::new(Vec::new()),
@@ -205,21 +243,57 @@ fn Frame() -> Element {
         created: Signal::new(None),
     });
     use_effect(move || {
-        if let Some(Err(error)) = &*app_slug.read()
+        if let Some(Err(error)) = &*app_slugs.read()
             && unauthorized(error)
         {
             login_shown.set(true);
         }
     });
     use_effect(move || {
+        let Some(Ok(list)) = organization_list() else {
+            return;
+        };
+        if list.contains(&organization.peek()) {
+            return;
+        }
+        spawn(async move {
+            let saved: String = document::eval(
+                "try { return localStorage.getItem('organization') ?? ''; } catch { return ''; }",
+            )
+            .join()
+            .await
+            .unwrap_or_default();
+            // A Chat page can select the organization of its route during the read.
+            if list.contains(&organization.peek()) {
+                return;
+            }
+            let name = if list.contains(&saved) {
+                saved
+            } else {
+                list.first().cloned().unwrap_or_default()
+            };
+            select_organization(organization, name);
+        });
+    });
+    use_effect(move || {
         spawn(follow_live(state, workstream_list, login_shown));
     });
-    let inbox_count = state.inbox.read().len();
-    match &*app_slug.read() {
-        Some(Ok(Some(_))) => rsx! {
+    let inbox_count = state
+        .inbox
+        .read()
+        .values()
+        .filter(|item| owner(&item.repository) == organization())
+        .count();
+    let switch = switchable();
+    match &*app_slugs.read() {
+        Some(Ok(slugs)) if !slugs.is_empty() => rsx! {
             div { class: "shell",
                 nav { class: "rail",
-                    div { class: "brand", "Mobius" }
+                    if switch {
+                        OrganizationSwitch {}
+                    } else {
+                        div { class: "brand", "Mobius" }
+                    }
                     Link { class: "entry", active_class: "sel", to: Route::Inbox {},
                         span { class: "grow", "Inbox" }
                         if inbox_count > 0 {
@@ -263,18 +337,76 @@ fn Frame() -> Element {
                 }
             }
         },
-        Some(Ok(None)) => rsx! { main { class: "center", GitHub {} } },
+        Some(Ok(_)) => rsx! { main { class: "center", GitHub {} } },
         Some(Err(error)) => rsx! { p { class: "error note", {error_text(error)} } },
         None => rsx! {},
     }
 }
 
 #[component]
+fn OrganizationSwitch() -> Element {
+    let Organizations(organization_list) = use_context();
+    let Organization(organization) = use_context();
+    let state: LiveState = use_context();
+    let mut open = use_signal(|| false);
+    let list = match &*organization_list.read() {
+        Some(Ok(list)) => list.clone(),
+        _ => Vec::new(),
+    };
+    let mut work: HashMap<String, i64> = HashMap::new();
+    for item in state.inbox.read().values() {
+        *work.entry(owner(&item.repository).to_string()).or_default() += 1;
+    }
+    for ((repository, _), count) in state.unread.read().iter() {
+        *work.entry(owner(repository).to_string()).or_default() += count;
+    }
+    let selected = organization();
+    let elsewhere = work
+        .iter()
+        .any(|(name, count)| *name != selected && *count > 0);
+    rsx! {
+        div { class: "orgs",
+            button { class: "switch", onclick: move |_| open.toggle(),
+                span { class: "ellip", "{selected}" }
+                if elsewhere {
+                    span { class: "dot live" }
+                }
+                span { class: "muted", "▾" }
+            }
+            if open() {
+                div { class: "backdrop", onclick: move |_| open.set(false) }
+                div { class: "orgmenu",
+                    div { class: "label", "Organizations" }
+                    for name in list {
+                        button {
+                            key: "{name}",
+                            class: if name == selected { "entry sel" } else { "entry" },
+                            onclick: {
+                                let name = name.clone();
+                                move |_| {
+                                    select_organization(organization, name.clone());
+                                    open.set(false);
+                                }
+                            },
+                            span { class: "grow", "{name}" }
+                            if name != selected && work.get(&name).is_some_and(|count| *count > 0) {
+                                span { class: "count", "{work[&name]}" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
 fn WorkstreamEntries() -> Element {
     let Workstreams(workstream_list) = use_context();
+    let Organization(organization) = use_context();
     match &*workstream_list.read() {
         Some(Ok(list)) => rsx! {
-            for workstream in list.clone() {
+            for workstream in list.iter().filter(|workstream| owner(&workstream.repository) == organization()).cloned() {
                 WorkstreamEntry { key: "{workstream.repository}#{workstream.number}", workstream }
             }
         },
@@ -311,7 +443,12 @@ fn WorkstreamEntry(workstream: Workstream) -> Element {
 fn WorkstreamList() -> Element {
     rsx! {
         div { class: "head",
-            h2 { class: "grow", "Workstreams" }
+            if switchable() {
+                div { class: "phone grow", OrganizationSwitch {} }
+                h2 { class: "desktop grow", "Workstreams" }
+            } else {
+                h2 { class: "grow", "Workstreams" }
+            }
             Link { class: "btn primary", to: Route::NewWorkstream {}, "+ New" }
         }
         div { class: "list",
@@ -341,6 +478,7 @@ fn Settings() -> Element {
 #[component]
 fn NewWorkstream() -> Element {
     let state: LiveState = use_context();
+    let Organization(organization) = use_context();
     let mut created = state.created;
     let navigator = use_navigator();
     // An earlier Workstream of the Triager chat does not open a chat.
@@ -359,7 +497,7 @@ fn NewWorkstream() -> Element {
     rsx! {
         div { class: "page",
             Conversation {
-                repository: String::new(),
+                repository: organization(),
                 number: 0,
                 agent: "Triager",
                 head: rsx! { h2 { class: "ellip", "New Workstream" } },
@@ -372,6 +510,7 @@ fn NewWorkstream() -> Element {
 #[component]
 fn ServerAgents() -> Element {
     let state: LiveState = use_context();
+    let Organization(organization) = use_context();
     let tree = use_resource(server_agents);
     let mut selected = use_signal(|| None::<i64>);
     let mut nodes: HashMap<i64, AgentNode> = match &*tree.read() {
@@ -391,7 +530,10 @@ fn ServerAgents() -> Element {
             nodes.insert(node.session.id, node.clone());
         }
     }
-    let mut nodes: Vec<AgentNode> = nodes.into_values().collect();
+    let mut nodes: Vec<AgentNode> = nodes
+        .into_values()
+        .filter(|node| owner(&node.session.repository) == organization())
+        .collect();
     nodes.sort_by_key(|node| Reverse(node.session.id));
     if let Some(node) = selected().and_then(|id| nodes.iter().find(|node| node.session.id == id)) {
         return rsx! {
@@ -427,8 +569,14 @@ fn ServerAgents() -> Element {
 fn Inbox() -> Element {
     let Workstreams(workstream_list) = use_context();
     let LiveState { inbox, .. } = use_context();
+    let Organization(organization) = use_context();
     let mut error = use_signal(String::new);
-    let mut items: Vec<InboxItem> = inbox.read().values().cloned().collect();
+    let mut items: Vec<InboxItem> = inbox
+        .read()
+        .values()
+        .filter(|item| owner(&item.repository) == organization())
+        .cloned()
+        .collect();
     items.sort_by_key(|item| Reverse(item.id));
     let titles: HashMap<(String, i64), String> = match &*workstream_list.read() {
         Some(Ok(list)) => list
@@ -494,15 +642,21 @@ fn Inbox() -> Element {
 fn Activity() -> Element {
     let Workstreams(workstream_list) = use_context();
     let LiveState { feed, .. } = use_context();
+    let Organization(organization) = use_context();
     let mut selected = use_signal(|| None::<(String, i64)>);
-    let chips = match &*workstream_list.read() {
-        Some(Ok(list)) => list.clone(),
+    let chips: Vec<Workstream> = match &*workstream_list.read() {
+        Some(Ok(list)) => list
+            .iter()
+            .filter(|workstream| owner(&workstream.repository) == organization())
+            .cloned()
+            .collect(),
         _ => Vec::new(),
     };
     let rows: Vec<FeedRow> = feed
         .read()
         .iter()
         .rev()
+        .filter(|row| owner(&row.repository) == organization())
         .filter(|row| {
             selected.read().as_ref().is_none_or(|(repository, number)| {
                 row.repository == *repository && row.workstream == *number
@@ -545,6 +699,10 @@ fn Activity() -> Element {
 fn Chat(owner: String, repo: String, number: i64) -> Element {
     let repository = format!("{owner}/{repo}");
     let Workstreams(workstream_list) = use_context();
+    let Organization(organization) = use_context();
+    use_effect(use_reactive((&owner,), move |(owner,)| {
+        select_organization(organization, owner)
+    }));
     let mut sheet = use_signal(|| false);
     let workstream = match &*workstream_list.read() {
         Some(Ok(list)) => list
@@ -1050,46 +1208,48 @@ async fn create_app(account: String, name: String) -> Result<(), String> {
 
 #[component]
 fn GitHub() -> Element {
-    let AppSlug(app_slug) = use_context();
+    let AppSlugs(app_slugs) = use_context();
     let mut account = use_signal(String::new);
     let mut name = use_signal(String::new);
     let mut error = use_signal(String::new);
-    let body = match &*app_slug.read() {
-        Some(Ok(Some(slug))) => rsx! {
-            p { class: "note",
-                a { href: "https://github.com/apps/{slug}/installations/new", "Install the App on your repositories" }
-            }
-        },
-        _ => rsx! {
-            form {
-                class: "connect",
-                onsubmit: move |event: FormEvent| async move {
-                    event.prevent_default();
-                    if let Err(text) = create_app(account(), name()).await {
-                        error.set(text);
-                    }
-                },
-                label { class: "label", r#for: "account", "Account or organization" }
-                input {
-                    id: "account",
-                    value: account,
-                    oninput: move |event| account.set(event.value()),
-                }
-                label { class: "label", r#for: "name", "App name" }
-                input {
-                    id: "name",
-                    placeholder: "Mobius {account}",
-                    value: name,
-                    oninput: move |event| name.set(event.value()),
-                }
-                p { class: "muted small", "GitHub App names are unique on all of GitHub. Use a name that no other App has, for example with your account name." }
-                div { class: "error", {error} }
-                button { class: "btn primary", r#type: "submit", "Create the App" }
-            }
-        },
+    let slugs = match &*app_slugs.read() {
+        Some(Ok(slugs)) => slugs.clone(),
+        _ => Vec::new(),
     };
     rsx! {
         div { class: "head", h2 { "Connect GitHub" } }
-        {body}
+        for slug in slugs.iter() {
+            p { key: "{slug}", class: "note",
+                a { href: "https://github.com/apps/{slug}/installations/new", "Install {slug} on your repositories" }
+            }
+        }
+        if !slugs.is_empty() {
+            div { class: "label note", "Add an organization" }
+        }
+        form {
+            class: "connect",
+            onsubmit: move |event: FormEvent| async move {
+                event.prevent_default();
+                if let Err(text) = create_app(account(), name()).await {
+                    error.set(text);
+                }
+            },
+            label { class: "label", r#for: "account", "Account or organization" }
+            input {
+                id: "account",
+                value: account,
+                oninput: move |event| account.set(event.value()),
+            }
+            label { class: "label", r#for: "name", "App name" }
+            input {
+                id: "name",
+                placeholder: "Mobius {account}",
+                value: name,
+                oninput: move |event| name.set(event.value()),
+            }
+            p { class: "muted small", "GitHub App names are unique on all of GitHub. Use a name that no other App has, for example with your account name." }
+            div { class: "error", {error} }
+            button { class: "btn primary", r#type: "submit", "Create the App" }
+        }
     }
 }

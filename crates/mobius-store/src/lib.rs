@@ -1,7 +1,7 @@
 mod chat_messages;
 mod device_logins;
 mod events;
-mod github_app;
+mod github_apps;
 mod harness_pauses;
 mod inbox_items;
 mod lead_events;
@@ -19,7 +19,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool};
 pub use chat_messages::ChatMessages;
 pub use device_logins::DeviceLogins;
 pub use events::Events;
-pub use github_app::{GitHubApp, GitHubAppRow};
+pub use github_apps::{GitHubAppRow, GitHubApps};
 pub use harness_pauses::{HarnessPauses, Pause};
 pub use inbox_items::InboxItems;
 pub use lead_events::{LeadEvent, LeadEvents};
@@ -57,8 +57,8 @@ impl Store {
         Events { pool: &self.pool }
     }
 
-    pub fn github_app(&self) -> GitHubApp<'_> {
-        GitHubApp { pool: &self.pool }
+    pub fn github_apps(&self) -> GitHubApps<'_> {
+        GitHubApps { pool: &self.pool }
     }
 
     pub fn harness_pauses(&self) -> HarnessPauses<'_> {

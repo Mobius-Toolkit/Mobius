@@ -7,7 +7,7 @@ use tower::ServiceExt;
 
 use mobius_domain::{Author, Session};
 use mobius_engine::{Engine, chat, gh, github, workstreams};
-use mobius_testkit::fake_github::FakeGitHub;
+use mobius_testkit::fake_github::{self, FakeGitHub};
 use mobius_testkit::{install_fake_agent, start, wait_for};
 use tempfile::TempDir;
 
@@ -42,8 +42,9 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
 async fn expire_user_token(engine: &Engine, refresh_token: &str) {
     engine
         .store
-        .github_app()
+        .github_apps()
         .set_user_tokens(
+            fake_github::APP_ID,
             "ghu_1",
             refresh_token,
             OffsetDateTime::now_utc() - Duration::minutes(1),
@@ -119,7 +120,13 @@ async fn gh_refreshes_an_expired_user_token() {
     let (_, reply) = lead_reply(&engine).await;
 
     assert_eq!(reply, "gh issue list with GH_TOKEN=ghu_2\nexit 0");
-    let app = engine.store.github_app().get().await.unwrap().unwrap();
+    let app = engine
+        .store
+        .github_apps()
+        .get(fake_github::APP_ID)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(app.user_token.as_deref(), Some("ghu_2"));
     assert_eq!(app.refresh_token.as_deref(), Some("ghr_2"));
     assert!(app.user_token_expires_at.unwrap() > OffsetDateTime::now_utc() + Duration::hours(7));

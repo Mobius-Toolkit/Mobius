@@ -580,7 +580,7 @@ impl Handler {
                 if n < 1 {
                     return Err("n must be 1 or more.".into());
                 }
-                let trusted = trust::trusted_authors(&self.engine).await?;
+                let trusted = trust::trusted_authors(&self.engine, &repository);
                 issues::read_issue(&repository, n, &trusted).await
             }
             "start_implementer" => {
@@ -602,7 +602,7 @@ impl Handler {
             }
             "create_workstream" => {
                 let CreateWorkstream { title, brief } = parse(tool, arguments)?;
-                if !self.caller.repository.is_empty() {
+                if self.caller.repository.contains('/') {
                     return Err(
                         "Only the Triager chat creates a Workstream, after the Owner approves it."
                             .into(),
@@ -757,16 +757,9 @@ impl Handler {
                 if reason.trim().is_empty() {
                     return Err("reason must not be empty.".into());
                 }
-                let app = self
-                    .engine
-                    .store
-                    .github_app()
-                    .get()
-                    .await?
-                    .ok_or("The Mobius App does not exist.")?;
                 dispatch::decline(
                     &self.engine,
-                    &app.slug,
+                    &repository.app_slug,
                     &repository,
                     self.caller.workstream,
                     n,

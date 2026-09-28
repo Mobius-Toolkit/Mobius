@@ -17,16 +17,21 @@ pub fn router(engine: Engine) -> Router {
 }
 
 async fn token(State(engine): State<Engine>, Path(key): Path<String>) -> Response {
-    let chat_session = engine
+    let Some(repository) = engine
         .callers
         .lock()
         .unwrap()
         .get(&key)
-        .is_some_and(|caller| caller.role == chat::ROLE);
-    if !chat_session {
+        .filter(|caller| caller.role == chat::ROLE)
+        .map(|caller| caller.repository.clone())
+    else {
         return StatusCode::NOT_FOUND.into_response();
-    }
-    match github::user_token(&engine).await {
+    };
+    let app_id = match engine.repository(&repository) {
+        Ok(repository) => repository.app_id,
+        Err(error) => return (StatusCode::INTERNAL_SERVER_ERROR, error).into_response(),
+    };
+    match github::user_token(&engine, app_id).await {
         Ok(token) => token.into_response(),
         Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
     }

@@ -42,14 +42,10 @@ pub async fn convert_manifest(
     engine: &Engine,
     code: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    // A conversion creates the App on GitHub and gives the only copy of its private key.
-    if engine.store.github_app().get().await?.is_some() {
-        return Err("The Mobius App already exists.".into());
-    }
     let app = engine.github.convert_manifest(code).await?;
     engine
         .store
-        .github_app()
+        .github_apps()
         .add(
             app.id,
             &app.slug,
@@ -60,41 +56,49 @@ pub async fn convert_manifest(
         .await
 }
 
+// GitHub sends the Owner to the same callback URL for each App, so the callback tries the code with each App.
 pub async fn authorize_user(
     engine: &Engine,
     code: &str,
 ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-    let app = engine
-        .store
-        .github_app()
-        .get()
-        .await?
-        .ok_or("The Mobius App does not exist.")?;
-    let tokens = engine
-        .github
-        .user_tokens(&app.client_id, &app.client_secret, code)
-        .await?;
-    let login = engine.github.user_login(&tokens.access_token).await?;
-    if !engine
-        .config
-        .trusted_users
-        .iter()
-        .any(|user| user.eq_ignore_ascii_case(&login))
-    {
-        return Ok(false);
+    let mut refused = "The Mobius App does not exist.".to_string();
+    for app in engine.store.github_apps().list().await? {
+        let tokens = match engine
+            .github
+            .user_tokens(&app.client_id, &app.client_secret, code)
+            .await
+        {
+            Ok(tokens) => tokens,
+            Err(error) => {
+                refused = error.to_string();
+                continue;
+            }
+        };
+        let login = engine.github.user_login(&tokens.access_token).await?;
+        if !engine
+            .config
+            .trusted_users
+            .iter()
+            .any(|user| user.eq_ignore_ascii_case(&login))
+        {
+            return Ok(false);
+        }
+        store_user_tokens(engine, app.app_id, &tokens).await?;
+        return Ok(true);
     }
-    store_user_tokens(engine, &tokens).await?;
-    Ok(true)
+    Err(refused.into())
 }
 
 async fn store_user_tokens(
     engine: &Engine,
+    app_id: i64,
     tokens: &UserTokens,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     engine
         .store
-        .github_app()
+        .github_apps()
         .set_user_tokens(
+            app_id,
             &tokens.access_token,
             &tokens.refresh_token,
             OffsetDateTime::now_utc() + Duration::seconds(tokens.expires_in),
@@ -102,12 +106,15 @@ async fn store_user_tokens(
         .await
 }
 
-pub(crate) async fn user_token(engine: &Engine) -> Result<String, Box<dyn Error + Send + Sync>> {
+pub(crate) async fn user_token(
+    engine: &Engine,
+    app_id: i64,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
     let _refresh = REFRESH.lock().await;
     let app = engine
         .store
-        .github_app()
-        .get()
+        .github_apps()
+        .get(app_id)
         .await?
         .ok_or("The Mobius App does not exist.")?;
     if let (Some(token), Some(expires_at)) = (app.user_token, app.user_token_expires_at)
@@ -130,7 +137,7 @@ pub(crate) async fn user_token(engine: &Engine) -> Result<String, Box<dyn Error 
             engine.github.authorize_url(&app.client_id)
         )
     })?;
-    store_user_tokens(engine, &tokens).await?;
+    store_user_tokens(engine, app_id, &tokens).await?;
     Ok(tokens.access_token)
 }
 
