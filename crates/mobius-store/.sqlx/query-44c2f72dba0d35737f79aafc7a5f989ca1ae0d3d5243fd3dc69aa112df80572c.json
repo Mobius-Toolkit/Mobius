@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, organization, repository, workstream, author, time AS \"time: OffsetDateTime\", text\n               FROM chat_messages WHERE organization = ? AND repository = ? AND workstream = ?\n               ORDER BY id",
+  "query": "SELECT id, organization, repository, workstream, author, time AS \"time: OffsetDateTime\", text\n               FROM chat_messages WHERE organization = ? AND repository = ? AND workstream = ?\n                 AND author <> 'Researcher'\n               ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -94,5 +94,5 @@
       false
     ]
   },
-  "hash": "6afa91d505b20e622e78bb3261bdf955912b96ae873ea5ae26f78540605be0b6"
+  "hash": "44c2f72dba0d35737f79aafc7a5f989ca1ae0d3d5243fd3dc69aa112df80572c"
 }
