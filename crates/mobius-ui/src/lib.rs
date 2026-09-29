@@ -778,6 +778,57 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     }
 }
 
+// The messages of the voice input: "started", "text" with the transcript, "error" with the code, and "end".
+const MIC_SCRIPT: &str = r#"
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!Recognition) {
+    dioxus.send({ type: "error", value: "unsupported" });
+    dioxus.send({ type: "end" });
+} else if (window.__mobiusMic) {
+    window.__mobiusMic.stop();
+    dioxus.send({ type: "end" });
+} else {
+    const recognition = new Recognition();
+    window.__mobiusMic = recognition;
+    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+        const parts = [];
+        for (const result of event.results) {
+            parts.push(result[0].transcript);
+        }
+        dioxus.send({ type: "text", value: parts.join(" ") });
+    };
+    recognition.onerror = (event) => {
+        dioxus.send({ type: "error", value: event.error || "unknown" });
+    };
+    recognition.onend = () => {
+        window.__mobiusMic = null;
+        dioxus.send({ type: "end" });
+    };
+    try {
+        recognition.start();
+        dioxus.send({ type: "started" });
+    } catch {
+        window.__mobiusMic = null;
+        dioxus.send({ type: "error", value: "start" });
+        dioxus.send({ type: "end" });
+    }
+}
+"#;
+
+fn mic_error(code: Option<&str>) -> String {
+    match code {
+        Some("unsupported") => "Voice input is not supported in this browser.".to_string(),
+        Some("not-allowed") | Some("service-not-allowed") => {
+            "Microphone access is denied. Allow the microphone in the browser settings.".to_string()
+        }
+        Some(code) => format!("Voice input failed: {code}"),
+        None => "Voice input failed.".to_string(),
+    }
+}
+
 #[component]
 fn Conversation(
     organization: String,
@@ -798,6 +849,10 @@ fn Conversation(
     ));
     let mut text = use_signal(String::new);
     let mut send_error = use_signal(String::new);
+    let mut mic_active = use_signal(|| false);
+    use_drop(|| {
+        document::eval("window.__mobiusMic?.stop();");
+    });
 
     let (mut messages, history_writing, harness) = match &*history.read() {
         Some(Ok(view)) => (view.messages.clone(), view.writing, Some(view.lead)),
@@ -932,6 +987,52 @@ fn Conversation(
                             },
                             "Stop"
                         }
+                    }
+                    button {
+                        class: if mic_active() { "btn mic live" } else { "btn mic" },
+                        r#type: "button",
+                        onclick: move |_| {
+                            let mut eval = document::eval(MIC_SCRIPT);
+                            spawn(async move {
+                                while let Ok(message) = eval.recv::<serde_json::Value>().await {
+                                    let Some(kind) =
+                                        message.get("type").and_then(|kind| kind.as_str())
+                                    else {
+                                        break;
+                                    };
+                                    match kind {
+                                        "started" => {
+                                            send_error.set(String::new());
+                                            mic_active.set(true);
+                                        }
+                                        "text" => {
+                                            if let Some(spoken) = message
+                                                .get("value")
+                                                .and_then(|value| value.as_str())
+                                            {
+                                                let mut current = text.peek().clone();
+                                                if !current.is_empty() && !current.ends_with(' ') {
+                                                    current.push(' ');
+                                                }
+                                                current.push_str(spoken.trim());
+                                                text.set(current);
+                                            }
+                                        }
+                                        "error" => send_error.set(mic_error(
+                                            message
+                                                .get("value")
+                                                .and_then(|value| value.as_str()),
+                                        )),
+                                        _ => {}
+                                    }
+                                    if kind == "end" {
+                                        mic_active.set(false);
+                                        break;
+                                    }
+                                }
+                            });
+                        },
+                        if mic_active() { "Stop mic" } else { "Mic" }
                     }
                     button { class: "btn primary", r#type: "submit", "Send" }
                 }
