@@ -91,6 +91,8 @@ struct LiveState {
     inbox: Signal<HashMap<i64, InboxItem>>,
     // The Workstream that the Triager chat created last.
     created: Signal<Option<(String, i64)>>,
+    // The number of agents the upgrade drain waits for. Zero means no drain.
+    drain: Signal<usize>,
 }
 
 fn select_organization(mut organization: Signal<String>, name: String) {
@@ -212,6 +214,7 @@ async fn follow_live(
                             workstream_list.restart();
                             state.created.set(Some((repository, number)));
                         }
+                        Live::Drain { waiting } => state.drain.set(waiting),
                     }
                 }
             }
@@ -263,6 +266,7 @@ fn Frame() -> Element {
         agents: Signal::new(HashMap::new()),
         inbox: Signal::new(HashMap::new()),
         created: Signal::new(None),
+        drain: Signal::new(0),
     });
     use_effect(move || {
         if let Some(Err(error)) = &*app_slugs.read()
@@ -306,6 +310,7 @@ fn Frame() -> Element {
         .values()
         .filter(|item| item.organization == organization())
         .count();
+    let drain_waiting = *state.drain.read();
     let switch = switchable();
     match &*app_slugs.read() {
         Some(Ok(slugs)) if !slugs.is_empty() => rsx! {
@@ -328,6 +333,12 @@ fn Frame() -> Element {
                     WorkstreamEntries {}
                     Link { class: "navbtn", active_class: "sel", to: Route::NewWorkstream {}, "+ New Workstream" }
                     div { class: "grow" }
+                    if drain_waiting > 0 {
+                        div { class: "entry",
+                            span { class: "dot queued" }
+                            span { class: "grow muted small", "Upgrade waits for {drain_waiting} agents" }
+                        }
+                    }
                     Link { class: "navbtn", active_class: "sel", to: Route::GitHub {}, "GitHub" }
                     Link { class: "navbtn", active_class: "sel", to: Route::Devices {}, "Devices" }
                 }

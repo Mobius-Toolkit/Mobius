@@ -8,7 +8,7 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
-use crate::{Engine, limits, mcp};
+use crate::{Engine, drain, limits, mcp};
 
 pub(crate) const ROLE: &str = "lead_event";
 const ROLE_PROMPT: &str = include_str!("prompts/lead_event.md");
@@ -42,6 +42,10 @@ pub(crate) fn wake(engine: &Engine, repository: &str, workstream: i64) {
             let _ = wakes.send(());
         }
         None => {
+            // The drain holds each new event session. Its events stay in the queue.
+            let Some(guard) = drain::try_track(engine) else {
+                return;
+            };
             let (wakes, receiver) = mpsc::unbounded_channel();
             sessions.insert(key, wakes);
             // The subscription comes before the spawn, so the session gets each stop of its Lead.
@@ -51,8 +55,16 @@ pub(crate) fn wake(engine: &Engine, repository: &str, workstream: i64) {
                 repository.to_string(),
                 workstream,
                 receiver,
+                guard,
             ));
         }
+    }
+}
+
+// The drain wakes each event session, and each saves its memory and closes.
+pub(crate) fn close_all(engine: &Engine) {
+    for wakes in engine.event_sessions.lock().unwrap().values() {
+        let _ = wakes.send(());
     }
 }
 
@@ -63,6 +75,7 @@ async fn run(
     repository: String,
     workstream: i64,
     mut wakes: UnboundedReceiver<()>,
+    _drain: drain::Guard,
 ) {
     let mut crashes = 0;
     loop {
@@ -201,28 +214,31 @@ async fn events(
     let queue = engine.store.lead_events();
     loop {
         while wakes.try_recv().is_ok() {}
-        if let Some(event) = queue.next(repository, workstream).await? {
-            let prompt = format!("{}{}", first.take().unwrap_or_default(), event.payload);
-            turn(&session, &prompt, recorder, &mut updates).await?;
-            queue.deliver(event.id).await?;
-            continue;
-        }
-        let idle = tokio::time::timeout(engine.config.event_idle_timeout, async {
-            loop {
-                tokio::select! {
-                    Some(update) = updates.recv() => recorder.update(update).await?,
-                    _ = wakes.recv() => return Ok::<_, Box<dyn Error + Send + Sync>>(()),
-                }
+        // The drain holds each new turn. The events stay in the queue.
+        if !engine.drain.on() {
+            if let Some(event) = queue.next(repository, workstream).await? {
+                let prompt = format!("{}{}", first.take().unwrap_or_default(), event.payload);
+                turn(&session, &prompt, recorder, &mut updates).await?;
+                queue.deliver(event.id).await?;
+                continue;
             }
-        })
-        .await;
-        if let Ok(woken) = idle {
-            woken?;
-            continue;
+            let idle = tokio::time::timeout(engine.config.event_idle_timeout, async {
+                loop {
+                    tokio::select! {
+                        Some(update) = updates.recv() => recorder.update(update).await?,
+                        _ = wakes.recv() => return Ok::<_, Box<dyn Error + Send + Sync>>(()),
+                    }
+                }
+            })
+            .await;
+            if let Ok(woken) = idle {
+                woken?;
+                continue;
+            }
         }
         turn(&session, SAVE_PROMPT, recorder, &mut updates).await?;
         let mut sessions = engine.event_sessions.lock().unwrap();
-        if wakes.is_empty() {
+        if engine.drain.on() || wakes.is_empty() {
             sessions.remove(&(repository.to_string(), workstream));
             break;
         }

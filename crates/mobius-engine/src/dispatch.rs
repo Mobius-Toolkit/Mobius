@@ -20,6 +20,10 @@ pub(crate) async fn dispatch_ready(
     app_slug: &str,
     repository: &Repository,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // The drain holds each new dispatch and Triager, and it does not read the ready list: the first poll after a cancel gets the same page again.
+    if engine.drain.on() {
+        return Ok(());
+    }
     let name = &repository.full_name;
     let cursor = engine.store.sync_cursors().get(name, READY_CURSOR).await?;
     let Some(page) = repository

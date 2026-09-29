@@ -68,6 +68,20 @@ impl LeadEvents<'_> {
         Ok(workstreams)
     }
 
+    // Each Workstream with an undelivered event, with its repository.
+    pub async fn waiting(&self) -> Result<Vec<(String, i64)>, Box<dyn Error + Send + Sync>> {
+        let rows = sqlx::query!(
+            "SELECT DISTINCT repository, workstream FROM lead_events
+             WHERE delivered_at IS NULL"
+        )
+        .fetch_all(self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.repository, row.workstream))
+            .collect())
+    }
+
     pub async fn undelivered(
         &self,
         repository: &str,

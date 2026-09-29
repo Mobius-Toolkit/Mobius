@@ -258,4 +258,8 @@ pub enum Live {
         repository: String,
         number: i64,
     },
+    // The number of agents the upgrade drain waits for. Zero means no drain.
+    Drain {
+        waiting: usize,
+    },
 }

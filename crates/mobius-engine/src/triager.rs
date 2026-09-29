@@ -10,7 +10,7 @@ use tokio::sync::Notify;
 use crate::lead::{self, Recorder};
 use crate::trust::app_login;
 use crate::{
-    Engine, NO_WORKSTREAM_LABEL, READY_LABEL, WORKSTREAM_LABEL, limits, mcp, researcher,
+    Engine, NO_WORKSTREAM_LABEL, READY_LABEL, WORKSTREAM_LABEL, drain, limits, mcp, researcher,
     workstreams,
 };
 
@@ -114,6 +114,13 @@ pub(crate) async fn triage(
     repository: &Repository,
     number: i64,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // The drain holds each new Triager. The next poll after a cancel starts it.
+    if engine.drain.on() {
+        return Ok(());
+    }
+    let Some(guard) = drain::try_track(engine) else {
+        return Ok(());
+    };
     repository.add_label(number, NO_WORKSTREAM_LABEL).await?;
     repository.remove_label(number, READY_LABEL).await?;
     let stop = Arc::new(Notify::new());
@@ -122,11 +129,17 @@ pub(crate) async fn triage(
         .lock()
         .unwrap()
         .insert((repository.full_name.clone(), number), stop.clone());
-    tokio::spawn(run(engine.clone(), repository.clone(), number, stop));
+    tokio::spawn(run(engine.clone(), repository.clone(), number, stop, guard));
     Ok(())
 }
 
-async fn run(engine: Engine, repository: Repository, number: i64, stop: Stop) {
+async fn run(
+    engine: Engine,
+    repository: Repository,
+    number: i64,
+    stop: Stop,
+    _drain: drain::Guard,
+) {
     if let Err(error) = session(&engine, &repository, number, &stop).await {
         eprintln!(
             "mobius: Triager of {}#{number}: {error}",

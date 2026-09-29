@@ -12,8 +12,8 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
 use crate::{
-    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, agents, ends, implementer, issues, lead_events, limits,
-    mcp, reviewer, threads,
+    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, agents, drain, ends, implementer, issues, lead_events,
+    limits, mcp, reviewer, threads,
 };
 
 pub(crate) const ROLE: &str = "judge";
@@ -81,6 +81,10 @@ pub(crate) async fn check(
     task: &Task,
     pull_request: PullRequest,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // The drain holds each new Judge. The next poll after a cancel starts it.
+    if engine.drain.on() {
+        return Ok(());
+    }
     let app_login = app_login(&repository.app_slug);
     let items = new_items(engine, repository, task, pull_request.number, &app_login).await?;
     // Only a trusted user continues a task that waits for a human.
@@ -112,7 +116,10 @@ pub(crate) async fn check(
         .ok_or_else(|| format!("#{} does not exist.", task.issue))?;
     // The subscription comes before the state change, so the session gets each stop of the task.
     let stops = engine.stops.subscribe();
-    // The Judge takes no Worker slot.
+    // The Judge takes no Worker slot. A drain that starts during this check holds it.
+    let Some(guard) = drain::try_track(engine) else {
+        return Ok(());
+    };
     if !engine
         .store
         .tasks()
@@ -141,6 +148,7 @@ pub(crate) async fn check(
             pull_request,
             items,
         },
+        guard,
     ));
     Ok(())
 }
@@ -250,7 +258,7 @@ async fn ready(
 }
 
 // A failed session still marks its items as judged, so the same items start no new Judge.
-async fn run(engine: Engine, mut stops: Receiver<i64>, job: Job) {
+async fn run(engine: Engine, mut stops: Receiver<i64>, job: Job, _drain: drain::Guard) {
     let Err(error) = session(&engine, &mut stops, &job).await else {
         return;
     };

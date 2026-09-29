@@ -12,7 +12,7 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
-use crate::{Engine, TIME_FORMAT, gh, inbox, limits, mcp, triager, workstreams};
+use crate::{Engine, TIME_FORMAT, drain, gh, inbox, limits, mcp, triager, workstreams};
 
 pub(crate) const ROLE: &str = "lead_chat";
 const ROLE_PROMPT: &str = include_str!("prompts/lead.md");
@@ -27,6 +27,8 @@ pub(crate) struct ChatHandle {
 enum Command {
     Prompt(ChatMessage),
     Stop,
+    // The drain for an upgrade: the session saves its memory and closes.
+    Drain,
 }
 
 pub async fn send(
@@ -102,6 +104,7 @@ pub(crate) async fn post(
                 engine.lead_stops.subscribe(),
                 message,
                 receiver,
+                drain::track(engine),
             ));
         }
     }
@@ -113,6 +116,13 @@ pub(crate) async fn post(
         error: None,
     });
     Ok(())
+}
+
+// The drain sends each chat the close signal, and each chat closes when its work ends.
+pub(crate) fn close_all(engine: &Engine) {
+    for handle in engine.chats.lock().unwrap().values() {
+        let _ = handle.commands.send(Command::Drain);
+    }
 }
 
 pub fn stop(
@@ -219,6 +229,7 @@ async fn run(
     mut stops: broadcast::Receiver<(String, i64)>,
     first: ChatMessage,
     mut commands: UnboundedReceiver<Command>,
+    _drain: drain::Guard,
 ) {
     let (organization, repository, workstream) = (
         first.organization.clone(),
@@ -436,24 +447,29 @@ async fn chat(
                 });
             }
         }
-        let idle = tokio::time::timeout(engine.config.lead_idle_timeout, async {
-            loop {
-                tokio::select! {
-                    Some(update) = updates.recv() => recorder.update(update).await?,
-                    command = commands.recv() => return Ok::<_, Box<dyn Error + Send + Sync>>(command),
+        // A chat that the drain reaches while it is idle saves and closes at once. A queued message still turns.
+        let command = if engine.drain.on() {
+            commands.try_recv().ok()
+        } else {
+            let idle = tokio::time::timeout(engine.config.lead_idle_timeout, async {
+                loop {
+                    tokio::select! {
+                        Some(update) = updates.recv() => recorder.update(update).await?,
+                        command = commands.recv() => return Ok::<_, Box<dyn Error + Send + Sync>>(command),
+                    }
                 }
+            })
+            .await;
+            match idle {
+                Ok(command) => command?,
+                Err(_) => None,
             }
-        })
-        .await;
-        let command = match idle {
-            Ok(command) => command?,
-            Err(_) => None,
         };
         match command {
             Some(Command::Prompt(message)) => queue.push_back(message),
             Some(Command::Stop) => {}
-            // The Triager has no memory to save.
-            None => {
+            // The drain or the idle timeout closes the session. The Triager has no memory to save.
+            Some(Command::Drain) | None => {
                 if !triager {
                     turn(
                         &session,
@@ -502,6 +518,8 @@ async fn turn(
                     Some(command) = commands.recv() => match command {
                         Command::Stop => session.cancel(),
                         Command::Prompt(message) => queue.push_back(message),
+                        // The session closes after the turn.
+                        Command::Drain => {}
                     },
                 }
             }

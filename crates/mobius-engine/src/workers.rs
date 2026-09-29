@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use tokio::sync::Notify;
 
 use crate::config::Config;
-use crate::{Engine, agents, limits};
+use crate::{Engine, agents, drain, limits};
 
 #[derive(Default)]
 pub(crate) struct Workers {
@@ -26,6 +26,8 @@ struct Counts {
 pub(crate) struct Slot {
     workers: Arc<Workers>,
     harness: Harness,
+    // The slot holder is one agent that the drain waits for.
+    _drain: drain::Guard,
 }
 
 impl Drop for Slot {
@@ -122,21 +124,32 @@ async fn wait(
                 .iter()
                 .filter_map(|(id, _)| counts.queued.get(id).copied())
                 .collect();
-            let text = match &pause {
-                Some(pause) => Some(limits::reason(pause)?),
-                None => reason(&engine.config, &counts.running, &earlier, harness),
-            };
-            let Some(text) = text else {
-                *counts.running.entry(harness).or_default() += 1;
-                if let Place::Task(task) = place {
-                    counts.queued.remove(&task);
+            let text = if engine.drain.on() {
+                Some(drain::REASON.to_string())
+            } else {
+                match &pause {
+                    Some(pause) => Some(limits::reason(pause)?),
+                    None => reason(&engine.config, &counts.running, &earlier, harness),
                 }
-                return Ok(Some(Slot {
-                    workers: engine.workers.clone(),
-                    harness,
-                }));
             };
-            text
+            match text {
+                Some(text) => text,
+                // A drain that starts while the Worker waits keeps it in the queue.
+                None => match drain::try_track(engine) {
+                    Some(guard) => {
+                        *counts.running.entry(harness).or_default() += 1;
+                        if let Place::Task(task) = place {
+                            counts.queued.remove(&task);
+                        }
+                        return Ok(Some(Slot {
+                            workers: engine.workers.clone(),
+                            harness,
+                            _drain: guard,
+                        }));
+                    }
+                    None => drain::REASON.to_string(),
+                },
+            }
         };
         if shown.as_ref() != Some(&text) {
             let queued = engine
