@@ -8,7 +8,7 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
-use crate::{Engine, limits, mcp};
+use crate::{Engine, limits, mcp, workers};
 
 pub(crate) const ROLE: &str = "lead_event";
 const ROLE_PROMPT: &str = include_str!("prompts/lead_event.md");
@@ -134,6 +134,13 @@ async fn session(
         workstream,
         None,
     );
+    let _slot = match workers::session_slot(engine, session, workers::Role::Lead).await {
+        Ok(slot) => slot,
+        Err(error) => {
+            recorder.fail(&error.to_string()).await?;
+            return Err(error);
+        }
+    };
     let key = mcp::open(
         engine,
         mcp::Caller {

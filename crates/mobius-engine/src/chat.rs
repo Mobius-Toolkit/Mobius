@@ -12,7 +12,7 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
-use crate::{Engine, TIME_FORMAT, gh, inbox, limits, mcp, triager, workstreams};
+use crate::{Engine, TIME_FORMAT, gh, inbox, limits, mcp, triager, workers, workstreams};
 
 pub(crate) const ROLE: &str = "lead_chat";
 const ROLE_PROMPT: &str = include_str!("prompts/lead.md");
@@ -255,6 +255,40 @@ async fn run(
                 );
             }
         };
+        let mut recorder = Recorder::new(
+            &engine,
+            session,
+            &organization,
+            &repository,
+            workstream,
+            Some(author),
+        );
+        let _slot = match workers::session_slot(
+            &engine,
+            session,
+            if workstream == triager::CHAT {
+                workers::Role::Triager
+            } else {
+                workers::Role::Lead
+            },
+        )
+        .await
+        {
+            Ok(slot) => slot,
+            Err(error) => {
+                let message = error.to_string();
+                if let Err(failure) = recorder.fail(&message).await {
+                    eprintln!("mobius: chat session {session}: {failure}");
+                }
+                return finish(
+                    &engine,
+                    &organization,
+                    &repository,
+                    workstream,
+                    Some(message),
+                );
+            }
+        };
         let caller = mcp::Caller {
             session,
             role,
@@ -278,14 +312,6 @@ async fn run(
                 );
             }
         };
-        let mut recorder = Recorder::new(
-            &engine,
-            session,
-            &organization,
-            &repository,
-            workstream,
-            Some(author),
-        );
         let mut current = None;
         let result = tokio::select! {
             result = chat(&engine, &first, &key, &mut recorder, &mut commands, &mut queue, &mut current) => result.map(|()| "idle"),

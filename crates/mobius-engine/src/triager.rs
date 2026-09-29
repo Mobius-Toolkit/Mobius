@@ -10,7 +10,7 @@ use tokio::sync::Notify;
 use crate::lead::{self, Recorder};
 use crate::trust::app_login;
 use crate::{
-    Engine, NO_WORKSTREAM_LABEL, READY_LABEL, WORKSTREAM_LABEL, limits, mcp, researcher,
+    Engine, NO_WORKSTREAM_LABEL, READY_LABEL, WORKSTREAM_LABEL, limits, mcp, researcher, workers,
     workstreams,
 };
 
@@ -151,6 +151,13 @@ async fn session(
     let binding = &engine.config.roles.triager;
     let session = lead::add_session(engine, ROLE, binding, organization(name), name, CHAT).await?;
     let mut recorder = Recorder::new(engine, session, organization(name), name, CHAT, None);
+    let _slot = match workers::session_slot(engine, session, workers::Role::Triager).await {
+        Ok(slot) => slot,
+        Err(error) => {
+            recorder.fail(&error.to_string()).await?;
+            return Err(error);
+        }
+    };
     let key = mcp::open(
         engine,
         mcp::Caller {

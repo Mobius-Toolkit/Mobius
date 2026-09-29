@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::time::Instant;
 
-use mobius_domain::{Live, organization};
+use mobius_domain::organization;
 use mobius_github::{PullRequest, Repository};
 use mobius_store::Task;
 use serde::Deserialize;
@@ -12,8 +12,8 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
 use crate::{
-    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, agents, ends, implementer, issues, lead_events, limits,
-    mcp, reviewer, threads,
+    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, ends, implementer, issues, lead_events, limits, mcp,
+    reviewer, threads, workers,
 };
 
 pub(crate) const ROLE: &str = "judge";
@@ -112,7 +112,6 @@ pub(crate) async fn check(
         .ok_or_else(|| format!("#{} does not exist.", task.issue))?;
     // The subscription comes before the state change, so the session gets each stop of the task.
     let stops = engine.stops.subscribe();
-    // The Judge takes no Worker slot.
     if !engine
         .store
         .tasks()
@@ -299,8 +298,13 @@ async fn session(
         job.workstream,
         None,
     );
-    let started = engine.store.sessions().start(session).await?;
-    engine.broadcast(Live::Agent(agents::node(started)));
+    let _slot = match workers::session_slot(engine, session, workers::Role::Judge).await {
+        Ok(slot) => slot,
+        Err(error) => {
+            recorder.fail(&error.to_string()).await?;
+            return Err(error);
+        }
+    };
     let (verdicts, mut received) = mpsc::unbounded_channel();
     let key = mcp::open(
         engine,

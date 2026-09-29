@@ -58,15 +58,12 @@ async fn session(
         job.workstream,
         None,
     );
-    let slot = match workers::research_slot(engine, session, binding.harness).await {
+    let _slot = match workers::session_slot(engine, session, workers::Role::Researcher).await {
         Ok(slot) => slot,
         Err(error) => {
             recorder.fail(&error.to_string()).await?;
             return Err(error);
         }
-    };
-    let Some(_slot) = slot else {
-        return lead::end_session(engine, session, "declined").await;
     };
     let key = mcp::open(
         engine,

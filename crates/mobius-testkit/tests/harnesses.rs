@@ -46,6 +46,7 @@ async fn lead_calls_list_tasks(harness: Harness, model: &str, effort: Option<&st
         harness,
         model: model.to_string(),
         effort: effort.map(str::to_string),
+        max: 2,
     };
     let engine = start_engine(lead_config, &github.url).await;
     github::convert_manifest(&engine, "manifest-code")

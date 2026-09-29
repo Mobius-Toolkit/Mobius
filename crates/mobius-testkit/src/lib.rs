@@ -22,7 +22,20 @@ pub async fn start_with_config(
     github_url: &str,
     extra_config: &str,
 ) -> Engine {
-    start_engine(config(data_dir, access_password, extra_config), github_url).await
+    start_with(data_dir, access_password, github_url, extra_config, |_| {}).await
+}
+
+// `adjust` changes the parsed Config, for example to set `config.roles.lead.max`.
+pub async fn start_with(
+    data_dir: &Path,
+    access_password: &str,
+    github_url: &str,
+    extra_config: &str,
+    adjust: impl FnOnce(&mut Config),
+) -> Engine {
+    let mut config = config(data_dir, access_password, extra_config);
+    adjust(&mut config);
+    start_engine(config, github_url).await
 }
 
 pub fn config(data_dir: &Path, access_password: &str, extra_config: &str) -> Config {

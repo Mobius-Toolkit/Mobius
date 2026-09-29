@@ -438,13 +438,13 @@ async fn after_max_check_attempts_mobius_pushes_marks_the_check_run_as_failed_an
 }
 
 #[tokio::test]
-async fn with_one_worker_slot_the_second_implementer_waits_in_the_queue_until_the_first_ends() {
+async fn with_one_agent_slot_the_second_implementer_waits_in_the_queue_until_the_first_ends() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let engine = connect(
         &data_dir,
         &github,
-        "max_workers_total = 1",
+        "max_agents = 1",
         START_TWO,
         &format!("[[prompts]]\n{COMMIT}"),
     )
@@ -466,7 +466,7 @@ async fn with_one_worker_slot_the_second_implementer_waits_in_the_queue_until_th
     .await;
     assert_eq!(
         queued.queue_reason.as_deref(),
-        Some("no free Worker slot (1/1)")
+        Some("no free agent slot (1/1)")
     );
     // The first task takes its slot before it writes the state `working`.
     wait_for(async || {
