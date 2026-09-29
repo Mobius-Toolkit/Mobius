@@ -890,6 +890,31 @@ fn Conversation(
         .find(|message| message.author != Author::Owner)
         .map(|message| message.id);
     let unread = state.unread.read().get(&key).copied().unwrap_or(0);
+    // A new message, the growth of the last message, or a new state of the agent scrolls the list
+    // to the bottom. The script waits for a frame, so the scroll uses the DOM with the update.
+    let bottom = (
+        organization.clone(),
+        repository.clone(),
+        number,
+        messages.len(),
+        messages
+            .last()
+            .map(|message| (message.id, message.text.len())),
+        lead_state.clone(),
+        matches!(&*history.read(), Some(Err(_))),
+    );
+    use_effect(use_reactive(&bottom, |_| {
+        document::eval(
+            r#"
+            requestAnimationFrame(() => {
+                const list = document.querySelector(".msgs");
+                if (list) {
+                    list.scrollTop = list.scrollHeight;
+                }
+            });
+            "#,
+        );
+    }));
     use_effect(use_reactive(
         (
             &organization,
