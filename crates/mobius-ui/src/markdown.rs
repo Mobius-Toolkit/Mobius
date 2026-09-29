@@ -1,7 +1,6 @@
 use dioxus::prelude::*;
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag};
 
-// The inline and block elements of one message.
 enum Node {
     Text(String),
     Code(String),
@@ -154,10 +153,14 @@ fn render_nodes(nodes: &[Node]) -> Element {
     }
 }
 
-fn render_cell(node: &Node, head: bool) -> Element {
-    let Node::Wrap(_, children) = node else {
-        return render_node(node);
-    };
+fn cells(nodes: &[Node]) -> impl Iterator<Item = &[Node]> + '_ {
+    nodes.iter().filter_map(|node| match node {
+        Node::Wrap(Wrap::Cell, children) => Some(children.as_slice()),
+        _ => None,
+    })
+}
+
+fn render_cell(children: &[Node], head: bool) -> Element {
     if head {
         rsx! { th { {render_nodes(children)} } }
     } else {
@@ -206,7 +209,7 @@ fn render_node(node: &Node) -> Element {
             Wrap::TableHead => rsx! {
                 thead {
                     tr {
-                        for cell in children {
+                        for cell in cells(children) {
                             {render_cell(cell, true)}
                         }
                     }
@@ -214,18 +217,16 @@ fn render_node(node: &Node) -> Element {
             },
             Wrap::TableRow => rsx! {
                 tr {
-                    for cell in children {
+                    for cell in cells(children) {
                         {render_cell(cell, false)}
                     }
                 }
             },
-            Wrap::Cell => rsx! { td { {render_nodes(children)} } },
             _ => render_nodes(children),
         },
     }
 }
 
-// The Markdown of one chat message, for an agent and for the Owner alike.
 #[component]
 pub fn Markdown(text: String) -> Element {
     let nodes = parse(&text);

@@ -403,7 +403,14 @@ button.chip.on {
   margin: 0;
 }
 
-.md > * + * {
+.md > * + *,
+.md li > * + *,
+.md blockquote > * + *,
+.md li > ul,
+.md li > ol,
+.md li > pre,
+.md li > blockquote,
+.md li > table {
   margin-top: 8px;
 }
 
