@@ -118,6 +118,18 @@ a.btn {
   background: transparent;
 }
 
+.btn.mic.live {
+  color: var(--crit);
+  border-color: var(--crit);
+  animation: mic-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
 .phone {
   display: none;
 }
