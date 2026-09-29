@@ -25,6 +25,7 @@ pub async fn list(engine: &Engine) -> Result<Vec<Workstream>, Box<dyn Error + Se
                 number: issue.number,
                 autopilot: issue_autopilot(engine, &repository, &issue).await?,
                 title: issue.title,
+                body: issue.body.unwrap_or_default(),
             });
         }
     }
