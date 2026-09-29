@@ -68,6 +68,8 @@ struct Shot<'a> {
     // The CSS selectors of the elements to click, in sequence.
     clicks: &'a [&'a str],
     expected: &'a str,
+    // The page shows the Inbox count after the first load of its live data.
+    inbox_count: bool,
 }
 
 // Outside a `dx` build, `asset!` gives the absolute source path of the file, and the page links that path.
@@ -92,9 +94,6 @@ async fn serve_ui(engine: &Engine) -> String {
 }
 
 async fn seed(engine: &Engine, github: &FakeGitHub) {
-    github::convert_manifest(engine, "manifest-code")
-        .await
-        .unwrap();
     github::convert_manifest(engine, "second-code")
         .await
         .unwrap();
@@ -210,11 +209,10 @@ async fn check(page: &Page, script: String) -> bool {
     }
 }
 
-// A page with the navigation shows the Inbox count after the first load of its live data.
-async fn wait_until_ready(page: &Page, expected: &str) {
+async fn wait_until_ready(page: &Page, expected: &str, inbox_count: bool) {
     let script = format!(
         "document.body.textContent.includes({expected:?}) && \
-         (!document.querySelector('nav') || !!document.querySelector('a[href=\"/inbox\"] .count'))"
+         (!{inbox_count} || !!document.querySelector('a[href=\"/inbox\"] .count'))"
     );
     wait_for(async || check(page, script.clone()).await.then_some(())).await;
 }
@@ -266,7 +264,7 @@ async fn screenshot(browser: &Browser, url: &str, shot: Shot<'_>, viewport: View
         );
         wait_for(async || check(&page, script.clone()).await.then_some(())).await;
     }
-    wait_until_ready(&page, shot.expected).await;
+    wait_until_ready(&page, shot.expected, shot.inbox_count).await;
     let mut last = capture(&page).await;
     let png = wait_for(async || {
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -288,7 +286,7 @@ async fn screenshot(browser: &Browser, url: &str, shot: Shot<'_>, viewport: View
 
 async fn log_in(browser: &Browser, url: &str) {
     let page = open(browser, url, DESKTOP).await;
-    wait_until_ready(&page, "Access password").await;
+    wait_until_ready(&page, "Access password", false).await;
     page.find_element("#password")
         .await
         .unwrap()
@@ -304,7 +302,7 @@ async fn log_in(browser: &Browser, url: &str) {
         .click()
         .await
         .unwrap();
-    wait_until_ready(&page, "App name").await;
+    wait_until_ready(&page, "App name", false).await;
     page.close().await.unwrap();
 }
 
@@ -316,14 +314,6 @@ async fn screenshots() {
     github.add_manifest_code("manifest-code");
     github.add_manifest_code("second-code");
     github.install_second_app("plants");
-    for (repository, title) in [
-        (REPOSITORY, "Integrate loyalty plans"),
-        (GARDEN, "Plant roses"),
-    ] {
-        github.add_repository(repository);
-        github.add_issue(repository, 12, title);
-        github.add_label(repository, 12, "mobius:workstream", "owner");
-    }
     install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
     install_fake_harness(data_dir.path(), FAKE_AGENT, "devin", IMPLEMENTER);
     let engine = start(data_dir.path(), "correct horse", &github.url).await;
@@ -344,12 +334,14 @@ async fn screenshots() {
         path: "/github",
         clicks: &[],
         expected: "Access password",
+        inbox_count: false,
     };
     let connect = Shot {
         name: "github-connect",
         path: "/github",
         clicks: &[],
         expected: "App name",
+        inbox_count: false,
     };
     for viewport in [DESKTOP, PHONE] {
         screenshot(&browser, &url, login, viewport).await;
@@ -359,6 +351,29 @@ async fn screenshots() {
         screenshot(&browser, &url, connect, viewport).await;
     }
 
+    // The App has no repository yet, so Mobius knows no organization.
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    let no_organization = Shot {
+        name: "new-workstream-no-organization",
+        path: "/workstreams/new",
+        clicks: &[],
+        expected: "Mobius reads the repositories from GitHub.",
+        inbox_count: false,
+    };
+    for viewport in [DESKTOP, PHONE] {
+        screenshot(&browser, &url, no_organization, viewport).await;
+    }
+
+    for (repository, title) in [
+        (REPOSITORY, "Integrate loyalty plans"),
+        (GARDEN, "Plant roses"),
+    ] {
+        github.add_repository(repository);
+        github.add_issue(repository, 12, title);
+        github.add_label(repository, 12, "mobius:workstream", "owner");
+    }
     seed(&engine, &github).await;
     fix_times(&engine).await;
     for viewport in [DESKTOP, PHONE] {
@@ -376,66 +391,77 @@ async fn screenshots() {
                 path: "/workstreams",
                 clicks: &[],
                 expected: "Integrate loyalty plans",
+                inbox_count: true,
             },
             Shot {
                 name: "organizations",
                 path: "/workstreams",
                 clicks: switch_clicks,
                 expected: "Organizations",
+                inbox_count: true,
             },
             Shot {
                 name: "activity",
                 path: "/activity",
                 clicks: &[],
                 expected: "Dispatched",
+                inbox_count: true,
             },
             Shot {
                 name: "chat",
                 path: "/workstreams/owner/shop/12",
                 clicks: &[],
                 expected: "#42 waits for your decision.",
+                inbox_count: true,
             },
             Shot {
                 name: "chat-tasks",
                 path: "/workstreams/owner/shop/12",
                 clicks: tasks_clicks,
                 expected: "#41 Add plan model",
+                inbox_count: true,
             },
             Shot {
                 name: "new-workstream",
                 path: "/workstreams/new",
                 clicks: &[],
                 expected: "Sell gift cards in the shop.",
+                inbox_count: true,
             },
             Shot {
                 name: "settings",
                 path: "/settings",
                 clicks: &[],
                 expected: "Devices",
+                inbox_count: true,
             },
             Shot {
                 name: "server-agents",
                 path: "/server-agents",
                 clicks: &[],
                 expected: "chat session",
+                inbox_count: true,
             },
             Shot {
                 name: "inbox",
                 path: "/inbox",
                 clicks: &[],
                 expected: "one plan for each customer",
+                inbox_count: true,
             },
             Shot {
                 name: "devices",
                 path: "/devices",
                 clicks: &[],
                 expected: "this device",
+                inbox_count: true,
             },
             Shot {
                 name: "github",
                 path: "/github",
                 clicks: &[],
                 expected: "Install mobius-second",
+                inbox_count: true,
             },
         ];
         for shot in shots {

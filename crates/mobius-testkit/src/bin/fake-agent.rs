@@ -11,7 +11,7 @@ use agent_client_protocol::schema::v1::{
 };
 use agent_client_protocol::{Agent, Client, ConnectionTo, Error, Responder, Stdio};
 use rmcp::ServiceExt;
-use rmcp::model::CallToolRequestParams;
+use rmcp::model::{CallToolRequestParams, ClientConfig, ProtocolVersion};
 use rmcp::transport::StreamableHttpClientTransport;
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -105,7 +105,11 @@ async fn mobius_reply(mcp_url: &str, prompt: &Prompt, stdout: &str) -> Option<St
     if !prompt.list_tools && prompt.call.is_none() {
         return None;
     }
-    let client = ().serve(StreamableHttpClientTransport::from_uri(mcp_url)).await.unwrap();
+    let client = ClientConfig::default()
+        .with_protocol_version(ProtocolVersion::V_2026_07_28)
+        .serve(StreamableHttpClientTransport::from_uri(mcp_url))
+        .await
+        .unwrap();
     let reply = match &prompt.call {
         Some(call) => {
             let arguments = call
@@ -129,7 +133,7 @@ async fn mobius_reply(mcp_url: &str, prompt: &Prompt, stdout: &str) -> Option<St
                 _ => text.clone(),
             }
         }
-        None => serde_json::to_string(&client.list_all_tools().await.unwrap()).unwrap(),
+        None => serde_json::to_string(&client.list_tools(None).await.unwrap()).unwrap(),
     };
     client.cancel().await.unwrap();
     Some(reply)

@@ -271,8 +271,10 @@ async fn only_the_event_session_has_tell_owner() {
             })
     })
     .await;
-    let tools: Vec<Value> = serde_json::from_str(&reply).unwrap();
-    let names: Vec<&str> = tools
+    let result: Value = serde_json::from_str(&reply).unwrap();
+    let names: Vec<&str> = result["tools"]
+        .as_array()
+        .unwrap()
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();

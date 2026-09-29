@@ -93,7 +93,10 @@ async fn the_lead_gets_the_mobius_url_and_only_the_lead_tools() {
 
     let (_, reply) = lead_reply(&engine).await;
 
-    let tools: Vec<Value> = serde_json::from_str(&reply).unwrap();
+    let result: Value = serde_json::from_str(&reply).unwrap();
+    assert_eq!(result["ttlMs"], 0);
+    assert_eq!(result["cacheScope"], "private");
+    let tools = result["tools"].as_array().unwrap();
     let names: Vec<&str> = tools
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
@@ -113,7 +116,7 @@ async fn the_lead_gets_the_mobius_url_and_only_the_lead_tools() {
             "comment_pull_request"
         ]
     );
-    for tool in &tools {
+    for tool in tools {
         assert_eq!(tool["_meta"]["anthropic/alwaysLoad"], true, "{tool}");
     }
     let url = fs::read_to_string(data_dir.path().join("harnesses/mcp_url")).unwrap();
