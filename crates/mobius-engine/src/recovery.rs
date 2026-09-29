@@ -4,10 +4,8 @@ use mobius_domain::{InboxKind, Live, organization};
 use mobius_github::Repository;
 use mobius_store::{NewInboxItem, Task};
 
-use crate::{
-    Engine, NEEDS_HUMAN_LABEL, WORKING_LABEL, implementer, judge, lead_events, reviewer,
-    workstreams,
-};
+use crate::labels::{NEEDS_HUMAN_LABEL, WORKING_LABEL};
+use crate::{Engine, implementer, judge, lead_events, reviewer, workstreams};
 
 const LOST_TEXT: &str = "Mobius lost the state of this task. Add mobius:ready to start again.";
 

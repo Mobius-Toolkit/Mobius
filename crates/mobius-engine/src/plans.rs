@@ -3,7 +3,8 @@ use std::error::Error;
 use mobius_github::Repository;
 use serde::Deserialize;
 
-use crate::{Engine, READY_LABEL, WORKSTREAM_LABEL, trust, workstreams};
+use crate::labels::{READY_LABEL, WORKSTREAM_LABEL};
+use crate::{Engine, trust, workstreams};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
