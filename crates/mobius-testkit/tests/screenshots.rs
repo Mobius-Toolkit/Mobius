@@ -234,7 +234,9 @@ async fn open(browser: &Browser, url: &str, (_, width, height, mobile): Viewport
     ))
     .await
     .unwrap();
-    // The `mobile` flag does not emulate a touch pointer, so without this Chrome reports `pointer: fine`.
+    // Headless Chrome claims a touch pointer (`pointer: coarse`) on every viewport.
+    // The touch emulation sets the pointer type of each device class: on for the
+    // phone shots, off for the desktop shots so they report `pointer: fine`.
     page.execute(SetTouchEmulationEnabledParams::new(mobile))
         .await
         .unwrap();
