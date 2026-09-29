@@ -492,14 +492,20 @@ async fn screenshots() {
             )
             .await;
             wait_until_ready(&page, "#42 waits for your decision.", false).await;
+            // `overflow-x: auto` keeps the wide block inside the bubble, so no ancestor overflows.
             let script = String::from(
                 "(() => {
-                    const message = document.querySelector('.msg.owner .md');
+                    const msgs = document.querySelector('.msgs');
+                    const bubble = document.querySelector('.msg.owner');
+                    const message = bubble?.querySelector('.md');
                     const pre = message?.querySelector('pre');
                     const table = message?.querySelector('table');
+                    const overflows = (element) => element.scrollWidth > element.clientWidth;
+                    const scrolls = (element) => getComputedStyle(element).overflowX === 'auto';
                     return !!pre && !!table
-                        && pre.scrollWidth > pre.clientWidth
-                        && table.scrollWidth > table.clientWidth
+                        && overflows(pre) && scrolls(pre)
+                        && overflows(table) && scrolls(table)
+                        && !overflows(message) && !overflows(bubble) && !overflows(msgs)
                         && document.documentElement.scrollWidth <= window.innerWidth;
                 })()",
             );
