@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::error::Error;
 
 use mobius_domain::{Blocker, TaskLine};
@@ -7,6 +6,7 @@ use mobius_github::{Issue, Repository};
 use crate::{Engine, WORKSTREAM_LABEL, ends, trust, workstreams};
 
 // Issues below a Workstream issue of their own belong to that Workstream.
+// The walk is depth-first, so a nested task follows its parent in the list.
 pub async fn list(
     engine: &Engine,
     repository: &str,
@@ -15,33 +15,52 @@ pub async fn list(
     let repository = engine.repository(repository)?;
     let trusted = trust::trusted_authors(engine, &repository);
     let mut lines = Vec::new();
-    let mut parents = VecDeque::from([workstream]);
-    while let Some(parent) = parents.pop_front() {
-        for issue in repository.sub_issues(parent).await? {
-            if issue.has_label(WORKSTREAM_LABEL) {
-                continue;
-            }
-            if issue.state == "open" && trusted(&issue.user.login) {
-                let mut line = task_line(&issue);
-                if issue.issue_dependencies_summary.blocked_by > 0 {
-                    line.blocked_by = blockers(&repository, workstream, issue.number).await?;
-                }
-                if line.state == "working"
-                    && engine
-                        .store
-                        .tasks()
-                        .live(&repository.full_name, issue.number)
-                        .await?
-                        .is_some_and(|task| task.state == "queued")
-                {
-                    line.state = "queued".to_string();
-                }
-                lines.push(line);
-            }
-            parents.push_back(issue.number);
+    // Each frame walks the sub-issues of one issue. A frame holds the depth of its issues.
+    let mut frames: Vec<(i64, std::vec::IntoIter<Issue>)> =
+        vec![(0, repository.sub_issues(workstream).await?.into_iter())];
+    while let Some((depth, issue)) = next_issue(&mut frames) {
+        if issue.has_label(WORKSTREAM_LABEL) {
+            continue;
         }
+        if issue.state == "open" && trusted(&issue.user.login) {
+            let mut line = task_line(&issue, depth);
+            if issue.issue_dependencies_summary.blocked_by > 0 {
+                line.blocked_by = blockers(&repository, workstream, issue.number).await?;
+            }
+            if line.state == "working"
+                && engine
+                    .store
+                    .tasks()
+                    .live(&repository.full_name, issue.number)
+                    .await?
+                    .is_some_and(|task| task.state == "queued")
+            {
+                line.state = "queued".to_string();
+            }
+            lines.push(line);
+        }
+        // The sub-issues of a closed or untrusted issue still belong to the Workstream.
+        frames.push((
+            depth + 1,
+            repository.sub_issues(issue.number).await?.into_iter(),
+        ));
     }
     Ok(lines)
+}
+
+// Gives the next issue of the deepest frame, dropping each frame that ran out.
+fn next_issue(frames: &mut Vec<(i64, std::vec::IntoIter<Issue>)>) -> Option<(i64, Issue)> {
+    loop {
+        match frames.last_mut() {
+            Some((depth, issues)) => match issues.next() {
+                Some(issue) => return Some((*depth, issue)),
+                None => {
+                    frames.pop();
+                }
+            },
+            None => return None,
+        }
+    }
 }
 
 async fn blockers(
@@ -69,7 +88,7 @@ async fn blockers(
     Ok(blockers)
 }
 
-fn task_line(issue: &Issue) -> TaskLine {
+fn task_line(issue: &Issue, depth: i64) -> TaskLine {
     let state = issue
         .labels
         .iter()
@@ -80,6 +99,7 @@ fn task_line(issue: &Issue) -> TaskLine {
         title: issue.title.clone(),
         state: state.to_string(),
         url: issue.html_url.clone(),
+        depth,
         blocked_by: Vec::new(),
     }
 }
@@ -142,14 +162,14 @@ mod tests {
     #[test]
     fn a_task_line_shows_the_mobius_label() {
         assert_eq!(
-            text(&[task_line(&issue(&["bug", "mobius:working"]))]),
+            text(&[task_line(&issue(&["bug", "mobius:working"]), 0)]),
             "#41 Add plan model: working\n"
         );
     }
 
     #[test]
     fn a_task_line_shows_its_blockers_and_the_workstream_of_a_blocker_in_another_workstream() {
-        let mut line = task_line(&issue(&["mobius:ready"]));
+        let mut line = task_line(&issue(&["mobius:ready"]), 0);
         line.blocked_by = vec![
             Blocker {
                 number: 40,
@@ -170,7 +190,7 @@ mod tests {
     #[test]
     fn a_task_line_with_no_mobius_label_shows_open() {
         assert_eq!(
-            text(&[task_line(&issue(&["bug"]))]),
+            text(&[task_line(&issue(&["bug"]), 0)]),
             "#41 Add plan model: open\n"
         );
     }

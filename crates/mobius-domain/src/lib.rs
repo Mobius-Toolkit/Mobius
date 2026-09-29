@@ -61,6 +61,8 @@ pub struct TaskLine {
     pub title: String,
     pub state: String,
     pub url: String,
+    // A direct sub-issue of the Workstream has depth 0, and each deeper level adds one.
+    pub depth: i64,
     // It holds only the open blockers.
     pub blocked_by: Vec<Blocker>,
 }

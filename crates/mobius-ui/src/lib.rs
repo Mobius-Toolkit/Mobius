@@ -1037,7 +1037,7 @@ fn Tasks(repository: String, number: i64) -> Element {
 #[component]
 fn TaskEntry(line: TaskLine) -> Element {
     rsx! {
-        a { class: "node", href: "{line.url}", target: "_blank",
+        a { class: "node", href: "{line.url}", target: "_blank", style: "--depth: {line.depth}",
             span { class: "grow", "#{line.number} {line.title}" }
             for blocker in line.blocked_by.iter() {
                 span { class: "muted small",
