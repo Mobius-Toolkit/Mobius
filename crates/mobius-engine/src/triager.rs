@@ -25,10 +25,11 @@ pub(crate) type Stop = Arc<Notify>;
 pub(crate) async fn chat_prompt(
     engine: &Engine,
     first: &ChatMessage,
+    history: &str,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let repositories = organization_repositories(engine, &first.organization);
     Ok(format!(
-        "{ROLE_PROMPT}\n{}\n# Owner message\n\n{}",
+        "{ROLE_PROMPT}\n{}\n{history}# Owner message\n\n{}",
         workstreams(&repositories).await?,
         first.text
     ))

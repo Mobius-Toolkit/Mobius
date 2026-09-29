@@ -391,7 +391,7 @@ async fn chat(
     let (dir, prompt, binding, gh_url) = if triager {
         let dir = mobius_runner::scratch_dir(data_dir, session_id);
         fs::create_dir_all(&dir)?;
-        let prompt = triager::chat_prompt(engine, first).await?;
+        let prompt = triager::chat_prompt(engine, first, &history(engine, first).await?).await?;
         (dir, prompt, &engine.config.roles.triager, None)
     } else {
         let dir = mobius_runner::lead_dir(data_dir, repository, workstream)?;
@@ -523,7 +523,19 @@ async fn first_prompt(
     first: &ChatMessage,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let context = lead::context(engine, dir, &first.repository, first.workstream).await?;
-    let history = engine
+    Ok(format!(
+        "{ROLE_PROMPT}\n{context}{}# {} message\n\n{}",
+        history(engine, first).await?,
+        first.author.name(),
+        first.text
+    ))
+}
+
+async fn history(
+    engine: &Engine,
+    first: &ChatMessage,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let messages = engine
         .store
         .chat_messages()
         .before(
@@ -534,16 +546,11 @@ async fn first_prompt(
             HISTORY_SIZE,
         )
         .await?;
-    let mut prompt = format!("{ROLE_PROMPT}\n{context}# Chat history\n\n");
-    for message in history {
-        prompt.push_str(&block(&message)?);
+    let mut history = "# Chat history\n\n".to_string();
+    for message in messages {
+        history.push_str(&block(&message)?);
     }
-    prompt.push_str(&format!(
-        "# {} message\n\n{}",
-        first.author.name(),
-        first.text
-    ));
-    Ok(prompt)
+    Ok(history)
 }
 
 // The session already has each `tell_owner` message with an id up to `last`.
