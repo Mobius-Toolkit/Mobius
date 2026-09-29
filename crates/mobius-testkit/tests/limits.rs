@@ -75,13 +75,16 @@ async fn a_usage_limit_pauses_the_harness_until_resume_now_sends_the_prompt_agai
         "{}",
         item.text
     );
-    let pause = engine
-        .store
-        .harness_pauses()
-        .get(Harness::Devin)
-        .await
-        .unwrap()
-        .unwrap();
+    // Mobius adds the Inbox item before the pause.
+    let pause = wait_for(async || {
+        engine
+            .store
+            .harness_pauses()
+            .get(Harness::Devin)
+            .await
+            .unwrap()
+    })
+    .await;
     assert_eq!(pause.inbox_item, item.id);
     assert!(
         pause.until >= before + Duration::minutes(59),
