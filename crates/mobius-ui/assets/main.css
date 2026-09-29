@@ -187,6 +187,7 @@ a.btn {
 }
 
 .ellip {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -359,6 +360,11 @@ button.chip.on {
   border-bottom: 1px solid var(--line);
 }
 
+.item .grow,
+.node .grow {
+  overflow-wrap: break-word;
+}
+
 .note {
   padding: 0 14px;
 }
@@ -411,8 +417,19 @@ button.chip.on {
   color: var(--muted);
 }
 
+.md {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
 .md * {
   margin: 0;
+}
+
+.md table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .md > * + *,
@@ -452,6 +469,7 @@ button.chip.on {
   background: var(--ground);
   border-radius: 4px;
   padding: 6px 8px;
+  overflow-x: auto;
 }
 
 .md pre code {
@@ -509,6 +527,8 @@ button.chip.on {
 .composer textarea {
   width: 100%;
   height: 40px;
+  min-height: 40px;
+  max-height: 9em;
   resize: none;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -736,6 +756,7 @@ a.node {
 
   .composer textarea {
     height: 44px;
+    min-height: 44px;
   }
 }
 
