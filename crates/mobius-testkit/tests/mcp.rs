@@ -113,7 +113,8 @@ async fn the_lead_gets_the_mobius_url_and_only_the_lead_tools() {
             "create_issue",
             "mark_ready",
             "reply_thread",
-            "comment_pull_request"
+            "comment_pull_request",
+            "create_workstream"
         ]
     );
     for tool in tools {
