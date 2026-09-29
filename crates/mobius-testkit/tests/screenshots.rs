@@ -3,7 +3,9 @@ use std::io::Cursor;
 use std::path::Path;
 use std::time::Duration;
 
-use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+use chromiumoxide::cdp::browser_protocol::emulation::{
+    SetDeviceMetricsOverrideParams, SetTouchEmulationEnabledParams,
+};
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::{Browser, BrowserConfig, Page};
@@ -232,6 +234,10 @@ async fn open(browser: &Browser, url: &str, (_, width, height, mobile): Viewport
     ))
     .await
     .unwrap();
+    // The `mobile` flag does not emulate a touch pointer, so without this Chrome reports `pointer: fine`.
+    page.execute(SetTouchEmulationEnabledParams::new(mobile))
+        .await
+        .unwrap();
     page.evaluate(format!("location.href = {url:?}"))
         .await
         .unwrap();
