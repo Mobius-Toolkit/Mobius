@@ -647,7 +647,7 @@ a.node {
   color: var(--ink);
 }
 
-@media (max-width: 700px) {
+@media (pointer: coarse) {
   input,
   select,
   textarea,
@@ -657,6 +657,12 @@ a.node {
     font-size: 16px;
   }
 
+  .composer textarea {
+    height: 44px;
+  }
+}
+
+@media (max-width: 700px) {
   .shell {
     flex-direction: column;
   }
