@@ -140,31 +140,50 @@ async fn a_report_for_the_chat_goes_to_a_chat_session() {
         .unwrap();
 
     let report = researcher_report(&data_dir, &github, &engine).await;
-    let message = wait_for(async || {
-        chat::view(&engine, "owner", REPOSITORY, 12)
-            .await
-            .unwrap()
-            .messages
-            .into_iter()
-            .find(|message| message.author == Author::Researcher)
-    })
-    .await;
-    assert_eq!(
-        message.text,
-        format!("Report of the Researcher on \"{QUESTION}\":\n\n{report}")
-    );
     wait_for(async || {
         prompts(&engine, "lead_chat")
             .await
             .iter()
             .any(|prompt| {
                 prompt.contains(&format!(
-                    "# Researcher message\n\nReport of the Researcher on \"{QUESTION}\":\n\nPlans store the price in cents.\n"
+                    "# Researcher message\n\nReport of the Researcher on \"{QUESTION}\":\n\n{report}"
                 ))
             })
             .then_some(())
     })
     .await;
+    let messages = wait_for(async || {
+        let messages = chat::view(&engine, "owner", REPOSITORY, 12)
+            .await
+            .unwrap()
+            .messages;
+        messages
+            .iter()
+            .any(|message| {
+                message.author == Author::Lead && message.text.contains("I have the report.")
+            })
+            .then_some(messages)
+    })
+    .await;
+    assert!(
+        !messages
+            .iter()
+            .any(|message| message.author == Author::Researcher),
+        "{messages:?}"
+    );
+    let unread = engine
+        .store
+        .chat_messages()
+        .unread_of("owner", REPOSITORY, 12)
+        .await
+        .unwrap();
+    assert_eq!(
+        unread.count,
+        messages
+            .iter()
+            .filter(|message| message.author != Author::Owner)
+            .count() as i64
+    );
 }
 
 #[tokio::test]

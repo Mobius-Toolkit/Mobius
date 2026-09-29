@@ -1,7 +1,10 @@
+mod markdown;
+
 use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use markdown::Markdown;
 use mobius_api::{
     agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_apps, github_manifest,
     inbox_dismiss, inbox_items, inbox_resume, live, login, logout, organizations, server_agents,
@@ -946,7 +949,7 @@ fn Conversation(
                                     {message.time.to_offset(local_offset()).format(format_description!("[hour]:[minute]")).unwrap_or_default()}
                                 }
                             }
-                            p { "{message.text}" }
+                            Markdown { text: message.text }
                         }
                     }
                     if lead_state.writing {
