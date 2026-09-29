@@ -47,6 +47,8 @@ pub enum Route {
 #[component]
 pub fn App() -> Element {
     rsx! {
+        document::Link { rel: "icon", r#type: "image/svg+xml", href: "/icon.svg" }
+        document::Link { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }
         document::Stylesheet { href: MAIN_CSS }
         Router::<Route> {}
     }
