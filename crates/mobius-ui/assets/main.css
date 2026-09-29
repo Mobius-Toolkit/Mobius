@@ -60,6 +60,7 @@ button {
 .grow {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .muted {
@@ -190,6 +191,7 @@ a.btn {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .shell {
@@ -344,6 +346,7 @@ button.chip.on {
 .head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 14px;
   min-height: 48px;
@@ -378,13 +381,15 @@ button.chip.on {
 .chat {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 48px);
+  flex: 1;
+  min-height: 0;
 }
 
 .msgs {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -415,6 +420,11 @@ button.chip.on {
   margin-bottom: 2px;
   font-size: 11.5px;
   color: var(--muted);
+}
+
+.md {
+  overflow-wrap: break-word;
+  overflow-x: auto;
 }
 
 .md * {
@@ -458,6 +468,7 @@ button.chip.on {
   background: var(--ground);
   border-radius: 4px;
   padding: 6px 8px;
+  overflow-x: auto;
 }
 
 .md pre code {
@@ -505,7 +516,8 @@ button.chip.on {
 
 .composer {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px;
   background: var(--surface);
@@ -515,6 +527,9 @@ button.chip.on {
 .composer textarea {
   width: 100%;
   height: 40px;
+  min-height: 40px;
+  max-height: 160px;
+  overflow-y: auto;
   resize: none;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -530,11 +545,14 @@ button.chip.on {
 
 .page {
   display: flex;
+  height: 100dvh;
 }
 
 .column {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .side {
@@ -647,6 +665,11 @@ a.node {
   color: var(--crit);
 }
 
+.tr div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .tr .k {
   font-size: 11px;
   font-weight: 600;
@@ -698,7 +721,7 @@ a.node {
 }
 
 .login {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -733,6 +756,7 @@ a.node {
 @media (max-width: 700px) {
   .shell {
     flex-direction: column;
+    height: 100dvh;
   }
 
   .rail {
@@ -774,27 +798,17 @@ a.node {
   }
 
   .center {
-    padding-bottom: 56px;
-  }
-
-  .column {
-    display: flex;
-    flex-direction: column;
-    height: calc(100dvh - 56px);
-  }
-
-  .chat {
-    height: auto;
-    flex: 1;
     min-height: 0;
+    overflow-y: auto;
+  }
+
+  .page {
+    height: 100%;
   }
 
   .tabs {
     display: flex;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    flex: none;
     padding-bottom: env(safe-area-inset-bottom, 0px);
     background: var(--surface);
     border-top: 1px solid var(--line);
@@ -822,9 +836,17 @@ a.node {
     font-weight: 600;
   }
 
+  /* Less than 16px, and iOS zooms the page when the input gets the focus. */
+  .composer textarea,
+  .login input,
+  .connect input {
+    font-size: 16px;
+  }
+
   .item .btn,
   .login .btn,
-  .connect .btn {
+  .connect .btn,
+  .composer .btn {
     padding-top: 11px;
     padding-bottom: 11px;
   }
