@@ -1,8 +1,8 @@
 use std::error::Error;
 
-use mobius_domain::{InboxKind, Live};
+use mobius_domain::{InboxKind, Live, organization};
 use mobius_github::Repository;
-use mobius_store::Task;
+use mobius_store::{NewInboxItem, Task};
 
 use crate::{
     Engine, NEEDS_HUMAN_LABEL, WORKING_LABEL, implementer, judge, lead_events, reviewer,
@@ -70,14 +70,15 @@ async fn lost_tasks(
         let item = engine
             .store
             .inbox_items()
-            .add(
-                InboxKind::Stopped,
-                name,
+            .add(NewInboxItem {
+                kind: InboxKind::Stopped,
+                organization: organization(name),
+                repository: name,
                 workstream,
-                issue.number,
-                LOST_TEXT,
-                &issue.html_url,
-            )
+                issue: issue.number,
+                text: LOST_TEXT,
+                link: &issue.html_url,
+            })
             .await?;
         engine.broadcast(Live::Inbox(item));
         repository

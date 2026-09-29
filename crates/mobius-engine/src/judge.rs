@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::time::Instant;
 
-use mobius_domain::Live;
+use mobius_domain::{Live, organization};
 use mobius_github::{PullRequest, Repository};
 use mobius_store::Task;
 use serde::Deserialize;
@@ -282,8 +282,23 @@ async fn session(
     job: &Job,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let binding = &engine.config.roles.judge;
-    let session = lead::add_session(engine, ROLE, binding, &job.repository, job.workstream).await?;
-    let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, None);
+    let session = lead::add_session(
+        engine,
+        ROLE,
+        binding,
+        organization(&job.repository),
+        &job.repository,
+        job.workstream,
+    )
+    .await?;
+    let mut recorder = Recorder::new(
+        engine,
+        session,
+        organization(&job.repository),
+        &job.repository,
+        job.workstream,
+        None,
+    );
     let started = engine.store.sessions().start(session).await?;
     engine.broadcast(Live::Agent(agents::node(started)));
     let (verdicts, mut received) = mpsc::unbounded_channel();
@@ -292,6 +307,7 @@ async fn session(
         mcp::Caller {
             session,
             role: ROLE,
+            organization: organization(&job.repository).to_string(),
             repository: job.repository.clone(),
             workstream: job.workstream,
             cannot_do: None,

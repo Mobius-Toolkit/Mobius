@@ -43,7 +43,7 @@ async fn ended_session(engine: &Engine) -> Session {
         engine
             .store
             .sessions()
-            .list(REPOSITORY, 12)
+            .list("owner", REPOSITORY, 12)
             .await
             .unwrap()
             .into_iter()
@@ -55,14 +55,14 @@ async fn ended_session(engine: &Engine) -> Session {
 
 // Sends one Owner message and gives the Lead reply, which `fake-agent` makes from the tool result.
 async fn lead_reply(engine: &Engine) -> (Session, String) {
-    chat::send(engine, REPOSITORY, 12, "Read the work")
+    chat::send(engine, "owner", REPOSITORY, 12, "Read the work")
         .await
         .unwrap();
     let session = ended_session(engine).await;
     let reply = engine
         .store
         .chat_messages()
-        .list(REPOSITORY, 12)
+        .list("owner", REPOSITORY, 12)
         .await
         .unwrap()
         .into_iter()

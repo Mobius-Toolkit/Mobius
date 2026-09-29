@@ -64,7 +64,8 @@ struct Organization(Signal<String>);
 #[derive(Clone, Copy)]
 struct Workstreams(Resource<ServerFnResult<Vec<Workstream>>>);
 
-type ChatKey = (String, i64);
+// The organization, the repository, and the Workstream. The Triager chat has the empty repository.
+type ChatKey = (String, String, i64);
 
 #[derive(Clone, PartialEq)]
 struct LeadState {
@@ -81,14 +82,7 @@ struct LiveState {
     agents: Signal<HashMap<i64, AgentNode>>,
     inbox: Signal<HashMap<i64, InboxItem>>,
     // The Workstream that the Triager chat created last.
-    created: Signal<Option<ChatKey>>,
-}
-
-// The Triager chat has the organization name in place of a repository name.
-fn owner(repository: &str) -> &str {
-    repository
-        .split_once('/')
-        .map_or(repository, |(owner, _)| owner)
+    created: Signal<Option<(String, i64)>>,
 }
 
 fn select_organization(mut organization: Signal<String>, name: String) {
@@ -145,7 +139,12 @@ async fn follow_live(
             state.unread.set(
                 counts
                     .into_iter()
-                    .map(|unread| ((unread.repository, unread.workstream), unread.count))
+                    .map(|unread| {
+                        (
+                            (unread.organization, unread.repository, unread.workstream),
+                            unread.count,
+                        )
+                    })
                     .collect(),
             );
         }
@@ -174,21 +173,22 @@ async fn follow_live(
                         }
                         Live::Message(message) => upsert(&mut state.messages.write(), message),
                         Live::Lead {
+                            organization,
                             repository,
                             workstream,
                             writing,
                             error,
                         } => {
-                            state
-                                .leads
-                                .write()
-                                .insert((repository, workstream), LeadState { writing, error });
+                            state.leads.write().insert(
+                                (organization, repository, workstream),
+                                LeadState { writing, error },
+                            );
                         }
                         Live::Unread(unread) => {
-                            state
-                                .unread
-                                .write()
-                                .insert((unread.repository, unread.workstream), unread.count);
+                            state.unread.write().insert(
+                                (unread.organization, unread.repository, unread.workstream),
+                                unread.count,
+                            );
                         }
                         Live::Agent(node) => {
                             state.agents.write().insert(node.session.id, node);
@@ -282,7 +282,7 @@ fn Frame() -> Element {
         .inbox
         .read()
         .values()
-        .filter(|item| owner(&item.repository) == organization())
+        .filter(|item| item.organization == organization())
         .count();
     let switch = switchable();
     match &*app_slugs.read() {
@@ -355,10 +355,10 @@ fn OrganizationSwitch() -> Element {
     };
     let mut work: HashMap<String, i64> = HashMap::new();
     for item in state.inbox.read().values() {
-        *work.entry(owner(&item.repository).to_string()).or_default() += 1;
+        *work.entry(item.organization.clone()).or_default() += 1;
     }
-    for ((repository, _), count) in state.unread.read().iter() {
-        *work.entry(owner(repository).to_string()).or_default() += count;
+    for ((organization, _, _), count) in state.unread.read().iter() {
+        *work.entry(organization.clone()).or_default() += count;
     }
     let selected = organization();
     let elsewhere = work
@@ -406,7 +406,7 @@ fn WorkstreamEntries() -> Element {
     let Organization(organization) = use_context();
     match &*workstream_list.read() {
         Some(Ok(list)) => rsx! {
-            for workstream in list.iter().filter(|workstream| owner(&workstream.repository) == organization()).cloned() {
+            for workstream in list.iter().filter(|workstream| mobius_domain::organization(&workstream.repository) == organization()).cloned() {
                 WorkstreamEntry { key: "{workstream.repository}#{workstream.number}", workstream }
             }
         },
@@ -422,7 +422,11 @@ fn WorkstreamEntry(workstream: Workstream) -> Element {
     let unread = state
         .unread
         .read()
-        .get(&(workstream.repository.clone(), workstream.number))
+        .get(&(
+            owner.to_string(),
+            workstream.repository.clone(),
+            workstream.number,
+        ))
         .copied()
         .unwrap_or(0);
     rsx! {
@@ -504,7 +508,8 @@ fn NewWorkstream() -> Element {
     rsx! {
         div { class: "page",
             Conversation {
-                repository: organization(),
+                organization: organization(),
+                repository: String::new(),
                 number: 0,
                 agent: "Triager",
                 head: rsx! { h2 { class: "ellip", "New Workstream" } },
@@ -539,7 +544,7 @@ fn ServerAgents() -> Element {
     }
     let mut nodes: Vec<AgentNode> = nodes
         .into_values()
-        .filter(|node| owner(&node.session.repository) == organization())
+        .filter(|node| node.session.organization == organization())
         .collect();
     nodes.sort_by_key(|node| Reverse(node.session.id));
     if let Some(node) = selected().and_then(|id| nodes.iter().find(|node| node.session.id == id)) {
@@ -581,7 +586,7 @@ fn Inbox() -> Element {
     let mut items: Vec<InboxItem> = inbox
         .read()
         .values()
-        .filter(|item| owner(&item.repository) == organization())
+        .filter(|item| item.organization == organization())
         .cloned()
         .collect();
     items.sort_by_key(|item| Reverse(item.id));
@@ -654,7 +659,9 @@ fn Activity() -> Element {
     let chips: Vec<Workstream> = match &*workstream_list.read() {
         Some(Ok(list)) => list
             .iter()
-            .filter(|workstream| owner(&workstream.repository) == organization())
+            .filter(|workstream| {
+                mobius_domain::organization(&workstream.repository) == organization()
+            })
             .cloned()
             .collect(),
         _ => Vec::new(),
@@ -663,7 +670,7 @@ fn Activity() -> Element {
         .read()
         .iter()
         .rev()
-        .filter(|row| owner(&row.repository) == organization())
+        .filter(|row| mobius_domain::organization(&row.repository) == organization())
         .filter(|row| {
             selected.read().as_ref().is_none_or(|(repository, number)| {
                 row.repository == *repository && row.workstream == *number
@@ -721,6 +728,7 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     rsx! {
         div { class: "page",
             Conversation {
+                organization: owner.clone(),
                 repository: repository.clone(),
                 number,
                 agent: "Lead",
@@ -751,17 +759,20 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
 
 #[component]
 fn Conversation(
+    organization: String,
     repository: String,
     number: i64,
     agent: &'static str,
     head: Element,
     tail: Element,
 ) -> Element {
-    let key = (repository.clone(), number);
+    let key = (organization.clone(), repository.clone(), number);
     let state: LiveState = use_context();
     let history = use_resource(use_reactive(
-        (&repository, &number),
-        |(repository, number)| async move { chat_view(repository, number).await },
+        (&organization, &repository, &number),
+        |(organization, repository, number)| async move {
+            chat_view(organization, repository, number).await
+        },
     ));
     let mut text = use_signal(String::new);
     let mut send_error = use_signal(String::new);
@@ -771,7 +782,10 @@ fn Conversation(
         _ => (Vec::new(), false, None),
     };
     for message in state.messages.read().iter() {
-        if message.repository != repository || message.workstream != number {
+        if message.organization != organization
+            || message.repository != repository
+            || message.workstream != number
+        {
             continue;
         }
         upsert(&mut messages, message.clone());
@@ -788,21 +802,27 @@ fn Conversation(
         .map(|message| message.id);
     let unread = state.unread.read().get(&key).copied().unwrap_or(0);
     use_effect(use_reactive(
-        (&repository, &number, &last_agent_message, &unread),
-        |(repository, number, last_agent_message, unread)| {
+        (
+            &organization,
+            &repository,
+            &number,
+            &last_agent_message,
+            &unread,
+        ),
+        |(organization, repository, number, last_agent_message, unread)| {
             if unread > 0
                 && let Some(message) = last_agent_message
             {
                 spawn(async move {
                     // A failed call keeps the count, and the next message of the agent calls again.
-                    let _ = chat_seen(repository, number, message).await;
+                    let _ = chat_seen(organization, repository, number, message).await;
                 });
             }
         },
     ));
 
-    let send_repository = repository.clone();
-    let stop_repository = repository.clone();
+    let send_key = (organization.clone(), repository.clone());
+    let stop_key = (organization.clone(), repository.clone());
     rsx! {
         div { class: "column",
             div { class: "head",
@@ -853,13 +873,13 @@ fn Conversation(
                 form {
                     class: "composer",
                     onsubmit: move |event: FormEvent| {
-                        let repository = send_repository.clone();
+                        let (organization, repository) = send_key.clone();
                         async move {
                             event.prevent_default();
                             if text().trim().is_empty() {
                                 return;
                             }
-                            match chat_send(repository, number, text()).await {
+                            match chat_send(organization, repository, number, text()).await {
                                 Ok(()) => {
                                     text.set(String::new());
                                     send_error.set(String::new());
@@ -881,9 +901,9 @@ fn Conversation(
                             class: "btn danger",
                             r#type: "button",
                             onclick: move |_| {
-                                let repository = stop_repository.clone();
+                                let (organization, repository) = stop_key.clone();
                                 async move {
-                                    if let Err(failure) = chat_stop(repository, number).await {
+                                    if let Err(failure) = chat_stop(organization, repository, number).await {
                                         send_error.set(error_text(&failure));
                                     }
                                 }

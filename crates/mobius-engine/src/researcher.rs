@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use mobius_domain::Author;
+use mobius_domain::{Author, organization};
 use mobius_runner::Session;
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -41,8 +41,23 @@ async fn session(
     job: &Job,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let binding = &engine.config.roles.researcher;
-    let session = lead::add_session(engine, ROLE, binding, &job.repository, job.workstream).await?;
-    let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, None);
+    let session = lead::add_session(
+        engine,
+        ROLE,
+        binding,
+        organization(&job.repository),
+        &job.repository,
+        job.workstream,
+    )
+    .await?;
+    let mut recorder = Recorder::new(
+        engine,
+        session,
+        organization(&job.repository),
+        &job.repository,
+        job.workstream,
+        None,
+    );
     let slot = match workers::research_slot(engine, session, binding.harness).await {
         Ok(slot) => slot,
         Err(error) => {
@@ -58,6 +73,7 @@ async fn session(
         mcp::Caller {
             session,
             role: ROLE,
+            organization: organization(&job.repository).to_string(),
             repository: job.repository.clone(),
             workstream: job.workstream,
             cannot_do: None,
@@ -106,6 +122,7 @@ async fn deliver(
             );
             chat::post(
                 engine,
+                organization(&job.repository),
                 &job.repository,
                 job.workstream,
                 Author::Researcher,

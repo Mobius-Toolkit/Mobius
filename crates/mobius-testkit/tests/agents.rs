@@ -49,7 +49,7 @@ async fn ended_node(engine: &Engine) -> AgentNode {
 }
 
 async fn lines(engine: &Engine) -> Vec<TranscriptLine> {
-    chat::send(engine, REPOSITORY, 12, "Read the work")
+    chat::send(engine, "owner", REPOSITORY, 12, "Read the work")
         .await
         .unwrap();
     let node = ended_node(engine).await;
@@ -78,7 +78,7 @@ async fn a_chat_session_is_a_lead_node_that_is_live_until_it_ends() {
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github, "[[prompts]]\nhang = true\n").await;
 
-    chat::send(&engine, REPOSITORY, 12, "Plan the loyalty API")
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the loyalty API")
         .await
         .unwrap();
 
@@ -89,7 +89,7 @@ async fn a_chat_session_is_a_lead_node_that_is_live_until_it_ends() {
     assert_eq!(node.session.model, "opus");
     assert_eq!(node.session.ended_at, None);
 
-    chat::stop(&engine, REPOSITORY, 12).unwrap();
+    chat::stop(&engine, "owner", REPOSITORY, 12).unwrap();
 
     let node = ended_node(&engine).await;
     assert_eq!(node.session.end_reason.as_deref(), Some("idle"));
@@ -103,7 +103,7 @@ async fn the_live_feed_gives_the_node_at_the_start_and_at_the_end() {
     let engine = connect(&data_dir, &github, "[[prompts]]\nreply = [\"Hello\"]\n").await;
     let mut feed = activity::feed(&engine, None).await.unwrap();
 
-    chat::send(&engine, REPOSITORY, 12, "Plan the loyalty API")
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the loyalty API")
         .await
         .unwrap();
 

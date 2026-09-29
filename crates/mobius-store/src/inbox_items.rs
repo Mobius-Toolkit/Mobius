@@ -11,6 +11,7 @@ pub struct InboxItems<'a> {
 struct Row {
     id: i64,
     kind: String,
+    organization: String,
     repository: String,
     workstream: i64,
     issue: i64,
@@ -29,6 +30,7 @@ impl Row {
         Ok(InboxItem {
             id: self.id,
             kind,
+            organization: self.organization,
             repository: self.repository,
             workstream: self.workstream,
             issue: self.issue,
@@ -40,31 +42,37 @@ impl Row {
     }
 }
 
+pub struct NewInboxItem<'a> {
+    pub kind: InboxKind,
+    pub organization: &'a str,
+    pub repository: &'a str,
+    pub workstream: i64,
+    pub issue: i64,
+    pub text: &'a str,
+    pub link: &'a str,
+}
+
 impl InboxItems<'_> {
     pub async fn add(
         &self,
-        kind: InboxKind,
-        repository: &str,
-        workstream: i64,
-        issue: i64,
-        text: &str,
-        link: &str,
+        item: NewInboxItem<'_>,
     ) -> Result<InboxItem, Box<dyn Error + Send + Sync>> {
-        let kind = kind.name();
+        let kind = item.kind.name();
         let time = OffsetDateTime::now_utc();
         sqlx::query_as!(
             Row,
-            r#"INSERT INTO inbox_items (kind, repository, workstream, issue, text, link, time)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
-               RETURNING id AS "id!", kind, repository, workstream, issue, text, link,
+            r#"INSERT INTO inbox_items (kind, organization, repository, workstream, issue, text, link, time)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               RETURNING id AS "id!", kind, organization, repository, workstream, issue, text, link,
                          time AS "time: OffsetDateTime",
                          dismissed_at AS "dismissed_at: OffsetDateTime""#,
             kind,
-            repository,
-            workstream,
-            issue,
-            text,
-            link,
+            item.organization,
+            item.repository,
+            item.workstream,
+            item.issue,
+            item.text,
+            item.link,
             time
         )
         .fetch_one(self.pool)
@@ -75,7 +83,7 @@ impl InboxItems<'_> {
     pub async fn open(&self) -> Result<Vec<InboxItem>, Box<dyn Error + Send + Sync>> {
         let rows = sqlx::query_as!(
             Row,
-            r#"SELECT id, kind, repository, workstream, issue, text, link,
+            r#"SELECT id, kind, organization, repository, workstream, issue, text, link,
                       time AS "time: OffsetDateTime",
                       dismissed_at AS "dismissed_at: OffsetDateTime"
                FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id"#
@@ -90,7 +98,7 @@ impl InboxItems<'_> {
         sqlx::query_as!(
             Row,
             r#"UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
-               RETURNING id AS "id!", kind, repository, workstream, issue, text, link,
+               RETURNING id AS "id!", kind, organization, repository, workstream, issue, text, link,
                          time AS "time: OffsetDateTime",
                          dismissed_at AS "dismissed_at: OffsetDateTime""#,
             dismissed_at,

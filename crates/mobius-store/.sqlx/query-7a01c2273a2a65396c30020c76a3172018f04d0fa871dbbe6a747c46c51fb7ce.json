@@ -1,0 +1,57 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT chat_messages.organization, chat_messages.repository, chat_messages.workstream,\n                      count(*) AS \"count!: i64\"\n               FROM chat_messages\n               LEFT JOIN chat_seen ON chat_seen.organization = chat_messages.organization\n                                  AND chat_seen.repository = chat_messages.repository\n                                  AND chat_seen.workstream = chat_messages.workstream\n               WHERE chat_messages.author <> 'Owner' AND chat_messages.id > coalesce(chat_seen.message, 0)\n               GROUP BY chat_messages.organization, chat_messages.repository, chat_messages.workstream",
+  "describe": {
+    "columns": [
+      {
+        "name": "organization",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "organization"
+          }
+        }
+      },
+      {
+        "name": "repository",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "repository"
+          }
+        }
+      },
+      {
+        "name": "workstream",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "workstream"
+          }
+        }
+      },
+      {
+        "name": "count!: i64",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7a01c2273a2a65396c30020c76a3172018f04d0fa871dbbe6a747c46c51fb7ce"
+}

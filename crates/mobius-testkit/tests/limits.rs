@@ -113,7 +113,7 @@ async fn a_usage_limit_pauses_the_harness_until_resume_now_sends_the_prompt_agai
     let session = engine
         .store
         .sessions()
-        .list(REPOSITORY, 12)
+        .list("owner", REPOSITORY, 12)
         .await
         .unwrap()
         .into_iter()

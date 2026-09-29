@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT count(*) AS \"count!: i64\" FROM chat_messages\n               WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Owner'\n                 AND id > coalesce((SELECT message FROM chat_seen\n                                    WHERE organization = ? AND repository = ? AND workstream = ?), 0)",
+  "describe": {
+    "columns": [
+      {
+        "name": "count!: i64",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "01f7c637092c174cf86b525255d8e29db05a6ff8b325ebf45e64dd4766c2b8bb"
+}

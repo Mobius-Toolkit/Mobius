@@ -58,7 +58,7 @@ async fn event_sessions(engine: &Engine, workstream: i64) -> Vec<Session> {
     engine
         .store
         .sessions()
-        .list(REPOSITORY, workstream)
+        .list("owner", REPOSITORY, workstream)
         .await
         .unwrap()
         .into_iter()
@@ -154,7 +154,7 @@ async fn a_ready_label_of_a_trusted_user_dispatches_the_issue_and_the_lead_decli
         engine
             .store
             .chat_messages()
-            .list(REPOSITORY, 12)
+            .list("owner", REPOSITORY, 12)
             .await
             .unwrap()
             .is_empty()

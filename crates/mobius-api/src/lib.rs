@@ -167,27 +167,45 @@ pub async fn live(after: Option<i64>) -> ServerFnResult<ServerEvents<Live>> {
 }
 
 #[post("/api/chat", _device: DeviceId, engine: Extension<Engine>)]
-pub async fn chat_view(repository: String, workstream: i64) -> ServerFnResult<ChatView> {
-    chat::view(&engine, &repository, workstream)
+pub async fn chat_view(
+    organization: String,
+    repository: String,
+    workstream: i64,
+) -> ServerFnResult<ChatView> {
+    chat::view(&engine, &organization, &repository, workstream)
         .await
         .map_err(ServerFnError::new)
 }
 
 #[post("/api/chat/send", _device: DeviceId, engine: Extension<Engine>)]
-pub async fn chat_send(repository: String, workstream: i64, text: String) -> ServerFnResult<()> {
-    chat::send(&engine, &repository, workstream, &text)
+pub async fn chat_send(
+    organization: String,
+    repository: String,
+    workstream: i64,
+    text: String,
+) -> ServerFnResult<()> {
+    chat::send(&engine, &organization, &repository, workstream, &text)
         .await
         .map_err(ServerFnError::new)
 }
 
 #[post("/api/chat/stop", _device: DeviceId, engine: Extension<Engine>)]
-pub async fn chat_stop(repository: String, workstream: i64) -> ServerFnResult<()> {
-    chat::stop(&engine, &repository, workstream).map_err(ServerFnError::new)
+pub async fn chat_stop(
+    organization: String,
+    repository: String,
+    workstream: i64,
+) -> ServerFnResult<()> {
+    chat::stop(&engine, &organization, &repository, workstream).map_err(ServerFnError::new)
 }
 
 #[post("/api/chat/seen", _device: DeviceId, engine: Extension<Engine>)]
-pub async fn chat_seen(repository: String, workstream: i64, message: i64) -> ServerFnResult<()> {
-    chat::seen(&engine, &repository, workstream, message)
+pub async fn chat_seen(
+    organization: String,
+    repository: String,
+    workstream: i64,
+    message: i64,
+) -> ServerFnResult<()> {
+    chat::seen(&engine, &organization, &repository, workstream, message)
         .await
         .map_err(ServerFnError::new)
 }

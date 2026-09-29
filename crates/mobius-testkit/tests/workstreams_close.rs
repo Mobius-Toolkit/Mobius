@@ -67,7 +67,7 @@ async fn sessions(engine: &Engine, role: &str) -> Vec<Session> {
     engine
         .store
         .sessions()
-        .list(REPOSITORY, 12)
+        .list("owner", REPOSITORY, 12)
         .await
         .unwrap()
         .into_iter()
@@ -115,7 +115,7 @@ async fn a_close_stops_the_lead_and_closes_the_pull_requests_and_issues_below() 
     github.add_issue(REPOSITORY, 44, "Price table");
     github.add_blocker(REPOSITORY, 43, 44);
     github.add_label(REPOSITORY, 43, "mobius:ready", "owner");
-    chat::send(&engine, REPOSITORY, 12, "Plan the next step.")
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the next step.")
         .await
         .unwrap();
     started(&engine, "lead_chat").await;

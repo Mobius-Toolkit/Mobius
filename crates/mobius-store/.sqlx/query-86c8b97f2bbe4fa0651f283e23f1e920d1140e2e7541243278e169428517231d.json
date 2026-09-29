@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO chat_seen (organization, repository, workstream, message) VALUES (?, ?, ?, ?)\n             ON CONFLICT (organization, repository, workstream)\n             DO UPDATE SET message = max(message, excluded.message)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "86c8b97f2bbe4fa0651f283e23f1e920d1140e2e7541243278e169428517231d"
+}

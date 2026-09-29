@@ -95,11 +95,11 @@ async fn the_triager_chat_of_an_organization_creates_the_workstream_in_its_repos
     let engine = connect(&data_dir, &github).await;
     let mut feed = activity::feed(&engine, None).await.unwrap();
 
-    chat::send(&engine, "other", 0, "Start a Workstream for seeds.")
+    chat::send(&engine, "other", "", 0, "Start a Workstream for seeds.")
         .await
         .unwrap();
     wait_for(async || {
-        chat::view(&engine, "other", 0)
+        chat::view(&engine, "other", "", 0)
             .await
             .unwrap()
             .messages
@@ -107,7 +107,7 @@ async fn the_triager_chat_of_an_organization_creates_the_workstream_in_its_repos
             .find(|message| message.author == Author::Triager)
     })
     .await;
-    chat::send(&engine, "other", 0, "Yes, create it.")
+    chat::send(&engine, "other", "", 0, "Yes, create it.")
         .await
         .unwrap();
 
@@ -125,7 +125,7 @@ async fn the_triager_chat_of_an_organization_creates_the_workstream_in_its_repos
     let session = engine
         .store
         .sessions()
-        .list("other", 0)
+        .list("other", "", 0)
         .await
         .unwrap()
         .remove(0);
@@ -147,7 +147,7 @@ async fn gh_in_a_lead_chat_gets_the_user_token_of_the_app_of_the_repository() {
     let engine = connect(&data_dir, &github).await;
     assert!(github::authorize_user(&engine, "user-code").await.unwrap());
 
-    chat::send(&engine, GARDEN, 12, "List the issues")
+    chat::send(&engine, "other", GARDEN, 12, "List the issues")
         .await
         .unwrap();
 
@@ -155,7 +155,7 @@ async fn gh_in_a_lead_chat_gets_the_user_token_of_the_app_of_the_repository() {
         engine
             .store
             .chat_messages()
-            .list(GARDEN, 12)
+            .list("other", GARDEN, 12)
             .await
             .unwrap()
             .into_iter()

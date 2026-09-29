@@ -4,6 +4,10 @@ use time::OffsetDateTime;
 // The queue reason of a session that waits for the end of a pause of its Harness starts with this text.
 pub const PAUSED: &str = "paused until ";
 
+pub fn organization(repository: &str) -> &str {
+    repository.split('/').next().unwrap_or_default()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Harness {
@@ -115,6 +119,7 @@ impl Author {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub id: i64,
+    pub organization: String,
     pub repository: String,
     pub workstream: i64,
     pub author: Author,
@@ -131,6 +136,7 @@ pub struct ChatView {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Unread {
+    pub organization: String,
     pub repository: String,
     pub workstream: i64,
     pub count: i64,
@@ -142,6 +148,7 @@ pub struct Session {
     pub role: String,
     pub harness: Harness,
     pub model: String,
+    pub organization: String,
     pub repository: String,
     pub workstream: i64,
     pub acp_session_id: Option<String>,
@@ -220,6 +227,7 @@ impl InboxKind {
 pub struct InboxItem {
     pub id: i64,
     pub kind: InboxKind,
+    pub organization: String,
     pub repository: String,
     pub workstream: i64,
     pub issue: i64,
@@ -234,6 +242,7 @@ pub enum Live {
     Feed(FeedRow),
     Message(ChatMessage),
     Lead {
+        organization: String,
         repository: String,
         workstream: i64,
         writing: bool,

@@ -2,6 +2,7 @@ use std::error::Error;
 use std::path::Path;
 use std::pin::Pin;
 
+use mobius_domain::organization;
 use mobius_github::{PullRequest, Repository};
 use mobius_runner::{Check, Session};
 use mobius_store::Task;
@@ -327,11 +328,19 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         engine,
         ROLE,
         &engine.config.roles.implementer,
+        organization(&job.repository),
         &job.repository,
         job.workstream,
     )
     .await?;
-    let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, None);
+    let mut recorder = Recorder::new(
+        engine,
+        session,
+        organization(&job.repository),
+        &job.repository,
+        job.workstream,
+        None,
+    );
     let harness = engine.config.roles.implementer.harness;
     let slot = match workers::slot(engine, job.task, session, harness).await {
         Ok(slot) => slot,
@@ -351,6 +360,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         mcp::Caller {
             session,
             role: ROLE,
+            organization: organization(&job.repository).to_string(),
             repository: job.repository.clone(),
             workstream: job.workstream,
             cannot_do: Some(cannot_do),

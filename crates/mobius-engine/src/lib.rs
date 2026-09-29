@@ -53,6 +53,9 @@ const NO_WORKSTREAM_LABEL: &str = "mobius:no-workstream";
 const TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[year]-[month]-[day] [hour]:[minute] UTC");
 
+// The organization, the repository, and the Workstream. The Triager chat has the empty repository.
+type ChatKey = (String, String, i64);
+
 #[derive(Clone)]
 pub struct Engine {
     pub config: Arc<Config>,
@@ -61,7 +64,7 @@ pub struct Engine {
     harness_path: Arc<OsString>,
     port: u16,
     repositories: Arc<RwLock<Vec<Repository>>>,
-    chats: Arc<Mutex<HashMap<(String, i64), ChatHandle>>>,
+    chats: Arc<Mutex<HashMap<ChatKey, ChatHandle>>>,
     event_sessions: Arc<Mutex<HashMap<(String, i64), lead_events::Wakes>>>,
     callers: Arc<Mutex<HashMap<String, mcp::Caller>>>,
     live: broadcast::Sender<Live>,

@@ -21,7 +21,7 @@ pub use device_logins::DeviceLogins;
 pub use events::Events;
 pub use github_apps::{GitHubAppRow, GitHubApps};
 pub use harness_pauses::{HarnessPauses, Pause};
-pub use inbox_items::InboxItems;
+pub use inbox_items::{InboxItems, NewInboxItem};
 pub use lead_events::{LeadEvent, LeadEvents};
 pub use sessions::Sessions;
 pub use sync_cursors::{SyncCursor, SyncCursors};

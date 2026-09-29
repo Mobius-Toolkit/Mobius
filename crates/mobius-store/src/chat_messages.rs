@@ -10,6 +10,7 @@ pub struct ChatMessages<'a> {
 
 struct Row {
     id: i64,
+    organization: String,
     repository: String,
     workstream: i64,
     author: String,
@@ -25,6 +26,7 @@ impl Row {
             .ok_or_else(|| format!("unknown chat author `{}`", self.author))?;
         Ok(ChatMessage {
             id: self.id,
+            organization: self.organization,
             repository: self.repository,
             workstream: self.workstream,
             author,
@@ -37,6 +39,7 @@ impl Row {
 impl ChatMessages<'_> {
     pub async fn add(
         &self,
+        organization: &str,
         repository: &str,
         workstream: i64,
         author: Author,
@@ -46,9 +49,10 @@ impl ChatMessages<'_> {
         let time = OffsetDateTime::now_utc();
         let row = sqlx::query_as!(
             Row,
-            r#"INSERT INTO chat_messages (repository, workstream, author, time, text)
-               VALUES (?, ?, ?, ?, ?)
-               RETURNING id, repository, workstream, author, time AS "time: OffsetDateTime", text"#,
+            r#"INSERT INTO chat_messages (organization, repository, workstream, author, time, text)
+               VALUES (?, ?, ?, ?, ?, ?)
+               RETURNING id, organization, repository, workstream, author, time AS "time: OffsetDateTime", text"#,
+            organization,
             repository,
             workstream,
             author,
@@ -68,7 +72,7 @@ impl ChatMessages<'_> {
         let row = sqlx::query_as!(
             Row,
             r#"UPDATE chat_messages SET text = text || ? WHERE id = ?
-               RETURNING id, repository, workstream, author, time AS "time: OffsetDateTime", text"#,
+               RETURNING id, organization, repository, workstream, author, time AS "time: OffsetDateTime", text"#,
             text,
             id
         )
@@ -79,13 +83,16 @@ impl ChatMessages<'_> {
 
     pub async fn list(
         &self,
+        organization: &str,
         repository: &str,
         workstream: i64,
     ) -> Result<Vec<ChatMessage>, Box<dyn Error + Send + Sync>> {
         let rows = sqlx::query_as!(
             Row,
-            r#"SELECT id, repository, workstream, author, time AS "time: OffsetDateTime", text
-               FROM chat_messages WHERE repository = ? AND workstream = ? ORDER BY id"#,
+            r#"SELECT id, organization, repository, workstream, author, time AS "time: OffsetDateTime", text
+               FROM chat_messages WHERE organization = ? AND repository = ? AND workstream = ?
+               ORDER BY id"#,
+            organization,
             repository,
             workstream
         )
@@ -96,6 +103,7 @@ impl ChatMessages<'_> {
 
     pub async fn before(
         &self,
+        organization: &str,
         repository: &str,
         workstream: i64,
         id: i64,
@@ -103,9 +111,10 @@ impl ChatMessages<'_> {
     ) -> Result<Vec<ChatMessage>, Box<dyn Error + Send + Sync>> {
         let rows = sqlx::query_as!(
             Row,
-            r#"SELECT id, repository, workstream, author, time AS "time: OffsetDateTime", text
-               FROM chat_messages WHERE repository = ? AND workstream = ? AND id < ?
+            r#"SELECT id, organization, repository, workstream, author, time AS "time: OffsetDateTime", text
+               FROM chat_messages WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
                ORDER BY id DESC LIMIT ?"#,
+            organization,
             repository,
             workstream,
             id,
@@ -118,6 +127,7 @@ impl ChatMessages<'_> {
 
     pub async fn after(
         &self,
+        organization: &str,
         repository: &str,
         workstream: i64,
         author: Author,
@@ -126,9 +136,11 @@ impl ChatMessages<'_> {
         let author = author.name();
         let rows = sqlx::query_as!(
             Row,
-            r#"SELECT id, repository, workstream, author, time AS "time: OffsetDateTime", text
-               FROM chat_messages WHERE repository = ? AND workstream = ? AND author = ? AND id > ?
+            r#"SELECT id, organization, repository, workstream, author, time AS "time: OffsetDateTime", text
+               FROM chat_messages
+               WHERE organization = ? AND repository = ? AND workstream = ? AND author = ? AND id > ?
                ORDER BY id"#,
+            organization,
             repository,
             workstream,
             author,
@@ -141,13 +153,16 @@ impl ChatMessages<'_> {
 
     pub async fn set_seen(
         &self,
+        organization: &str,
         repository: &str,
         workstream: i64,
         message: i64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         sqlx::query!(
-            "INSERT INTO chat_seen (repository, workstream, message) VALUES (?, ?, ?)
-             ON CONFLICT (repository, workstream) DO UPDATE SET message = max(message, excluded.message)",
+            "INSERT INTO chat_seen (organization, repository, workstream, message) VALUES (?, ?, ?, ?)
+             ON CONFLICT (organization, repository, workstream)
+             DO UPDATE SET message = max(message, excluded.message)",
+            organization,
             repository,
             workstream,
             message
@@ -160,12 +175,14 @@ impl ChatMessages<'_> {
     pub async fn unread(&self) -> Result<Vec<Unread>, Box<dyn Error + Send + Sync>> {
         let unread = sqlx::query_as!(
             Unread,
-            r#"SELECT chat_messages.repository, chat_messages.workstream, count(*) AS "count!: i64"
+            r#"SELECT chat_messages.organization, chat_messages.repository, chat_messages.workstream,
+                      count(*) AS "count!: i64"
                FROM chat_messages
-               LEFT JOIN chat_seen ON chat_seen.repository = chat_messages.repository
+               LEFT JOIN chat_seen ON chat_seen.organization = chat_messages.organization
+                                  AND chat_seen.repository = chat_messages.repository
                                   AND chat_seen.workstream = chat_messages.workstream
                WHERE chat_messages.author <> 'Owner' AND chat_messages.id > coalesce(chat_seen.message, 0)
-               GROUP BY chat_messages.repository, chat_messages.workstream"#
+               GROUP BY chat_messages.organization, chat_messages.repository, chat_messages.workstream"#
         )
         .fetch_all(self.pool)
         .await?;
@@ -174,21 +191,26 @@ impl ChatMessages<'_> {
 
     pub async fn unread_of(
         &self,
+        organization: &str,
         repository: &str,
         workstream: i64,
     ) -> Result<Unread, Box<dyn Error + Send + Sync>> {
         let count = sqlx::query_scalar!(
             r#"SELECT count(*) AS "count!: i64" FROM chat_messages
-               WHERE repository = ? AND workstream = ? AND author <> 'Owner'
-                 AND id > coalesce((SELECT message FROM chat_seen WHERE repository = ? AND workstream = ?), 0)"#,
+               WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Owner'
+                 AND id > coalesce((SELECT message FROM chat_seen
+                                    WHERE organization = ? AND repository = ? AND workstream = ?), 0)"#,
+            organization,
             repository,
             workstream,
+            organization,
             repository,
             workstream
         )
         .fetch_one(self.pool)
         .await?;
         Ok(Unread {
+            organization: organization.to_string(),
             repository: repository.to_string(),
             workstream,
             count,

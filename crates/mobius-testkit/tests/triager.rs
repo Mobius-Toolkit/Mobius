@@ -51,11 +51,11 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
     engine
 }
 
-async fn triagers(engine: &Engine, repository: &str) -> Vec<Session> {
+async fn triagers(engine: &Engine, organization: &str, repository: &str) -> Vec<Session> {
     engine
         .store
         .sessions()
-        .list(repository, 0)
+        .list(organization, repository, 0)
         .await
         .unwrap()
         .into_iter()
@@ -105,7 +105,7 @@ async fn an_issue_with_no_workstream_goes_to_the_triager_that_moves_it() {
     .await;
     assert_eq!(dispatched.actor, "owner");
     let session = wait_for(async || {
-        triagers(&engine, REPOSITORY)
+        triagers(&engine, "owner", REPOSITORY)
             .await
             .into_iter()
             .find(|session| session.ended_at.is_some())
@@ -157,7 +157,8 @@ async fn a_removal_of_the_label_stops_the_triager_and_a_proposal_goes_to_the_iss
     github.add_issue(REPOSITORY, 52, "Add loyalty points");
     github.add_label(REPOSITORY, 51, "mobius:ready", "owner");
     github.add_label(REPOSITORY, 52, "mobius:ready", "owner");
-    wait_for(async || (triagers(&engine, REPOSITORY).await.len() == 2).then_some(())).await;
+    wait_for(async || (triagers(&engine, "owner", REPOSITORY).await.len() == 2).then_some(()))
+        .await;
     assert_eq!(
         github.labels(REPOSITORY, 51),
         ["mobius:no-workstream".to_string()]
@@ -166,7 +167,7 @@ async fn a_removal_of_the_label_stops_the_triager_and_a_proposal_goes_to_the_iss
     github.remove_label(REPOSITORY, 51, "mobius:no-workstream", "owner");
 
     let ended = wait_for(async || {
-        let sessions = triagers(&engine, REPOSITORY).await;
+        let sessions = triagers(&engine, "owner", REPOSITORY).await;
         sessions
             .iter()
             .all(|session| session.ended_at.is_some())
@@ -202,13 +203,14 @@ async fn the_triager_chat_creates_a_workstream_after_the_approval() {
     chat::send(
         &engine,
         "owner",
+        "",
         0,
         "Start a Workstream for loyalty points.",
     )
     .await
     .unwrap();
     wait_for(async || {
-        chat::view(&engine, "owner", 0)
+        chat::view(&engine, "owner", "", 0)
             .await
             .unwrap()
             .messages
@@ -216,7 +218,7 @@ async fn the_triager_chat_creates_a_workstream_after_the_approval() {
             .find(|message| message.author == Author::Triager)
     })
     .await;
-    chat::send(&engine, "owner", 0, "Yes, create it.")
+    chat::send(&engine, "owner", "", 0, "Yes, create it.")
         .await
         .unwrap();
 
@@ -241,7 +243,7 @@ async fn the_triager_chat_creates_a_workstream_after_the_approval() {
         github.labels(REPOSITORY, 13),
         ["mobius:workstream".to_string()]
     );
-    let session = triagers(&engine, "owner").await.remove(0);
+    let session = triagers(&engine, "owner", "").await.remove(0);
     let prompts = texts(&engine, session.id, "prompt").await;
     for part in [
         "You are the Triager",
@@ -259,7 +261,7 @@ async fn the_triager_chat_refuses_an_unknown_organization() {
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github).await;
 
-    let error = chat::send(&engine, "", 0, "Start a Workstream for loyalty points.")
+    let error = chat::send(&engine, "", "", 0, "Start a Workstream for loyalty points.")
         .await
         .unwrap_err();
 
@@ -268,11 +270,11 @@ async fn the_triager_chat_refuses_an_unknown_organization() {
         "Mobius has no repository in the organization \"\"."
     );
     assert!(
-        chat::view(&engine, "", 0)
+        chat::view(&engine, "", "", 0)
             .await
             .unwrap()
             .messages
             .is_empty()
     );
-    assert!(triagers(&engine, "").await.is_empty());
+    assert!(triagers(&engine, "", "").await.is_empty());
 }

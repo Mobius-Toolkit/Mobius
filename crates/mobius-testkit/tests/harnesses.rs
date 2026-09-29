@@ -15,7 +15,12 @@ const PROMPT: &str = "Call the Mobius tool list_tasks one time. Do not call othe
 async fn ended_session(engine: &Engine) -> Session {
     tokio::time::timeout(Duration::from_secs(300), async {
         loop {
-            let sessions = engine.store.sessions().list(REPOSITORY, 12).await.unwrap();
+            let sessions = engine
+                .store
+                .sessions()
+                .list("owner", REPOSITORY, 12)
+                .await
+                .unwrap();
             if let Some(session) = sessions
                 .into_iter()
                 .find(|session| session.ended_at.is_some())
@@ -48,7 +53,9 @@ async fn lead_calls_list_tasks(harness: Harness, model: &str, effort: Option<&st
         .unwrap();
     wait_for(async || (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())).await;
 
-    chat::send(&engine, REPOSITORY, 12, PROMPT).await.unwrap();
+    chat::send(&engine, "owner", REPOSITORY, 12, PROMPT)
+        .await
+        .unwrap();
 
     let session = ended_session(&engine).await;
     let rows = engine.store.transcript().list(session.id).await.unwrap();

@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use mobius_domain::{ChatMessage, Live};
+use mobius_domain::{ChatMessage, Live, organization};
 use mobius_github::Repository;
 use tokio::sync::Notify;
 
@@ -15,7 +15,7 @@ use crate::{
 };
 
 pub(crate) const ROLE: &str = "triager";
-// The Triager belongs to no Workstream. Its chat belongs to an organization, so the key of the chat is (organization, CHAT).
+// The Triager belongs to no Workstream. Its chat belongs to an organization, so the key of the chat is (organization, "", CHAT).
 pub(crate) const CHAT: i64 = 0;
 const ROLE_PROMPT: &str = include_str!("prompts/triager.md");
 
@@ -26,7 +26,7 @@ pub(crate) async fn chat_prompt(
     engine: &Engine,
     first: &ChatMessage,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let repositories = organization_repositories(engine, &first.repository);
+    let repositories = organization_repositories(engine, &first.organization);
     Ok(format!(
         "{ROLE_PROMPT}\n{}\n# Owner message\n\n{}",
         workstreams(&repositories).await?,
@@ -62,14 +62,18 @@ fn organization_repositories(engine: &Engine, organization: &str) -> Vec<Reposit
 }
 
 // The Triager of the chat has an organization and no repository, so it uses the one repository of the organization.
-pub(crate) fn repository(engine: &Engine, name: &str) -> Result<Repository, String> {
-    if name.contains('/') {
-        return engine.repository(name);
+pub(crate) fn repository(
+    engine: &Engine,
+    organization: &str,
+    repository: &str,
+) -> Result<Repository, String> {
+    if !repository.is_empty() {
+        return engine.repository(repository);
     }
-    match organization_repositories(engine, name).as_slice() {
+    match organization_repositories(engine, organization).as_slice() {
         [repository] => Ok(repository.clone()),
         _ => Err(format!(
-            "The Triager chat needs exactly one repository in {name}."
+            "The Triager chat needs exactly one repository in {organization}."
         )),
     }
 }
@@ -144,13 +148,14 @@ async fn session(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let name = &repository.full_name;
     let binding = &engine.config.roles.triager;
-    let session = lead::add_session(engine, ROLE, binding, name, CHAT).await?;
-    let mut recorder = Recorder::new(engine, session, name, CHAT, None);
+    let session = lead::add_session(engine, ROLE, binding, organization(name), name, CHAT).await?;
+    let mut recorder = Recorder::new(engine, session, organization(name), name, CHAT, None);
     let key = mcp::open(
         engine,
         mcp::Caller {
             session,
             role: ROLE,
+            organization: organization(name).to_string(),
             repository: name.clone(),
             workstream: CHAT,
             cannot_do: None,

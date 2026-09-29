@@ -13,6 +13,7 @@ struct Row {
     role: String,
     harness: String,
     model: String,
+    organization: String,
     repository: String,
     workstream: i64,
     acp_session_id: Option<String>,
@@ -33,6 +34,7 @@ impl Row {
             role: self.role,
             harness,
             model: self.model,
+            organization: self.organization,
             repository: self.repository,
             workstream: self.workstream,
             acp_session_id: self.acp_session_id,
@@ -50,6 +52,7 @@ impl Sessions<'_> {
         role: &str,
         harness: Harness,
         model: &str,
+        organization: &str,
         repository: &str,
         workstream: i64,
     ) -> Result<Session, Box<dyn Error + Send + Sync>> {
@@ -57,14 +60,15 @@ impl Sessions<'_> {
         let started_at = OffsetDateTime::now_utc();
         sqlx::query_as!(
             Row,
-            r#"INSERT INTO sessions (role, harness, model, repository, workstream, started_at)
-               VALUES (?, ?, ?, ?, ?, ?)
-               RETURNING id AS "id!", role, harness, model, repository, workstream, acp_session_id,
+            r#"INSERT INTO sessions (role, harness, model, organization, repository, workstream, started_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
                          ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason"#,
             role,
             harness,
             model,
+            organization,
             repository,
             workstream,
             started_at
@@ -97,7 +101,7 @@ impl Sessions<'_> {
         sqlx::query_as!(
             Row,
             r#"UPDATE sessions SET queue_reason = ? WHERE id = ?
-               RETURNING id AS "id!", role, harness, model, repository, workstream, acp_session_id,
+               RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
                          ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason"#,
             reason,
@@ -115,7 +119,7 @@ impl Sessions<'_> {
         sqlx::query_as!(
             Row,
             r#"UPDATE sessions SET queue_reason = NULL WHERE id = ?
-               RETURNING id AS "id!", role, harness, model, repository, workstream, acp_session_id,
+               RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
                          ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason"#,
             id
@@ -130,7 +134,7 @@ impl Sessions<'_> {
         sqlx::query_as!(
             Row,
             r#"UPDATE sessions SET started_at = ?, queue_reason = NULL WHERE id = ?
-               RETURNING id AS "id!", role, harness, model, repository, workstream, acp_session_id,
+               RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
                          ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason"#,
             started_at,
@@ -150,7 +154,7 @@ impl Sessions<'_> {
         sqlx::query_as!(
             Row,
             r#"UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
-               RETURNING id AS "id!", role, harness, model, repository, workstream, acp_session_id,
+               RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
                          ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason"#,
             ended_at,
@@ -175,7 +179,7 @@ impl Sessions<'_> {
     ) -> Result<Vec<Session>, Box<dyn Error + Send + Sync>> {
         let rows = sqlx::query_as!(
             Row,
-            r#"SELECT id, role, harness, model, repository, workstream, acp_session_id,
+            r#"SELECT id, role, harness, model, organization, repository, workstream, acp_session_id,
                       started_at AS "started_at: OffsetDateTime",
                       ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason
                FROM sessions WHERE role = ? ORDER BY id"#,
@@ -188,15 +192,17 @@ impl Sessions<'_> {
 
     pub async fn list(
         &self,
+        organization: &str,
         repository: &str,
         workstream: i64,
     ) -> Result<Vec<Session>, Box<dyn Error + Send + Sync>> {
         let rows = sqlx::query_as!(
             Row,
-            r#"SELECT id, role, harness, model, repository, workstream, acp_session_id,
+            r#"SELECT id, role, harness, model, organization, repository, workstream, acp_session_id,
                       started_at AS "started_at: OffsetDateTime",
                       ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason
-               FROM sessions WHERE repository = ? AND workstream = ? ORDER BY id"#,
+               FROM sessions WHERE organization = ? AND repository = ? AND workstream = ? ORDER BY id"#,
+            organization,
             repository,
             workstream
         )
