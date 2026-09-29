@@ -648,6 +648,15 @@ a.node {
 }
 
 @media (max-width: 700px) {
+  input,
+  select,
+  textarea,
+  .composer textarea,
+  .connect input,
+  .login input {
+    font-size: 16px;
+  }
+
   .shell {
     flex-direction: column;
   }
