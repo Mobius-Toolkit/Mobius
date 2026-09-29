@@ -152,7 +152,9 @@ struct Issue {
     merged_at: Option<i64>,
     state_reason: Option<String>,
     state: &'static str,
-    sub_issues: Vec<i64>,
+    // A sub-issue lives in the repository of its own issue, which can differ from
+    // the repository of the parent, so a child is a (repository, number) pair.
+    sub_issues: Vec<(String, i64)>,
     blocked_by: Vec<i64>,
     labels: Vec<String>,
     updated_at: i64,
@@ -555,7 +557,9 @@ impl FakeGitHub {
     pub fn sub_issue_numbers(&self, repository: &str, number: i64) -> Vec<i64> {
         self.state.lock().unwrap().issues[&(repository.to_string(), number)]
             .sub_issues
-            .clone()
+            .iter()
+            .map(|(_, number)| *number)
+            .collect()
     }
 
     pub fn blocker_numbers(&self, repository: &str, number: i64) -> Vec<i64> {
@@ -828,7 +832,26 @@ impl FakeGitHub {
             .get_mut(&(repository.to_string(), parent))
             .unwrap()
             .sub_issues
-            .push(child);
+            .push((repository.to_string(), child));
+    }
+
+    // Links `child` of `child_repository` as a sub-issue of `parent` in `repository`,
+    // the way GitHub links a sub-issue that lives in another repository.
+    pub fn add_foreign_sub_issue(
+        &self,
+        repository: &str,
+        parent: i64,
+        child_repository: &str,
+        child: i64,
+    ) {
+        self.state
+            .lock()
+            .unwrap()
+            .issues
+            .get_mut(&(repository.to_string(), parent))
+            .unwrap()
+            .sub_issues
+            .push((child_repository.to_string(), child));
     }
 
     pub fn add_label(&self, repository: &str, number: i64, label: &str, actor: &str) {
@@ -1143,10 +1166,12 @@ async fn parent(
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let records = state.lock().unwrap();
-    let parent = records
-        .issues
-        .iter()
-        .find(|((name, _), issue)| *name == repository && issue.sub_issues.contains(&number));
+    let parent = records.issues.iter().find(|((name, _), issue)| {
+        *name == repository
+            && issue.sub_issues.iter().any(|(child_repository, child)| {
+                *child_repository == repository && *child == number
+            })
+    });
     match parent {
         Some(((_, parent), _)) => Json(records.issue_json(&repository, *parent)).into_response(),
         None => not_found(),
@@ -1607,10 +1632,13 @@ async fn add_sub_issue(
     {
         return not_found();
     }
-    let has_parent = records
-        .issues
-        .iter()
-        .any(|((name, _), issue)| *name == repository && issue.sub_issues.contains(&child));
+    let has_parent = records.issues.iter().any(|((name, _), issue)| {
+        *name == repository
+            && issue
+                .sub_issues
+                .iter()
+                .any(|(child_repository, n)| *child_repository == repository && *n == child)
+    });
     if has_parent && !new.replace_parent {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -1620,7 +1648,9 @@ async fn add_sub_issue(
     }
     for ((name, _), issue) in records.issues.iter_mut() {
         if *name == repository {
-            issue.sub_issues.retain(|sub_issue| *sub_issue != child);
+            issue
+                .sub_issues
+                .retain(|(child_repository, n)| !(*child_repository == repository && *n == child));
         }
     }
     records
@@ -1628,7 +1658,7 @@ async fn add_sub_issue(
         .get_mut(&(repository.clone(), number))
         .unwrap()
         .sub_issues
-        .push(child);
+        .push((repository.clone(), child));
     (
         StatusCode::CREATED,
         Json(records.issue_json(&repository, number)),
@@ -1697,7 +1727,7 @@ async fn sub_issues(
     let children = parent
         .sub_issues
         .iter()
-        .map(|child| records.issue_json(&repository, *child))
+        .map(|(child_repository, child)| records.issue_json(child_repository, *child))
         .collect();
     Json(page.of(children)).into_response()
 }

@@ -15,14 +15,21 @@ pub async fn list(
     let repository = engine.repository(repository)?;
     let trusted = trust::trusted_authors(engine, &repository);
     let mut lines = Vec::new();
-    // Each frame walks the sub-issues of one issue. A frame holds the depth of its issues.
+    // Each frame walks the sub-issues of one issue at one display depth.
     let mut frames: Vec<(i64, std::vec::IntoIter<Issue>)> =
         vec![(0, repository.sub_issues(workstream).await?.into_iter())];
     while let Some((depth, issue)) = next_issue(&mut frames) {
-        if issue.has_label(WORKSTREAM_LABEL) {
+        // An issue below a nested Workstream is a task of that Workstream. A
+        // sub-issue that lives in another repository cannot be walked through
+        // this repository: its number names a different issue here, so reading
+        // its sub-issues would show the wrong tasks or fail the whole request.
+        if issue.has_label(WORKSTREAM_LABEL)
+            || ends::in_other_repository(&issue, &repository.full_name)
+        {
             continue;
         }
-        if issue.state == "open" && trusted(&issue.user.login) {
+        let visible = issue.state == "open" && trusted(&issue.user.login);
+        if visible {
             let mut line = task_line(&issue, depth);
             if issue.issue_dependencies_summary.blocked_by > 0 {
                 line.blocked_by = blockers(&repository, workstream, issue.number).await?;
@@ -39,11 +46,11 @@ pub async fn list(
             }
             lines.push(line);
         }
-        // The sub-issues of a closed or untrusted issue still belong to the Workstream.
-        frames.push((
-            depth + 1,
-            repository.sub_issues(issue.number).await?.into_iter(),
-        ));
+        // The sub-issues of a closed or untrusted issue still belong to the
+        // Workstream. They take the depth of their hidden parent, so a nested
+        // task does not move below an unrelated sibling.
+        let children = repository.sub_issues(issue.number).await?.into_iter();
+        frames.push((depth + i64::from(visible), children));
     }
     Ok(lines)
 }
