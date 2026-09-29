@@ -411,9 +411,82 @@ button.chip.on {
   color: var(--muted);
 }
 
-.msg p {
+.md * {
   margin: 0;
-  white-space: pre-wrap;
+}
+
+.md > * + *,
+.md li > * + *,
+.md blockquote > * + *,
+.md li > ul,
+.md li > ol,
+.md li > pre,
+.md li > blockquote,
+.md li > table {
+  margin-top: 8px;
+}
+
+.md h1,
+.md h2 {
+  font-size: 16px;
+}
+
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  font-size: 14px;
+}
+
+.md code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--ground);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.md pre {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--ground);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+
+.md pre code {
+  background: none;
+  padding: 0;
+}
+
+.md blockquote {
+  border-left: 3px solid var(--line);
+  padding-left: 10px;
+  color: var(--muted);
+}
+
+.md ul,
+.md ol {
+  padding-left: 22px;
+}
+
+.md table {
+  border-collapse: collapse;
+}
+
+.md th,
+.md td {
+  border: 1px solid var(--line);
+  padding: 3px 8px;
+}
+
+.md a {
+  color: var(--accent);
+}
+
+.md hr {
+  border: none;
+  border-top: 1px solid var(--line);
 }
 
 .typing {
