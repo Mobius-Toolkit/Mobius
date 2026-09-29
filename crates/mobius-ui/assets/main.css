@@ -616,8 +616,10 @@ a.node {
   text-decoration: none;
 }
 
-.node:hover {
-  background: var(--raised);
+@media (hover: hover) {
+  .node:hover {
+    background: var(--raised);
+  }
 }
 
 .node .role {
@@ -640,8 +642,10 @@ a.node {
   border-radius: 6px;
 }
 
-.tr:hover {
-  background: var(--raised);
+@media (hover: hover) {
+  .tr:hover {
+    background: var(--raised);
+  }
 }
 
 .tr.crit {
@@ -778,8 +782,16 @@ a.node {
     padding-bottom: 56px;
   }
 
+  .column {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 56px);
+  }
+
   .chat {
-    height: calc(100dvh - 48px - 56px);
+    height: auto;
+    flex: 1;
+    min-height: 0;
   }
 
   .tabs {
@@ -813,5 +825,36 @@ a.node {
   .tabs a.on {
     color: var(--accent);
     font-weight: 600;
+  }
+
+  .item .btn,
+  .login .btn,
+  .connect .btn {
+    padding-top: 11px;
+    padding-bottom: 11px;
+  }
+
+  .back,
+  .switch {
+    padding-top: 11px;
+    padding-bottom: 11px;
+  }
+
+  button.chip {
+    padding: 12px;
+  }
+
+  .tr .btn {
+    padding: 11px 10px;
+  }
+
+  .item a,
+  .note a {
+    padding-top: 11px;
+    padding-bottom: 11px;
+  }
+
+  .note a {
+    display: inline-block;
   }
 }
