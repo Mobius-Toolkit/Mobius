@@ -39,6 +39,11 @@
 
 * {
   box-sizing: border-box;
+  touch-action: manipulation;
+}
+
+html {
+  overflow-x: clip;
 }
 
 body {
@@ -357,6 +362,7 @@ button.chip.on {
   gap: 8px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
 }
 
 .note {
@@ -396,6 +402,7 @@ button.chip.on {
   border-radius: 10px;
   background: var(--raised);
   border: 1px solid var(--line);
+  overflow-wrap: anywhere;
 }
 
 .msg.owner {
@@ -453,6 +460,7 @@ button.chip.on {
   background: var(--ground);
   border-radius: 4px;
   padding: 6px 8px;
+  overflow-x: auto;
 }
 
 .md pre code {
@@ -509,7 +517,9 @@ button.chip.on {
 
 .composer textarea {
   width: 100%;
-  height: 40px;
+  min-height: 40px;
+  max-height: 160px;
+  overflow-y: auto;
   resize: none;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -633,6 +643,7 @@ a.node {
   align-items: baseline;
   padding: 4px;
   border-radius: 6px;
+  overflow-wrap: anywhere;
 }
 
 @media (hover: hover) {
@@ -789,6 +800,20 @@ a.node {
 
   .shell:has(:is(textarea, input):focus) .tabs {
     display: none;
+  }
+
+  .shell:has(:is(textarea, input):focus) .center {
+    padding-bottom: 0;
+  }
+
+  .shell:has(:is(textarea, input):focus) .column {
+    height: 100dvh;
+  }
+
+  .composer textarea,
+  .login input,
+  .connect input {
+    font-size: 16px;
   }
 
   .tabs {
