@@ -8,7 +8,7 @@ use markdown::Markdown;
 use mobius_api::{
     agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_apps, github_manifest,
     inbox_dismiss, inbox_items, inbox_resume, live, login, logout, organizations, server_agents,
-    task_list, transcript_lines, unread, workstreams,
+    task_list, transcript_lines, unread, workstream_autopilot, workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, Live, PAUSED, TaskLine,
@@ -736,12 +736,14 @@ fn Activity() -> Element {
 #[component]
 fn Chat(owner: String, repo: String, number: i64) -> Element {
     let repository = format!("{owner}/{repo}");
-    let Workstreams(workstream_list) = use_context();
+    let Workstreams(mut workstream_list) = use_context();
     let Organization(organization) = use_context();
     use_effect(use_reactive((&owner,), move |(owner,)| {
         select_organization(organization, owner)
     }));
     let mut sheet = use_signal(|| false);
+    let mut autopilot_busy = use_signal(|| false);
+    let mut autopilot_error = use_signal(String::new);
     let workstream = match &*workstream_list.read() {
         Some(Ok(list)) => list
             .iter()
@@ -749,6 +751,10 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
             .cloned(),
         _ => None,
     };
+    let autopilot_on = workstream
+        .as_ref()
+        .is_some_and(|workstream| workstream.autopilot);
+    let switch_repository = repository.clone();
     rsx! {
         div { class: "page",
             Conversation {
@@ -759,10 +765,28 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
                 head: rsx! {
                     h2 { class: "ellip", {workstream.as_ref().map(|workstream| workstream.title.clone())} }
                     span { class: "num", "#{number}" }
-                    if workstream.as_ref().is_some_and(|workstream| workstream.autopilot) {
-                        span { class: "chip info", "Autopilot on" }
-                    } else {
-                        span { class: "chip plain", "Autopilot off" }
+                    button {
+                        class: "autopilot",
+                        role: "switch",
+                        aria_checked: autopilot_on,
+                        disabled: autopilot_busy(),
+                        onclick: move |_| {
+                            let repository = switch_repository.clone();
+                            async move {
+                                autopilot_busy.set(true);
+                                match workstream_autopilot(repository, number, !autopilot_on).await {
+                                    Ok(()) => autopilot_error.set(String::new()),
+                                    Err(failure) => autopilot_error.set(error_text(&failure)),
+                                }
+                                workstream_list.restart();
+                                autopilot_busy.set(false);
+                            }
+                        },
+                        span { class: "track", span { class: "knob" } }
+                        "Autopilot"
+                    }
+                    if !autopilot_error().is_empty() {
+                        div { class: "error note", {autopilot_error} }
                     }
                 },
                 tail: rsx! {

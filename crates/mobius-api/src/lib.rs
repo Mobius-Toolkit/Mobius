@@ -152,6 +152,17 @@ pub async fn workstreams() -> ServerFnResult<Vec<Workstream>> {
     workstreams::list(&engine).await.map_err(ServerFnError::new)
 }
 
+#[post("/api/workstreams/autopilot", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn workstream_autopilot(
+    repository: String,
+    workstream: i64,
+    on: bool,
+) -> ServerFnResult<()> {
+    workstreams::set_autopilot(&engine, &repository, workstream, on)
+        .await
+        .map_err(ServerFnError::new)
+}
+
 #[get("/api/live?after", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn live(after: Option<i64>) -> ServerFnResult<ServerEvents<Live>> {
     let mut feed = activity::feed(&engine, after)

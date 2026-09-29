@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::error::Error;
 
-use mobius_domain::{Workstream, organization};
+use mobius_domain::{Live, Workstream, organization};
 use mobius_github::{Issue, IssueEvent, Repository};
 use mobius_store::Task;
 use time::OffsetDateTime;
@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 use crate::config::Config;
 use crate::{
     Engine, NEEDS_HUMAN_LABEL, READY_LABEL, WORKING_LABEL, WORKSTREAM_LABEL, dispatch, ends,
-    lead_events,
+    github, lead_events,
 };
 
 pub(crate) const AUTOPILOT_LABEL: &str = "mobius:autopilot";
@@ -172,6 +172,25 @@ pub(crate) async fn autopilot(
         Some(issue) => issue_autopilot(engine, repository, &issue).await,
         None => Ok(false),
     }
+}
+
+// The write uses the token of the Owner, because the label counts only when a trusted user added it last.
+pub async fn set_autopilot(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+    on: bool,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let repository = engine.repository(repository)?;
+    let user_token = github::user_token(engine, repository.app_id).await?;
+    let as_owner = repository.with_user_token(&user_token)?;
+    if on {
+        as_owner.add_label(workstream, AUTOPILOT_LABEL).await?;
+    } else {
+        as_owner.remove_label(workstream, AUTOPILOT_LABEL).await?;
+    }
+    engine.broadcast(Live::Workstreams);
+    Ok(())
 }
 
 async fn issue_autopilot(
