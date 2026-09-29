@@ -532,8 +532,10 @@ a.node {
   text-decoration: none;
 }
 
-.node:hover {
-  background: var(--raised);
+@media (hover: hover) {
+  .node:hover {
+    background: var(--raised);
+  }
 }
 
 .node .role {
@@ -556,8 +558,10 @@ a.node {
   border-radius: 6px;
 }
 
-.tr:hover {
-  background: var(--raised);
+@media (hover: hover) {
+  .tr:hover {
+    background: var(--raised);
+  }
 }
 
 .tr.crit {
@@ -729,5 +733,33 @@ a.node {
   .tabs a.on {
     color: var(--accent);
     font-weight: 600;
+  }
+
+  .head .btn,
+  .item .btn,
+  .login .btn,
+  .connect .btn {
+    padding-top: 11px;
+    padding-bottom: 11px;
+  }
+
+  .back,
+  .switch {
+    padding-top: 11px;
+    padding-bottom: 11px;
+  }
+
+  button.chip {
+    padding: 12px;
+  }
+
+  .tr .btn {
+    padding: 11px 10px;
+  }
+
+  .item a,
+  .note a {
+    padding-top: 11px;
+    padding-bottom: 11px;
   }
 }
