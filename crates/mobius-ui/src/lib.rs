@@ -54,7 +54,7 @@ if (!meta) {
     meta.name = "viewport";
     document.head.append(meta);
 }
-meta.content = "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content";"#,
+meta.content = "width=device-width, initial-scale=1, interactive-widget=resizes-content";"#,
         );
     });
     rsx! {
@@ -861,12 +861,17 @@ async fn send_message(
     number: i64,
     mut text: Signal<String>,
     mut send_error: Signal<String>,
+    mut sending: Signal<bool>,
 ) {
     let value = text();
-    if value.trim().is_empty() {
+    // A key repeat or a second tap on Send must not send the same message again.
+    if value.trim().is_empty() || *sending.peek() {
         return;
     }
-    match chat_send(organization, repository, number, value).await {
+    sending.set(true);
+    let result = chat_send(organization, repository, number, value).await;
+    sending.set(false);
+    match result {
         Ok(()) => {
             text.set(String::new());
             send_error.set(String::new());
@@ -895,6 +900,7 @@ fn Conversation(
     ));
     let mut text = use_signal(String::new);
     let mut send_error = use_signal(String::new);
+    let sending = use_signal(|| false);
     let mut mic_active = use_signal(|| false);
     // The mobile layout (the phone media query of the stylesheet) keeps the Enter key
     // for a new line; the desktop layout sends the message.
@@ -982,7 +988,7 @@ if (list) {
             r#"const input = document.querySelector(".composer textarea");
 if (input) {
     input.style.height = "auto";
-    input.style.height = `${input.scrollHeight}px`;
+    input.style.height = `${input.scrollHeight + input.offsetHeight - input.clientHeight}px`;
 }"#,
         );
     });
@@ -1043,7 +1049,15 @@ if (input) {
                         let (organization, repository) = send_key.clone();
                         async move {
                             event.prevent_default();
-                            send_message(organization, repository, number, text, send_error).await;
+                            send_message(
+                                organization,
+                                repository,
+                                number,
+                                text,
+                                send_error,
+                                sending,
+                            )
+                            .await;
                         }
                     },
                     div { class: "grow",
@@ -1053,8 +1067,12 @@ if (input) {
                             value: text,
                             oninput: move |event| text.set(event.value()),
                             onkeydown: move |event: KeyboardEvent| {
+                                // Enter sends on the desktop; Shift+Enter and IME
+                                // composition or key repeat do not.
                                 let send = event.key() == Key::Enter
                                     && !event.modifiers().contains(Modifiers::SHIFT)
+                                    && !event.is_composing()
+                                    && !event.is_auto_repeating()
                                     && !phone();
                                 if send {
                                     event.prevent_default();
@@ -1062,7 +1080,15 @@ if (input) {
                                 let (organization, repository) = enter_key.clone();
                                 async move {
                                     if send {
-                                        send_message(organization, repository, number, text, send_error).await;
+                                        send_message(
+                                            organization,
+                                            repository,
+                                            number,
+                                            text,
+                                            send_error,
+                                            sending,
+                                        )
+                                        .await;
                                     }
                                 }
                             },
