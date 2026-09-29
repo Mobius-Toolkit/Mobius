@@ -49,7 +49,7 @@ async fn lead_replies(engine: &Engine, workstream: i64) -> String {
     for session in engine
         .store
         .sessions()
-        .list(REPOSITORY, workstream)
+        .list("owner", REPOSITORY, workstream)
         .await
         .unwrap()
     {

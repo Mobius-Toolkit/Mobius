@@ -79,7 +79,7 @@ async fn sessions(engine: &Engine, role: &str) -> Vec<Session> {
     engine
         .store
         .sessions()
-        .list(REPOSITORY, 12)
+        .list("owner", REPOSITORY, 12)
         .await
         .unwrap()
         .into_iter()

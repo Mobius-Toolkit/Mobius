@@ -31,6 +31,8 @@ use crate::{
 pub(crate) struct Caller {
     pub(crate) session: i64,
     pub(crate) role: &'static str,
+    pub(crate) organization: String,
+    // The Triager chat has the empty repository.
     pub(crate) repository: String,
     pub(crate) workstream: i64,
     // The Implementer session reads the reason of `cannot_do` from the receiver.
@@ -563,7 +565,11 @@ impl Handler {
         {
             return Err(unknown().into());
         }
-        let repository = triager::repository(&self.engine, &self.caller.repository)?;
+        let repository = triager::repository(
+            &self.engine,
+            &self.caller.organization,
+            &self.caller.repository,
+        )?;
         match tool {
             "list_tasks" => {
                 let ListTasks {} = parse(tool, arguments)?;
@@ -602,7 +608,7 @@ impl Handler {
             }
             "create_workstream" => {
                 let CreateWorkstream { title, brief } = parse(tool, arguments)?;
-                if self.caller.repository.contains('/') {
+                if !self.caller.repository.is_empty() {
                     return Err(
                         "Only the Triager chat creates a Workstream, after the Owner approves it."
                             .into(),

@@ -62,7 +62,7 @@ async fn sessions(engine: &Engine, role: &str) -> Vec<Session> {
     engine
         .store
         .sessions()
-        .list(REPOSITORY, 12)
+        .list("owner", REPOSITORY, 12)
         .await
         .unwrap()
         .into_iter()
@@ -135,13 +135,13 @@ async fn a_report_for_the_chat_goes_to_a_chat_session() {
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github).await;
 
-    chat::send(&engine, REPOSITORY, 12, "Plan the price model.")
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the price model.")
         .await
         .unwrap();
 
     let report = researcher_report(&data_dir, &github, &engine).await;
     let message = wait_for(async || {
-        chat::view(&engine, REPOSITORY, 12)
+        chat::view(&engine, "owner", REPOSITORY, 12)
             .await
             .unwrap()
             .messages
@@ -191,7 +191,7 @@ async fn a_report_for_the_event_session_goes_to_the_event_queue() {
     })
     .await;
     assert!(
-        chat::view(&engine, REPOSITORY, 12)
+        chat::view(&engine, "owner", REPOSITORY, 12)
             .await
             .unwrap()
             .messages

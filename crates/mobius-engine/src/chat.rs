@@ -3,9 +3,10 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 
-use mobius_domain::{Author, ChatMessage, ChatView, InboxKind, Live};
+use mobius_domain::{Author, ChatMessage, ChatView, InboxKind, Live, organization};
 use mobius_github::Repository;
 use mobius_runner::Session;
+use mobius_store::NewInboxItem;
 use serde_json::Value;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -30,24 +31,33 @@ enum Command {
 
 pub async fn send(
     engine: &Engine,
+    organization: &str,
     repository: &str,
     workstream: i64,
     text: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    if workstream == triager::CHAT
-        && !workstreams::organizations(engine)
-            .iter()
-            .any(|name| name == repository)
+    if !workstreams::organizations(engine)
+        .iter()
+        .any(|name| name == organization)
     {
         return Err(
-            format!("Mobius has no repository in the organization \"{repository}\".").into(),
+            format!("Mobius has no repository in the organization \"{organization}\".").into(),
         );
     }
-    post(engine, repository, workstream, Author::Owner, text).await
+    post(
+        engine,
+        organization,
+        repository,
+        workstream,
+        Author::Owner,
+        text,
+    )
+    .await
 }
 
 pub(crate) async fn post(
     engine: &Engine,
+    organization: &str,
     repository: &str,
     workstream: i64,
     author: Author,
@@ -56,20 +66,20 @@ pub(crate) async fn post(
     let message = engine
         .store
         .chat_messages()
-        .add(repository, workstream, author, text)
+        .add(organization, repository, workstream, author, text)
         .await?;
     if author != Author::Owner {
         engine.broadcast(Live::Unread(
             engine
                 .store
                 .chat_messages()
-                .unread_of(repository, workstream)
+                .unread_of(organization, repository, workstream)
                 .await?,
         ));
     }
     engine.broadcast(Live::Message(message.clone()));
     let mut chats = engine.chats.lock().unwrap();
-    let key = (repository.to_string(), workstream);
+    let key = (organization.to_string(), repository.to_string(), workstream);
     match chats.get_mut(&key) {
         Some(handle) => {
             handle.commands.send(Command::Prompt(message))?;
@@ -94,6 +104,7 @@ pub(crate) async fn post(
         }
     }
     engine.broadcast(Live::Lead {
+        organization: organization.to_string(),
         repository: repository.to_string(),
         workstream,
         writing: true,
@@ -104,15 +115,15 @@ pub(crate) async fn post(
 
 pub fn stop(
     engine: &Engine,
+    organization: &str,
     repository: &str,
     workstream: i64,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    if let Some(handle) = engine
-        .chats
-        .lock()
-        .unwrap()
-        .get(&(repository.to_string(), workstream))
-    {
+    if let Some(handle) = engine.chats.lock().unwrap().get(&(
+        organization.to_string(),
+        repository.to_string(),
+        workstream,
+    )) {
         handle.commands.send(Command::Stop)?;
     }
     Ok(())
@@ -120,19 +131,20 @@ pub fn stop(
 
 pub async fn view(
     engine: &Engine,
+    organization: &str,
     repository: &str,
     workstream: i64,
 ) -> Result<ChatView, Box<dyn Error + Send + Sync>> {
     let messages = engine
         .store
         .chat_messages()
-        .list(repository, workstream)
+        .list(organization, repository, workstream)
         .await?;
     let writing = engine
         .chats
         .lock()
         .unwrap()
-        .get(&(repository.to_string(), workstream))
+        .get(&(organization.to_string(), repository.to_string(), workstream))
         .is_some_and(|handle| handle.writing);
     Ok(ChatView {
         messages,
@@ -147,16 +159,19 @@ pub async fn view(
 
 pub async fn seen(
     engine: &Engine,
+    organization: &str,
     repository: &str,
     workstream: i64,
     message: i64,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let chat_messages = engine.store.chat_messages();
     chat_messages
-        .set_seen(repository, workstream, message)
+        .set_seen(organization, repository, workstream, message)
         .await?;
     engine.broadcast(Live::Unread(
-        chat_messages.unread_of(repository, workstream).await?,
+        chat_messages
+            .unread_of(organization, repository, workstream)
+            .await?,
     ));
     Ok(())
 }
@@ -168,17 +183,20 @@ pub(crate) async fn tell_owner(
     text: &str,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let name = &repository.full_name;
+    let organization = organization(name);
     let issue = repository
         .issue(workstream)
         .await?
         .ok_or("The Workstream issue does not exist.")?;
     let chat_messages = engine.store.chat_messages();
     let message = chat_messages
-        .add(name, workstream, Author::TellOwner, text)
+        .add(organization, name, workstream, Author::TellOwner, text)
         .await?;
     engine.broadcast(Live::Message(message));
     engine.broadcast(Live::Unread(
-        chat_messages.unread_of(name, workstream).await?,
+        chat_messages
+            .unread_of(organization, name, workstream)
+            .await?,
     ));
     inbox::add(
         engine,
@@ -200,7 +218,11 @@ async fn run(
     first: ChatMessage,
     mut commands: UnboundedReceiver<Command>,
 ) {
-    let (repository, workstream) = (first.repository.clone(), first.workstream);
+    let (organization, repository, workstream) = (
+        first.organization.clone(),
+        first.repository.clone(),
+        first.workstream,
+    );
     let (role, binding, author) = if workstream == triager::CHAT {
         (triager::ROLE, &engine.config.roles.triager, Author::Triager)
     } else {
@@ -210,14 +232,31 @@ async fn run(
     let mut queue = VecDeque::new();
     let mut crashes = 0;
     loop {
-        let session = match lead::add_session(&engine, role, binding, &repository, workstream).await
+        let session = match lead::add_session(
+            &engine,
+            role,
+            binding,
+            &organization,
+            &repository,
+            workstream,
+        )
+        .await
         {
             Ok(session) => session,
-            Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
+            Err(error) => {
+                return finish(
+                    &engine,
+                    &organization,
+                    &repository,
+                    workstream,
+                    Some(error.to_string()),
+                );
+            }
         };
         let caller = mcp::Caller {
             session,
             role,
+            organization: organization.clone(),
             repository: repository.clone(),
             workstream,
             cannot_do: None,
@@ -227,9 +266,24 @@ async fn run(
         };
         let key = match mcp::open(&engine, caller) {
             Ok(key) => key,
-            Err(error) => return finish(&engine, &repository, workstream, Some(error.to_string())),
+            Err(error) => {
+                return finish(
+                    &engine,
+                    &organization,
+                    &repository,
+                    workstream,
+                    Some(error.to_string()),
+                );
+            }
         };
-        let mut recorder = Recorder::new(&engine, session, &repository, workstream, Some(author));
+        let mut recorder = Recorder::new(
+            &engine,
+            session,
+            &organization,
+            &repository,
+            workstream,
+            Some(author),
+        );
         let mut current = None;
         let result = tokio::select! {
             result = chat(&engine, &first, &key, &mut recorder, &mut commands, &mut queue, &mut current) => result.map(|()| "idle"),
@@ -239,7 +293,7 @@ async fn run(
         let error = match result {
             Ok(reason) => {
                 if reason == "stopped" {
-                    finish(&engine, &repository, workstream, None);
+                    finish(&engine, &organization, &repository, workstream, None);
                 }
                 if let Err(failure) = lead::end_session(&engine, session, reason).await {
                     eprintln!("mobius: chat session {session}: {failure}");
@@ -263,7 +317,13 @@ async fn run(
                 eprintln!("mobius: chat session {session}: {failure}");
             }
         }
-        return finish(&engine, &repository, workstream, Some(error.to_string()));
+        return finish(
+            &engine,
+            &organization,
+            &repository,
+            workstream,
+            Some(error.to_string()),
+        );
     }
 }
 
@@ -274,26 +334,34 @@ async fn failed(
     let item = engine
         .store
         .inbox_items()
-        .add(
-            InboxKind::LeadFailed,
-            &message.repository,
-            message.workstream,
-            message.workstream,
-            &message.text,
-            "",
-        )
+        .add(NewInboxItem {
+            kind: InboxKind::LeadFailed,
+            organization: &message.organization,
+            repository: &message.repository,
+            workstream: message.workstream,
+            issue: message.workstream,
+            text: &message.text,
+            link: "",
+        })
         .await?;
     engine.broadcast(Live::Inbox(item));
     Ok(())
 }
 
-fn finish(engine: &Engine, repository: &str, workstream: i64, error: Option<String>) {
-    engine
-        .chats
-        .lock()
-        .unwrap()
-        .remove(&(repository.to_string(), workstream));
+fn finish(
+    engine: &Engine,
+    organization: &str,
+    repository: &str,
+    workstream: i64,
+    error: Option<String>,
+) {
+    engine.chats.lock().unwrap().remove(&(
+        organization.to_string(),
+        repository.to_string(),
+        workstream,
+    ));
     engine.broadcast(Live::Lead {
+        organization: organization.to_string(),
         repository: repository.to_string(),
         workstream,
         writing: false,
@@ -311,8 +379,12 @@ async fn chat(
     // The message of the turn that runs. A crash in this turn sends the message again in a new session.
     current: &mut Option<ChatMessage>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let (repository, workstream) = (first.repository.as_str(), first.workstream);
-    let key = (repository.to_string(), workstream);
+    let (organization, repository, workstream) = (
+        first.organization.as_str(),
+        first.repository.as_str(),
+        first.workstream,
+    );
+    let key = (organization.to_string(), repository.to_string(), workstream);
     let session_id = recorder.session();
     let triager = workstream == triager::CHAT;
     let data_dir = &engine.config.data_dir;
@@ -354,6 +426,7 @@ async fn chat(
             {
                 handle.writing = false;
                 engine.broadcast(Live::Lead {
+                    organization: organization.to_string(),
                     repository: repository.to_string(),
                     workstream,
                     writing: false,
@@ -453,7 +526,13 @@ async fn first_prompt(
     let history = engine
         .store
         .chat_messages()
-        .before(&first.repository, first.workstream, first.id, HISTORY_SIZE)
+        .before(
+            &first.organization,
+            &first.repository,
+            first.workstream,
+            first.id,
+            HISTORY_SIZE,
+        )
         .await?;
     let mut prompt = format!("{ROLE_PROMPT}\n{context}# Chat history\n\n");
     for message in history {
@@ -477,6 +556,7 @@ async fn message_prompt(
         .store
         .chat_messages()
         .after(
+            &message.organization,
             &message.repository,
             message.workstream,
             Author::TellOwner,

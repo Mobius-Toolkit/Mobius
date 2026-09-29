@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, repository, workstream, author, time AS \"time: OffsetDateTime\", text\n               FROM chat_messages WHERE repository = ? AND workstream = ? AND author = ? AND id > ?\n               ORDER BY id",
+  "query": "UPDATE chat_messages SET text = text || ? WHERE id = ?\n               RETURNING id, organization, repository, workstream, author, time AS \"time: OffsetDateTime\", text",
   "describe": {
     "columns": [
       {
@@ -15,8 +15,19 @@
         }
       },
       {
-        "name": "repository",
+        "name": "organization",
         "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "organization"
+          }
+        }
+      },
+      {
+        "name": "repository",
+        "ordinal": 2,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -27,7 +38,7 @@
       },
       {
         "name": "workstream",
-        "ordinal": 2,
+        "ordinal": 3,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -38,7 +49,7 @@
       },
       {
         "name": "author",
-        "ordinal": 3,
+        "ordinal": 4,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -49,7 +60,7 @@
       },
       {
         "name": "time: OffsetDateTime",
-        "ordinal": 4,
+        "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "text",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -71,9 +82,10 @@
       }
     ],
     "parameters": {
-      "Right": 4
+      "Right": 2
     },
     "nullable": [
+      false,
       false,
       false,
       false,
@@ -82,5 +94,5 @@
       false
     ]
   },
-  "hash": "ea4cda3abfa9729b23e8fdfd3ebe57671c5b19c56826326447a6bcfa31a30520"
+  "hash": "b120aa2b7c1922b20a817b84660927cd540cf0da46e99e515483a8a58e379118"
 }

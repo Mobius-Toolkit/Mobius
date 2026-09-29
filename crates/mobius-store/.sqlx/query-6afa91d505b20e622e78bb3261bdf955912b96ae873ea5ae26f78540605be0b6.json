@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "UPDATE chat_messages SET text = text || ? WHERE id = ?\n               RETURNING id, repository, workstream, author, time AS \"time: OffsetDateTime\", text",
+  "query": "SELECT id, organization, repository, workstream, author, time AS \"time: OffsetDateTime\", text\n               FROM chat_messages WHERE organization = ? AND repository = ? AND workstream = ?\n               ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -15,8 +15,19 @@
         }
       },
       {
-        "name": "repository",
+        "name": "organization",
         "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "organization"
+          }
+        }
+      },
+      {
+        "name": "repository",
+        "ordinal": 2,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -27,7 +38,7 @@
       },
       {
         "name": "workstream",
-        "ordinal": 2,
+        "ordinal": 3,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -38,7 +49,7 @@
       },
       {
         "name": "author",
-        "ordinal": 3,
+        "ordinal": 4,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -49,7 +60,7 @@
       },
       {
         "name": "time: OffsetDateTime",
-        "ordinal": 4,
+        "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "text",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -71,9 +82,10 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 3
     },
     "nullable": [
+      false,
       false,
       false,
       false,
@@ -82,5 +94,5 @@
       false
     ]
   },
-  "hash": "b3c7ec78caf16a970919eb11db27784a95cd073e5bb2a34577b50914a30b7d3c"
+  "hash": "6afa91d505b20e622e78bb3261bdf955912b96ae873ea5ae26f78540605be0b6"
 }

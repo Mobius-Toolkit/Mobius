@@ -2,7 +2,7 @@ use std::error::Error;
 
 use mobius_domain::{Author, Harness, InboxKind, Live, PAUSED};
 use mobius_runner::PromptError;
-use mobius_store::Pause;
+use mobius_store::{NewInboxItem, Pause};
 use time::{Duration, OffsetDateTime, Time};
 
 use crate::lead::Recorder;
@@ -126,7 +126,7 @@ async fn pause(
     if pauses.get(harness).await?.is_some() {
         return Ok(());
     }
-    let (repository, workstream) = recorder.chat_key();
+    let (organization, repository, workstream) = recorder.chat_key();
     let text = format!(
         "{} reached a usage limit. Mobius sends the prompt again at {}.",
         harness.name(),
@@ -135,14 +135,15 @@ async fn pause(
     let item = engine
         .store
         .inbox_items()
-        .add(
-            InboxKind::UsageLimit,
+        .add(NewInboxItem {
+            kind: InboxKind::UsageLimit,
+            organization,
             repository,
             workstream,
-            workstream,
-            &text,
-            "",
-        )
+            issue: workstream,
+            text: &text,
+            link: "",
+        })
         .await?;
     engine.broadcast(Live::Inbox(item.clone()));
     pauses
@@ -155,7 +156,7 @@ async fn pause(
     let message = engine
         .store
         .chat_messages()
-        .add(repository, workstream, Author::Mobius, &text)
+        .add(organization, repository, workstream, Author::Mobius, &text)
         .await?;
     engine.broadcast(Live::Message(message));
     timer(engine, harness, until);

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, repository, workstream, author, time AS \"time: OffsetDateTime\", text\n               FROM chat_messages WHERE repository = ? AND workstream = ? AND id < ?\n               ORDER BY id DESC LIMIT ?",
+  "query": "INSERT INTO chat_messages (organization, repository, workstream, author, time, text)\n               VALUES (?, ?, ?, ?, ?, ?)\n               RETURNING id, organization, repository, workstream, author, time AS \"time: OffsetDateTime\", text",
   "describe": {
     "columns": [
       {
@@ -15,8 +15,19 @@
         }
       },
       {
-        "name": "repository",
+        "name": "organization",
         "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "organization"
+          }
+        }
+      },
+      {
+        "name": "repository",
+        "ordinal": 2,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -27,7 +38,7 @@
       },
       {
         "name": "workstream",
-        "ordinal": 2,
+        "ordinal": 3,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -38,7 +49,7 @@
       },
       {
         "name": "author",
-        "ordinal": 3,
+        "ordinal": 4,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -49,7 +60,7 @@
       },
       {
         "name": "time: OffsetDateTime",
-        "ordinal": 4,
+        "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "text",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -71,9 +82,10 @@
       }
     ],
     "parameters": {
-      "Right": 4
+      "Right": 6
     },
     "nullable": [
+      false,
       false,
       false,
       false,
@@ -82,5 +94,5 @@
       false
     ]
   },
-  "hash": "20d8e1b9a25b30e06168fa27c7aa119ba8a729dc74daa94bb870cdf98c1154fc"
+  "hash": "dee7d33ad92cc6123e96e562509193e182e376a4967abc19198e0204e1787d2f"
 }

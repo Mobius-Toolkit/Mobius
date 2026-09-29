@@ -49,7 +49,7 @@ async fn sessions(engine: &Engine, role: &str) -> Vec<Session> {
     engine
         .store
         .sessions()
-        .list(REPOSITORY, 12)
+        .list("owner", REPOSITORY, 12)
         .await
         .unwrap()
         .into_iter()
@@ -96,7 +96,7 @@ async fn messages(engine: &Engine) -> Vec<ChatMessage> {
     engine
         .store
         .chat_messages()
-        .list(REPOSITORY, 12)
+        .list("owner", REPOSITORY, 12)
         .await
         .unwrap()
 }
@@ -202,6 +202,7 @@ async fn tell_owner_adds_a_chat_message_and_an_inbox_item() {
     assert_eq!(
         engine.store.chat_messages().unread().await.unwrap(),
         [Unread {
+            organization: "owner".to_string(),
             repository: REPOSITORY.to_string(),
             workstream: 12,
             count: 1,
@@ -305,7 +306,7 @@ async fn the_chat_session_gets_the_new_tell_owner_messages_before_the_next_owner
     dispatch(&github, 41, "Add plan model");
     wait_for(async || (all_prompts(&engine, "lead_event").await.len() == 1).then_some(())).await;
     let event_url = fs::read_to_string(data_dir.path().join("harnesses/mcp_url")).unwrap();
-    chat::send(&engine, REPOSITORY, 12, "Plan it")
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan it")
         .await
         .unwrap();
     wait_for(async || (all_prompts(&engine, "lead_chat").await.len() == 1).then_some(())).await;
@@ -324,8 +325,10 @@ async fn the_chat_session_gets_the_new_tell_owner_messages_before_the_next_owner
     assert_ne!(result.is_error, Some(true));
     client.cancel().await.unwrap();
 
-    chat::send(&engine, REPOSITORY, 12, "Go on").await.unwrap();
-    chat::stop(&engine, REPOSITORY, 12).unwrap();
+    chat::send(&engine, "owner", REPOSITORY, 12, "Go on")
+        .await
+        .unwrap();
+    chat::stop(&engine, "owner", REPOSITORY, 12).unwrap();
 
     let prompts = wait_for(async || {
         let prompts = all_prompts(&engine, "lead_chat").await;

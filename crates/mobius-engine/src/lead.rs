@@ -18,6 +18,7 @@ pub(crate) async fn add_session(
     engine: &Engine,
     role: &str,
     binding: &RoleBinding,
+    organization: &str,
     repository: &str,
     workstream: i64,
 ) -> Result<i64, Box<dyn Error + Send + Sync>> {
@@ -28,6 +29,7 @@ pub(crate) async fn add_session(
             role,
             binding.harness,
             &binding.model,
+            organization,
             repository,
             workstream,
         )
@@ -104,6 +106,7 @@ pub(crate) async fn brief(
 pub(crate) struct Recorder {
     engine: Engine,
     session: i64,
+    organization: String,
     repository: String,
     workstream: i64,
     // The author of the chat messages of the session. With `None`, the text of the session goes only to the transcript.
@@ -120,6 +123,7 @@ impl Recorder {
     pub(crate) fn new(
         engine: &Engine,
         session: i64,
+        organization: &str,
         repository: &str,
         workstream: i64,
         chat: Option<Author>,
@@ -127,6 +131,7 @@ impl Recorder {
         Recorder {
             engine: engine.clone(),
             session,
+            organization: organization.to_string(),
             repository: repository.to_string(),
             workstream,
             chat,
@@ -140,8 +145,8 @@ impl Recorder {
         &self.engine
     }
 
-    pub(crate) fn chat_key(&self) -> (&str, i64) {
-        (&self.repository, self.workstream)
+    pub(crate) fn chat_key(&self) -> (&str, &str, i64) {
+        (&self.organization, &self.repository, self.workstream)
     }
 
     pub(crate) fn session(&self) -> i64 {
@@ -210,7 +215,13 @@ impl Recorder {
             Some(id) => chat_messages.append(id, &text).await?,
             None => {
                 chat_messages
-                    .add(&self.repository, self.workstream, author, &text)
+                    .add(
+                        &self.organization,
+                        &self.repository,
+                        self.workstream,
+                        author,
+                        &text,
+                    )
                     .await?
             }
         };
@@ -220,7 +231,7 @@ impl Recorder {
         if new {
             self.engine.broadcast(Live::Unread(
                 chat_messages
-                    .unread_of(&self.repository, self.workstream)
+                    .unread_of(&self.organization, &self.repository, self.workstream)
                     .await?,
             ));
         }

@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use mobius_domain::{AgentNode, Session};
+use mobius_domain::{AgentNode, Session, organization};
 
 use crate::{Engine, chat, lead_events, triager};
 
@@ -8,7 +8,7 @@ pub(crate) fn node(session: Session) -> AgentNode {
     let (role, title) = match session.role.as_str() {
         chat::ROLE => ("Lead".to_string(), "chat session".to_string()),
         lead_events::ROLE => ("Lead".to_string(), "event session".to_string()),
-        triager::ROLE if !session.repository.contains('/') => {
+        triager::ROLE if session.repository.is_empty() => {
             ("Triager".to_string(), "chat session".to_string())
         }
         triager::ROLE => ("Triager".to_string(), session.repository.clone()),
@@ -31,6 +31,10 @@ pub async fn tree(
     repository: &str,
     workstream: i64,
 ) -> Result<Vec<AgentNode>, Box<dyn Error + Send + Sync>> {
-    let sessions = engine.store.sessions().list(repository, workstream).await?;
+    let sessions = engine
+        .store
+        .sessions()
+        .list(organization(repository), repository, workstream)
+        .await?;
     Ok(sessions.into_iter().map(node).collect())
 }

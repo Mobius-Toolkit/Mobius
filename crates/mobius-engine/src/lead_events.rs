@@ -1,7 +1,8 @@
 use std::error::Error;
 
-use mobius_domain::{InboxKind, Live};
+use mobius_domain::{InboxKind, Live, organization};
 use mobius_runner::Session;
+use mobius_store::NewInboxItem;
 use serde_json::Value;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -93,14 +94,15 @@ async fn failed(
         let item = engine
             .store
             .inbox_items()
-            .add(
-                InboxKind::LeadFailed,
+            .add(NewInboxItem {
+                kind: InboxKind::LeadFailed,
+                organization: organization(repository),
                 repository,
                 workstream,
-                workstream,
-                &event.payload,
-                "",
-            )
+                issue: workstream,
+                text: &event.payload,
+                link: "",
+            })
             .await?;
         engine.broadcast(Live::Inbox(item));
         events.deliver(event.id).await?;
@@ -119,16 +121,25 @@ async fn session(
         engine,
         ROLE,
         &engine.config.roles.lead,
+        organization(repository),
         repository,
         workstream,
     )
     .await?;
-    let mut recorder = Recorder::new(engine, session, repository, workstream, None);
+    let mut recorder = Recorder::new(
+        engine,
+        session,
+        organization(repository),
+        repository,
+        workstream,
+        None,
+    );
     let key = mcp::open(
         engine,
         mcp::Caller {
             session,
             role: ROLE,
+            organization: organization(repository).to_string(),
             repository: repository.to_string(),
             workstream,
             cannot_do: None,

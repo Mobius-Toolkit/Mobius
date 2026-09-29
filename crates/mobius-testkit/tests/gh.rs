@@ -54,14 +54,14 @@ async fn expire_user_token(engine: &Engine, refresh_token: &str) {
 }
 
 async fn lead_reply(engine: &Engine) -> (Session, String) {
-    chat::send(engine, REPOSITORY, 12, "List the issues")
+    chat::send(engine, "owner", REPOSITORY, 12, "List the issues")
         .await
         .unwrap();
     let session = wait_for(async || {
         engine
             .store
             .sessions()
-            .list(REPOSITORY, 12)
+            .list("owner", REPOSITORY, 12)
             .await
             .unwrap()
             .into_iter()
@@ -72,7 +72,7 @@ async fn lead_reply(engine: &Engine) -> (Session, String) {
     let reply = engine
         .store
         .chat_messages()
-        .list(REPOSITORY, 12)
+        .list("owner", REPOSITORY, 12)
         .await
         .unwrap()
         .into_iter()

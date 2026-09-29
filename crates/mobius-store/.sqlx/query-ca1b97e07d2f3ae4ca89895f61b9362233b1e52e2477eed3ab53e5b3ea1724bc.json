@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO inbox_items (kind, repository, workstream, issue, text, link, time)\n               VALUES (?, ?, ?, ?, ?, ?, ?)\n               RETURNING id AS \"id!\", kind, repository, workstream, issue, text, link,\n                         time AS \"time: OffsetDateTime\",\n                         dismissed_at AS \"dismissed_at: OffsetDateTime\"",
+  "query": "UPDATE inbox_items SET dismissed_at = ? WHERE id = ?\n               RETURNING id AS \"id!\", kind, organization, repository, workstream, issue, text, link,\n                         time AS \"time: OffsetDateTime\",\n                         dismissed_at AS \"dismissed_at: OffsetDateTime\"",
   "describe": {
     "columns": [
       {
@@ -26,8 +26,19 @@
         }
       },
       {
-        "name": "repository",
+        "name": "organization",
         "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_items",
+            "name": "organization"
+          }
+        }
+      },
+      {
+        "name": "repository",
+        "ordinal": 3,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -38,7 +49,7 @@
       },
       {
         "name": "workstream",
-        "ordinal": 3,
+        "ordinal": 4,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -49,7 +60,7 @@
       },
       {
         "name": "issue",
-        "ordinal": 4,
+        "ordinal": 5,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "text",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -71,7 +82,7 @@
       },
       {
         "name": "link",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "time: OffsetDateTime",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "dismissed_at: OffsetDateTime",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -104,9 +115,10 @@
       }
     ],
     "parameters": {
-      "Right": 7
+      "Right": 2
     },
     "nullable": [
+      false,
       false,
       false,
       false,
@@ -118,5 +130,5 @@
       true
     ]
   },
-  "hash": "288ddd104470da2ebe1c40f92a924e29ec2c44610028e0e8062778a49bdacce6"
+  "hash": "ca1b97e07d2f3ae4ca89895f61b9362233b1e52e2477eed3ab53e5b3ea1724bc"
 }

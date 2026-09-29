@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::pin::Pin;
 
-use mobius_domain::InboxKind;
+use mobius_domain::{InboxKind, organization};
 use mobius_github::{PullRequest, Repository, ReviewThread};
 use mobius_store::Task;
 use time::OffsetDateTime;
@@ -123,8 +123,23 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
     // The subscription comes before the first state change, so the session gets each stop of the task.
     let mut stops = engine.stops.subscribe();
     let binding = &engine.config.roles.reviewer;
-    let session = lead::add_session(engine, ROLE, binding, &job.repository, job.workstream).await?;
-    let mut recorder = Recorder::new(engine, session, &job.repository, job.workstream, None);
+    let session = lead::add_session(
+        engine,
+        ROLE,
+        binding,
+        organization(&job.repository),
+        &job.repository,
+        job.workstream,
+    )
+    .await?;
+    let mut recorder = Recorder::new(
+        engine,
+        session,
+        organization(&job.repository),
+        &job.repository,
+        job.workstream,
+        None,
+    );
     let slot = match workers::slot(engine, job.task, session, binding.harness).await {
         Ok(slot) => slot,
         Err(error) => {
@@ -140,6 +155,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         mcp::Caller {
             session,
             role: ROLE,
+            organization: organization(&job.repository).to_string(),
             repository: job.repository.clone(),
             workstream: job.workstream,
             cannot_do: None,

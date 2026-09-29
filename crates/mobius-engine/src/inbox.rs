@@ -1,6 +1,7 @@
 use std::error::Error;
 
-use mobius_domain::{InboxItem, InboxKind, Live};
+use mobius_domain::{InboxItem, InboxKind, Live, organization};
+use mobius_store::NewInboxItem;
 
 use crate::Engine;
 
@@ -16,7 +17,15 @@ pub(crate) async fn add(
     let item = engine
         .store
         .inbox_items()
-        .add(kind, repository, workstream, issue, text, link)
+        .add(NewInboxItem {
+            kind,
+            organization: organization(repository),
+            repository,
+            workstream,
+            issue,
+            text,
+            link,
+        })
         .await?;
     engine.broadcast(Live::Inbox(item));
     Ok(())

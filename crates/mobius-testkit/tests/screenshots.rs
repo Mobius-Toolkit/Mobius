@@ -113,14 +113,20 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
     github.add_label(REPOSITORY, 42, "mobius:ready", "owner");
     wait_for(async || (!inbox::list(engine).await.unwrap().is_empty()).then_some(())).await;
 
-    chat::send(engine, REPOSITORY, 12, "What is the state of the plans?")
-        .await
-        .unwrap();
+    chat::send(
+        engine,
+        "owner",
+        REPOSITORY,
+        12,
+        "What is the state of the plans?",
+    )
+    .await
+    .unwrap();
     wait_for(async || {
         let messages = engine
             .store
             .chat_messages()
-            .list(REPOSITORY, 12)
+            .list("owner", REPOSITORY, 12)
             .await
             .unwrap();
         messages
@@ -131,11 +137,11 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
     .await;
 
     // The switcher shows the unread reply in `plants`.
-    chat::send(engine, GARDEN, 12, "Which roses sell best?")
+    chat::send(engine, "plants", GARDEN, 12, "Which roses sell best?")
         .await
         .unwrap();
     wait_for(async || {
-        chat::view(engine, GARDEN, 12)
+        chat::view(engine, "plants", GARDEN, 12)
             .await
             .unwrap()
             .messages
@@ -144,11 +150,11 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
     })
     .await;
 
-    chat::send(engine, "owner", 0, "Start a Workstream for gift cards.")
+    chat::send(engine, "owner", "", 0, "Start a Workstream for gift cards.")
         .await
         .unwrap();
     wait_for(async || {
-        chat::view(engine, "owner", 0)
+        chat::view(engine, "owner", "", 0)
             .await
             .unwrap()
             .messages
@@ -158,13 +164,13 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
     .await;
 
     // The Chat page marks the messages as seen, so an unread count changes while a screenshot waits.
-    for (repository, workstream) in [(REPOSITORY, 12), ("owner", 0)] {
-        let messages = chat::view(engine, repository, workstream)
+    for (organization, repository, workstream) in [("owner", REPOSITORY, 12), ("owner", "", 0)] {
+        let messages = chat::view(engine, organization, repository, workstream)
             .await
             .unwrap()
             .messages;
         let last = messages.last().unwrap().id;
-        chat::seen(engine, repository, workstream, last)
+        chat::seen(engine, organization, repository, workstream, last)
             .await
             .unwrap();
     }

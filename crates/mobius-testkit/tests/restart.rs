@@ -55,7 +55,7 @@ async fn sessions(engine: &Engine, role: &str) -> Vec<Session> {
     engine
         .store
         .sessions()
-        .list(REPOSITORY, 12)
+        .list("owner", REPOSITORY, 12)
         .await
         .unwrap()
         .into_iter()
@@ -91,7 +91,14 @@ async fn a_restart_starts_the_implementer_again_and_the_event_session() {
             .unwrap();
         let session = store
             .sessions()
-            .add("implementer", Harness::Devin, "swe-1.5", REPOSITORY, 12)
+            .add(
+                "implementer",
+                Harness::Devin,
+                "swe-1.5",
+                "owner",
+                REPOSITORY,
+                12,
+            )
             .await
             .unwrap();
         store

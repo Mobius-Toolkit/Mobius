@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "UPDATE sessions SET started_at = ?, queue_reason = NULL WHERE id = ?\n               RETURNING id AS \"id!\", role, harness, model, repository, workstream, acp_session_id,\n                         started_at AS \"started_at: OffsetDateTime\",\n                         ended_at AS \"ended_at: OffsetDateTime\", end_reason, queue_reason",
+  "query": "SELECT id, role, harness, model, organization, repository, workstream, acp_session_id,\n                      started_at AS \"started_at: OffsetDateTime\",\n                      ended_at AS \"ended_at: OffsetDateTime\", end_reason, queue_reason\n               FROM sessions WHERE role = ? ORDER BY id",
   "describe": {
     "columns": [
       {
-        "name": "id!",
+        "name": "id",
         "ordinal": 0,
         "type_info": "Integer",
         "origin": {
@@ -48,8 +48,19 @@
         }
       },
       {
-        "name": "repository",
+        "name": "organization",
         "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "organization"
+          }
+        }
+      },
+      {
+        "name": "repository",
+        "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "workstream",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -71,7 +82,7 @@
       },
       {
         "name": "acp_session_id",
-        "ordinal": 6,
+        "ordinal": 7,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "started_at: OffsetDateTime",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "ended_at: OffsetDateTime",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -104,7 +115,7 @@
       },
       {
         "name": "end_reason",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -115,7 +126,7 @@
       },
       {
         "name": "queue_reason",
-        "ordinal": 10,
+        "ordinal": 11,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,9 +137,10 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 1
     },
     "nullable": [
+      false,
       false,
       false,
       false,
@@ -142,5 +154,5 @@
       true
     ]
   },
-  "hash": "34bd02b995c735b5b936e55e9792b812addf0b99920ee8c8185b25086ce71600"
+  "hash": "df7f46e022d558aa50449cf3193991332b02a4159e75b8cc308d77faf15aa36c"
 }

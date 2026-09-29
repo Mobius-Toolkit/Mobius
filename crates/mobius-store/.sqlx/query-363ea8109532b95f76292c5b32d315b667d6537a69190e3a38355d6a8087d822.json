@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO chat_messages (repository, workstream, author, time, text)\n               VALUES (?, ?, ?, ?, ?)\n               RETURNING id, repository, workstream, author, time AS \"time: OffsetDateTime\", text",
+  "query": "SELECT id, organization, repository, workstream, author, time AS \"time: OffsetDateTime\", text\n               FROM chat_messages\n               WHERE organization = ? AND repository = ? AND workstream = ? AND author = ? AND id > ?\n               ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -15,8 +15,19 @@
         }
       },
       {
-        "name": "repository",
+        "name": "organization",
         "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "chat_messages",
+            "name": "organization"
+          }
+        }
+      },
+      {
+        "name": "repository",
+        "ordinal": 2,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -27,7 +38,7 @@
       },
       {
         "name": "workstream",
-        "ordinal": 2,
+        "ordinal": 3,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -38,7 +49,7 @@
       },
       {
         "name": "author",
-        "ordinal": 3,
+        "ordinal": 4,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -49,7 +60,7 @@
       },
       {
         "name": "time: OffsetDateTime",
-        "ordinal": 4,
+        "ordinal": 5,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "text",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -79,8 +90,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "c9f5c8409fef29972d08bcbc36ade6c86cedb5a0eacff3ff0b31cf7a6377e667"
+  "hash": "363ea8109532b95f76292c5b32d315b667d6537a69190e3a38355d6a8087d822"
 }
