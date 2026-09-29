@@ -68,7 +68,7 @@ pub(crate) async fn post(
         .chat_messages()
         .add(organization, repository, workstream, author, text)
         .await?;
-    if author != Author::Owner {
+    if author != Author::Owner && author != Author::Researcher {
         engine.broadcast(Live::Unread(
             engine
                 .store
@@ -77,7 +77,9 @@ pub(crate) async fn post(
                 .await?,
         ));
     }
-    engine.broadcast(Live::Message(message.clone()));
+    if author != Author::Researcher {
+        engine.broadcast(Live::Message(message.clone()));
+    }
     let mut chats = engine.chats.lock().unwrap();
     let key = (organization.to_string(), repository.to_string(), workstream);
     match chats.get_mut(&key) {
