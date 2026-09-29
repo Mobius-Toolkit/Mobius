@@ -278,3 +278,52 @@ async fn the_triager_chat_refuses_an_unknown_organization() {
     );
     assert!(triagers(&engine, "", "").await.is_empty());
 }
+
+#[tokio::test]
+async fn a_new_triager_chat_session_gets_the_chat_history() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+    chat::send(
+        &engine,
+        "owner",
+        "",
+        0,
+        "Start a Workstream for loyalty points.",
+    )
+    .await
+    .unwrap();
+    wait_for(async || {
+        triagers(&engine, "owner", "")
+            .await
+            .pop()
+            .filter(|session| session.end_reason.as_deref() == Some("idle"))
+    })
+    .await;
+
+    chat::send(&engine, "owner", "", 0, "Yes, create it.")
+        .await
+        .unwrap();
+
+    let prompt = wait_for(async || {
+        let session = triagers(&engine, "owner", "").await.into_iter().nth(1)?;
+        texts(&engine, session.id, "prompt")
+            .await
+            .into_iter()
+            .next()
+    })
+    .await;
+    let history = &prompt[prompt.find("# Chat history\n\n").unwrap()..];
+    assert!(
+        history.contains("):\nStart a Workstream for loyalty points.\n\n"),
+        "{history}"
+    );
+    assert!(
+        history.contains("):\nTitle: Loyalty points\n\nBrief: Give points for each order.\n\n"),
+        "{history}"
+    );
+    assert!(
+        history.ends_with("# Owner message\n\nYes, create it."),
+        "{history}"
+    );
+}
