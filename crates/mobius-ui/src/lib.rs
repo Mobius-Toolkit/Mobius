@@ -859,7 +859,8 @@ const GROW_SCRIPT: &str = r#"
 const box = document.querySelector(".composer textarea");
 if (box) {
     box.style.height = "auto";
-    box.style.height = `${box.scrollHeight}px`;
+    // scrollHeight does not include the border of a border-box element.
+    box.style.height = `${box.scrollHeight + box.offsetHeight - box.clientHeight}px`;
 }
 "#;
 
@@ -960,13 +961,12 @@ fn Conversation(
         },
     ));
 
-    // The list scrolls to the bottom on each new message and on the first load.
-    use_effect(move || {
-        state.messages.read();
-        state.leads.read();
-        history.read();
+    // The list scrolls to the bottom on a new message or a new lead status
+    // of this chat and on the first load. Events of other chats do not scroll it.
+    let message_count = messages.len();
+    use_effect(use_reactive((&message_count, &lead_state), |_| {
         document::eval(SCROLL_END_SCRIPT);
-    });
+    }));
     let send = {
         let organization = organization.clone();
         let repository = repository.clone();
