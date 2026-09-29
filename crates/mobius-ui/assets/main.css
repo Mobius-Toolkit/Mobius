@@ -43,7 +43,7 @@
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--ground);
   color: var(--ink);
   font-family: var(--sans);
@@ -194,7 +194,7 @@ a.btn {
 
 .shell {
   display: flex;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .rail {
@@ -370,9 +370,10 @@ button.chip.on {
 }
 
 .chat {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 48px);
 }
 
 .msgs {
@@ -456,6 +457,9 @@ button.chip.on {
 .column {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
 }
 
 .side {
@@ -615,7 +619,7 @@ a.node {
 }
 
 .login {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -694,8 +698,12 @@ a.node {
     padding-bottom: 56px;
   }
 
-  .chat {
-    height: calc(100dvh - 48px - 56px);
+  .column {
+    height: calc(100dvh - 56px);
+  }
+
+  .shell:has(:is(textarea, input):focus) .tabs {
+    display: none;
   }
 
   .tabs {

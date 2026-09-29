@@ -918,7 +918,7 @@ fn Conversation(
                 {head}
                 span { class: "grow" }
                 if let Some(harness) = harness {
-                    span { class: "muted small", "{agent}: {harness.name()}" }
+                    span { class: "muted small ellip", "{agent}: {harness.name()}" }
                 }
                 {tail}
             }
