@@ -11,6 +11,7 @@ use mobius_domain::{
     AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, Live, PAUSED, TaskLine,
     TranscriptLine, Workstream,
 };
+use time::UtcOffset;
 use time::macros::format_description;
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
@@ -60,6 +61,10 @@ struct Organizations(Resource<ServerFnResult<Vec<String>>>);
 // The organization of the repositories that the pages show.
 #[derive(Clone, Copy)]
 struct Organization(Signal<String>);
+
+// The offset of the time zone of the browser. The server gives each time in UTC.
+#[derive(Clone, Copy)]
+struct LocalOffset(Signal<UtcOffset>);
 
 #[derive(Clone, Copy)]
 struct Workstreams(Resource<ServerFnResult<Vec<Workstream>>>);
@@ -233,6 +238,20 @@ fn Frame() -> Element {
     use_context_provider(|| Organizations(organization_list));
     let Organization(organization) =
         use_context_provider(|| Organization(Signal::new(String::new())));
+    let LocalOffset(mut local_offset) =
+        use_context_provider(|| LocalOffset(Signal::new(UtcOffset::UTC)));
+    use_hook(move || {
+        spawn(async move {
+            // `getTimezoneOffset` gives the minutes from the local time to UTC, so the sign is the reverse of `UtcOffset`.
+            let minutes: i32 = document::eval("return new Date().getTimezoneOffset();")
+                .join()
+                .await
+                .unwrap_or_default();
+            if let Ok(offset) = UtcOffset::from_whole_seconds(-minutes * 60) {
+                local_offset.set(offset);
+            }
+        })
+    });
     let state = use_context_provider(|| LiveState {
         feed: Signal::new(Vec::new()),
         messages: Signal::new(Vec::new()),
@@ -579,6 +598,7 @@ fn ServerAgents() -> Element {
 
 #[component]
 fn Inbox() -> Element {
+    let LocalOffset(local_offset) = use_context();
     let Workstreams(workstream_list) = use_context();
     let LiveState { inbox, .. } = use_context();
     let Organization(organization) = use_context();
@@ -617,7 +637,7 @@ fn Inbox() -> Element {
                         div { class: "muted small",
                             {titles.get(&(item.repository.clone(), item.workstream)).cloned().unwrap_or_else(|| format!("#{}", item.workstream))}
                             " · #{item.issue} · "
-                            {item.time.format(format_description!("[month]-[day] [hour]:[minute]")).unwrap_or_default()}
+                            {item.time.to_offset(local_offset()).format(format_description!("[month]-[day] [hour]:[minute]")).unwrap_or_default()}
                         }
                     }
                     if item.kind == InboxKind::UsageLimit {
@@ -652,6 +672,7 @@ fn Inbox() -> Element {
 
 #[component]
 fn Activity() -> Element {
+    let LocalOffset(local_offset) = use_context();
     let Workstreams(workstream_list) = use_context();
     let LiveState { feed, .. } = use_context();
     let Organization(organization) = use_context();
@@ -699,7 +720,7 @@ fn Activity() -> Element {
             for row in rows {
                 div { key: "{row.id}", class: "item",
                     span { class: "muted small",
-                        {row.time.format(format_description!("[month]-[day] [hour]:[minute]")).unwrap_or_default()}
+                        {row.time.to_offset(local_offset()).format(format_description!("[month]-[day] [hour]:[minute]")).unwrap_or_default()}
                     }
                     span { class: "grow", "@{row.actor} {row.text}" }
                     a { href: "{row.link}", target: "_blank", "#{row.issue}" }
@@ -768,6 +789,7 @@ fn Conversation(
 ) -> Element {
     let key = (organization.clone(), repository.clone(), number);
     let state: LiveState = use_context();
+    let LocalOffset(local_offset) = use_context();
     let history = use_resource(use_reactive(
         (&organization, &repository, &number),
         |(organization, repository, number)| async move {
@@ -854,7 +876,7 @@ fn Conversation(
                                     }
                                 }
                                 span {
-                                    {message.time.format(format_description!("[hour]:[minute]")).unwrap_or_default()}
+                                    {message.time.to_offset(local_offset()).format(format_description!("[hour]:[minute]")).unwrap_or_default()}
                                 }
                             }
                             p { "{message.text}" }
@@ -1032,15 +1054,21 @@ fn TaskEntry(line: TaskLine) -> Element {
 
 #[component]
 fn AgentEntry(node: AgentNode, onclick: EventHandler<MouseEvent>) -> Element {
+    let LocalOffset(local_offset) = use_context();
     let session = &node.session;
     let time = format_description!("[month]-[day] [hour]:[minute]");
-    let start = session.started_at.format(time).unwrap_or_default();
+    let start = session
+        .started_at
+        .to_offset(local_offset())
+        .format(time)
+        .unwrap_or_default();
     let end = session
         .ended_at
         .map(|ended_at| {
             format!(
                 "–{}",
                 ended_at
+                    .to_offset(local_offset())
                     .format(format_description!("[hour]:[minute]"))
                     .unwrap_or_default()
             )
@@ -1097,12 +1125,13 @@ fn Transcript(session: i64) -> Element {
 
 #[component]
 fn TranscriptEntry(line: TranscriptLine) -> Element {
+    let LocalOffset(local_offset) = use_context();
     let mut open = use_signal(|| !line.folded);
     let mut raw = use_signal(|| false);
     rsx! {
         div { class: if line.error { "tr crit" } else { "tr" },
             span { class: "num",
-                {line.time.format(format_description!("[hour]:[minute]")).unwrap_or_default()}
+                {line.time.to_offset(local_offset()).format(format_description!("[hour]:[minute]")).unwrap_or_default()}
             }
             span { class: "k", "{line.kind}" }
             div {
@@ -1160,6 +1189,7 @@ fn Login() -> Element {
 
 #[component]
 fn Devices() -> Element {
+    let LocalOffset(local_offset) = use_context();
     let LoginShown(mut login_shown) = use_context();
     let mut resource = use_resource(devices);
     use_effect(move || {
@@ -1178,7 +1208,7 @@ fn Devices() -> Element {
                             div { "{login.user_agent}" }
                             div { class: "muted small",
                                 "logged in "
-                                {login.created_at.format(format_description!("[year]-[month]-[day] [hour]:[minute] UTC")).unwrap_or_default()}
+                                {login.created_at.to_offset(local_offset()).format(format_description!("[year]-[month]-[day] [hour]:[minute]")).unwrap_or_default()}
                             }
                         }
                         if login.id == devices.this_device {
