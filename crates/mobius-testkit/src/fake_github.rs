@@ -349,15 +349,17 @@ impl Records {
             "repository_url": format!("https://api.github.com/repos/{repository}"),
             "state": issue.state,
             "updated_at": timestamp(issue.updated_at),
-            "labels": issue.labels.iter().map(|name| json!({ "name": name })).collect::<Vec<_>>(),
-            "issue_dependencies_summary": {
-                "blocked_by": open_blockers,
-                "total_blocked_by": issue.blocked_by.len()
-            }
+            "labels": issue.labels.iter().map(|name| json!({ "name": name })).collect::<Vec<_>>()
         });
+        // GitHub gives no `issue_dependencies_summary` for a pull request.
         if issue.pull_request {
             json["pull_request"] = json!({
                 "url": format!("https://api.github.com/repos/{repository}/pulls/{number}")
+            });
+        } else {
+            json["issue_dependencies_summary"] = json!({
+                "blocked_by": open_blockers,
+                "total_blocked_by": issue.blocked_by.len()
             });
         }
         json

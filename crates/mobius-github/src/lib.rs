@@ -66,10 +66,12 @@ pub struct Issue {
     pub labels: Vec<Label>,
     pub pull_request: Option<serde_json::Value>,
     pub user: User,
+    // GitHub gives no summary for a pull request.
+    #[serde(default)]
     pub issue_dependencies_summary: DependenciesSummary,
 }
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
 pub struct DependenciesSummary {
     // The open blockers only.
     pub blocked_by: i64,
