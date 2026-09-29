@@ -698,8 +698,16 @@ a.node {
     padding-bottom: 56px;
   }
 
+  .column {
+    display: flex;
+    flex-direction: column;
+    height: calc(100dvh - 56px);
+  }
+
   .chat {
-    height: calc(100dvh - 48px - 56px);
+    height: auto;
+    flex: 1;
+    min-height: 0;
   }
 
   .tabs {
@@ -735,7 +743,6 @@ a.node {
     font-weight: 600;
   }
 
-  .head .btn,
   .item .btn,
   .login .btn,
   .connect .btn {
@@ -761,5 +768,9 @@ a.node {
   .note a {
     padding-top: 11px;
     padding-bottom: 11px;
+  }
+
+  .note a {
+    display: inline-block;
   }
 }
