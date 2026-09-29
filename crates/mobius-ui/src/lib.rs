@@ -778,15 +778,23 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     }
 }
 
-// The messages of the voice input: "started", "text" with the transcript, "error" with the code, and "end".
+// The messages of the voice input: "started", "text" with the transcript, "error" with the code,
+// "stopping" when a tap only asks the live session to stop, and "end" when the session ends.
 const MIC_SCRIPT: &str = r#"
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (!Recognition) {
     dioxus.send({ type: "error", value: "unsupported" });
     dioxus.send({ type: "end" });
 } else if (window.__mobiusMic) {
-    window.__mobiusMic.stop();
-    dioxus.send({ type: "end" });
+    const mic = window.__mobiusMic;
+    try {
+        mic.stop();
+        dioxus.send({ type: "stopping" });
+    } catch {
+        mic.onend = mic.onresult = mic.onerror = null;
+        window.__mobiusMic = null;
+        dioxus.send({ type: "end" });
+    }
 } else {
     const recognition = new Recognition();
     window.__mobiusMic = recognition;
@@ -801,11 +809,15 @@ if (!Recognition) {
         dioxus.send({ type: "text", value: parts.join(" ") });
     };
     recognition.onerror = (event) => {
-        dioxus.send({ type: "error", value: event.error || "unknown" });
+        if (event.error !== "aborted") {
+            dioxus.send({ type: "error", value: event.error || "unknown" });
+        }
     };
     recognition.onend = () => {
-        window.__mobiusMic = null;
-        dioxus.send({ type: "end" });
+        if (window.__mobiusMic === recognition) {
+            window.__mobiusMic = null;
+            dioxus.send({ type: "end" });
+        }
     };
     try {
         recognition.start();
@@ -1023,6 +1035,7 @@ fn Conversation(
                                                 .get("value")
                                                 .and_then(|value| value.as_str()),
                                         )),
+                                        "stopping" => break,
                                         _ => {}
                                     }
                                     if kind == "end" {
