@@ -27,12 +27,12 @@ jobs:
       - run: cargo test -p mobius-testkit --test screenshots -- --ignored
         env:
           DIOXUS_PUBLIC_PATH: ${{ github.workspace }}/dist/public
-      # A push with the GITHUB_TOKEN starts no workflow, so this commit does not start this job again.
+      # Without `[skip ci]`, GitHub starts the pull_request workflows for this push and holds them for the approval of a maintainer.
       - run: |
           git add crates/mobius-ui/screenshots
           if git diff --cached --quiet; then
             exit 0
           fi
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -m "test: update the UI screenshots"
+            commit -m "test: update the UI screenshots [skip ci]"
           git push
