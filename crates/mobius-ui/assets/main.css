@@ -60,6 +60,7 @@ button {
 .grow {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .muted {
@@ -313,6 +314,12 @@ a.btn {
   border-bottom: 1px solid var(--line);
 }
 
+.chips .chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 button.chip {
   border: 1px solid var(--line);
   background: var(--raised);
@@ -328,6 +335,12 @@ button.chip.on {
 .item a {
   color: var(--accent);
   text-decoration: none;
+}
+
+.item .actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .center {
@@ -391,6 +404,7 @@ button.chip.on {
 
 .msg {
   max-width: 82%;
+  min-width: 0;
   padding: 8px 11px;
   border-radius: 10px;
   background: var(--raised);
@@ -414,6 +428,7 @@ button.chip.on {
 .msg p {
   margin: 0;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .typing {
@@ -525,6 +540,7 @@ button.chip.on {
   border: none;
   background: none;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 a.node {
@@ -562,6 +578,11 @@ a.node {
 
 .tr.crit {
   color: var(--crit);
+}
+
+.tr > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .tr .k {
@@ -688,6 +709,15 @@ a.node {
 
   .sheet {
     display: flex;
+  }
+
+  .list .item {
+    flex-wrap: wrap;
+  }
+
+  .list .item .actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
   }
 
   .center {

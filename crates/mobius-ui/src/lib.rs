@@ -640,29 +640,31 @@ fn Inbox() -> Element {
                             {item.time.to_offset(local_offset()).format(format_description!("[month]-[day] [hour]:[minute]")).unwrap_or_default()}
                         }
                     }
-                    if item.kind == InboxKind::UsageLimit {
+                    div { class: "actions",
+                        if item.kind == InboxKind::UsageLimit {
+                            button {
+                                class: "btn primary",
+                                onclick: move |_| async move {
+                                    match inbox_resume(item.id).await {
+                                        Ok(()) => error.set(String::new()),
+                                        Err(failure) => error.set(error_text(&failure)),
+                                    }
+                                },
+                                "Resume now"
+                            }
+                        } else {
+                            a { href: "{item.link}", target: "_blank", "Open on GitHub" }
+                        }
                         button {
-                            class: "btn primary",
+                            class: "btn",
                             onclick: move |_| async move {
-                                match inbox_resume(item.id).await {
+                                match inbox_dismiss(item.id).await {
                                     Ok(()) => error.set(String::new()),
                                     Err(failure) => error.set(error_text(&failure)),
                                 }
                             },
-                            "Resume now"
+                            "Dismiss"
                         }
-                    } else {
-                        a { href: "{item.link}", target: "_blank", "Open on GitHub" }
-                    }
-                    button {
-                        class: "btn",
-                        onclick: move |_| async move {
-                            match inbox_dismiss(item.id).await {
-                                Ok(()) => error.set(String::new()),
-                                Err(failure) => error.set(error_text(&failure)),
-                            }
-                        },
-                        "Dismiss"
                     }
                 }
             }
