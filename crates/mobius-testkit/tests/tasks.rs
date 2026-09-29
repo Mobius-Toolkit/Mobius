@@ -103,11 +103,10 @@ async fn the_task_tab_shows_the_sub_issues_of_the_workstream() {
 }
 
 // A sub-issue that lives in another repository is a task of the Workstream, but
-// its own sub-issues cannot be read through this repository: its number names a
-// different issue here. Skipping it keeps the request from failing on the
-// foreign number, which would leave the whole task tab empty.
+// its number names a different issue here, so this repository cannot give its
+// children.
 #[tokio::test]
-async fn the_task_tab_skips_a_sub_issue_of_another_repository() {
+async fn the_task_tab_shows_a_sub_issue_of_another_repository() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github).await;
@@ -115,6 +114,11 @@ async fn the_task_tab_skips_a_sub_issue_of_another_repository() {
     github.add_sub_issue(REPOSITORY, 12, 41);
     github.add_issue("other/repo", 77, "A task in another repository");
     github.add_foreign_sub_issue(REPOSITORY, 12, "other/repo", 77);
+    // The different issue 77 of this repository has a sub-issue. A walk of the
+    // foreign 77 through this repository would show it.
+    github.add_issue(REPOSITORY, 77, "A different issue");
+    github.add_issue(REPOSITORY, 90, "Task of the different issue");
+    github.add_sub_issue(REPOSITORY, 77, 90);
     github.add_issue(REPOSITORY, 42, "Let customers change plans");
     github.add_sub_issue(REPOSITORY, 12, 42);
     let token = auth::login(&engine, "correct horse", "test")
@@ -133,6 +137,14 @@ async fn the_task_tab_skips_a_sub_issue_of_another_repository() {
                 "title": "Add plan model",
                 "state": "open",
                 "url": "https://github.com/owner/shop/issues/41",
+                "depth": 0,
+                "blocked_by": []
+            },
+            {
+                "number": 77,
+                "title": "A task in another repository",
+                "state": "open",
+                "url": "https://github.com/other/repo/issues/77",
                 "depth": 0,
                 "blocked_by": []
             },

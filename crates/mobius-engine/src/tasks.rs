@@ -19,13 +19,8 @@ pub async fn list(
     let mut frames: Vec<(i64, std::vec::IntoIter<Issue>)> =
         vec![(0, repository.sub_issues(workstream).await?.into_iter())];
     while let Some((depth, issue)) = next_issue(&mut frames) {
-        // An issue below a nested Workstream is a task of that Workstream. A
-        // sub-issue that lives in another repository cannot be walked through
-        // this repository: its number names a different issue here, so reading
-        // its sub-issues would show the wrong tasks or fail the whole request.
-        if issue.has_label(WORKSTREAM_LABEL)
-            || ends::in_other_repository(&issue, &repository.full_name)
-        {
+        // An issue below a nested Workstream is a task of that Workstream.
+        if issue.has_label(WORKSTREAM_LABEL) {
             continue;
         }
         let visible = issue.state == "open" && trusted(&issue.user.login);
@@ -48,7 +43,12 @@ pub async fn list(
         }
         // The sub-issues of a closed or untrusted issue still belong to the
         // Workstream. They take the depth of their hidden parent, so a nested
-        // task does not move below an unrelated sibling.
+        // task does not move below an unrelated sibling. An issue in another
+        // repository keeps its line, but its number names a different issue
+        // here, so this repository cannot give its children.
+        if ends::in_other_repository(&issue, &repository.full_name) {
+            continue;
+        }
         let children = repository.sub_issues(issue.number).await?.into_iter();
         frames.push((depth + i64::from(visible), children));
     }
