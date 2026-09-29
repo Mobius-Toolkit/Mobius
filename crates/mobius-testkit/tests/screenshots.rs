@@ -312,6 +312,173 @@ async fn log_in(browser: &Browser, url: &str) {
     page.close().await.unwrap();
 }
 
+// A keydown that the chat input handles prevents the default. `defaultPrevented` shows
+// what the browser would have done: `true` means the key sent the message.
+async fn key_default_prevented(page: &Page, key: &str, shift: bool) -> bool {
+    let script = format!(
+        r#"(() => {{
+            const box = document.querySelector(".composer textarea");
+            const event = new KeyboardEvent("keydown",
+                {{ key: {key:?}, shiftKey: {shift}, bubbles: true, cancelable: true }});
+            box.dispatchEvent(event);
+            return event.defaultPrevented;
+        }})()"#
+    );
+    check(page, script).await
+}
+
+async fn type_in_composer(page: &Page, value: &str) {
+    let script = format!(
+        r#"(() => {{
+            const box = document.querySelector(".composer textarea");
+            box.value = {value:?};
+            box.dispatchEvent(new Event("input", {{ bubbles: true }}));
+            return true;
+        }})()"#
+    );
+    wait_for(async || check(page, script.clone()).await.then_some(())).await;
+}
+
+async fn evaluate<T: serde::de::DeserializeOwned>(page: &Page, script: &str) -> T {
+    page.evaluate(script).await.unwrap().into_value().unwrap()
+}
+
+async fn composer_height(page: &Page) -> f64 {
+    evaluate(
+        page,
+        "document.querySelector(\".composer textarea\").offsetHeight",
+    )
+    .await
+}
+
+// The server-side render shows the page before the app hydrates. The scroll effect sets
+// `__mobiusScroll` only when the app runs, so it marks a live page.
+async fn wait_until_live(page: &Page) {
+    wait_for(async || {
+        check(
+            page,
+            "(() => { const list = document.querySelector(\".msgs\");\
+             return !!(list && list.__mobiusScroll); })()"
+                .to_string(),
+        )
+        .await
+        .then_some(())
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
+async fn chat_input() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let url = serve_ui(&engine).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 1).then_some(())).await;
+    let (mut browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .no_sandbox()
+            .arg("--hide-scrollbars")
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
+    log_in(&browser, &format!("{url}/github")).await;
+
+    // On the desktop, Enter sends the message and Shift+Enter keeps the default new line.
+    let page = open(
+        &browser,
+        &format!("{url}/workstreams/owner/shop/12"),
+        DESKTOP,
+    )
+    .await;
+    wait_until_ready(&page, "Integrate loyalty plans", false).await;
+    wait_until_live(&page).await;
+    // The empty input ignores the sent message while the device check still resolves.
+    wait_for(async || {
+        key_default_prevented(&page, "Enter", false)
+            .await
+            .then_some(())
+    })
+    .await;
+    type_in_composer(&page, "First message").await;
+    assert!(key_default_prevented(&page, "Enter", false).await);
+    wait_until_ready(&page, "First message", false).await;
+    type_in_composer(&page, "Half typed").await;
+    assert!(!key_default_prevented(&page, "Enter", true).await);
+    // The not-prevented Shift+Enter kept the typed text, and the send button still works.
+    let clicked = check(
+        &page,
+        r#"(() => {
+            const button = document.querySelector(".composer button[type=submit]");
+            button.click();
+            return !!button;
+        })()"#
+            .to_string(),
+    )
+    .await;
+    assert!(clicked);
+    wait_until_ready(&page, "Half typed", false).await;
+
+    // The input grows with its text and stops at the maximum height.
+    type_in_composer(&page, "one\ntwo\nthree").await;
+    wait_for(async || (composer_height(&page).await > 60.0).then_some(())).await;
+    type_in_composer(&page, &"word\n".repeat(40)).await;
+    wait_for(async || (composer_height(&page).await >= 160.0).then_some(())).await;
+    let height = composer_height(&page).await;
+    assert_eq!(height, 160.0, "composer height {height}");
+
+    // New messages of the owner and of the agent scroll the list to the bottom.
+    for n in 0..10 {
+        chat::send(&engine, "owner", REPOSITORY, 12, &format!("spam {n}"))
+            .await
+            .unwrap();
+    }
+    wait_for(async || {
+        check(
+            &page,
+            "(() => { const list = document.querySelector(\".msgs\");\
+             return list && list.scrollHeight - list.scrollTop - list.clientHeight < 5; })()"
+                .to_string(),
+        )
+        .await
+        .then_some(())
+    })
+    .await;
+    page.close().await.unwrap();
+
+    // On the phone, Enter keeps the default new line and the send button sends.
+    let page = open(&browser, &format!("{url}/workstreams/owner/shop/12"), PHONE).await;
+    wait_until_ready(&page, "spam 9", false).await;
+    wait_until_live(&page).await;
+    type_in_composer(&page, "Phone message").await;
+    assert!(!key_default_prevented(&page, "Enter", false).await);
+    let clicked = check(
+        &page,
+        r#"(() => {
+            const button = document.querySelector(".composer button[type=submit]");
+            button.click();
+            return !!button;
+        })()"#
+            .to_string(),
+    )
+    .await;
+    assert!(clicked);
+    wait_until_ready(&page, "Phone message", false).await;
+    page.close().await.unwrap();
+    browser.close().await.unwrap();
+}
+
 #[tokio::test]
 #[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
 async fn screenshots() {
