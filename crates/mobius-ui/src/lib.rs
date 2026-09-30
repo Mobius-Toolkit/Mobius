@@ -6,18 +6,42 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use markdown::Markdown;
 use mobius_api::{
-    agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_apps, github_manifest,
-    inbox_dismiss, inbox_items, inbox_resume, live, login, logout, organizations, server_agents,
-    task_list, transcript_lines, unread, workstreams,
+    active_agents, agent_tree, chat_seen, chat_send, chat_stop, chat_view, checkup, devices,
+    fix_labels, github_apps, github_manifest, inbox_dismiss, inbox_items, inbox_resume, live,
+    login, logout, organizations, task_list, transcript_lines, unread, workstreams,
 };
 use mobius_domain::{
-    AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, Live, PAUSED, TaskLine,
-    TranscriptLine, Workstream,
+    AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, LabelStatus, Live, PAUSED,
+    RepositoryCheckup, TaskLine, TranscriptLine, Workstream,
 };
 use time::UtcOffset;
 use time::macros::format_description;
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
+
+// The identifier of this web UI build. The server gives the same identifier at
+// `/ui-version`; a difference means a new version of the web UI is on the server.
+pub const BUILD: &str = env!("MOBIUS_BUILD");
+
+// Asks the server for its web UI build on start, when the window gets focus or
+// becomes visible again, and every five minutes. A request that fails or is
+// refused stays quiet; the live loop handles a lost session.
+const VERSION_POLL: &str = r#"
+const check = async () => {
+    try {
+        const response = await fetch("/ui-version", { cache: "no-store" });
+        if (response.ok) {
+            dioxus.send(await response.text());
+        }
+    } catch {}
+};
+window.addEventListener("focus", check);
+document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) check();
+});
+setInterval(check, 5 * 60 * 1000);
+check();
+"#;
 
 #[derive(Clone, PartialEq, Routable)]
 #[rustfmt::skip]
@@ -30,8 +54,8 @@ pub enum Route {
         Chat { owner: String, repo: String, number: i64 },
         #[route("/workstreams/new")]
         NewWorkstream {},
-        #[route("/server-agents")]
-        ServerAgents {},
+        #[route("/agents")]
+        AgentsPage {},
         #[route("/inbox")]
         Inbox {},
         #[route("/activity")]
@@ -42,6 +66,8 @@ pub enum Route {
         GitHub {},
         #[route("/settings")]
         Settings {},
+        #[route("/settings/checkup")]
+        Checkup {},
 }
 
 #[component]
@@ -75,9 +101,9 @@ meta.content = "width=device-width, initial-scale=1, interactive-widget=resizes-
     }
 }
 
-/// The axum router of the web UI. The app shell, the service worker, and the
-/// web app manifest get `Cache-Control: no-cache`, so the browser always asks
-/// the server for them.
+/// The axum router of the web UI. The app shell, the service worker, the web
+/// app manifest, and the build identifier get `Cache-Control: no-cache`, so the
+/// browser always asks the server for them.
 #[cfg(feature = "server")]
 pub fn router() -> dioxus::server::axum::Router {
     use dioxus::server::axum::extract::Request;
@@ -85,11 +111,17 @@ pub fn router() -> dioxus::server::axum::Router {
     use dioxus::server::axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
     use dioxus::server::axum::middleware::{Next, from_fn};
     use dioxus::server::axum::response::Response;
+    use dioxus::server::axum::routing::get;
+    use mobius_api::DeviceId;
+
+    async fn ui_build(_device: DeviceId) -> &'static str {
+        BUILD
+    }
 
     async fn no_cache(request: Request, next: Next) -> Response {
-        let pwa_file = matches!(
+        let always_fresh = matches!(
             request.uri().path(),
-            "/" | "/sw.js" | "/manifest.webmanifest"
+            "/" | "/sw.js" | "/manifest.webmanifest" | "/ui-version"
         );
         let mut response = next.run(request).await;
         // Every other path of the app renders the same shell.
@@ -97,7 +129,7 @@ pub fn router() -> dioxus::server::axum::Router {
             .headers()
             .get(CONTENT_TYPE)
             .is_some_and(|value| value.as_bytes().starts_with(b"text/html"));
-        if pwa_file || shell {
+        if always_fresh || shell {
             response
                 .headers_mut()
                 .insert(CACHE_CONTROL, HeaderValue::from_static("no-cache"));
@@ -105,7 +137,9 @@ pub fn router() -> dioxus::server::axum::Router {
         response
     }
 
-    dioxus::server::router(App).layer(from_fn(no_cache))
+    dioxus::server::router(App)
+        .route("/ui-version", get(ui_build))
+        .layer(from_fn(no_cache))
 }
 
 #[derive(Clone, Copy)]
@@ -356,6 +390,17 @@ fn Frame() -> Element {
     use_effect(move || {
         spawn(follow_live(state, workstream_list, login_shown));
     });
+    let mut new_build = use_signal(|| false);
+    use_effect(move || {
+        spawn(async move {
+            let mut poll = document::eval(VERSION_POLL);
+            while let Ok(build) = poll.recv::<String>().await {
+                if build.trim() != BUILD {
+                    new_build.set(true);
+                }
+            }
+        });
+    });
     let inbox_count = state
         .inbox
         .read()
@@ -379,13 +424,21 @@ fn Frame() -> Element {
                         }
                     }
                     Link { class: "navbtn", active_class: "sel", to: Route::Activity {}, "Activity" }
-                    Link { class: "navbtn", active_class: "sel", to: Route::ServerAgents {}, "Server agents" }
                     div { class: "label section", "Workstreams" }
                     WorkstreamEntries {}
                     Link { class: "navbtn", active_class: "sel", to: Route::NewWorkstream {}, "+ New Workstream" }
                     div { class: "grow" }
+                    if new_build() {
+                        UpdateNote { class: "navbtn upd" }
+                    }
                     Link { class: "navbtn", active_class: "sel", to: Route::GitHub {}, "GitHub" }
                     Link { class: "navbtn", active_class: "sel", to: Route::Devices {}, "Devices" }
+                    Link { class: "navbtn", active_class: "sel", to: Route::Checkup {}, "Checkup" }
+                    Link { class: "navbtn", active_class: "sel", to: Route::AgentsPage {}, "Agents" }
+                }
+                // The rail hides on a phone, so the note repeats above the page.
+                if new_build() {
+                    UpdateNote { class: "upd phone" }
                 }
                 main { class: "center", Outlet::<Route> {} }
                 nav { class: "tabs",
@@ -418,6 +471,20 @@ fn Frame() -> Element {
         Some(Ok(_)) => rsx! { main { class: "center", GitHub {} } },
         Some(Err(error)) => rsx! { p { class: "error note", {error_text(error)} } },
         None => rsx! {},
+    }
+}
+
+// The note for a new version of the web UI on the server. A click reloads the app.
+#[component]
+fn UpdateNote(class: &'static str) -> Element {
+    rsx! {
+        button {
+            class,
+            onclick: move |_| {
+                document::eval("location.reload();");
+            },
+            "New version"
+        }
     }
 }
 
@@ -535,9 +602,6 @@ fn WorkstreamList() -> Element {
         }
         div { class: "list",
             WorkstreamEntries {}
-            Link { class: "entry", to: Route::ServerAgents {},
-                span { class: "grow", "Server agents" }
-            }
         }
     }
 }
@@ -553,6 +617,111 @@ fn Settings() -> Element {
             Link { class: "entry", to: Route::Devices {},
                 span { class: "grow", "Devices" }
             }
+            Link { class: "entry", to: Route::Checkup {},
+                span { class: "grow", "Checkup" }
+            }
+            Link { class: "entry", to: Route::AgentsPage {},
+                span { class: "grow", "Agents" }
+            }
+        }
+    }
+}
+
+// The text of the button that fixes the labels of the shown repositories, or `None` if no label is missing or has a wrong color.
+pub fn fix_button(repositories: &[RepositoryCheckup]) -> Option<&'static str> {
+    if !repositories
+        .iter()
+        .any(|repository| repository.labels.iter().any(|label| label.status.fixable()))
+    {
+        return None;
+    }
+    let all_missing = repositories.iter().all(|repository| {
+        repository
+            .labels
+            .iter()
+            .all(|label| label.status == LabelStatus::Missing)
+    });
+    Some(if all_missing {
+        "Create labels"
+    } else {
+        "Fix labels"
+    })
+}
+
+fn label_status(status: &LabelStatus) -> Element {
+    match status {
+        LabelStatus::Present => rsx! { span { class: "chip plain", "present" } },
+        LabelStatus::WrongColor(color) => rsx! {
+            span { class: "chip warn", "wrong color: #{color}" }
+        },
+        // Mobius does not rename labels, so a human fixes the name.
+        LabelStatus::WrongCase(name) => rsx! {
+            span { class: "chip warn", "wrong case: {name}" }
+        },
+        LabelStatus::Missing => rsx! { span { class: "chip warn", "missing" } },
+    }
+}
+
+#[component]
+fn Checkup() -> Element {
+    let Organization(organization) = use_context();
+    let LoginShown(mut login_shown) = use_context();
+    let mut error = use_signal(String::new);
+    let mut resource = use_resource(use_reactive(&organization(), |organization| async move {
+        checkup(Some(organization)).await
+    }));
+    use_effect(move || {
+        if let Some(Err(error)) = &*resource.read()
+            && unauthorized(error)
+        {
+            login_shown.set(true);
+        }
+    });
+    let button = match &*resource.read() {
+        Some(Ok(repositories)) => fix_button(repositories),
+        _ => None,
+    };
+    rsx! {
+        div { class: "head",
+            h2 { class: "grow", "Checkup" }
+            if let Some(text) = button {
+                button {
+                    class: "btn primary",
+                    onclick: move |_| async move {
+                        match fix_labels(organization()).await {
+                            Ok(()) => error.set(String::new()),
+                            Err(failure) => error.set(error_text(&failure)),
+                        }
+                        // The fix can change labels before it fails: load the status again.
+                        resource.restart();
+                    },
+                    "{text}"
+                }
+            }
+        }
+        div { class: "error note", {error} }
+        match &*resource.read() {
+            Some(Ok(repositories)) => rsx! {
+                if repositories.is_empty() {
+                    p { class: "muted small note", "The Mobius App has no repository in this organization." }
+                }
+                div { class: "checkup",
+                    for repository in repositories {
+                        div { key: "{repository.repository}", class: "label section", "{repository.repository}" }
+                        div { class: "list",
+                            for label in &repository.labels {
+                                div { key: "{label.name}", class: "item",
+                                    span { class: "dot", style: "background: #{label.color};" }
+                                    span { class: "grow", "{label.name}" }
+                                    {label_status(&label.status)}
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            Some(Err(failure)) => rsx! { p { class: "error note", {error_text(failure)} } },
+            None => rsx! {},
         }
     }
 }
@@ -598,58 +767,80 @@ fn NewWorkstream() -> Element {
     }
 }
 
+// All active agents of the server in one group for each role, of all organizations.
+// The resource runs again when a `Live::Agent` event changes `LiveState.agents`:
+// at the start of a session, at the slot start, at a change of the queue reason, and at the end.
 #[component]
-fn ServerAgents() -> Element {
+fn AgentsPage() -> Element {
     let state: LiveState = use_context();
-    let Organization(organization) = use_context();
-    let tree = use_resource(server_agents);
-    let mut selected = use_signal(|| None::<i64>);
-    let mut nodes: HashMap<i64, AgentNode> = match &*tree.read() {
-        Some(Ok(list)) => list
-            .iter()
-            .map(|node| (node.session.id, node.clone()))
-            .collect(),
-        _ => HashMap::new(),
-    };
-    for node in state.agents.read().values() {
-        if node.role != "Triager" {
-            continue;
+    let LoginShown(mut login_shown) = use_context();
+    let resource = use_resource(move || async move {
+        state.agents.read();
+        active_agents().await
+    });
+    use_effect(move || {
+        if let Some(Err(error)) = &*resource.read()
+            && unauthorized(error)
+        {
+            login_shown.set(true);
         }
-        // A session never starts again, so an ended node is newer than a live node.
-        let known = nodes.get(&node.session.id);
-        if known.is_none_or(|known| known.session.ended_at.is_none()) {
-            nodes.insert(node.session.id, node.clone());
-        }
-    }
-    let mut nodes: Vec<AgentNode> = nodes
-        .into_values()
-        .filter(|node| node.session.organization == organization())
-        .collect();
-    nodes.sort_by_key(|node| Reverse(node.session.id));
-    if let Some(node) = selected().and_then(|id| nodes.iter().find(|node| node.session.id == id)) {
-        return rsx! {
-            div { class: "head",
-                button { class: "back", onclick: move |_| selected.set(None), "‹ Server agents" }
-                h2 { class: "ellip grow", "{node.role} {node.title}" }
+    });
+    let body = match &*resource.read() {
+        Some(Ok(overview)) => rsx! {
+            for group in overview.groups.iter() {
+                div { key: "{group.name}", class: "label section", "{group.name} {group.count} / {group.max}" }
+                div { class: "list",
+                    for node in group.agents.iter() {
+                        AgentRow { key: "{node.session.id}", node: node.clone() }
+                    }
+                }
             }
-            Transcript { session: node.session.id }
-        };
+        },
+        Some(Err(error)) => rsx! { p { class: "error note", {error_text(error)} } },
+        None => rsx! {},
+    };
+    rsx! {
+        div { class: "head",
+            h2 { class: "grow", "Agents" }
+            if let Some(Ok(overview)) = &*resource.read() {
+                span { class: "muted", "{overview.count} / {overview.max}" }
+            }
+        }
+        {body}
+    }
+}
+
+#[component]
+fn AgentRow(node: AgentNode) -> Element {
+    let session = &node.session;
+    // The ticket of the session, or its Workstream, or only the org (the Triager chat of an org).
+    let target = match session.issue {
+        Some(issue) => format!("{}#{issue}", session.repository),
+        None if session.workstream != 0 => {
+            format!("{} Workstream #{}", session.repository, session.workstream)
+        }
+        None => String::new(),
+    };
+    let mut detail = format!("{} · {}", session.role, session.organization);
+    if !target.is_empty() {
+        detail.push_str(" · ");
+        detail.push_str(&target);
     }
     rsx! {
-        div { class: "head", h2 { "Server agents" } }
-        div { class: "label section", "Triager" }
-        div { class: "list",
-            if let Some(Err(error)) = &*tree.read() {
-                div { class: "error note", {error_text(error)} }
+        div { class: "item",
+            span { class: if session.queue_reason.is_some() { "dot queued" } else { "dot live" } }
+            div { class: "grow",
+                div { "{node.role} {node.title}" }
+                div { class: "muted small",
+                    "{detail}"
+                    if let Some(reason) = &node.session.queue_reason {
+                        " · {reason}"
+                    }
+                }
             }
-            if nodes.is_empty() {
-                div { class: "muted small note", "No Triager sessions." }
-            }
-            for node in nodes {
-                AgentEntry {
-                    key: "{node.session.id}",
-                    node: node.clone(),
-                    onclick: move |_| selected.set(Some(node.session.id)),
+            if let Some(reason) = &node.session.queue_reason {
+                span { class: "chip warn",
+                    if reason.starts_with(PAUSED) { "paused" } else { "queued" }
                 }
             }
         }
@@ -700,29 +891,31 @@ fn Inbox() -> Element {
                             {item.time.to_offset(local_offset()).format(format_description!("[month]-[day] [hour]:[minute]")).unwrap_or_default()}
                         }
                     }
-                    if item.kind == InboxKind::UsageLimit {
+                    div { class: "actions",
+                        if item.kind == InboxKind::UsageLimit {
+                            button {
+                                class: "btn primary",
+                                onclick: move |_| async move {
+                                    match inbox_resume(item.id).await {
+                                        Ok(()) => error.set(String::new()),
+                                        Err(failure) => error.set(error_text(&failure)),
+                                    }
+                                },
+                                "Resume now"
+                            }
+                        } else {
+                            a { href: "{item.link}", target: "_blank", "Open on GitHub" }
+                        }
                         button {
-                            class: "btn primary",
+                            class: "btn",
                             onclick: move |_| async move {
-                                match inbox_resume(item.id).await {
+                                match inbox_dismiss(item.id).await {
                                     Ok(()) => error.set(String::new()),
                                     Err(failure) => error.set(error_text(&failure)),
                                 }
                             },
-                            "Resume now"
+                            "Dismiss"
                         }
-                    } else {
-                        a { href: "{item.link}", target: "_blank", "Open on GitHub" }
-                    }
-                    button {
-                        class: "btn",
-                        onclick: move |_| async move {
-                            match inbox_dismiss(item.id).await {
-                                Ok(()) => error.set(String::new()),
-                                Err(failure) => error.set(error_text(&failure)),
-                            }
-                        },
-                        "Dismiss"
                     }
                 }
             }

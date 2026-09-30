@@ -1,7 +1,7 @@
 use mobius_domain::{Blocker, Live, TaskLine, TranscriptRow};
 use mobius_engine::{Engine, activity, github, tasks, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
-use mobius_testkit::{install_fake_harness, start, wait_for};
+use mobius_testkit::{install_fake_harness, start, wait_for, wait_for_first_poll};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -41,6 +41,7 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
         .await
         .unwrap();
     wait_for(async || (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+    wait_for_first_poll(&engine, REPOSITORY).await;
     engine
 }
 

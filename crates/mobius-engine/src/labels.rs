@@ -97,8 +97,8 @@ pub async fn fix(repository: &Repository) -> Result<(), Box<dyn Error + Send + S
     for entry in status(repository).await? {
         match entry.status {
             LabelStatus::Present => {}
-            // A POST fails, because GitHub finds the label. A rename is not possible,
-            // so the label stays for a human.
+            // A POST fails, because GitHub finds the label. Mobius does not rename
+            // labels, so the label stays for a human.
             LabelStatus::WrongCase(_) => {}
             LabelStatus::WrongColor(_) => {
                 repository

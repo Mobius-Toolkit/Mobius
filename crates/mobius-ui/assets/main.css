@@ -60,6 +60,7 @@ button {
 .grow {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .muted {
@@ -224,6 +225,15 @@ a.btn {
   color: var(--accent);
 }
 
+.upd {
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  text-align: left;
+  width: 100%;
+}
+
 .orgs {
   position: relative;
   min-width: 0;
@@ -285,6 +295,14 @@ a.btn {
   padding: 14px 8px 4px;
 }
 
+.checkup .section {
+  padding: 14px 14px 4px;
+}
+
+.center > .section {
+  padding: 12px 14px 4px;
+}
+
 .entry {
   display: flex;
   align-items: baseline;
@@ -313,6 +331,12 @@ a.btn {
   border-bottom: 1px solid var(--line);
 }
 
+.chips .chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 button.chip {
   border: 1px solid var(--line);
   background: var(--raised);
@@ -328,6 +352,12 @@ button.chip.on {
 .item a {
   color: var(--accent);
   text-decoration: none;
+}
+
+.item .actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .center {
@@ -418,6 +448,7 @@ button.chip.on {
 
 .msg {
   max-width: 82%;
+  min-width: 0;
   padding: 8px 11px;
   border-radius: 10px;
   background: var(--raised);
@@ -636,6 +667,7 @@ button.chip.on {
   border: none;
   background: none;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 a.node {
@@ -677,6 +709,11 @@ a.node {
 
 .tr.crit {
   color: var(--crit);
+}
+
+.tr > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .tr .k {
@@ -805,6 +842,15 @@ a.node {
     display: flex;
   }
 
+  .list .item {
+    flex-wrap: wrap;
+  }
+
+  .list .item .actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+
   .center {
     padding-bottom: 56px;
   }
@@ -895,5 +941,11 @@ a.node {
 
   .note a {
     display: inline-block;
+  }
+
+  .phone.upd {
+    display: block;
+    padding: 10px 14px;
+    text-align: center;
   }
 }

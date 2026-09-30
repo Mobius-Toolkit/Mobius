@@ -25,6 +25,7 @@ pub(crate) const CHECK_RUN: &str = "Mobius";
 pub(crate) const CONFLICT_ROUND: &str = "conflict_round";
 // GitHub allows a maximum of 65535 characters in the summary of a check run.
 const LOG_TAIL: usize = 60_000;
+const DISK_FULL: &str = "No space left on device";
 
 #[derive(Clone)]
 struct Job {
@@ -45,6 +46,7 @@ enum Outcome {
     CannotDo(String),
     CheckFailed(String),
     NotMerged,
+    PushRejected(String),
     Stopped,
 }
 
@@ -226,11 +228,10 @@ pub(crate) async fn conflict_round(
     pull_request: PullRequest,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let brief = lead::brief(repository, task.workstream).await?;
-    let title = repository
+    let issue = repository
         .issue(task.issue)
         .await?
-        .ok_or_else(|| format!("#{} does not exist.", task.issue))?
-        .title;
+        .ok_or_else(|| format!("#{} does not exist.", task.issue))?;
     if !engine
         .store
         .tasks()
@@ -240,15 +241,18 @@ pub(crate) async fn conflict_round(
         return Ok(());
     }
     let prompt = format!(
-        "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {title}\n\n# Base branch\n\norigin/{}\n\nMerge the base branch and remove the conflicts.",
-        task.issue, repository.default_branch
+        "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Base branch\n\norigin/{}\n\nMerge the base branch and remove the conflicts. Make no other change.",
+        task.issue,
+        issue.title,
+        issue.body.unwrap_or_default(),
+        repository.default_branch
     );
     let job = Job {
         repository: repository.full_name.clone(),
         workstream: task.workstream,
         task: task.id,
         number: task.issue,
-        title,
+        title: issue.title,
         branch: task.branch.clone(),
         pull_request: Some(pull_request),
         conflict_round: true,
@@ -280,6 +284,7 @@ fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> + Send>> {
             job.task,
             job.number,
             &job.title,
+            &error.to_string(),
         )
         .await;
         match restart {
@@ -332,6 +337,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         organization(&job.repository),
         &job.repository,
         job.workstream,
+        Some(job.number),
     )
     .await?;
     let mut recorder = Recorder::new(
@@ -342,8 +348,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         job.workstream,
         None,
     );
-    let harness = engine.config.roles.implementer.harness;
-    let slot = match workers::slot(engine, job.task, session, harness).await {
+    let slot = match workers::slot(engine, job.task, session, workers::Role::Implementer).await {
         Ok(slot) => slot,
         Err(error) => {
             recorder.fail(&error.to_string()).await?;
@@ -439,6 +444,21 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
             )?;
             lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
         }
+        Ok(Outcome::PushRejected(error)) => {
+            lead::end_session(engine, session, "push_rejected").await?;
+            if !hand_to_human(engine, &job.repository, job.task, job.number).await? {
+                return Ok(());
+            }
+            let text = stop_text(
+                OffsetDateTime::now_utc(),
+                job.number,
+                &job.title,
+                &format!(
+                    "GitHub rejected the push. Mobius added mobius:needs-human. Git gave this error:\n\n```\n{error}\n```"
+                ),
+            )?;
+            lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
+        }
         Ok(Outcome::CannotDo(reason)) => {
             lead::end_session(engine, session, "cannot_do").await?;
             // A task that the Lead declined during the turn gets no event.
@@ -500,6 +520,10 @@ async fn implement(
             branch
         }
     };
+    let repository = engine.repository(name)?;
+    let base = format!("origin/{}", repository.default_branch);
+    // All worktrees share the refs of the bare repository, so a fetch of a different task can move `base` during the round.
+    let base_commit = mobius_runner::rev_parse(data_dir, &worktree, &base).await?;
     let (session, mut updates) = lead::start(
         engine,
         &engine.config.roles.implementer,
@@ -525,13 +549,19 @@ async fn implement(
         Some(outcome) => return Ok(outcome),
         None => None,
     };
-    let repository = engine.repository(name)?;
-    let base = format!("origin/{}", repository.default_branch);
-    let merged =
-        !job.conflict_round || mobius_runner::head_contains(data_dir, &worktree, &base).await?;
+    let merged = !job.conflict_round
+        || mobius_runner::head_contains(data_dir, &worktree, &base_commit).await?;
     let sha = {
         let _git = engine.git.lock().await;
-        mobius_runner::push(data_dir, &worktree, repository.token(), &branch).await?
+        mobius_runner::fetch(data_dir, name, &repository.clone_url, repository.token()).await?;
+        mobius_runner::pull(data_dir, &worktree, &branch).await?;
+        match mobius_runner::push(data_dir, &worktree, repository.token(), &branch).await {
+            Ok(sha) => sha,
+            Err(error) if error.contains("[remote rejected]") => {
+                return Ok(Outcome::PushRejected(error));
+            }
+            Err(error) => return Err(error.into()),
+        }
     };
     let pull_request = match &job.pull_request {
         Some(pull_request) => pull_request.clone(),
@@ -610,15 +640,30 @@ async fn turns_and_checks(
         if let Some(reason) = turn(session, &prompt, updates, recorder, reasons).await? {
             return Ok(Some(Outcome::CannotDo(reason)));
         }
-        let check = {
-            let _check = engine.checks.acquire().await?;
-            mobius_runner::check(
-                &engine.config.data_dir,
-                worktree,
-                &engine.harness_path,
-                engine.config.check_timeout,
-            )
-            .await?
+        let check = loop {
+            let check = {
+                let _check = engine.checks.acquire().await?;
+                mobius_runner::check(
+                    &engine.config.data_dir,
+                    worktree,
+                    &engine.harness_path,
+                    engine.config.check_timeout,
+                )
+                .await?
+            };
+            match check {
+                Check::Failed(log) if log.contains(DISK_FULL) => {
+                    housekeeper::wait_for_disk(
+                        engine,
+                        &job.repository,
+                        job.workstream,
+                        job.number,
+                        &job.title,
+                    )
+                    .await?
+                }
+                check => break check,
+            }
         };
         let Check::Failed(log) = check else {
             return Ok(None);

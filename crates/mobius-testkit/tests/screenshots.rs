@@ -492,6 +492,15 @@ async fn screenshots() {
         github.add_label(repository, 12, "mobius:workstream", "owner");
     }
     seed(&engine, &github).await;
+    // The first poll created each missing Mobius label. For the Checkup shot,
+    // one label is missing again and one has a wrong color.
+    github.delete_repository_label(REPOSITORY, "mobius:no-workstream");
+    github.add_repository_label(
+        REPOSITORY,
+        "mobius:working",
+        "ededed",
+        "A Mobius agent works on this task",
+    );
     fix_times(&engine).await;
     for viewport in [DESKTOP, PHONE] {
         let (tasks_clicks, switch_clicks): (&[&str], &[&str]) = if viewport == PHONE {
@@ -553,10 +562,17 @@ async fn screenshots() {
                 inbox_count: true,
             },
             Shot {
-                name: "server-agents",
-                path: "/server-agents",
+                name: "checkup",
+                path: "/settings/checkup",
                 clicks: &[],
-                expected: "chat session",
+                expected: "Fix labels",
+                inbox_count: true,
+            },
+            Shot {
+                name: "agents",
+                path: "/agents",
+                clicks: &[],
+                expected: "owner/shop#41",
                 inbox_count: true,
             },
             Shot {

@@ -88,6 +88,19 @@ async fn a_chat_session_is_a_lead_node_that_is_live_until_it_ends() {
     assert_eq!(node.session.harness, Harness::ClaudeCode);
     assert_eq!(node.session.model, "opus");
     assert_eq!(node.session.ended_at, None);
+    // A stop before the Lead slot ends the chat with `stopped`. The first prompt comes after the slot.
+    wait_for(async || {
+        engine
+            .store
+            .transcript()
+            .list(node.session.id)
+            .await
+            .unwrap()
+            .iter()
+            .any(|row| row.kind == "prompt")
+            .then_some(())
+    })
+    .await;
 
     chat::stop(&engine, "owner", REPOSITORY, 12).unwrap();
 
@@ -110,7 +123,10 @@ async fn the_live_feed_gives_the_node_at_the_start_and_at_the_end() {
     let ended = ended_node(&engine).await;
     let mut nodes = Vec::new();
     tokio::time::timeout(Duration::from_secs(5), async {
-        while nodes.len() < 2 {
+        while nodes
+            .last()
+            .is_none_or(|node: &AgentNode| node.session.ended_at.is_none())
+        {
             if let Live::Agent(node) = feed.next().await.unwrap() {
                 nodes.push(node);
             }
@@ -120,7 +136,7 @@ async fn the_live_feed_gives_the_node_at_the_start_and_at_the_end() {
     .unwrap();
     assert_eq!(nodes[0].session.id, ended.session.id);
     assert_eq!(nodes[0].session.ended_at, None);
-    assert_eq!(nodes[1], ended);
+    assert_eq!(nodes.last().unwrap(), &ended);
 }
 
 #[tokio::test]

@@ -2,6 +2,7 @@ pub mod activity;
 pub mod agents;
 pub mod auth;
 pub mod chat;
+pub mod checkup;
 pub mod config;
 mod conflicts;
 mod dispatch;
@@ -76,10 +77,12 @@ pub struct Engine {
     lead_stops: broadcast::Sender<(String, i64)>,
     // The repositories that the first poll after start checked.
     recovered: Arc<Mutex<std::collections::HashSet<String>>>,
-    // Two sessions at the same usage limit make one pause.
+    // Two sessions at the same usage limit, or two checks on a full disk, make one pause.
     pausing: Arc<tokio::sync::Mutex<()>>,
     // Each end of a pause of a Harness wakes the sessions that wait for it.
     pauses_changed: Arc<tokio::sync::Notify>,
+    // The Housekeeper wakes the checks that wait for free disk space.
+    disk_freed: Arc<tokio::sync::Notify>,
     // The stop signal of the Triager session of each issue.
     triages: Arc<Mutex<HashMap<(String, i64), triager::Stop>>>,
     // For each task, the time of its newest Judge item and the moment when Mobius first saw it.
@@ -134,6 +137,7 @@ pub async fn start(
         recovered: Arc::default(),
         pausing: Arc::default(),
         pauses_changed: Arc::default(),
+        disk_freed: Arc::default(),
         triages: Arc::default(),
         quiet: Arc::default(),
     };
