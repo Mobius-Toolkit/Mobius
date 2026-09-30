@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO sessions (role, harness, model, organization, repository, workstream, started_at)\n               VALUES (?, ?, ?, ?, ?, ?, ?)\n               RETURNING id AS \"id!\", role, harness, model, organization, repository, workstream, acp_session_id,\n                         started_at AS \"started_at: OffsetDateTime\",\n                         ended_at AS \"ended_at: OffsetDateTime\", end_reason, queue_reason",
+  "query": "SELECT id, role, harness, model, organization, repository, workstream, acp_session_id,\n                      started_at AS \"started_at: OffsetDateTime\",\n                      ended_at AS \"ended_at: OffsetDateTime\", end_reason, queue_reason, issue\n               FROM sessions WHERE ended_at IS NULL ORDER BY id",
   "describe": {
     "columns": [
       {
-        "name": "id!",
+        "name": "id",
         "ordinal": 0,
         "type_info": "Integer",
         "origin": {
@@ -134,10 +134,21 @@
             "name": "queue_reason"
           }
         }
+      },
+      {
+        "name": "issue",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "issue"
+          }
+        }
       }
     ],
     "parameters": {
-      "Right": 7
+      "Right": 0
     },
     "nullable": [
       false,
@@ -151,8 +162,9 @@
       false,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "38b292d32ff6dc4943c34e57d4a493390997a7f0d650dd776de6f2216270da85"
+  "hash": "c8ad398660936840c1fa11dbe7c19f5f5cfdb67ac976bd9391ac7f0af77d0c66"
 }

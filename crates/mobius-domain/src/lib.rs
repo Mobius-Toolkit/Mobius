@@ -161,6 +161,8 @@ pub struct Session {
     pub end_reason: Option<String>,
     // The reason why the session waits for a slot.
     pub queue_reason: Option<String>,
+    // The one issue the session works on. `None` for the chats and the Researcher.
+    pub issue: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -168,6 +170,25 @@ pub struct AgentNode {
     pub session: Session,
     pub role: String,
     pub title: String,
+}
+
+// The open sessions of one role on the "Agents" page, with the role limit.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AgentGroup {
+    pub name: String,
+    // The sessions that hold a slot. A queued session shows in `agents` but does not count.
+    pub count: u32,
+    pub max: u32,
+    pub agents: Vec<AgentNode>,
+}
+
+// The "Agents" page: the global count and one group for each role.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ActiveAgents {
+    // The sessions that hold a slot and whose role counts toward `max_agents`.
+    pub count: u32,
+    pub max: u32,
+    pub groups: Vec<AgentGroup>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

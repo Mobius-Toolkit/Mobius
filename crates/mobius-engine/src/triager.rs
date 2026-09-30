@@ -147,7 +147,16 @@ async fn session(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let name = &repository.full_name;
     let binding = &engine.config.roles.triager;
-    let session = lead::add_session(engine, ROLE, binding, organization(name), name, CHAT).await?;
+    let session = lead::add_session(
+        engine,
+        ROLE,
+        binding,
+        organization(name),
+        name,
+        CHAT,
+        Some(number),
+    )
+    .await?;
     let mut recorder = Recorder::new(engine, session, organization(name), name, CHAT, None);
     // A stop while the session waits ends the Triager and frees the place in the queue.
     let slot = tokio::select! {

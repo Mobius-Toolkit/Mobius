@@ -48,6 +48,7 @@ async fn session(
         organization(&job.repository),
         &job.repository,
         job.workstream,
+        None,
     )
     .await?;
     let mut recorder = Recorder::new(

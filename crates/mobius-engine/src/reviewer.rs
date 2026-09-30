@@ -131,6 +131,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         organization(&job.repository),
         &job.repository,
         job.workstream,
+        Some(job.number),
     )
     .await?;
     let mut recorder = Recorder::new(

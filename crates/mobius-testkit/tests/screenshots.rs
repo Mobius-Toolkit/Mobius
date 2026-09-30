@@ -452,10 +452,10 @@ async fn screenshots() {
                 inbox_count: true,
             },
             Shot {
-                name: "server-agents",
-                path: "/server-agents",
+                name: "agents",
+                path: "/agents",
                 clicks: &[],
-                expected: "chat session",
+                expected: "owner/shop#41",
                 inbox_count: true,
             },
             Shot {

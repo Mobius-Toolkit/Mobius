@@ -4,6 +4,7 @@ use std::path::Path;
 use mobius_domain::{Author, Live};
 use mobius_github::Repository;
 use mobius_runner::{PromptError, Session};
+use mobius_store::NewSession;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use tokio::sync::broadcast;
@@ -21,18 +22,20 @@ pub(crate) async fn add_session(
     organization: &str,
     repository: &str,
     workstream: i64,
+    issue: Option<i64>,
 ) -> Result<i64, Box<dyn Error + Send + Sync>> {
     let session = engine
         .store
         .sessions()
-        .add(
+        .add(NewSession {
             role,
-            binding.harness,
-            &binding.model,
+            harness: binding.harness,
+            model: &binding.model,
             organization,
             repository,
             workstream,
-        )
+            issue,
+        })
         .await?;
     let id = session.id;
     engine.broadcast(Live::Agent(agents::node(session)));
