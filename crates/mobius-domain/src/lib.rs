@@ -258,8 +258,17 @@ pub enum Live {
         repository: String,
         number: i64,
     },
-    // The number of agents the upgrade drain waits for. Zero means no drain.
+    // The number of agents the upgrade drain waits for. `None` means no drain.
     Drain {
-        waiting: usize,
+        waiting: Option<usize>,
     },
+}
+
+// What an upgrade drain gives back when it ends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DrainEnd {
+    // The drain completed: no agent of Mobius runs.
+    Drained,
+    // The Owner cancelled the drain.
+    Cancelled,
 }

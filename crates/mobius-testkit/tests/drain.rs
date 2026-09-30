@@ -2,8 +2,8 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-use mobius_domain::{Author, ChatMessage, Live, Session, TranscriptRow};
-use mobius_engine::drain::{self, End};
+use mobius_domain::{Author, ChatMessage, DrainEnd, Live, Session, TranscriptRow};
+use mobius_engine::drain;
 use mobius_engine::{Engine, activity, chat, github, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
 use mobius_testkit::{install_fake_harness, start_with_config, wait_for};
@@ -294,7 +294,7 @@ async fn the_drain_holds_new_agents_waits_for_the_running_work_and_a_cancel_rele
     assert_eq!(github.labels(REPOSITORY, 50), ["mobius:ready"]);
 
     // Each Lead saved its memory and closed, so the drain completes.
-    assert_eq!(drain.await.unwrap(), End::Drained);
+    assert_eq!(drain.await.unwrap(), DrainEnd::Drained);
     assert!(no_harness_process(&engine).await);
     for role in ["lead_chat", "lead_event"] {
         assert!(
@@ -313,7 +313,7 @@ async fn the_drain_holds_new_agents_waits_for_the_running_work_and_a_cancel_rele
         .unwrap();
     assert_eq!(second.queue_reason.as_deref(), Some(DRAIN_REASON));
     assert!(second.acp_session_id.is_none());
-    // The live count reached zero.
+    // The live count reached zero, and the drain still shows as on.
     let mut waiting = Vec::new();
     let _ = tokio::time::timeout(Duration::from_millis(300), async {
         while let Some(live) = feed.next().await {
@@ -323,8 +323,12 @@ async fn the_drain_holds_new_agents_waits_for_the_running_work_and_a_cancel_rele
         }
     })
     .await;
-    assert_eq!(waiting.last(), Some(&0));
-    assert!(waiting.iter().any(|count| *count > 0));
+    assert_eq!(waiting.last(), Some(&Some(0)));
+    assert!(
+        waiting
+            .iter()
+            .any(|count| matches!(count, Some(n) if *n > 0))
+    );
 
     drain::cancel(&engine).await.unwrap();
 

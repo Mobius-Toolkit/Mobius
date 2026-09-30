@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::sync::Mutex;
 
-use mobius_domain::Live;
+use mobius_domain::{DrainEnd, Live};
 use tokio::sync::Notify;
 
 use crate::{Engine, chat, lead_events};
@@ -27,15 +27,12 @@ impl Drain {
     pub(crate) fn on(&self) -> bool {
         self.state.lock().unwrap().on
     }
-}
 
-// What `start` gives back when it returns.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum End {
-    // The drain completed: no agent of Mobius runs.
-    Drained,
-    // The Owner cancelled the drain.
-    Cancelled,
+    // `Some` with the count while the drain is on, also after it completes, because a completed drain stays on until a cancel.
+    fn waiting(&self) -> Option<usize> {
+        let state = self.state.lock().unwrap();
+        state.on.then_some(state.running)
+    }
 }
 
 // Counts one running agent while it lives.
@@ -51,7 +48,9 @@ impl Drop for Guard {
             (state.on, state.running)
         };
         if on {
-            self.engine.broadcast(Live::Drain { waiting: running });
+            self.engine.broadcast(Live::Drain {
+                waiting: Some(running),
+            });
         }
         self.engine.drain.changed.notify_waiters();
     }
@@ -78,15 +77,22 @@ pub(crate) fn track(engine: &Engine) -> Guard {
         (state.on, state.running)
     };
     if on {
-        engine.broadcast(Live::Drain { waiting: running });
+        engine.broadcast(Live::Drain {
+            waiting: Some(running),
+        });
     }
     Guard {
         engine: engine.clone(),
     }
 }
 
+// The number of agents the drain waits for, or `None` while no drain runs.
+pub fn waiting(engine: &Engine) -> Option<usize> {
+    engine.drain.waiting()
+}
+
 // Holds each new agent, asks each Lead to save its memory and to close, and waits until no agent runs. `cancel` ends the wait early. A completed drain stays `on`, so `cancel` still releases the held agents when the restart does not happen.
-pub async fn start(engine: &Engine) -> End {
+pub async fn start(engine: &Engine) -> DrainEnd {
     let waiting = {
         let mut state = engine.drain.state.lock().unwrap();
         state.on = true;
@@ -96,7 +102,9 @@ pub async fn start(engine: &Engine) -> End {
     engine.workers.changed.notify_waiters();
     chat::close_all(engine);
     lead_events::close_all(engine);
-    engine.broadcast(Live::Drain { waiting });
+    engine.broadcast(Live::Drain {
+        waiting: Some(waiting),
+    });
     loop {
         let changed = engine.drain.changed.notified();
         tokio::pin!(changed);
@@ -106,10 +114,10 @@ pub async fn start(engine: &Engine) -> End {
             (state.on, state.running)
         };
         if !on {
-            return End::Cancelled;
+            return DrainEnd::Cancelled;
         }
         if running == 0 {
-            return End::Drained;
+            return DrainEnd::Drained;
         }
         changed.await;
     }
@@ -125,7 +133,7 @@ pub async fn cancel(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>>
         state.on = false;
     }
     engine.drain.changed.notify_waiters();
-    engine.broadcast(Live::Drain { waiting: 0 });
+    engine.broadcast(Live::Drain { waiting: None });
     engine.workers.changed.notify_waiters();
     for (repository, workstream) in engine.store.lead_events().waiting().await? {
         lead_events::wake(engine, &repository, workstream);

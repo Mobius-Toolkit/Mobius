@@ -6,9 +6,9 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use markdown::Markdown;
 use mobius_api::{
-    agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_apps, github_manifest,
-    inbox_dismiss, inbox_items, inbox_resume, live, login, logout, organizations, server_agents,
-    task_list, transcript_lines, unread, workstreams,
+    agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, drain_state, github_apps,
+    github_manifest, inbox_dismiss, inbox_items, inbox_resume, live, login, logout, organizations,
+    server_agents, task_list, transcript_lines, unread, workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, Live, PAUSED, TaskLine,
@@ -91,8 +91,8 @@ struct LiveState {
     inbox: Signal<HashMap<i64, InboxItem>>,
     // The Workstream that the Triager chat created last.
     created: Signal<Option<(String, i64)>>,
-    // The number of agents the upgrade drain waits for. Zero means no drain.
-    drain: Signal<usize>,
+    // The number of agents the upgrade drain waits for. `None` means no drain.
+    drain: Signal<Option<usize>>,
 }
 
 fn select_organization(mut organization: Signal<String>, name: String) {
@@ -162,6 +162,10 @@ async fn follow_live(
             state
                 .inbox
                 .set(items.into_iter().map(|item| (item.id, item)).collect());
+        }
+        // The broadcast can run while no client listens, so a connect reads the current drain state.
+        if let Ok(waiting) = drain_state().await {
+            state.drain.set(waiting);
         }
         match live(after).await {
             Ok(mut events) => {
@@ -266,7 +270,7 @@ fn Frame() -> Element {
         agents: Signal::new(HashMap::new()),
         inbox: Signal::new(HashMap::new()),
         created: Signal::new(None),
-        drain: Signal::new(0),
+        drain: Signal::new(None),
     });
     use_effect(move || {
         if let Some(Err(error)) = &*app_slugs.read()
@@ -333,10 +337,16 @@ fn Frame() -> Element {
                     WorkstreamEntries {}
                     Link { class: "navbtn", active_class: "sel", to: Route::NewWorkstream {}, "+ New Workstream" }
                     div { class: "grow" }
-                    if drain_waiting > 0 {
+                    if let Some(waiting) = drain_waiting {
                         div { class: "entry",
                             span { class: "dot queued" }
-                            span { class: "grow muted small", "Upgrade waits for {drain_waiting} agents" }
+                            span { class: "grow muted small",
+                                if waiting == 0 {
+                                    "Upgrade is ready to restart"
+                                } else {
+                                    "Upgrade waits for {waiting} agents"
+                                }
+                            }
                         }
                     }
                     Link { class: "navbtn", active_class: "sel", to: Route::GitHub {}, "GitHub" }
