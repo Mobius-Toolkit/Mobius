@@ -104,7 +104,7 @@ async fn the_task_tab_shows_the_sub_issues_of_the_workstream() {
 
 // A sub-issue that lives in another repository is a task of the Workstream, but
 // its number names a different issue here, so this repository cannot give its
-// children.
+// blockers, its task state, or its children.
 #[tokio::test]
 async fn the_task_tab_shows_a_sub_issue_of_another_repository() {
     let data_dir = TempDir::new().unwrap();
@@ -112,13 +112,26 @@ async fn the_task_tab_shows_a_sub_issue_of_another_repository() {
     let engine = connect(&data_dir, &github).await;
     github.add_issue(REPOSITORY, 41, "Add plan model");
     github.add_sub_issue(REPOSITORY, 12, 41);
+    github.add_issue("other/repo", 70, "A blocker in another repository");
     github.add_issue("other/repo", 77, "A task in another repository");
+    github.add_blocker("other/repo", 77, 70);
+    github.add_label("other/repo", 77, "mobius:working", "owner");
     github.add_foreign_sub_issue(REPOSITORY, 12, "other/repo", 77);
-    // The different issue 77 of this repository has a sub-issue. A walk of the
-    // foreign 77 through this repository would show it.
+    // The different issue 77 of this repository has a sub-issue, a blocker,
+    // and a queued task. A walk of the foreign 77 through this repository
+    // would show them.
     github.add_issue(REPOSITORY, 77, "A different issue");
     github.add_issue(REPOSITORY, 90, "Task of the different issue");
     github.add_sub_issue(REPOSITORY, 77, 90);
+    github.add_blocker(REPOSITORY, 77, 41);
+    sqlx::query(
+        "INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
+         VALUES (?, 77, 12, 'queued', '2026-09-30T00:00:00Z')",
+    )
+    .bind(REPOSITORY)
+    .execute(&engine.store.pool)
+    .await
+    .unwrap();
     github.add_issue(REPOSITORY, 42, "Let customers change plans");
     github.add_sub_issue(REPOSITORY, 12, 42);
     let token = auth::login(&engine, "correct horse", "test")
@@ -143,7 +156,7 @@ async fn the_task_tab_shows_a_sub_issue_of_another_repository() {
             {
                 "number": 77,
                 "title": "A task in another repository",
-                "state": "open",
+                "state": "working",
                 "url": "https://github.com/other/repo/issues/77",
                 "depth": 0,
                 "blocked_by": []

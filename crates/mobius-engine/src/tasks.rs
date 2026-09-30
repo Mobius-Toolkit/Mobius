@@ -24,12 +24,17 @@ pub async fn list(
             continue;
         }
         let visible = issue.state == "open" && trusted(&issue.user.login);
+        // An issue in another repository keeps its line, but its number names
+        // a different issue here, so this repository cannot give its blockers,
+        // its task state, or its children.
+        let own_repository = !ends::in_other_repository(&issue, &repository.full_name);
         if visible {
             let mut line = task_line(&issue, depth);
-            if issue.issue_dependencies_summary.blocked_by > 0 {
+            if own_repository && issue.issue_dependencies_summary.blocked_by > 0 {
                 line.blocked_by = blockers(&repository, workstream, issue.number).await?;
             }
-            if line.state == "working"
+            if own_repository
+                && line.state == "working"
                 && engine
                     .store
                     .tasks()
@@ -43,10 +48,8 @@ pub async fn list(
         }
         // The sub-issues of a closed or untrusted issue still belong to the
         // Workstream. They take the depth of their hidden parent, so a nested
-        // task does not move below an unrelated sibling. An issue in another
-        // repository keeps its line, but its number names a different issue
-        // here, so this repository cannot give its children.
-        if ends::in_other_repository(&issue, &repository.full_name) {
+        // task does not move below an unrelated sibling.
+        if !own_repository {
             continue;
         }
         let children = repository.sub_issues(issue.number).await?.into_iter();

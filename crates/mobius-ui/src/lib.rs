@@ -1028,7 +1028,7 @@ fn Tasks(repository: String, number: i64) -> Element {
         },
         Some(Ok(lines)) => rsx! {
             for line in lines.iter().cloned() {
-                TaskEntry { key: "{line.number}", line }
+                TaskEntry { key: "{line.url}", line }
             }
         },
     }
