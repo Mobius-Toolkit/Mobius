@@ -6,13 +6,13 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use markdown::Markdown;
 use mobius_api::{
-    agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_apps, github_manifest,
-    inbox_dismiss, inbox_items, inbox_resume, live, login, logout, organizations, server_agents,
-    task_list, transcript_lines, unread, workstreams,
+    agent_tree, chat_seen, chat_send, chat_stop, chat_view, checkup, devices, fix_labels,
+    github_apps, github_manifest, inbox_dismiss, inbox_items, inbox_resume, live, login, logout,
+    organizations, server_agents, task_list, transcript_lines, unread, workstreams,
 };
 use mobius_domain::{
-    AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, Live, PAUSED, TaskLine,
-    TranscriptLine, Workstream,
+    AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, LabelStatus, Live, PAUSED,
+    RepositoryCheckup, TaskLine, TranscriptLine, Workstream,
 };
 use time::UtcOffset;
 use time::macros::format_description;
@@ -42,6 +42,8 @@ pub enum Route {
         GitHub {},
         #[route("/settings")]
         Settings {},
+        #[route("/settings/checkup")]
+        Checkup {},
 }
 
 #[component]
@@ -499,6 +501,109 @@ fn Settings() -> Element {
             Link { class: "entry", to: Route::Devices {},
                 span { class: "grow", "Devices" }
             }
+            Link { class: "entry", to: Route::Checkup {},
+                span { class: "grow", "Checkup" }
+            }
+        }
+    }
+}
+
+// The text of the button that fixes the labels of the shown repositories, or `None` if no label is missing or has a wrong color.
+pub fn fix_button(repositories: &[RepositoryCheckup]) -> Option<&'static str> {
+    if !repositories
+        .iter()
+        .any(|repository| repository.labels.iter().any(|label| label.status.fixable()))
+    {
+        return None;
+    }
+    let all_missing = repositories.iter().all(|repository| {
+        repository
+            .labels
+            .iter()
+            .all(|label| label.status == LabelStatus::Missing)
+    });
+    Some(if all_missing {
+        "Create labels"
+    } else {
+        "Fix labels"
+    })
+}
+
+fn label_status(status: &LabelStatus) -> Element {
+    match status {
+        LabelStatus::Present => rsx! { span { class: "chip plain", "present" } },
+        LabelStatus::WrongColor(color) => rsx! {
+            span { class: "chip warn", "wrong color: #{color}" }
+        },
+        // A rename on GitHub is not possible, so a human fixes the name.
+        LabelStatus::WrongCase(name) => rsx! {
+            span { class: "chip warn", "wrong case: {name}" }
+        },
+        LabelStatus::Missing => rsx! { span { class: "chip warn", "missing" } },
+    }
+}
+
+#[component]
+fn Checkup() -> Element {
+    let Organization(organization) = use_context();
+    let LoginShown(mut login_shown) = use_context();
+    let mut error = use_signal(String::new);
+    let mut resource = use_resource(use_reactive(&organization(), |organization| async move {
+        checkup(Some(organization)).await
+    }));
+    use_effect(move || {
+        if let Some(Err(error)) = &*resource.read()
+            && unauthorized(error)
+        {
+            login_shown.set(true);
+        }
+    });
+    let button = match &*resource.read() {
+        Some(Ok(repositories)) => fix_button(repositories),
+        _ => None,
+    };
+    rsx! {
+        div { class: "head",
+            h2 { class: "grow", "Checkup" }
+            if let Some(text) = button {
+                button {
+                    class: "btn primary",
+                    onclick: move |_| async move {
+                        match fix_labels(organization()).await {
+                            Ok(()) => {
+                                error.set(String::new());
+                                resource.restart();
+                            }
+                            Err(failure) => error.set(error_text(&failure)),
+                        }
+                    },
+                    "{text}"
+                }
+            }
+        }
+        div { class: "error note", {error} }
+        match &*resource.read() {
+            Some(Ok(repositories)) => rsx! {
+                if repositories.is_empty() {
+                    p { class: "muted small note", "The Mobius App has no repository in this organization." }
+                }
+                div { class: "checkup",
+                    for repository in repositories {
+                        div { key: "{repository.repository}", class: "label section", "{repository.repository}" }
+                        div { class: "list",
+                            for label in &repository.labels {
+                                div { key: "{label.name}", class: "item",
+                                    span { class: "dot", style: "background: #{label.color};" }
+                                    span { class: "grow", "{label.name}" }
+                                    {label_status(&label.status)}
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            Some(Err(failure)) => rsx! { p { class: "error note", {error_text(failure)} } },
+            None => rsx! {},
         }
     }
 }

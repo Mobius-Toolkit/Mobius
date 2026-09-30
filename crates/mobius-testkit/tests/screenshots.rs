@@ -380,6 +380,19 @@ async fn screenshots() {
         github.add_issue(repository, 12, title);
         github.add_label(repository, 12, "mobius:workstream", "owner");
     }
+    // The checkup page shows one label present, one with a wrong color, and the rest missing.
+    github.add_repository_label(
+        REPOSITORY,
+        "mobius:ready",
+        "0e8a16",
+        "Mobius can dispatch this task",
+    );
+    github.add_repository_label(
+        REPOSITORY,
+        "mobius:working",
+        "ededed",
+        "A Mobius agent works on this task",
+    );
     seed(&engine, &github).await;
     fix_times(&engine).await;
     for viewport in [DESKTOP, PHONE] {
@@ -439,6 +452,13 @@ async fn screenshots() {
                 path: "/settings",
                 clicks: &[],
                 expected: "Devices",
+                inbox_count: true,
+            },
+            Shot {
+                name: "checkup",
+                path: "/settings/checkup",
+                clicks: &[],
+                expected: "Fix labels",
                 inbox_count: true,
             },
             Shot {
