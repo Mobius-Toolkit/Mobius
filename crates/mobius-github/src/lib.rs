@@ -617,6 +617,20 @@ impl Repository {
         Ok(())
     }
 
+    pub async fn close_as_completed(
+        &self,
+        number: i64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .patch(
+                format!("/repos/{}/issues/{number}", self.full_name),
+                Some(&json!({ "state": "closed", "state_reason": "completed" })),
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn close_pull_request(
         &self,
         number: i64,

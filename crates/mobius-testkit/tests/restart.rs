@@ -2,7 +2,7 @@ use std::fs;
 
 use mobius_domain::{Harness, InboxKind, Session, TranscriptRow};
 use mobius_engine::{Engine, github, inbox, workstreams};
-use mobius_store::Store;
+use mobius_store::{NewSession, Store};
 use mobius_testkit::fake_github::FakeGitHub;
 use mobius_testkit::{install_fake_harness, start, wait_for};
 use serde_json::{Value, json};
@@ -91,14 +91,15 @@ async fn a_restart_starts_the_implementer_again_and_the_event_session() {
             .unwrap();
         let session = store
             .sessions()
-            .add(
-                "implementer",
-                Harness::Devin,
-                "swe-1.5",
-                "owner",
-                REPOSITORY,
-                12,
-            )
+            .add(NewSession {
+                role: "implementer",
+                harness: Harness::Devin,
+                model: "swe-1.5",
+                organization: "owner",
+                repository: REPOSITORY,
+                workstream: 12,
+                issue: None,
+            })
             .await
             .unwrap();
         store
@@ -168,8 +169,9 @@ async fn a_start_with_an_empty_store_hands_a_working_issue_to_a_human() {
     assert_eq!(item.issue, 41);
     assert_eq!(item.workstream, 12);
     assert_eq!(item.link, "https://github.com/owner/shop/issues/41");
-    assert_eq!(
-        github.labels(REPOSITORY, 41),
-        ["mobius:needs-human".to_string()]
-    );
+    // The Inbox item comes before the label change.
+    wait_for(async || {
+        (github.labels(REPOSITORY, 41) == ["mobius:needs-human".to_string()]).then_some(())
+    })
+    .await;
 }

@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use dioxus::prelude::*;
 use markdown::Markdown;
 use mobius_api::{
-    agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_apps, github_manifest,
-    inbox_dismiss, inbox_items, inbox_resume, live, login, logout, organizations, server_agents,
+    active_agents, agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_apps,
+    github_manifest, inbox_dismiss, inbox_items, inbox_resume, live, login, logout, organizations,
     task_list, transcript_lines, unread, workstreams,
 };
 use mobius_domain::{
@@ -54,8 +54,8 @@ pub enum Route {
         Chat { owner: String, repo: String, number: i64 },
         #[route("/workstreams/new")]
         NewWorkstream {},
-        #[route("/server-agents")]
-        ServerAgents {},
+        #[route("/agents")]
+        AgentsPage {},
         #[route("/inbox")]
         Inbox {},
         #[route("/activity")]
@@ -422,7 +422,6 @@ fn Frame() -> Element {
                         }
                     }
                     Link { class: "navbtn", active_class: "sel", to: Route::Activity {}, "Activity" }
-                    Link { class: "navbtn", active_class: "sel", to: Route::ServerAgents {}, "Server agents" }
                     div { class: "label section", "Workstreams" }
                     WorkstreamEntries {}
                     Link { class: "navbtn", active_class: "sel", to: Route::NewWorkstream {}, "+ New Workstream" }
@@ -432,6 +431,7 @@ fn Frame() -> Element {
                     }
                     Link { class: "navbtn", active_class: "sel", to: Route::GitHub {}, "GitHub" }
                     Link { class: "navbtn", active_class: "sel", to: Route::Devices {}, "Devices" }
+                    Link { class: "navbtn", active_class: "sel", to: Route::AgentsPage {}, "Agents" }
                 }
                 // The rail hides on a phone, so the note repeats above the page.
                 if new_build() {
@@ -599,9 +599,6 @@ fn WorkstreamList() -> Element {
         }
         div { class: "list",
             WorkstreamEntries {}
-            Link { class: "entry", to: Route::ServerAgents {},
-                span { class: "grow", "Server agents" }
-            }
         }
     }
 }
@@ -616,6 +613,9 @@ fn Settings() -> Element {
             }
             Link { class: "entry", to: Route::Devices {},
                 span { class: "grow", "Devices" }
+            }
+            Link { class: "entry", to: Route::AgentsPage {},
+                span { class: "grow", "Agents" }
             }
         }
     }
@@ -661,58 +661,80 @@ fn NewWorkstream() -> Element {
     }
 }
 
+// All active agents of the server in one group for each role, of all organizations.
+// The resource runs again when a `Live::Agent` event changes `LiveState.agents`:
+// at the start of a session, at the slot start, at a change of the queue reason, and at the end.
 #[component]
-fn ServerAgents() -> Element {
+fn AgentsPage() -> Element {
     let state: LiveState = use_context();
-    let Organization(organization) = use_context();
-    let tree = use_resource(server_agents);
-    let mut selected = use_signal(|| None::<i64>);
-    let mut nodes: HashMap<i64, AgentNode> = match &*tree.read() {
-        Some(Ok(list)) => list
-            .iter()
-            .map(|node| (node.session.id, node.clone()))
-            .collect(),
-        _ => HashMap::new(),
-    };
-    for node in state.agents.read().values() {
-        if node.role != "Triager" {
-            continue;
+    let LoginShown(mut login_shown) = use_context();
+    let resource = use_resource(move || async move {
+        state.agents.read();
+        active_agents().await
+    });
+    use_effect(move || {
+        if let Some(Err(error)) = &*resource.read()
+            && unauthorized(error)
+        {
+            login_shown.set(true);
         }
-        // A session never starts again, so an ended node is newer than a live node.
-        let known = nodes.get(&node.session.id);
-        if known.is_none_or(|known| known.session.ended_at.is_none()) {
-            nodes.insert(node.session.id, node.clone());
-        }
-    }
-    let mut nodes: Vec<AgentNode> = nodes
-        .into_values()
-        .filter(|node| node.session.organization == organization())
-        .collect();
-    nodes.sort_by_key(|node| Reverse(node.session.id));
-    if let Some(node) = selected().and_then(|id| nodes.iter().find(|node| node.session.id == id)) {
-        return rsx! {
-            div { class: "head",
-                button { class: "back", onclick: move |_| selected.set(None), "‹ Server agents" }
-                h2 { class: "ellip grow", "{node.role} {node.title}" }
+    });
+    let body = match &*resource.read() {
+        Some(Ok(overview)) => rsx! {
+            for group in overview.groups.iter() {
+                div { key: "{group.name}", class: "label section", "{group.name} {group.count} / {group.max}" }
+                div { class: "list",
+                    for node in group.agents.iter() {
+                        AgentRow { key: "{node.session.id}", node: node.clone() }
+                    }
+                }
             }
-            Transcript { session: node.session.id }
-        };
+        },
+        Some(Err(error)) => rsx! { p { class: "error note", {error_text(error)} } },
+        None => rsx! {},
+    };
+    rsx! {
+        div { class: "head",
+            h2 { class: "grow", "Agents" }
+            if let Some(Ok(overview)) = &*resource.read() {
+                span { class: "muted", "{overview.count} / {overview.max}" }
+            }
+        }
+        {body}
+    }
+}
+
+#[component]
+fn AgentRow(node: AgentNode) -> Element {
+    let session = &node.session;
+    // The ticket of the session, or its Workstream, or only the org (the Triager chat of an org).
+    let target = match session.issue {
+        Some(issue) => format!("{}#{issue}", session.repository),
+        None if session.workstream != 0 => {
+            format!("{} Workstream #{}", session.repository, session.workstream)
+        }
+        None => String::new(),
+    };
+    let mut detail = format!("{} · {}", session.role, session.organization);
+    if !target.is_empty() {
+        detail.push_str(" · ");
+        detail.push_str(&target);
     }
     rsx! {
-        div { class: "head", h2 { "Server agents" } }
-        div { class: "label section", "Triager" }
-        div { class: "list",
-            if let Some(Err(error)) = &*tree.read() {
-                div { class: "error note", {error_text(error)} }
+        div { class: "item",
+            span { class: if session.queue_reason.is_some() { "dot queued" } else { "dot live" } }
+            div { class: "grow",
+                div { "{node.role} {node.title}" }
+                div { class: "muted small",
+                    "{detail}"
+                    if let Some(reason) = &node.session.queue_reason {
+                        " · {reason}"
+                    }
+                }
             }
-            if nodes.is_empty() {
-                div { class: "muted small note", "No Triager sessions." }
-            }
-            for node in nodes {
-                AgentEntry {
-                    key: "{node.session.id}",
-                    node: node.clone(),
-                    onclick: move |_| selected.set(Some(node.session.id)),
+            if let Some(reason) = &node.session.queue_reason {
+                span { class: "chip warn",
+                    if reason.starts_with(PAUSED) { "paused" } else { "queued" }
                 }
             }
         }
@@ -763,29 +785,31 @@ fn Inbox() -> Element {
                             {item.time.to_offset(local_offset()).format(format_description!("[month]-[day] [hour]:[minute]")).unwrap_or_default()}
                         }
                     }
-                    if item.kind == InboxKind::UsageLimit {
+                    div { class: "actions",
+                        if item.kind == InboxKind::UsageLimit {
+                            button {
+                                class: "btn primary",
+                                onclick: move |_| async move {
+                                    match inbox_resume(item.id).await {
+                                        Ok(()) => error.set(String::new()),
+                                        Err(failure) => error.set(error_text(&failure)),
+                                    }
+                                },
+                                "Resume now"
+                            }
+                        } else {
+                            a { href: "{item.link}", target: "_blank", "Open on GitHub" }
+                        }
                         button {
-                            class: "btn primary",
+                            class: "btn",
                             onclick: move |_| async move {
-                                match inbox_resume(item.id).await {
+                                match inbox_dismiss(item.id).await {
                                     Ok(()) => error.set(String::new()),
                                     Err(failure) => error.set(error_text(&failure)),
                                 }
                             },
-                            "Resume now"
+                            "Dismiss"
                         }
-                    } else {
-                        a { href: "{item.link}", target: "_blank", "Open on GitHub" }
-                    }
-                    button {
-                        class: "btn",
-                        onclick: move |_| async move {
-                            match inbox_dismiss(item.id).await {
-                                Ok(()) => error.set(String::new()),
-                                Err(failure) => error.set(error_text(&failure)),
-                            }
-                        },
-                        "Dismiss"
                     }
                 }
             }

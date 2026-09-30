@@ -97,6 +97,7 @@ pub(crate) fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> +
             job.task,
             job.number,
             &job.title,
+            &error.to_string(),
         )
         .await
         {
@@ -130,6 +131,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         organization(&job.repository),
         &job.repository,
         job.workstream,
+        Some(job.number),
     )
     .await?;
     let mut recorder = Recorder::new(
@@ -140,7 +142,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         job.workstream,
         None,
     );
-    let slot = match workers::slot(engine, job.task, session, binding.harness).await {
+    let slot = match workers::slot(engine, job.task, session, workers::Role::Reviewer).await {
         Ok(slot) => slot,
         Err(error) => {
             recorder.fail(&error.to_string()).await?;

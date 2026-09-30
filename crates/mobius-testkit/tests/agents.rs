@@ -110,7 +110,10 @@ async fn the_live_feed_gives_the_node_at_the_start_and_at_the_end() {
     let ended = ended_node(&engine).await;
     let mut nodes = Vec::new();
     tokio::time::timeout(Duration::from_secs(5), async {
-        while nodes.len() < 2 {
+        while nodes
+            .last()
+            .is_none_or(|node: &AgentNode| node.session.ended_at.is_none())
+        {
             if let Live::Agent(node) = feed.next().await.unwrap() {
                 nodes.push(node);
             }
@@ -120,7 +123,7 @@ async fn the_live_feed_gives_the_node_at_the_start_and_at_the_end() {
     .unwrap();
     assert_eq!(nodes[0].session.id, ended.session.id);
     assert_eq!(nodes[0].session.ended_at, None);
-    assert_eq!(nodes[1], ended);
+    assert_eq!(nodes.last().unwrap(), &ended);
 }
 
 #[tokio::test]
