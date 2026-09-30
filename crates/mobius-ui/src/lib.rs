@@ -653,7 +653,7 @@ fn label_status(status: &LabelStatus) -> Element {
         LabelStatus::WrongColor(color) => rsx! {
             span { class: "chip warn", "wrong color: #{color}" }
         },
-        // A rename on GitHub is not possible, so a human fixes the name.
+        // Mobius does not rename labels, so a human fixes the name.
         LabelStatus::WrongCase(name) => rsx! {
             span { class: "chip warn", "wrong case: {name}" }
         },

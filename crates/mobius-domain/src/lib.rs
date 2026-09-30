@@ -63,7 +63,7 @@ pub enum LabelStatus {
 }
 
 impl LabelStatus {
-    // A rename on GitHub is not possible, so a label in a different case stays for a human.
+    // Mobius does not rename labels, so a label in a different case stays for a human.
     pub fn fixable(&self) -> bool {
         matches!(self, LabelStatus::Missing | LabelStatus::WrongColor(_))
     }
