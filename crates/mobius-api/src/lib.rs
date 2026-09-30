@@ -142,7 +142,6 @@ pub async fn github_user_callback() -> ServerFnResult<Redirect> {
     Ok(Redirect::to("/github"))
 }
 
-// The tag of a newer release on GitHub, or `None`. A failed check gives `None` too.
 #[get("/api/release", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn release() -> ServerFnResult<Option<String>> {
     Ok(github::new_release(&engine).await)

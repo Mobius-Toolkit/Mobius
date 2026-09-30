@@ -7,7 +7,6 @@ pub const PAUSED: &str = "paused until ";
 // The release tag of this binary, set by the release workflow. A local build has no release tag.
 pub const RELEASE_VERSION: Option<&'static str> = option_env!("MOBIUS_VERSION");
 
-// Parses a `vMAJOR.MINOR.PATCH` tag. Any other shape gives `None`.
 fn release_tag(tag: &str) -> Option<(u64, u64, u64)> {
     let mut parts = tag.strip_prefix('v')?.split('.');
     let version = (
@@ -18,7 +17,6 @@ fn release_tag(tag: &str) -> Option<(u64, u64, u64)> {
     parts.next().is_none().then_some(version)
 }
 
-// True when `latest` is a newer release tag than `current`. A tag that does not parse is never newer.
 pub fn newer_release(current: &str, latest: &str) -> bool {
     match (release_tag(current), release_tag(latest)) {
         (Some(current), Some(latest)) => latest > current,
