@@ -264,17 +264,29 @@ async fn run(
             Some(author),
         );
         // A stop while the session waits ends the chat and frees the place in the queue.
-        let slot = tokio::select! {
-            slot = workers::session_slot(
-                &engine,
-                session,
-                if workstream == triager::CHAT {
-                    workers::Role::Triager
-                } else {
-                    workers::Role::Lead
+        let wait = workers::session_slot(
+            &engine,
+            session,
+            if workstream == triager::CHAT {
+                workers::Role::Triager
+            } else {
+                workers::Role::Lead
+            },
+        );
+        tokio::pin!(wait);
+        let slot = loop {
+            let stopped = tokio::select! {
+                slot = &mut wait => break slot,
+                () = lead::stopped(&mut stops, &repository, workstream) => true,
+                command = commands.recv() => match command {
+                    Some(Command::Prompt(message)) => {
+                        queue.push_back(message);
+                        false
+                    }
+                    Some(Command::Stop) | None => true,
                 },
-            ) => slot,
-            () = lead::stopped(&mut stops, &repository, workstream) => {
+            };
+            if stopped {
                 finish(&engine, &organization, &repository, workstream, None);
                 if let Err(failure) = lead::end_session(&engine, session, "stopped").await {
                     eprintln!("mobius: chat session {session}: {failure}");

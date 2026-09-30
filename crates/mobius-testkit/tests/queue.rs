@@ -440,3 +440,61 @@ async fn a_second_lead_chat_waits_for_the_lead_limit_and_shows_the_message_of_th
     let second = prompted(&engine, REPOSITORY, 50, "lead_chat").await;
     assert!(second.started_at >= first.ended_at.unwrap());
 }
+
+#[tokio::test]
+async fn a_stop_ends_a_waiting_lead_chat() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_issue(REPOSITORY, 50, "Loyalty points");
+    github.add_label(REPOSITORY, 50, "mobius:workstream", "owner");
+    let lead = "[[prompts]]\nwhen = \"Plan the loyalty API\"\nhang = true\n[[prompts]]\nreply = [\"Done.\"]\n";
+    let engine = connect(
+        &data_dir,
+        &github,
+        "",
+        |config| config.roles.lead.max = 1,
+        lead,
+        "",
+    )
+    .await;
+
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the loyalty API")
+        .await
+        .unwrap();
+    // The first Lead chat takes the only lead slot.
+    prompted(&engine, REPOSITORY, 12, "lead_chat").await;
+
+    chat::send(&engine, "owner", REPOSITORY, 50, "Plan the loyalty points")
+        .await
+        .unwrap();
+    let queued = wait_for(async || {
+        sessions(&engine, REPOSITORY, 50, "lead_chat")
+            .await
+            .into_iter()
+            .find(|session| session.queue_reason.is_some())
+    })
+    .await;
+
+    chat::stop(&engine, "owner", REPOSITORY, 50).unwrap();
+
+    let stopped = wait_for(async || {
+        sessions(&engine, REPOSITORY, 50, "lead_chat")
+            .await
+            .into_iter()
+            .find(|session| session.ended_at.is_some())
+    })
+    .await;
+    assert_eq!(stopped.id, queued.id);
+    assert_eq!(stopped.end_reason.as_deref(), Some("stopped"));
+    let view = chat::view(&engine, "owner", REPOSITORY, 50).await.unwrap();
+    assert!(!view.writing);
+
+    chat::stop(&engine, "owner", REPOSITORY, 12).unwrap();
+    wait_for(async || {
+        sessions(&engine, REPOSITORY, 12, "lead_chat")
+            .await
+            .pop()
+            .filter(|session| session.ended_at.is_some())
+    })
+    .await;
+}
