@@ -869,11 +869,14 @@ async fn send_message(
         return;
     }
     sending.set(true);
-    let result = chat_send(organization, repository, number, value).await;
+    let result = chat_send(organization, repository, number, value.clone()).await;
     sending.set(false);
     match result {
         Ok(()) => {
-            text.set(String::new());
+            // The user can type while the send runs; keep that text.
+            if text() == value {
+                text.set(String::new());
+            }
             send_error.set(String::new());
         }
         Err(failure) => send_error.set(error_text(&failure)),
@@ -965,7 +968,11 @@ dioxus.send(media.matches);"#,
         },
     ));
 
-    // Keep the newest message in view: a new message or a longer draft of it scrolls the list down.
+    // Keep the newest message in view: a new message scrolls the list down. A longer
+    // draft of the last message scrolls it only when the list is already near the
+    // bottom, so a streamed chunk does not move a user that reads the history.
+    let mut at_bottom = use_signal(|| true);
+    let mut seen_tail = use_signal(|| (0usize, None::<i64>));
     let scroll_key = (
         messages.len(),
         messages
@@ -973,13 +980,18 @@ dioxus.send(media.matches);"#,
             .map(|message| (message.id, message.text.len())),
         lead_state.writing,
     );
-    use_effect(use_reactive(&scroll_key, move |_| {
-        document::eval(
-            r#"const list = document.querySelector(".msgs");
+    use_effect(use_reactive(&scroll_key, move |(count, tail, _)| {
+        let (seen_count, seen_id) = *seen_tail.peek();
+        seen_tail.set((count, tail.map(|tail| tail.0)));
+        if count != seen_count || tail.map(|tail| tail.0) != seen_id || *at_bottom.peek() {
+            at_bottom.set(true);
+            document::eval(
+                r#"const list = document.querySelector(".msgs");
 if (list) {
     list.scrollTop = list.scrollHeight;
 }"#,
-        );
+            );
+        }
     }));
     // Grow the chat input with its text; the stylesheet caps the height, so it scrolls above the cap.
     use_effect(move || {
@@ -1007,7 +1019,14 @@ if (input) {
                 {tail}
             }
             div { class: "chat",
-                div { class: "msgs",
+                div {
+                    class: "msgs",
+                    onscroll: move |event: ScrollEvent| {
+                        let left = event.scroll_height() as f64
+                            - event.scroll_top()
+                            - event.client_height() as f64;
+                        at_bottom.set(left < 80.0);
+                    },
                     if let Some(Err(error)) = &*history.read() {
                         div { class: "error", {error_text(error)} }
                     }
