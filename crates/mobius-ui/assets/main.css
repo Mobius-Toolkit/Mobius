@@ -527,8 +527,6 @@ button.chip.on {
 .composer textarea {
   width: 100%;
   height: 40px;
-  min-height: 40px;
-  max-height: 9em;
   resize: none;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -756,7 +754,6 @@ a.node {
 
   .composer textarea {
     height: 44px;
-    min-height: 44px;
   }
 }
 
