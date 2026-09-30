@@ -9,14 +9,12 @@ pub const WORKING_LABEL: &str = "mobius:working";
 pub const NEEDS_HUMAN_LABEL: &str = "mobius:needs-human";
 pub const NO_WORKSTREAM_LABEL: &str = "mobius:no-workstream";
 
-// One Mobius label with its fixed color and description.
 pub struct MobiusLabel {
     pub name: &'static str,
     pub color: &'static str,
     pub description: &'static str,
 }
 
-// The labels that Mobius needs in each repository that it manages.
 pub const MOBIUS_LABELS: [MobiusLabel; 6] = [
     MobiusLabel {
         name: WORKSTREAM_LABEL,
@@ -58,7 +56,6 @@ pub enum LabelStatus {
     Missing,
 }
 
-// One Mobius label of a repository and its status.
 pub struct RepositoryLabel {
     pub label: &'static MobiusLabel,
     pub status: LabelStatus,
@@ -73,7 +70,11 @@ pub async fn status(
         .iter()
         .map(|label| RepositoryLabel {
             label,
-            status: match labels.iter().find(|found| found.name == label.name) {
+            status: match labels
+                .iter()
+                // GitHub compares label names without regard to case.
+                .find(|found| found.name.eq_ignore_ascii_case(label.name))
+            {
                 // GitHub gives colors in lowercase.
                 Some(found) if found.color.eq_ignore_ascii_case(label.color) => {
                     LabelStatus::Present
@@ -85,7 +86,7 @@ pub async fn status(
         .collect())
 }
 
-// Creates the missing Mobius labels and sets the fixed color on the labels with a different color. The description and the color of a correct label stay.
+// The description and the color of a correct label stay.
 pub async fn fix(repository: &Repository) -> Result<(), Box<dyn Error + Send + Sync>> {
     for entry in status(repository).await? {
         match entry.status {

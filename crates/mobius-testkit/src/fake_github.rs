@@ -1632,15 +1632,23 @@ async fn create_label(
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    let key = (repository, new.name.clone());
-    if records.repository_labels.contains_key(&key) {
+    // GitHub compares label names without regard to case.
+    let exists = records
+        .repository_labels
+        .keys()
+        .any(|(name_repository, name)| {
+            *name_repository == repository && name.eq_ignore_ascii_case(&new.name)
+        });
+    if exists {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(json!({ "message": "Validation Failed" })),
         )
             .into_response();
     }
-    records.repository_labels.insert(key, new.clone());
+    records
+        .repository_labels
+        .insert((repository, new.name.clone()), new.clone());
     (StatusCode::CREATED, Json(repository_label_json(&new))).into_response()
 }
 
@@ -1657,10 +1665,15 @@ async fn update_label(
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    let Some(label) = records
+    // GitHub finds a label by its name without regard to case.
+    let key = records
         .repository_labels
-        .get_mut(&(repository.clone(), name.clone()))
-    else {
+        .keys()
+        .find(|(name_repository, label_name)| {
+            *name_repository == repository && label_name.eq_ignore_ascii_case(&name)
+        })
+        .cloned();
+    let Some(label) = key.and_then(|key| records.repository_labels.get_mut(&key)) else {
         return not_found();
     };
     label.color = update.color;
