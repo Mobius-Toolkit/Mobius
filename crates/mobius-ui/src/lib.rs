@@ -80,7 +80,7 @@ if (!meta) {
     meta.name = "viewport";
     document.head.append(meta);
 }
-meta.content = "width=device-width, initial-scale=1, interactive-widget=resizes-content";"#,
+meta.content = "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content";"#,
         );
     });
     rsx! {
@@ -953,6 +953,31 @@ if (!Recognition) {
 }
 "#;
 
+// The eval runs after the render, so the new message is already in the DOM.
+const BOTTOM_SCRIPT: &str = r#"
+const list = document.querySelector(".msgs");
+if (list) {
+    list.scrollTop = list.scrollHeight;
+}
+"#;
+
+// The input grows with its text. The `max-height` of its stylesheet is the limit.
+// A taller input shrinks the message list, so a list at its bottom stays there.
+const FIT_SCRIPT: &str = r#"
+const field = document.querySelector(".composer textarea");
+const list = document.querySelector(".msgs");
+if (field) {
+    const atBottom = !list || list.scrollTop + list.clientHeight >= list.scrollHeight - 4;
+    const borders = field.offsetHeight - field.clientHeight;
+    const max = parseFloat(getComputedStyle(field).maxHeight) || Infinity;
+    field.style.height = "auto";
+    field.style.height = Math.min(field.scrollHeight + borders, max) + "px";
+    if (atBottom && list) {
+        list.scrollTop = list.scrollHeight;
+    }
+}
+"#;
+
 fn mic_error(code: Option<&str>) -> String {
     match code {
         Some("unsupported") => "Voice input is not supported in this browser.".to_string(),
@@ -962,6 +987,32 @@ fn mic_error(code: Option<&str>) -> String {
         Some(code) => format!("Voice input failed: {code}"),
         None => "Voice input failed.".to_string(),
     }
+}
+
+// Sends the text of the chat input. A second call while a send runs does nothing,
+// and the text stays in the input when the send fails.
+fn send_message(
+    organization: String,
+    repository: String,
+    number: i64,
+    mut text: Signal<String>,
+    mut send_error: Signal<String>,
+    mut sending: Signal<bool>,
+) {
+    if text().trim().is_empty() || sending() {
+        return;
+    }
+    sending.set(true);
+    spawn(async move {
+        match chat_send(organization, repository, number, text()).await {
+            Ok(()) => {
+                text.set(String::new());
+                send_error.set(String::new());
+            }
+            Err(failure) => send_error.set(error_text(&failure)),
+        }
+        sending.set(false);
+    });
 }
 
 #[component]
@@ -985,7 +1036,19 @@ fn Conversation(
     let mut text = use_signal(String::new);
     let mut send_error = use_signal(String::new);
     let mut mic_active = use_signal(|| false);
-    let mut sending = use_signal(|| false);
+    let sending = use_signal(|| false);
+    // On a touch device Enter adds a new line; on the desktop it sends the message.
+    let mut touch = use_signal(|| false);
+    use_hook(move || {
+        spawn(async move {
+            touch.set(
+                document::eval("return matchMedia('(pointer: coarse)').matches;")
+                    .join()
+                    .await
+                    .unwrap_or(false),
+            );
+        });
+    });
     use_drop(|| {
         document::eval("window.__mobiusMic?.stop();");
     });
@@ -1033,8 +1096,21 @@ fn Conversation(
             }
         },
     ));
+    // Each new message scrolls the list to its bottom. A reply streams into its
+    // own message, so the key follows the total size, not only the count.
+    let size: usize = messages.iter().map(|message| message.text.len()).sum();
+    use_effect(use_reactive(
+        &(messages.len(), size, lead_state.clone()),
+        |_| {
+            document::eval(BOTTOM_SCRIPT);
+        },
+    ));
+    use_effect(use_reactive(&text(), |_| {
+        document::eval(FIT_SCRIPT);
+    }));
 
     let send_key = (organization.clone(), repository.clone());
+    let enter_key = (organization.clone(), repository.clone());
     let stop_key = (organization.clone(), repository.clone());
     rsx! {
         div { class: "column",
@@ -1086,28 +1162,41 @@ fn Conversation(
                 form {
                     class: "composer",
                     onsubmit: move |event: FormEvent| {
+                        event.prevent_default();
                         let (organization, repository) = send_key.clone();
-                        async move {
-                            event.prevent_default();
-                            if text().trim().is_empty() || sending() {
-                                return;
-                            }
-                            sending.set(true);
-                            match chat_send(organization, repository, number, text()).await {
-                                Ok(()) => {
-                                    text.set(String::new());
-                                    send_error.set(String::new());
-                                }
-                                Err(failure) => send_error.set(error_text(&failure)),
-                            }
-                            sending.set(false);
-                        }
+                        send_message(
+                            organization,
+                            repository,
+                            number,
+                            text,
+                            send_error,
+                            sending,
+                        );
                     },
                     div { class: "grow",
                         textarea {
                             placeholder: "Write to the {agent}",
+                            rows: "1",
                             value: text,
                             oninput: move |event| text.set(event.value()),
+                            onkeydown: move |event: KeyboardEvent| {
+                                if event.key() == Key::Enter
+                                    && !event.modifiers().shift()
+                                    && !event.is_composing()
+                                    && !touch()
+                                {
+                                    event.prevent_default();
+                                    let (organization, repository) = enter_key.clone();
+                                    send_message(
+                                        organization,
+                                        repository,
+                                        number,
+                                        text,
+                                        send_error,
+                                        sending,
+                                    );
+                                }
+                            },
                         }
                         div { class: "error", {send_error} }
                     }
