@@ -92,6 +92,7 @@ async fn changed_issues(
     else {
         return Ok(());
     };
+    let mut workstreams_changed = false;
     for issue in &page.issues {
         if issue.pull_request.is_some() {
             dispatch::pull_request_comments(engine, repository, issue.number, cursor.since).await?;
@@ -104,6 +105,7 @@ async fn changed_issues(
             triager::stop(engine, app_slug, repository, issue.number).await?;
         }
         let labeled = issue.has_label(WORKSTREAM_LABEL);
+        workstreams_changed |= labeled;
         if !labeled && !workstreams::has_work(engine, name, issue.number).await? {
             continue;
         }
@@ -128,7 +130,6 @@ async fn changed_issues(
                         .sync_cursors()
                         .set(name, dispatch::READY_CURSOR, None, None)
                         .await?;
-                    engine.broadcast(Live::Workstreams);
                 }
                 ("labeled", Some(WORKSTREAM_LABEL)) if trusted => {
                     activity::add(
@@ -166,6 +167,9 @@ async fn changed_issues(
                 _ => {}
             }
         }
+    }
+    if workstreams_changed {
+        engine.broadcast(Live::Workstreams);
     }
     let since = page
         .issues

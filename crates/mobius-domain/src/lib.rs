@@ -52,6 +52,7 @@ pub struct Workstream {
     pub repository: String,
     pub number: i64,
     pub title: String,
+    pub body: String,
     pub autopilot: bool,
 }
 
