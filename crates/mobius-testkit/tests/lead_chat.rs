@@ -5,7 +5,7 @@ use std::time::Duration;
 use mobius_domain::{Author, ChatMessage, Live, Session, TranscriptRow, Unread};
 use mobius_engine::{Engine, activity, chat, github, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
-use mobius_testkit::{install_fake_agent, start, wait_for};
+use mobius_testkit::{install_fake_agent, start, wait_for, wait_for_first_poll};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -29,6 +29,7 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub, script: &str) -> Engin
         .await
         .unwrap();
     wait_for(async || (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+    wait_for_first_poll(&engine, REPOSITORY).await;
     engine
 }
 

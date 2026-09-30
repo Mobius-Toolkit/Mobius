@@ -137,3 +137,18 @@ pub async fn wait_for<T>(mut check: impl AsyncFnMut() -> Option<T>) -> T {
     .await
     .expect("the condition is not true after 60 seconds")
 }
+
+// The first poll of a repository runs the lost-task recovery and treats each earlier issue event as old. It stores the `since` cursor at its end.
+pub async fn wait_for_first_poll(engine: &Engine, repository: &str) {
+    wait_for(async || {
+        engine
+            .store
+            .sync_cursors()
+            .get(repository, "issues")
+            .await
+            .unwrap()
+            .since
+            .map(|_| ())
+    })
+    .await;
+}
