@@ -6,7 +6,7 @@ use dioxus::server::axum::http::{Request, StatusCode, header};
 use dioxus::server::axum::{Extension, Router};
 // Links the server functions of `mobius-api` into this test binary.
 use mobius_api as _;
-use mobius_engine::Engine;
+use mobius_engine::{Engine, auth};
 use mobius_testkit::fake_github::FakeGitHub;
 use mobius_testkit::start;
 use tempfile::TempDir;
@@ -118,6 +118,35 @@ async fn the_manifest_describes_the_installable_app() {
         );
     }
     assert!(icons.iter().any(|icon| icon["src"] == "/icon.svg"));
+}
+
+#[tokio::test]
+async fn the_ui_version_reports_the_build_of_the_server() {
+    let (router, _data_dir, _github, engine) = app().await;
+
+    let response = get(&router, "/ui-version").await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let token = auth::login(&engine, "correct horse", "Firefox")
+        .await
+        .unwrap()
+        .unwrap();
+    let response = router
+        .clone()
+        .oneshot(
+            Request::get("/ui-version")
+                .header(header::COOKIE, format!("mobius_session={token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    // The app revalidates the build, so the answer must not be cached.
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-cache");
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let build = String::from_utf8(body.to_vec()).unwrap();
+    assert_eq!(build, mobius_ui::BUILD);
 }
 
 #[tokio::test]

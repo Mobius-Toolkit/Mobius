@@ -264,7 +264,9 @@ async fn the_first_prompt_has_the_context_parts_in_order() {
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github, OPTIONS).await;
     github.set_body(REPOSITORY, 12, "Ship loyalty plans to all shops.");
-    github.add_issue(REPOSITORY, 41, "Add plan model");
+    // A pull request keeps `mobius:working` while the recovery takes a working
+    // label with no live task as a lost task and changes it to needs-human.
+    github.add_pull_request(REPOSITORY, 41, "Add plan model");
     github.add_label(REPOSITORY, 41, "mobius:working", "owner");
     github.add_issue(REPOSITORY, 42, "Old spike");
     github.close_issue(REPOSITORY, 42);
