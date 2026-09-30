@@ -327,7 +327,6 @@ fn Frame() -> Element {
         organizations().await
     });
     use_context_provider(|| Organizations(organization_list));
-    // The release check runs one time when `Frame` loads.
     let new_release = use_resource(release);
     let Organization(organization) =
         use_context_provider(|| Organization(Signal::new(String::new())));
