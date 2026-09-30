@@ -14,6 +14,7 @@ pub mod inbox;
 pub mod init;
 mod issues;
 mod judge;
+pub mod labels;
 mod lead;
 mod lead_events;
 pub mod limits;
@@ -45,11 +46,6 @@ use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
 use tokio::sync::broadcast;
 
-const WORKSTREAM_LABEL: &str = "mobius:workstream";
-const READY_LABEL: &str = "mobius:ready";
-const WORKING_LABEL: &str = "mobius:working";
-const NEEDS_HUMAN_LABEL: &str = "mobius:needs-human";
-const NO_WORKSTREAM_LABEL: &str = "mobius:no-workstream";
 const TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[year]-[month]-[day] [hour]:[minute] UTC");
 
