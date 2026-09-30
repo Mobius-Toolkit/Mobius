@@ -2,30 +2,108 @@ use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 
-use mobius_domain::{Harness, Live};
+use mobius_domain::Live;
 use time::OffsetDateTime;
 use tokio::sync::Notify;
 
-use crate::config::Config;
+use crate::config::{Config, RoleBinding};
 use crate::{Engine, agents, limits};
 
 #[derive(Default)]
 pub(crate) struct Workers {
     counts: Mutex<Counts>,
-    // Each change of the counts or of the queue wakes all queued Workers.
+    // Each change of the counts or of the queue wakes all queued agents.
     pub(crate) changed: Notify,
 }
 
 #[derive(Default)]
 struct Counts {
-    running: BTreeMap<Harness, u32>,
-    // The key is the task id, and the value is the Harness of its Worker.
-    queued: HashMap<i64, Harness>,
+    running: BTreeMap<Role, u32>,
+    // The key is the task id, and the value is the role of its session.
+    queued: HashMap<i64, Role>,
+    // The waiting sessions with no task, ordered by their time in the queue.
+    waiting: BTreeMap<(OffsetDateTime, i64), Role>,
+}
+
+// The limit group of a session. The lead_chat and lead_event sessions share the group `lead`.
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Role {
+    Lead,
+    Triager,
+    Implementer,
+    Researcher,
+    Reviewer,
+    Judge,
+}
+
+impl Role {
+    // The "Agents" page shows the groups in this order.
+    pub(crate) const ALL: [Role; 6] = [
+        Self::Lead,
+        Self::Triager,
+        Self::Implementer,
+        Self::Researcher,
+        Self::Reviewer,
+        Self::Judge,
+    ];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Lead => "lead",
+            Self::Triager => "triager",
+            Self::Implementer => "implementer",
+            Self::Researcher => "researcher",
+            Self::Reviewer => "reviewer",
+            Self::Judge => "judge",
+        }
+    }
+
+    // The group of a session role. The lead_chat and lead_event sessions share the group `lead`.
+    pub(crate) fn of_session(role: &str) -> Option<Role> {
+        Some(match role {
+            crate::chat::ROLE | crate::lead_events::ROLE => Self::Lead,
+            crate::triager::ROLE => Self::Triager,
+            crate::implementer::ROLE => Self::Implementer,
+            crate::researcher::ROLE => Self::Researcher,
+            crate::reviewer::ROLE => Self::Reviewer,
+            crate::judge::ROLE => Self::Judge,
+            _ => return None,
+        })
+    }
+
+    // The name of the group on the "Agents" page.
+    pub(crate) fn title(self) -> &'static str {
+        match self {
+            Self::Lead => "Lead",
+            Self::Triager => "Triager",
+            Self::Implementer => "Implementer",
+            Self::Researcher => "Researcher",
+            Self::Reviewer => "Reviewer",
+            Self::Judge => "Judge",
+        }
+    }
+
+    pub(crate) fn binding(self, config: &Config) -> &RoleBinding {
+        let roles = &config.roles;
+        match self {
+            Self::Lead => &roles.lead,
+            Self::Triager => &roles.triager,
+            Self::Implementer => &roles.implementer,
+            Self::Researcher => &roles.researcher,
+            Self::Reviewer => &roles.reviewer,
+            Self::Judge => &roles.judge,
+        }
+    }
+
+    // A pause of the Harness of the role holds the session in the queue.
+    fn pauses(self) -> bool {
+        matches!(self, Self::Implementer | Self::Researcher | Self::Reviewer)
+    }
 }
 
 pub(crate) struct Slot {
     workers: Arc<Workers>,
-    harness: Harness,
+    role: Role,
 }
 
 impl Drop for Slot {
@@ -36,8 +114,51 @@ impl Drop for Slot {
             .lock()
             .unwrap()
             .running
-            .entry(self.harness)
+            .entry(self.role)
             .or_default() -= 1;
+        self.workers.changed.notify_waiters();
+    }
+}
+
+// The place of a session in the queue. The `Drop` removes the entry, so a wait dropped by a stop keeps no place.
+struct Queued {
+    workers: Arc<Workers>,
+    place: Place,
+    session: i64,
+}
+
+impl Queued {
+    fn new(engine: &Engine, place: Place, session: i64, role: Role) -> Queued {
+        let mut counts = engine.workers.counts.lock().unwrap();
+        match place {
+            Place::Task(task) => {
+                counts.queued.insert(task, role);
+            }
+            Place::Since(since) => {
+                counts.waiting.insert((since, session), role);
+            }
+        }
+        Queued {
+            workers: engine.workers.clone(),
+            place,
+            session,
+        }
+    }
+}
+
+impl Drop for Queued {
+    fn drop(&mut self) {
+        {
+            let mut counts = self.workers.counts.lock().unwrap();
+            match self.place {
+                Place::Task(task) => {
+                    counts.queued.remove(&task);
+                }
+                Place::Since(since) => {
+                    counts.waiting.remove(&(since, self.session));
+                }
+            }
+        }
         self.workers.changed.notify_waiters();
     }
 }
@@ -47,18 +168,12 @@ pub(crate) async fn slot(
     engine: &Engine,
     task: i64,
     session: i64,
-    harness: Harness,
+    role: Role,
 ) -> Result<Option<Slot>, Box<dyn Error + Send + Sync>> {
-    engine
-        .workers
-        .counts
-        .lock()
-        .unwrap()
-        .queued
-        .insert(task, harness);
-    let slot = wait(engine, Place::Task(task), session, harness).await;
-    engine.workers.counts.lock().unwrap().queued.remove(&task);
-    engine.workers.changed.notify_waiters();
+    let place = Place::Task(task);
+    let queued = Queued::new(engine, place, session, role);
+    let slot = wait(engine, place, session, role).await;
+    drop(queued);
     let Some(slot) = slot? else {
         return Ok(None);
     };
@@ -75,19 +190,23 @@ pub(crate) async fn slot(
     Ok(Some(slot))
 }
 
-pub(crate) async fn research_slot(
+// A session with no task waits behind each session that queued before it. A dropped wait, for example on a stop, frees the place.
+pub(crate) async fn session_slot(
     engine: &Engine,
     session: i64,
-    harness: Harness,
-) -> Result<Option<Slot>, Box<dyn Error + Send + Sync>> {
-    let since = OffsetDateTime::now_utc();
-    let slot = wait(engine, Place::Since(since), session, harness).await?;
+    role: Role,
+) -> Result<Slot, Box<dyn Error + Send + Sync>> {
+    let place = Place::Since(OffsetDateTime::now_utc());
+    let queued = Queued::new(engine, place, session, role);
+    let slot = wait(engine, place, session, role).await;
+    drop(queued);
+    let slot = slot?.expect("a session with no task keeps its place in the queue");
     let started = engine.store.sessions().start(session).await?;
     engine.broadcast(Live::Agent(agents::node(started)));
     Ok(slot)
 }
 
-// A Researcher has no task, so it waits behind each task that queued before it.
+#[derive(Clone, Copy)]
 enum Place {
     Task(i64),
     Since(OffsetDateTime),
@@ -97,8 +216,9 @@ async fn wait(
     engine: &Engine,
     place: Place,
     session: i64,
-    harness: Harness,
+    role: Role,
 ) -> Result<Option<Slot>, Box<dyn Error + Send + Sync>> {
+    let harness = role.binding(&engine.config).harness;
     let mut shown = None;
     loop {
         let changed = engine.workers.changed.notified();
@@ -106,34 +226,54 @@ async fn wait(
         changed.as_mut().enable();
         let queue = engine.store.tasks().queued().await?;
         // A paused Harness takes no slot, so a pause does not count toward a limit.
-        let pause = engine.store.harness_pauses().get(harness).await?;
-        let position = match place {
+        let pause = match role.pauses() {
+            true => engine.store.harness_pauses().get(harness).await?,
+            false => None,
+        };
+        let (position, at) = match place {
             Place::Task(task) => {
                 let Some(position) = queue.iter().position(|(id, _)| *id == task) else {
                     return Ok(None);
                 };
-                position
+                (position, queue[position].1)
             }
-            Place::Since(since) => queue.iter().filter(|(_, at)| *at <= since).count(),
+            Place::Since(since) => (queue.iter().filter(|(_, at)| *at <= since).count(), since),
         };
         let text = {
             let mut counts = engine.workers.counts.lock().unwrap();
-            let earlier: Vec<Harness> = queue[..position]
+            let bound = match place {
+                Place::Task(_) => (at, i64::MIN),
+                Place::Since(_) => (at, session),
+            };
+            let mut earlier: Vec<(OffsetDateTime, Role)> = queue[..position]
                 .iter()
-                .filter_map(|(id, _)| counts.queued.get(id).copied())
+                .filter_map(|(id, at)| counts.queued.get(id).map(|role| (*at, *role)))
                 .collect();
+            earlier.extend(
+                counts
+                    .waiting
+                    .range(..bound)
+                    .map(|(key, role)| (key.0, *role)),
+            );
+            earlier.sort_unstable_by_key(|(at, _)| *at);
+            let earlier: Vec<Role> = earlier.into_iter().map(|(_, role)| role).collect();
             let text = match &pause {
                 Some(pause) => Some(limits::reason(pause)?),
-                None => reason(&engine.config, &counts.running, &earlier, harness),
+                None => reason(&engine.config, &counts.running, &earlier, role),
             };
             let Some(text) = text else {
-                *counts.running.entry(harness).or_default() += 1;
-                if let Place::Task(task) = place {
-                    counts.queued.remove(&task);
+                *counts.running.entry(role).or_default() += 1;
+                match place {
+                    Place::Task(task) => {
+                        counts.queued.remove(&task);
+                    }
+                    Place::Since(since) => {
+                        counts.waiting.remove(&(since, session));
+                    }
                 }
                 return Ok(Some(Slot {
                     workers: engine.workers.clone(),
-                    harness,
+                    role,
                 }));
             };
             text
@@ -151,12 +291,12 @@ async fn wait(
     }
 }
 
-// Gives the reason why a Worker of `harness` must wait. Each `earlier` Worker that fits starts before it.
+// Gives the reason why a session of `role` must wait. Each `earlier` session that fits starts before it.
 fn reason(
     config: &Config,
-    running: &BTreeMap<Harness, u32>,
-    earlier: &[Harness],
-    harness: Harness,
+    running: &BTreeMap<Role, u32>,
+    earlier: &[Role],
+    role: Role,
 ) -> Option<String> {
     let mut running = running.clone();
     for &other in earlier {
@@ -164,24 +304,26 @@ fn reason(
             *running.entry(other).or_default() += 1;
         }
     }
-    limit_reason(config, &running, harness)
+    limit_reason(config, &running, role)
 }
 
-fn limit_reason(
-    config: &Config,
-    running: &BTreeMap<Harness, u32>,
-    harness: Harness,
-) -> Option<String> {
-    let total: u32 = running.values().sum();
-    if total >= config.max_workers_total {
-        return Some(format!(
-            "no free Worker slot ({total}/{})",
-            config.max_workers_total
-        ));
+fn limit_reason(config: &Config, running: &BTreeMap<Role, u32>, role: Role) -> Option<String> {
+    if role.binding(config).counts_in_max_agents {
+        let total: u32 = running
+            .iter()
+            .filter(|(other, _)| other.binding(config).counts_in_max_agents)
+            .map(|(_, count)| *count)
+            .sum();
+        if total >= config.max_agents {
+            return Some(format!(
+                "no free agent slot ({total}/{})",
+                config.max_agents
+            ));
+        }
     }
-    let count = running.get(&harness).copied().unwrap_or_default();
-    let max = config.max_workers[&harness];
-    (count >= max).then(|| format!("no free {} slot ({count}/{max})", harness.name()))
+    let count = running.get(&role).copied().unwrap_or_default();
+    let max = role.binding(config).max;
+    (count >= max).then(|| format!("no free {} slot ({count}/{max})", role.name()))
 }
 
 #[cfg(test)]
@@ -193,7 +335,7 @@ mod tests {
             r#"
 access_password = "correct horse"
 trusted_users = ["owner"]
-max_workers_total = 4
+max_agents = 4
 
 [roles]
 lead        = { harness = "claude-code", model = "opus",    effort = "high" }
@@ -208,48 +350,66 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
     }
 
     #[test]
-    fn a_worker_with_free_slots_starts() {
-        let running = BTreeMap::from([(Harness::Devin, 1)]);
+    fn an_agent_with_free_slots_starts() {
+        let running = BTreeMap::from([(Role::Implementer, 1)]);
 
-        assert_eq!(reason(&config(), &running, &[], Harness::Devin), None);
+        assert_eq!(reason(&config(), &running, &[], Role::Implementer), None);
     }
 
     #[test]
-    fn a_full_harness_gives_its_count() {
-        let running = BTreeMap::from([(Harness::Devin, 2)]);
+    fn a_full_role_gives_its_count() {
+        let running = BTreeMap::from([(Role::Implementer, 2)]);
 
         assert_eq!(
-            reason(&config(), &running, &[], Harness::Devin).as_deref(),
-            Some("no free devin slot (2/2)")
+            reason(&config(), &running, &[], Role::Implementer).as_deref(),
+            Some("no free implementer slot (2/2)")
         );
     }
 
     #[test]
-    fn a_full_total_gives_the_worker_count() {
-        let running = BTreeMap::from([(Harness::Devin, 2), (Harness::ClaudeCode, 2)]);
+    fn a_full_global_limit_counts_the_counted_roles() {
+        let running = BTreeMap::from([(Role::Implementer, 2), (Role::Reviewer, 2)]);
 
         assert_eq!(
-            reason(&config(), &running, &[], Harness::Antigravity).as_deref(),
-            Some("no free Worker slot (4/4)")
+            reason(&config(), &running, &[], Role::Judge).as_deref(),
+            Some("no free agent slot (4/4)")
         );
     }
 
     #[test]
-    fn an_earlier_worker_that_fits_takes_the_last_slot() {
-        let running = BTreeMap::from([(Harness::Devin, 1)]);
+    fn the_lead_and_the_triager_do_not_count_toward_the_global_limit() {
+        let running = BTreeMap::from([(Role::Implementer, 2), (Role::Reviewer, 2)]);
+
+        assert_eq!(reason(&config(), &running, &[], Role::Lead), None);
+        assert_eq!(reason(&config(), &running, &[], Role::Triager), None);
+    }
+
+    #[test]
+    fn a_full_lead_limit_blocks_a_lead_session() {
+        let running = BTreeMap::from([(Role::Lead, 8)]);
 
         assert_eq!(
-            reason(&config(), &running, &[Harness::Devin], Harness::Devin).as_deref(),
-            Some("no free devin slot (2/2)")
+            reason(&config(), &running, &[], Role::Lead).as_deref(),
+            Some("no free lead slot (8/8)")
         );
     }
 
     #[test]
-    fn an_earlier_worker_of_a_full_harness_does_not_block_a_later_worker() {
-        let running = BTreeMap::from([(Harness::Devin, 2)]);
+    fn an_earlier_agent_that_fits_takes_the_last_slot() {
+        let running = BTreeMap::from([(Role::Implementer, 1)]);
 
         assert_eq!(
-            reason(&config(), &running, &[Harness::Devin], Harness::ClaudeCode),
+            reason(&config(), &running, &[Role::Implementer], Role::Implementer).as_deref(),
+            Some("no free implementer slot (2/2)")
+        );
+    }
+
+    #[test]
+    fn an_earlier_agent_of_a_full_role_does_not_block_a_later_agent() {
+        let running = BTreeMap::from([(Role::Implementer, 2)]);
+
+        assert_eq!(
+            reason(&config(), &running, &[Role::Implementer], Role::Reviewer),
             None
         );
     }

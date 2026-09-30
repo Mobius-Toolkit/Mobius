@@ -47,6 +47,9 @@ async fn check_task(
     if let Some(pull_request) = &pull_request
         && pull_request.state == "closed"
     {
+        if pull_request.merged && issue.state == "open" {
+            repository.close_as_completed(task.issue).await?;
+        }
         end(engine, repository, task).await?;
         let what = if pull_request.merged {
             "merged"

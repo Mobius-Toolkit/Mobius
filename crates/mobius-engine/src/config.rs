@@ -1,10 +1,9 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use mobius_domain::Harness;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -15,10 +14,8 @@ pub struct Config {
     pub trusted_bots: Vec<String>,
     #[serde(default = "default_data_dir")]
     pub data_dir: PathBuf,
-    #[serde(default)]
-    pub max_workers: BTreeMap<Harness, u32>,
-    #[serde(default = "default_max_workers_total")]
-    pub max_workers_total: u32,
+    #[serde(default = "default_max_agents")]
+    pub max_agents: u32,
     #[serde(default = "default_max_checks")]
     pub max_checks: u32,
     #[serde(default = "default_three")]
@@ -44,8 +41,7 @@ pub struct Config {
     pub roles: Roles,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct Roles {
     pub lead: RoleBinding,
     pub triager: RoleBinding,
@@ -53,6 +49,31 @@ pub struct Roles {
     pub researcher: RoleBinding,
     pub reviewer: RoleBinding,
     pub judge: RoleBinding,
+}
+
+// The default `max` and `counts_in_max_agents` differ for each role, so the raw binding keeps them optional.
+impl<'de> Deserialize<'de> for Roles {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct RawRoles {
+            lead: RawRoleBinding,
+            triager: RawRoleBinding,
+            implementer: RawRoleBinding,
+            researcher: RawRoleBinding,
+            reviewer: RawRoleBinding,
+            judge: RawRoleBinding,
+        }
+        let raw = RawRoles::deserialize(deserializer)?;
+        Ok(Self {
+            lead: raw.lead.with_defaults(8, false),
+            triager: raw.triager.with_defaults(2, false),
+            implementer: raw.implementer.with_defaults(2, true),
+            researcher: raw.researcher.with_defaults(2, true),
+            reviewer: raw.reviewer.with_defaults(2, true),
+            judge: raw.judge.with_defaults(2, true),
+        })
+    }
 }
 
 impl Roles {
@@ -68,12 +89,35 @@ impl Roles {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug)]
 pub struct RoleBinding {
     pub harness: Harness,
     pub model: String,
     pub effort: Option<String>,
+    pub max: u32,
+    pub counts_in_max_agents: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRoleBinding {
+    harness: Harness,
+    model: String,
+    effort: Option<String>,
+    max: Option<u32>,
+    counts_in_max_agents: Option<bool>,
+}
+
+impl RawRoleBinding {
+    fn with_defaults(self, max: u32, global: bool) -> RoleBinding {
+        RoleBinding {
+            harness: self.harness,
+            model: self.model,
+            effort: self.effort,
+            max: self.max.unwrap_or(max),
+            counts_in_max_agents: self.counts_in_max_agents.unwrap_or(global),
+        }
+    }
 }
 
 pub(crate) const EFFORT_LEVEL_HARNESSES: [Harness; 2] = [Harness::ClaudeCode, Harness::Devin];
@@ -82,7 +126,7 @@ fn default_data_dir() -> PathBuf {
     std::env::home_dir().unwrap_or_default().join(".mobius")
 }
 
-fn default_max_workers_total() -> u32 {
+fn default_max_agents() -> u32 {
     4
 }
 
@@ -135,7 +179,7 @@ pub fn parse(text: &str) -> Result<Config, String> {
             .map_or(1, |span| text[..span.start].lines().count().max(1));
         format!("line {line}: {}", error.message())
     })?;
-    let mut config: Config = serde_path_to_error::deserialize(deserializer).map_err(|error| {
+    let config: Config = serde_path_to_error::deserialize(deserializer).map_err(|error| {
         let key = error.path().to_string();
         let message = error.inner().message();
         if key == "." {
@@ -144,9 +188,6 @@ pub fn parse(text: &str) -> Result<Config, String> {
             format!("{key}: {message}")
         }
     })?;
-    for harness in Harness::ALL {
-        config.max_workers.entry(harness).or_insert(2);
-    }
     if config.access_password.chars().count() < 8 {
         return Err("access_password: must have at least 8 characters".to_string());
     }
@@ -204,15 +245,7 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
             config.data_dir,
             std::env::home_dir().unwrap().join(".mobius")
         );
-        assert_eq!(
-            config.max_workers,
-            BTreeMap::from([
-                (Harness::ClaudeCode, 2),
-                (Harness::Antigravity, 2),
-                (Harness::Devin, 2)
-            ])
-        );
-        assert_eq!(config.max_workers_total, 4);
+        assert_eq!(config.max_agents, 4);
         assert_eq!(config.max_checks, 1);
         assert_eq!(config.max_fix_rounds, 3);
         assert_eq!(config.max_check_attempts, 3);
@@ -223,6 +256,35 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
         assert_eq!(config.roles.researcher.harness, Harness::Antigravity);
         assert_eq!(config.roles.researcher.effort, None);
         assert_eq!(config.roles.implementer.model, "swe-1.5");
+        for (role, binding) in config.roles.bindings() {
+            let max = if role == "lead" { 8 } else { 2 };
+            assert_eq!(binding.max, max, "{role}");
+            assert_eq!(
+                binding.counts_in_max_agents,
+                !matches!(role, "lead" | "triager"),
+                "{role}"
+            );
+        }
+    }
+
+    #[test]
+    fn parses_the_max_of_each_role_and_the_global_limit() {
+        let text = VALID
+            .replace(
+                "implementer = { harness = \"devin\",       model = \"swe-1.5\", effort = \"high\" }",
+                "implementer = { harness = \"devin\", model = \"swe-1.5\", effort = \"high\", max = 3 }",
+            )
+            .replace(
+                "judge       = { harness = \"claude-code\", model = \"haiku\",   effort = \"low\" }",
+                "judge       = { harness = \"claude-code\", model = \"haiku\", effort = \"low\", counts_in_max_agents = false }",
+            );
+        let config = parse(&format!("max_agents = 1\n{text}")).unwrap();
+
+        assert_eq!(config.max_agents, 1);
+        assert_eq!(config.roles.implementer.max, 3);
+        assert_eq!(config.roles.judge.max, 2);
+        assert!(!config.roles.judge.counts_in_max_agents);
+        assert!(config.roles.implementer.counts_in_max_agents);
     }
 
     fn error(text: &str) -> String {
@@ -261,16 +323,25 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
         );
         assert_eq!(
             error(&VALID.replace("model = \"haiku\"", "modle = \"haiku\"")),
-            "roles.judge.modle: unknown field `modle`, expected one of `harness`, `model`, `effort`"
+            "roles.judge.modle: unknown field `modle`, expected one of `harness`, `model`, `effort`, `max`, `counts_in_max_agents`"
+        );
+    }
+
+    #[test]
+    fn refuses_the_removed_worker_limits() {
+        assert!(
+            error(&format!("max_workers = {{ devin = 1 }}\n{VALID}"))
+                .starts_with("max_workers: unknown field `max_workers`, expected one of")
+        );
+        assert!(
+            error(&format!("max_workers_total = 1\n{VALID}")).starts_with(
+                "max_workers_total: unknown field `max_workers_total`, expected one of"
+            )
         );
     }
 
     #[test]
     fn refuses_an_unknown_harness() {
-        assert_eq!(
-            error(&format!("max_workers = {{ codex = 1 }}\n{VALID}")),
-            "max_workers.?: unknown variant `codex`, expected one of `claude-code`, `antigravity`, `devin`"
-        );
         assert_eq!(
             error(&VALID.replace("\"devin\"", "\"codex\"")),
             "roles.implementer.harness: unknown variant `codex`, expected one of `claude-code`, `antigravity`, `devin`"
