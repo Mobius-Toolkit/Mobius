@@ -198,10 +198,11 @@ pub enum InboxKind {
     UsageLimit,
     LeadFailed,
     Stopped,
+    DiskFull,
 }
 
 impl InboxKind {
-    pub const ALL: [InboxKind; 7] = [
+    pub const ALL: [InboxKind; 8] = [
         InboxKind::Question,
         InboxKind::Lead,
         InboxKind::ReadyForReview,
@@ -209,6 +210,7 @@ impl InboxKind {
         InboxKind::UsageLimit,
         InboxKind::LeadFailed,
         InboxKind::Stopped,
+        InboxKind::DiskFull,
     ];
 
     pub fn name(self) -> &'static str {
@@ -220,6 +222,7 @@ impl InboxKind {
             InboxKind::UsageLimit => "usage limit",
             InboxKind::LeadFailed => "Lead failed",
             InboxKind::Stopped => "stopped",
+            InboxKind::DiskFull => "full disk",
         }
     }
 }

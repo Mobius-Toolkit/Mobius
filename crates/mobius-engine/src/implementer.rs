@@ -25,6 +25,7 @@ pub(crate) const CHECK_RUN: &str = "Mobius";
 pub(crate) const CONFLICT_ROUND: &str = "conflict_round";
 // GitHub allows a maximum of 65535 characters in the summary of a check run.
 const LOG_TAIL: usize = 60_000;
+const DISK_FULL: &str = "No space left on device";
 
 #[derive(Clone)]
 struct Job {
@@ -610,15 +611,30 @@ async fn turns_and_checks(
         if let Some(reason) = turn(session, &prompt, updates, recorder, reasons).await? {
             return Ok(Some(Outcome::CannotDo(reason)));
         }
-        let check = {
-            let _check = engine.checks.acquire().await?;
-            mobius_runner::check(
-                &engine.config.data_dir,
-                worktree,
-                &engine.harness_path,
-                engine.config.check_timeout,
-            )
-            .await?
+        let check = loop {
+            let check = {
+                let _check = engine.checks.acquire().await?;
+                mobius_runner::check(
+                    &engine.config.data_dir,
+                    worktree,
+                    &engine.harness_path,
+                    engine.config.check_timeout,
+                )
+                .await?
+            };
+            match check {
+                Check::Failed(log) if log.contains(DISK_FULL) => {
+                    housekeeper::wait_for_disk(
+                        engine,
+                        &job.repository,
+                        job.workstream,
+                        job.number,
+                        &job.title,
+                    )
+                    .await?
+                }
+                check => break check,
+            }
         };
         let Check::Failed(log) = check else {
             return Ok(None);
