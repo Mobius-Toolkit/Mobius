@@ -6,6 +6,8 @@ use time::OffsetDateTime;
 
 use crate::{Engine, TIME_FORMAT, implementer, lead_events};
 
+const ERROR_TAIL: usize = 2_000;
+
 pub(crate) fn spawn(engine: Engine) {
     tokio::spawn(async move {
         loop {
@@ -66,6 +68,7 @@ pub(crate) async fn restart(
     task: i64,
     number: i64,
     title: &str,
+    error: &str,
 ) -> Result<bool, Box<dyn Error + Send + Sync>> {
     let max = engine.config.max_worker_restarts;
     if engine.store.tasks().add_worker_restart(task, max).await? {
@@ -74,8 +77,13 @@ pub(crate) async fn restart(
     if !implementer::hand_to_human(engine, repository, task, number).await? {
         return Ok(false);
     }
+    let count = error.chars().count();
+    let tail: String = error
+        .chars()
+        .skip(count.saturating_sub(ERROR_TAIL))
+        .collect();
     let text = format!(
-        "{} stop of #{number} \"{title}\": the Worker failed after {max} restarts. Mobius added mobius:needs-human.",
+        "{} stop of #{number} \"{title}\": the Worker failed after {max} restarts. Mobius added mobius:needs-human. The last error ends with these lines:\n\n```\n{tail}\n```",
         OffsetDateTime::now_utc().format(TIME_FORMAT)?
     );
     lead_events::add(engine, repository, workstream, "stop", &text).await?;
