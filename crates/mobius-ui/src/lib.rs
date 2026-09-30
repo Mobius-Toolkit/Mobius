@@ -1034,12 +1034,20 @@ fn Conversation(
                 return;
             }
             sending.set(true);
-            match chat_send(organization, repository, number, message).await {
-                Ok(()) => {
-                    text.set(String::new());
-                    send_error.set(String::new());
+            // Clear the input at once so that text typed during the request is not lost.
+            text.set(String::new());
+            match chat_send(organization, repository, number, message.clone()).await {
+                Ok(()) => send_error.set(String::new()),
+                Err(failure) => {
+                    send_error.set(error_text(&failure));
+                    // Put the failed message back in front of any new text.
+                    let draft = text.peek().clone();
+                    text.set(if draft.is_empty() {
+                        message
+                    } else {
+                        format!("{message}\n{draft}")
+                    });
                 }
-                Err(failure) => send_error.set(error_text(&failure)),
             }
             sending.set(false);
         }
