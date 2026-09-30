@@ -2,8 +2,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use mobius_domain::{Session, TranscriptRow};
-use mobius_engine::{Engine, github, tasks, workstreams};
+use mobius_domain::{InboxKind, Session, TranscriptRow};
+use mobius_engine::{Engine, github, inbox, tasks, workstreams};
 use mobius_testkit::fake_github::{
     BOT_USER_ID, CheckRun, FakeGitHub, INSTALLATION_TOKEN, PullRequest,
 };
@@ -517,6 +517,90 @@ async fn after_max_check_attempts_mobius_pushes_marks_the_check_run_as_failed_an
     let prompts = prompts(&transcript(&engine, session.id).await);
     assert_eq!(prompts.len(), 3, "{prompts:?}");
     assert!(prompts[2].contains("tests failed"), "{}", prompts[2]);
+}
+
+#[tokio::test]
+async fn a_check_on_a_full_disk_waits_for_free_space_with_no_prompt_and_no_attempt_and_then_pushes()
+{
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let free = data_dir.path().join("free");
+    fs::write(&free, "0").unwrap();
+    let harnesses = data_dir.path().join("harnesses");
+    fs::create_dir_all(&harnesses).unwrap();
+    fs::write(
+        harnesses.join("df"),
+        format!(
+            "#!/bin/sh\necho 'Filesystem 1024-blocks Used Available Capacity Mounted on'\necho \"/dev/disk1 100 100 $(cat '{}') 100% /\"\n",
+            free.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(harnesses.join("df"), fs::Permissions::from_mode(0o755)).unwrap();
+    let engine = connect(
+        &data_dir,
+        &github,
+        "max_check_attempts = 1\nhousekeeper_interval = \"100ms\"",
+        &format!("[[prompts]]\nwhen = \"dispatch of #41\"\n{START}"),
+        &format!("[[prompts]]\n{COMMIT}"),
+    )
+    .await;
+    github.set_check(
+        REPOSITORY,
+        &format!(
+            "if [ \"$(cat '{}')\" = 0 ]; then echo 'error: No space left on device (os error 28)'; exit 1; fi",
+            free.display()
+        ),
+    );
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    let item = wait_for(async || {
+        inbox::list(&engine)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|item| item.kind == InboxKind::DiskFull)
+    })
+    .await;
+    assert_eq!(
+        item.text,
+        "The disk of the Mobius server is full. The .mobius/check of #41 \"Add plan model\" waits for 20 GiB of free space. The disk has 0 GiB of free space."
+    );
+    assert_eq!(item.issue, 41);
+    assert_eq!(item.link, "https://github.com/owner/shop/issues/41");
+    assert_eq!(task_state(&engine).await.as_deref(), Some("working"));
+    assert!(github.pull_requests(REPOSITORY).is_empty());
+    let session = sessions(&engine, "implementer").await.remove(0);
+    assert!(session.ended_at.is_none());
+
+    fs::write(&free, "20971520").unwrap();
+
+    let check_runs = wait_for(async || {
+        let check_runs = github.check_runs(REPOSITORY);
+        (!check_runs.is_empty()).then_some(check_runs)
+    })
+    .await;
+    assert_eq!(check_runs.len(), 1);
+    assert_eq!(check_runs[0].status, "in_progress");
+    assert_eq!(github.pull_requests(REPOSITORY).len(), 1);
+    let remote = github.remote(REPOSITORY);
+    assert_eq!(git(&remote, &["show", "mobius/41:plan.txt"]), "cents");
+    assert!(
+        !github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:needs-human".to_string())
+    );
+    assert!(
+        !inbox::list(&engine)
+            .await
+            .unwrap()
+            .iter()
+            .any(|item| item.kind == InboxKind::DiskFull)
+    );
+    let session = ended_implementers(&engine, 1).await.remove(0);
+    assert_eq!(session.end_reason.as_deref(), Some("done"));
+    assert_eq!(prompts(&transcript(&engine, session.id).await).len(), 1);
 }
 
 #[tokio::test]
