@@ -3332,6 +3332,7 @@ dependencies = [
  "mobius-domain",
  "pulldown-cmark",
  "serde_json",
+ "sha2 0.10.9",
  "time",
 ]
 
