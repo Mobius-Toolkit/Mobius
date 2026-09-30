@@ -50,6 +50,39 @@ pub struct ManifestForm {
     pub manifest: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LabelStatus {
+    Present,
+    // The label exists with this different color.
+    WrongColor(String),
+    // The label exists with this name in a different case. The engine compares label
+    // names exactly, so it does not see this label on issues.
+    WrongCase(String),
+    Missing,
+}
+
+impl LabelStatus {
+    // Mobius does not rename labels, so a label in a different case stays for a human.
+    pub fn fixable(&self) -> bool {
+        matches!(self, LabelStatus::Missing | LabelStatus::WrongColor(_))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LabelCheck {
+    pub name: String,
+    // The fixed color of the label.
+    pub color: String,
+    pub status: LabelStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepositoryCheckup {
+    pub repository: String,
+    pub labels: Vec<LabelCheck>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Workstream {
     pub repository: String,
