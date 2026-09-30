@@ -37,7 +37,8 @@ pub(crate) async fn dispatch_ready(
         if !trusted_author(&engine.config, app_slug, actor) {
             continue;
         }
-        if let Some(task) = engine.store.tasks().live(name, issue.number).await? {
+        let live = engine.store.tasks().live(name, issue.number).await?;
+        if let Some(task) = live.as_ref().filter(|task| task.state != "stopped") {
             repository.remove_label(issue.number, READY_LABEL).await?;
             activity::add(
                 engine,
@@ -63,6 +64,9 @@ pub(crate) async fn dispatch_ready(
             && !workstreams::autopilot(engine, repository, workstream).await?
         {
             continue;
+        }
+        if let Some(task) = live {
+            engine.store.tasks().end(task.id).await?;
         }
         dispatch(engine, repository, issue, workstream, actor).await?;
     }

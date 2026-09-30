@@ -144,6 +144,22 @@ async fn a_merge_ends_the_task_and_keeps_the_branch() {
 }
 
 #[tokio::test]
+async fn a_merge_closes_the_open_issue_as_completed() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, IMPLEMENTER).await;
+    ready_for_review(&engine).await;
+
+    github.merge_pull_request(REPOSITORY, 42);
+
+    wait_for(async || task_state(&engine).await.is_none().then_some(())).await;
+    assert_eq!(
+        github.state(REPOSITORY, 41),
+        ("closed".to_string(), Some("completed".to_string()))
+    );
+}
+
+#[tokio::test]
 async fn a_close_of_the_issue_before_a_pull_request_stops_the_implementer_and_cancels_the_task() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
@@ -222,4 +238,31 @@ async fn a_removal_of_the_working_label_stops_the_task() {
         "Stopped \"Add plan model\" after a removal of mobius:working"
     );
     assert_eq!(last.link, "https://github.com/owner/shop/issues/41");
+}
+
+#[tokio::test]
+async fn a_ready_label_after_a_stop_starts_a_new_task_on_a_new_branch() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, IMPLEMENTER).await;
+    ready_for_review(&engine).await;
+    github.remove_label(REPOSITORY, 41, "mobius:working", "mallory");
+    wait_for(async || (task_state(&engine).await.as_deref() == Some("stopped")).then_some(()))
+        .await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    let pull_requests =
+        wait_for(async || Some(github.pull_requests(REPOSITORY)).filter(|all| all.len() == 2))
+            .await;
+    assert_eq!(pull_requests[1].head, "mobius/41-2");
+    let task = engine
+        .store
+        .tasks()
+        .live(REPOSITORY, 41)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(task.branch.as_deref(), Some("mobius/41-2"));
+    assert_eq!(github.state(REPOSITORY, 42).0, "open");
 }
