@@ -225,6 +225,33 @@ async fn set_autopilot_on_adds_the_label_as_the_owner() {
     .unwrap();
 }
 
+// GitHub records no `labeled` event when the issue already has the label, so an
+// add alone would keep the App bot as the last actor. The switch removes first.
+#[tokio::test]
+async fn set_autopilot_on_replaces_a_label_of_the_app() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+    authorize_owner(&engine, &github).await;
+    github.add_label(REPOSITORY, 20, "mobius:autopilot", APP);
+
+    workstreams::set_autopilot(&engine, REPOSITORY, 20, true)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        github
+            .label_actor(REPOSITORY, 20, "mobius:autopilot")
+            .as_deref(),
+        Some("owner")
+    );
+    let list = workstreams::list(&engine).await.unwrap();
+    assert!(
+        list.iter()
+            .any(|workstream| workstream.number == 20 && workstream.autopilot)
+    );
+}
+
 #[tokio::test]
 async fn set_autopilot_off_removes_the_label() {
     let data_dir = TempDir::new().unwrap();

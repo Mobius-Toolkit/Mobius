@@ -273,14 +273,14 @@ impl Records {
     }
 
     fn label(&mut self, repository: &str, number: i64, label: &str, actor: &str) {
-        let now = self.tick();
-        let issue = self
-            .issues
-            .get_mut(&(repository.to_string(), number))
-            .unwrap();
-        if !issue.labels.iter().any(|name| name == label) {
-            issue.labels.push(label.to_string());
+        let key = (repository.to_string(), number);
+        // GitHub records no `labeled` event for a label the issue already has.
+        if self.issues[&key].labels.iter().any(|name| name == label) {
+            return;
         }
+        let now = self.tick();
+        let issue = self.issues.get_mut(&key).unwrap();
+        issue.labels.push(label.to_string());
         issue.updated_at = now;
         issue.events.push(json!({
             "event": "labeled",

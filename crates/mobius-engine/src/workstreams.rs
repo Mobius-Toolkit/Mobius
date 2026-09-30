@@ -184,10 +184,11 @@ pub async fn set_autopilot(
     let repository = engine.repository(repository)?;
     let user_token = github::user_token(engine, repository.app_id).await?;
     let as_owner = repository.with_user_token(&user_token)?;
+    // GitHub records no `labeled` event for a label the issue already has, so a
+    // last `labeled` of an untrusted actor would stay. Remove before the add.
+    as_owner.remove_label(workstream, AUTOPILOT_LABEL).await?;
     if on {
         as_owner.add_label(workstream, AUTOPILOT_LABEL).await?;
-    } else {
-        as_owner.remove_label(workstream, AUTOPILOT_LABEL).await?;
     }
     engine.broadcast(Live::Workstreams);
     Ok(())
