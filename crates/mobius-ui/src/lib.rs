@@ -742,8 +742,10 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
         select_organization(organization, owner)
     }));
     let mut sheet = use_signal(|| false);
-    let mut autopilot_busy = use_signal(|| false);
-    let mut autopilot_error = use_signal(String::new);
+    // The router keeps this component when the Workstream changes. The call and the
+    // error are keyed by the Workstream, so a late answer cannot touch another chat.
+    let mut autopilot_call = use_signal(|| None::<(String, i64)>);
+    let mut autopilot_error = use_signal(|| None::<((String, i64), String)>);
     let workstream = match &*workstream_list.read() {
         Some(Ok(list)) => list
             .iter()
@@ -754,6 +756,9 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     let autopilot_on = workstream
         .as_ref()
         .is_some_and(|workstream| workstream.autopilot);
+    let autopilot_busy = autopilot_call().is_some_and(|key| key.0 == repository && key.1 == number);
+    let autopilot_note = autopilot_error()
+        .and_then(|(key, text)| (key.0 == repository && key.1 == number).then_some(text));
     let switch_repository = repository.clone();
     rsx! {
         div { class: "page",
@@ -769,24 +774,27 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
                         class: "autopilot",
                         role: "switch",
                         aria_checked: autopilot_on,
-                        disabled: autopilot_busy(),
+                        disabled: autopilot_busy,
                         onclick: move |_| {
                             let repository = switch_repository.clone();
                             async move {
-                                autopilot_busy.set(true);
+                                let key = (repository.clone(), number);
+                                autopilot_call.set(Some(key.clone()));
                                 match workstream_autopilot(repository, number, !autopilot_on).await {
-                                    Ok(()) => autopilot_error.set(String::new()),
-                                    Err(failure) => autopilot_error.set(error_text(&failure)),
+                                    Ok(()) => autopilot_error.set(None),
+                                    Err(failure) => {
+                                        autopilot_error.set(Some((key, error_text(&failure))))
+                                    }
                                 }
                                 workstream_list.restart();
-                                autopilot_busy.set(false);
+                                autopilot_call.set(None);
                             }
                         },
                         span { class: "track", span { class: "knob" } }
                         "Autopilot"
                     }
-                    if !autopilot_error().is_empty() {
-                        div { class: "error note", {autopilot_error} }
+                    if let Some(note) = autopilot_note {
+                        div { class: "error note", {note} }
                     }
                 },
                 tail: rsx! {
