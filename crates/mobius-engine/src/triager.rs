@@ -7,12 +7,10 @@ use mobius_domain::{ChatMessage, Live, organization};
 use mobius_github::Repository;
 use tokio::sync::Notify;
 
+use crate::labels::{NO_WORKSTREAM_LABEL, READY_LABEL, WORKSTREAM_LABEL};
 use crate::lead::{self, Recorder};
 use crate::trust::app_login;
-use crate::{
-    Engine, NO_WORKSTREAM_LABEL, READY_LABEL, WORKSTREAM_LABEL, limits, mcp, researcher, workers,
-    workstreams,
-};
+use crate::{Engine, limits, mcp, researcher, workers, workstreams};
 
 pub(crate) const ROLE: &str = "triager";
 // The Triager belongs to no Workstream. Its chat belongs to an organization, so the key of the chat is (organization, "", CHAT).

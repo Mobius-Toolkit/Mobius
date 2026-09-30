@@ -9,11 +9,12 @@ use time::OffsetDateTime;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 
+use crate::labels::NEEDS_HUMAN_LABEL;
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
 use crate::{
-    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, ends, implementer, issues, lead_events, limits, mcp,
-    reviewer, threads, workers,
+    Engine, TIME_FORMAT, ends, implementer, issues, lead_events, limits, mcp, reviewer, threads,
+    workers,
 };
 
 pub(crate) const ROLE: &str = "judge";
