@@ -11,6 +11,9 @@ pulldown-cmark = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true, features = ["formatting", "macros"] }
 
+[build-dependencies]
+sha2 = { workspace = true }
+
 [dev-dependencies]
 dioxus-ssr = { workspace = true }
 
