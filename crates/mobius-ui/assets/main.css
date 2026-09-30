@@ -390,6 +390,32 @@ button.chip.on {
   margin: auto;
 }
 
+.brief {
+  flex: none;
+  max-height: 40dvh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.briefhead {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: var(--surface);
+  font-weight: 600;
+  text-align: left;
+}
+
+.brief .md {
+  padding: 0 14px 10px;
+}
+
 .msg {
   max-width: 82%;
   padding: 8px 11px;

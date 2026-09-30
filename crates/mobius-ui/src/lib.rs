@@ -590,6 +590,7 @@ fn NewWorkstream() -> Element {
                 repository: String::new(),
                 number: 0,
                 agent: "Triager",
+                brief: None,
                 head: rsx! { h2 { class: "ellip", "New Workstream" } },
                 tail: rsx! {},
             }
@@ -812,6 +813,7 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
                 repository: repository.clone(),
                 number,
                 agent: "Lead",
+                brief: workstream.clone(),
                 head: rsx! {
                     h2 { class: "ellip", {workstream.as_ref().map(|workstream| workstream.title.clone())} }
                     span { class: "num", "#{number}" }
@@ -906,6 +908,7 @@ fn Conversation(
     repository: String,
     number: i64,
     agent: &'static str,
+    brief: Option<Workstream>,
     head: Element,
     tail: Element,
 ) -> Element {
@@ -921,6 +924,7 @@ fn Conversation(
     let mut text = use_signal(String::new);
     let mut send_error = use_signal(String::new);
     let mut mic_active = use_signal(|| false);
+    let mut brief_open = use_signal(|| None::<bool>);
     use_drop(|| {
         document::eval("window.__mobiusMic?.stop();");
     });
@@ -939,6 +943,9 @@ fn Conversation(
         upsert(&mut messages, message.clone());
     }
     messages.sort_by_key(|message| message.id);
+    // While the history loads, `messages` is still empty, so the default waits for it.
+    let open =
+        brief_open().unwrap_or(matches!(&*history.read(), Some(Ok(_))) && messages.is_empty());
     let lead_state = state.leads.read().get(&key).cloned().unwrap_or(LeadState {
         writing: history_writing,
         error: None,
@@ -982,6 +989,19 @@ fn Conversation(
                 {tail}
             }
             div { class: "chat",
+                if let Some(workstream) = brief {
+                    div { class: "brief",
+                        button {
+                            class: "briefhead",
+                            onclick: move |_| brief_open.set(Some(!open)),
+                            span { class: "grow ellip", "{workstream.title}" }
+                            span { class: "muted", if open { "▾" } else { "▸" } }
+                        }
+                        if open {
+                            Markdown { text: workstream.body }
+                        }
+                    }
+                }
                 div { class: "msgs",
                     if let Some(Err(error)) = &*history.read() {
                         div { class: "error", {error_text(error)} }
