@@ -377,7 +377,6 @@ button.chip.on {
 
 .msgs {
   flex: 1;
-  min-width: 0;
   min-height: 0;
   overflow-y: auto;
   display: flex;
@@ -392,7 +391,6 @@ button.chip.on {
 
 .msg {
   max-width: 82%;
-  min-width: 0;
   padding: 8px 11px;
   border-radius: 10px;
   background: var(--raised);
@@ -480,7 +478,6 @@ button.chip.on {
 .md table {
   border-collapse: collapse;
   display: block;
-  max-width: 100%;
   overflow-wrap: normal;
   overflow-x: auto;
 }
