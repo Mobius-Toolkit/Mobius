@@ -89,6 +89,12 @@ pub struct Label {
 }
 
 #[derive(Deserialize)]
+pub struct RepositoryLabel {
+    pub name: String,
+    pub color: String,
+}
+
+#[derive(Deserialize)]
 pub struct IssueEvent {
     pub event: String,
     pub actor: Option<User>,
@@ -563,6 +569,51 @@ impl Repository {
         Ok(())
     }
 
+    pub async fn labels(&self) -> Result<Vec<RepositoryLabel>, Box<dyn Error + Send + Sync>> {
+        all_pages(
+            &self.client,
+            &format!("/repos/{}/labels", self.full_name),
+            |page: Vec<RepositoryLabel>| page,
+        )
+        .await
+    }
+
+    // The color goes without `#`.
+    pub async fn create_label(
+        &self,
+        name: &str,
+        color: &str,
+        description: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .post(
+                format!("/repos/{}/labels", self.full_name),
+                Some(&json!({ "name": name, "color": color, "description": description })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_label_color(
+        &self,
+        name: &str,
+        color: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .patch(
+                format!(
+                    "/repos/{}/labels/{}",
+                    self.full_name,
+                    name.replace(':', "%3A")
+                ),
+                Some(&json!({ "color": color })),
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn close_as_not_planned(
         &self,
         number: i64,
@@ -572,6 +623,20 @@ impl Repository {
             .patch(
                 format!("/repos/{}/issues/{number}", self.full_name),
                 Some(&json!({ "state": "closed", "state_reason": "not_planned" })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn close_as_completed(
+        &self,
+        number: i64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .patch(
+                format!("/repos/{}/issues/{number}", self.full_name),
+                Some(&json!({ "state": "closed", "state_reason": "completed" })),
             )
             .await?;
         Ok(())

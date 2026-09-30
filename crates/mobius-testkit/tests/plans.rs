@@ -1,7 +1,7 @@
 use mobius_domain::{Blocker, Live, TaskLine, TranscriptRow};
 use mobius_engine::{Engine, activity, github, tasks, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
-use mobius_testkit::{install_fake_harness, start, wait_for};
+use mobius_testkit::{install_fake_harness, start, wait_for, wait_for_first_poll};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -41,21 +41,7 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
         .await
         .unwrap();
     wait_for(async || (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())).await;
-    // The first poll of a repository treats every event as old, so a `mobius:workstream`
-    // label that lands before it gives the Lead no "creation" event. Wait until that poll
-    // has stored its `since` cursor before a test adds its Workstream.
-    wait_for(async || {
-        engine
-            .store
-            .sync_cursors()
-            .get(REPOSITORY, "issues")
-            .await
-            .unwrap()
-            .since
-            .is_some()
-            .then_some(())
-    })
-    .await;
+    wait_for_first_poll(&engine, REPOSITORY).await;
     engine
 }
 

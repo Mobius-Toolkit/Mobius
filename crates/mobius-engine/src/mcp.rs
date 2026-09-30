@@ -6,6 +6,7 @@ use axum::extract::{Path, Request, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
+use mobius_domain::Live;
 use mobius_github::NewReviewComment;
 use rmcp::model::{
     CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorData,
@@ -144,6 +145,22 @@ fn tools(role: &str) -> Vec<Tool> {
                         "type": "string",
                         "minLength": 1,
                         "description": "The goal, the limits, and what \"done\" means."
+                    }
+                })),
+            ),
+            tool(
+                "start_fix_round",
+                "Start a fix round on the pull request of a task that is ready_for_review. The Implementer gets your findings as the open items. The round counts toward max_fix_rounds. Returns at once.",
+                object(json!({
+                    "n": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the task issue."
+                    },
+                    "findings": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Your findings on the pull request: what to change and why."
                     }
                 })),
             ),
@@ -409,6 +426,24 @@ fn tools(role: &str) -> Vec<Tool> {
         )],
         _ => Vec::new(),
     };
+    if role == chat::ROLE {
+        tools.push(tool(
+            "create_workstream",
+            "Create a Workstream in this repository: an issue with mobius:workstream. Call it only after the Owner approves the exact title and Brief in the chat.",
+            object(json!({
+                "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The name of the Workstream."
+                },
+                "brief": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The Brief: the goal, the scope, and the limits of the Workstream."
+                }
+            })),
+        ));
+    }
     if role == lead_events::ROLE {
         tools.push(tool(
             "tell_owner",
@@ -453,6 +488,13 @@ struct ReadIssue {
 struct StartImplementer {
     n: i64,
     instructions: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StartFixRound {
+    n: i64,
+    findings: String,
 }
 
 #[derive(Deserialize)]
@@ -606,18 +648,45 @@ impl Handler {
                 )
                 .await
             }
+            "start_fix_round" => {
+                let StartFixRound { n, findings } = parse(tool, arguments)?;
+                if n < 1 {
+                    return Err("n must be 1 or more.".into());
+                }
+                if findings.trim().is_empty() {
+                    return Err("findings must not be empty.".into());
+                }
+                dispatch::fix_round(
+                    &self.engine,
+                    &repository,
+                    self.caller.workstream,
+                    n,
+                    &findings,
+                )
+                .await
+            }
             "create_workstream" => {
                 let CreateWorkstream { title, brief } = parse(tool, arguments)?;
-                if !self.caller.repository.is_empty() {
+                if self.caller.role != chat::ROLE && !self.caller.repository.is_empty() {
                     return Err(
-                        "Only the Triager chat creates a Workstream, after the Owner approves it."
+                        "Only the Triager chat or the Lead chat creates a Workstream, after the Owner approves it."
                             .into(),
                     );
                 }
                 if title.trim().is_empty() || brief.trim().is_empty() {
                     return Err("title and brief must not be empty.".into());
                 }
-                triager::create_workstream(&self.engine, &repository, &title, &brief).await
+                let number = triager::create_workstream(&repository, &title, &brief).await?;
+                // `WorkstreamCreated` moves an open Triager screen to the new chat, so the Lead chat gets `Workstreams`.
+                self.engine.broadcast(if self.caller.role == chat::ROLE {
+                    Live::Workstreams
+                } else {
+                    Live::WorkstreamCreated {
+                        repository: repository.full_name.clone(),
+                        number,
+                    }
+                });
+                Ok(format!("Created the Workstream #{number}."))
             }
             "move_issue" => {
                 let MoveIssue { n, workstream } = parse(tool, arguments)?;

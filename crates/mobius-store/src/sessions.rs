@@ -21,6 +21,7 @@ struct Row {
     ended_at: Option<OffsetDateTime>,
     end_reason: Option<String>,
     queue_reason: Option<String>,
+    issue: Option<i64>,
 }
 
 impl Row {
@@ -42,35 +43,42 @@ impl Row {
             ended_at: self.ended_at,
             end_reason: self.end_reason,
             queue_reason: self.queue_reason,
+            issue: self.issue,
         })
     }
+}
+
+pub struct NewSession<'a> {
+    pub role: &'a str,
+    pub harness: Harness,
+    pub model: &'a str,
+    pub organization: &'a str,
+    pub repository: &'a str,
+    pub workstream: i64,
+    pub issue: Option<i64>,
 }
 
 impl Sessions<'_> {
     pub async fn add(
         &self,
-        role: &str,
-        harness: Harness,
-        model: &str,
-        organization: &str,
-        repository: &str,
-        workstream: i64,
+        session: NewSession<'_>,
     ) -> Result<Session, Box<dyn Error + Send + Sync>> {
-        let harness = harness.name();
+        let harness = session.harness.name();
         let started_at = OffsetDateTime::now_utc();
         sqlx::query_as!(
             Row,
-            r#"INSERT INTO sessions (role, harness, model, organization, repository, workstream, started_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)
+            r#"INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, started_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
-                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason"#,
-            role,
+                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue"#,
+            session.role,
             harness,
-            model,
-            organization,
-            repository,
-            workstream,
+            session.model,
+            session.organization,
+            session.repository,
+            session.workstream,
+            session.issue,
             started_at
         )
         .fetch_one(self.pool)
@@ -103,7 +111,7 @@ impl Sessions<'_> {
             r#"UPDATE sessions SET queue_reason = ? WHERE id = ?
                RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
-                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason"#,
+                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue"#,
             reason,
             id
         )
@@ -121,7 +129,7 @@ impl Sessions<'_> {
             r#"UPDATE sessions SET queue_reason = NULL WHERE id = ?
                RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
-                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason"#,
+                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue"#,
             id
         )
         .fetch_one(self.pool)
@@ -136,7 +144,7 @@ impl Sessions<'_> {
             r#"UPDATE sessions SET started_at = ?, queue_reason = NULL WHERE id = ?
                RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
-                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason"#,
+                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue"#,
             started_at,
             id
         )
@@ -156,7 +164,7 @@ impl Sessions<'_> {
             r#"UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
                RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
-                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason"#,
+                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue"#,
             ended_at,
             reason,
             id
@@ -173,6 +181,20 @@ impl Sessions<'_> {
         Ok(ids)
     }
 
+    // All open sessions of all organizations, for the "Agents" page.
+    pub async fn open(&self) -> Result<Vec<Session>, Box<dyn Error + Send + Sync>> {
+        let rows = sqlx::query_as!(
+            Row,
+            r#"SELECT id, role, harness, model, organization, repository, workstream, acp_session_id,
+                      started_at AS "started_at: OffsetDateTime",
+                      ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue
+               FROM sessions WHERE ended_at IS NULL ORDER BY id"#,
+        )
+        .fetch_all(self.pool)
+        .await?;
+        rows.into_iter().map(Row::session).collect()
+    }
+
     pub async fn with_role(
         &self,
         role: &str,
@@ -181,7 +203,7 @@ impl Sessions<'_> {
             Row,
             r#"SELECT id, role, harness, model, organization, repository, workstream, acp_session_id,
                       started_at AS "started_at: OffsetDateTime",
-                      ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason
+                      ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue
                FROM sessions WHERE role = ? ORDER BY id"#,
             role
         )
@@ -200,7 +222,7 @@ impl Sessions<'_> {
             Row,
             r#"SELECT id, role, harness, model, organization, repository, workstream, acp_session_id,
                       started_at AS "started_at: OffsetDateTime",
-                      ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason
+                      ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue
                FROM sessions WHERE organization = ? AND repository = ? AND workstream = ? ORDER BY id"#,
             organization,
             repository,

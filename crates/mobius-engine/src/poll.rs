@@ -4,12 +4,9 @@ use mobius_domain::Live;
 use mobius_github::Repository;
 use time::OffsetDateTime;
 
+use crate::labels::{self, AUTOPILOT_LABEL, NO_WORKSTREAM_LABEL, WORKING_LABEL, WORKSTREAM_LABEL};
 use crate::trust::trusted_author;
-use crate::workstreams::AUTOPILOT_LABEL;
-use crate::{
-    Engine, NO_WORKSTREAM_LABEL, WORKING_LABEL, WORKSTREAM_LABEL, activity, dispatch, ends,
-    lead_events, recovery, triager, workstreams,
-};
+use crate::{Engine, activity, dispatch, ends, lead_events, recovery, triager, workstreams};
 
 const ISSUES: &str = "issues";
 
@@ -55,6 +52,15 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
     *engine.repositories.write().unwrap() = repositories.clone();
     ends::lost_access(engine, &repositories).await?;
     for repository in &repositories {
+        if engine
+            .labels_fixed
+            .lock()
+            .unwrap()
+            .insert(repository.full_name.clone())
+            && let Err(error) = labels::fix(repository).await
+        {
+            eprintln!("mobius: label fix of {}: {error}", repository.full_name);
+        }
         if let Err(error) = poll_repository(engine, &repository.app_slug, repository).await {
             eprintln!("mobius: GitHub poll of {}: {error}", repository.full_name);
         }
@@ -86,6 +92,7 @@ async fn changed_issues(
     else {
         return Ok(());
     };
+    let mut workstreams_changed = false;
     for issue in &page.issues {
         if issue.pull_request.is_some() {
             dispatch::pull_request_comments(engine, repository, issue.number, cursor.since).await?;
@@ -98,6 +105,7 @@ async fn changed_issues(
             triager::stop(engine, app_slug, repository, issue.number).await?;
         }
         let labeled = issue.has_label(WORKSTREAM_LABEL);
+        workstreams_changed |= labeled;
         if !labeled && !workstreams::has_work(engine, name, issue.number).await? {
             continue;
         }
@@ -122,7 +130,6 @@ async fn changed_issues(
                         .sync_cursors()
                         .set(name, dispatch::READY_CURSOR, None, None)
                         .await?;
-                    engine.broadcast(Live::Workstreams);
                 }
                 ("labeled", Some(WORKSTREAM_LABEL)) if trusted => {
                     activity::add(
@@ -160,6 +167,9 @@ async fn changed_issues(
                 _ => {}
             }
         }
+    }
+    if workstreams_changed {
+        engine.broadcast(Live::Workstreams);
     }
     let since = page
         .issues
