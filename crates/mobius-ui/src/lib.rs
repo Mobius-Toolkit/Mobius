@@ -536,6 +536,7 @@ fn NewWorkstream() -> Element {
                 agent: "Triager",
                 head: rsx! { h2 { class: "ellip", "New Workstream" } },
                 tail: rsx! {},
+                note: rsx! {},
             }
         }
     }
@@ -781,18 +782,27 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
                                 let key = (repository.clone(), number);
                                 autopilot_call.set(Some(key.clone()));
                                 match workstream_autopilot(repository, number, !autopilot_on).await {
-                                    Ok(()) => autopilot_error.set(None),
+                                    Ok(()) => {
+                                        if autopilot_error().is_some_and(|(other, _)| other == key) {
+                                            autopilot_error.set(None);
+                                        }
+                                    }
                                     Err(failure) => {
-                                        autopilot_error.set(Some((key, error_text(&failure))))
+                                        autopilot_error
+                                            .set(Some((key.clone(), error_text(&failure))))
                                     }
                                 }
                                 workstream_list.restart();
-                                autopilot_call.set(None);
+                                if autopilot_call() == Some(key) {
+                                    autopilot_call.set(None);
+                                }
                             }
                         },
                         span { class: "track", span { class: "knob" } }
                         "Autopilot"
                     }
+                },
+                note: rsx! {
                     if let Some(note) = autopilot_note {
                         div { class: "error note", {note} }
                     }
@@ -884,6 +894,7 @@ fn Conversation(
     agent: &'static str,
     head: Element,
     tail: Element,
+    note: Element,
 ) -> Element {
     let key = (organization.clone(), repository.clone(), number);
     let state: LiveState = use_context();
@@ -957,6 +968,7 @@ fn Conversation(
                 }
                 {tail}
             }
+            {note}
             div { class: "chat",
                 div { class: "msgs",
                     if let Some(Err(error)) = &*history.read() {

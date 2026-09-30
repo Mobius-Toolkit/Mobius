@@ -388,7 +388,6 @@ button.chip.on {
 .head {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 14px;
   min-height: 48px;
@@ -396,11 +395,9 @@ button.chip.on {
   border-bottom: 1px solid var(--line);
 }
 
-.head .error {
-  flex-basis: 100%;
-}
-
 .head h2 {
+  flex: 0 1 auto;
+  min-width: 0;
   margin: 0;
   font-size: 15px;
   font-weight: 600;
@@ -427,7 +424,8 @@ button.chip.on {
 .chat {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 48px);
+  flex: 1;
+  min-height: 0;
 }
 
 .msgs {
@@ -582,8 +580,15 @@ button.chip.on {
 }
 
 .column {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
+  height: 100dvh;
+}
+
+.column > .note {
+  padding: 8px 14px;
 }
 
 .side {
@@ -827,15 +832,7 @@ a.node {
   }
 
   .column {
-    display: flex;
-    flex-direction: column;
     height: calc(100dvh - 56px);
-  }
-
-  .chat {
-    height: auto;
-    flex: 1;
-    min-height: 0;
   }
 
   .tabs {
