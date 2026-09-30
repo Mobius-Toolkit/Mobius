@@ -149,6 +149,22 @@ fn tools(role: &str) -> Vec<Tool> {
                 })),
             ),
             tool(
+                "start_fix_round",
+                "Start a fix round on the pull request of a task that is ready_for_review. The Implementer gets your findings as the open items. The round counts toward max_fix_rounds. Returns at once.",
+                object(json!({
+                    "n": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the task issue."
+                    },
+                    "findings": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Your findings on the pull request: what to change and why."
+                    }
+                })),
+            ),
+            tool(
                 "start_researcher",
                 "Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the Brief and the question. The tool returns at once, and the report arrives later.",
                 object(json!({
@@ -476,6 +492,13 @@ struct StartImplementer {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct StartFixRound {
+    n: i64,
+    findings: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateWorkstream {
     title: String,
     brief: String,
@@ -622,6 +645,23 @@ impl Handler {
                     self.caller.workstream,
                     n,
                     &instructions,
+                )
+                .await
+            }
+            "start_fix_round" => {
+                let StartFixRound { n, findings } = parse(tool, arguments)?;
+                if n < 1 {
+                    return Err("n must be 1 or more.".into());
+                }
+                if findings.trim().is_empty() {
+                    return Err("findings must not be empty.".into());
+                }
+                dispatch::fix_round(
+                    &self.engine,
+                    &repository,
+                    self.caller.workstream,
+                    n,
+                    &findings,
                 )
                 .await
             }

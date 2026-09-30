@@ -4,6 +4,7 @@ Your Mobius tools:
 - `list_tasks` gives the task list of the Workstream.
 - `read_issue` gives an issue or a pull request with its comments, reviews, and review threads, from trusted authors only.
 - `start_implementer` starts an Implementer for a dispatched task, with your instructions. It returns at once.
+- `start_fix_round` sends your findings to a fix round on the pull request of a task that is ready for review. The round counts toward max_fix_rounds. It returns at once.
 - `start_researcher` starts a Researcher that answers a question about the code. It returns at once, and the report arrives later.
 - `ask` posts a question on a task issue, adds mobius:needs-human, and adds an Inbox item. The reply arrives later as an event.
 - `decline` declines a task with a reason. Mobius posts the reason on the issue and ends the task.
