@@ -9,5 +9,5 @@ Mobius starts one Harness process for each agent session and stops that process 
 ## Consequences
 
 - A kill of the process ends exactly one session. The Housekeeper restarts one dead agent and touches no other session.
-- Each session costs one process, and the adapters of Claude Code and Antigravity also start one child process for each session. The `max_workers_total` limit keeps the memory use of the host low.
+- Each session costs one process, and the adapters of Claude Code and Antigravity also start one child process for each session. The `max_agents` limit keeps the memory use of the host low.
 - Lead, Judge, and Triager sessions also get their own process. A Lead session holds its process only while it lives.

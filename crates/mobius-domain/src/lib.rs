@@ -156,7 +156,7 @@ pub struct Session {
     pub started_at: OffsetDateTime,
     pub ended_at: Option<OffsetDateTime>,
     pub end_reason: Option<String>,
-    // The reason why the session waits for a Worker slot.
+    // The reason why the session waits for a slot.
     pub queue_reason: Option<String>,
 }
 

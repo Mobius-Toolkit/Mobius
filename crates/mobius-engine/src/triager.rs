@@ -10,7 +10,7 @@ use tokio::sync::Notify;
 use crate::labels::{NO_WORKSTREAM_LABEL, READY_LABEL, WORKSTREAM_LABEL};
 use crate::lead::{self, Recorder};
 use crate::trust::app_login;
-use crate::{Engine, limits, mcp, researcher, workstreams};
+use crate::{Engine, limits, mcp, researcher, workers, workstreams};
 
 pub(crate) const ROLE: &str = "triager";
 // The Triager belongs to no Workstream. Its chat belongs to an organization, so the key of the chat is (organization, "", CHAT).
@@ -149,6 +149,20 @@ async fn session(
     let binding = &engine.config.roles.triager;
     let session = lead::add_session(engine, ROLE, binding, organization(name), name, CHAT).await?;
     let mut recorder = Recorder::new(engine, session, organization(name), name, CHAT, None);
+    // A stop while the session waits ends the Triager and frees the place in the queue.
+    let slot = tokio::select! {
+        slot = workers::session_slot(engine, session, workers::Role::Triager) => slot,
+        () = stop.notified() => {
+            return lead::end_session(engine, session, "stopped").await;
+        }
+    };
+    let _slot = match slot {
+        Ok(slot) => slot,
+        Err(error) => {
+            recorder.fail(&error.to_string()).await?;
+            return Err(error);
+        }
+    };
     let key = mcp::open(
         engine,
         mcp::Caller {
