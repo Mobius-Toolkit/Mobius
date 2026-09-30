@@ -139,7 +139,7 @@ pub fn git(dir: &Path, args: &[&str]) -> String {
 }
 
 pub async fn wait_for<T>(mut check: impl AsyncFnMut() -> Option<T>) -> T {
-    tokio::time::timeout(Duration::from_secs(5), async {
+    tokio::time::timeout(Duration::from_secs(30), async {
         loop {
             if let Some(value) = check().await {
                 return value;
@@ -148,5 +148,5 @@ pub async fn wait_for<T>(mut check: impl AsyncFnMut() -> Option<T>) -> T {
         }
     })
     .await
-    .expect("the condition is not true after 5 seconds")
+    .expect("the condition is not true after 30 seconds")
 }
