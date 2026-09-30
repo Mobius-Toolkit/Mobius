@@ -7,8 +7,8 @@ use dioxus::prelude::*;
 use markdown::Markdown;
 use mobius_api::{
     agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_apps, github_manifest,
-    inbox_dismiss, inbox_items, inbox_resume, live, login, logout, organizations, server_agents,
-    task_list, transcript_lines, unread, workstreams,
+    inbox_dismiss, inbox_items, inbox_resume, live, login, logout, organizations, release,
+    server_agents, task_list, transcript_lines, unread, workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, Live, PAUSED, TaskLine,
@@ -327,6 +327,8 @@ fn Frame() -> Element {
         organizations().await
     });
     use_context_provider(|| Organizations(organization_list));
+    // The release check runs one time when `Frame` loads.
+    let new_release = use_resource(release);
     let Organization(organization) =
         use_context_provider(|| Organization(Signal::new(String::new())));
     let LocalOffset(mut local_offset) =
@@ -427,6 +429,12 @@ fn Frame() -> Element {
                     WorkstreamEntries {}
                     Link { class: "navbtn", active_class: "sel", to: Route::NewWorkstream {}, "+ New Workstream" }
                     div { class: "grow" }
+                    if let Some(Ok(Some(version))) = &*new_release.read() {
+                        button { class: "entry upd",
+                            span { class: "grow", "Upgrade" }
+                            span { class: "muted", "{version}" }
+                        }
+                    }
                     if new_build() {
                         UpdateNote { class: "navbtn upd" }
                     }

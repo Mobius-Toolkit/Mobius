@@ -205,6 +205,11 @@ pub struct NewApp {
 }
 
 #[derive(Deserialize)]
+struct Release {
+    tag_name: String,
+}
+
+#[derive(Deserialize)]
 pub struct UserTokens {
     pub access_token: String,
     pub refresh_token: String,
@@ -387,6 +392,15 @@ impl GitHub {
             .get("/user", None::<&()>)
             .await?;
         Ok(user.login)
+    }
+
+    // The tag of the latest release of Mobius. The repository is public, so the call needs no token.
+    pub async fn latest_release(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
+        let release: Release = self
+            .api
+            .get("/repos/Mobius-Toolkit/Mobius/releases/latest", None::<&()>)
+            .await?;
+        Ok(release.tag_name)
     }
 }
 
