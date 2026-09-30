@@ -19,6 +19,30 @@ use time::macros::format_description;
 
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 
+// The identifier of this web UI build. The server gives the same identifier at
+// `/ui-version`; a difference means a new version of the web UI is on the server.
+pub const BUILD: &str = env!("MOBIUS_BUILD");
+
+// Asks the server for its web UI build on start, when the window gets focus or
+// becomes visible again, and every five minutes. A request that fails or is
+// refused stays quiet; the live loop handles a lost session.
+const VERSION_POLL: &str = r#"
+const check = async () => {
+    try {
+        const response = await fetch("/ui-version", { cache: "no-store" });
+        if (response.ok) {
+            dioxus.send(await response.text());
+        }
+    } catch {}
+};
+window.addEventListener("focus", check);
+document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) check();
+});
+setInterval(check, 5 * 60 * 1000);
+check();
+"#;
+
 #[derive(Clone, PartialEq, Routable)]
 #[rustfmt::skip]
 pub enum Route {
@@ -75,9 +99,9 @@ meta.content = "width=device-width, initial-scale=1, interactive-widget=resizes-
     }
 }
 
-/// The axum router of the web UI. The app shell, the service worker, and the
-/// web app manifest get `Cache-Control: no-cache`, so the browser always asks
-/// the server for them.
+/// The axum router of the web UI. The app shell, the service worker, the web
+/// app manifest, and the build identifier get `Cache-Control: no-cache`, so the
+/// browser always asks the server for them.
 #[cfg(feature = "server")]
 pub fn router() -> dioxus::server::axum::Router {
     use dioxus::server::axum::extract::Request;
@@ -85,11 +109,17 @@ pub fn router() -> dioxus::server::axum::Router {
     use dioxus::server::axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
     use dioxus::server::axum::middleware::{Next, from_fn};
     use dioxus::server::axum::response::Response;
+    use dioxus::server::axum::routing::get;
+    use mobius_api::DeviceId;
+
+    async fn ui_build(_device: DeviceId) -> &'static str {
+        BUILD
+    }
 
     async fn no_cache(request: Request, next: Next) -> Response {
-        let pwa_file = matches!(
+        let always_fresh = matches!(
             request.uri().path(),
-            "/" | "/sw.js" | "/manifest.webmanifest"
+            "/" | "/sw.js" | "/manifest.webmanifest" | "/ui-version"
         );
         let mut response = next.run(request).await;
         // Every other path of the app renders the same shell.
@@ -97,7 +127,7 @@ pub fn router() -> dioxus::server::axum::Router {
             .headers()
             .get(CONTENT_TYPE)
             .is_some_and(|value| value.as_bytes().starts_with(b"text/html"));
-        if pwa_file || shell {
+        if always_fresh || shell {
             response
                 .headers_mut()
                 .insert(CACHE_CONTROL, HeaderValue::from_static("no-cache"));
@@ -105,7 +135,9 @@ pub fn router() -> dioxus::server::axum::Router {
         response
     }
 
-    dioxus::server::router(App).layer(from_fn(no_cache))
+    dioxus::server::router(App)
+        .route("/ui-version", get(ui_build))
+        .layer(from_fn(no_cache))
 }
 
 #[derive(Clone, Copy)]
@@ -356,6 +388,17 @@ fn Frame() -> Element {
     use_effect(move || {
         spawn(follow_live(state, workstream_list, login_shown));
     });
+    let mut new_build = use_signal(|| false);
+    use_effect(move || {
+        spawn(async move {
+            let mut poll = document::eval(VERSION_POLL);
+            while let Ok(build) = poll.recv::<String>().await {
+                if build.trim() != BUILD {
+                    new_build.set(true);
+                }
+            }
+        });
+    });
     let inbox_count = state
         .inbox
         .read()
@@ -384,8 +427,15 @@ fn Frame() -> Element {
                     WorkstreamEntries {}
                     Link { class: "navbtn", active_class: "sel", to: Route::NewWorkstream {}, "+ New Workstream" }
                     div { class: "grow" }
+                    if new_build() {
+                        UpdateNote { class: "navbtn upd" }
+                    }
                     Link { class: "navbtn", active_class: "sel", to: Route::GitHub {}, "GitHub" }
                     Link { class: "navbtn", active_class: "sel", to: Route::Devices {}, "Devices" }
+                }
+                // The rail hides on a phone, so the note repeats above the page.
+                if new_build() {
+                    UpdateNote { class: "upd phone" }
                 }
                 main { class: "center", Outlet::<Route> {} }
                 nav { class: "tabs",
@@ -418,6 +468,20 @@ fn Frame() -> Element {
         Some(Ok(_)) => rsx! { main { class: "center", GitHub {} } },
         Some(Err(error)) => rsx! { p { class: "error note", {error_text(error)} } },
         None => rsx! {},
+    }
+}
+
+// The note for a new version of the web UI on the server. A click reloads the app.
+#[component]
+fn UpdateNote(class: &'static str) -> Element {
+    rsx! {
+        button {
+            class,
+            onclick: move |_| {
+                document::eval("location.reload();");
+            },
+            "New version"
+        }
     }
 }
 

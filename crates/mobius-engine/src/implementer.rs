@@ -226,11 +226,10 @@ pub(crate) async fn conflict_round(
     pull_request: PullRequest,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let brief = lead::brief(repository, task.workstream).await?;
-    let title = repository
+    let issue = repository
         .issue(task.issue)
         .await?
-        .ok_or_else(|| format!("#{} does not exist.", task.issue))?
-        .title;
+        .ok_or_else(|| format!("#{} does not exist.", task.issue))?;
     if !engine
         .store
         .tasks()
@@ -240,15 +239,18 @@ pub(crate) async fn conflict_round(
         return Ok(());
     }
     let prompt = format!(
-        "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {title}\n\n# Base branch\n\norigin/{}\n\nMerge the base branch and remove the conflicts.",
-        task.issue, repository.default_branch
+        "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Base branch\n\norigin/{}\n\nMerge the base branch and remove the conflicts. Make no other change.",
+        task.issue,
+        issue.title,
+        issue.body.unwrap_or_default(),
+        repository.default_branch
     );
     let job = Job {
         repository: repository.full_name.clone(),
         workstream: task.workstream,
         task: task.id,
         number: task.issue,
-        title,
+        title: issue.title,
         branch: task.branch.clone(),
         pull_request: Some(pull_request),
         conflict_round: true,
@@ -500,6 +502,10 @@ async fn implement(
             branch
         }
     };
+    let repository = engine.repository(name)?;
+    let base = format!("origin/{}", repository.default_branch);
+    // All worktrees share the refs of the bare repository, so a fetch of a different task can move `base` during the round.
+    let base_commit = mobius_runner::rev_parse(data_dir, &worktree, &base).await?;
     let (session, mut updates) = lead::start(
         engine,
         &engine.config.roles.implementer,
@@ -525,10 +531,8 @@ async fn implement(
         Some(outcome) => return Ok(outcome),
         None => None,
     };
-    let repository = engine.repository(name)?;
-    let base = format!("origin/{}", repository.default_branch);
-    let merged =
-        !job.conflict_round || mobius_runner::head_contains(data_dir, &worktree, &base).await?;
+    let merged = !job.conflict_round
+        || mobius_runner::head_contains(data_dir, &worktree, &base_commit).await?;
     let sha = {
         let _git = engine.git.lock().await;
         mobius_runner::push(data_dir, &worktree, repository.token(), &branch).await?

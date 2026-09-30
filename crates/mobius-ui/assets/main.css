@@ -225,6 +225,15 @@ a.btn {
   color: var(--accent);
 }
 
+.upd {
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  text-align: left;
+  width: 100%;
+}
+
 .orgs {
   position: relative;
   min-width: 0;
@@ -890,5 +899,11 @@ a.node {
 
   .note a {
     display: inline-block;
+  }
+
+  .phone.upd {
+    display: block;
+    padding: 10px 14px;
+    text-align: center;
   }
 }
