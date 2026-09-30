@@ -45,6 +45,7 @@ enum Outcome {
     CannotDo(String),
     CheckFailed(String),
     NotMerged,
+    PushRejected(String),
     Stopped,
 }
 
@@ -280,6 +281,7 @@ fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> + Send>> {
             job.task,
             job.number,
             &job.title,
+            &error.to_string(),
         )
         .await;
         match restart {
@@ -439,6 +441,21 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
             )?;
             lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
         }
+        Ok(Outcome::PushRejected(error)) => {
+            lead::end_session(engine, session, "push_rejected").await?;
+            if !hand_to_human(engine, &job.repository, job.task, job.number).await? {
+                return Ok(());
+            }
+            let text = stop_text(
+                OffsetDateTime::now_utc(),
+                job.number,
+                &job.title,
+                &format!(
+                    "GitHub rejected the push. Mobius added mobius:needs-human. Git gave this error:\n\n```\n{error}\n```"
+                ),
+            )?;
+            lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
+        }
         Ok(Outcome::CannotDo(reason)) => {
             lead::end_session(engine, session, "cannot_do").await?;
             // A task that the Lead declined during the turn gets no event.
@@ -531,7 +548,15 @@ async fn implement(
         !job.conflict_round || mobius_runner::head_contains(data_dir, &worktree, &base).await?;
     let sha = {
         let _git = engine.git.lock().await;
-        mobius_runner::push(data_dir, &worktree, repository.token(), &branch).await?
+        mobius_runner::fetch(data_dir, name, &repository.clone_url, repository.token()).await?;
+        mobius_runner::pull(data_dir, &worktree, &branch).await?;
+        match mobius_runner::push(data_dir, &worktree, repository.token(), &branch).await {
+            Ok(sha) => sha,
+            Err(error) if error.contains("[remote rejected]") => {
+                return Ok(Outcome::PushRejected(error));
+            }
+            Err(error) => return Err(error.into()),
+        }
     };
     let pull_request = match &job.pull_request {
         Some(pull_request) => pull_request.clone(),

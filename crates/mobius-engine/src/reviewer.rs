@@ -97,6 +97,7 @@ pub(crate) fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> +
             job.task,
             job.number,
             &job.title,
+            &error.to_string(),
         )
         .await
         {
