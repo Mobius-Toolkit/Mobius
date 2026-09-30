@@ -168,8 +168,9 @@ async fn a_start_with_an_empty_store_hands_a_working_issue_to_a_human() {
     assert_eq!(item.issue, 41);
     assert_eq!(item.workstream, 12);
     assert_eq!(item.link, "https://github.com/owner/shop/issues/41");
-    assert_eq!(
-        github.labels(REPOSITORY, 41),
-        ["mobius:needs-human".to_string()]
-    );
+    // The Inbox item comes before the label change.
+    wait_for(async || {
+        (github.labels(REPOSITORY, 41) == ["mobius:needs-human".to_string()]).then_some(())
+    })
+    .await;
 }
