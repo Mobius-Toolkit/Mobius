@@ -236,7 +236,10 @@ async fn events(
                 continue;
             }
         }
-        turn(&session, SAVE_PROMPT, recorder, &mut updates).await?;
+        // A session with no turn has nothing to save, and `SAVE_PROMPT` as its first prompt lacks the Workstream context.
+        if first.is_none() {
+            turn(&session, SAVE_PROMPT, recorder, &mut updates).await?;
+        }
         let mut sessions = engine.event_sessions.lock().unwrap();
         if engine.drain.on() || wakes.is_empty() {
             sessions.remove(&(repository.to_string(), workstream));
