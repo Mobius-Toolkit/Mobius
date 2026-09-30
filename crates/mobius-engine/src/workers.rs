@@ -37,6 +37,16 @@ pub(crate) enum Role {
 }
 
 impl Role {
+    // The "Agents" page shows the groups in this order.
+    pub(crate) const ALL: [Role; 6] = [
+        Self::Lead,
+        Self::Triager,
+        Self::Implementer,
+        Self::Researcher,
+        Self::Reviewer,
+        Self::Judge,
+    ];
+
     fn name(self) -> &'static str {
         match self {
             Self::Lead => "lead",
@@ -48,7 +58,32 @@ impl Role {
         }
     }
 
-    fn binding(self, config: &Config) -> &RoleBinding {
+    // The group of a session role. The lead_chat and lead_event sessions share the group `lead`.
+    pub(crate) fn of_session(role: &str) -> Option<Role> {
+        Some(match role {
+            crate::chat::ROLE | crate::lead_events::ROLE => Self::Lead,
+            crate::triager::ROLE => Self::Triager,
+            crate::implementer::ROLE => Self::Implementer,
+            crate::researcher::ROLE => Self::Researcher,
+            crate::reviewer::ROLE => Self::Reviewer,
+            crate::judge::ROLE => Self::Judge,
+            _ => return None,
+        })
+    }
+
+    // The name of the group on the "Agents" page.
+    pub(crate) fn title(self) -> &'static str {
+        match self {
+            Self::Lead => "Lead",
+            Self::Triager => "Triager",
+            Self::Implementer => "Implementer",
+            Self::Researcher => "Researcher",
+            Self::Reviewer => "Reviewer",
+            Self::Judge => "Judge",
+        }
+    }
+
+    pub(crate) fn binding(self, config: &Config) -> &RoleBinding {
         let roles = &config.roles;
         match self {
             Self::Lead => &roles.lead,

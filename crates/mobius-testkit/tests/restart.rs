@@ -2,7 +2,7 @@ use std::fs;
 
 use mobius_domain::{Harness, InboxKind, Session, TranscriptRow};
 use mobius_engine::{Engine, github, inbox, workstreams};
-use mobius_store::Store;
+use mobius_store::{NewSession, Store};
 use mobius_testkit::fake_github::FakeGitHub;
 use mobius_testkit::{install_fake_harness, start, wait_for};
 use serde_json::{Value, json};
@@ -91,14 +91,15 @@ async fn a_restart_starts_the_implementer_again_and_the_event_session() {
             .unwrap();
         let session = store
             .sessions()
-            .add(
-                "implementer",
-                Harness::Devin,
-                "swe-1.5",
-                "owner",
-                REPOSITORY,
-                12,
-            )
+            .add(NewSession {
+                role: "implementer",
+                harness: Harness::Devin,
+                model: "swe-1.5",
+                organization: "owner",
+                repository: REPOSITORY,
+                workstream: 12,
+                issue: None,
+            })
             .await
             .unwrap();
         store
