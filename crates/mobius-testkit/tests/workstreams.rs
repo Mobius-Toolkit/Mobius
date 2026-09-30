@@ -52,6 +52,7 @@ async fn a_workstream_label_shows_the_issue_in_the_workstream_list() {
             repository: REPOSITORY.to_string(),
             number: 12,
             title: "Integrate loyalty plans".to_string(),
+            body: String::new(),
             autopilot: false,
         }]
     );
@@ -127,6 +128,31 @@ async fn a_workstream_label_from_before_the_first_poll_adds_a_feed_row() {
     let mut feed = activity::feed(&engine, None).await.unwrap();
 
     assert_eq!(next_row(&mut feed).await.issue, 12);
+}
+
+#[tokio::test]
+async fn a_body_edit_sends_workstreams_and_the_list_has_the_new_body() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+    let mut feed = activity::feed(&engine, None).await.unwrap();
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !matches!(feed.next().await, Some(Live::Workstreams)) {}
+    })
+    .await
+    .unwrap();
+
+    github.set_body(REPOSITORY, 12, "Ship loyalty plans to all shops.");
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !matches!(feed.next().await, Some(Live::Workstreams)) {}
+    })
+    .await
+    .unwrap();
+    let list = workstreams::list(&engine).await.unwrap();
+    assert_eq!(list[0].body, "Ship loyalty plans to all shops.");
 }
 
 #[tokio::test]

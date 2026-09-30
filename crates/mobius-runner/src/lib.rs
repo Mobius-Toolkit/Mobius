@@ -163,6 +163,10 @@ pub async fn head_contains(data_dir: &Path, worktree: &Path, commit: &str) -> Re
     Ok(status.success())
 }
 
+pub async fn rev_parse(data_dir: &Path, worktree: &Path, name: &str) -> Result<String, String> {
+    run(git(worktree, data_dir, None).args(["rev-parse", name])).await
+}
+
 fn bare_dir(data_dir: &Path, repository: &str) -> PathBuf {
     data_dir.join("repos").join(format!("{repository}.git"))
 }

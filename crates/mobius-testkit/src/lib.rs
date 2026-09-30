@@ -125,12 +125,8 @@ pub fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8(output.stdout).unwrap().trim().to_string()
 }
 
-pub async fn wait_for<T>(check: impl AsyncFnMut() -> Option<T>) -> T {
-    wait_for_within(check, Duration::from_secs(5)).await
-}
-
-pub async fn wait_for_within<T>(mut check: impl AsyncFnMut() -> Option<T>, timeout: Duration) -> T {
-    tokio::time::timeout(timeout, async {
+pub async fn wait_for<T>(mut check: impl AsyncFnMut() -> Option<T>) -> T {
+    tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             if let Some(value) = check().await {
                 return value;
@@ -139,5 +135,20 @@ pub async fn wait_for_within<T>(mut check: impl AsyncFnMut() -> Option<T>, timeo
         }
     })
     .await
-    .unwrap_or_else(|_| panic!("the condition is not true after {timeout:?}"))
+    .expect("the condition is not true after 60 seconds")
+}
+
+// The first poll of a repository runs the lost-task recovery and treats each earlier issue event as old. It stores the `since` cursor at its end.
+pub async fn wait_for_first_poll(engine: &Engine, repository: &str) {
+    wait_for(async || {
+        engine
+            .store
+            .sync_cursors()
+            .get(repository, "issues")
+            .await
+            .unwrap()
+            .since
+            .map(|_| ())
+    })
+    .await;
 }

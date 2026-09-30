@@ -7,7 +7,7 @@ use tower::ServiceExt;
 use mobius_domain::{Author, Session, TranscriptRow};
 use mobius_engine::{Engine, chat, github, mcp, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
-use mobius_testkit::{install_fake_agent, start, wait_for};
+use mobius_testkit::{install_fake_agent, start, wait_for, wait_for_first_poll};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -35,6 +35,7 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub, prompts: &str) -> Engi
         .await
         .unwrap();
     wait_for(async || (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+    wait_for_first_poll(&engine, REPOSITORY).await;
     engine
 }
 
@@ -113,7 +114,8 @@ async fn the_lead_gets_the_mobius_url_and_only_the_lead_tools() {
             "create_issue",
             "mark_ready",
             "reply_thread",
-            "comment_pull_request"
+            "comment_pull_request",
+            "create_workstream"
         ]
     );
     for tool in tools {

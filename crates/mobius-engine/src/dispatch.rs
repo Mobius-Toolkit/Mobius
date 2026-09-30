@@ -6,11 +6,9 @@ use mobius_store::Task;
 use time::OffsetDateTime;
 
 use crate::config::Config;
+use crate::labels::{NEEDS_HUMAN_LABEL, NO_WORKSTREAM_LABEL, READY_LABEL, WORKING_LABEL};
 use crate::trust::{app_login, trusted_author};
-use crate::{
-    Engine, NEEDS_HUMAN_LABEL, NO_WORKSTREAM_LABEL, READY_LABEL, TIME_FORMAT, WORKING_LABEL,
-    activity, inbox, lead_events, triager, workstreams,
-};
+use crate::{Engine, TIME_FORMAT, activity, inbox, lead_events, triager, workstreams};
 
 pub(crate) const READY_CURSOR: &str = "ready";
 

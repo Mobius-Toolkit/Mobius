@@ -7,9 +7,16 @@ edition.workspace = true
 dioxus = { workspace = true, features = ["router"] }
 mobius-api = { workspace = true }
 mobius-domain = { workspace = true }
+pulldown-cmark = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true, features = ["formatting", "macros"] }
 
+[build-dependencies]
+sha2 = { workspace = true }
+
+[dev-dependencies]
+dioxus-ssr = { workspace = true }
+
 [features]
 web = ["dioxus/web"]
-server = ["mobius-api/server"]
+server = ["dioxus/server", "mobius-api/server"]

@@ -91,6 +91,7 @@ impl ChatMessages<'_> {
             Row,
             r#"SELECT id, organization, repository, workstream, author, time AS "time: OffsetDateTime", text
                FROM chat_messages WHERE organization = ? AND repository = ? AND workstream = ?
+                 AND author <> 'Researcher'
                ORDER BY id"#,
             organization,
             repository,
@@ -181,7 +182,8 @@ impl ChatMessages<'_> {
                LEFT JOIN chat_seen ON chat_seen.organization = chat_messages.organization
                                   AND chat_seen.repository = chat_messages.repository
                                   AND chat_seen.workstream = chat_messages.workstream
-               WHERE chat_messages.author <> 'Owner' AND chat_messages.id > coalesce(chat_seen.message, 0)
+               WHERE chat_messages.author <> 'Owner' AND chat_messages.author <> 'Researcher'
+                 AND chat_messages.id > coalesce(chat_seen.message, 0)
                GROUP BY chat_messages.organization, chat_messages.repository, chat_messages.workstream"#
         )
         .fetch_all(self.pool)
@@ -198,6 +200,7 @@ impl ChatMessages<'_> {
         let count = sqlx::query_scalar!(
             r#"SELECT count(*) AS "count!: i64" FROM chat_messages
                WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Owner'
+                 AND author <> 'Researcher'
                  AND id > coalesce((SELECT message FROM chat_seen
                                     WHERE organization = ? AND repository = ? AND workstream = ?), 0)"#,
             organization,

@@ -7,12 +7,11 @@ use mobius_store::Task;
 use time::OffsetDateTime;
 
 use crate::config::Config;
-use crate::{
-    Engine, NEEDS_HUMAN_LABEL, READY_LABEL, WORKING_LABEL, WORKSTREAM_LABEL, dispatch, ends,
-    lead_events,
+use crate::labels::{
+    AUTOPILOT_LABEL, NEEDS_HUMAN_LABEL, READY_LABEL, WORKING_LABEL, WORKSTREAM_LABEL,
 };
+use crate::{Engine, dispatch, ends, lead_events};
 
-pub(crate) const AUTOPILOT_LABEL: &str = "mobius:autopilot";
 const CLOSED_TEXT: &str = "Workstream closed";
 
 pub async fn list(engine: &Engine) -> Result<Vec<Workstream>, Box<dyn Error + Send + Sync>> {
@@ -25,6 +24,7 @@ pub async fn list(engine: &Engine) -> Result<Vec<Workstream>, Box<dyn Error + Se
                 number: issue.number,
                 autopilot: issue_autopilot(engine, &repository, &issue).await?,
                 title: issue.title,
+                body: issue.body.unwrap_or_default(),
             });
         }
     }
