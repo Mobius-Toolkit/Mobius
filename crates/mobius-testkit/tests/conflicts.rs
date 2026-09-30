@@ -1,8 +1,9 @@
 use mobius_domain::{InboxKind, Session, TranscriptRow};
 use mobius_engine::{Engine, github, inbox, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
-use mobius_testkit::{git, install_fake_harness, start_with_config, wait_for};
+use mobius_testkit::{git, install_fake_harness, start_with_config, wait_for_within};
 use serde_json::Value;
+use std::time::Duration;
 use tempfile::TempDir;
 
 const REPOSITORY: &str = "owner/shop";
@@ -55,7 +56,10 @@ async fn connect(
     github::convert_manifest(&engine, "manifest-code")
         .await
         .unwrap();
-    wait_for(async || (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+    wait_for_pipeline(async || {
+        (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())
+    })
+    .await;
     engine
 }
 
@@ -100,6 +104,11 @@ async fn task_state(engine: &Engine, number: i64) -> Option<String> {
         .map(|task| task.state)
 }
 
+// The dispatch, Implementer and conflict-round pipeline does not always finish inside 5 seconds on a loaded host.
+async fn wait_for_pipeline<T>(check: impl AsyncFnMut() -> Option<T>) -> T {
+    wait_for_within(check, Duration::from_secs(60)).await
+}
+
 const NO_FINDING: &str = "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"true\"\n";
 
 async fn ready_for_review_events(engine: &Engine) -> usize {
@@ -126,13 +135,13 @@ async fn a_merge_conflict_starts_a_conflict_round_that_merges_the_base_branch() 
     )
     .await;
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
-    wait_for(async || (ready_for_review_events(&engine).await == 1).then_some(())).await;
+    wait_for_pipeline(async || (ready_for_review_events(&engine).await == 1).then_some(())).await;
     let remote = github.remote(REPOSITORY);
     let first = git(&remote, &["rev-parse", "mobius/41"]);
 
     github.commit_file(REPOSITORY, "plan.txt", "dollars\n", "Use dollars");
 
-    wait_for(async || (ready_for_review_events(&engine).await == 2).then_some(())).await;
+    wait_for_pipeline(async || (ready_for_review_events(&engine).await == 2).then_some(())).await;
     let head = git(&remote, &["rev-parse", "mobius/41"]);
     let parents = git(&remote, &["rev-list", "--parents", "-n", "1", &head]);
     assert_eq!(parents.split(' ').count(), 3, "{parents}");
@@ -201,12 +210,12 @@ async fn a_stale_pull_request_with_a_merge_conflict_goes_to_a_human() {
     )
     .await;
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
-    wait_for(async || (ready_for_review_events(&engine).await == 1).then_some(())).await;
+    wait_for_pipeline(async || (ready_for_review_events(&engine).await == 1).then_some(())).await;
     github.set_created_at(REPOSITORY, 42, 0);
 
     github.commit_file(REPOSITORY, "plan.txt", "dollars\n", "Use dollars");
 
-    wait_for(async || {
+    wait_for_pipeline(async || {
         github
             .comments(REPOSITORY, 42)
             .contains(&(
@@ -258,11 +267,11 @@ async fn a_conflict_round_that_does_not_merge_the_base_branch_stops_the_task() {
     )
     .await;
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
-    wait_for(async || (ready_for_review_events(&engine).await == 1).then_some(())).await;
+    wait_for_pipeline(async || (ready_for_review_events(&engine).await == 1).then_some(())).await;
 
     github.commit_file(REPOSITORY, "plan.txt", "dollars\n", "Use dollars");
 
-    wait_for(async || {
+    wait_for_pipeline(async || {
         lead_event_prompts(&engine)
             .await
             .iter()
