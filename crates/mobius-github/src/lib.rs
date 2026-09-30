@@ -92,7 +92,6 @@ pub struct Label {
 pub struct RepositoryLabel {
     pub name: String,
     pub color: String,
-    pub description: Option<String>,
 }
 
 #[derive(Deserialize)]
