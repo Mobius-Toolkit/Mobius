@@ -80,7 +80,7 @@ if (!meta) {
     meta.name = "viewport";
     document.head.append(meta);
 }
-meta.content = "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content";"#,
+meta.content = "width=device-width, initial-scale=1, interactive-widget=resizes-content";"#,
         );
     });
     rsx! {
@@ -961,6 +961,28 @@ if (list) {
 }
 "#;
 
+// A streamed chunk or a change of the Lead state grows the bottom of the list.
+// The eval runs after the render, when the scrollHeight already holds the new
+// text, so a scroll listener remembers whether the user is at the bottom. The
+// list follows the growth only from its bottom; a user that scrolls up keeps
+// the position.
+const FOLLOW_SCRIPT: &str = r#"
+const list = document.querySelector(".msgs");
+if (list) {
+    if (list.__mobiusAtBottom === undefined) {
+        list.__mobiusAtBottom =
+            list.scrollTop + list.clientHeight >= list.scrollHeight - 4;
+        list.addEventListener("scroll", () => {
+            list.__mobiusAtBottom =
+                list.scrollTop + list.clientHeight >= list.scrollHeight - 4;
+        });
+    }
+    if (list.__mobiusAtBottom) {
+        list.scrollTop = list.scrollHeight;
+    }
+}
+"#;
+
 // The input grows with its text. The `max-height` of its stylesheet is the limit.
 // A taller input shrinks the message list, so a list at its bottom stays there.
 const FIT_SCRIPT: &str = r#"
@@ -990,7 +1012,8 @@ fn mic_error(code: Option<&str>) -> String {
 }
 
 // Sends the text of the chat input. A second call while a send runs does nothing,
-// and the text stays in the input when the send fails.
+// the text stays in the input when the send fails, and a successful send clears
+// the input only when the text did not change while the send ran.
 fn send_message(
     organization: String,
     repository: String,
@@ -999,14 +1022,17 @@ fn send_message(
     mut send_error: Signal<String>,
     mut sending: Signal<bool>,
 ) {
-    if text().trim().is_empty() || sending() {
+    let sent = text();
+    if sent.trim().is_empty() || sending() {
         return;
     }
     sending.set(true);
     spawn(async move {
-        match chat_send(organization, repository, number, text()).await {
+        match chat_send(organization, repository, number, sent.clone()).await {
             Ok(()) => {
-                text.set(String::new());
+                if text() == sent {
+                    text.set(String::new());
+                }
                 send_error.set(String::new());
             }
             Err(failure) => send_error.set(error_text(&failure)),
@@ -1097,14 +1123,15 @@ fn Conversation(
         },
     ));
     // Each new message scrolls the list to its bottom. A reply streams into its
-    // own message, so the key follows the total size, not only the count.
+    // own message, so a streamed chunk or a Lead state change grows the list;
+    // the growth scrolls only a list that is already at its bottom.
+    use_effect(use_reactive(&messages.len(), |_| {
+        document::eval(BOTTOM_SCRIPT);
+    }));
     let size: usize = messages.iter().map(|message| message.text.len()).sum();
-    use_effect(use_reactive(
-        &(messages.len(), size, lead_state.clone()),
-        |_| {
-            document::eval(BOTTOM_SCRIPT);
-        },
-    ));
+    use_effect(use_reactive(&(size, lead_state.clone()), |_| {
+        document::eval(FOLLOW_SCRIPT);
+    }));
     use_effect(use_reactive(&text(), |_| {
         document::eval(FIT_SCRIPT);
     }));
