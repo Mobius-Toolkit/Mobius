@@ -967,21 +967,30 @@ fn Conversation(
     use_effect(use_reactive((&message_count, &lead_state), |_| {
         document::eval(SCROLL_END_SCRIPT);
     }));
-    let send = {
+    let mut send = {
         let organization = organization.clone();
         let repository = repository.clone();
         move || {
+            let draft = text();
+            if draft.trim().is_empty() {
+                return;
+            }
+            // Clear the input before the request so a fast second Enter does not
+            // send the same draft two times. A failed send puts the draft back.
+            text.set(String::new());
             let (organization, repository) = (organization.clone(), repository.clone());
             spawn(async move {
-                if text().trim().is_empty() {
-                    return;
-                }
-                match chat_send(organization, repository, number, text()).await {
-                    Ok(()) => {
-                        text.set(String::new());
-                        send_error.set(String::new());
+                match chat_send(organization, repository, number, draft.clone()).await {
+                    Ok(()) => send_error.set(String::new()),
+                    Err(failure) => {
+                        let typed = text();
+                        text.set(if typed.is_empty() {
+                            draft
+                        } else {
+                            format!("{draft}\n{typed}")
+                        });
+                        send_error.set(error_text(&failure));
                     }
-                    Err(failure) => send_error.set(error_text(&failure)),
                 }
             });
         }
@@ -1037,7 +1046,7 @@ fn Conversation(
                 form {
                     class: "composer",
                     onsubmit: {
-                        let send = send.clone();
+                        let mut send = send.clone();
                         move |event: FormEvent| {
                             event.prevent_default();
                             send();
