@@ -60,14 +60,6 @@ impl Role {
         }
     }
 
-    // The sessions of these roles count toward `max_agents`.
-    fn global(self) -> bool {
-        matches!(
-            self,
-            Self::Implementer | Self::Researcher | Self::Reviewer | Self::Judge
-        )
-    }
-
     // A pause of the Harness of the role holds the session in the queue.
     fn pauses(self) -> bool {
         matches!(self, Self::Implementer | Self::Researcher | Self::Reviewer)
@@ -256,10 +248,10 @@ fn reason(
 }
 
 fn limit_reason(config: &Config, running: &BTreeMap<Role, u32>, role: Role) -> Option<String> {
-    if role.global() {
+    if role.binding(config).counts_in_max_agents {
         let total: u32 = running
             .iter()
-            .filter(|(other, _)| other.global())
+            .filter(|(other, _)| other.binding(config).counts_in_max_agents)
             .map(|(_, count)| *count)
             .sum();
         if total >= config.max_agents {
@@ -334,11 +326,11 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
 
     #[test]
     fn a_full_lead_limit_blocks_a_lead_session() {
-        let running = BTreeMap::from([(Role::Lead, 2)]);
+        let running = BTreeMap::from([(Role::Lead, 8)]);
 
         assert_eq!(
             reason(&config(), &running, &[], Role::Lead).as_deref(),
-            Some("no free lead slot (2/2)")
+            Some("no free lead slot (8/8)")
         );
     }
 

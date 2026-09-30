@@ -273,6 +273,72 @@ async fn a_judge_waits_for_the_global_limit_behind_a_running_implementer() {
 }
 
 #[tokio::test]
+async fn a_judge_with_counts_in_max_agents_false_starts_while_the_global_limit_is_full() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let lead = format!(
+        "{START_41}{START_43}[[prompts]]\nwhen = \"You are the Judge\"\ncall = {{ tool = \"submit_verdicts\", arguments = {{ items = [{{ item = 1, actions = [{{ verdict = \"question\", text = \"Why cents?\" }}] }}] }} }}\n[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"true\"\n"
+    );
+    let implementer = format!(
+        "[[prompts]]\nwhen = \"#41 Add plan model\"\n{COMMIT}[[prompts]]\nwhen = \"#43 Add plan price\"\nhang = true\n"
+    );
+    let engine = connect(
+        &data_dir,
+        &github,
+        "max_agents = 1\nreview_quiet_period = \"200ms\"",
+        |config| config.roles.judge.counts_in_max_agents = false,
+        &lead,
+        &implementer,
+    )
+    .await;
+    github.add_issue(REPOSITORY, 41, "Add plan model");
+    github.add_sub_issue(REPOSITORY, 12, 41);
+    github.add_issue(REPOSITORY, 43, "Add plan price");
+    github.add_sub_issue(REPOSITORY, 12, 43);
+    github.set_check(REPOSITORY, "grep -q cents plan.txt");
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || {
+        (task_state(&engine, 41).await.as_deref() == Some("ready_for_review")).then_some(())
+    })
+    .await;
+
+    github.add_label(REPOSITORY, 43, "mobius:ready", "owner");
+    // The Implementer of #43 takes the only agent slot and waits for a stop.
+    let hanging = wait_for(async || {
+        let implementers = sessions(&engine, REPOSITORY, 12, "implementer").await;
+        let second = implementers.into_iter().nth(1)?;
+        (!prompts_of(&engine, second.id).await.is_empty()).then_some(second)
+    })
+    .await;
+    github.add_comment(
+        REPOSITORY,
+        github.pull_requests(REPOSITORY)[0].number,
+        "owner",
+        "Why cents?",
+    );
+
+    // The Judge does not count toward `max_agents`, so it starts while the only slot is taken.
+    let judge = wait_for(async || {
+        sessions(&engine, REPOSITORY, 12, "judge")
+            .await
+            .into_iter()
+            .find(|session| session.ended_at.is_some())
+    })
+    .await;
+    assert_eq!(judge.end_reason.as_deref(), Some("done"));
+    assert_eq!(judge.queue_reason, None);
+    let still_running = sessions(&engine, REPOSITORY, 12, "implementer")
+        .await
+        .into_iter()
+        .find(|session| session.id == hanging.id)
+        .unwrap();
+    assert_eq!(still_running.ended_at, None);
+
+    github.remove_label(REPOSITORY, 43, "mobius:working", "owner");
+}
+
+#[tokio::test]
 async fn a_lead_chat_and_a_triager_start_while_the_global_limit_is_full() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
