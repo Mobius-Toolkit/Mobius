@@ -1,7 +1,8 @@
 use mobius_domain::{InboxKind, Session, TranscriptRow};
+use mobius_engine::config::Config;
 use mobius_engine::{Engine, github, inbox, workstreams};
 use mobius_testkit::fake_github::{CheckRun, FakeGitHub, InlineComment, SubmittedReview, Thread};
-use mobius_testkit::{git, install_fake_harness, start_with_config, wait_for};
+use mobius_testkit::{git, install_fake_harness, start_with, wait_for};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -41,6 +42,17 @@ async fn connect(
     reviewer: &str,
     fix: &str,
 ) -> Engine {
+    connect_with(data_dir, github, extra_config, |_| {}, reviewer, fix).await
+}
+
+async fn connect_with(
+    data_dir: &TempDir,
+    github: &FakeGitHub,
+    extra_config: &str,
+    adjust: impl FnOnce(&mut Config),
+    reviewer: &str,
+    fix: &str,
+) -> Engine {
     github.add_manifest_code("manifest-code");
     github.add_repository(REPOSITORY);
     github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
@@ -61,8 +73,14 @@ async fn connect(
         "devin",
         &format!("{IMPLEMENTER}\n{fix}"),
     );
-    let engine =
-        start_with_config(data_dir.path(), "correct horse", &github.url, extra_config).await;
+    let engine = start_with(
+        data_dir.path(),
+        "correct horse",
+        &github.url,
+        extra_config,
+        adjust,
+    )
+    .await;
     github::convert_manifest(&engine, "manifest-code")
         .await
         .unwrap();
@@ -463,10 +481,11 @@ async fn a_queued_reviewer_gets_the_earlier_threads_of_trusted_authors() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let go = data_dir.path().join("go");
-    let engine = connect(
+    let engine = connect_with(
         &data_dir,
         &github,
-        "max_workers = { claude-code = 1 }",
+        "",
+        |config| config.roles.reviewer.max = 1,
         &format!(
             "[[prompts]]\nwhen = \"# Issue\\n\\n#43 Add plan price\"\nshell = \"while [ ! -e '{}' ]; do sleep 0.05; done\"\n[[prompts]]\nwhen = \"dispatch of #43\"\ncall = {{ tool = \"start_implementer\", arguments = {{ n = 43, instructions = \"Add a price.\" }} }}\n",
             go.display()
@@ -490,7 +509,7 @@ async fn a_queued_reviewer_gets_the_earlier_threads_of_trusted_authors() {
     .await;
     assert_eq!(
         queued.queue_reason.as_deref(),
-        Some("no free claude-code slot (1/1)")
+        Some("no free reviewer slot (1/1)")
     );
     let pull_requests = github.pull_requests(REPOSITORY);
     assert_eq!(pull_requests.len(), 2);

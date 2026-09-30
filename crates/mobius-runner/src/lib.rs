@@ -163,6 +163,10 @@ pub async fn head_contains(data_dir: &Path, worktree: &Path, commit: &str) -> Re
     Ok(status.success())
 }
 
+pub async fn rev_parse(data_dir: &Path, worktree: &Path, name: &str) -> Result<String, String> {
+    run(git(worktree, data_dir, None).args(["rev-parse", name])).await
+}
+
 fn bare_dir(data_dir: &Path, repository: &str) -> PathBuf {
     data_dir.join("repos").join(format!("{repository}.git"))
 }
@@ -342,11 +346,11 @@ pub async fn merge_base(
     run(git(&bare_dir(data_dir, repository), data_dir, None).args(["merge-base", one, other])).await
 }
 
-// Takes the commits of `origin/<branch>` from the last `fetch` with a fast-forward only.
+// Merges `origin/<branch>` from the last `fetch`, also when the two branches diverged.
 pub async fn pull(data_dir: &Path, worktree: &Path, branch: &str) -> Result<(), String> {
     let remote = format!("refs/remotes/origin/{branch}");
     if has_ref(worktree, data_dir, &remote).await? {
-        run(git(worktree, data_dir, None).args(["merge", "--ff-only", &remote])).await?;
+        run(git(worktree, data_dir, None).args(["merge", "--no-edit", &remote])).await?;
     }
     Ok(())
 }

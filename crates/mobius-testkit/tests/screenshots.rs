@@ -113,12 +113,22 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
     github.add_label(REPOSITORY, 42, "mobius:ready", "owner");
     wait_for(async || (!inbox::list(engine).await.unwrap().is_empty()).then_some(())).await;
 
+    // The wide code block, the wide table, and the long URL scroll or break inside the bubble.
     chat::send(
         engine,
         "owner",
         REPOSITORY,
         12,
-        "What is the state of the plans?",
+        r#"What is the state of the plans? The full report is at https://example.com/reports/loyalty/plans/every-customer-segment-and-billing-period.
+
+```text
+summary = [{ plan: "standard", seats: 10, price_per_seat: 100, discount_code: "SPRING-SALE-EXTRA-LONG-2026", renewal: "monthly" }]
+```
+
+| Plan | Seats | Price per seat | Discount code | Region | Renewal |
+| --- | --- | --- | --- | --- | --- |
+| Standard | 10 | $100 | SPRING-SALE-EXTRA-LONG-2026 | Worldwide | Monthly |
+| Extended | 40 | $80 | AUTUMN-SALE-EXTRA-LONG-2026 | Europe | Yearly |"#,
     )
     .await
     .unwrap();
@@ -380,20 +390,16 @@ async fn screenshots() {
         github.add_issue(repository, 12, title);
         github.add_label(repository, 12, "mobius:workstream", "owner");
     }
-    // The checkup page shows one label present, one with a wrong color, and the rest missing.
-    github.add_repository_label(
-        REPOSITORY,
-        "mobius:ready",
-        "0e8a16",
-        "Mobius can dispatch this task",
-    );
+    seed(&engine, &github).await;
+    // The first poll created each missing Mobius label. For the Checkup shot,
+    // one label is missing again and one has a wrong color.
+    github.delete_repository_label(REPOSITORY, "mobius:no-workstream");
     github.add_repository_label(
         REPOSITORY,
         "mobius:working",
         "ededed",
         "A Mobius agent works on this task",
     );
-    seed(&engine, &github).await;
     fix_times(&engine).await;
     for viewport in [DESKTOP, PHONE] {
         let (tasks_clicks, switch_clicks): (&[&str], &[&str]) = if viewport == PHONE {
@@ -462,10 +468,10 @@ async fn screenshots() {
                 inbox_count: true,
             },
             Shot {
-                name: "server-agents",
-                path: "/server-agents",
+                name: "agents",
+                path: "/agents",
                 clicks: &[],
-                expected: "chat session",
+                expected: "owner/shop#41",
                 inbox_count: true,
             },
             Shot {
@@ -492,6 +498,35 @@ async fn screenshots() {
         ];
         for shot in shots {
             screenshot(&browser, &url, shot, viewport).await;
+        }
+        if viewport == PHONE {
+            // A wide message scrolls inside the bubble; the page itself never scrolls sideways.
+            let page = open(
+                &browser,
+                &format!("{url}/workstreams/owner/shop/12"),
+                ("check", 375, 667, true),
+            )
+            .await;
+            wait_until_ready(&page, "#42 waits for your decision.", false).await;
+            // `overflow-x: auto` keeps the wide block inside the bubble, so no ancestor overflows.
+            let script = String::from(
+                "(() => {
+                    const msgs = document.querySelector('.msgs');
+                    const bubble = document.querySelector('.msg.owner');
+                    const message = bubble?.querySelector('.md');
+                    const pre = message?.querySelector('pre');
+                    const table = message?.querySelector('table');
+                    const overflows = (element) => element.scrollWidth > element.clientWidth;
+                    const scrolls = (element) => getComputedStyle(element).overflowX === 'auto';
+                    return !!pre && !!table
+                        && overflows(pre) && scrolls(pre)
+                        && overflows(table) && scrolls(table)
+                        && !overflows(message) && !overflows(bubble) && !overflows(msgs)
+                        && document.documentElement.scrollWidth <= window.innerWidth;
+                })()",
+            );
+            wait_for(async || check(&page, script.clone()).await.then_some(())).await;
+            page.close().await.unwrap();
         }
     }
     browser.close().await.unwrap();

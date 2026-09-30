@@ -93,6 +93,16 @@ async fn the_checkup_shows_the_label_status_and_the_button_fixes_the_fixable() {
     // No repository of another organization is in the checkup.
     assert!(get_checkup(&engine, &cookie, "stranger").await.is_empty());
 
+    // The first poll of the repository created each missing Mobius label, so
+    // the test deletes them again to see the `Missing` status and the button.
+    wait_for(async || {
+        (github.repository_labels(REPOSITORY).len() == MOBIUS_LABELS.len()).then_some(())
+    })
+    .await;
+    for label in MOBIUS_LABELS {
+        github.delete_repository_label(REPOSITORY, label.name);
+    }
+
     // All Mobius labels are missing, so the button is "Create labels".
     let checkup = get_checkup(&engine, &cookie, "owner").await;
     assert_eq!(checkup.len(), 1);

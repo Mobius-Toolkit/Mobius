@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use mobius_domain::{Session, TranscriptRow};
@@ -231,7 +232,7 @@ async fn the_implementer_commits_and_mobius_opens_a_draft_pull_request() {
 }
 
 #[tokio::test]
-async fn cannot_do_goes_to_the_lead_and_a_pull_that_is_not_a_fast_forward_stops_the_task() {
+async fn cannot_do_goes_to_the_lead_and_the_next_start_merges_a_branch_that_diverged() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let lead = format!(
@@ -264,20 +265,101 @@ async fn cannot_do_goes_to_the_lead_and_a_pull_that_is_not_a_fast_forward_stops_
     github.add_comment(REPOSITORY, 41, "owner", "I added the table. Try again.");
 
     let sessions = ended_implementers(&engine, 2).await;
-    assert_eq!(sessions[1].end_reason.as_deref(), Some("failed"));
-    wait_for(async || {
+    assert_eq!(sessions[1].end_reason.as_deref(), Some("cannot_do"));
+    let worktree = data_dir.path().join("worktrees/owner/shop/task-41");
+    let log = git(&worktree, &["log", "--format=%s"]);
+    assert!(log.contains("Add plan model"), "{log}");
+    assert!(log.contains("Add the plan table"), "{log}");
+    assert!(github.pull_requests(REPOSITORY).is_empty());
+}
+
+#[tokio::test]
+async fn a_commit_on_the_branch_during_a_round_merges_before_the_push() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        "",
+        &format!("[[prompts]]\nwhen = \"dispatch of #41\"\n{START}"),
+        &format!("[[prompts]]\n{COMMIT}"),
+    )
+    .await;
+    let go = data_dir.path().join("go");
+    github.set_check(
+        REPOSITORY,
+        &format!("while [ ! -e '{}' ]; do sleep 0.05; done", go.display()),
+    );
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    let worktree = data_dir.path().join("worktrees/owner/shop/task-41");
+    wait_for(async || worktree.join("plan.txt").exists().then_some(())).await;
+
+    github.push_commit(REPOSITORY, "mobius/41", "Update the UI screenshots");
+    fs::write(&go, "").unwrap();
+
+    let check_runs = wait_for(async || {
+        let check_runs = github.check_runs(REPOSITORY);
+        (!check_runs.is_empty()).then_some(check_runs)
+    })
+    .await;
+    let remote = github.remote(REPOSITORY);
+    assert_eq!(
+        check_runs[0].head_sha,
+        git(&remote, &["rev-parse", "mobius/41"])
+    );
+    let log = git(&remote, &["log", "--format=%s", "mobius/41"]);
+    assert!(log.contains("Add plan model"), "{log}");
+    assert!(log.contains("Update the UI screenshots"), "{log}");
+    let session = ended_implementers(&engine, 1).await.remove(0);
+    assert_eq!(session.end_reason.as_deref(), Some("done"));
+}
+
+#[tokio::test]
+async fn a_push_that_github_rejects_stops_the_task_with_no_restart() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        "",
+        &format!("[[prompts]]\nwhen = \"dispatch of #41\"\n{START}"),
+        &format!("[[prompts]]\n{COMMIT}"),
+    )
+    .await;
+    let hook = github.remote(REPOSITORY).join("hooks/pre-receive");
+    fs::write(
+        &hook,
+        "#!/bin/sh\necho 'refusing to allow a GitHub App to create or update workflow' >&2\nexit 1\n",
+    )
+    .unwrap();
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    let prompt = wait_for(async || {
+        lead_event_prompts(&engine)
+            .await
+            .into_iter()
+            .find(|prompt| {
+                prompt.contains(" stop of #41 \"Add plan model\": GitHub rejected the push.")
+            })
+    })
+    .await;
+    assert!(
+        prompt.contains("refusing to allow a GitHub App to create or update workflow"),
+        "{prompt}"
+    );
+    assert!(prompt.contains("[remote rejected]"), "{prompt}");
+    assert!(
         github
             .labels(REPOSITORY, 41)
             .contains(&"mobius:needs-human".to_string())
-            .then_some(())
-    })
-    .await;
+    );
     assert_eq!(task_state(&engine).await.as_deref(), Some("needs_human"));
     assert!(github.pull_requests(REPOSITORY).is_empty());
-    let rows = transcript(&engine, sessions[1].id).await;
-    assert!(prompts(&rows).is_empty());
-    let error = rows.iter().find(|row| row.kind == "error").unwrap();
-    assert!(error.json.contains("merge --ff-only"), "{}", error.json);
+    let implementers = ended_implementers(&engine, 1).await;
+    assert_eq!(implementers[0].end_reason.as_deref(), Some("push_rejected"));
+    assert_eq!(sessions(&engine, "implementer").await.len(), 1);
 }
 
 #[tokio::test]
@@ -438,13 +520,13 @@ async fn after_max_check_attempts_mobius_pushes_marks_the_check_run_as_failed_an
 }
 
 #[tokio::test]
-async fn with_one_worker_slot_the_second_implementer_waits_in_the_queue_until_the_first_ends() {
+async fn with_one_agent_slot_the_second_implementer_waits_in_the_queue_until_the_first_ends() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let engine = connect(
         &data_dir,
         &github,
-        "max_workers_total = 1",
+        "max_agents = 1",
         START_TWO,
         &format!("[[prompts]]\n{COMMIT}"),
     )
@@ -466,7 +548,7 @@ async fn with_one_worker_slot_the_second_implementer_waits_in_the_queue_until_th
     .await;
     assert_eq!(
         queued.queue_reason.as_deref(),
-        Some("no free Worker slot (1/1)")
+        Some("no free agent slot (1/1)")
     );
     // The first task takes its slot before it writes the state `working`.
     wait_for(async || {
