@@ -41,6 +41,21 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
         .await
         .unwrap();
     wait_for(async || (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+    // The first poll of a repository treats every event as old, so a `mobius:workstream`
+    // label that lands before it gives the Lead no "creation" event. Wait until that poll
+    // has stored its `since` cursor before a test adds its Workstream.
+    wait_for(async || {
+        engine
+            .store
+            .sync_cursors()
+            .get(REPOSITORY, "issues")
+            .await
+            .unwrap()
+            .since
+            .is_some()
+            .then_some(())
+    })
+    .await;
     engine
 }
 
