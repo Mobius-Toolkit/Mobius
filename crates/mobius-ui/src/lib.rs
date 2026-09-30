@@ -809,8 +809,6 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     rsx! {
         div { class: "page",
             Conversation {
-                // A different Workstream mounts a new Conversation, so its state resets.
-                key: "{repository}#{number}",
                 organization: owner.clone(),
                 repository: repository.clone(),
                 number,
@@ -927,6 +925,12 @@ fn Conversation(
     let mut send_error = use_signal(String::new);
     let mut mic_active = use_signal(|| false);
     let mut brief_open = use_signal(|| None::<bool>);
+    // The route keeps this scope when it moves to another Workstream, so the
+    // choice of the Owner resets and the default of the new Workstream applies.
+    use_effect(use_reactive(
+        (&organization, &repository, &number),
+        move |_| brief_open.set(None),
+    ));
     use_drop(|| {
         document::eval("window.__mobiusMic?.stop();");
     });

@@ -337,17 +337,16 @@ async fn brief() {
         "Reward repeat customers with **points** on every order.",
     );
     github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 13, "Add discount codes");
+    github.set_body(REPOSITORY, 13, "Apply **codes** at checkout.");
+    github.add_label(REPOSITORY, 13, "mobius:workstream", "owner");
     let engine = start(data_dir.path(), "correct horse", &github.url).await;
     github::convert_manifest(&engine, "manifest-code")
         .await
         .unwrap();
     wait_for(async || {
-        workstreams::list(&engine)
-            .await
-            .unwrap()
-            .iter()
-            .any(|workstream| !workstream.body.is_empty())
-            .then_some(())
+        let list = workstreams::list(&engine).await.unwrap();
+        (list.len() == 2 && list.iter().all(|workstream| !workstream.body.is_empty())).then_some(())
     })
     .await;
     let url = serve_ui(&engine).await;
@@ -387,6 +386,23 @@ async fn brief() {
         })()",
     );
     wait_for(async || check(&page, collapsed.clone()).await.then_some(())).await;
+    // The chat of another Workstream keeps no state of the one before: its Brief shows expanded.
+    let second = String::from(
+        "(() => {
+            const link = document.querySelector('a[href=\"/workstreams/owner/shop/13\"]');
+            link?.click();
+            return !!link;
+        })()",
+    );
+    wait_for(async || check(&page, second.clone()).await.then_some(())).await;
+    let expanded_second = String::from(
+        "(() => {
+            const brief = document.querySelector('.brief .md');
+            return !!brief && brief.textContent.includes('codes at checkout')
+                && !!brief.querySelector('strong');
+        })()",
+    );
+    wait_for(async || check(&page, expanded_second.clone()).await.then_some(())).await;
     page.close().await.unwrap();
     browser.close().await.unwrap();
 }
