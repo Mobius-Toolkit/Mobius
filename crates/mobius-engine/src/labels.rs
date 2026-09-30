@@ -53,6 +53,9 @@ pub enum LabelStatus {
     Present,
     // The label exists with this different color.
     WrongColor(String),
+    // The label exists with this name in a different case. `Issue::has_label` compares
+    // names exactly, so the engine does not see this label on issues.
+    WrongCase(String),
     Missing,
 }
 
@@ -75,6 +78,9 @@ pub async fn status(
                 // GitHub compares label names without regard to case.
                 .find(|found| found.name.eq_ignore_ascii_case(label.name))
             {
+                Some(found) if found.name != label.name => {
+                    LabelStatus::WrongCase(found.name.clone())
+                }
                 // GitHub gives colors in lowercase.
                 Some(found) if found.color.eq_ignore_ascii_case(label.color) => {
                     LabelStatus::Present
@@ -91,6 +97,9 @@ pub async fn fix(repository: &Repository) -> Result<(), Box<dyn Error + Send + S
     for entry in status(repository).await? {
         match entry.status {
             LabelStatus::Present => {}
+            // A POST fails, because GitHub finds the label. A rename is not possible,
+            // so the label stays for a human.
+            LabelStatus::WrongCase(_) => {}
             LabelStatus::WrongColor(_) => {
                 repository
                     .set_label_color(entry.label.name, entry.label.color)

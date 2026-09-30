@@ -105,9 +105,12 @@ async fn fix_creates_the_missing_labels_and_sets_the_fixed_colors() {
     );
 }
 
-// GitHub compares label names without regard to case, so a label in a different case is present.
+// GitHub compares label names without regard to case, so a POST for a label in a
+// different case fails. The engine does not see such a label on issues, because it
+// compares names exactly, so the status is not `Present`. `fix` leaves the label for
+// a human, because a rename is not possible.
 #[tokio::test]
-async fn fix_matches_label_names_without_regard_to_case() {
+async fn fix_skips_a_label_with_a_name_in_a_different_case() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     github.add_repository(REPOSITORY);
@@ -137,10 +140,13 @@ async fn fix_matches_label_names_without_regard_to_case() {
         [
             ("mobius:workstream", LabelStatus::Missing),
             ("mobius:autopilot", LabelStatus::Missing),
-            ("mobius:ready", LabelStatus::Present),
+            (
+                "mobius:ready",
+                LabelStatus::WrongCase("Mobius:Ready".to_string())
+            ),
             (
                 "mobius:working",
-                LabelStatus::WrongColor("ededed".to_string())
+                LabelStatus::WrongCase("MOBIUS:WORKING".to_string())
             ),
             ("mobius:needs-human", LabelStatus::Missing),
             ("mobius:no-workstream", LabelStatus::Missing),
@@ -154,12 +160,11 @@ async fn fix_matches_label_names_without_regard_to_case() {
         .into_iter()
         .map(|label| (label.name, label.color))
         .collect();
-    // The name and the description of each existing label stayed. Only the color of
-    // `MOBIUS:WORKING` became the fixed color.
+    // The name, the color, and the description of each label in a different case stayed.
     assert_eq!(
         labels,
         [
-            ("MOBIUS:WORKING", "FBCA04"),
+            ("MOBIUS:WORKING", "ededed"),
             ("Mobius:Ready", "0E8A16"),
             ("mobius:autopilot", "1D76DB"),
             ("mobius:needs-human", "D93F0B"),
@@ -168,6 +173,6 @@ async fn fix_matches_label_names_without_regard_to_case() {
         ]
         .map(|(name, color)| (name.to_string(), color.to_string()))
     );
-    // The label with the correct color got no PATCH request, and no label got a POST.
-    assert_eq!(github.label_patches(REPOSITORY), ["mobius:working"]);
+    // No label got a PATCH request, and the labels in a different case got no POST.
+    assert!(github.label_patches(REPOSITORY).is_empty());
 }
