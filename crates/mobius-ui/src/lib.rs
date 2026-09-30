@@ -46,6 +46,8 @@ pub enum Route {
 
 #[component]
 pub fn App() -> Element {
+    // The on-screen keyboard shrinks the layout viewport instead of scrolling the
+    // page, so the chat input stays above the keyboard; the tab bar hides on focus.
     use_effect(|| {
         document::eval(
             r#"let meta = document.head.querySelector('meta[name="viewport"]');
@@ -855,34 +857,6 @@ fn mic_error(code: Option<&str>) -> String {
     }
 }
 
-async fn send_message(
-    organization: String,
-    repository: String,
-    number: i64,
-    mut text: Signal<String>,
-    mut send_error: Signal<String>,
-    mut sending: Signal<bool>,
-) {
-    let value = text();
-    // A key repeat or a second tap on Send must not send the same message again.
-    if value.trim().is_empty() || *sending.peek() {
-        return;
-    }
-    sending.set(true);
-    let result = chat_send(organization, repository, number, value.clone()).await;
-    sending.set(false);
-    match result {
-        Ok(()) => {
-            // The user can type while the send runs; keep that text.
-            if text() == value {
-                text.set(String::new());
-            }
-            send_error.set(String::new());
-        }
-        Err(failure) => send_error.set(error_text(&failure)),
-    }
-}
-
 #[component]
 fn Conversation(
     organization: String,
@@ -903,25 +877,9 @@ fn Conversation(
     ));
     let mut text = use_signal(String::new);
     let mut send_error = use_signal(String::new);
-    let sending = use_signal(|| false);
     let mut mic_active = use_signal(|| false);
-    // The mobile layout (the phone media query of the stylesheet) keeps the Enter key
-    // for a new line; the desktop layout sends the message.
-    let mut phone = use_signal(|| false);
     use_drop(|| {
         document::eval("window.__mobiusMic?.stop();");
-    });
-    use_hook(move || {
-        spawn(async move {
-            let mut query = document::eval(
-                r#"const media = matchMedia("(max-width: 700px)");
-media.addEventListener("change", () => dioxus.send(media.matches));
-dioxus.send(media.matches);"#,
-            );
-            while let Ok(narrow) = query.recv::<bool>().await {
-                phone.set(narrow);
-            }
-        })
     });
 
     let (mut messages, history_writing, harness) = match &*history.read() {
@@ -968,45 +926,7 @@ dioxus.send(media.matches);"#,
         },
     ));
 
-    // Keep the newest message in view: a new message scrolls the list down. A longer
-    // draft of the last message scrolls it only when the list is already near the
-    // bottom, so a streamed chunk does not move a user that reads the history.
-    let mut at_bottom = use_signal(|| true);
-    let mut seen_tail = use_signal(|| (0usize, None::<i64>));
-    let scroll_key = (
-        messages.len(),
-        messages
-            .last()
-            .map(|message| (message.id, message.text.len())),
-        lead_state.writing,
-    );
-    use_effect(use_reactive(&scroll_key, move |(count, tail, _)| {
-        let (seen_count, seen_id) = *seen_tail.peek();
-        seen_tail.set((count, tail.map(|tail| tail.0)));
-        if count != seen_count || tail.map(|tail| tail.0) != seen_id || *at_bottom.peek() {
-            at_bottom.set(true);
-            document::eval(
-                r#"const list = document.querySelector(".msgs");
-if (list) {
-    list.scrollTop = list.scrollHeight;
-}"#,
-            );
-        }
-    }));
-    // Grow the chat input with its text; the stylesheet caps the height, so it scrolls above the cap.
-    use_effect(move || {
-        text();
-        document::eval(
-            r#"const input = document.querySelector(".composer textarea");
-if (input) {
-    input.style.height = "auto";
-    input.style.height = `${input.scrollHeight + input.offsetHeight - input.clientHeight}px`;
-}"#,
-        );
-    });
-
     let send_key = (organization.clone(), repository.clone());
-    let enter_key = (organization.clone(), repository.clone());
     let stop_key = (organization.clone(), repository.clone());
     rsx! {
         div { class: "column",
@@ -1019,14 +939,7 @@ if (input) {
                 {tail}
             }
             div { class: "chat",
-                div {
-                    class: "msgs",
-                    onscroll: move |event: ScrollEvent| {
-                        let left = event.scroll_height() as f64
-                            - event.scroll_top()
-                            - event.client_height() as f64;
-                        at_bottom.set(left < 80.0);
-                    },
+                div { class: "msgs",
                     if let Some(Err(error)) = &*history.read() {
                         div { class: "error", {error_text(error)} }
                     }
@@ -1068,49 +981,23 @@ if (input) {
                         let (organization, repository) = send_key.clone();
                         async move {
                             event.prevent_default();
-                            send_message(
-                                organization,
-                                repository,
-                                number,
-                                text,
-                                send_error,
-                                sending,
-                            )
-                            .await;
+                            if text().trim().is_empty() {
+                                return;
+                            }
+                            match chat_send(organization, repository, number, text()).await {
+                                Ok(()) => {
+                                    text.set(String::new());
+                                    send_error.set(String::new());
+                                }
+                                Err(failure) => send_error.set(error_text(&failure)),
+                            }
                         }
                     },
                     div { class: "grow",
                         textarea {
-                            rows: "1",
                             placeholder: "Write to the {agent}",
                             value: text,
                             oninput: move |event| text.set(event.value()),
-                            onkeydown: move |event: KeyboardEvent| {
-                                // Enter sends on the desktop; Shift+Enter and IME
-                                // composition or key repeat do not.
-                                let send = event.key() == Key::Enter
-                                    && !event.modifiers().contains(Modifiers::SHIFT)
-                                    && !event.is_composing()
-                                    && !event.is_auto_repeating()
-                                    && !phone();
-                                if send {
-                                    event.prevent_default();
-                                }
-                                let (organization, repository) = enter_key.clone();
-                                async move {
-                                    if send {
-                                        send_message(
-                                            organization,
-                                            repository,
-                                            number,
-                                            text,
-                                            send_error,
-                                            sending,
-                                        )
-                                        .await;
-                                    }
-                                }
-                            },
                         }
                         div { class: "error", {send_error} }
                     }
