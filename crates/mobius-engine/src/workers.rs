@@ -85,6 +85,49 @@ impl Drop for Slot {
     }
 }
 
+// The place of a session in the queue. The `Drop` removes the entry, so a wait dropped by a stop keeps no place.
+struct Queued {
+    workers: Arc<Workers>,
+    place: Place,
+    session: i64,
+}
+
+impl Queued {
+    fn new(engine: &Engine, place: Place, session: i64, role: Role) -> Queued {
+        let mut counts = engine.workers.counts.lock().unwrap();
+        match place {
+            Place::Task(task) => {
+                counts.queued.insert(task, role);
+            }
+            Place::Since(since) => {
+                counts.waiting.insert((since, session), role);
+            }
+        }
+        Queued {
+            workers: engine.workers.clone(),
+            place,
+            session,
+        }
+    }
+}
+
+impl Drop for Queued {
+    fn drop(&mut self) {
+        {
+            let mut counts = self.workers.counts.lock().unwrap();
+            match self.place {
+                Place::Task(task) => {
+                    counts.queued.remove(&task);
+                }
+                Place::Since(since) => {
+                    counts.waiting.remove(&(since, self.session));
+                }
+            }
+        }
+        self.workers.changed.notify_waiters();
+    }
+}
+
 // Gives `None` when the task leaves the queue before it gets a slot, for example after a decline of the Lead.
 pub(crate) async fn slot(
     engine: &Engine,
@@ -92,16 +135,10 @@ pub(crate) async fn slot(
     session: i64,
     role: Role,
 ) -> Result<Option<Slot>, Box<dyn Error + Send + Sync>> {
-    engine
-        .workers
-        .counts
-        .lock()
-        .unwrap()
-        .queued
-        .insert(task, role);
-    let slot = wait(engine, Place::Task(task), session, role).await;
-    engine.workers.counts.lock().unwrap().queued.remove(&task);
-    engine.workers.changed.notify_waiters();
+    let place = Place::Task(task);
+    let queued = Queued::new(engine, place, session, role);
+    let slot = wait(engine, place, session, role).await;
+    drop(queued);
     let Some(slot) = slot? else {
         return Ok(None);
     };
@@ -118,35 +155,23 @@ pub(crate) async fn slot(
     Ok(Some(slot))
 }
 
-// A session with no task waits behind each session that queued before it.
+// A session with no task waits behind each session that queued before it. A dropped wait, for example on a stop, frees the place.
 pub(crate) async fn session_slot(
     engine: &Engine,
     session: i64,
     role: Role,
 ) -> Result<Slot, Box<dyn Error + Send + Sync>> {
-    let since = OffsetDateTime::now_utc();
-    engine
-        .workers
-        .counts
-        .lock()
-        .unwrap()
-        .waiting
-        .insert((since, session), role);
-    let slot = wait(engine, Place::Since(since), session, role).await;
-    engine
-        .workers
-        .counts
-        .lock()
-        .unwrap()
-        .waiting
-        .remove(&(since, session));
-    engine.workers.changed.notify_waiters();
+    let place = Place::Since(OffsetDateTime::now_utc());
+    let queued = Queued::new(engine, place, session, role);
+    let slot = wait(engine, place, session, role).await;
+    drop(queued);
     let slot = slot?.expect("a session with no task keeps its place in the queue");
     let started = engine.store.sessions().start(session).await?;
     engine.broadcast(Live::Agent(agents::node(started)));
     Ok(slot)
 }
 
+#[derive(Clone, Copy)]
 enum Place {
     Task(i64),
     Since(OffsetDateTime),

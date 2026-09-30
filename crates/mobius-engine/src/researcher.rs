@@ -58,7 +58,14 @@ async fn session(
         job.workstream,
         None,
     );
-    let _slot = match workers::session_slot(engine, session, workers::Role::Researcher).await {
+    // A stop while the session waits ends the Researcher and frees the place in the queue.
+    let slot = tokio::select! {
+        slot = workers::session_slot(engine, session, workers::Role::Researcher) => slot,
+        () = lead::stopped(stops, &job.repository, job.workstream) => {
+            return lead::end_session(engine, session, "stopped").await;
+        }
+    };
+    let _slot = match slot {
         Ok(slot) => slot,
         Err(error) => {
             recorder.fail(&error.to_string()).await?;

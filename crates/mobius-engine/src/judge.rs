@@ -298,7 +298,14 @@ async fn session(
         job.workstream,
         None,
     );
-    let _slot = match workers::session_slot(engine, session, workers::Role::Judge).await {
+    // A stop while the session waits ends the Judge and frees the place in the queue.
+    let slot = tokio::select! {
+        slot = workers::session_slot(engine, session, workers::Role::Judge) => slot,
+        () = ends::stopped(stops, job.task) => {
+            return lead::end_session(engine, session, "stopped").await;
+        }
+    };
+    let _slot = match slot {
         Ok(slot) => slot,
         Err(error) => {
             recorder.fail(&error.to_string()).await?;

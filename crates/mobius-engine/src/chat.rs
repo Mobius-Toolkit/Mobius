@@ -263,17 +263,26 @@ async fn run(
             workstream,
             Some(author),
         );
-        let _slot = match workers::session_slot(
-            &engine,
-            session,
-            if workstream == triager::CHAT {
-                workers::Role::Triager
-            } else {
-                workers::Role::Lead
-            },
-        )
-        .await
-        {
+        // A stop while the session waits ends the chat and frees the place in the queue.
+        let slot = tokio::select! {
+            slot = workers::session_slot(
+                &engine,
+                session,
+                if workstream == triager::CHAT {
+                    workers::Role::Triager
+                } else {
+                    workers::Role::Lead
+                },
+            ) => slot,
+            () = lead::stopped(&mut stops, &repository, workstream) => {
+                finish(&engine, &organization, &repository, workstream, None);
+                if let Err(failure) = lead::end_session(&engine, session, "stopped").await {
+                    eprintln!("mobius: chat session {session}: {failure}");
+                }
+                return;
+            }
+        };
+        let _slot = match slot {
             Ok(slot) => slot,
             Err(error) => {
                 let message = error.to_string();

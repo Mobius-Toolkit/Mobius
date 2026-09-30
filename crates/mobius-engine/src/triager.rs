@@ -151,7 +151,14 @@ async fn session(
     let binding = &engine.config.roles.triager;
     let session = lead::add_session(engine, ROLE, binding, organization(name), name, CHAT).await?;
     let mut recorder = Recorder::new(engine, session, organization(name), name, CHAT, None);
-    let _slot = match workers::session_slot(engine, session, workers::Role::Triager).await {
+    // A stop while the session waits ends the Triager and frees the place in the queue.
+    let slot = tokio::select! {
+        slot = workers::session_slot(engine, session, workers::Role::Triager) => slot,
+        () = stop.notified() => {
+            return lead::end_session(engine, session, "stopped").await;
+        }
+    };
+    let _slot = match slot {
         Ok(slot) => slot,
         Err(error) => {
             recorder.fail(&error.to_string()).await?;
