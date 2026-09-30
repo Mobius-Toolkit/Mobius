@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "UPDATE sessions SET queue_reason = NULL WHERE id = ?\n               RETURNING id AS \"id!\", role, harness, model, organization, repository, workstream, acp_session_id,\n                         started_at AS \"started_at: OffsetDateTime\",\n                         ended_at AS \"ended_at: OffsetDateTime\", end_reason, queue_reason",
+  "query": "UPDATE sessions SET queue_reason = NULL WHERE id = ?\n               RETURNING id AS \"id!\", role, harness, model, organization, repository, workstream, acp_session_id,\n                         started_at AS \"started_at: OffsetDateTime\",\n                         ended_at AS \"ended_at: OffsetDateTime\", end_reason, queue_reason, issue",
   "describe": {
     "columns": [
       {
@@ -134,6 +134,17 @@
             "name": "queue_reason"
           }
         }
+      },
+      {
+        "name": "issue",
+        "ordinal": 12,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "issue"
+          }
+        }
       }
     ],
     "parameters": {
@@ -151,8 +162,9 @@
       false,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "465263b2b723e859ff12887a43e3c84b614a61df9b0c12ee0f9ee0513198f657"
+  "hash": "6ad9d9b126cc726892c4cc632b35f565dd91c0ea2711f799a602583e53b1ec3b"
 }

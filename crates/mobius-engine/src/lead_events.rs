@@ -124,6 +124,7 @@ async fn session(
         organization(repository),
         repository,
         workstream,
+        None,
     )
     .await?;
     let mut recorder = Recorder::new(
