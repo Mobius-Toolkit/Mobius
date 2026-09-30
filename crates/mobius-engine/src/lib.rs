@@ -29,6 +29,7 @@ mod threads;
 pub mod transcript;
 mod triager;
 mod trust;
+pub mod upgrade;
 mod workers;
 pub mod workstreams;
 
@@ -160,6 +161,7 @@ pub fn missing_commands(config: &Config, path: &OsStr) -> Vec<&'static str> {
         .collect();
     programs.push("gh");
     programs.push("curl");
+    programs.push("tar");
     programs.sort();
     programs.dedup();
     programs.retain(|program| mobius_runner::find(program, path).is_none());

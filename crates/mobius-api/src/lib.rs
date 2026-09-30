@@ -17,7 +17,8 @@ use dioxus::server::axum::extract::{FromRequestParts, Query};
 use dioxus::server::http::request::Parts;
 #[cfg(feature = "server")]
 use mobius_engine::{
-    Engine, activity, agents, auth, chat, github, inbox, limits, tasks, transcript, workstreams,
+    Engine, activity, agents, auth, chat, github, inbox, limits, tasks, transcript, upgrade,
+    workstreams,
 };
 #[cfg(feature = "server")]
 use mobius_store::Store;
@@ -145,6 +146,11 @@ pub async fn github_user_callback() -> ServerFnResult<Redirect> {
 #[get("/api/release", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn release() -> ServerFnResult<Option<String>> {
     Ok(github::new_release(&engine).await)
+}
+
+#[post("/api/upgrade", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn upgrade() -> ServerFnResult<()> {
+    upgrade::run(&engine).await.map_err(ServerFnError::new)
 }
 
 #[get("/api/organizations", _device: DeviceId, engine: Extension<Engine>)]
