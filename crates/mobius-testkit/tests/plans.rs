@@ -170,3 +170,84 @@ async fn with_autopilot_a_ready_label_of_the_mobius_app_dispatches() {
             .any(|workstream| workstream.number == 14 && workstream.autopilot)
     );
 }
+
+#[tokio::test]
+async fn turning_autopilot_on_adds_the_label_as_the_owner() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+    github.add_user_code("user-code", "owner");
+    assert!(github::authorize_user(&engine, "user-code").await.unwrap());
+    let mut feed = activity::feed(&engine, None).await.unwrap();
+
+    workstreams::set_autopilot(&engine, REPOSITORY, 20, true)
+        .await
+        .unwrap();
+
+    assert!(
+        github
+            .labels(REPOSITORY, 20)
+            .contains(&"mobius:autopilot".to_string())
+    );
+    assert_eq!(
+        github.label_actor(REPOSITORY, 20, "mobius:autopilot"),
+        Some("owner".to_string())
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !matches!(feed.next().await, Some(Live::Workstreams)) {}
+    })
+    .await
+    .unwrap();
+    let list = workstreams::list(&engine).await.unwrap();
+    assert!(
+        list.iter()
+            .any(|workstream| workstream.number == 20 && workstream.autopilot)
+    );
+}
+
+#[tokio::test]
+async fn turning_autopilot_off_removes_the_label() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+    github.add_user_code("user-code", "owner");
+    assert!(github::authorize_user(&engine, "user-code").await.unwrap());
+    github.add_label(REPOSITORY, 20, "mobius:autopilot", "owner");
+
+    workstreams::set_autopilot(&engine, REPOSITORY, 20, false)
+        .await
+        .unwrap();
+
+    assert!(
+        !github
+            .labels(REPOSITORY, 20)
+            .contains(&"mobius:autopilot".to_string())
+    );
+    let list = workstreams::list(&engine).await.unwrap();
+    assert!(
+        list.iter()
+            .any(|workstream| workstream.number == 20 && !workstream.autopilot)
+    );
+}
+
+#[tokio::test]
+async fn autopilot_without_the_authorization_of_the_owner_is_an_error() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+
+    let error = workstreams::set_autopilot(&engine, REPOSITORY, 20, true)
+        .await
+        .unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .starts_with("The Owner did not authorize the Mobius App.")
+    );
+    assert!(
+        !github
+            .labels(REPOSITORY, 20)
+            .contains(&"mobius:autopilot".to_string())
+    );
+}

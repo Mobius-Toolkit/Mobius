@@ -774,6 +774,19 @@ impl FakeGitHub {
             .clone()
     }
 
+    // The actor of the newest `labeled` or `unlabeled` event of the label.
+    pub fn label_actor(&self, repository: &str, number: i64, label: &str) -> Option<String> {
+        self.state.lock().unwrap().issues[&(repository.to_string(), number)]
+            .events
+            .iter()
+            .rev()
+            .find(|event| {
+                ["labeled", "unlabeled"].contains(&event["event"].as_str().unwrap_or_default())
+                    && event["label"]["name"] == label
+            })
+            .and_then(|event| event["actor"]["login"].as_str().map(str::to_string))
+    }
+
     pub fn add_review(&self, repository: &str, number: i64, author: &str, state: &str, body: &str) {
         let mut records = self.state.lock().unwrap();
         let now = records.tick();
@@ -1060,6 +1073,15 @@ fn bearer(headers: &HeaderMap) -> &str {
         .unwrap_or_default()
 }
 
+// A user token gives its user. Any other token is the installation token, which gives the bot.
+fn token_actor(records: &Records, headers: &HeaderMap, repository: &str) -> String {
+    records
+        .user_tokens
+        .get(bearer(headers))
+        .cloned()
+        .unwrap_or_else(|| records.app_login(repository))
+}
+
 // The App signs a JSON Web Token, and the claim `iss` of the token is the App id.
 fn signed_app(headers: &HeaderMap) -> usize {
     let claims = bearer(headers).split('.').nth(1).unwrap_or_default();
@@ -1244,13 +1266,14 @@ struct NewLabels {
 async fn add_labels(
     State(state): State<Shared>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
     Json(new): Json<NewLabels>,
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    let bot = records.app_login(&repository);
+    let actor = token_actor(&records, &headers, &repository);
     for label in &new.labels {
-        records.label(&repository, number, label, &bot);
+        records.label(&repository, number, label, &actor);
     }
     Json(label_list(&records, &repository, number)).into_response()
 }
@@ -1583,11 +1606,12 @@ async fn graphql(State(state): State<Shared>, Json(request): Json<GraphQl>) -> R
 async fn remove_label(
     State(state): State<Shared>,
     Path((owner, repo, number, name)): Path<(String, String, i64, String)>,
+    headers: HeaderMap,
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    let bot = records.app_login(&repository);
-    if !records.unlabel(&repository, number, &name, &bot) {
+    let actor = token_actor(&records, &headers, &repository);
+    if !records.unlabel(&repository, number, &name, &actor) {
         return not_found();
     }
     Json(label_list(&records, &repository, number)).into_response()

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::error::Error;
 
-use mobius_domain::{Workstream, organization};
+use mobius_domain::{Live, Workstream, organization};
 use mobius_github::{Issue, IssueEvent, Repository};
 use mobius_store::Task;
 use time::OffsetDateTime;
@@ -10,7 +10,7 @@ use crate::config::Config;
 use crate::labels::{
     AUTOPILOT_LABEL, NEEDS_HUMAN_LABEL, READY_LABEL, WORKING_LABEL, WORKSTREAM_LABEL,
 };
-use crate::{Engine, dispatch, ends, lead_events};
+use crate::{Engine, dispatch, ends, github, lead_events};
 
 const CLOSED_TEXT: &str = "Workstream closed";
 
@@ -29,6 +29,25 @@ pub async fn list(engine: &Engine) -> Result<Vec<Workstream>, Box<dyn Error + Se
         }
     }
     Ok(workstreams)
+}
+
+// The label goes with the token of the Owner, because the server accepts `mobius:autopilot` only from a trusted user.
+pub async fn set_autopilot(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+    on: bool,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let repository = engine.repository(repository)?;
+    let token = github::user_token(engine, repository.app_id).await?;
+    let repository = repository.as_user(&token)?;
+    if on {
+        repository.add_label(workstream, AUTOPILOT_LABEL).await?;
+    } else {
+        repository.remove_label(workstream, AUTOPILOT_LABEL).await?;
+    }
+    engine.broadcast(Live::Workstreams);
+    Ok(())
 }
 
 pub fn organizations(engine: &Engine) -> Vec<String> {

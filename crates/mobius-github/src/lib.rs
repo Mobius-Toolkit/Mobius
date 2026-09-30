@@ -396,6 +396,15 @@ impl Repository {
         &self.token
     }
 
+    // A copy that sends its requests as the user, so the user is the actor of each change.
+    pub fn as_user(&self, user_token: &str) -> Result<Repository, Box<dyn Error + Send + Sync>> {
+        Ok(Repository {
+            client: self.client.user_access_token(user_token.to_string())?,
+            token: user_token.to_string(),
+            ..self.clone()
+        })
+    }
+
     pub async fn create_draft_pull_request(
         &self,
         title: &str,
