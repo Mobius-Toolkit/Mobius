@@ -8,7 +8,7 @@ use markdown::Markdown;
 use mobius_api::{
     active_agents, agent_tree, chat_seen, chat_send, chat_stop, chat_view, devices, github_apps,
     github_manifest, inbox_dismiss, inbox_items, inbox_resume, live, login, logout, organizations,
-    release, task_list, transcript_lines, unread, upgrade, workstreams,
+    release, task_list, transcript_lines, unread, workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, Live, PAUSED, TaskLine,
@@ -328,8 +328,6 @@ fn Frame() -> Element {
     });
     use_context_provider(|| Organizations(organization_list));
     let new_release = use_resource(release);
-    let mut upgrading = use_signal(|| false);
-    let mut upgrade_error = use_signal(String::new);
     let Organization(organization) =
         use_context_provider(|| Organization(Signal::new(String::new())));
     let LocalOffset(mut local_offset) =
@@ -431,20 +429,8 @@ fn Frame() -> Element {
                     div { class: "grow" }
                     if let Some(Ok(Some(version))) = &*new_release.read() {
                         button { class: "entry upd",
-                            disabled: upgrading(),
-                            onclick: move |_| async move {
-                                upgrading.set(true);
-                                upgrade_error.set(String::new());
-                                if let Err(failure) = upgrade().await {
-                                    upgrading.set(false);
-                                    upgrade_error.set(error_text(&failure));
-                                }
-                            },
                             span { class: "grow", "Upgrade" }
                             span { class: "muted", "{version}" }
-                        }
-                        if !upgrade_error().is_empty() {
-                            p { class: "error note", "{upgrade_error}" }
                         }
                     }
                     if new_build() {
