@@ -350,10 +350,16 @@ async fn brief() {
     })
     .await;
     let url = serve_ui(&engine).await;
-    let (mut browser, mut handler) =
-        Browser::launch(BrowserConfig::builder().no_sandbox().build().unwrap())
-            .await
-            .unwrap();
+    let (mut browser, mut handler) = Browser::launch(
+        // Without a data dir, every launch uses the same `chromiumoxide-runner` directory, so a second Chrome exits while the first runs.
+        BrowserConfig::builder()
+            .no_sandbox()
+            .user_data_dir(data_dir.path().join("chrome"))
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
     tokio::spawn(async move { while handler.next().await.is_some() {} });
     log_in(&browser, &format!("{url}/github")).await;
     let page = open(
@@ -422,6 +428,7 @@ async fn screenshots() {
     let (mut browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
             .no_sandbox()
+            .user_data_dir(data_dir.path().join("chrome"))
             .arg("--hide-scrollbars")
             .build()
             .unwrap(),
