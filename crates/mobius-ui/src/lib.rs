@@ -688,12 +688,11 @@ fn Checkup() -> Element {
                     class: "btn primary",
                     onclick: move |_| async move {
                         match fix_labels(organization()).await {
-                            Ok(()) => {
-                                error.set(String::new());
-                                resource.restart();
-                            }
+                            Ok(()) => error.set(String::new()),
                             Err(failure) => error.set(error_text(&failure)),
                         }
+                        // The fix can change labels before it fails: load the status again.
+                        resource.restart();
                     },
                     "{text}"
                 }
