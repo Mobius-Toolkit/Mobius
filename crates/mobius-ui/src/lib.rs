@@ -433,6 +433,7 @@ fn Frame() -> Element {
                     }
                     Link { class: "navbtn", active_class: "sel", to: Route::GitHub {}, "GitHub" }
                     Link { class: "navbtn", active_class: "sel", to: Route::Devices {}, "Devices" }
+                    Link { class: "navbtn", active_class: "sel", to: Route::Checkup {}, "Checkup" }
                     Link { class: "navbtn", active_class: "sel", to: Route::AgentsPage {}, "Agents" }
                 }
                 // The rail hides on a phone, so the note repeats above the page.
