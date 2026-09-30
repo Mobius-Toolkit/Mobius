@@ -4,12 +4,9 @@ use mobius_domain::Live;
 use mobius_github::Repository;
 use time::OffsetDateTime;
 
+use crate::labels::{AUTOPILOT_LABEL, NO_WORKSTREAM_LABEL, WORKING_LABEL, WORKSTREAM_LABEL};
 use crate::trust::trusted_author;
-use crate::workstreams::AUTOPILOT_LABEL;
-use crate::{
-    Engine, NO_WORKSTREAM_LABEL, WORKING_LABEL, WORKSTREAM_LABEL, activity, dispatch, ends,
-    lead_events, recovery, triager, workstreams,
-};
+use crate::{Engine, activity, dispatch, ends, lead_events, recovery, triager, workstreams};
 
 const ISSUES: &str = "issues";
 
