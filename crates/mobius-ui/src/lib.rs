@@ -809,6 +809,8 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     rsx! {
         div { class: "page",
             Conversation {
+                // A different Workstream mounts a new Conversation, so its state resets.
+                key: "{repository}#{number}",
                 organization: owner.clone(),
                 repository: repository.clone(),
                 number,
