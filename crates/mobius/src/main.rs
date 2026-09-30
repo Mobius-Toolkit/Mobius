@@ -77,7 +77,7 @@ fn serve() {
         let engine = engine.clone();
         let store = store.clone();
         async move {
-            Ok(dioxus::server::router(mobius_ui::App)
+            Ok(mobius_ui::router()
                 .merge(mobius_engine::mcp::router(engine.clone()))
                 .merge(mobius_engine::gh::router(engine.clone()))
                 .layer(Extension(engine))
