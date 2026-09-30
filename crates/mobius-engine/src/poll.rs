@@ -4,7 +4,7 @@ use mobius_domain::Live;
 use mobius_github::Repository;
 use time::OffsetDateTime;
 
-use crate::labels::{AUTOPILOT_LABEL, NO_WORKSTREAM_LABEL, WORKING_LABEL, WORKSTREAM_LABEL};
+use crate::labels::{self, AUTOPILOT_LABEL, NO_WORKSTREAM_LABEL, WORKING_LABEL, WORKSTREAM_LABEL};
 use crate::trust::trusted_author;
 use crate::{Engine, activity, dispatch, ends, lead_events, recovery, triager, workstreams};
 
@@ -52,6 +52,15 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
     *engine.repositories.write().unwrap() = repositories.clone();
     ends::lost_access(engine, &repositories).await?;
     for repository in &repositories {
+        if engine
+            .labels_fixed
+            .lock()
+            .unwrap()
+            .insert(repository.full_name.clone())
+            && let Err(error) = labels::fix(repository).await
+        {
+            eprintln!("mobius: label fix of {}: {error}", repository.full_name);
+        }
         if let Err(error) = poll_repository(engine, &repository.app_slug, repository).await {
             eprintln!("mobius: GitHub poll of {}: {error}", repository.full_name);
         }
