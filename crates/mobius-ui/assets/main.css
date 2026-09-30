@@ -419,18 +419,11 @@ button.chip.on {
 }
 
 .md {
-  min-width: 0;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 .md * {
   margin: 0;
-}
-
-.md table {
-  display: block;
-  max-width: 100%;
-  overflow-x: auto;
 }
 
 .md > * + *,
@@ -491,6 +484,9 @@ button.chip.on {
 
 .md table {
   border-collapse: collapse;
+  display: block;
+  overflow-wrap: normal;
+  overflow-x: auto;
 }
 
 .md th,

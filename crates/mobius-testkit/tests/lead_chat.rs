@@ -466,3 +466,108 @@ async fn a_stop_during_the_session_start_ends_the_first_turn() {
     let session = ended_session(&engine, 0).await;
     assert_eq!(session.end_reason.as_deref(), Some("idle"));
 }
+
+#[tokio::test]
+async fn the_lead_chat_creates_a_workstream_after_the_approval() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let script = format!(
+        "{OPTIONS}\n{}",
+        r##"
+[[prompts]]
+when = "# Event\n\n"
+list_tools = true
+
+[[prompts]]
+when = "# Owner message\n\nMove the API work to a new Workstream."
+reply = ["Title: Shop API\n\nBrief: The public API of the shop. The context is in #12."]
+
+[[prompts]]
+when = "Yes, create it."
+call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "The public API of the shop. The context is in #12." } }
+"##
+    );
+    let engine = connect(&data_dir, &github, &script).await;
+    let mut feed = activity::feed(&engine, None).await.unwrap();
+
+    chat::send(
+        &engine,
+        "owner",
+        REPOSITORY,
+        12,
+        "Move the API work to a new Workstream.",
+    )
+    .await
+    .unwrap();
+    wait_for_lead_text(
+        &engine,
+        "Title: Shop API\n\nBrief: The public API of the shop. The context is in #12.",
+    )
+    .await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "Yes, create it.")
+        .await
+        .unwrap();
+
+    wait_for_lead_text(&engine, "Created the Workstream #13.").await;
+    assert_eq!(
+        github.issue(REPOSITORY, 13),
+        (
+            "Shop API".to_string(),
+            "The public API of the shop. The context is in #12.".to_string()
+        )
+    );
+    assert_eq!(
+        github.labels(REPOSITORY, 13),
+        ["mobius:workstream".to_string()]
+    );
+    // `Live::Workstreams` refreshes the sidebar, and the chat does not move to a different screen.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while feed.next().await.unwrap() != Live::Workstreams {}
+    })
+    .await
+    .unwrap();
+    let list = wait_for(async || {
+        let list = workstreams::list(&engine).await.unwrap();
+        (list.len() == 2).then_some(list)
+    })
+    .await;
+    assert!(
+        list.iter()
+            .any(|workstream| workstream.number == 13 && workstream.title == "Shop API"),
+        "{list:?}"
+    );
+
+    // The event session of the new Workstream does not have `create_workstream`.
+    let tools = wait_for(async || {
+        let session = engine
+            .store
+            .sessions()
+            .list("owner", REPOSITORY, 13)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|session| session.role == "lead_event")?;
+        transcript(&engine, session.id)
+            .await
+            .iter()
+            .find_map(|row| {
+                let update = json(row);
+                (update["update"]["sessionUpdate"] == "agent_message_chunk").then(|| {
+                    update["update"]["content"]["text"]
+                        .as_str()
+                        .unwrap()
+                        .to_string()
+                })
+            })
+    })
+    .await;
+    let result: Value = serde_json::from_str(&tools).unwrap();
+    let names: Vec<&str> = result["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"tell_owner"), "{names:?}");
+    assert!(!names.contains(&"create_workstream"), "{names:?}");
+}

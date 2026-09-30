@@ -62,9 +62,50 @@ meta.content = "width=device-width, initial-scale=1, interactive-widget=resizes-
     rsx! {
         document::Link { rel: "icon", r#type: "image/svg+xml", href: "/icon.svg" }
         document::Link { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }
+        document::Link { rel: "manifest", href: "/manifest.webmanifest" }
+        document::Meta { name: "theme-color", content: "#2d5f8b" }
+        document::Meta { name: "mobile-web-app-capable", content: "yes" }
+        document::Meta { name: "apple-mobile-web-app-capable", content: "yes" }
+        document::Meta { name: "apple-mobile-web-app-title", content: "Mobius" }
+        document::Meta { name: "apple-mobile-web-app-status-bar-style", content: "default" }
+        // The service worker makes the app installable. It keeps no cache.
+        document::Script { "navigator.serviceWorker?.register('/sw.js');" }
         document::Stylesheet { href: MAIN_CSS }
         Router::<Route> {}
     }
+}
+
+/// The axum router of the web UI. The app shell, the service worker, and the
+/// web app manifest get `Cache-Control: no-cache`, so the browser always asks
+/// the server for them.
+#[cfg(feature = "server")]
+pub fn router() -> dioxus::server::axum::Router {
+    use dioxus::server::axum::extract::Request;
+    use dioxus::server::axum::http::HeaderValue;
+    use dioxus::server::axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
+    use dioxus::server::axum::middleware::{Next, from_fn};
+    use dioxus::server::axum::response::Response;
+
+    async fn no_cache(request: Request, next: Next) -> Response {
+        let pwa_file = matches!(
+            request.uri().path(),
+            "/" | "/sw.js" | "/manifest.webmanifest"
+        );
+        let mut response = next.run(request).await;
+        // Every other path of the app renders the same shell.
+        let shell = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .is_some_and(|value| value.as_bytes().starts_with(b"text/html"));
+        if pwa_file || shell {
+            response
+                .headers_mut()
+                .insert(CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+        }
+        response
+    }
+
+    dioxus::server::router(App).layer(from_fn(no_cache))
 }
 
 #[derive(Clone, Copy)]

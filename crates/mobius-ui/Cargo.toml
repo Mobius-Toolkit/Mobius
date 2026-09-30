@@ -16,4 +16,4 @@ dioxus-ssr = { workspace = true }
 
 [features]
 web = ["dioxus/web"]
-server = ["mobius-api/server"]
+server = ["dioxus/server", "mobius-api/server"]
