@@ -6,7 +6,8 @@ use mobius_github::{PullRequest, Repository};
 use mobius_store::Task;
 use time::OffsetDateTime;
 
-use crate::{Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, implementer, inbox, lead_events};
+use crate::labels::NEEDS_HUMAN_LABEL;
+use crate::{Engine, TIME_FORMAT, implementer, inbox, lead_events};
 
 pub(crate) async fn on_conflict(
     engine: &Engine,
