@@ -115,9 +115,6 @@ pub(crate) async fn triage(
     number: i64,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     // The drain holds each new Triager. The next poll after a cancel starts it.
-    if engine.drain.on() {
-        return Ok(());
-    }
     let Some(guard) = drain::try_track(engine) else {
         return Ok(());
     };
