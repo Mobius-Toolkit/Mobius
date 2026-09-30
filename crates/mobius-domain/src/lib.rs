@@ -4,6 +4,9 @@ use time::OffsetDateTime;
 // The queue reason of a session that waits for the end of a pause of its Harness starts with this text.
 pub const PAUSED: &str = "paused until ";
 
+// The release tag of this binary, set by the release workflow. A local build has no release tag.
+pub const RELEASE_VERSION: Option<&'static str> = option_env!("MOBIUS_VERSION");
+
 pub fn organization(repository: &str) -> &str {
     repository.split('/').next().unwrap_or_default()
 }
