@@ -412,6 +412,10 @@ button.chip.on {
   color: var(--muted);
 }
 
+.md {
+  overflow-wrap: anywhere;
+}
+
 .md * {
   margin: 0;
 }
@@ -453,6 +457,7 @@ button.chip.on {
   background: var(--ground);
   border-radius: 4px;
   padding: 6px 8px;
+  overflow-x: auto;
 }
 
 .md pre code {
@@ -473,6 +478,9 @@ button.chip.on {
 
 .md table {
   border-collapse: collapse;
+  display: block;
+  overflow-wrap: normal;
+  overflow-x: auto;
 }
 
 .md th,
