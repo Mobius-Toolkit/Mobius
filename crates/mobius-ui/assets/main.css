@@ -49,8 +49,6 @@ body {
   font-family: var(--sans);
   font-size: 14px;
   line-height: 1.45;
-  /* Stops the double-tap zoom and the tap delay on touch devices. */
-  touch-action: manipulation;
 }
 
 button {
@@ -190,7 +188,6 @@ a.btn {
 }
 
 .ellip {
-  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -442,11 +439,6 @@ button.chip.on {
   gap: 8px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
-}
-
-.item .grow,
-.node .grow {
-  overflow-wrap: break-word;
 }
 
 .note {
@@ -863,8 +855,7 @@ a.node {
   color: var(--ink);
 }
 
-/* `any-pointer` also covers a touch device that is not the primary pointer. */
-@media (pointer: coarse), (any-pointer: coarse) {
+@media (pointer: coarse) {
   input,
   select,
   textarea,
