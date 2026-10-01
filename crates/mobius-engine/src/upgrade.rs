@@ -5,8 +5,9 @@ use std::process::Command;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use mobius_domain::DrainEnd;
+use mobius_domain::{DrainEnd, Live};
 use tempfile::TempDir;
+use tokio::sync::OwnedMutexGuard;
 
 use crate::{Engine, drain};
 
@@ -21,15 +22,29 @@ struct Staging {
     exe: PathBuf,
 }
 
-// The drain has no time limit, so the work runs in its own task. A browser that closes the call does not stop the upgrade.
+// The error of the last upgrade, or `None` when the last upgrade has no error.
+pub fn last_error(engine: &Engine) -> Option<String> {
+    engine.upgrade_error.lock().unwrap().clone()
+}
+
+fn set_error(engine: &Engine, error: Option<String>) {
+    *engine.upgrade_error.lock().unwrap() = error.clone();
+    engine.broadcast(Live::UpgradeError(error));
+}
+
+// The drain has no time limit, so the work runs in its own task. A browser that closes the call does not stop the upgrade, and the error stays in the engine for the next page.
 pub async fn run(engine: &Engine) -> Result<(), Failure> {
     if engine.upgrading.swap(true, Ordering::SeqCst) {
         return Err("An upgrade runs now.".into());
     }
+    set_error(engine, None);
     let task = tokio::spawn({
         let engine = engine.clone();
         async move {
             let result = upgrade(&engine).await;
+            if let Err(error) = &result {
+                set_error(&engine, Some(error.to_string()));
+            }
             engine.upgrading.store(false, Ordering::SeqCst);
             result
         }
@@ -54,12 +69,15 @@ async fn upgrade(engine: &Engine) -> Result<(), Failure> {
     if drain::start(engine).await == DrainEnd::Cancelled {
         return Ok(());
     }
+    // A git command of the old process must not run during `exec`.
+    let git = engine.git.clone().lock_owned().await;
     let exe = staging.exe.clone();
     if let Err(error) = tokio::task::spawn_blocking(move || swap(&staging)).await? {
+        drop(git);
         let _ = drain::cancel(engine).await;
         return Err(error);
     }
-    restart(exe);
+    restart(exe, git);
     Ok(())
 }
 
@@ -137,10 +155,11 @@ fn run_command(command: &mut Command) -> Result<(), Failure> {
     Ok(())
 }
 
-// `exec` keeps the environment, the working directory, and the terminal. It keeps no child process, so the drain must be complete before the call.
-fn restart(exe: PathBuf) {
+// `exec` keeps the environment, the working directory, and the terminal. It keeps no child process, so the drain must be complete and the git lock must be held until the call.
+fn restart(exe: PathBuf, git: OwnedMutexGuard<()>) {
     use std::os::unix::process::CommandExt;
     tokio::spawn(async move {
+        let _git = git;
         tokio::time::sleep(RESTART_DELAY).await;
         let error = Command::new(&exe).args(std::env::args_os().skip(1)).exec();
         eprintln!("mobius: the restart after the upgrade failed: {error}");

@@ -9,7 +9,8 @@ use mobius_api::{
     active_agents, agent_tree, chat_seen, chat_send, chat_stop, chat_view, checkup, devices,
     drain_cancel, drain_state, fix_labels, github_apps, github_manifest, inbox_dismiss,
     inbox_items, inbox_resume, live, login, logout, organizations, release, task_list,
-    transcript_lines, unread, upgrade, workstream_autopilot, workstreams,
+    transcript_lines, unread, upgrade, upgrade_error as upgrade_error_state, workstream_autopilot,
+    workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, LabelStatus, Live, PAUSED,
@@ -43,6 +44,26 @@ document.addEventListener("visibilitychange", () => {
 setInterval(check, 5 * 60 * 1000);
 check();
 "#;
+
+// Runs after an upgrade call returns. The old server answers until it restarts, so only another build ends the wait.
+fn reload_on_new_build() -> String {
+    let build = serde_json::to_string(BUILD).unwrap_or_default();
+    format!(
+        r#"
+const wait = async () => {{
+    try {{
+        const response = await fetch("/ui-version", {{ cache: "no-store" }});
+        if (response.ok && (await response.text()).trim() !== {build}) {{
+            location.reload();
+            return;
+        }}
+    }} catch {{}}
+    setTimeout(wait, 1000);
+}};
+wait();
+"#
+    )
+}
 
 #[derive(Clone, PartialEq, Routable)]
 #[rustfmt::skip]
@@ -184,6 +205,8 @@ struct LiveState {
     created: Signal<Option<(String, i64)>>,
     // The number of agents the upgrade drain waits for. `None` means no drain.
     drain: Signal<Option<usize>>,
+    // The error of the last upgrade. An empty text means no error.
+    upgrade_error: Signal<String>,
 }
 
 fn select_organization(mut organization: Signal<String>, name: String) {
@@ -258,6 +281,9 @@ async fn follow_live(
         if let Ok(waiting) = drain_state().await {
             state.drain.set(waiting);
         }
+        if let Ok(error) = upgrade_error_state().await {
+            state.upgrade_error.set(error.unwrap_or_default());
+        }
         match live(after).await {
             Ok(mut events) => {
                 while let Some(Ok(event)) = events.recv().await {
@@ -310,6 +336,9 @@ async fn follow_live(
                             state.created.set(Some((repository, number)));
                         }
                         Live::Drain { waiting } => state.drain.set(waiting),
+                        Live::UpgradeError(error) => {
+                            state.upgrade_error.set(error.unwrap_or_default());
+                        }
                     }
                 }
             }
@@ -339,7 +368,6 @@ fn Frame() -> Element {
     use_context_provider(|| Organizations(organization_list));
     let new_release = use_resource(release);
     let mut upgrading = use_signal(|| false);
-    let mut upgrade_error = use_signal(String::new);
     let Organization(organization) =
         use_context_provider(|| Organization(Signal::new(String::new())));
     let LocalOffset(mut local_offset) =
@@ -365,7 +393,9 @@ fn Frame() -> Element {
         inbox: Signal::new(HashMap::new()),
         created: Signal::new(None),
         drain: Signal::new(None),
+        upgrade_error: Signal::new(String::new()),
     });
+    let mut upgrade_error = state.upgrade_error;
     use_effect(move || {
         if let Some(Err(error)) = &*app_slugs.read()
             && unauthorized(error)
@@ -473,8 +503,12 @@ fn Frame() -> Element {
                                 onclick: move |_| async move {
                                     upgrading.set(true);
                                     upgrade_error.set(String::new());
-                                    if let Err(failure) = upgrade().await {
-                                        upgrade_error.set(error_text(&failure));
+                                    match upgrade().await {
+                                        Ok(()) => {
+                                            document::eval(&reload_on_new_build());
+                                            return;
+                                        }
+                                        Err(failure) => upgrade_error.set(error_text(&failure)),
                                     }
                                     upgrading.set(false);
                                 },

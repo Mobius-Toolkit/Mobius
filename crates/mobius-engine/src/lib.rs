@@ -87,6 +87,8 @@ pub struct Engine {
     drain: Arc<drain::Drain>,
     // Set while an upgrade runs.
     upgrading: Arc<std::sync::atomic::AtomicBool>,
+    // The error of the last upgrade, for a page that opens after the error.
+    upgrade_error: Arc<Mutex<Option<String>>>,
     // The Housekeeper wakes the checks that wait for free disk space.
     disk_freed: Arc<tokio::sync::Notify>,
     // The stop signal of the Triager session of each issue.
@@ -145,6 +147,7 @@ pub async fn start(
         pauses_changed: Arc::default(),
         drain: Arc::default(),
         upgrading: Arc::default(),
+        upgrade_error: Arc::default(),
         disk_freed: Arc::default(),
         triages: Arc::default(),
         quiet: Arc::default(),

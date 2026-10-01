@@ -301,6 +301,11 @@ pub async fn upgrade() -> ServerFnResult<()> {
     upgrade::run(&engine).await.map_err(ServerFnError::new)
 }
 
+#[get("/api/upgrade/error", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn upgrade_error() -> ServerFnResult<Option<String>> {
+    Ok(upgrade::last_error(&engine))
+}
+
 #[get("/api/drain", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn drain_state() -> ServerFnResult<Option<usize>> {
     Ok(drain::waiting(&engine))
