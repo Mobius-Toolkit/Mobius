@@ -6,6 +6,7 @@ pub mod checkup;
 pub mod config;
 mod conflicts;
 mod dispatch;
+pub mod drain;
 mod ends;
 pub mod gh;
 pub mod github;
@@ -81,6 +82,8 @@ pub struct Engine {
     pausing: Arc<tokio::sync::Mutex<()>>,
     // Each end of a pause of a Harness wakes the sessions that wait for it.
     pauses_changed: Arc<tokio::sync::Notify>,
+    // The drain for an upgrade.
+    drain: Arc<drain::Drain>,
     // The Housekeeper wakes the checks that wait for free disk space.
     disk_freed: Arc<tokio::sync::Notify>,
     // The stop signal of the Triager session of each issue.
@@ -137,6 +140,7 @@ pub async fn start(
         recovered: Arc::default(),
         pausing: Arc::default(),
         pauses_changed: Arc::default(),
+        drain: Arc::default(),
         disk_freed: Arc::default(),
         triages: Arc::default(),
         quiet: Arc::default(),

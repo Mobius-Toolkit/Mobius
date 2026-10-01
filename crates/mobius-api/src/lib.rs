@@ -1,8 +1,8 @@
 use dioxus::fullstack::{Redirect, ServerEvents, SetCookie, SetHeader};
 use dioxus::prelude::*;
 use mobius_domain::{
-    ActiveAgents, AgentNode, ChatView, CheckupView, Devices, InboxItem, Live, ManifestForm,
-    TaskLine, TranscriptLine, Unread, Workstream,
+    ActiveAgents, AgentNode, ChatView, CheckupView, Devices, DrainEnd, InboxItem, Live,
+    ManifestForm, TaskLine, TranscriptLine, Unread, Workstream,
 };
 
 #[cfg(feature = "server")]
@@ -17,7 +17,8 @@ use dioxus::server::axum::extract::{FromRequestParts, Query};
 use dioxus::server::http::request::Parts;
 #[cfg(feature = "server")]
 use mobius_engine::{
-    Engine, activity, agents, auth, chat, github, inbox, limits, tasks, transcript, workstreams,
+    Engine, activity, agents, auth, chat, drain, github, inbox, limits, tasks, transcript,
+    workstreams,
 };
 #[cfg(feature = "server")]
 use mobius_store::Store;
@@ -292,4 +293,20 @@ pub async fn transcript_lines(session: i64) -> ServerFnResult<Vec<TranscriptLine
     transcript::lines(&engine, session)
         .await
         .map_err(ServerFnError::new)
+}
+
+#[get("/api/drain", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn drain_state() -> ServerFnResult<Option<usize>> {
+    Ok(drain::waiting(&engine))
+}
+
+// The call returns only when the drain ends, so the Owner can cancel it with `drain_cancel`.
+#[post("/api/drain/start", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn drain_start() -> ServerFnResult<DrainEnd> {
+    Ok(drain::start(&engine).await)
+}
+
+#[post("/api/drain/cancel", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn drain_cancel() -> ServerFnResult<()> {
+    drain::cancel(&engine).await.map_err(ServerFnError::new)
 }

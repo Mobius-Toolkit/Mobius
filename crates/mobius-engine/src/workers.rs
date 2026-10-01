@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use tokio::sync::Notify;
 
 use crate::config::{Config, RoleBinding};
-use crate::{Engine, agents, limits};
+use crate::{Engine, agents, drain, limits};
 
 #[derive(Default)]
 pub(crate) struct Workers {
@@ -99,11 +99,18 @@ impl Role {
     fn pauses(self) -> bool {
         matches!(self, Self::Implementer | Self::Researcher | Self::Reviewer)
     }
+
+    // The drain holds the session of the role in the queue. The drain counts the other roles from their start, before their wait.
+    fn drains(self) -> bool {
+        matches!(self, Self::Implementer | Self::Researcher | Self::Reviewer)
+    }
 }
 
 pub(crate) struct Slot {
     workers: Arc<Workers>,
     role: Role,
+    // The slot holder is one agent that the drain waits for.
+    _drain: Option<drain::Guard>,
 }
 
 impl Drop for Slot {
@@ -257,9 +264,15 @@ async fn wait(
             );
             earlier.sort_unstable_by_key(|(at, _)| *at);
             let earlier: Vec<Role> = earlier.into_iter().map(|(_, role)| role).collect();
-            let text = match &pause {
-                Some(pause) => Some(limits::reason(pause)?),
-                None => reason(&engine.config, &counts.running, &earlier, role),
+            // A drain that starts while the session waits keeps it in the queue.
+            let drain = role.drains().then(|| drain::try_track(engine));
+            let text = if let Some(None) = drain {
+                Some(drain::REASON.to_string())
+            } else {
+                match &pause {
+                    Some(pause) => Some(limits::reason(pause)?),
+                    None => reason(&engine.config, &counts.running, &earlier, role),
+                }
             };
             let Some(text) = text else {
                 *counts.running.entry(role).or_default() += 1;
@@ -274,6 +287,7 @@ async fn wait(
                 return Ok(Some(Slot {
                     workers: engine.workers.clone(),
                     role,
+                    _drain: drain.flatten(),
                 }));
             };
             text

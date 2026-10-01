@@ -7,8 +7,8 @@ use dioxus::prelude::*;
 use markdown::Markdown;
 use mobius_api::{
     active_agents, agent_tree, chat_seen, chat_send, chat_stop, chat_view, checkup, devices,
-    fix_labels, github_apps, github_manifest, inbox_dismiss, inbox_items, inbox_resume, live,
-    login, logout, organizations, release, task_list, transcript_lines, unread,
+    drain_state, fix_labels, github_apps, github_manifest, inbox_dismiss, inbox_items,
+    inbox_resume, live, login, logout, organizations, release, task_list, transcript_lines, unread,
     workstream_autopilot, workstreams,
 };
 use mobius_domain::{
@@ -182,6 +182,8 @@ struct LiveState {
     inbox: Signal<HashMap<i64, InboxItem>>,
     // The Workstream that the Triager chat created last.
     created: Signal<Option<(String, i64)>>,
+    // The number of agents the upgrade drain waits for. `None` means no drain.
+    drain: Signal<Option<usize>>,
 }
 
 fn select_organization(mut organization: Signal<String>, name: String) {
@@ -252,6 +254,10 @@ async fn follow_live(
                 .inbox
                 .set(items.into_iter().map(|item| (item.id, item)).collect());
         }
+        // The broadcast can run while no client listens, so a connect reads the current drain state.
+        if let Ok(waiting) = drain_state().await {
+            state.drain.set(waiting);
+        }
         match live(after).await {
             Ok(mut events) => {
                 while let Some(Ok(event)) = events.recv().await {
@@ -303,6 +309,7 @@ async fn follow_live(
                             workstream_list.restart();
                             state.created.set(Some((repository, number)));
                         }
+                        Live::Drain { waiting } => state.drain.set(waiting),
                     }
                 }
             }
@@ -355,6 +362,7 @@ fn Frame() -> Element {
         agents: Signal::new(HashMap::new()),
         inbox: Signal::new(HashMap::new()),
         created: Signal::new(None),
+        drain: Signal::new(None),
     });
     use_effect(move || {
         if let Some(Err(error)) = &*app_slugs.read()
@@ -409,6 +417,7 @@ fn Frame() -> Element {
         .values()
         .filter(|item| item.organization == organization())
         .count();
+    let drain_waiting = *state.drain.read();
     let switch = switchable();
     let on_workstreams = matches!(
         use_route::<Route>(),
@@ -434,6 +443,18 @@ fn Frame() -> Element {
                     WorkstreamEntries {}
                     Link { class: "navbtn", active_class: "sel", to: Route::NewWorkstream {}, "+ New Workstream" }
                     div { class: "grow" }
+                    if let Some(waiting) = drain_waiting {
+                        div { class: "entry",
+                            span { class: "dot queued" }
+                            span { class: "grow muted small",
+                                if waiting == 0 {
+                                    "Upgrade is ready to restart"
+                                } else {
+                                    "Upgrade waits for {waiting} agents"
+                                }
+                            }
+                        }
+                    }
                     if let Some(Ok(Some(version))) = &*new_release.read() {
                         button { class: "entry upd",
                             span { class: "grow", "Upgrade" }

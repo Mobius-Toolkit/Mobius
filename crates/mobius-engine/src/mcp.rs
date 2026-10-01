@@ -732,6 +732,9 @@ impl Handler {
                 if question.trim().is_empty() {
                     return Err("question must not be empty.".into());
                 }
+                if self.engine.drain.on() {
+                    return Err("Mobius prepares an upgrade, so no Researcher starts now.".into());
+                }
                 let origin = if self.caller.role == chat::ROLE {
                     researcher::Origin::Chat
                 } else {
