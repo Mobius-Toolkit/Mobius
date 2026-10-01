@@ -285,6 +285,7 @@ async fn only_the_event_session_has_tell_owner() {
             "list_tasks",
             "read_issue",
             "start_implementer",
+            "start_fix_round",
             "start_researcher",
             "ask",
             "decline",

@@ -1,7 +1,8 @@
-use mobius_domain::{InboxKind, Session, TranscriptRow};
-use mobius_engine::{Engine, github, inbox, workstreams};
+use mobius_domain::{Author, InboxKind, Session, TranscriptRow};
+use mobius_engine::config::Config;
+use mobius_engine::{Engine, chat, github, inbox, workstreams};
 use mobius_testkit::fake_github::{CheckRun, FakeGitHub, InlineComment, SubmittedReview, Thread};
-use mobius_testkit::{git, install_fake_harness, start_with_config, wait_for};
+use mobius_testkit::{git, install_fake_harness, start_with, wait_for};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -30,6 +31,11 @@ when = "Action: fix"
 shell = "echo 'cents per month' > plan.txt && git commit -q -am 'Store the unit' && git rev-parse HEAD"
 call = { tool = "reply_thread", arguments = { thread = 1, text = "Fixed in {shell}.", resolve = true } }
 "#;
+const NO_FINDING: &str = "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"true\"\n";
+const LEAD_FINDINGS: &str = r#"[[prompts]]
+when = "Send the findings to #41"
+call = { tool = "start_fix_round", arguments = { n = 41, findings = "Remove the lines out of scope." } }
+"#;
 const APP_LOGIN: &str = "mobius-test[bot]";
 const START: &str = "[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"start_implementer\", arguments = { n = 41, instructions = \"Store plans in cents.\" } }\n";
 
@@ -38,6 +44,17 @@ async fn connect(
     data_dir: &TempDir,
     github: &FakeGitHub,
     extra_config: &str,
+    reviewer: &str,
+    fix: &str,
+) -> Engine {
+    connect_with(data_dir, github, extra_config, |_| {}, reviewer, fix).await
+}
+
+async fn connect_with(
+    data_dir: &TempDir,
+    github: &FakeGitHub,
+    extra_config: &str,
+    adjust: impl FnOnce(&mut Config),
     reviewer: &str,
     fix: &str,
 ) -> Engine {
@@ -61,8 +78,14 @@ async fn connect(
         "devin",
         &format!("{IMPLEMENTER}\n{fix}"),
     );
-    let engine =
-        start_with_config(data_dir.path(), "correct horse", &github.url, extra_config).await;
+    let engine = start_with(
+        data_dir.path(),
+        "correct horse",
+        &github.url,
+        extra_config,
+        adjust,
+    )
+    .await;
     github::convert_manifest(&engine, "manifest-code")
         .await
         .unwrap();
@@ -118,6 +141,29 @@ async fn lead_event_prompts(engine: &Engine) -> Vec<String> {
         all.extend(texts(&transcript(engine, session.id).await, "prompt"));
     }
     all
+}
+
+async fn implementer_prompts(engine: &Engine) -> Vec<String> {
+    let mut all = Vec::new();
+    for session in sessions(engine, "implementer").await {
+        all.extend(texts(&transcript(engine, session.id).await, "prompt"));
+    }
+    all
+}
+
+async fn lead_chat_reply(engine: &Engine) -> String {
+    wait_for(async || {
+        engine
+            .store
+            .chat_messages()
+            .list("owner", REPOSITORY, 12)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|message| message.author == Author::Lead)
+            .map(|message| message.text)
+    })
+    .await
 }
 
 async fn task_state(engine: &Engine, number: i64) -> Option<String> {
@@ -463,10 +509,11 @@ async fn a_queued_reviewer_gets_the_earlier_threads_of_trusted_authors() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let go = data_dir.path().join("go");
-    let engine = connect(
+    let engine = connect_with(
         &data_dir,
         &github,
-        "max_workers = { claude-code = 1 }",
+        "",
+        |config| config.roles.reviewer.max = 1,
         &format!(
             "[[prompts]]\nwhen = \"# Issue\\n\\n#43 Add plan price\"\nshell = \"while [ ! -e '{}' ]; do sleep 0.05; done\"\n[[prompts]]\nwhen = \"dispatch of #43\"\ncall = {{ tool = \"start_implementer\", arguments = {{ n = 43, instructions = \"Add a price.\" }} }}\n",
             go.display()
@@ -490,7 +537,7 @@ async fn a_queued_reviewer_gets_the_earlier_threads_of_trusted_authors() {
     .await;
     assert_eq!(
         queued.queue_reason.as_deref(),
-        Some("no free claude-code slot (1/1)")
+        Some("no free reviewer slot (1/1)")
     );
     let pull_requests = github.pull_requests(REPOSITORY);
     assert_eq!(pull_requests.len(), 2);
@@ -520,4 +567,81 @@ async fn a_queued_reviewer_gets_the_earlier_threads_of_trusted_authors() {
     assert!(!prompts[0].contains("servers"), "{}", prompts[0]);
     assert!(github.pull_requests(REPOSITORY)[1].draft);
     assert_eq!(task_state(&engine, 41).await.as_deref(), Some("reviewed"));
+}
+
+#[tokio::test]
+async fn start_fix_round_sends_the_findings_of_the_lead_to_a_fix_round() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        "",
+        &format!("{NO_FINDING}{LEAD_FINDINGS}"),
+        "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"true\"\n",
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || {
+        (task_state(&engine, 41).await.as_deref() == Some("ready_for_review")).then_some(())
+    })
+    .await;
+
+    chat::send(&engine, "owner", REPOSITORY, 12, "Send the findings to #41")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        lead_chat_reply(&engine).await,
+        "Sent the findings to a fix round of #41. At max_fix_rounds, Mobius stops the task instead."
+    );
+    let round = wait_for(async || {
+        implementer_prompts(&engine)
+            .await
+            .into_iter()
+            .find(|prompt| prompt.contains("# Open items\n"))
+    })
+    .await;
+    positions_are_sorted(
+        &round,
+        &[
+            "# Issue\n\n#41 Add plan model\n\nPlans have a price.\n".to_string(),
+            "# Open items\n\nFindings of the Lead:\nRemove the lines out of scope.\n".to_string(),
+        ],
+    );
+    assert_eq!(fix_rounds(&engine, 41).await, 1);
+}
+
+#[tokio::test]
+async fn start_fix_round_refuses_a_task_that_is_not_ready_for_review() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        "max_fix_rounds = 0",
+        &format!("{FINDING}{LEAD_FINDINGS}"),
+        "",
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || {
+        (task_state(&engine, 41).await.as_deref() == Some("needs_human")).then_some(())
+    })
+    .await;
+
+    chat::send(&engine, "owner", REPOSITORY, 12, "Send the findings to #41")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        lead_chat_reply(&engine).await,
+        "error: The task of #41 is needs_human, not ready_for_review."
+    );
+    assert_eq!(
+        task_state(&engine, 41).await.as_deref(),
+        Some("needs_human")
+    );
+    assert_eq!(fix_rounds(&engine, 41).await, 0);
+    assert_eq!(implementer_prompts(&engine).await.len(), 1);
 }

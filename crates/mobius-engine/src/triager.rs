@@ -3,14 +3,14 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use mobius_domain::{ChatMessage, Live, organization};
+use mobius_domain::{ChatMessage, organization};
 use mobius_github::Repository;
 use tokio::sync::Notify;
 
 use crate::labels::{NO_WORKSTREAM_LABEL, READY_LABEL, WORKSTREAM_LABEL};
 use crate::lead::{self, Recorder};
 use crate::trust::app_login;
-use crate::{Engine, limits, mcp, researcher, workstreams};
+use crate::{Engine, limits, mcp, researcher, workers, workstreams};
 
 pub(crate) const ROLE: &str = "triager";
 // The Triager belongs to no Workstream. Its chat belongs to an organization, so the key of the chat is (organization, "", CHAT).
@@ -147,8 +147,31 @@ async fn session(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let name = &repository.full_name;
     let binding = &engine.config.roles.triager;
-    let session = lead::add_session(engine, ROLE, binding, organization(name), name, CHAT).await?;
+    let session = lead::add_session(
+        engine,
+        ROLE,
+        binding,
+        organization(name),
+        name,
+        CHAT,
+        Some(number),
+    )
+    .await?;
     let mut recorder = Recorder::new(engine, session, organization(name), name, CHAT, None);
+    // A stop while the session waits ends the Triager and frees the place in the queue.
+    let slot = tokio::select! {
+        slot = workers::session_slot(engine, session, workers::Role::Triager) => slot,
+        () = stop.notified() => {
+            return lead::end_session(engine, session, "stopped").await;
+        }
+    };
+    let _slot = match slot {
+        Ok(slot) => slot,
+        Err(error) => {
+            recorder.fail(&error.to_string()).await?;
+            return Err(error);
+        }
+    };
     let key = mcp::open(
         engine,
         mcp::Caller {
@@ -263,16 +286,11 @@ pub(crate) async fn move_issue(
 }
 
 pub(crate) async fn create_workstream(
-    engine: &Engine,
     repository: &Repository,
     title: &str,
     brief: &str,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
+) -> Result<i64, Box<dyn Error + Send + Sync>> {
     let issue = repository.create_issue(title, brief).await?;
     repository.add_label(issue.number, WORKSTREAM_LABEL).await?;
-    engine.broadcast(Live::WorkstreamCreated {
-        repository: repository.full_name.clone(),
-        number: issue.number,
-    });
-    Ok(format!("Created the Workstream #{}.", issue.number))
+    Ok(issue.number)
 }

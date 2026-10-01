@@ -1,6 +1,7 @@
+use mobius_engine::github;
 use mobius_engine::labels::{self, LabelStatus};
 use mobius_testkit::fake_github::{self, FakeGitHub};
-use mobius_testkit::start;
+use mobius_testkit::{start, wait_for};
 use tempfile::TempDir;
 
 const REPOSITORY: &str = "owner/shop";
@@ -105,10 +106,78 @@ async fn fix_creates_the_missing_labels_and_sets_the_fixed_colors() {
     );
 }
 
+// The poll fixes the labels of a managed repository at its first sight, one time in a run of the engine.
+#[tokio::test]
+async fn a_poll_fixes_the_labels_of_a_managed_repository_one_time() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    github.add_repository(REPOSITORY);
+    // `mobius:working` has a wrong color, and `bug` is not a Mobius label.
+    github.add_repository_label(REPOSITORY, "mobius:working", "ededed", "Custom description");
+    github.add_repository_label(REPOSITORY, "bug", "d73a4a", "Something is wrong");
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+
+    let labels = wait_for(async || {
+        let labels = github.repository_labels(REPOSITORY);
+        (labels.len() == 7).then_some(labels)
+    })
+    .await;
+    let labels: Vec<(String, String, String)> = labels
+        .into_iter()
+        .map(|label| (label.name, label.color, label.description))
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            ("bug", "d73a4a", "Something is wrong"),
+            (
+                "mobius:autopilot",
+                "1D76DB",
+                "Mobius dispatches the ready tasks of this Workstream"
+            ),
+            (
+                "mobius:needs-human",
+                "D93F0B",
+                "Mobius waits for an answer from a human"
+            ),
+            (
+                "mobius:no-workstream",
+                "BFD4F2",
+                "The Triager found no Workstream for this issue"
+            ),
+            ("mobius:ready", "0E8A16", "Mobius can dispatch this task"),
+            // The color became the fixed color, the description stayed.
+            ("mobius:working", "FBCA04", "Custom description"),
+            (
+                "mobius:workstream",
+                "5319E7",
+                "Mobius Workstream: a parent issue for a group of tasks"
+            ),
+        ]
+        .map(|(name, color, description)| {
+            (name.to_string(), color.to_string(), description.to_string())
+        })
+    );
+    assert_eq!(github.label_patches(REPOSITORY), ["mobius:working"]);
+
+    // The next polls see the repository again, but the done set keeps `fix` away from it.
+    let polls = github.not_modified_count();
+    github.delete_repository_label(REPOSITORY, "mobius:ready");
+    wait_for(async || (github.not_modified_count() >= polls + 2).then_some(())).await;
+    let labels = github.repository_labels(REPOSITORY);
+    assert_eq!(labels.len(), 6);
+    assert!(labels.iter().all(|label| label.name != "mobius:ready"));
+    assert_eq!(github.label_patches(REPOSITORY), ["mobius:working"]);
+}
+
 // GitHub compares label names without regard to case, so a POST for a label in a
 // different case fails. The engine does not see such a label on issues, because it
 // compares names exactly, so the status is not `Present`. `fix` leaves the label for
-// a human, because a rename is not possible.
+// a human, because Mobius does not rename labels.
 #[tokio::test]
 async fn fix_skips_a_label_with_a_name_in_a_different_case() {
     let data_dir = TempDir::new().unwrap();

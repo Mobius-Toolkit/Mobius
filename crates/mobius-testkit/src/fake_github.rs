@@ -184,6 +184,14 @@ impl Records {
         format!("{}[bot]", APPS[self.app_index(repository)].slug)
     }
 
+    // The actor of a label write is the user of a `ghu_` token, or the App bot for an installation token.
+    fn actor(&self, repository: &str, headers: &HeaderMap) -> String {
+        self.user_tokens
+            .get(bearer(headers))
+            .cloned()
+            .unwrap_or_else(|| self.app_login(repository))
+    }
+
     fn insert_issue(
         &mut self,
         repository: &str,
@@ -277,14 +285,14 @@ impl Records {
     }
 
     fn label(&mut self, repository: &str, number: i64, label: &str, actor: &str) {
-        let now = self.tick();
-        let issue = self
-            .issues
-            .get_mut(&(repository.to_string(), number))
-            .unwrap();
-        if !issue.labels.iter().any(|name| name == label) {
-            issue.labels.push(label.to_string());
+        let key = (repository.to_string(), number);
+        // GitHub records no `labeled` event for a label the issue already has.
+        if self.issues[&key].labels.iter().any(|name| name == label) {
+            return;
         }
+        let now = self.tick();
+        let issue = self.issues.get_mut(&key).unwrap();
+        issue.labels.push(label.to_string());
         issue.updated_at = now;
         issue.events.push(json!({
             "event": "labeled",
@@ -774,6 +782,16 @@ impl FakeGitHub {
             .clone()
     }
 
+    // Gives the actor of the last `labeled` or `unlabeled` event of `label`.
+    pub fn label_actor(&self, repository: &str, number: i64, label: &str) -> Option<String> {
+        self.state.lock().unwrap().issues[&(repository.to_string(), number)]
+            .events
+            .iter()
+            .rev()
+            .find(|event| event["label"]["name"] == label)
+            .map(|event| event["actor"]["login"].as_str().unwrap().to_string())
+    }
+
     pub fn add_review(&self, repository: &str, number: i64, author: &str, state: &str, body: &str) {
         let mut records = self.state.lock().unwrap();
         let now = records.tick();
@@ -1244,13 +1262,14 @@ struct NewLabels {
 async fn add_labels(
     State(state): State<Shared>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
     Json(new): Json<NewLabels>,
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    let bot = records.app_login(&repository);
+    let actor = records.actor(&repository, &headers);
     for label in &new.labels {
-        records.label(&repository, number, label, &bot);
+        records.label(&repository, number, label, &actor);
     }
     Json(label_list(&records, &repository, number)).into_response()
 }
@@ -1583,11 +1602,12 @@ async fn graphql(State(state): State<Shared>, Json(request): Json<GraphQl>) -> R
 async fn remove_label(
     State(state): State<Shared>,
     Path((owner, repo, number, name)): Path<(String, String, i64, String)>,
+    headers: HeaderMap,
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    let bot = records.app_login(&repository);
-    if !records.unlabel(&repository, number, &name, &bot) {
+    let actor = records.actor(&repository, &headers);
+    if !records.unlabel(&repository, number, &name, &actor) {
         return not_found();
     }
     Json(label_list(&records, &repository, number)).into_response()

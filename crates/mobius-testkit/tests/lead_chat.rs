@@ -3,9 +3,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use mobius_domain::{Author, ChatMessage, Live, Session, TranscriptRow, Unread};
-use mobius_engine::{Engine, activity, chat, github, workstreams};
+use mobius_engine::{Engine, activity, chat, github, tasks, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
-use mobius_testkit::{install_fake_agent, start, wait_for};
+use mobius_testkit::{install_fake_agent, start, wait_for, wait_for_first_poll};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -29,6 +29,7 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub, script: &str) -> Engin
         .await
         .unwrap();
     wait_for(async || (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+    wait_for_first_poll(&engine, REPOSITORY).await;
     engine
 }
 
@@ -59,6 +60,15 @@ async fn sessions(engine: &Engine) -> Vec<Session> {
         .list("owner", REPOSITORY, 12)
         .await
         .unwrap()
+}
+
+async fn task_numbers(engine: &Engine, workstream: i64) -> Vec<i64> {
+    tasks::list(engine, REPOSITORY, workstream)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|line| line.number)
+        .collect()
 }
 
 async fn ended_session(engine: &Engine, index: usize) -> Session {
@@ -263,7 +273,9 @@ async fn the_first_prompt_has_the_context_parts_in_order() {
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github, OPTIONS).await;
     github.set_body(REPOSITORY, 12, "Ship loyalty plans to all shops.");
-    github.add_issue(REPOSITORY, 41, "Add plan model");
+    // A pull request keeps `mobius:working` while the recovery takes a working
+    // label with no live task as a lost task and changes it to needs-human.
+    github.add_pull_request(REPOSITORY, 41, "Add plan model");
     github.add_label(REPOSITORY, 41, "mobius:working", "owner");
     github.add_issue(REPOSITORY, 42, "Old spike");
     github.close_issue(REPOSITORY, 42);
@@ -452,7 +464,7 @@ async fn a_lead_reply_is_unread_until_the_owner_sees_it() {
 }
 
 #[tokio::test]
-async fn a_stop_during_the_session_start_ends_the_first_turn() {
+async fn a_stop_before_the_first_turn_ends_the_waiting_session() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let script = format!("{OPTIONS}\n[[prompts]]\nhang = true\n");
@@ -464,5 +476,260 @@ async fn a_stop_during_the_session_start_ends_the_first_turn() {
     chat::stop(&engine, "owner", REPOSITORY, 12).unwrap();
 
     let session = ended_session(&engine, 0).await;
-    assert_eq!(session.end_reason.as_deref(), Some("idle"));
+    assert_eq!(session.end_reason.as_deref(), Some("stopped"));
+    // The Harness process never starts, so the first turn never runs.
+    assert!(prompts(&transcript(&engine, session.id).await).is_empty());
+    assert!(
+        !chat::view(&engine, "owner", REPOSITORY, 12)
+            .await
+            .unwrap()
+            .writing
+    );
+}
+
+#[tokio::test]
+async fn the_lead_chat_creates_a_workstream_after_the_approval() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let script = format!(
+        "{OPTIONS}\n{}",
+        r##"
+[[prompts]]
+when = "# Event\n\n"
+list_tools = true
+
+[[prompts]]
+when = "# Owner message\n\nMove the API work to a new Workstream."
+reply = ["Title: Shop API\n\nBrief: The public API of the shop. The context is in #12."]
+
+[[prompts]]
+when = "Yes, create it."
+call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "The public API of the shop. The context is in #12." } }
+"##
+    );
+    let engine = connect(&data_dir, &github, &script).await;
+    let mut feed = activity::feed(&engine, None).await.unwrap();
+
+    chat::send(
+        &engine,
+        "owner",
+        REPOSITORY,
+        12,
+        "Move the API work to a new Workstream.",
+    )
+    .await
+    .unwrap();
+    wait_for_lead_text(
+        &engine,
+        "Title: Shop API\n\nBrief: The public API of the shop. The context is in #12.",
+    )
+    .await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "Yes, create it.")
+        .await
+        .unwrap();
+
+    wait_for_lead_text(&engine, "Created the Workstream #13.").await;
+    assert_eq!(
+        github.issue(REPOSITORY, 13),
+        (
+            "Shop API".to_string(),
+            "The public API of the shop. The context is in #12.".to_string()
+        )
+    );
+    assert_eq!(
+        github.labels(REPOSITORY, 13),
+        ["mobius:workstream".to_string()]
+    );
+    // `Live::Workstreams` refreshes the sidebar, and the chat does not move to a different screen.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while feed.next().await.unwrap() != Live::Workstreams {}
+    })
+    .await
+    .unwrap();
+    let list = wait_for(async || {
+        let list = workstreams::list(&engine).await.unwrap();
+        (list.len() == 2).then_some(list)
+    })
+    .await;
+    assert!(
+        list.iter()
+            .any(|workstream| workstream.number == 13 && workstream.title == "Shop API"),
+        "{list:?}"
+    );
+
+    // The event session of the new Workstream does not have `create_workstream`.
+    let tools = wait_for(async || {
+        let session = engine
+            .store
+            .sessions()
+            .list("owner", REPOSITORY, 13)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|session| session.role == "lead_event")?;
+        transcript(&engine, session.id)
+            .await
+            .iter()
+            .find_map(|row| {
+                let update = json(row);
+                (update["update"]["sessionUpdate"] == "agent_message_chunk").then(|| {
+                    update["update"]["content"]["text"]
+                        .as_str()
+                        .unwrap()
+                        .to_string()
+                })
+            })
+    })
+    .await;
+    let result: Value = serde_json::from_str(&tools).unwrap();
+    let names: Vec<&str> = result["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"tell_owner"), "{names:?}");
+    assert!(!names.contains(&"create_workstream"), "{names:?}");
+    assert!(!names.contains(&"move_task"), "{names:?}");
+}
+
+#[tokio::test]
+async fn the_lead_chat_creates_a_workstream_and_moves_a_task_to_it_after_the_approvals() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    // The first prompt of a new session has the earlier messages in its history, so the prompt of the newest message comes first.
+    let script = format!(
+        "{OPTIONS}\n{}",
+        r##"
+[[prompts]]
+when = "# Event\n\n"
+reply = ["Noted."]
+
+[[prompts]]
+when = "Yes, move it."
+call = { tool = "move_task", arguments = { n = 13, workstream = 15 } }
+
+[[prompts]]
+when = "Yes, create it."
+call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "The public API of the shop. The context is in #12." } }
+"##
+    );
+    let engine = connect(&data_dir, &github, &script).await;
+    github.add_issue(REPOSITORY, 13, "Add the API route");
+    github.add_issue(REPOSITORY, 14, "Add plan model");
+    github.add_sub_issue(REPOSITORY, 12, 13);
+    github.add_sub_issue(REPOSITORY, 12, 14);
+    let mut feed = activity::feed(&engine, None).await.unwrap();
+
+    chat::send(&engine, "owner", REPOSITORY, 12, "Yes, create it.")
+        .await
+        .unwrap();
+    wait_for_lead_text(&engine, "Created the Workstream #15.").await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "Yes, move it.")
+        .await
+        .unwrap();
+
+    wait_for_lead_text(&engine, "Moved #13 to the Workstream #15.").await;
+    assert_eq!(
+        github.issue(REPOSITORY, 15),
+        (
+            "Shop API".to_string(),
+            "The public API of the shop. The context is in #12.".to_string()
+        )
+    );
+    assert_eq!(
+        github.labels(REPOSITORY, 15),
+        ["mobius:workstream".to_string()]
+    );
+    assert_eq!(github.sub_issue_numbers(REPOSITORY, 15), [13]);
+    assert_eq!(github.sub_issue_numbers(REPOSITORY, 12), [14]);
+    // Each `Live::Workstreams` event refreshes the sidebar and an open Tasks tab, and the chat does not move to a different screen.
+    let mut events = 0;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while events < 2 {
+            if feed.next().await.unwrap() == Live::Workstreams {
+                events += 1;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let list = workstreams::list(&engine).await.unwrap();
+    assert!(
+        list.iter()
+            .any(|workstream| workstream.number == 15 && workstream.title == "Shop API"),
+        "{list:?}"
+    );
+    assert_eq!(task_numbers(&engine, 12).await, [14]);
+    assert_eq!(task_numbers(&engine, 15).await, [13]);
+}
+
+#[tokio::test]
+async fn the_lead_chat_refuses_to_move_a_task_when_the_task_or_the_target_does_not_fit() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    // The first prompt of a new session has the earlier messages in its history, so the prompt of the newest message comes first.
+    let script = format!(
+        "{OPTIONS}\n{}",
+        r##"
+[[prompts]]
+when = "case-live"
+call = { tool = "move_task", arguments = { n = 13, workstream = 20 } }
+
+[[prompts]]
+when = "case-plain"
+call = { tool = "move_task", arguments = { n = 13, workstream = 14 } }
+
+[[prompts]]
+when = "case-closed"
+call = { tool = "move_task", arguments = { n = 13, workstream = 22 } }
+
+[[prompts]]
+when = "case-self"
+call = { tool = "move_task", arguments = { n = 13, workstream = 12 } }
+
+[[prompts]]
+when = "case-pull"
+call = { tool = "move_task", arguments = { n = 15, workstream = 20 } }
+
+[[prompts]]
+when = "case-other"
+call = { tool = "move_task", arguments = { n = 21, workstream = 20 } }
+"##
+    );
+    let engine = connect(&data_dir, &github, &script).await;
+    github.add_issue(REPOSITORY, 13, "Add the API route");
+    github.add_issue(REPOSITORY, 14, "Add plan model");
+    github.add_pull_request(REPOSITORY, 15, "Add the API route");
+    github.add_sub_issue(REPOSITORY, 12, 13);
+    github.add_sub_issue(REPOSITORY, 12, 14);
+    github.add_sub_issue(REPOSITORY, 12, 15);
+    github.add_issue(REPOSITORY, 20, "Billing");
+    github.add_label(REPOSITORY, 20, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 21, "Invoice totals");
+    github.add_sub_issue(REPOSITORY, 20, 21);
+    github.add_issue(REPOSITORY, 22, "Old Billing");
+    github.add_label(REPOSITORY, 22, "mobius:workstream", "owner");
+    github.close_issue(REPOSITORY, 22);
+
+    for (message, result) in [
+        ("case-other", "error: #21 is not in this Workstream."),
+        ("case-pull", "error: #15 is not an issue of owner/shop."),
+        ("case-self", "error: #12 is this Workstream."),
+        ("case-closed", "error: #22 is not an open Workstream."),
+        ("case-plain", "error: #14 is not an open Workstream."),
+    ] {
+        chat::send(&engine, "owner", REPOSITORY, 12, message)
+            .await
+            .unwrap();
+        wait_for_lead_text(&engine, result).await;
+    }
+    engine.store.tasks().add(REPOSITORY, 13, 12).await.unwrap();
+    chat::send(&engine, "owner", REPOSITORY, 12, "case-live")
+        .await
+        .unwrap();
+
+    wait_for_lead_text(&engine, "error: #13 has a live task. Stop the task first.").await;
+    assert_eq!(github.sub_issue_numbers(REPOSITORY, 12), [13, 14, 15]);
+    assert_eq!(github.sub_issue_numbers(REPOSITORY, 20), [21]);
 }

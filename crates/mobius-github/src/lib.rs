@@ -396,6 +396,17 @@ impl Repository {
         &self.token
     }
 
+    // A copy whose writes name the user of `user_token` as the actor, not the App.
+    pub fn with_user_token(
+        &self,
+        user_token: &str,
+    ) -> Result<Repository, Box<dyn Error + Send + Sync>> {
+        Ok(Repository {
+            client: self.client.user_access_token(user_token.to_string())?,
+            ..self.clone()
+        })
+    }
+
     pub async fn create_draft_pull_request(
         &self,
         title: &str,
@@ -612,6 +623,20 @@ impl Repository {
             .patch(
                 format!("/repos/{}/issues/{number}", self.full_name),
                 Some(&json!({ "state": "closed", "state_reason": "not_planned" })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn close_as_completed(
+        &self,
+        number: i64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .patch(
+                format!("/repos/{}/issues/{number}", self.full_name),
+                Some(&json!({ "state": "closed", "state_reason": "completed" })),
             )
             .await?;
         Ok(())

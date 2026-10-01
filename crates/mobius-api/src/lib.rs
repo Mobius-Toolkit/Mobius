@@ -1,8 +1,8 @@
 use dioxus::fullstack::{Redirect, ServerEvents, SetCookie, SetHeader};
 use dioxus::prelude::*;
 use mobius_domain::{
-    AgentNode, ChatView, Devices, InboxItem, Live, ManifestForm, TaskLine, TranscriptLine, Unread,
-    Workstream,
+    ActiveAgents, AgentNode, ChatView, Devices, InboxItem, Live, ManifestForm, RepositoryCheckup,
+    TaskLine, TranscriptLine, Unread, Workstream,
 };
 
 #[cfg(feature = "server")]
@@ -147,9 +147,34 @@ pub async fn organizations() -> ServerFnResult<Vec<String>> {
     Ok(workstreams::organizations(&engine))
 }
 
+#[get("/api/checkup?organization", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn checkup(organization: Option<String>) -> ServerFnResult<Vec<RepositoryCheckup>> {
+    mobius_engine::checkup::status(&engine, &organization.unwrap_or_default())
+        .await
+        .map_err(ServerFnError::new)
+}
+
+#[post("/api/checkup/fix", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn fix_labels(organization: String) -> ServerFnResult<()> {
+    mobius_engine::checkup::fix(&engine, &organization)
+        .await
+        .map_err(ServerFnError::new)
+}
+
 #[get("/api/workstreams", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn workstreams() -> ServerFnResult<Vec<Workstream>> {
     workstreams::list(&engine).await.map_err(ServerFnError::new)
+}
+
+#[post("/api/workstreams/autopilot", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn workstream_autopilot(
+    repository: String,
+    workstream: i64,
+    on: bool,
+) -> ServerFnResult<()> {
+    workstreams::set_autopilot(&engine, &repository, workstream, on)
+        .await
+        .map_err(ServerFnError::new)
 }
 
 #[get("/api/live?after", _device: DeviceId, engine: Extension<Engine>)]
@@ -245,11 +270,9 @@ pub async fn agent_tree(repository: String, workstream: i64) -> ServerFnResult<V
         .map_err(ServerFnError::new)
 }
 
-#[get("/api/server-agents", _device: DeviceId, engine: Extension<Engine>)]
-pub async fn server_agents() -> ServerFnResult<Vec<AgentNode>> {
-    agents::triager_tree(&engine)
-        .await
-        .map_err(ServerFnError::new)
+#[get("/api/active-agents", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn active_agents() -> ServerFnResult<ActiveAgents> {
+    agents::groups(&engine).await.map_err(ServerFnError::new)
 }
 
 #[post("/api/tasks", _device: DeviceId, engine: Extension<Engine>)]

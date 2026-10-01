@@ -1,7 +1,7 @@
 use mobius_domain::{Blocker, Live, TaskLine, TranscriptRow};
 use mobius_engine::{Engine, activity, github, tasks, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
-use mobius_testkit::{install_fake_harness, start, wait_for};
+use mobius_testkit::{install_fake_harness, start, wait_for, wait_for_first_poll};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -41,6 +41,7 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
         .await
         .unwrap();
     wait_for(async || (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+    wait_for_first_poll(&engine, REPOSITORY).await;
     engine
 }
 
@@ -167,5 +168,114 @@ async fn with_autopilot_a_ready_label_of_the_mobius_app_dispatches() {
     assert!(
         list.iter()
             .any(|workstream| workstream.number == 14 && workstream.autopilot)
+    );
+}
+
+async fn authorize_owner(engine: &Engine, github: &FakeGitHub) {
+    github.add_user_code("user-code", "owner");
+    assert!(github::authorize_user(engine, "user-code").await.unwrap());
+}
+
+#[tokio::test]
+async fn set_autopilot_on_adds_the_label_as_the_owner() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+    authorize_owner(&engine, &github).await;
+    let mut feed = activity::feed(&engine, None).await.unwrap();
+
+    workstreams::set_autopilot(&engine, REPOSITORY, 20, true)
+        .await
+        .unwrap();
+
+    assert!(
+        github
+            .labels(REPOSITORY, 20)
+            .contains(&"mobius:autopilot".to_string())
+    );
+    assert_eq!(
+        github
+            .label_actor(REPOSITORY, 20, "mobius:autopilot")
+            .as_deref(),
+        Some("owner")
+    );
+    let list = workstreams::list(&engine).await.unwrap();
+    assert!(
+        list.iter()
+            .any(|workstream| workstream.number == 20 && workstream.autopilot)
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !matches!(feed.next().await, Some(Live::Workstreams)) {}
+    })
+    .await
+    .unwrap();
+}
+
+// GitHub records no `labeled` event when the issue already has the label, so an
+// add alone would keep the App bot as the last actor. The switch removes first.
+#[tokio::test]
+async fn set_autopilot_on_replaces_a_label_of_the_app() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+    authorize_owner(&engine, &github).await;
+    github.add_label(REPOSITORY, 20, "mobius:autopilot", APP);
+
+    workstreams::set_autopilot(&engine, REPOSITORY, 20, true)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        github
+            .label_actor(REPOSITORY, 20, "mobius:autopilot")
+            .as_deref(),
+        Some("owner")
+    );
+    let list = workstreams::list(&engine).await.unwrap();
+    assert!(
+        list.iter()
+            .any(|workstream| workstream.number == 20 && workstream.autopilot)
+    );
+}
+
+#[tokio::test]
+async fn set_autopilot_off_removes_the_label() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+    authorize_owner(&engine, &github).await;
+    github.add_label(REPOSITORY, 20, "mobius:autopilot", "owner");
+
+    workstreams::set_autopilot(&engine, REPOSITORY, 20, false)
+        .await
+        .unwrap();
+
+    assert!(
+        !github
+            .labels(REPOSITORY, 20)
+            .contains(&"mobius:autopilot".to_string())
+    );
+    let list = workstreams::list(&engine).await.unwrap();
+    assert!(
+        list.iter()
+            .all(|workstream| workstream.number != 20 || !workstream.autopilot)
+    );
+}
+
+#[tokio::test]
+async fn set_autopilot_needs_an_authorized_owner() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+
+    let error = workstreams::set_autopilot(&engine, REPOSITORY, 20, true)
+        .await
+        .unwrap_err();
+
+    assert!(error.to_string().contains("authorize the Mobius App"));
+    assert!(
+        !github
+            .labels(REPOSITORY, 20)
+            .contains(&"mobius:autopilot".to_string())
     );
 }

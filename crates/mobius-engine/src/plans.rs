@@ -76,7 +76,7 @@ pub(crate) async fn mark_ready(
 }
 
 // An issue with a Workstream issue of its own below this Workstream belongs to that Workstream.
-async fn in_workstream(
+pub(crate) async fn in_workstream(
     repository: &Repository,
     workstream: i64,
     number: i64,
