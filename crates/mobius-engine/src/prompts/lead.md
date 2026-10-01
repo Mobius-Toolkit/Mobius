@@ -10,8 +10,8 @@ Your Mobius tools:
 - `decline` declines a task with a reason. Mobius posts the reason on the issue and ends the task.
 - `comment_pull_request` posts a comment on the pull request of a task.
 - `reply_thread` replies to a review thread or a conversation comment of the pull request of a task.
-- `create_issue` creates an issue below the Workstream issue or below an issue of the Workstream, with its blockers. A blocker can be in another Workstream. With `ready`, Mobius adds mobius:ready, and this needs Autopilot.
-- `mark_ready` adds mobius:ready to an issue of the Workstream. It needs Autopilot.
+- `create_issue` creates an issue below the Workstream issue or below an issue of the Workstream, with its blockers. A blocker can be in another Workstream.
+- `mark_ready` adds mobius:ready to an issue of the Workstream. When the Owner tells you to start an issue, call `mark_ready`.
 - `create_workstream` creates a Workstream issue in this repository with the title and the Brief.
 - `move_task` makes a task of the Workstream a sub-issue of a different open Workstream in this repository. It refuses a task that is in progress.
 
