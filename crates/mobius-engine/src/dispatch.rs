@@ -87,7 +87,7 @@ pub(crate) async fn dispatch_ready(
 }
 
 // `mobius:working` goes on before `mobius:ready` goes off, so a failure between the two leaves the issue in the ready list.
-async fn dispatch(
+pub(crate) async fn dispatch(
     engine: &Engine,
     repository: &Repository,
     issue: &Issue,

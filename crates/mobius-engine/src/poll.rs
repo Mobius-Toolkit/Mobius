@@ -6,7 +6,9 @@ use time::OffsetDateTime;
 
 use crate::labels::{self, AUTOPILOT_LABEL, NO_WORKSTREAM_LABEL, WORKING_LABEL, WORKSTREAM_LABEL};
 use crate::trust::trusted_author;
-use crate::{Engine, activity, dispatch, ends, lead_events, recovery, triager, workstreams};
+use crate::{
+    Engine, activity, autopilot, dispatch, ends, lead_events, recovery, triager, workstreams,
+};
 
 const ISSUES: &str = "issues";
 
@@ -76,6 +78,7 @@ async fn poll_repository(
     recovery::repository(engine, repository).await?;
     changed_issues(engine, app_slug, repository).await?;
     dispatch::dispatch_ready(engine, app_slug, repository).await?;
+    autopilot::start(engine, app_slug, repository).await?;
     ends::check(engine, app_slug, repository).await
 }
 

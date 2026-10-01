@@ -182,6 +182,15 @@ impl Tasks<'_> {
         Ok(tasks)
     }
 
+    pub async fn active_count(&self) -> Result<i64, Box<dyn Error + Send + Sync>> {
+        let count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working')"
+        )
+        .fetch_one(self.pool)
+        .await?;
+        Ok(count)
+    }
+
     // Gives the pull request of each task of the Workstream, also of an ended task.
     pub async fn pull_requests(
         &self,

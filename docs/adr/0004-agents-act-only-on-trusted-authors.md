@@ -12,6 +12,7 @@ Mobius acts only on GitHub input from a trusted author: a login in the config li
 
 - Mobius dispatches a `mobius:ready` issue only when the `labeled` event has a trusted actor. This costs one read of the issue events for each new label.
 - A `mobius:ready` label from the Mobius App dispatches work only in a Workstream with Autopilot. Mobius accepts the label `mobius:autopilot` only from a trusted user.
+- In a Workstream with Autopilot, Mobius starts the tasks of trusted authors by a fixed rule: a worker is free and all "blocked by" issues are closed. No agent decides this.
 - A trusted user who puts `mobius:ready` on an issue from another author accepts its body as the task.
 - Comments, reviews, and threads from other authors start nothing, and no agent sees them. The read tools of agents apply the same filter. The Lead chat session is the one exception: its `gh` reads are not filtered, and the Owner reads each turn (ADR 0009).
 - The Owner adds each bot, for example `coderabbitai[bot]`, to `trusted_bots` by hand.
