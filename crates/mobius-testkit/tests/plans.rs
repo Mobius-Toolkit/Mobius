@@ -98,7 +98,7 @@ async fn the_lead_creates_a_sub_issue_with_a_blocker_in_another_workstream() {
 }
 
 #[tokio::test]
-async fn mark_ready_adds_the_ready_label_when_the_workstream_has_no_autopilot() {
+async fn mark_ready_dispatches_when_the_workstream_has_no_autopilot() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github).await;
@@ -109,11 +109,16 @@ async fn mark_ready_adds_the_ready_label_when_the_workstream_has_no_autopilot() 
     github.add_label(REPOSITORY, 13, "mobius:workstream", "owner");
 
     wait_for(async || (lead_replies(&engine, 13).await == "Marked #30 ready.").then_some(())).await;
-    assert!(
-        github
-            .labels(REPOSITORY, 30)
-            .contains(&"mobius:ready".to_string())
-    );
+    wait_for(async || {
+        engine
+            .store
+            .tasks()
+            .live(REPOSITORY, 30)
+            .await
+            .unwrap()
+            .map(|_| ())
+    })
+    .await;
     assert!(
         !github
             .labels(REPOSITORY, 13)

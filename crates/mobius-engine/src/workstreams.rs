@@ -163,17 +163,6 @@ pub(crate) async fn workstream_of(
     Ok(None)
 }
 
-pub(crate) async fn autopilot(
-    engine: &Engine,
-    repository: &Repository,
-    workstream: i64,
-) -> Result<bool, Box<dyn Error + Send + Sync>> {
-    match repository.issue(workstream).await? {
-        Some(issue) => issue_autopilot(engine, repository, &issue).await,
-        None => Ok(false),
-    }
-}
-
 // The write uses the token of the Owner, because the label counts only when a trusted user added it last.
 pub async fn set_autopilot(
     engine: &Engine,

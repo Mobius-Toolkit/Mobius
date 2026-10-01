@@ -216,26 +216,39 @@ async fn the_first_prompt_has_the_context_and_each_later_turn_has_one_event() {
 }
 
 #[tokio::test]
-async fn a_ready_label_of_a_stranger_or_of_the_mobius_app_does_not_dispatch() {
+async fn a_ready_label_of_a_stranger_does_not_dispatch() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github, SEEN).await;
     add_task_issue(&github, 12, 41, "Mine the servers");
-    add_task_issue(&github, 12, 42, "Label again");
     add_task_issue(&github, 12, 43, "Add plan model");
 
     github.add_label(REPOSITORY, 41, "mobius:ready", "mallory");
-    github.add_label(REPOSITORY, 42, "mobius:ready", APP);
     github.add_label(REPOSITORY, 43, "mobius:ready", "owner");
 
     live_workstream(&engine, 43).await;
-    for number in [41, 42] {
-        assert_eq!(
-            engine.store.tasks().live(REPOSITORY, number).await.unwrap(),
-            None
-        );
-        assert_eq!(github.labels(REPOSITORY, number), ["mobius:ready"]);
-    }
+    assert_eq!(
+        engine.store.tasks().live(REPOSITORY, 41).await.unwrap(),
+        None
+    );
+    assert_eq!(github.labels(REPOSITORY, 41), ["mobius:ready"]);
+}
+
+#[tokio::test]
+async fn a_ready_label_of_the_mobius_app_dispatches_without_autopilot() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, SEEN).await;
+    add_task_issue(&github, 12, 42, "Label again");
+
+    github.add_label(REPOSITORY, 42, "mobius:ready", APP);
+
+    assert_eq!(live_workstream(&engine, 42).await, 12);
+    assert!(
+        !github
+            .labels(REPOSITORY, 12)
+            .contains(&"mobius:autopilot".to_string())
+    );
 }
 
 #[tokio::test]
