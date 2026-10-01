@@ -178,6 +178,8 @@ struct LiveState {
     messages: Signal<Vec<ChatMessage>>,
     leads: Signal<HashMap<ChatKey, LeadState>>,
     unread: Signal<HashMap<ChatKey, i64>>,
+    // True after the first read of the unread counts, whether it worked or not.
+    unread_read: Signal<bool>,
     agents: Signal<HashMap<i64, AgentNode>>,
     inbox: Signal<HashMap<i64, InboxItem>>,
     // The Workstream that the Triager chat created last.
@@ -236,19 +238,6 @@ async fn follow_live(
 ) {
     let mut after = None;
     loop {
-        if let Ok(counts) = unread().await {
-            state.unread.set(
-                counts
-                    .into_iter()
-                    .map(|unread| {
-                        (
-                            (unread.organization, unread.repository, unread.workstream),
-                            unread.count,
-                        )
-                    })
-                    .collect(),
-            );
-        }
         if let Ok(items) = inbox_items().await {
             state
                 .inbox
@@ -260,6 +249,21 @@ async fn follow_live(
         }
         match live(after).await {
             Ok(mut events) => {
+                // The server subscribes before `live` returns, so a count read now misses no later event.
+                if let Ok(counts) = unread().await {
+                    state.unread.set(
+                        counts
+                            .into_iter()
+                            .map(|unread| {
+                                (
+                                    (unread.organization, unread.repository, unread.workstream),
+                                    unread.count,
+                                )
+                            })
+                            .collect(),
+                    );
+                }
+                state.unread_read.set(true);
                 while let Some(Ok(event)) = events.recv().await {
                     match event {
                         Live::Feed(row) => {
@@ -359,6 +363,7 @@ fn Frame() -> Element {
         messages: Signal::new(Vec::new()),
         leads: Signal::new(HashMap::new()),
         unread: Signal::new(HashMap::new()),
+        unread_read: Signal::new(false),
         agents: Signal::new(HashMap::new()),
         inbox: Signal::new(HashMap::new()),
         created: Signal::new(None),
@@ -1219,10 +1224,15 @@ fn Conversation(
     let key = (organization.clone(), repository.clone(), number);
     let state: LiveState = use_context();
     let LocalOffset(local_offset) = use_context();
+    // The resource keeps the result of the old chat until the result of the new chat
+    // arrives, so this key names the chat that the result belongs to.
+    let mut loaded_chat = use_signal(|| None::<ChatKey>);
     let history = use_resource(use_reactive(
         (&organization, &repository, &number),
-        |(organization, repository, number)| async move {
-            chat_view(organization, repository, number).await
+        move |(organization, repository, number)| async move {
+            let view = chat_view(organization.clone(), repository.clone(), number).await;
+            loaded_chat.set(Some((organization, repository, number)));
+            view
         },
     ));
     let mut text = use_signal(String::new);
@@ -1266,7 +1276,13 @@ fn Conversation(
         .find(|message| message.author != Author::Owner)
         .map(|message| message.id);
     let unread = state.unread.read().get(&key).copied().unwrap_or(0);
-    // A new workstream or a new last message always scrolls the list to the bottom. The
+    let unread_messages: Vec<i64> = messages
+        .iter()
+        .filter(|message| !matches!(message.author, Author::Owner | Author::Researcher))
+        .map(|message| message.id)
+        .collect();
+    // A new last message always scrolls the list to the bottom. A switch to another chat
+    // scrolls to the first unread message, or to the bottom without unread messages. The
     // growth of the last message or a new state of the agent scrolls only while the
     // owner is pinned at the bottom, so a reply in parts does not move an owner who
     // scrolled up. The script waits for a frame, so the scroll uses the DOM with the
@@ -1276,7 +1292,11 @@ fn Conversation(
         .last()
         .map(|message| (message.id, message.text.len()));
     let history_error = matches!(&*history.read(), Some(Err(_)));
+    let loaded_chat_key = loaded_chat();
+    let unread_read = *state.unread_read.read();
     let mut scroll_mark = use_signal(|| (String::new(), String::new(), 0i64, 0usize, 0i64));
+    // The chat of the last switch, and its unread count until the switch gets its position.
+    let mut opened = use_signal(|| (ChatKey::default(), None::<i64>));
     use_effect(use_reactive(
         (
             &organization,
@@ -1284,10 +1304,44 @@ fn Conversation(
             &number,
             &message_count,
             &last_message,
-            &lead_state,
-            &history_error,
+            &(lead_state.clone(), history_error),
+            &loaded_chat_key,
+            &(unread_messages.clone(), unread_read),
         ),
-        move |(organization, repository, number, message_count, last_message, _, _)| {
+        move |(
+            organization,
+            repository,
+            number,
+            message_count,
+            last_message,
+            _,
+            loaded_chat_key,
+            (unread_messages, unread_read),
+        )| {
+            let key = (organization.clone(), repository.clone(), number);
+            let unread = state.unread.peek().get(&key).copied().unwrap_or(0);
+            // The count at the switch is kept, because the Owner can mark the chat as seen
+            // before the history arrives. The switch waits for the first read of the counts,
+            // and the current count covers a count that arrives later.
+            if opened.peek().0 != key {
+                opened.set((key.clone(), Some(unread)));
+            }
+            let switched = if unread_read && loaded_chat_key.as_ref() == Some(&key) {
+                opened.write().1.take()
+            } else {
+                None
+            };
+            let first_unread = switched
+                .and_then(|at_switch| {
+                    unread_messages
+                        .iter()
+                        .rev()
+                        .take(at_switch.max(unread) as usize)
+                        .next_back()
+                })
+                .copied()
+                .unwrap_or(0);
+            let switched = switched.is_some();
             let mark = (
                 organization,
                 repository,
@@ -1324,7 +1378,15 @@ fn Conversation(
                         }});
                         state.observer.observe(list);
                     }}
-                    if ({force}) {{
+                    const first = list.querySelector('[data-message="{first_unread}"]');
+                    if (first) {{
+                        list.scrollTop +=
+                            first.getBoundingClientRect().top - list.getBoundingClientRect().top;
+                        list.__mobiusScroll.pinned =
+                            list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+                        return;
+                    }}
+                    if ({force} || {switched}) {{
                         list.__mobiusScroll.pinned = true;
                     }}
                     if (list.__mobiusScroll.pinned) {{
@@ -1392,6 +1454,7 @@ fn Conversation(
                     for message in messages {
                         div {
                             key: "{message.id}",
+                            "data-message": "{message.id}",
                             class: if message.author == Author::Owner { "msg owner" } else { "msg" },
                             div { class: "meta",
                                 span {
