@@ -164,7 +164,7 @@ fn run_command(command: &mut Command) -> Result<(), Failure> {
     Ok(())
 }
 
-// `exec` keeps the environment, the working directory, and the terminal. It keeps no child process, so the drain must be complete and the git lock must be held until the call.
+// `exec` keeps the environment, the working directory, and the terminal. A child process continues to run after `exec`, and the new program does not know it. Thus the drain must be complete, and the git lock must be held until the call.
 fn restart(exe: PathBuf, git: OwnedMutexGuard<()>) {
     use std::os::unix::process::CommandExt;
     tokio::spawn(async move {

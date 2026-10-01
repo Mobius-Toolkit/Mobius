@@ -19,6 +19,7 @@ use tempfile::TempDir;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tokio::net::TcpListener;
+use tokio::sync::Notify;
 
 use crate::git;
 
@@ -130,8 +131,22 @@ pub struct RepositoryLabel {
     pub description: String,
 }
 
+// The next request for the events of one issue stops until `release` gets a permit, and it gives `reached` a permit when it stops.
+struct EventsGate {
+    repository: String,
+    number: i64,
+    reached: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+pub struct EventsHold {
+    pub reached: Arc<Notify>,
+    pub release: Arc<Notify>,
+}
+
 #[derive(Default)]
 struct Records {
+    events_gate: Option<EventsGate>,
     account_types: HashMap<String, &'static str>,
     manifest_codes: HashSet<String>,
     apps_created: usize,
@@ -739,6 +754,20 @@ impl FakeGitHub {
             .get_mut(&(repository.to_string(), number))
             .unwrap()
             .author = author.to_string();
+    }
+
+    pub fn hold_issue_events(&self, repository: &str, number: i64) -> EventsHold {
+        let hold = EventsHold {
+            reached: Arc::new(Notify::new()),
+            release: Arc::new(Notify::new()),
+        };
+        self.state.lock().unwrap().events_gate = Some(EventsGate {
+            repository: repository.to_string(),
+            number,
+            reached: hold.reached.clone(),
+            release: hold.release.clone(),
+        });
+        hold
     }
 
     pub fn add_comment(&self, repository: &str, number: i64, author: &str, body: &str) -> i64 {
@@ -1978,6 +2007,21 @@ async fn issue_events(
     Path((owner, repo, number)): Path<(String, String, i64)>,
     Query(page): Query<Page>,
 ) -> Response {
+    let gate = {
+        let mut records = state.lock().unwrap();
+        let matches = records.events_gate.as_ref().is_some_and(|gate| {
+            gate.repository == format!("{owner}/{repo}") && gate.number == number
+        });
+        if matches {
+            records.events_gate.take()
+        } else {
+            None
+        }
+    };
+    if let Some(gate) = gate {
+        gate.reached.notify_one();
+        gate.release.notified().await;
+    }
     issue_list(&state, owner, repo, number, &page, |issue| &issue.events)
 }
 

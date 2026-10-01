@@ -3,7 +3,9 @@ use std::io::Cursor;
 use std::path::Path;
 use std::time::Duration;
 
-use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+use chromiumoxide::cdp::browser_protocol::emulation::{
+    SetDeviceMetricsOverrideParams, SetTouchEmulationEnabledParams,
+};
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::{Browser, BrowserConfig, Page};
@@ -242,6 +244,12 @@ async fn open(browser: &Browser, url: &str, (_, width, height, mobile): Viewport
     ))
     .await
     .unwrap();
+    // Headless Chrome claims a touch pointer (`pointer: coarse`) on every viewport.
+    // The touch emulation sets the pointer type of each device class: on for the
+    // phone shots, off for the desktop shots so they report `pointer: fine`.
+    page.execute(SetTouchEmulationEnabledParams::new(mobile))
+        .await
+        .unwrap();
     page.evaluate(format!("location.href = {url:?}"))
         .await
         .unwrap();
@@ -388,6 +396,111 @@ async fn message_list_scrolls_to_the_bottom() {
              && list.scrollHeight - list.scrollTop - list.clientHeight < 5; }})()"
         );
         wait_for(async || check(&page, script.clone()).await.then_some(())).await;
+        page.close().await.unwrap();
+    }
+    browser.close().await.unwrap();
+}
+
+// A message list that overflows, with the Lead messages after the fifth one unread.
+// It returns the ids of the first unread message and of the last message.
+async fn seed_unread(engine: &Engine, number: i64) -> (i64, i64) {
+    let chat_messages = engine.store.chat_messages();
+    let mut ids = Vec::new();
+    for n in 0..12 {
+        let text = format!("note {number} {n} {}", "word ".repeat(100));
+        let message = chat_messages
+            .add("owner", REPOSITORY, number, Author::Lead, &text)
+            .await
+            .unwrap();
+        ids.push(message.id);
+    }
+    chat::seen(engine, "owner", REPOSITORY, number, ids[4])
+        .await
+        .unwrap();
+    (ids[5], ids[11])
+}
+
+fn message_at_top(id: i64) -> String {
+    format!(
+        "(() => {{ const list = document.querySelector(\".msgs\");\
+         const message = list.querySelector('[data-message=\"{id}\"]');\
+         return !!message && list.scrollHeight > list.clientHeight \
+         && Math.abs(message.getBoundingClientRect().top - list.getBoundingClientRect().top) < 5; }})()"
+    )
+}
+
+fn list_at_bottom(id: i64) -> String {
+    format!(
+        "(() => {{ const list = document.querySelector(\".msgs\");\
+         return !!list.querySelector('[data-message=\"{id}\"]') \
+         && list.scrollHeight > list.clientHeight \
+         && list.scrollHeight - list.scrollTop - list.clientHeight < 5; }})()"
+    )
+}
+
+// The position must stay after the script first holds, or a later scroll could hide a wrong position.
+async fn expect_position(page: &Page, script: String) {
+    wait_for(async || check(page, script.clone()).await.then_some(())).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(check(page, script).await);
+}
+
+async fn switch_to(page: &Page, number: i64) {
+    let script = format!(
+        "(() => {{ const link = document.querySelector('a[href=\"/workstreams/owner/shop/{number}\"]');\
+         link?.click(); return !!link; }})()"
+    );
+    wait_for(async || check(page, script.clone()).await.then_some(())).await;
+}
+
+// A switch to a chat shows its first unread message, or its last message without unread messages.
+#[tokio::test]
+#[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
+async fn chat_switch_shows_the_first_unread_message() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let url = serve_ui(&engine).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    github.add_repository(REPOSITORY);
+    for number in 12..=15 {
+        github.add_issue(REPOSITORY, number, &format!("Workstream {number}"));
+        github.add_label(REPOSITORY, number, "mobius:workstream", "owner");
+    }
+    wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 4).then_some(())).await;
+    let (mut browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .no_sandbox()
+            .arg("--hide-scrollbars")
+            .user_data_dir(data_dir.path().join("chrome"))
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
+    log_in(&browser, &format!("{url}/github")).await;
+    for (viewport, first, second) in [(DESKTOP, 12, 13), (PHONE, 14, 15)] {
+        let (first_unread, first_last) = seed_unread(&engine, first).await;
+        let (second_unread, second_last) = seed_unread(&engine, second).await;
+        let page = open(
+            &browser,
+            &format!("{url}/workstreams/owner/shop/{first}"),
+            viewport,
+        )
+        .await;
+        wait_until_live(&page).await;
+        expect_position(&page, message_at_top(first_unread)).await;
+        switch_to(&page, second).await;
+        expect_position(&page, message_at_top(second_unread)).await;
+        switch_to(&page, first).await;
+        expect_position(&page, list_at_bottom(first_last)).await;
+        switch_to(&page, second).await;
+        expect_position(&page, list_at_bottom(second_last)).await;
         page.close().await.unwrap();
     }
     browser.close().await.unwrap();
