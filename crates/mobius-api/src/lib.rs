@@ -1,7 +1,7 @@
 use dioxus::fullstack::{Redirect, ServerEvents, SetCookie, SetHeader};
 use dioxus::prelude::*;
 use mobius_domain::{
-    ActiveAgents, AgentNode, ChatView, Devices, InboxItem, Live, ManifestForm, RepositoryCheckup,
+    ActiveAgents, AgentNode, ChatView, CheckupView, Devices, InboxItem, Live, ManifestForm,
     TaskLine, TranscriptLine, Unread, Workstream,
 };
 
@@ -148,7 +148,7 @@ pub async fn organizations() -> ServerFnResult<Vec<String>> {
 }
 
 #[get("/api/checkup?organization", _device: DeviceId, engine: Extension<Engine>)]
-pub async fn checkup(organization: Option<String>) -> ServerFnResult<Vec<RepositoryCheckup>> {
+pub async fn checkup(organization: Option<String>) -> ServerFnResult<CheckupView> {
     mobius_engine::checkup::status(&engine, &organization.unwrap_or_default())
         .await
         .map_err(ServerFnError::new)
