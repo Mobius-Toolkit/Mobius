@@ -22,6 +22,16 @@ reply = ["Seen"]
 reply = ["Seen"]
 "#;
 
+const DECLINING_LEAD: &str = r#"
+[options]
+model = ["sonnet", "opus"]
+thought_level = ["low", "high"]
+mode = ["default", "bypassPermissions"]
+
+[[prompts]]
+call = { tool = "decline", arguments = { n = 41, reason = "Split it into a model and an API." } }
+"#;
+
 // Workstream #12 exists before the first poll, and the sub-issues of the test too.
 fn prepare(github: &FakeGitHub, autopilot: bool) {
     github.add_manifest_code("manifest-code");
@@ -34,7 +44,16 @@ fn prepare(github: &FakeGitHub, autopilot: bool) {
 }
 
 async fn connect(data_dir: &TempDir, github: &FakeGitHub, extra_config: &str) -> Engine {
-    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", LEAD);
+    connect_with_lead(data_dir, github, extra_config, LEAD).await
+}
+
+async fn connect_with_lead(
+    data_dir: &TempDir,
+    github: &FakeGitHub,
+    extra_config: &str,
+    lead: &str,
+) -> Engine {
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", lead);
     let engine =
         start_with_config(data_dir.path(), "correct horse", &github.url, extra_config).await;
     github::convert_manifest(&engine, "manifest-code")
@@ -185,4 +204,34 @@ async fn tasks_start_in_the_order_of_the_sub_issues() {
     let third = started(&engine, 42).await;
 
     assert!(first < second && second < third);
+}
+
+#[tokio::test]
+async fn a_declined_task_does_not_start_again() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    prepare(&github, true);
+    add_task_issue(&github, 41, "Add plan model");
+    let engine = connect_with_lead(&data_dir, &github, "", DECLINING_LEAD).await;
+
+    wait_for(async || {
+        (github.comments(REPOSITORY, 41).len() == 1
+            && engine
+                .store
+                .tasks()
+                .live(REPOSITORY, 41)
+                .await
+                .unwrap()
+                .is_none())
+        .then_some(())
+    })
+    .await;
+    wait_for_polls(&github).await;
+
+    assert_eq!(github.comments(REPOSITORY, 41).len(), 1);
+    assert_eq!(
+        engine.store.tasks().live(REPOSITORY, 41).await.unwrap(),
+        None
+    );
+    assert_eq!(engine.store.tasks().active_count().await.unwrap(), 0);
 }

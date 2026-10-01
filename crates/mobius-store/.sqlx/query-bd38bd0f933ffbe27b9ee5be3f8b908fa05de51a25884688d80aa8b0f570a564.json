@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT EXISTS(SELECT 1 FROM tasks WHERE repository = ? AND issue = ?) AS \"exists!: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "exists!: bool",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bd38bd0f933ffbe27b9ee5be3f8b908fa05de51a25884688d80aa8b0f570a564"
+}

@@ -7,6 +7,7 @@ use crate::trust::{app_login, trusted_author};
 use crate::{Engine, dispatch, ends, tasks, workstreams};
 
 // Starts the tasks of each open Workstream with Autopilot, in the order of the sub-issues, while a worker slot is free.
+// An issue that had a task before, also an ended one, does not start again: only the Owner or a trusted user restarts it.
 pub(crate) async fn start(
     engine: &Engine,
     app_slug: &str,
@@ -34,12 +35,7 @@ pub(crate) async fn start(
             if issue.state == "open"
                 && trusted_author(&engine.config, app_slug, &issue.user.login)
                 && issue.issue_dependencies_summary.blocked_by == 0
-                && engine
-                    .store
-                    .tasks()
-                    .live(name, issue.number)
-                    .await?
-                    .is_none()
+                && !engine.store.tasks().exists(name, issue.number).await?
             {
                 if engine.store.tasks().active_count().await? >= i64::from(engine.config.max_agents)
                 {
