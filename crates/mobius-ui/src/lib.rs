@@ -1417,6 +1417,26 @@ fn Conversation(
         },
     ));
 
+    use_effect(move || {
+        text();
+        document::eval(
+            r#"
+            if (!window.__mobiusFit) {
+                window.__mobiusFit = () => {
+                    const box = document.querySelector('.composer textarea');
+                    if (box) {
+                        box.style.height = 'auto';
+                        box.style.height =
+                            (box.scrollHeight + box.offsetHeight - box.clientHeight) + 'px';
+                    }
+                };
+                window.addEventListener('resize', window.__mobiusFit);
+            }
+            window.__mobiusFit();
+            "#,
+        );
+    });
+
     let send_key = (organization.clone(), repository.clone());
     let stop_key = (organization.clone(), repository.clone());
     rsx! {
@@ -1501,6 +1521,7 @@ fn Conversation(
                     },
                     div { class: "grow",
                         textarea {
+                            rows: "1",
                             placeholder: "Write to the {agent}",
                             value: text,
                             oninput: move |event| text.set(event.value()),
