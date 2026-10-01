@@ -178,6 +178,8 @@ struct LiveState {
     messages: Signal<Vec<ChatMessage>>,
     leads: Signal<HashMap<ChatKey, LeadState>>,
     unread: Signal<HashMap<ChatKey, i64>>,
+    // True after the first read of the unread counts, whether it worked or not.
+    unread_read: Signal<bool>,
     agents: Signal<HashMap<i64, AgentNode>>,
     inbox: Signal<HashMap<i64, InboxItem>>,
     // The Workstream that the Triager chat created last.
@@ -255,6 +257,7 @@ async fn follow_live(
                             .collect(),
                     );
                 }
+                state.unread_read.set(true);
                 while let Some(Ok(event)) = events.recv().await {
                     match event {
                         Live::Feed(row) => {
@@ -353,6 +356,7 @@ fn Frame() -> Element {
         messages: Signal::new(Vec::new()),
         leads: Signal::new(HashMap::new()),
         unread: Signal::new(HashMap::new()),
+        unread_read: Signal::new(false),
         agents: Signal::new(HashMap::new()),
         inbox: Signal::new(HashMap::new()),
         created: Signal::new(None),
@@ -1268,6 +1272,7 @@ fn Conversation(
         .map(|message| (message.id, message.text.len()));
     let history_error = matches!(&*history.read(), Some(Err(_)));
     let loaded_chat_key = loaded_chat();
+    let unread_read = *state.unread_read.read();
     let mut scroll_mark = use_signal(|| (String::new(), String::new(), 0i64, 0usize, 0i64));
     // The chat of the last switch, and its unread count until the switch gets its position.
     let mut opened = use_signal(|| (ChatKey::default(), None::<i64>));
@@ -1280,7 +1285,7 @@ fn Conversation(
             &last_message,
             &(lead_state.clone(), history_error),
             &loaded_chat_key,
-            &unread_messages,
+            &(unread_messages.clone(), unread_read),
         ),
         move |(
             organization,
@@ -1290,16 +1295,17 @@ fn Conversation(
             last_message,
             _,
             loaded_chat_key,
-            unread_messages,
+            (unread_messages, unread_read),
         )| {
             let key = (organization.clone(), repository.clone(), number);
             let unread = state.unread.peek().get(&key).copied().unwrap_or(0);
             // The count at the switch is kept, because the Owner can mark the chat as seen
-            // before the history arrives. The current count covers a count that arrives later.
+            // before the history arrives. The switch waits for the first read of the counts,
+            // and the current count covers a count that arrives later.
             if opened.peek().0 != key {
                 opened.set((key.clone(), Some(unread)));
             }
-            let switched = if loaded_chat_key.as_ref() == Some(&key) {
+            let switched = if unread_read && loaded_chat_key.as_ref() == Some(&key) {
                 opened.write().1.take()
             } else {
                 None
