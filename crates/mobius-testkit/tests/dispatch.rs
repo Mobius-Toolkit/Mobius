@@ -323,6 +323,7 @@ async fn a_ready_label_on_an_issue_with_a_live_task_has_no_effect() {
             title: "Add plan model".to_string(),
             state: "working".to_string(),
             url: "https://github.com/owner/shop/issues/41".to_string(),
+            depth: 0,
             blocked_by: Vec::new(),
         }]
     );
