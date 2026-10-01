@@ -48,12 +48,6 @@ pub enum Route {
 pub fn App() -> Element {
     rsx! {
         document::Stylesheet { href: MAIN_CSS }
-        // `viewport-fit=cover` enables the safe-area insets, and `interactive-widget=resizes-content`
-        // keeps the keyboard from moving the page when the chat input gets the focus.
-        document::Meta {
-            name: "viewport",
-            content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content",
-        }
         Router::<Route> {}
     }
 }
@@ -420,7 +414,7 @@ fn OrganizationSwitch() -> Element {
                                     open.set(false);
                                 }
                             },
-                            span { class: "grow ellip", "{name}" }
+                            span { class: "grow", "{name}" }
                             if name != selected && work.get(&name).is_some_and(|count| *count > 0) {
                                 span { class: "count", "{work[&name]}" }
                             }
@@ -844,26 +838,6 @@ if (!Recognition) {
 }
 "#;
 
-// The list follows each new message, of the Owner and of the agent.
-const SCROLL_END_SCRIPT: &str = r#"
-requestAnimationFrame(() => {
-    const box = document.querySelector(".msgs");
-    if (box) {
-        box.scrollTop = box.scrollHeight;
-    }
-});
-"#;
-
-// The input grows with its text until the CSS maximum height, then it scrolls.
-const GROW_SCRIPT: &str = r#"
-const box = document.querySelector(".composer textarea");
-if (box) {
-    box.style.height = "auto";
-    // scrollHeight does not include the border of a border-box element.
-    box.style.height = `${box.scrollHeight + box.offsetHeight - box.clientHeight}px`;
-}
-"#;
-
 fn mic_error(code: Option<&str>) -> String {
     match code {
         Some("unsupported") => "Voice input is not supported in this browser.".to_string(),
@@ -896,25 +870,8 @@ fn Conversation(
     let mut text = use_signal(String::new);
     let mut send_error = use_signal(String::new);
     let mut mic_active = use_signal(|| false);
-    // A coarse pointer means a touch device: Enter adds a line and the button sends.
-    let mut coarse = use_signal(|| false);
-    use_hook(move || {
-        spawn(async move {
-            let value: bool =
-                document::eval("return window.matchMedia('(pointer: coarse)').matches;")
-                    .join()
-                    .await
-                    .unwrap_or(false);
-            coarse.set(value);
-        })
-    });
     use_drop(|| {
         document::eval("window.__mobiusMic?.stop();");
-    });
-    // The input grows with its text, up to the CSS maximum height.
-    use_effect(move || {
-        text.read();
-        document::eval(GROW_SCRIPT);
     });
 
     let (mut messages, history_writing, harness) = match &*history.read() {
@@ -961,40 +918,7 @@ fn Conversation(
         },
     ));
 
-    // The list scrolls to the bottom on a new message or a new lead status
-    // of this chat and on the first load. Events of other chats do not scroll it.
-    let message_count = messages.len();
-    use_effect(use_reactive((&message_count, &lead_state), |_| {
-        document::eval(SCROLL_END_SCRIPT);
-    }));
-    let mut send = {
-        let organization = organization.clone();
-        let repository = repository.clone();
-        move || {
-            let draft = text();
-            if draft.trim().is_empty() {
-                return;
-            }
-            // Clear the input before the request so a fast second Enter does not
-            // send the same draft two times. A failed send puts the draft back.
-            text.set(String::new());
-            let (organization, repository) = (organization.clone(), repository.clone());
-            spawn(async move {
-                match chat_send(organization, repository, number, draft.clone()).await {
-                    Ok(()) => send_error.set(String::new()),
-                    Err(failure) => {
-                        let typed = text();
-                        text.set(if typed.is_empty() {
-                            draft
-                        } else {
-                            format!("{draft}\n{typed}")
-                        });
-                        send_error.set(error_text(&failure));
-                    }
-                }
-            });
-        }
-    };
+    let send_key = (organization.clone(), repository.clone());
     let stop_key = (organization.clone(), repository.clone());
     rsx! {
         div { class: "column",
@@ -1002,7 +926,7 @@ fn Conversation(
                 {head}
                 span { class: "grow" }
                 if let Some(harness) = harness {
-                    span { class: "muted small desktop", "{agent}: {harness.name()}" }
+                    span { class: "muted small", "{agent}: {harness.name()}" }
                 }
                 {tail}
             }
@@ -1045,30 +969,27 @@ fn Conversation(
                 }
                 form {
                     class: "composer",
-                    onsubmit: {
-                        let mut send = send.clone();
-                        move |event: FormEvent| {
+                    onsubmit: move |event: FormEvent| {
+                        let (organization, repository) = send_key.clone();
+                        async move {
                             event.prevent_default();
-                            send();
+                            if text().trim().is_empty() {
+                                return;
+                            }
+                            match chat_send(organization, repository, number, text()).await {
+                                Ok(()) => {
+                                    text.set(String::new());
+                                    send_error.set(String::new());
+                                }
+                                Err(failure) => send_error.set(error_text(&failure)),
+                            }
                         }
                     },
                     div { class: "grow",
                         textarea {
-                            rows: 1,
                             placeholder: "Write to the {agent}",
                             value: text,
                             oninput: move |event| text.set(event.value()),
-                            onkeydown: move |event: KeyboardEvent| {
-                                // On a touch device Enter adds a line; on the desktop it sends.
-                                if !coarse()
-                                    && event.key() == Key::Enter
-                                    && !event.modifiers().contains(Modifiers::SHIFT)
-                                    && !event.is_composing()
-                                {
-                                    event.prevent_default();
-                                    send();
-                                }
-                            },
                         }
                         div { class: "error", {send_error} }
                     }
