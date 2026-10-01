@@ -887,6 +887,10 @@ a.node {
 }
 
 @media (max-width: 700px) {
+  .composer .btn {
+    min-height: 44px;
+  }
+
   .shell {
     flex-direction: column;
   }

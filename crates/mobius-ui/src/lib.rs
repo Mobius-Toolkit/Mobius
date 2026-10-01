@@ -1523,12 +1523,14 @@ fn Conversation(
                 return;
             }
             sending.set(true);
-            match chat_send(organization, repository, number, text()).await {
-                Ok(()) => {
-                    text.set(String::new());
-                    send_error.set(String::new());
+            let sent = text();
+            text.set(String::new());
+            match chat_send(organization, repository, number, sent.clone()).await {
+                Ok(()) => send_error.set(String::new()),
+                Err(failure) => {
+                    text.set(format!("{sent}{}", text()));
+                    send_error.set(error_text(&failure));
                 }
-                Err(failure) => send_error.set(error_text(&failure)),
             }
             sending.set(false);
         });
@@ -1686,7 +1688,12 @@ fn Conversation(
                         },
                         if mic_active() { "Stop mic" } else { "Mic" }
                     }
-                    button { class: "btn primary", r#type: "submit", "Send" }
+                    button {
+                        class: "btn primary",
+                        r#type: "submit",
+                        disabled: sending(),
+                        "Send"
+                    }
                 }
             }
         }
