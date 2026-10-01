@@ -234,19 +234,6 @@ async fn follow_live(
 ) {
     let mut after = None;
     loop {
-        if let Ok(counts) = unread().await {
-            state.unread.set(
-                counts
-                    .into_iter()
-                    .map(|unread| {
-                        (
-                            (unread.organization, unread.repository, unread.workstream),
-                            unread.count,
-                        )
-                    })
-                    .collect(),
-            );
-        }
         if let Ok(items) = inbox_items().await {
             state
                 .inbox
@@ -254,6 +241,20 @@ async fn follow_live(
         }
         match live(after).await {
             Ok(mut events) => {
+                // The server subscribes before `live` returns, so a count read now misses no later event.
+                if let Ok(counts) = unread().await {
+                    state.unread.set(
+                        counts
+                            .into_iter()
+                            .map(|unread| {
+                                (
+                                    (unread.organization, unread.repository, unread.workstream),
+                                    unread.count,
+                                )
+                            })
+                            .collect(),
+                    );
+                }
                 while let Some(Ok(event)) = events.recv().await {
                     match event {
                         Live::Feed(row) => {

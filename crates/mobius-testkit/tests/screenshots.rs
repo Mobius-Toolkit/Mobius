@@ -437,17 +437,6 @@ async fn expect_position(page: &Page, script: String) {
     assert!(check(page, script).await);
 }
 
-// A page that opens a chat before its live stream connects can miss the unread count that falls to 0.
-// The test sets the chat as seen again, so the count does not decide the position of the next switch.
-async fn leave_seen(engine: &Engine, page: &Page, number: i64, last: i64) {
-    chat::seen(engine, "owner", REPOSITORY, number, last)
-        .await
-        .unwrap();
-    let script =
-        format!("!document.querySelector('a[href=\"/workstreams/owner/shop/{number}\"] .count')");
-    wait_for(async || check(page, script.clone()).await.then_some(())).await;
-}
-
 async fn switch_to(page: &Page, number: i64) {
     let script = format!(
         "(() => {{ const link = document.querySelector('a[href=\"/workstreams/owner/shop/{number}\"]');\
@@ -498,10 +487,8 @@ async fn chat_switch_shows_the_first_unread_message() {
         .await;
         wait_until_live(&page).await;
         expect_position(&page, message_at_top(first_unread)).await;
-        leave_seen(&engine, &page, first, first_last).await;
         switch_to(&page, second).await;
         expect_position(&page, message_at_top(second_unread)).await;
-        leave_seen(&engine, &page, second, second_last).await;
         switch_to(&page, first).await;
         expect_position(&page, list_at_bottom(first_last)).await;
         switch_to(&page, second).await;
