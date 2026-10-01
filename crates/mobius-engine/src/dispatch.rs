@@ -64,6 +64,12 @@ pub(crate) async fn dispatch_ready(
         if issue.issue_dependencies_summary.blocked_by > 0 {
             continue;
         }
+        // A `mobius:ready` of the Mobius App needs Autopilot.
+        if actor.eq_ignore_ascii_case(&app_login(app_slug))
+            && !workstreams::autopilot(engine, repository, workstream).await?
+        {
+            continue;
+        }
         if let Some(task) = live {
             engine.store.tasks().end(task.id).await?;
         }
