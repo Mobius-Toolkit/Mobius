@@ -3,7 +3,8 @@ use std::error::Error;
 use mobius_github::Repository;
 use serde::Deserialize;
 
-use crate::{Engine, READY_LABEL, WORKSTREAM_LABEL, trust, workstreams};
+use crate::labels::{READY_LABEL, WORKSTREAM_LABEL};
+use crate::{Engine, trust, workstreams};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -75,7 +76,7 @@ pub(crate) async fn mark_ready(
 }
 
 // An issue with a Workstream issue of its own below this Workstream belongs to that Workstream.
-async fn in_workstream(
+pub(crate) async fn in_workstream(
     repository: &Repository,
     workstream: i64,
     number: i64,

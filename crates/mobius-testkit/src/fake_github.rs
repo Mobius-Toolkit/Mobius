@@ -113,6 +113,14 @@ pub struct Thread {
     pub comments: Vec<(String, String)>,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct RepositoryLabel {
+    pub name: String,
+    pub color: String,
+    pub description: String,
+}
+
 #[derive(Default)]
 struct Records {
     account_types: HashMap<String, &'static str>,
@@ -140,6 +148,10 @@ struct Records {
     last_comment_id: i64,
     // The id of the first comment of each resolved review thread.
     resolved_threads: HashSet<i64>,
+    // The labels of each repository by (repository, name).
+    repository_labels: BTreeMap<(String, String), RepositoryLabel>,
+    // The (repository, name) of each label that got a PATCH request, in request order.
+    label_patches: Vec<(String, String)>,
     clock: i64,
     not_modified: u32,
 }
@@ -170,6 +182,14 @@ impl Records {
 
     fn app_login(&self, repository: &str) -> String {
         format!("{}[bot]", APPS[self.app_index(repository)].slug)
+    }
+
+    // The actor of a label write is the user of a `ghu_` token, or the App bot for an installation token.
+    fn actor(&self, repository: &str, headers: &HeaderMap) -> String {
+        self.user_tokens
+            .get(bearer(headers))
+            .cloned()
+            .unwrap_or_else(|| self.app_login(repository))
     }
 
     fn insert_issue(
@@ -265,14 +285,14 @@ impl Records {
     }
 
     fn label(&mut self, repository: &str, number: i64, label: &str, actor: &str) {
-        let now = self.tick();
-        let issue = self
-            .issues
-            .get_mut(&(repository.to_string(), number))
-            .unwrap();
-        if !issue.labels.iter().any(|name| name == label) {
-            issue.labels.push(label.to_string());
+        let key = (repository.to_string(), number);
+        // GitHub records no `labeled` event for a label the issue already has.
+        if self.issues[&key].labels.iter().any(|name| name == label) {
+            return;
         }
+        let now = self.tick();
+        let issue = self.issues.get_mut(&key).unwrap();
+        issue.labels.push(label.to_string());
         issue.updated_at = now;
         issue.events.push(json!({
             "event": "labeled",
@@ -403,6 +423,11 @@ impl FakeGitHub {
                 "/repos/{owner}/{repo}/issues",
                 get(issues).post(create_issue),
             )
+            .route(
+                "/repos/{owner}/{repo}/labels",
+                get(repository_labels).post(create_label),
+            )
+            .route("/repos/{owner}/{repo}/labels/{name}", patch(update_label))
             .route(
                 "/repos/{owner}/{repo}/issues/{number}",
                 get(issue).patch(update_issue),
@@ -702,10 +727,69 @@ impl FakeGitHub {
             .collect()
     }
 
+    pub fn add_repository_label(
+        &self,
+        repository: &str,
+        name: &str,
+        color: &str,
+        description: &str,
+    ) {
+        self.state.lock().unwrap().repository_labels.insert(
+            (repository.to_string(), name.to_string()),
+            RepositoryLabel {
+                name: name.to_string(),
+                color: color.to_string(),
+                description: description.to_string(),
+            },
+        );
+    }
+
+    pub fn delete_repository_label(&self, repository: &str, name: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .repository_labels
+            .remove(&(repository.to_string(), name.to_string()));
+    }
+
+    // Gives the labels of the repository, in name order.
+    pub fn repository_labels(&self, repository: &str) -> Vec<RepositoryLabel> {
+        self.state
+            .lock()
+            .unwrap()
+            .repository_labels
+            .iter()
+            .filter(|((name, _), _)| *name == repository)
+            .map(|(_, label)| label.clone())
+            .collect()
+    }
+
+    // The name of each label of the repository that got a PATCH request, in request order.
+    pub fn label_patches(&self, repository: &str) -> Vec<String> {
+        self.state
+            .lock()
+            .unwrap()
+            .label_patches
+            .iter()
+            .filter(|(name, _)| *name == repository)
+            .map(|(_, name)| name.clone())
+            .collect()
+    }
+
     pub fn labels(&self, repository: &str, number: i64) -> Vec<String> {
         self.state.lock().unwrap().issues[&(repository.to_string(), number)]
             .labels
             .clone()
+    }
+
+    // Gives the actor of the last `labeled` or `unlabeled` event of `label`.
+    pub fn label_actor(&self, repository: &str, number: i64, label: &str) -> Option<String> {
+        self.state.lock().unwrap().issues[&(repository.to_string(), number)]
+            .events
+            .iter()
+            .rev()
+            .find(|event| event["label"]["name"] == label)
+            .map(|event| event["actor"]["login"].as_str().unwrap().to_string())
     }
 
     pub fn add_review(&self, repository: &str, number: i64, author: &str, state: &str, body: &str) {
@@ -1178,13 +1262,14 @@ struct NewLabels {
 async fn add_labels(
     State(state): State<Shared>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
     Json(new): Json<NewLabels>,
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    let bot = records.app_login(&repository);
+    let actor = records.actor(&repository, &headers);
     for label in &new.labels {
-        records.label(&repository, number, label, &bot);
+        records.label(&repository, number, label, &actor);
     }
     Json(label_list(&records, &repository, number)).into_response()
 }
@@ -1517,11 +1602,12 @@ async fn graphql(State(state): State<Shared>, Json(request): Json<GraphQl>) -> R
 async fn remove_label(
     State(state): State<Shared>,
     Path((owner, repo, number, name)): Path<(String, String, i64, String)>,
+    headers: HeaderMap,
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    let bot = records.app_login(&repository);
-    if !records.unlabel(&repository, number, &name, &bot) {
+    let actor = records.actor(&repository, &headers);
+    if !records.unlabel(&repository, number, &name, &actor) {
         return not_found();
     }
     Json(label_list(&records, &repository, number)).into_response()
@@ -1533,6 +1619,87 @@ fn label_list(records: &Records, repository: &str, number: i64) -> Vec<Value> {
         .iter()
         .map(|name| json!({ "name": name }))
         .collect()
+}
+
+fn repository_label_json(label: &RepositoryLabel) -> Value {
+    json!({
+        "name": label.name,
+        "color": label.color,
+        "description": label.description
+    })
+}
+
+async fn repository_labels(
+    State(state): State<Shared>,
+    Path((owner, repo)): Path<(String, String)>,
+    Query(page): Query<Page>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let records = state.lock().unwrap();
+    let labels: Vec<Value> = records
+        .repository_labels
+        .iter()
+        .filter(|((name, _), _)| *name == repository)
+        .map(|(_, label)| repository_label_json(label))
+        .collect();
+    Json(page.of(labels)).into_response()
+}
+
+async fn create_label(
+    State(state): State<Shared>,
+    Path((owner, repo)): Path<(String, String)>,
+    Json(new): Json<RepositoryLabel>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    // GitHub compares label names without regard to case.
+    let exists = records
+        .repository_labels
+        .keys()
+        .any(|(name_repository, name)| {
+            *name_repository == repository && name.eq_ignore_ascii_case(&new.name)
+        });
+    if exists {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({ "message": "Validation Failed" })),
+        )
+            .into_response();
+    }
+    records
+        .repository_labels
+        .insert((repository, new.name.clone()), new.clone());
+    (StatusCode::CREATED, Json(repository_label_json(&new))).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LabelUpdate {
+    color: String,
+}
+
+async fn update_label(
+    State(state): State<Shared>,
+    Path((owner, repo, name)): Path<(String, String, String)>,
+    Json(update): Json<LabelUpdate>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    // GitHub finds a label by its name without regard to case.
+    let key = records
+        .repository_labels
+        .keys()
+        .find(|(name_repository, label_name)| {
+            *name_repository == repository && label_name.eq_ignore_ascii_case(&name)
+        })
+        .cloned();
+    let Some(label) = key.and_then(|key| records.repository_labels.get_mut(&key)) else {
+        return not_found();
+    };
+    label.color = update.color;
+    let json = repository_label_json(label);
+    records.label_patches.push((repository, name));
+    Json(json).into_response()
 }
 
 #[derive(Deserialize)]

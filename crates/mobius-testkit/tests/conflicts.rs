@@ -169,7 +169,7 @@ async fn a_merge_conflict_starts_a_conflict_round_that_merges_the_base_branch() 
     let parts = [
         "You are the Implementer",
         "# Brief\n\nShip loyalty plans to all shops.\n",
-        "# Issue\n\n#41 Add plan model\n\n# Base branch\n\norigin/main\n\nMerge the base branch and remove the conflicts.",
+        "# Issue\n\n#41 Add plan model\n\nPlans have a price.\n\n# Base branch\n\norigin/main\n\nMerge the base branch and remove the conflicts. Make no other change.",
     ];
     let positions: Vec<usize> = parts
         .iter()
@@ -180,10 +180,37 @@ async fn a_merge_conflict_starts_a_conflict_round_that_merges_the_base_branch() 
         })
         .collect();
     assert!(positions.is_sorted(), "{}", prompts[0]);
+}
+
+#[tokio::test]
+async fn a_conflict_round_merges_when_the_base_branch_moves_during_the_round() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        NO_FINDING,
+        "[[prompts]]\nwhen = \"Merge the base branch and remove the conflicts.\"\nshell = \"git merge -q origin/main; echo cents > plan.txt && git add plan.txt && git commit -q --no-edit && git update-ref refs/remotes/origin/main $(git commit-tree -p origin/main -m 'Use euros' origin/main^{tree})\"\n",
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || (ready_for_review_events(&engine).await == 1).then_some(())).await;
+
+    github.commit_file(REPOSITORY, "plan.txt", "dollars\n", "Use dollars");
+
+    wait_for(async || (ready_for_review_events(&engine).await == 2).then_some(())).await;
+    let implementers = sessions(&engine, "implementer").await;
+    assert_eq!(implementers.len(), 2);
+    assert_eq!(implementers[1].end_reason.as_deref(), Some("done"));
+    let head = git(&github.remote(REPOSITORY), &["rev-parse", "mobius/41"]);
+    let check_runs = github.check_runs(REPOSITORY);
+    assert_eq!(check_runs.len(), 2);
+    assert_eq!(check_runs[1].head_sha, head);
+    assert_eq!(check_runs[1].conclusion.as_deref(), Some("success"));
     assert!(
-        !prompts[0].contains("Plans have a price."),
-        "{}",
-        prompts[0]
+        !github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:needs-human".to_string())
     );
 }
 

@@ -4,6 +4,9 @@ use time::OffsetDateTime;
 // The queue reason of a session that waits for the end of a pause of its Harness starts with this text.
 pub const PAUSED: &str = "paused until ";
 
+// The release tag of this binary, set by the release workflow. A local build has no release tag.
+pub const RELEASE_VERSION: Option<&'static str> = option_env!("MOBIUS_VERSION");
+
 pub fn organization(repository: &str) -> &str {
     repository.split('/').next().unwrap_or_default()
 }
@@ -47,11 +50,45 @@ pub struct ManifestForm {
     pub manifest: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LabelStatus {
+    Present,
+    // The label exists with this different color.
+    WrongColor(String),
+    // The label exists with this name in a different case. The engine compares label
+    // names exactly, so it does not see this label on issues.
+    WrongCase(String),
+    Missing,
+}
+
+impl LabelStatus {
+    // Mobius does not rename labels, so a label in a different case stays for a human.
+    pub fn fixable(&self) -> bool {
+        matches!(self, LabelStatus::Missing | LabelStatus::WrongColor(_))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LabelCheck {
+    pub name: String,
+    // The fixed color of the label.
+    pub color: String,
+    pub status: LabelStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepositoryCheckup {
+    pub repository: String,
+    pub labels: Vec<LabelCheck>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Workstream {
     pub repository: String,
     pub number: i64,
     pub title: String,
+    pub body: String,
     pub autopilot: bool,
 }
 
@@ -155,8 +192,10 @@ pub struct Session {
     pub started_at: OffsetDateTime,
     pub ended_at: Option<OffsetDateTime>,
     pub end_reason: Option<String>,
-    // The reason why the session waits for a Worker slot.
+    // The reason why the session waits for a slot.
     pub queue_reason: Option<String>,
+    // The one issue the session works on. `None` for the chats and the Researcher.
+    pub issue: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -164,6 +203,25 @@ pub struct AgentNode {
     pub session: Session,
     pub role: String,
     pub title: String,
+}
+
+// The open sessions of one role on the "Agents" page, with the role limit.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AgentGroup {
+    pub name: String,
+    // The sessions that hold a slot. A queued session shows in `agents` but does not count.
+    pub count: u32,
+    pub max: u32,
+    pub agents: Vec<AgentNode>,
+}
+
+// The "Agents" page: the global count and one group for each role.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ActiveAgents {
+    // The sessions that hold a slot and whose role counts toward `max_agents`.
+    pub count: u32,
+    pub max: u32,
+    pub groups: Vec<AgentGroup>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -197,10 +255,11 @@ pub enum InboxKind {
     UsageLimit,
     LeadFailed,
     Stopped,
+    DiskFull,
 }
 
 impl InboxKind {
-    pub const ALL: [InboxKind; 7] = [
+    pub const ALL: [InboxKind; 8] = [
         InboxKind::Question,
         InboxKind::Lead,
         InboxKind::ReadyForReview,
@@ -208,6 +267,7 @@ impl InboxKind {
         InboxKind::UsageLimit,
         InboxKind::LeadFailed,
         InboxKind::Stopped,
+        InboxKind::DiskFull,
     ];
 
     pub fn name(self) -> &'static str {
@@ -219,6 +279,7 @@ impl InboxKind {
             InboxKind::UsageLimit => "usage limit",
             InboxKind::LeadFailed => "Lead failed",
             InboxKind::Stopped => "stopped",
+            InboxKind::DiskFull => "full disk",
         }
     }
 }

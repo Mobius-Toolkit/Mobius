@@ -5,11 +5,9 @@ use mobius_store::Task;
 use time::OffsetDateTime;
 use tokio::sync::broadcast::Receiver;
 
+use crate::labels::{NEEDS_HUMAN_LABEL, WORKING_LABEL};
 use crate::trust::app_login;
-use crate::{
-    Engine, NEEDS_HUMAN_LABEL, TIME_FORMAT, WORKING_LABEL, activity, conflicts, implementer, judge,
-    lead_events,
-};
+use crate::{Engine, TIME_FORMAT, activity, conflicts, implementer, judge, lead_events};
 
 pub(crate) async fn check(
     engine: &Engine,
@@ -49,6 +47,9 @@ async fn check_task(
     if let Some(pull_request) = &pull_request
         && pull_request.state == "closed"
     {
+        if pull_request.merged && issue.state == "open" {
+            repository.close_as_completed(task.issue).await?;
+        }
         end(engine, repository, task).await?;
         let what = if pull_request.merged {
             "merged"
