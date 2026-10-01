@@ -668,6 +668,7 @@ fn Checkup() -> Element {
     let Organization(organization) = use_context();
     let LoginShown(mut login_shown) = use_context();
     let mut error = use_signal(String::new);
+    let mut fixing = use_signal(|| false);
     let mut resource = use_resource(use_reactive(&organization(), |organization| async move {
         checkup(Some(organization)).await
     }));
@@ -688,13 +689,16 @@ fn Checkup() -> Element {
             if let Some(text) = button {
                 button {
                     class: "btn primary",
+                    disabled: fixing(),
                     onclick: move |_| async move {
+                        fixing.set(true);
                         match fix_labels(organization()).await {
                             Ok(()) => error.set(String::new()),
                             Err(failure) => error.set(error_text(&failure)),
                         }
                         // The fix can change labels before it fails: load the status again.
                         resource.restart();
+                        fixing.set(false);
                     },
                     "{text}"
                 }
