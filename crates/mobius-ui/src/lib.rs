@@ -1421,11 +1421,18 @@ fn Conversation(
         text();
         document::eval(
             r#"
-            const box = document.querySelector('.composer textarea');
-            if (box) {
-                box.style.height = 'auto';
-                box.style.height = (box.scrollHeight + box.offsetHeight - box.clientHeight) + 'px';
+            if (!window.__mobiusFit) {
+                window.__mobiusFit = () => {
+                    const box = document.querySelector('.composer textarea');
+                    if (box) {
+                        box.style.height = 'auto';
+                        box.style.height =
+                            (box.scrollHeight + box.offsetHeight - box.clientHeight) + 'px';
+                    }
+                };
+                window.addEventListener('resize', window.__mobiusFit);
             }
+            window.__mobiusFit();
             "#,
         );
     });
