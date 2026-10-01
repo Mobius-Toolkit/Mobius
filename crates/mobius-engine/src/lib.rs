@@ -2,6 +2,7 @@ pub mod activity;
 pub mod agents;
 pub mod auth;
 pub mod chat;
+mod checks;
 pub mod checkup;
 pub mod config;
 mod conflicts;

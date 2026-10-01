@@ -180,6 +180,34 @@ struct Created {
     id: i64,
 }
 
+#[derive(Clone, Deserialize)]
+pub struct CheckRun {
+    pub id: i64,
+    pub name: String,
+    pub status: String,
+    pub conclusion: Option<String>,
+    pub html_url: Option<String>,
+    pub output: CheckRunOutput,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct CheckRunOutput {
+    pub title: Option<String>,
+    pub summary: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CheckRuns {
+    check_runs: Vec<CheckRun>,
+}
+
+#[derive(Deserialize)]
+pub struct Annotation {
+    pub path: String,
+    pub start_line: i64,
+    pub message: String,
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct NewReviewComment {
@@ -617,6 +645,30 @@ impl Repository {
             )
             .await?;
         Ok(())
+    }
+
+    pub async fn check_runs(
+        &self,
+        head_sha: &str,
+    ) -> Result<Vec<CheckRun>, Box<dyn Error + Send + Sync>> {
+        all_pages(
+            &self.client,
+            &format!("/repos/{}/commits/{head_sha}/check-runs", self.full_name),
+            |page: CheckRuns| page.check_runs,
+        )
+        .await
+    }
+
+    pub async fn check_run_annotations(
+        &self,
+        id: i64,
+    ) -> Result<Vec<Annotation>, Box<dyn Error + Send + Sync>> {
+        all_pages(
+            &self.client,
+            &format!("/repos/{}/check-runs/{id}/annotations", self.full_name),
+            |page: Vec<Annotation>| page,
+        )
+        .await
     }
 
     pub async fn open_issues_with_label(

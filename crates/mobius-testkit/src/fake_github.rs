@@ -170,6 +170,8 @@ struct Records {
     pull_request_created_at: HashMap<(String, i64), i64>,
     // The id of a check run is its index plus 1.
     check_runs: Vec<(String, CheckRun)>,
+    // The annotations of each check run by id, as GitHub gives them.
+    annotations: HashMap<usize, Vec<Value>>,
     submitted_reviews: Vec<(String, i64, SubmittedReview)>,
     // Issue comments and review comments share the ids, so an id names one comment.
     last_comment_id: i64,
@@ -510,6 +512,14 @@ impl FakeGitHub {
                 patch(update_check_run),
             )
             .route(
+                "/repos/{owner}/{repo}/check-runs/{id}/annotations",
+                get(annotations),
+            )
+            .route(
+                "/repos/{owner}/{repo}/commits/{sha}/check-runs",
+                get(commit_check_runs),
+            )
+            .route(
                 "/repos/{owner}/{repo}/pulls/{number}/reviews",
                 get(reviews).post(submit_review),
             )
@@ -733,6 +743,23 @@ impl FakeGitHub {
             .filter(|(name, _)| name == full_name)
             .map(|(_, check_run)| check_run.clone())
             .collect()
+    }
+
+    // Gives the id of the check run.
+    pub fn add_check_run(&self, full_name: &str, check_run: CheckRun) -> i64 {
+        let mut records = self.state.lock().unwrap();
+        records.check_runs.push((full_name.to_string(), check_run));
+        records.check_runs.len() as i64
+    }
+
+    pub fn add_annotation(&self, id: i64, path: &str, line: i64, message: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .annotations
+            .entry(id as usize)
+            .or_default()
+            .push(json!({ "path": path, "start_line": line, "message": message }));
     }
 
     pub fn submitted_reviews(&self, full_name: &str, number: i64) -> Vec<SubmittedReview> {
@@ -1570,6 +1597,48 @@ async fn update_check_run(
     check_run.status = update.status;
     check_run.conclusion = Some(update.conclusion);
     Json(json!({ "id": id })).into_response()
+}
+
+fn check_run_json(id: usize, repository: &str, check_run: &CheckRun) -> Value {
+    json!({
+        "id": id,
+        "name": check_run.name,
+        "status": check_run.status,
+        "conclusion": check_run.conclusion,
+        "html_url": format!("https://github.com/{repository}/runs/{id}"),
+        "output": {
+            "title": check_run.output.as_ref().map(|output| &output.title),
+            "summary": check_run.output.as_ref().map(|output| &output.summary)
+        }
+    })
+}
+
+async fn commit_check_runs(
+    State(state): State<Shared>,
+    Path((owner, repo, sha)): Path<(String, String, String)>,
+    Query(page): Query<Page>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let records = state.lock().unwrap();
+    let check_runs: Vec<Value> = records
+        .check_runs
+        .iter()
+        .enumerate()
+        .filter(|(_, (name, check_run))| *name == repository && check_run.head_sha == sha)
+        .map(|(index, (_, check_run))| check_run_json(index + 1, &repository, check_run))
+        .collect();
+    Json(json!({ "total_count": check_runs.len(), "check_runs": page.of(check_runs) }))
+        .into_response()
+}
+
+async fn annotations(
+    State(state): State<Shared>,
+    Path((_, _, id)): Path<(String, String, usize)>,
+    Query(page): Query<Page>,
+) -> Response {
+    let records = state.lock().unwrap();
+    let annotations = records.annotations.get(&id).cloned().unwrap_or_default();
+    Json(page.of(annotations)).into_response()
 }
 
 async fn submit_review(
