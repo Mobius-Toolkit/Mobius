@@ -3,7 +3,9 @@ use std::io::Cursor;
 use std::path::Path;
 use std::time::Duration;
 
-use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+use chromiumoxide::cdp::browser_protocol::emulation::{
+    SetDeviceMetricsOverrideParams, SetTouchEmulationEnabledParams,
+};
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::{Browser, BrowserConfig, Page};
@@ -242,6 +244,12 @@ async fn open(browser: &Browser, url: &str, (_, width, height, mobile): Viewport
     ))
     .await
     .unwrap();
+    // Headless Chrome claims a touch pointer (`pointer: coarse`) on every viewport.
+    // The touch emulation sets the pointer type of each device class: on for the
+    // phone shots, off for the desktop shots so they report `pointer: fine`.
+    page.execute(SetTouchEmulationEnabledParams::new(mobile))
+        .await
+        .unwrap();
     page.evaluate(format!("location.href = {url:?}"))
         .await
         .unwrap();
