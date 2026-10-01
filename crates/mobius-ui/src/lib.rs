@@ -1417,6 +1417,19 @@ fn Conversation(
         },
     ));
 
+    use_effect(move || {
+        text();
+        document::eval(
+            r#"
+            const box = document.querySelector('.composer textarea');
+            if (box) {
+                box.style.height = 'auto';
+                box.style.height = (box.scrollHeight + box.offsetHeight - box.clientHeight) + 'px';
+            }
+            "#,
+        );
+    });
+
     let send_key = (organization.clone(), repository.clone());
     let stop_key = (organization.clone(), repository.clone());
     rsx! {
