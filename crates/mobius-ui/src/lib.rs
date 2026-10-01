@@ -1238,6 +1238,75 @@ fn Conversation(
         .find(|message| message.author != Author::Owner)
         .map(|message| message.id);
     let unread = state.unread.read().get(&key).copied().unwrap_or(0);
+    // A new workstream or a new last message always scrolls the list to the bottom. The
+    // growth of the last message or a new state of the agent scrolls only while the
+    // owner is pinned at the bottom, so a reply in parts does not move an owner who
+    // scrolled up. The script waits for a frame, so the scroll uses the DOM with the
+    // update.
+    let message_count = messages.len();
+    let last_message = messages
+        .last()
+        .map(|message| (message.id, message.text.len()));
+    let history_error = matches!(&*history.read(), Some(Err(_)));
+    let mut scroll_mark = use_signal(|| (String::new(), String::new(), 0i64, 0usize, 0i64));
+    use_effect(use_reactive(
+        (
+            &organization,
+            &repository,
+            &number,
+            &message_count,
+            &last_message,
+            &lead_state,
+            &history_error,
+        ),
+        move |(organization, repository, number, message_count, last_message, _, _)| {
+            let mark = (
+                organization,
+                repository,
+                number,
+                message_count,
+                last_message.map(|(id, _)| id).unwrap_or(0),
+            );
+            let force = if *scroll_mark.peek() != mark {
+                scroll_mark.set(mark);
+                true
+            } else {
+                false
+            };
+            // The observer keeps the list at the bottom when it shrinks or grows while the
+            // owner is already at the bottom, for example when the keyboard opens.
+            document::eval(&format!(
+                r#"
+                requestAnimationFrame(() => {{
+                    const list = document.querySelector(".msgs");
+                    if (!list) {{
+                        return;
+                    }}
+                    if (!list.__mobiusScroll) {{
+                        const state = {{ pinned: true }};
+                        list.__mobiusScroll = state;
+                        list.addEventListener("scroll", () => {{
+                            state.pinned =
+                                list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+                        }});
+                        state.observer = new ResizeObserver(() => {{
+                            if (state.pinned) {{
+                                list.scrollTop = list.scrollHeight;
+                            }}
+                        }});
+                        state.observer.observe(list);
+                    }}
+                    if ({force}) {{
+                        list.__mobiusScroll.pinned = true;
+                    }}
+                    if (list.__mobiusScroll.pinned) {{
+                        list.scrollTop = list.scrollHeight;
+                    }}
+                }});
+                "#,
+            ));
+        },
+    ));
     use_effect(use_reactive(
         (
             &organization,
