@@ -495,6 +495,14 @@ async fn tap_send(page: &Page, taps: usize) {
     .unwrap();
 }
 
+fn send_enabled() -> String {
+    "!document.querySelector('.composer button[type=submit]').disabled".to_string()
+}
+
+fn input_is(value: &str) -> String {
+    format!("document.querySelector('.composer textarea').value === {value:?}")
+}
+
 // Two taps on Send in one turn of the page send one message, and the buttons are easy to tap.
 #[tokio::test]
 #[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
@@ -559,6 +567,33 @@ async fn send_taps_once_and_the_buttons_are_easy_to_tap_on_the_phone() {
     )
     .await;
     assert!(apart);
+    page.evaluate(
+        "window.__failSend = false; const fetchOriginal = window.fetch;\
+         window.fetch = async (...args) => {\
+           if (!String(args[0].url ?? args[0]).includes('/api/chat/send')) return fetchOriginal(...args);\
+           await new Promise((resolve) => setTimeout(resolve, 1000));\
+           return window.__failSend ? new Response('failed', { status: 500 }) : fetchOriginal(...args);\
+         }",
+    )
+    .await
+    .unwrap();
+    input.type_str("hello").await.unwrap();
+    tap_send(&page, 1).await;
+    wait_for(async || check(&page, input_is("")).await.then_some(())).await;
+    input.type_str("more").await.unwrap();
+    wait_for(async || owner_sent(&engine, "hello").await.then_some(())).await;
+    assert!(check(&page, input_is("more")).await);
+    wait_for(async || check(&page, send_enabled()).await.then_some(())).await;
+    tap_send(&page, 1).await;
+    wait_for(async || owner_sent(&engine, "more").await.then_some(())).await;
+    page.evaluate("window.__failSend = true").await.unwrap();
+    input.type_str("lost").await.unwrap();
+    wait_for(async || check(&page, send_enabled()).await.then_some(())).await;
+    tap_send(&page, 1).await;
+    wait_for(async || check(&page, input_is("")).await.then_some(())).await;
+    input.type_str("!").await.unwrap();
+    wait_for(async || check(&page, input_is("lost!")).await.then_some(())).await;
+    assert!(!owner_sent(&engine, "lost").await);
     page.close().await.unwrap();
     browser.close().await.unwrap();
 }
