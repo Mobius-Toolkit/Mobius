@@ -8,7 +8,8 @@ use markdown::Markdown;
 use mobius_api::{
     active_agents, agent_tree, chat_seen, chat_send, chat_stop, chat_view, checkup, devices,
     fix_labels, github_apps, github_manifest, inbox_dismiss, inbox_items, inbox_resume, live,
-    login, logout, organizations, task_list, transcript_lines, unread, workstreams,
+    login, logout, organizations, task_list, transcript_lines, unread, workstream_autopilot,
+    workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, LabelStatus, Live, PAUSED,
@@ -762,6 +763,7 @@ fn NewWorkstream() -> Element {
                 brief: None,
                 head: rsx! { h2 { class: "ellip", "New Workstream" } },
                 tail: rsx! {},
+                note: rsx! {},
             }
         }
     }
@@ -986,12 +988,16 @@ fn Activity() -> Element {
 #[component]
 fn Chat(owner: String, repo: String, number: i64) -> Element {
     let repository = format!("{owner}/{repo}");
-    let Workstreams(workstream_list) = use_context();
+    let Workstreams(mut workstream_list) = use_context();
     let Organization(organization) = use_context();
     use_effect(use_reactive((&owner,), move |(owner,)| {
         select_organization(organization, owner)
     }));
     let mut sheet = use_signal(|| false);
+    // The router keeps this component when the Workstream changes. The call and the
+    // error are keyed by the Workstream, so a late answer cannot touch another chat.
+    let mut autopilot_call = use_signal(|| None::<(String, i64)>);
+    let mut autopilot_error = use_signal(|| None::<((String, i64), String)>);
     let workstream = match &*workstream_list.read() {
         Some(Ok(list)) => list
             .iter()
@@ -999,6 +1005,13 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
             .cloned(),
         _ => None,
     };
+    let autopilot_on = workstream
+        .as_ref()
+        .is_some_and(|workstream| workstream.autopilot);
+    let autopilot_busy = autopilot_call().is_some_and(|key| key.0 == repository && key.1 == number);
+    let autopilot_note = autopilot_error()
+        .and_then(|(key, text)| (key.0 == repository && key.1 == number).then_some(text));
+    let switch_repository = repository.clone();
     rsx! {
         div { class: "page",
             Conversation {
@@ -1010,10 +1023,40 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
                 head: rsx! {
                     h2 { class: "ellip", {workstream.as_ref().map(|workstream| workstream.title.clone())} }
                     span { class: "num", "#{number}" }
-                    if workstream.as_ref().is_some_and(|workstream| workstream.autopilot) {
-                        span { class: "chip info", "Autopilot on" }
-                    } else {
-                        span { class: "chip plain", "Autopilot off" }
+                    button {
+                        class: "autopilot",
+                        role: "switch",
+                        aria_checked: autopilot_on,
+                        disabled: autopilot_busy,
+                        onclick: move |_| {
+                            let repository = switch_repository.clone();
+                            async move {
+                                let key = (repository.clone(), number);
+                                autopilot_call.set(Some(key.clone()));
+                                match workstream_autopilot(repository, number, !autopilot_on).await {
+                                    Ok(()) => {
+                                        if autopilot_error().is_some_and(|(other, _)| other == key) {
+                                            autopilot_error.set(None);
+                                        }
+                                    }
+                                    Err(failure) => {
+                                        autopilot_error
+                                            .set(Some((key.clone(), error_text(&failure))))
+                                    }
+                                }
+                                workstream_list.restart();
+                                if autopilot_call() == Some(key) {
+                                    autopilot_call.set(None);
+                                }
+                            }
+                        },
+                        span { class: "track", span { class: "knob" } }
+                        "Autopilot"
+                    }
+                },
+                note: rsx! {
+                    if let Some(note) = autopilot_note {
+                        div { class: "error note", {note} }
                     }
                 },
                 tail: rsx! {
@@ -1104,6 +1147,7 @@ fn Conversation(
     brief: Option<Workstream>,
     head: Element,
     tail: Element,
+    note: Element,
 ) -> Element {
     let key = (organization.clone(), repository.clone(), number);
     let state: LiveState = use_context();
@@ -1187,6 +1231,7 @@ fn Conversation(
                 }
                 {tail}
             }
+            {note}
             div { class: "chat",
                 if let Some(workstream) = brief {
                     div { class: "brief",
