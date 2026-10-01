@@ -375,6 +375,10 @@ a.btn {
   color: var(--accent);
 }
 
+.entry.upd {
+  color: var(--accent);
+}
+
 .list .entry {
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
@@ -728,6 +732,8 @@ button.chip.on {
   gap: 8px;
   width: 100%;
   padding: 8px 14px;
+  /* A nested task indents one step for each level below the Workstream. */
+  padding-left: calc(14px + var(--depth, 0) * 18px);
   border: none;
   background: none;
   text-align: left;

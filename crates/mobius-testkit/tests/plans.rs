@@ -92,6 +92,7 @@ async fn the_lead_creates_a_sub_issue_with_a_blocker_in_another_workstream() {
             title: "Add plan model".to_string(),
             state: "open".to_string(),
             url: "https://github.com/owner/shop/issues/89".to_string(),
+            depth: 0,
             blocked_by: vec![Blocker {
                 number: 88,
                 workstream_title: Some("Billing".to_string()),

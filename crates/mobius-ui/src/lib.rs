@@ -8,8 +8,8 @@ use markdown::Markdown;
 use mobius_api::{
     active_agents, agent_tree, chat_seen, chat_send, chat_stop, chat_view, checkup, devices,
     fix_labels, github_apps, github_manifest, inbox_dismiss, inbox_items, inbox_resume, live,
-    login, logout, organizations, task_list, transcript_lines, unread, workstream_autopilot,
-    workstreams,
+    login, logout, organizations, release, task_list, transcript_lines, unread,
+    workstream_autopilot, workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, LabelStatus, Live, PAUSED,
@@ -330,6 +330,7 @@ fn Frame() -> Element {
         organizations().await
     });
     use_context_provider(|| Organizations(organization_list));
+    let new_release = use_resource(release);
     let Organization(organization) =
         use_context_provider(|| Organization(Signal::new(String::new())));
     let LocalOffset(mut local_offset) =
@@ -433,6 +434,12 @@ fn Frame() -> Element {
                     WorkstreamEntries {}
                     Link { class: "navbtn", active_class: "sel", to: Route::NewWorkstream {}, "+ New Workstream" }
                     div { class: "grow" }
+                    if let Some(Ok(Some(version))) = &*new_release.read() {
+                        button { class: "entry upd",
+                            span { class: "grow", "Upgrade" }
+                            span { class: "muted", "{version}" }
+                        }
+                    }
                     if new_build() {
                         UpdateNote { class: "navbtn upd" }
                     }
@@ -1633,7 +1640,7 @@ fn Tasks(repository: String, number: i64) -> Element {
         },
         Some(Ok(lines)) => rsx! {
             for line in lines.iter().cloned() {
-                TaskEntry { key: "{line.number}", line }
+                TaskEntry { key: "{line.url}", line }
             }
         },
     }
@@ -1642,7 +1649,7 @@ fn Tasks(repository: String, number: i64) -> Element {
 #[component]
 fn TaskEntry(line: TaskLine) -> Element {
     rsx! {
-        a { class: "node", href: "{line.url}", target: "_blank",
+        a { class: "node", href: "{line.url}", target: "_blank", style: "--depth: {line.depth}",
             span { class: "grow", "#{line.number} {line.title}" }
             for blocker in line.blocked_by.iter() {
                 span { class: "muted small",
