@@ -24,8 +24,8 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::threads::Target;
 use crate::{
-    Engine, chat, dispatch, implementer, issues, judge, lead_events, plans, researcher, reviewer,
-    tasks, threads, triager, trust,
+    Engine, chat, dispatch, implementer, issues, judge, lead, lead_events, plans, researcher,
+    reviewer, tasks, threads, triager, trust,
 };
 
 #[derive(Clone)]
@@ -443,6 +443,22 @@ fn tools(role: &str) -> Vec<Tool> {
                 }
             })),
         ));
+        tools.push(tool(
+            "move_task",
+            "Make a task of this Workstream a sub-issue of a different open Workstream in this repository. Call it only after the Owner approves the move in the chat. The task must not be in progress.",
+            object(json!({
+                "n": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "The number of the task issue."
+                },
+                "workstream": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "The number of the target Workstream issue."
+                }
+            })),
+        ));
     }
     if role == lead_events::ROLE {
         tools.push(tool(
@@ -687,6 +703,22 @@ impl Handler {
                     }
                 });
                 Ok(format!("Created the Workstream #{number}."))
+            }
+            "move_task" => {
+                let MoveIssue { n, workstream } = parse(tool, arguments)?;
+                if n < 1 || workstream < 1 {
+                    return Err("n and workstream must be 1 or more.".into());
+                }
+                let result = lead::move_task(
+                    &self.engine,
+                    &repository,
+                    self.caller.workstream,
+                    n,
+                    workstream,
+                )
+                .await?;
+                self.engine.broadcast(Live::Workstreams);
+                Ok(result)
             }
             "move_issue" => {
                 let MoveIssue { n, workstream } = parse(tool, arguments)?;
