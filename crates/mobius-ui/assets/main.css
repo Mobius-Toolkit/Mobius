@@ -62,6 +62,7 @@ button {
 .grow {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .muted {
@@ -261,6 +262,56 @@ a.btn {
   padding-left: 0;
 }
 
+.autopilot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  border: none;
+  background: none;
+  padding: 4px 0;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.autopilot .track {
+  flex: none;
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.autopilot .knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--raised);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.autopilot[aria-checked="true"] {
+  color: var(--ink);
+}
+
+.autopilot[aria-checked="true"] .track {
+  background: var(--ok);
+}
+
+.autopilot[aria-checked="true"] .knob {
+  left: 14px;
+}
+
+.autopilot:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .backdrop {
   position: fixed;
   inset: 0;
@@ -297,6 +348,14 @@ a.btn {
   padding: 14px 8px 4px;
 }
 
+.checkup .section {
+  padding: 14px 14px 4px;
+}
+
+.center > .section {
+  padding: 12px 14px 4px;
+}
+
 .entry {
   display: flex;
   align-items: baseline;
@@ -325,6 +384,12 @@ a.btn {
   border-bottom: 1px solid var(--line);
 }
 
+.chips .chip {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 button.chip {
   border: 1px solid var(--line);
   background: var(--raised);
@@ -340,6 +405,12 @@ button.chip.on {
 .item a {
   color: var(--accent);
   text-decoration: none;
+}
+
+.item .actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .center {
@@ -358,6 +429,8 @@ button.chip.on {
 }
 
 .head h2 {
+  flex: 0 1 auto;
+  min-width: 0;
   margin: 0;
   font-size: 15px;
   font-weight: 600;
@@ -407,8 +480,35 @@ button.chip.on {
   margin: auto;
 }
 
+.brief {
+  flex: none;
+  max-height: 40dvh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.briefhead {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: var(--surface);
+  font-weight: 600;
+  text-align: left;
+}
+
+.brief .md {
+  padding: 0 14px 10px;
+}
+
 .msg {
   max-width: 82%;
+  min-width: 0;
   padding: 8px 11px;
   border-radius: 10px;
   background: var(--raised);
@@ -553,11 +653,15 @@ button.chip.on {
 }
 
 .column {
-  flex: 1;
-  min-width: 0;
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-width: 0;
   height: 100dvh;
+}
+
+.column > .note {
+  padding: 8px 14px;
 }
 
 .side {
@@ -627,6 +731,7 @@ button.chip.on {
   border: none;
   background: none;
   text-align: left;
+  overflow-wrap: anywhere;
 }
 
 a.node {
@@ -668,6 +773,11 @@ a.node {
 
 .tr.crit {
   color: var(--crit);
+}
+
+.tr > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .tr .k {
@@ -812,13 +922,20 @@ a.node {
     display: flex;
   }
 
+  .list .item {
+    flex-wrap: wrap;
+  }
+
+  .list .item .actions {
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+
   .center {
     padding-bottom: 56px;
   }
 
   .column {
-    display: flex;
-    flex-direction: column;
     height: calc(100dvh - 56px);
   }
 
@@ -881,7 +998,8 @@ a.node {
   }
 
   .back,
-  .switch {
+  .switch,
+  .autopilot {
     padding-top: 11px;
     padding-bottom: 11px;
   }

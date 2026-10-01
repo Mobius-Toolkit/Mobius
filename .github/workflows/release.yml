@@ -31,7 +31,7 @@ jobs:
           fi
 
   bundle:
-    needs: check
+    needs: [check, tag]
     strategy:
       matrix:
         include:
@@ -50,6 +50,8 @@ jobs:
       # The dx version must match the dioxus version in Cargo.lock.
       - run: cargo install dioxus-cli --version 0.7.10 --locked
       - run: dx bundle --web --release -p mobius --out-dir dist
+        env:
+          MOBIUS_VERSION: ${{ needs.tag.outputs.tag }}
       # Dioxus reads public/ next to the executable.
       - run: |
           mv dist/server dist/mobius

@@ -1,9 +1,10 @@
 use std::fs;
 
-use mobius_domain::{InboxKind, Session};
+use mobius_domain::{InboxKind, Session, TranscriptRow};
 use mobius_engine::{Engine, github, inbox, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
 use mobius_testkit::{install_fake_harness, start_with_config, wait_for};
+use serde_json::Value;
 use tempfile::TempDir;
 
 const REPOSITORY: &str = "owner/shop";
@@ -81,6 +82,22 @@ async fn sessions(engine: &Engine, role: &str) -> Vec<Session> {
         .collect()
 }
 
+async fn lead_event_prompts(engine: &Engine) -> Vec<String> {
+    let mut all = Vec::new();
+    for session in sessions(engine, "lead_event").await {
+        let rows: Vec<TranscriptRow> = engine.store.transcript().list(session.id).await.unwrap();
+        all.extend(
+            rows.iter()
+                .filter(|row| row.kind == "prompt")
+                .filter_map(|row| {
+                    let json: Value = serde_json::from_str(&row.json).unwrap();
+                    json["text"].as_str().map(str::to_string)
+                }),
+        );
+    }
+    all
+}
+
 fn dispatch_start() -> String {
     format!("[[prompts]]\nwhen = \"dispatch of #41\"\n{START}\n")
 }
@@ -149,6 +166,17 @@ async fn a_worker_that_dies_after_max_worker_restarts_goes_to_a_human() {
         "needs_human"
     );
     assert!(github.pull_requests(REPOSITORY).is_empty());
+    let prompt = wait_for(async || {
+        lead_event_prompts(&engine)
+            .await
+            .into_iter()
+            .find(|prompt| prompt.contains(" stop of #41 \"Add plan model\":"))
+    })
+    .await;
+    assert!(
+        prompt.contains("the Worker failed after 1 restarts. Mobius added mobius:needs-human. The last error ends with these lines:\n\n```\nIncoming transport closed"),
+        "{prompt}"
+    );
 }
 
 #[tokio::test]
