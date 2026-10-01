@@ -1266,7 +1266,10 @@ fn Conversation(
                         }});
                         state.observer.observe(list);
                     }}
-                    if ({force} || list.__mobiusScroll.pinned) {{
+                    if ({force}) {{
+                        list.__mobiusScroll.pinned = true;
+                    }}
+                    if (list.__mobiusScroll.pinned) {{
                         list.scrollTop = list.scrollHeight;
                     }}
                 }});
