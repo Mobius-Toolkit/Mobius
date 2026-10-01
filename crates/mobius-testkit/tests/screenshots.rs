@@ -478,10 +478,8 @@ async fn enter_key_sends_on_the_desktop_only() {
         .unwrap();
     press_enter(&page, false).await;
     input.type_str("four").await.unwrap();
-    page.find_element(".composer button[type=submit]")
-        .await
-        .unwrap()
-        .click()
+    // A CDP mouse click does not activate the button while touch emulation is on.
+    page.evaluate("document.querySelector('.composer button[type=submit]').click()")
         .await
         .unwrap();
     wait_for(async || owner_sent(&engine, "three\nfour").await.then_some(())).await;
