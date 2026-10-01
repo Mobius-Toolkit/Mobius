@@ -114,6 +114,10 @@ async fn mark_ready_adds_the_ready_label_when_the_workstream_has_no_autopilot() 
             .labels(REPOSITORY, 30)
             .contains(&"mobius:ready".to_string())
     );
+    assert_eq!(
+        engine.store.tasks().live(REPOSITORY, 30).await.unwrap(),
+        None
+    );
     assert!(
         !github
             .labels(REPOSITORY, 13)
