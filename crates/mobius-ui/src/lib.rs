@@ -409,6 +409,10 @@ fn Frame() -> Element {
         .filter(|item| item.organization == organization())
         .count();
     let switch = switchable();
+    let on_workstreams = matches!(
+        use_route::<Route>(),
+        Route::WorkstreamList {} | Route::Chat { .. } | Route::NewWorkstream {}
+    );
     match &*app_slugs.read() {
         Some(Ok(slugs)) if !slugs.is_empty() => rsx! {
             div { class: "shell",
@@ -443,7 +447,7 @@ fn Frame() -> Element {
                 }
                 main { class: "center", Outlet::<Route> {} }
                 nav { class: "tabs",
-                    Link { active_class: "on", to: Route::WorkstreamList {},
+                    Link { class: if on_workstreams { "on" } else { "" }, to: Route::WorkstreamList {},
                         span { class: "glyph", "◎" }
                         "Workstreams"
                     }
@@ -1071,6 +1075,7 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
                 Agents { repository: repository.clone(), number }
             }
             if sheet() {
+                div { class: "backdrop", onclick: move |_| sheet.set(false) }
                 div { class: "sheet",
                     Agents { repository: repository.clone(), number, on_close: move |_| sheet.set(false) }
                 }
