@@ -1452,12 +1452,16 @@ fn Agents(repository: String, number: i64, on_close: Option<EventHandler>) -> El
     }
 }
 
-// The tab mounts this component each time it opens, so each open reads the list again.
+// The tab mounts this component each time it opens, and a `Live::Workstreams` event reads the list again.
 #[component]
 fn Tasks(repository: String, number: i64) -> Element {
+    let Workstreams(workstream_list) = use_context();
     let lines = use_resource(use_reactive(
         (&repository, &number),
-        |(repository, number)| async move { task_list(repository, number).await },
+        move |(repository, number)| async move {
+            workstream_list.read();
+            task_list(repository, number).await
+        },
     ));
     match &*lines.read() {
         None => rsx! {},
