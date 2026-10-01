@@ -114,7 +114,7 @@ The Owner's description of the goal and the limits of one Workstream.
 _Avoid_: Description, charter, spec
 
 **Autopilot**:
-A Workstream mode that a trusted user turns on with a label. In this mode, the Lead can dispatch the issues of its Workstream.
+A Workstream mode that a trusted user turns on with a label. In this mode, Mobius starts a task when a worker is free and all "blocked by" issues of its issue are closed. Mobius starts the tasks in the order of the sub-issues of the Workstream issue.
 _Avoid_: Auto mode, YOLO mode
 
 **Local check**:

@@ -66,6 +66,22 @@ impl Tasks<'_> {
         Ok(task)
     }
 
+    // Also gives `true` for an ended task.
+    pub async fn exists(
+        &self,
+        repository: &str,
+        issue: i64,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let exists = sqlx::query_scalar!(
+            r#"SELECT EXISTS(SELECT 1 FROM tasks WHERE repository = ? AND issue = ?) AS "exists!: bool""#,
+            repository,
+            issue
+        )
+        .fetch_one(self.pool)
+        .await?;
+        Ok(exists)
+    }
+
     // Gives `false` when the task is not in the state `from`.
     pub async fn queue(&self, id: i64, from: &str) -> Result<bool, Box<dyn Error + Send + Sync>> {
         let queued_at = OffsetDateTime::now_utc();
@@ -180,6 +196,15 @@ impl Tasks<'_> {
         .fetch_all(self.pool)
         .await?;
         Ok(tasks)
+    }
+
+    pub async fn active_count(&self) -> Result<i64, Box<dyn Error + Send + Sync>> {
+        let count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working')"
+        )
+        .fetch_one(self.pool)
+        .await?;
+        Ok(count)
     }
 
     // Gives the pull request of each task of the Workstream, also of an ended task.

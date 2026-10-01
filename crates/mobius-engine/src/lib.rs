@@ -1,6 +1,7 @@
 pub mod activity;
 pub mod agents;
 pub mod auth;
+mod autopilot;
 pub mod chat;
 mod checks;
 pub mod checkup;

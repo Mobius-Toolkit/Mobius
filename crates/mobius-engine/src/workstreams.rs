@@ -194,7 +194,7 @@ pub async fn set_autopilot(
     Ok(())
 }
 
-async fn issue_autopilot(
+pub(crate) async fn issue_autopilot(
     engine: &Engine,
     repository: &Repository,
     issue: &Issue,
