@@ -220,8 +220,14 @@ pub struct NewApp {
 }
 
 #[derive(Deserialize)]
-struct Release {
-    tag_name: String,
+pub struct Release {
+    pub tag_name: String,
+    pub assets: Vec<ReleaseAsset>,
+}
+
+#[derive(Deserialize)]
+pub struct ReleaseAsset {
+    pub name: String,
 }
 
 #[derive(Deserialize)]
@@ -491,12 +497,18 @@ impl GitHub {
     }
 
     // The repository is public, so the call needs no token.
-    pub async fn latest_release(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
-        let release: Release = self
+    pub async fn latest_release(&self) -> Result<Release, Box<dyn Error + Send + Sync>> {
+        Ok(self
             .api
             .get("/repos/Mobius-Toolkit/Mobius/releases/latest", None::<&()>)
-            .await?;
-        Ok(release.tag_name)
+            .await?)
+    }
+
+    pub fn release_url(&self, tag: &str, asset: &str) -> String {
+        format!(
+            "{}/Mobius-Toolkit/Mobius/releases/download/{tag}/{asset}",
+            self.web_url
+        )
     }
 }
 

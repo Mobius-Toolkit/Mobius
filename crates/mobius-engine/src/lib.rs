@@ -31,6 +31,7 @@ mod threads;
 pub mod transcript;
 mod triager;
 mod trust;
+pub mod upgrade;
 mod workers;
 pub mod workstreams;
 
@@ -84,6 +85,8 @@ pub struct Engine {
     pauses_changed: Arc<tokio::sync::Notify>,
     // The drain for an upgrade.
     drain: Arc<drain::Drain>,
+    // Set while an upgrade runs.
+    upgrading: Arc<std::sync::atomic::AtomicBool>,
     // The Housekeeper wakes the checks that wait for free disk space.
     disk_freed: Arc<tokio::sync::Notify>,
     // The stop signal of the Triager session of each issue.
@@ -141,6 +144,7 @@ pub async fn start(
         pausing: Arc::default(),
         pauses_changed: Arc::default(),
         drain: Arc::default(),
+        upgrading: Arc::default(),
         disk_freed: Arc::default(),
         triages: Arc::default(),
         quiet: Arc::default(),
@@ -168,6 +172,7 @@ pub fn missing_commands(config: &Config, path: &OsStr) -> Vec<&'static str> {
         .collect();
     programs.push("gh");
     programs.push("curl");
+    programs.push("tar");
     programs.sort();
     programs.dedup();
     programs.retain(|program| mobius_runner::find(program, path).is_none());

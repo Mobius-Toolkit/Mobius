@@ -8,6 +8,7 @@ Install these programs:
 
 - `git`
 - `curl`
+- `tar`
 - `gh`, the GitHub CLI
 - Node 22 or later, for the Claude Code adapter
 
@@ -137,7 +138,7 @@ Caution: "Workers run in full auto as your OS user and can read all your files."
 
 Do not run Mobius as the root user. The Claude Code adapter refuses the full auto mode for root.
 
-Mobius refuses to start when a Harness of your config, `gh`, or `curl` is not on `PATH`.
+Mobius refuses to start when a Harness of your config, `gh`, `curl`, or `tar` is not on `PATH`.
 
 If necessary, set these variables in the shell before you start Mobius:
 
@@ -177,7 +178,14 @@ Protect the default branch of each repository. Then only a pull request can chan
 
 ## 8. Upgrade and backup
 
-To upgrade Mobius:
+When a newer release exists, the sidebar shows the **Upgrade** button and the new version. To upgrade Mobius:
+
+1. Click **Upgrade**. Mobius downloads the release and holds each new agent.
+2. Wait. Mobius waits until each running agent ends, and then it restarts with the new version. Mobius updates its database when it starts.
+
+To stop the wait, click **Cancel upgrade**. Mobius then keeps the current version. If the upgrade fails, the sidebar shows the error and Mobius keeps the current version.
+
+To upgrade by hand:
 
 1. Stop Mobius.
 2. Run the `rm` and `curl` lines of step 2 again.
