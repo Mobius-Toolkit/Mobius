@@ -479,6 +479,7 @@ async fn chat_switch_shows_the_first_unread_message() {
         BrowserConfig::builder()
             .no_sandbox()
             .arg("--hide-scrollbars")
+            .user_data_dir(data_dir.path().join("chrome"))
             .build()
             .unwrap(),
     )
