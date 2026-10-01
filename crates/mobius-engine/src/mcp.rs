@@ -234,7 +234,7 @@ fn tools(role: &str) -> Vec<Tool> {
             ),
             tool(
                 "mark_ready",
-                "Add mobius:ready to an issue of the Workstream, Use it when the Owner tells you to start an issue.",
+                "Add mobius:ready to an issue of the Workstream. Use it when the Owner tells you to start an issue.",
                 object(json!({
                     "n": {
                         "type": "integer",
