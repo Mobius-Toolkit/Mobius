@@ -365,31 +365,31 @@ async fn message_list_scrolls_to_the_bottom() {
     .unwrap();
     tokio::spawn(async move { while handler.next().await.is_some() {} });
     log_in(&browser, &format!("{url}/github")).await;
-    let page = open(
-        &browser,
-        &format!("{url}/workstreams/owner/shop/12"),
-        DESKTOP,
-    )
-    .await;
-    wait_until_ready(&page, "Integrate loyalty plans", false).await;
-    wait_until_live(&page).await;
-    for n in 0..10 {
-        chat::send(&engine, "owner", REPOSITORY, 12, &format!("spam {n}"))
-            .await
-            .unwrap();
-    }
-    wait_for(async || {
-        check(
-            &page,
-            "(() => { const list = document.querySelector(\".msgs\");\
-             return list && list.scrollHeight - list.scrollTop - list.clientHeight < 5; })()"
-                .to_string(),
+    for (name, width, height, mobile) in [DESKTOP, PHONE] {
+        let page = open(
+            &browser,
+            &format!("{url}/workstreams/owner/shop/12"),
+            (name, width, height, mobile),
         )
-        .await
-        .then_some(())
-    })
-    .await;
-    page.close().await.unwrap();
+        .await;
+        wait_until_ready(&page, "Integrate loyalty plans", false).await;
+        wait_until_live(&page).await;
+        for n in 0..20 {
+            let text = format!("spam {name} {n} {}", "word ".repeat(40));
+            chat::send(&engine, "owner", REPOSITORY, 12, &text)
+                .await
+                .unwrap();
+        }
+        // The list must show the last message and overflow, or the scroll position proves nothing.
+        let script = format!(
+            "(() => {{ const list = document.querySelector(\".msgs\");\
+             return list.textContent.includes(\"spam {name} 19\") \
+             && list.scrollHeight > list.clientHeight \
+             && list.scrollHeight - list.scrollTop - list.clientHeight < 5; }})()"
+        );
+        wait_for(async || check(&page, script.clone()).await.then_some(())).await;
+        page.close().await.unwrap();
+    }
     browser.close().await.unwrap();
 }
 
