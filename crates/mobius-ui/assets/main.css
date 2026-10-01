@@ -375,6 +375,10 @@ a.btn {
   color: var(--accent);
 }
 
+.entry.upd {
+  color: var(--accent);
+}
+
 .list .entry {
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);

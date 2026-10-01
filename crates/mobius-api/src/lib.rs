@@ -142,6 +142,11 @@ pub async fn github_user_callback() -> ServerFnResult<Redirect> {
     Ok(Redirect::to("/github"))
 }
 
+#[get("/api/release", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn release() -> ServerFnResult<Option<String>> {
+    Ok(github::new_release(&engine).await)
+}
+
 #[get("/api/organizations", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn organizations() -> ServerFnResult<Vec<String>> {
     Ok(workstreams::organizations(&engine))

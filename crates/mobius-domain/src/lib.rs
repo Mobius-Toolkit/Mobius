@@ -7,6 +7,23 @@ pub const PAUSED: &str = "paused until ";
 // The release tag of this binary, set by the release workflow. A local build has no release tag.
 pub const RELEASE_VERSION: Option<&'static str> = option_env!("MOBIUS_VERSION");
 
+fn release_tag(tag: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = tag.strip_prefix('v')?.split('.');
+    let version = (
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    );
+    parts.next().is_none().then_some(version)
+}
+
+pub fn newer_release(current: &str, latest: &str) -> bool {
+    match (release_tag(current), release_tag(latest)) {
+        (Some(current), Some(latest)) => latest > current,
+        _ => false,
+    }
+}
+
 pub fn organization(repository: &str) -> &str {
     repository.split('/').next().unwrap_or_default()
 }
@@ -344,4 +361,31 @@ pub enum Live {
         repository: String,
         number: i64,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_newer_release_tag_counts_each_number() {
+        assert!(newer_release("v0.1.57", "v0.2.0"));
+        assert!(newer_release("v1.9.9", "v2.0.0"));
+        // Numbers, not text: "10" sorts before "9" as text.
+        assert!(newer_release("v0.1.9", "v0.1.10"));
+    }
+
+    #[test]
+    fn an_equal_or_older_release_tag_is_not_newer() {
+        assert!(!newer_release("v0.1.57", "v0.1.57"));
+        assert!(!newer_release("v0.1.10", "v0.1.9"));
+        assert!(!newer_release("v2.0.0", "v1.9.9"));
+    }
+
+    #[test]
+    fn a_tag_that_does_not_parse_is_not_newer() {
+        assert!(!newer_release("v0.1.57", "latest"));
+        assert!(!newer_release("v0.1.57", "v0.1"));
+        assert!(!newer_release("local", "v0.2.0"));
+    }
 }
