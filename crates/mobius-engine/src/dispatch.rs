@@ -30,6 +30,7 @@ pub(crate) async fn dispatch_ready(
     else {
         return Ok(());
     };
+    let mut held = false;
     for issue in &page.issues {
         if issue.pull_request.is_some() {
             continue;
@@ -57,7 +58,7 @@ pub(crate) async fn dispatch_ready(
             continue;
         }
         let Some(workstream) = workstreams::workstream_of(repository, issue.number).await? else {
-            triager::triage(engine, repository, issue.number).await?;
+            held |= !triager::triage(engine, repository, issue.number).await?;
             continue;
         };
         if issue.issue_dependencies_summary.blocked_by > 0 {
@@ -73,6 +74,10 @@ pub(crate) async fn dispatch_ready(
             engine.store.tasks().end(task.id).await?;
         }
         dispatch(engine, repository, issue, workstream, actor).await?;
+    }
+    // A drain that starts during the loop holds a Triager. The saved ETag would hide the issue from the next poll.
+    if held {
+        return Ok(());
     }
     engine
         .store
