@@ -24,8 +24,8 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::threads::Target;
 use crate::{
-    Engine, chat, dispatch, implementer, issues, judge, lead_events, plans, researcher, reviewer,
-    tasks, threads, triager, trust,
+    Engine, chat, dispatch, implementer, issues, judge, lead, lead_events, plans, researcher,
+    reviewer, tasks, threads, triager, trust,
 };
 
 #[derive(Clone)]
@@ -145,6 +145,22 @@ fn tools(role: &str) -> Vec<Tool> {
                         "type": "string",
                         "minLength": 1,
                         "description": "The goal, the limits, and what \"done\" means."
+                    }
+                })),
+            ),
+            tool(
+                "start_fix_round",
+                "Start a fix round on the pull request of a task that is ready_for_review. The Implementer gets your findings as the open items. The round counts toward max_fix_rounds. Returns at once.",
+                object(json!({
+                    "n": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the task issue."
+                    },
+                    "findings": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Your findings on the pull request: what to change and why."
                     }
                 })),
             ),
@@ -427,6 +443,22 @@ fn tools(role: &str) -> Vec<Tool> {
                 }
             })),
         ));
+        tools.push(tool(
+            "move_task",
+            "Make a task of this Workstream a sub-issue of a different open Workstream in this repository. Call it only after the Owner approves the move in the chat. The task must not be in progress.",
+            object(json!({
+                "n": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "The number of the task issue."
+                },
+                "workstream": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "The number of the target Workstream issue."
+                }
+            })),
+        ));
     }
     if role == lead_events::ROLE {
         tools.push(tool(
@@ -472,6 +504,13 @@ struct ReadIssue {
 struct StartImplementer {
     n: i64,
     instructions: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StartFixRound {
+    n: i64,
+    findings: String,
 }
 
 #[derive(Deserialize)]
@@ -625,6 +664,23 @@ impl Handler {
                 )
                 .await
             }
+            "start_fix_round" => {
+                let StartFixRound { n, findings } = parse(tool, arguments)?;
+                if n < 1 {
+                    return Err("n must be 1 or more.".into());
+                }
+                if findings.trim().is_empty() {
+                    return Err("findings must not be empty.".into());
+                }
+                dispatch::fix_round(
+                    &self.engine,
+                    &repository,
+                    self.caller.workstream,
+                    n,
+                    &findings,
+                )
+                .await
+            }
             "create_workstream" => {
                 let CreateWorkstream { title, brief } = parse(tool, arguments)?;
                 if self.caller.role != chat::ROLE && !self.caller.repository.is_empty() {
@@ -647,6 +703,22 @@ impl Handler {
                     }
                 });
                 Ok(format!("Created the Workstream #{number}."))
+            }
+            "move_task" => {
+                let MoveIssue { n, workstream } = parse(tool, arguments)?;
+                if n < 1 || workstream < 1 {
+                    return Err("n and workstream must be 1 or more.".into());
+                }
+                let result = lead::move_task(
+                    &self.engine,
+                    &repository,
+                    self.caller.workstream,
+                    n,
+                    workstream,
+                )
+                .await?;
+                self.engine.broadcast(Live::Workstreams);
+                Ok(result)
             }
             "move_issue" => {
                 let MoveIssue { n, workstream } = parse(tool, arguments)?;

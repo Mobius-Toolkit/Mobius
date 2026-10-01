@@ -67,6 +67,64 @@ pub struct ManifestForm {
     pub manifest: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LabelStatus {
+    Present,
+    // The label exists with this different color.
+    WrongColor(String),
+    // The label exists with this name in a different case. The engine compares label
+    // names exactly, so it does not see this label on issues.
+    WrongCase(String),
+    Missing,
+}
+
+impl LabelStatus {
+    // Mobius does not rename labels, so a label in a different case stays for a human.
+    pub fn fixable(&self) -> bool {
+        matches!(self, LabelStatus::Missing | LabelStatus::WrongColor(_))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LabelCheck {
+    pub name: String,
+    // The fixed color of the label.
+    pub color: String,
+    pub status: LabelStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepositoryCheckup {
+    pub repository: String,
+    pub labels: Vec<LabelCheck>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PermissionStatus {
+    Present,
+    // The App has the permission and the installation does not. The Owner accepts it on this page.
+    NotAccepted(String),
+    // The App does not have the permission. The Owner adds it on this page.
+    Missing(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionCheck {
+    pub name: String,
+    // The required level.
+    pub level: String,
+    pub status: PermissionStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckupView {
+    pub repositories: Vec<RepositoryCheckup>,
+    // The error text when the check of the App permissions fails. The label status does not depend on it.
+    pub permissions: Result<Vec<PermissionCheck>, String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Workstream {
     pub repository: String,
@@ -239,10 +297,11 @@ pub enum InboxKind {
     UsageLimit,
     LeadFailed,
     Stopped,
+    DiskFull,
 }
 
 impl InboxKind {
-    pub const ALL: [InboxKind; 7] = [
+    pub const ALL: [InboxKind; 8] = [
         InboxKind::Question,
         InboxKind::Lead,
         InboxKind::ReadyForReview,
@@ -250,6 +309,7 @@ impl InboxKind {
         InboxKind::UsageLimit,
         InboxKind::LeadFailed,
         InboxKind::Stopped,
+        InboxKind::DiskFull,
     ];
 
     pub fn name(self) -> &'static str {
@@ -261,6 +321,7 @@ impl InboxKind {
             InboxKind::UsageLimit => "usage limit",
             InboxKind::LeadFailed => "Lead failed",
             InboxKind::Stopped => "stopped",
+            InboxKind::DiskFull => "full disk",
         }
     }
 }

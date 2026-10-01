@@ -201,6 +201,11 @@ a.btn {
 .rail {
   width: 200px;
   flex: none;
+  height: 100dvh;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -259,6 +264,56 @@ a.btn {
   padding-left: 0;
 }
 
+.autopilot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  border: none;
+  background: none;
+  padding: 4px 0;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.autopilot .track {
+  flex: none;
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.autopilot .knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--raised);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.autopilot[aria-checked="true"] {
+  color: var(--ink);
+}
+
+.autopilot[aria-checked="true"] .track {
+  background: var(--ok);
+}
+
+.autopilot[aria-checked="true"] .knob {
+  left: 14px;
+}
+
+.autopilot:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .backdrop {
   position: fixed;
   inset: 0;
@@ -273,6 +328,8 @@ a.btn {
   z-index: 11;
   display: flex;
   flex-direction: column;
+  max-height: 70dvh;
+  overflow-y: auto;
   padding: 4px;
   background: var(--raised);
   border: 1px solid var(--line);
@@ -293,6 +350,10 @@ a.btn {
 
 .rail .section {
   padding: 14px 8px 4px;
+}
+
+.checkup .section {
+  padding: 14px 14px 4px;
 }
 
 .center > .section {
@@ -376,6 +437,8 @@ button.chip.on {
 }
 
 .head h2 {
+  flex: 0 1 auto;
+  min-width: 0;
   margin: 0;
   font-size: 15px;
   font-weight: 600;
@@ -410,6 +473,7 @@ button.chip.on {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -418,6 +482,32 @@ button.chip.on {
 
 .msgs .empty {
   margin: auto;
+}
+
+.brief {
+  flex: none;
+  max-height: 40dvh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.briefhead {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: var(--surface);
+  font-weight: 600;
+  text-align: left;
+}
+
+.brief .md {
+  padding: 0 14px 10px;
 }
 
 .msg {
@@ -567,11 +657,15 @@ button.chip.on {
 }
 
 .column {
-  flex: 1;
-  min-width: 0;
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-width: 0;
   height: 100dvh;
+}
+
+.column > .note {
+  padding: 8px 14px;
 }
 
 .side {
@@ -830,8 +924,6 @@ a.node {
   }
 
   .column {
-    display: flex;
-    flex-direction: column;
     height: calc(100dvh - 56px);
   }
 
@@ -894,7 +986,8 @@ a.node {
   }
 
   .back,
-  .switch {
+  .switch,
+  .autopilot {
     padding-top: 11px;
     padding-bottom: 11px;
   }

@@ -478,6 +478,24 @@ pub async fn check(
     Ok(Check::Failed(log))
 }
 
+// Gives the free space in bytes of the file system of the directory. `df` comes from `path`.
+pub async fn free_space(dir: &Path, path: &OsStr) -> Result<u64, String> {
+    let output = Command::new("df")
+        .arg("-Pk")
+        .arg(dir)
+        .env("PATH", path)
+        .output()
+        .await
+        .map_err(|error| format!("df -Pk: {error}"))?;
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .nth(1)
+        .and_then(|line| line.split_whitespace().nth(3))
+        .and_then(|kib| kib.parse::<u64>().ok())
+        .map(|kib| kib * 1024)
+        .ok_or_else(|| format!("df -Pk: {}", String::from_utf8_lossy(&output.stderr).trim()))
+}
+
 pub struct Session {
     connection: ConnectionTo<Agent>,
     id: SessionId,

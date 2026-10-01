@@ -177,7 +177,7 @@ async fn a_poll_fixes_the_labels_of_a_managed_repository_one_time() {
 // GitHub compares label names without regard to case, so a POST for a label in a
 // different case fails. The engine does not see such a label on issues, because it
 // compares names exactly, so the status is not `Present`. `fix` leaves the label for
-// a human, because a rename is not possible.
+// a human, because Mobius does not rename labels.
 #[tokio::test]
 async fn fix_skips_a_label_with_a_name_in_a_different_case() {
     let data_dir = TempDir::new().unwrap();

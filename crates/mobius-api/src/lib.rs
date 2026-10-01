@@ -1,8 +1,8 @@
 use dioxus::fullstack::{Redirect, ServerEvents, SetCookie, SetHeader};
 use dioxus::prelude::*;
 use mobius_domain::{
-    ActiveAgents, AgentNode, ChatView, Devices, InboxItem, Live, ManifestForm, TaskLine,
-    TranscriptLine, Unread, Workstream,
+    ActiveAgents, AgentNode, ChatView, CheckupView, Devices, InboxItem, Live, ManifestForm,
+    TaskLine, TranscriptLine, Unread, Workstream,
 };
 
 #[cfg(feature = "server")]
@@ -152,9 +152,34 @@ pub async fn organizations() -> ServerFnResult<Vec<String>> {
     Ok(workstreams::organizations(&engine))
 }
 
+#[get("/api/checkup?organization", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn checkup(organization: Option<String>) -> ServerFnResult<CheckupView> {
+    mobius_engine::checkup::status(&engine, &organization.unwrap_or_default())
+        .await
+        .map_err(ServerFnError::new)
+}
+
+#[post("/api/checkup/fix", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn fix_labels(organization: String) -> ServerFnResult<()> {
+    mobius_engine::checkup::fix(&engine, &organization)
+        .await
+        .map_err(ServerFnError::new)
+}
+
 #[get("/api/workstreams", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn workstreams() -> ServerFnResult<Vec<Workstream>> {
     workstreams::list(&engine).await.map_err(ServerFnError::new)
+}
+
+#[post("/api/workstreams/autopilot", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn workstream_autopilot(
+    repository: String,
+    workstream: i64,
+    on: bool,
+) -> ServerFnResult<()> {
+    workstreams::set_autopilot(&engine, &repository, workstream, on)
+        .await
+        .map_err(ServerFnError::new)
 }
 
 #[get("/api/live?after", _device: DeviceId, engine: Extension<Engine>)]

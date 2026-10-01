@@ -108,6 +108,7 @@ async fn the_lead_gets_the_mobius_url_and_only_the_lead_tools() {
             "list_tasks",
             "read_issue",
             "start_implementer",
+            "start_fix_round",
             "start_researcher",
             "ask",
             "decline",
@@ -115,7 +116,8 @@ async fn the_lead_gets_the_mobius_url_and_only_the_lead_tools() {
             "mark_ready",
             "reply_thread",
             "comment_pull_request",
-            "create_workstream"
+            "create_workstream",
+            "move_task"
         ]
     );
     for tool in tools {

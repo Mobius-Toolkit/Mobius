@@ -88,6 +88,19 @@ async fn a_chat_session_is_a_lead_node_that_is_live_until_it_ends() {
     assert_eq!(node.session.harness, Harness::ClaudeCode);
     assert_eq!(node.session.model, "opus");
     assert_eq!(node.session.ended_at, None);
+    // A stop before the Lead slot ends the chat with `stopped`. The first prompt comes after the slot.
+    wait_for(async || {
+        engine
+            .store
+            .transcript()
+            .list(node.session.id)
+            .await
+            .unwrap()
+            .iter()
+            .any(|row| row.kind == "prompt")
+            .then_some(())
+    })
+    .await;
 
     chat::stop(&engine, "owner", REPOSITORY, 12).unwrap();
 

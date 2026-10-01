@@ -37,6 +37,15 @@ const SECOND_INSTALLATION_TOKEN: &str = "ghs_second_installation";
 // The id of an issue is its number plus this offset, so a number in place of an id finds no issue.
 pub const ISSUE_ID_OFFSET: i64 = 100_000;
 
+// The permissions of the Mobius App before the Owner adds `workflows`.
+const DEFAULT_PERMISSIONS: [(&str, &str); 5] = [
+    ("issues", "write"),
+    ("pull_requests", "write"),
+    ("contents", "write"),
+    ("checks", "write"),
+    ("metadata", "read"),
+];
+
 struct App {
     id: i64,
     slug: &'static str,
@@ -130,6 +139,9 @@ struct Records {
     second_app_accounts: HashSet<String>,
     // The ids of the Apps whose installation list fails.
     failed_apps: HashSet<i64>,
+    // The permissions of each App and of its installation by App id. An App without an entry has `DEFAULT_PERMISSIONS`.
+    app_permissions: HashMap<i64, HashMap<String, String>>,
+    installation_permissions: HashMap<i64, HashMap<String, String>>,
     // The login and the App index of each code and refresh token.
     user_codes: HashMap<String, (String, usize)>,
     user_tokens: HashMap<String, String>,
@@ -180,8 +192,28 @@ impl Records {
         usize::from(self.second_app_accounts.contains(account))
     }
 
+    fn permissions(
+        permissions: &HashMap<i64, HashMap<String, String>>,
+        app_id: i64,
+    ) -> HashMap<String, String> {
+        permissions.get(&app_id).cloned().unwrap_or_else(|| {
+            DEFAULT_PERMISSIONS
+                .iter()
+                .map(|(name, level)| (name.to_string(), level.to_string()))
+                .collect()
+        })
+    }
+
     fn app_login(&self, repository: &str) -> String {
         format!("{}[bot]", APPS[self.app_index(repository)].slug)
+    }
+
+    // The actor of a label write is the user of a `ghu_` token, or the App bot for an installation token.
+    fn actor(&self, repository: &str, headers: &HeaderMap) -> String {
+        self.user_tokens
+            .get(bearer(headers))
+            .cloned()
+            .unwrap_or_else(|| self.app_login(repository))
     }
 
     fn insert_issue(
@@ -277,14 +309,14 @@ impl Records {
     }
 
     fn label(&mut self, repository: &str, number: i64, label: &str, actor: &str) {
-        let now = self.tick();
-        let issue = self
-            .issues
-            .get_mut(&(repository.to_string(), number))
-            .unwrap();
-        if !issue.labels.iter().any(|name| name == label) {
-            issue.labels.push(label.to_string());
+        let key = (repository.to_string(), number);
+        // GitHub records no `labeled` event for a label the issue already has.
+        if self.issues[&key].labels.iter().any(|name| name == label) {
+            return;
         }
+        let now = self.tick();
+        let issue = self.issues.get_mut(&key).unwrap();
+        issue.labels.push(label.to_string());
         issue.updated_at = now;
         issue.events.push(json!({
             "event": "labeled",
@@ -405,6 +437,7 @@ impl FakeGitHub {
             .route("/app-manifests/{code}/conversions", post(convert_manifest))
             .route("/login/oauth/access_token", post(exchange_code))
             .route("/user", get(user))
+            .route("/app", get(app))
             .route("/app/installations", get(installations))
             .route(
                 "/app/installations/{id}/access_tokens",
@@ -521,6 +554,22 @@ impl FakeGitHub {
             .unwrap()
             .second_app_accounts
             .insert(account.to_string());
+    }
+
+    pub fn set_app_permissions(&self, app_id: i64, permissions: &[(&str, &str)]) {
+        self.state
+            .lock()
+            .unwrap()
+            .app_permissions
+            .insert(app_id, owned(permissions));
+    }
+
+    pub fn set_installation_permissions(&self, app_id: i64, permissions: &[(&str, &str)]) {
+        self.state
+            .lock()
+            .unwrap()
+            .installation_permissions
+            .insert(app_id, owned(permissions));
     }
 
     pub fn fail_installations(&self, app_id: i64) {
@@ -772,6 +821,16 @@ impl FakeGitHub {
         self.state.lock().unwrap().issues[&(repository.to_string(), number)]
             .labels
             .clone()
+    }
+
+    // Gives the actor of the last `labeled` or `unlabeled` event of `label`.
+    pub fn label_actor(&self, repository: &str, number: i64, label: &str) -> Option<String> {
+        self.state.lock().unwrap().issues[&(repository.to_string(), number)]
+            .events
+            .iter()
+            .rev()
+            .find(|event| event["label"]["name"] == label)
+            .map(|event| event["actor"]["login"].as_str().unwrap().to_string())
     }
 
     pub fn add_review(&self, repository: &str, number: i64, author: &str, state: &str, body: &str) {
@@ -1071,6 +1130,24 @@ fn signed_app(headers: &HeaderMap) -> usize {
     APPS.iter().position(|app| Some(app.id) == id).unwrap()
 }
 
+fn owned(permissions: &[(&str, &str)]) -> HashMap<String, String> {
+    permissions
+        .iter()
+        .map(|(name, level)| (name.to_string(), level.to_string()))
+        .collect()
+}
+
+async fn app(State(state): State<Shared>, headers: HeaderMap) -> Response {
+    let app = &APPS[signed_app(&headers)];
+    let records = state.lock().unwrap();
+    Json(json!({
+        "id": app.id,
+        "slug": app.slug,
+        "permissions": Records::permissions(&records.app_permissions, app.id)
+    }))
+    .into_response()
+}
+
 async fn installations(State(state): State<Shared>, headers: HeaderMap) -> Response {
     let app = signed_app(&headers);
     let records = state.lock().unwrap();
@@ -1084,7 +1161,22 @@ async fn installations(State(state): State<Shared>, headers: HeaderMap) -> Respo
     {
         return Json(json!([])).into_response();
     }
-    Json(json!([{ "id": app + 1 }])).into_response()
+    // The one installation of an App has the account of its first repository.
+    let account = records
+        .repositories
+        .iter()
+        .find(|repository| records.app_index(repository) == app)
+        .and_then(|repository| repository.split('/').next())
+        .unwrap_or_default();
+    Json(json!([{
+        "id": app + 1,
+        "account": {
+            "login": account,
+            "type": records.account_types.get(account).copied().unwrap_or("User")
+        },
+        "permissions": Records::permissions(&records.installation_permissions, APPS[app].id)
+    }]))
+    .into_response()
 }
 
 async fn installation_token(Path(id): Path<usize>) -> Response {
@@ -1244,13 +1336,14 @@ struct NewLabels {
 async fn add_labels(
     State(state): State<Shared>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
     Json(new): Json<NewLabels>,
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    let bot = records.app_login(&repository);
+    let actor = records.actor(&repository, &headers);
     for label in &new.labels {
-        records.label(&repository, number, label, &bot);
+        records.label(&repository, number, label, &actor);
     }
     Json(label_list(&records, &repository, number)).into_response()
 }
@@ -1583,11 +1676,12 @@ async fn graphql(State(state): State<Shared>, Json(request): Json<GraphQl>) -> R
 async fn remove_label(
     State(state): State<Shared>,
     Path((owner, repo, number, name)): Path<(String, String, i64, String)>,
+    headers: HeaderMap,
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    let bot = records.app_login(&repository);
-    if !records.unlabel(&repository, number, &name, &bot) {
+    let actor = records.actor(&repository, &headers);
+    if !records.unlabel(&repository, number, &name, &actor) {
         return not_found();
     }
     Json(label_list(&records, &repository, number)).into_response()
