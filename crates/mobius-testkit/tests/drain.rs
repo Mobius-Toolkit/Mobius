@@ -361,3 +361,30 @@ async fn the_drain_holds_new_agents_waits_for_the_running_work_and_a_cancel_rele
     wait_for(async || (!sessions(&engine, "judge").await.is_empty()).then_some(())).await;
     wait_for(async || (!triagers(&engine).await.is_empty()).then_some(())).await;
 }
+
+#[tokio::test]
+async fn a_triager_that_a_drain_held_during_a_poll_starts_in_the_poll_after_a_cancel() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, &data_dir.path().join("go")).await;
+    github.add_issue(REPOSITORY, 50, "Change request");
+    let hold = github.hold_issue_events(REPOSITORY, 50);
+    github.add_label(REPOSITORY, 50, "mobius:ready", "owner");
+
+    // The poll has read the ready list and waits for the events of the issue.
+    hold.reached.notified().await;
+    let drain = {
+        let engine = engine.clone();
+        tokio::spawn(async move { drain::start(&engine).await })
+    };
+    wait_for(async || drain::waiting(&engine).map(|_| ())).await;
+    hold.release.notify_one();
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(triagers(&engine).await.is_empty());
+    assert_eq!(github.labels(REPOSITORY, 50), ["mobius:ready"]);
+
+    assert_eq!(drain.await.unwrap(), DrainEnd::Drained);
+    drain::cancel(&engine).await.unwrap();
+    wait_for(async || (!triagers(&engine).await.is_empty()).then_some(())).await;
+}

@@ -111,10 +111,10 @@ pub(crate) async fn triage(
     engine: &Engine,
     repository: &Repository,
     number: i64,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
-    // The drain holds each new Triager. The next poll after a cancel starts it.
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    // The drain holds each new Triager. The caller reads the same issue again in the next poll after a cancel.
     let Some(guard) = drain::try_track(engine) else {
-        return Ok(());
+        return Ok(false);
     };
     repository.add_label(number, NO_WORKSTREAM_LABEL).await?;
     repository.remove_label(number, READY_LABEL).await?;
@@ -125,7 +125,7 @@ pub(crate) async fn triage(
         .unwrap()
         .insert((repository.full_name.clone(), number), stop.clone());
     tokio::spawn(run(engine.clone(), repository.clone(), number, stop, guard));
-    Ok(())
+    Ok(true)
 }
 
 async fn run(
