@@ -83,6 +83,30 @@ pub struct RepositoryCheckup {
     pub labels: Vec<LabelCheck>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PermissionStatus {
+    Present,
+    // The App has the permission and the installation does not. The Owner accepts it on this page.
+    NotAccepted(String),
+    // The App does not have the permission. The Owner adds it on this page.
+    Missing(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionCheck {
+    pub name: String,
+    // The required level.
+    pub level: String,
+    pub status: PermissionStatus,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckupView {
+    pub repositories: Vec<RepositoryCheckup>,
+    pub permissions: Vec<PermissionCheck>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Workstream {
     pub repository: String,

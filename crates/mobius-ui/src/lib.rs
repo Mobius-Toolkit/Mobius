@@ -13,7 +13,7 @@ use mobius_api::{
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, LabelStatus, Live, PAUSED,
-    RepositoryCheckup, TaskLine, TranscriptLine, Workstream,
+    PermissionStatus, RepositoryCheckup, TaskLine, TranscriptLine, Workstream,
 };
 use time::UtcOffset;
 use time::macros::format_description;
@@ -663,6 +663,18 @@ fn label_status(status: &LabelStatus) -> Element {
     }
 }
 
+fn permission_status(status: &PermissionStatus) -> Element {
+    match status {
+        PermissionStatus::Present => rsx! { span { class: "chip plain", "present" } },
+        PermissionStatus::NotAccepted(url) => rsx! {
+            a { class: "chip warn", href: "{url}", target: "_blank", "not accepted: accept on GitHub" }
+        },
+        PermissionStatus::Missing(url) => rsx! {
+            a { class: "chip warn", href: "{url}", target: "_blank", "missing: add on GitHub" }
+        },
+    }
+}
+
 #[component]
 fn Checkup() -> Element {
     let Organization(organization) = use_context();
@@ -680,7 +692,7 @@ fn Checkup() -> Element {
         }
     });
     let button = match &*resource.read() {
-        Some(Ok(repositories)) => fix_button(repositories),
+        Some(Ok(view)) => fix_button(&view.repositories),
         _ => None,
     };
     rsx! {
@@ -706,12 +718,23 @@ fn Checkup() -> Element {
         }
         div { class: "error note", {error} }
         match &*resource.read() {
-            Some(Ok(repositories)) => rsx! {
-                if repositories.is_empty() {
+            Some(Ok(view)) => rsx! {
+                if view.repositories.is_empty() {
                     p { class: "muted small note", "The Mobius App has no repository in this organization." }
                 }
                 div { class: "checkup",
-                    for repository in repositories {
+                    if !view.permissions.is_empty() {
+                        div { class: "label section", "App permissions" }
+                        div { class: "list",
+                            for permission in &view.permissions {
+                                div { key: "{permission.name}", class: "item",
+                                    span { class: "grow", "{permission.name}: {permission.level}" }
+                                    {permission_status(&permission.status)}
+                                }
+                            }
+                        }
+                    }
+                    for repository in &view.repositories {
                         div { key: "{repository.repository}", class: "label section", "{repository.repository}" }
                         div { class: "list",
                             for label in &repository.labels {

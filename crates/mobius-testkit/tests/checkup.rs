@@ -4,10 +4,10 @@ use dioxus::server::axum::{Extension, Router};
 use dioxus::server::{DioxusRouterExt, FullstackState};
 // Links the server functions of `mobius-api` into this test binary.
 use mobius_api as _;
-use mobius_domain::{LabelStatus, RepositoryCheckup};
+use mobius_domain::{CheckupView, LabelStatus, PermissionStatus, RepositoryCheckup};
 use mobius_engine::labels::MOBIUS_LABELS;
 use mobius_engine::{Engine, github, workstreams};
-use mobius_testkit::fake_github::FakeGitHub;
+use mobius_testkit::fake_github::{APP_ID, APP_SLUG, FakeGitHub};
 use mobius_testkit::{start, wait_for};
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -42,7 +42,7 @@ async fn cookie(engine: &Engine) -> String {
         .to_string()
 }
 
-async fn get_checkup(engine: &Engine, cookie: &str, organization: &str) -> Vec<RepositoryCheckup> {
+async fn get_view(engine: &Engine, cookie: &str, organization: &str) -> CheckupView {
     let response = api(engine)
         .oneshot(
             Request::get(format!("/api/checkup?organization={organization}"))
@@ -54,6 +54,10 @@ async fn get_checkup(engine: &Engine, cookie: &str, organization: &str) -> Vec<R
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     serde_json::from_slice(&to_bytes(response.into_body(), usize::MAX).await.unwrap()).unwrap()
+}
+
+async fn get_checkup(engine: &Engine, cookie: &str, organization: &str) -> Vec<RepositoryCheckup> {
+    get_view(engine, cookie, organization).await.repositories
 }
 
 async fn fix(engine: &Engine, cookie: &str, organization: &str) -> StatusCode {
@@ -204,4 +208,100 @@ async fn the_checkup_shows_the_label_status_and_the_button_fixes_the_fixable() {
             .any(|label| label.name == "Mobius:Autopilot")
     );
     assert_eq!(github.label_patches(REPOSITORY), ["mobius:working"]);
+}
+
+#[tokio::test]
+async fn the_checkup_shows_the_status_of_each_app_permission_with_the_link_to_fix_it() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    github.add_account("owner", "Organization");
+    github.add_repository(REPOSITORY);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    wait_for(async || {
+        workstreams::organizations(&engine)
+            .contains(&"owner".to_string())
+            .then_some(())
+    })
+    .await;
+    let cookie = cookie(&engine).await;
+    let status_of = async |name: &str| {
+        get_view(&engine, &cookie, "owner")
+            .await
+            .permissions
+            .into_iter()
+            .find(|permission| permission.name == name)
+            .unwrap()
+            .status
+    };
+
+    let view = get_view(&engine, &cookie, "owner").await;
+    let names: Vec<&str> = view
+        .permissions
+        .iter()
+        .map(|permission| permission.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "issues",
+            "pull_requests",
+            "contents",
+            "checks",
+            "workflows",
+            "metadata"
+        ]
+    );
+    assert_eq!(status_of("issues").await, PermissionStatus::Present);
+
+    // The App has no `workflows` permission.
+    assert_eq!(
+        status_of("workflows").await,
+        PermissionStatus::Missing(format!(
+            "{}/organizations/owner/settings/apps/{APP_SLUG}/permissions",
+            github.url
+        ))
+    );
+
+    // The App has the permission, and the installation does not.
+    let mut permissions = vec![
+        ("issues", "write"),
+        ("pull_requests", "write"),
+        ("contents", "write"),
+        ("checks", "write"),
+        ("metadata", "read"),
+        ("workflows", "write"),
+    ];
+    github.set_app_permissions(APP_ID, &permissions);
+    assert_eq!(
+        status_of("workflows").await,
+        PermissionStatus::NotAccepted(format!(
+            "{}/organizations/owner/settings/installations/1",
+            github.url
+        ))
+    );
+
+    // A lower level in the installation is not enough.
+    github.set_installation_permissions(APP_ID, &[("workflows", "read")]);
+    assert!(matches!(
+        status_of("workflows").await,
+        PermissionStatus::NotAccepted(_)
+    ));
+    assert!(matches!(
+        status_of("issues").await,
+        PermissionStatus::NotAccepted(_)
+    ));
+
+    // The installation has each permission, a higher level counts.
+    permissions[5] = ("workflows", "admin");
+    github.set_installation_permissions(APP_ID, &permissions);
+    let view = get_view(&engine, &cookie, "owner").await;
+    assert!(
+        view.permissions
+            .iter()
+            .all(|permission| permission.status == PermissionStatus::Present)
+    );
 }
