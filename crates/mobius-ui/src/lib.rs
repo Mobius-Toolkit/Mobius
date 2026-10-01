@@ -723,16 +723,23 @@ fn Checkup() -> Element {
                     p { class: "muted small note", "The Mobius App has no repository in this organization." }
                 }
                 div { class: "checkup",
-                    if !view.permissions.is_empty() {
-                        div { class: "label section", "App permissions" }
-                        div { class: "list",
-                            for permission in &view.permissions {
-                                div { key: "{permission.name}", class: "item",
-                                    span { class: "grow", "{permission.name}: {permission.level}" }
-                                    {permission_status(&permission.status)}
+                    match &view.permissions {
+                        Ok(permissions) if permissions.is_empty() => rsx! {},
+                        Ok(permissions) => rsx! {
+                            div { class: "label section", "App permissions" }
+                            div { class: "list",
+                                for permission in permissions {
+                                    div { key: "{permission.name}", class: "item",
+                                        span { class: "grow", "{permission.name}: {permission.level}" }
+                                        {permission_status(&permission.status)}
+                                    }
                                 }
                             }
-                        }
+                        },
+                        Err(message) => rsx! {
+                            div { class: "label section", "App permissions" }
+                            p { class: "error note", "{message}" }
+                        },
                     }
                     for repository in &view.repositories {
                         div { key: "{repository.repository}", class: "label section", "{repository.repository}" }

@@ -232,6 +232,7 @@ async fn the_checkup_shows_the_status_of_each_app_permission_with_the_link_to_fi
         get_view(&engine, &cookie, "owner")
             .await
             .permissions
+            .unwrap()
             .into_iter()
             .find(|permission| permission.name == name)
             .unwrap()
@@ -241,6 +242,8 @@ async fn the_checkup_shows_the_status_of_each_app_permission_with_the_link_to_fi
     let view = get_view(&engine, &cookie, "owner").await;
     let names: Vec<&str> = view
         .permissions
+        .as_ref()
+        .unwrap()
         .iter()
         .map(|permission| permission.name.as_str())
         .collect();
@@ -301,7 +304,34 @@ async fn the_checkup_shows_the_status_of_each_app_permission_with_the_link_to_fi
     let view = get_view(&engine, &cookie, "owner").await;
     assert!(
         view.permissions
+            .unwrap()
             .iter()
             .all(|permission| permission.status == PermissionStatus::Present)
     );
+}
+
+#[tokio::test]
+async fn the_checkup_shows_the_labels_when_the_check_of_the_app_permissions_fails() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    github.add_account("owner", "Organization");
+    github.add_repository(REPOSITORY);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    wait_for(async || {
+        workstreams::organizations(&engine)
+            .contains(&"owner".to_string())
+            .then_some(())
+    })
+    .await;
+    let cookie = cookie(&engine).await;
+    github.fail_installations(APP_ID);
+
+    let view = get_view(&engine, &cookie, "owner").await;
+    assert!(view.permissions.is_err());
+    assert_eq!(view.repositories.len(), 1);
+    assert!(!view.repositories[0].labels.is_empty());
 }

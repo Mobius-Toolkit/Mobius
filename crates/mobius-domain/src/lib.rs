@@ -104,7 +104,8 @@ pub struct PermissionCheck {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckupView {
     pub repositories: Vec<RepositoryCheckup>,
-    pub permissions: Vec<PermissionCheck>,
+    // The error text when the check of the App permissions fails. The label status does not depend on it.
+    pub permissions: Result<Vec<PermissionCheck>, String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

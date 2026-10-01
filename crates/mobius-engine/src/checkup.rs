@@ -29,8 +29,10 @@ pub async fn status(
 ) -> Result<CheckupView, Box<dyn Error + Send + Sync>> {
     let repositories = managed(engine, name);
     let permissions = match repositories.first() {
-        Some(first) => permissions(engine, first, name).await?,
-        None => Vec::new(),
+        Some(first) => permissions(engine, first, name)
+            .await
+            .map_err(|error| error.to_string()),
+        None => Ok(Vec::new()),
     };
     let mut checkup = Vec::new();
     for repository in repositories {
