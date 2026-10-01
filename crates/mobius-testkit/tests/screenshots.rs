@@ -6,6 +6,7 @@ use std::time::Duration;
 use chromiumoxide::cdp::browser_protocol::emulation::{
     SetDeviceMetricsOverrideParams, SetTouchEmulationEnabledParams,
 };
+use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, DispatchKeyEventType};
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::{Browser, BrowserConfig, Page};
@@ -398,6 +399,91 @@ async fn message_list_scrolls_to_the_bottom() {
         wait_for(async || check(&page, script.clone()).await.then_some(())).await;
         page.close().await.unwrap();
     }
+    browser.close().await.unwrap();
+}
+
+// An Owner message in the chat of the Workstream, as the engine stores it.
+async fn owner_sent(engine: &Engine, text: &str) -> bool {
+    let view = chat::view(engine, "owner", REPOSITORY, 12).await.unwrap();
+    view.messages
+        .iter()
+        .any(|message| message.author == Author::Owner && message.text == text)
+}
+
+async fn press_enter(page: &Page, shift: bool) {
+    let params = DispatchKeyEventParams::builder()
+        .r#type(DispatchKeyEventType::KeyDown)
+        .key("Enter")
+        .code("Enter")
+        .windows_virtual_key_code(13)
+        .text("\r")
+        .modifiers(if shift { 8 } else { 0 })
+        .build()
+        .unwrap();
+    page.execute(params).await.unwrap();
+}
+
+// On the desktop Enter sends and Shift+Enter adds a new line; on the phone Enter adds a new line.
+#[tokio::test]
+#[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
+async fn enter_key_sends_on_the_desktop_only() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let url = serve_ui(&engine).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 1).then_some(())).await;
+    let (mut browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .no_sandbox()
+            .arg("--hide-scrollbars")
+            .user_data_dir(data_dir.path().join("chrome"))
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
+    log_in(&browser, &format!("{url}/github")).await;
+    let page = open(
+        &browser,
+        &format!("{url}/workstreams/owner/shop/12"),
+        DESKTOP,
+    )
+    .await;
+    wait_until_live(&page).await;
+    let input = page.find_element(".composer textarea").await.unwrap();
+    input.click().await.unwrap().type_str("one").await.unwrap();
+    press_enter(&page, true).await;
+    input.type_str("two").await.unwrap();
+    press_enter(&page, false).await;
+    wait_for(async || owner_sent(&engine, "one\ntwo").await.then_some(())).await;
+    page.close().await.unwrap();
+    let page = open(&browser, &format!("{url}/workstreams/owner/shop/12"), PHONE).await;
+    wait_until_live(&page).await;
+    let input = page.find_element(".composer textarea").await.unwrap();
+    input
+        .click()
+        .await
+        .unwrap()
+        .type_str("three")
+        .await
+        .unwrap();
+    press_enter(&page, false).await;
+    input.type_str("four").await.unwrap();
+    // A CDP mouse click does not activate the button while touch emulation is on.
+    page.evaluate("document.querySelector('.composer button[type=submit]').click()")
+        .await
+        .unwrap();
+    wait_for(async || owner_sent(&engine, "three\nfour").await.then_some(())).await;
+    page.close().await.unwrap();
     browser.close().await.unwrap();
 }
 

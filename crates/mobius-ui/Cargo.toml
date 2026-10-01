@@ -10,6 +10,7 @@ mobius-domain = { workspace = true }
 pulldown-cmark = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true, features = ["formatting", "macros"] }
+web-sys = { workspace = true, features = ["KeyboardEvent"] }
 
 [build-dependencies]
 sha2 = { workspace = true }
