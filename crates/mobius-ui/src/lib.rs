@@ -13,8 +13,8 @@ use mobius_api::{
     workstreams,
 };
 use mobius_domain::{
-    AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, LabelStatus, Live, PAUSED,
-    PermissionStatus, RepositoryCheckup, TaskLine, TranscriptLine, Workstream,
+    AgentNode, Author, ChatMessage, DrainEnd, FeedRow, InboxItem, InboxKind, LabelStatus, Live,
+    PAUSED, PermissionStatus, RepositoryCheckup, TaskLine, TranscriptLine, Workstream,
 };
 use time::UtcOffset;
 use time::macros::format_description;
@@ -504,10 +504,11 @@ fn Frame() -> Element {
                                     upgrading.set(true);
                                     upgrade_error.set(String::new());
                                     match upgrade().await {
-                                        Ok(()) => {
+                                        Ok(DrainEnd::Drained) => {
                                             document::eval(&reload_on_new_build());
                                             return;
                                         }
+                                        Ok(DrainEnd::Cancelled) => {}
                                         Err(failure) => upgrade_error.set(error_text(&failure)),
                                     }
                                     upgrading.set(false);

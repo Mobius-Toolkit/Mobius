@@ -295,9 +295,9 @@ pub async fn transcript_lines(session: i64) -> ServerFnResult<Vec<TranscriptLine
         .map_err(ServerFnError::new)
 }
 
-// The call returns when the upgrade restarts Mobius, ends with an error, or the Owner cancels the drain.
+// The call returns `Drained` when the upgrade restarts Mobius, `Cancelled` when the Owner cancels the drain, or an error.
 #[post("/api/upgrade", _device: DeviceId, engine: Extension<Engine>)]
-pub async fn upgrade() -> ServerFnResult<()> {
+pub async fn upgrade() -> ServerFnResult<DrainEnd> {
     upgrade::run(&engine).await.map_err(ServerFnError::new)
 }
 

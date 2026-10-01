@@ -33,7 +33,7 @@ fn set_error(engine: &Engine, error: Option<String>) {
 }
 
 // The drain has no time limit, so the work runs in its own task. A browser that closes the call does not stop the upgrade, and the error stays in the engine for the next page.
-pub async fn run(engine: &Engine) -> Result<(), Failure> {
+pub async fn run(engine: &Engine) -> Result<DrainEnd, Failure> {
     if engine.upgrading.swap(true, Ordering::SeqCst) {
         return Err("An upgrade runs now.".into());
     }
@@ -52,7 +52,7 @@ pub async fn run(engine: &Engine) -> Result<(), Failure> {
     task.await?
 }
 
-async fn upgrade(engine: &Engine) -> Result<(), Failure> {
+async fn upgrade(engine: &Engine) -> Result<DrainEnd, Failure> {
     let Some(current) = mobius_domain::RELEASE_VERSION else {
         return Err("This Mobius build is not a release.".into());
     };
@@ -66,19 +66,25 @@ async fn upgrade(engine: &Engine) -> Result<(), Failure> {
     }
     let url = engine.github.release_url(&release.tag_name, &asset);
     let staging = tokio::task::spawn_blocking(move || download(&url)).await??;
-    if drain::start(engine).await == DrainEnd::Cancelled {
-        return Ok(());
+    // A chat Lead can start between the end of the drain and the seal, so the wait repeats.
+    loop {
+        if drain::start(engine).await == DrainEnd::Cancelled {
+            return Ok(DrainEnd::Cancelled);
+        }
+        if drain::seal(engine) {
+            break;
+        }
     }
     // A git command of the old process must not run during `exec`.
     let git = engine.git.clone().lock_owned().await;
     let exe = staging.exe.clone();
     if let Err(error) = tokio::task::spawn_blocking(move || swap(&staging)).await? {
         drop(git);
-        let _ = drain::cancel(engine).await;
+        let _ = drain::abort(engine).await;
         return Err(error);
     }
     restart(exe, git);
-    Ok(())
+    Ok(DrainEnd::Drained)
 }
 
 fn target() -> Result<&'static str, Failure> {

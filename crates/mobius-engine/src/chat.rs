@@ -90,6 +90,12 @@ pub(crate) async fn post(
             handle.writing = true;
         }
         None => {
+            let Some(guard) = drain::track(engine) else {
+                return Err(
+                    "Mobius restarts for an upgrade. Send the message again after the restart."
+                        .into(),
+                );
+            };
             let (commands, receiver) = mpsc::unbounded_channel();
             chats.insert(
                 key,
@@ -104,7 +110,7 @@ pub(crate) async fn post(
                 engine.lead_stops.subscribe(),
                 message,
                 receiver,
-                drain::track(engine),
+                guard,
             ));
         }
     }
