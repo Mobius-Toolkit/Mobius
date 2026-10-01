@@ -7,7 +7,7 @@ use tokio::sync::broadcast::Receiver;
 
 use crate::labels::{NEEDS_HUMAN_LABEL, WORKING_LABEL};
 use crate::trust::app_login;
-use crate::{Engine, TIME_FORMAT, activity, conflicts, implementer, judge, lead_events};
+use crate::{Engine, TIME_FORMAT, activity, checks, conflicts, implementer, judge, lead_events};
 
 pub(crate) async fn check(
     engine: &Engine,
@@ -100,6 +100,11 @@ async fn check_task(
     }
     if task.state == "ready_for_review" && pull_request.mergeable == Some(false) {
         return conflicts::on_conflict(engine, repository, task, pull_request).await;
+    }
+    if task.state == "ready_for_review"
+        && checks::on_failure(engine, repository, task, &pull_request).await?
+    {
+        return Ok(());
     }
     judge::check(engine, repository, task, pull_request).await
 }
