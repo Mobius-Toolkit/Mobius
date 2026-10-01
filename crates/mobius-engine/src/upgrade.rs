@@ -9,7 +9,8 @@ use mobius_domain::{DrainEnd, Live};
 use tempfile::TempDir;
 use tokio::sync::OwnedMutexGuard;
 
-use crate::{Engine, drain};
+use crate::Engine;
+use crate::drain::{self, Seal};
 
 type Failure = Box<dyn Error + Send + Sync>;
 
@@ -71,8 +72,10 @@ async fn upgrade(engine: &Engine) -> Result<DrainEnd, Failure> {
         if drain::start(engine).await == DrainEnd::Cancelled {
             return Ok(DrainEnd::Cancelled);
         }
-        if drain::seal(engine) {
-            break;
+        match drain::seal(engine) {
+            Seal::Sealed => break,
+            Seal::Busy => {}
+            Seal::Cancelled => return Ok(DrainEnd::Cancelled),
         }
     }
     // A git command of the old process must not run during `exec`.

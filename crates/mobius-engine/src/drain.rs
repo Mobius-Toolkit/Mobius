@@ -128,14 +128,25 @@ pub async fn start(engine: &Engine) -> DrainEnd {
     }
 }
 
-// Closes the drain for the restart. Returns `false` when the drain is off or an agent runs, and the caller must wait with `start` again. After `true`, no agent starts and `cancel` does nothing, until `abort`.
-pub(crate) fn seal(engine: &Engine) -> bool {
+pub(crate) enum Seal {
+    Sealed,
+    // An agent runs, and the caller must wait with `start` again.
+    Busy,
+    // A `cancel` ended the drain.
+    Cancelled,
+}
+
+// Closes the drain for the restart. After `Sealed`, no agent starts and `cancel` does nothing, until `abort`.
+pub(crate) fn seal(engine: &Engine) -> Seal {
     let mut state = engine.drain.state.lock().unwrap();
-    if !state.on || state.running > 0 {
-        return false;
+    if !state.on {
+        return Seal::Cancelled;
+    }
+    if state.running > 0 {
+        return Seal::Busy;
     }
     state.sealed = true;
-    true
+    Seal::Sealed
 }
 
 // Ends the drain: the held Workers start and the Workstreams with waiting events wake. A sealed drain ends only with `abort`.
