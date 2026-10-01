@@ -1514,6 +1514,7 @@ fn Conversation(
                     },
                     div { class: "grow",
                         textarea {
+                            rows: "1",
                             placeholder: "Write to the {agent}",
                             value: text,
                             oninput: move |event| text.set(event.value()),
