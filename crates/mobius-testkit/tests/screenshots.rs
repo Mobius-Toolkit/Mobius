@@ -365,6 +365,7 @@ async fn message_list_scrolls_to_the_bottom() {
     wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 1).then_some(())).await;
     let (mut browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
+            .launch_timeout(Duration::from_secs(60))
             .no_sandbox()
             .arg("--hide-scrollbars")
             .build()
@@ -442,6 +443,7 @@ async fn enter_key_sends_on_the_desktop_only() {
     wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 1).then_some(())).await;
     let (mut browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
+            .launch_timeout(Duration::from_secs(60))
             .no_sandbox()
             .arg("--hide-scrollbars")
             .user_data_dir(data_dir.path().join("chrome"))
@@ -560,6 +562,7 @@ async fn chat_switch_shows_the_first_unread_message() {
     wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 4).then_some(())).await;
     let (mut browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
+            .launch_timeout(Duration::from_secs(60))
             .no_sandbox()
             .arg("--hide-scrollbars")
             .user_data_dir(data_dir.path().join("chrome"))
@@ -623,6 +626,7 @@ async fn brief() {
     let (mut browser, mut handler) = Browser::launch(
         // Without a data dir, every launch uses the same `chromiumoxide-runner` directory, so a second Chrome exits while the first runs.
         BrowserConfig::builder()
+            .launch_timeout(Duration::from_secs(60))
             .no_sandbox()
             .user_data_dir(data_dir.path().join("chrome"))
             .build()
@@ -697,6 +701,7 @@ async fn screenshots() {
     let url = serve_ui(&engine).await;
     let (mut browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
+            .launch_timeout(Duration::from_secs(60))
             .no_sandbox()
             .user_data_dir(data_dir.path().join("chrome"))
             .arg("--hide-scrollbars")
