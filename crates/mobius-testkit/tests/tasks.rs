@@ -5,10 +5,12 @@ use mobius_engine::{Engine, auth, github, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
 use mobius_testkit::{start, wait_for};
 use serde_json::json;
+use std::sync::Once;
 use tempfile::TempDir;
 use tower::ServiceExt;
 
 const REPOSITORY: &str = "owner/shop";
+static PUBLIC_PATH: Once = Once::new();
 
 async fn connect(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
     github.add_manifest_code("manifest-code");
@@ -26,8 +28,11 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
 // POSTs to the server function endpoint the same way as the web client of the task tab.
 async fn task_list(engine: &Engine, token: &str, repository: &str, workstream: i64) -> String {
     // `router` serves the web bundle of a `dx` build from DIOXUS_PUBLIC_PATH; a test has none.
-    let public = TempDir::new().unwrap();
-    unsafe { std::env::set_var("DIOXUS_PUBLIC_PATH", public.path()) };
+    // The variable is global to the process, so it points to one directory that no test deletes.
+    PUBLIC_PATH.call_once(|| {
+        let public = TempDir::new().unwrap().keep();
+        unsafe { std::env::set_var("DIOXUS_PUBLIC_PATH", public) };
+    });
     let router = dioxus::server::router(mobius_ui::App)
         .layer(Extension(engine.clone()))
         .layer(Extension(engine.store.clone()));
