@@ -487,6 +487,82 @@ async fn enter_key_sends_on_the_desktop_only() {
     browser.close().await.unwrap();
 }
 
+async fn tap_send(page: &Page, taps: usize) {
+    page.evaluate(format!(
+        "for (let n = 0; n < {taps}; n++) document.querySelector('.composer button[type=submit]').click()"
+    ))
+    .await
+    .unwrap();
+}
+
+// Two taps on Send in one turn of the page send one message, and the buttons are easy to tap.
+#[tokio::test]
+#[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
+async fn send_taps_once_and_the_buttons_are_easy_to_tap_on_the_phone() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let url = serve_ui(&engine).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 1).then_some(())).await;
+    let (mut browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .no_sandbox()
+            .arg("--hide-scrollbars")
+            .launch_timeout(Duration::from_secs(60))
+            .user_data_dir(data_dir.path().join("chrome"))
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
+    log_in(&browser, &format!("{url}/github")).await;
+    let page = open(&browser, &format!("{url}/workstreams/owner/shop/12"), PHONE).await;
+    wait_until_live(&page).await;
+    let input = page.find_element(".composer textarea").await.unwrap();
+    input
+        .click()
+        .await
+        .unwrap()
+        .type_str("double")
+        .await
+        .unwrap();
+    tap_send(&page, 2).await;
+    wait_for(async || owner_sent(&engine, "double").await.then_some(())).await;
+    input.type_str("after").await.unwrap();
+    tap_send(&page, 1).await;
+    wait_for(async || owner_sent(&engine, "after").await.then_some(())).await;
+    let view = chat::view(&engine, "owner", REPOSITORY, 12).await.unwrap();
+    let sent = view
+        .messages
+        .iter()
+        .filter(|message| message.author == Author::Owner)
+        .count();
+    assert_eq!(sent, 2);
+    let apart = check(
+        &page,
+        "(() => { const field = document.querySelector('.composer textarea').getBoundingClientRect();\
+         const buttons = [...document.querySelectorAll('.composer .btn')];\
+         return buttons.length > 0 && buttons.every((button) => {\
+           const box = button.getBoundingClientRect();\
+           return box.height >= 40 && (box.left >= field.right || box.right <= field.left);\
+         }); })()"
+            .to_string(),
+    )
+    .await;
+    assert!(apart);
+    page.close().await.unwrap();
+    browser.close().await.unwrap();
+}
+
 // A message list that overflows, with the Lead messages after the fifth one unread.
 // It returns the ids of the first unread message and of the last message.
 async fn seed_unread(engine: &Engine, number: i64) -> (i64, i64) {
