@@ -40,6 +40,7 @@ async fn manifest_form_posts_the_manifest_to_the_settings_of_an_organization() {
                 "pull_requests": "write",
                 "contents": "write",
                 "checks": "write",
+                "workflows": "write",
                 "metadata": "read"
             }
         })

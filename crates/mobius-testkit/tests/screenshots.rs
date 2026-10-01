@@ -565,7 +565,7 @@ async fn screenshots() {
                 name: "checkup",
                 path: "/settings/checkup",
                 clicks: &[],
-                expected: "Fix labels",
+                expected: "missing: add on GitHub",
                 inbox_count: true,
             },
             Shot {
