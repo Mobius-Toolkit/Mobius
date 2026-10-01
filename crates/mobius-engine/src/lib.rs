@@ -61,7 +61,7 @@ pub struct Engine {
     harness_path: Arc<OsString>,
     port: u16,
     repositories: Arc<RwLock<Vec<Repository>>>,
-    // The repositories that got a label fix in this run of the engine.
+    // The repositories where the poll tried a label fix in this run of the engine, with success or failure.
     labels_fixed: Arc<Mutex<std::collections::HashSet<String>>>,
     chats: Arc<Mutex<HashMap<ChatKey, ChatHandle>>>,
     event_sessions: Arc<Mutex<HashMap<(String, i64), lead_events::Wakes>>>,
