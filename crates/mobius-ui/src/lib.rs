@@ -1297,6 +1297,7 @@ fn Conversation(
     ));
     let mut text = use_signal(String::new);
     let mut send_error = use_signal(String::new);
+    let mut sending = use_signal(|| false);
     let mut mic_active = use_signal(|| false);
     let mut brief_open = use_signal(|| None::<bool>);
     let mut touch = use_signal(|| true);
@@ -1512,9 +1513,10 @@ fn Conversation(
     let send = use_callback(move |_: ()| {
         let (organization, repository) = send_key.clone();
         spawn(async move {
-            if text().trim().is_empty() {
+            if sending() || text().trim().is_empty() {
                 return;
             }
+            sending.set(true);
             match chat_send(organization, repository, number, text()).await {
                 Ok(()) => {
                     text.set(String::new());
@@ -1522,6 +1524,7 @@ fn Conversation(
                 }
                 Err(failure) => send_error.set(error_text(&failure)),
             }
+            sending.set(false);
         });
     });
     let stop_key = (organization.clone(), repository.clone());
