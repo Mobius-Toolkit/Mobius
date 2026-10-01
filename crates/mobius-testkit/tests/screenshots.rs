@@ -598,6 +598,7 @@ async fn send_taps_once_and_the_buttons_are_easy_to_tap_on_the_phone() {
     tap_send(&page, 2).await;
     wait_for(async || owner_sent(&engine, "double").await.then_some(())).await;
     input.type_str("after").await.unwrap();
+    wait_for(async || check(&page, send_enabled()).await.then_some(())).await;
     tap_send(&page, 1).await;
     wait_for(async || owner_sent(&engine, "after").await.then_some(())).await;
     let view = chat::view(&engine, "owner", REPOSITORY, 12).await.unwrap();
