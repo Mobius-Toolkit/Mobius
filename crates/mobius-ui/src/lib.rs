@@ -73,14 +73,20 @@ pub enum Route {
 
 #[component]
 pub fn App() -> Element {
+    // The on-screen keyboard shrinks the layout viewport instead of scrolling the
+    // page, so the chat input stays above the keyboard; the tab bar hides on focus.
+    use_effect(|| {
+        document::eval(
+            r#"let meta = document.head.querySelector('meta[name="viewport"]');
+if (!meta) {
+    meta = document.createElement("meta");
+    meta.name = "viewport";
+    document.head.append(meta);
+}
+meta.content = "width=device-width, initial-scale=1, interactive-widget=resizes-content";"#,
+        );
+    });
     rsx! {
-        // `viewport-fit=cover` fills `env(safe-area-inset-*)` on notched phones.
-        // `interactive-widget=resizes-content` shrinks the layout when the keyboard opens,
-        // so the chat input stays above it; the tab bar hides on focus.
-        document::Meta {
-            name: "viewport",
-            content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content",
-        }
         document::Link { rel: "icon", r#type: "image/svg+xml", href: "/icon.svg" }
         document::Link { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }
         document::Link { rel: "manifest", href: "/manifest.webmanifest" }
@@ -1158,30 +1164,7 @@ fn Conversation(
     ));
     let mut text = use_signal(String::new);
     let mut send_error = use_signal(String::new);
-    let mut sending = use_signal(|| false);
     let mut mic_active = use_signal(|| false);
-    // A touch device keeps the default of the Enter key in the chat input: it adds a new
-    // line, and the send button sends the message. The default `true` keeps that behavior
-    // while the script runs or fails. A fine pointer keeps the desktop behavior even in a
-    // narrow window; a coarse pointer needs a mobile user agent or the phone layout so a
-    // touchscreen laptop still sends with Enter.
-    let mut touch = use_signal(|| true);
-    use_hook(move || {
-        spawn(async move {
-            touch.set(
-                document::eval(
-                    "const coarse = window.matchMedia('(pointer: coarse)').matches \
-                        && !window.matchMedia('(any-pointer: fine)').matches; \
-                     const mobile = /Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i\
-                        .test(navigator.userAgent); \
-                     return coarse && (mobile || window.matchMedia('(max-width: 700px)').matches);",
-                )
-                .join()
-                .await
-                .unwrap_or(true),
-            );
-        })
-    });
     let mut brief_open = use_signal(|| None::<bool>);
     // The route keeps this scope when it moves to another Workstream, so the
     // choice of the Owner resets and the default of the new Workstream applies.
@@ -1286,22 +1269,6 @@ fn Conversation(
             ));
         },
     ));
-    // The chat input grows with its text up to the maximum height, and then it scrolls.
-    use_effect(move || {
-        text();
-        document::eval(
-            r#"
-            requestAnimationFrame(() => {
-                const box = document.querySelector(".composer textarea");
-                if (box) {
-                    const extra = box.offsetHeight - box.clientHeight;
-                    box.style.height = "auto";
-                    box.style.height = `${box.scrollHeight + extra}px`;
-                }
-            });
-            "#,
-        );
-    });
     use_effect(use_reactive(
         (
             &organization,
@@ -1324,33 +1291,6 @@ fn Conversation(
 
     let send_key = (organization.clone(), repository.clone());
     let stop_key = (organization.clone(), repository.clone());
-    let send = move || {
-        let (organization, repository) = send_key.clone();
-        async move {
-            let message = text();
-            if message.trim().is_empty() || *sending.peek() {
-                return;
-            }
-            sending.set(true);
-            // Clear the input at once so that text typed during the request is not lost.
-            text.set(String::new());
-            match chat_send(organization, repository, number, message.clone()).await {
-                Ok(()) => send_error.set(String::new()),
-                Err(failure) => {
-                    send_error.set(error_text(&failure));
-                    // Put the failed message back in front of any new text.
-                    let draft = text.peek().clone();
-                    text.set(if draft.is_empty() {
-                        message
-                    } else {
-                        format!("{message}\n{draft}")
-                    });
-                }
-            }
-            sending.set(false);
-        }
-    };
-    let send_keydown = send.clone();
     rsx! {
         div { class: "column",
             div { class: "head",
@@ -1415,27 +1355,26 @@ fn Conversation(
                 form {
                     class: "composer",
                     onsubmit: move |event: FormEvent| {
-                        event.prevent_default();
-                        send()
+                        let (organization, repository) = send_key.clone();
+                        async move {
+                            event.prevent_default();
+                            if text().trim().is_empty() {
+                                return;
+                            }
+                            match chat_send(organization, repository, number, text()).await {
+                                Ok(()) => {
+                                    text.set(String::new());
+                                    send_error.set(String::new());
+                                }
+                                Err(failure) => send_error.set(error_text(&failure)),
+                            }
+                        }
                     },
                     div { class: "grow",
                         textarea {
-                            rows: 1,
                             placeholder: "Write to the {agent}",
                             value: text,
                             oninput: move |event| text.set(event.value()),
-                            // Enter sends on a keyboard. Shift+Enter and Enter during an
-                            // input method keep the default of a new line.
-                            onkeydown: move |event: KeyboardEvent| {
-                                if !touch()
-                                    && event.key() == Key::Enter
-                                    && !event.modifiers().shift()
-                                    && !event.is_composing()
-                                {
-                                    event.prevent_default();
-                                    spawn(send_keydown());
-                                }
-                            },
                         }
                         div { class: "error", {send_error} }
                     }
@@ -1501,7 +1440,7 @@ fn Conversation(
                         },
                         if mic_active() { "Stop mic" } else { "Mic" }
                     }
-                    button { class: "btn primary", r#type: "submit", disabled: sending(), "Send" }
+                    button { class: "btn primary", r#type: "submit", "Send" }
                 }
             }
         }
