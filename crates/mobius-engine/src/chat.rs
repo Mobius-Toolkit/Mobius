@@ -12,7 +12,7 @@ use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
-use crate::{Engine, TIME_FORMAT, drain, gh, inbox, limits, mcp, triager, workstreams};
+use crate::{Engine, TIME_FORMAT, drain, gh, inbox, limits, mcp, triager, workers, workstreams};
 
 pub(crate) const ROLE: &str = "lead_chat";
 const ROLE_PROMPT: &str = include_str!("prompts/lead.md");
@@ -252,6 +252,7 @@ async fn run(
             &organization,
             &repository,
             workstream,
+            None,
         )
         .await
         {
@@ -263,6 +264,63 @@ async fn run(
                     &repository,
                     workstream,
                     Some(error.to_string()),
+                );
+            }
+        };
+        let mut recorder = Recorder::new(
+            &engine,
+            session,
+            &organization,
+            &repository,
+            workstream,
+            Some(author),
+        );
+        // A stop while the session waits ends the chat and frees the place in the queue.
+        let wait = workers::session_slot(
+            &engine,
+            session,
+            if workstream == triager::CHAT {
+                workers::Role::Triager
+            } else {
+                workers::Role::Lead
+            },
+        );
+        tokio::pin!(wait);
+        let slot = loop {
+            let stopped = tokio::select! {
+                slot = &mut wait => break slot,
+                () = lead::stopped(&mut stops, &repository, workstream) => true,
+                command = commands.recv() => match command {
+                    Some(Command::Prompt(message)) => {
+                        queue.push_back(message);
+                        false
+                    }
+                    // The first message still turns, and the session closes after it.
+                    Some(Command::Drain) => false,
+                    Some(Command::Stop) | None => true,
+                },
+            };
+            if stopped {
+                finish(&engine, &organization, &repository, workstream, None);
+                if let Err(failure) = lead::end_session(&engine, session, "stopped").await {
+                    eprintln!("mobius: chat session {session}: {failure}");
+                }
+                return;
+            }
+        };
+        let _slot = match slot {
+            Ok(slot) => slot,
+            Err(error) => {
+                let message = error.to_string();
+                if let Err(failure) = recorder.fail(&message).await {
+                    eprintln!("mobius: chat session {session}: {failure}");
+                }
+                return finish(
+                    &engine,
+                    &organization,
+                    &repository,
+                    workstream,
+                    Some(message),
                 );
             }
         };
@@ -289,14 +347,6 @@ async fn run(
                 );
             }
         };
-        let mut recorder = Recorder::new(
-            &engine,
-            session,
-            &organization,
-            &repository,
-            workstream,
-            Some(author),
-        );
         let mut current = None;
         let result = tokio::select! {
             result = chat(&engine, &first, &key, &mut recorder, &mut commands, &mut queue, &mut current) => result.map(|()| "idle"),

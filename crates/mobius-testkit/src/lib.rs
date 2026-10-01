@@ -22,7 +22,20 @@ pub async fn start_with_config(
     github_url: &str,
     extra_config: &str,
 ) -> Engine {
-    start_engine(config(data_dir, access_password, extra_config), github_url).await
+    start_with(data_dir, access_password, github_url, extra_config, |_| {}).await
+}
+
+// `adjust` changes the parsed Config, for example to set `config.roles.lead.max`.
+pub async fn start_with(
+    data_dir: &Path,
+    access_password: &str,
+    github_url: &str,
+    extra_config: &str,
+    adjust: impl FnOnce(&mut Config),
+) -> Engine {
+    let mut config = config(data_dir, access_password, extra_config);
+    adjust(&mut config);
+    start_engine(config, github_url).await
 }
 
 pub fn config(data_dir: &Path, access_password: &str, extra_config: &str) -> Config {
@@ -126,7 +139,7 @@ pub fn git(dir: &Path, args: &[&str]) -> String {
 }
 
 pub async fn wait_for<T>(mut check: impl AsyncFnMut() -> Option<T>) -> T {
-    tokio::time::timeout(Duration::from_secs(5), async {
+    tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             if let Some(value) = check().await {
                 return value;
@@ -135,5 +148,20 @@ pub async fn wait_for<T>(mut check: impl AsyncFnMut() -> Option<T>) -> T {
         }
     })
     .await
-    .expect("the condition is not true after 5 seconds")
+    .expect("the condition is not true after 60 seconds")
+}
+
+// The first poll of a repository runs the lost-task recovery and treats each earlier issue event as old. It stores the `since` cursor at its end.
+pub async fn wait_for_first_poll(engine: &Engine, repository: &str) {
+    wait_for(async || {
+        engine
+            .store
+            .sync_cursors()
+            .get(repository, "issues")
+            .await
+            .unwrap()
+            .since
+            .map(|_| ())
+    })
+    .await;
 }

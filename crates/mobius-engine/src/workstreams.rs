@@ -1,18 +1,17 @@
 use std::collections::VecDeque;
 use std::error::Error;
 
-use mobius_domain::{Workstream, organization};
+use mobius_domain::{Live, Workstream, organization};
 use mobius_github::{Issue, IssueEvent, Repository};
 use mobius_store::Task;
 use time::OffsetDateTime;
 
 use crate::config::Config;
-use crate::{
-    Engine, NEEDS_HUMAN_LABEL, READY_LABEL, WORKING_LABEL, WORKSTREAM_LABEL, dispatch, ends,
-    lead_events,
+use crate::labels::{
+    AUTOPILOT_LABEL, NEEDS_HUMAN_LABEL, READY_LABEL, WORKING_LABEL, WORKSTREAM_LABEL,
 };
+use crate::{Engine, dispatch, ends, github, lead_events};
 
-pub(crate) const AUTOPILOT_LABEL: &str = "mobius:autopilot";
 const CLOSED_TEXT: &str = "Workstream closed";
 
 pub async fn list(engine: &Engine) -> Result<Vec<Workstream>, Box<dyn Error + Send + Sync>> {
@@ -25,6 +24,7 @@ pub async fn list(engine: &Engine) -> Result<Vec<Workstream>, Box<dyn Error + Se
                 number: issue.number,
                 autopilot: issue_autopilot(engine, &repository, &issue).await?,
                 title: issue.title,
+                body: issue.body.unwrap_or_default(),
             });
         }
     }
@@ -172,6 +172,26 @@ pub(crate) async fn autopilot(
         Some(issue) => issue_autopilot(engine, repository, &issue).await,
         None => Ok(false),
     }
+}
+
+// The write uses the token of the Owner, because the label counts only when a trusted user added it last.
+pub async fn set_autopilot(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+    on: bool,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let repository = engine.repository(repository)?;
+    let user_token = github::user_token(engine, repository.app_id).await?;
+    let as_owner = repository.with_user_token(&user_token)?;
+    // GitHub records no `labeled` event for a label the issue already has, so a
+    // last `labeled` of an untrusted actor would stay. Remove before the add.
+    as_owner.remove_label(workstream, AUTOPILOT_LABEL).await?;
+    if on {
+        as_owner.add_label(workstream, AUTOPILOT_LABEL).await?;
+    }
+    engine.broadcast(Live::Workstreams);
+    Ok(())
 }
 
 async fn issue_autopilot(

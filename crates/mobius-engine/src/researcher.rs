@@ -48,6 +48,7 @@ async fn session(
         organization(&job.repository),
         &job.repository,
         job.workstream,
+        None,
     )
     .await?;
     let mut recorder = Recorder::new(
@@ -58,15 +59,19 @@ async fn session(
         job.workstream,
         None,
     );
-    let slot = match workers::research_slot(engine, session, binding.harness).await {
+    // A stop while the session waits ends the Researcher and frees the place in the queue.
+    let slot = tokio::select! {
+        slot = workers::session_slot(engine, session, workers::Role::Researcher) => slot,
+        () = lead::stopped(stops, &job.repository, job.workstream) => {
+            return lead::end_session(engine, session, "stopped").await;
+        }
+    };
+    let _slot = match slot {
         Ok(slot) => slot,
         Err(error) => {
             recorder.fail(&error.to_string()).await?;
             return Err(error);
         }
-    };
-    let Some(_slot) = slot else {
-        return lead::end_session(engine, session, "declined").await;
     };
     let key = mcp::open(
         engine,

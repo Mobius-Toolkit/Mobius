@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
 
 use http::StatusCode;
@@ -36,6 +37,20 @@ pub struct Repository {
 #[derive(Deserialize)]
 struct Installation {
     id: u64,
+    account: InstallationAccount,
+    permissions: HashMap<String, String>,
+}
+
+#[derive(Deserialize)]
+struct InstallationAccount {
+    login: String,
+    #[serde(rename = "type")]
+    account_type: String,
+}
+
+#[derive(Deserialize)]
+struct AppPermissions {
+    permissions: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -86,6 +101,12 @@ impl Issue {
 #[derive(Deserialize)]
 pub struct Label {
     pub name: String,
+}
+
+#[derive(Deserialize)]
+pub struct RepositoryLabel {
+    pub name: String,
+    pub color: String,
 }
 
 #[derive(Deserialize)]
@@ -199,6 +220,11 @@ pub struct NewApp {
 }
 
 #[derive(Deserialize)]
+struct Release {
+    tag_name: String,
+}
+
+#[derive(Deserialize)]
 pub struct UserTokens {
     pub access_token: String,
     pub refresh_token: String,
@@ -218,6 +244,41 @@ pub struct User {
     pub login: String,
 }
 
+// The permission names with the levels that the Mobius App needs.
+pub const REQUIRED_PERMISSIONS: [(&str, &str); 6] = [
+    ("issues", "write"),
+    ("pull_requests", "write"),
+    ("contents", "write"),
+    ("checks", "write"),
+    ("workflows", "write"),
+    ("metadata", "read"),
+];
+
+fn level_rank(level: &str) -> u8 {
+    match level {
+        "read" => 1,
+        "write" => 2,
+        "admin" => 3,
+        _ => 0,
+    }
+}
+
+// The levels are in the order `read`, `write`, `admin`, and a level includes the lower levels.
+pub fn grants(permissions: &HashMap<String, String>, name: &str, required: &str) -> bool {
+    permissions
+        .get(name)
+        .is_some_and(|level| level_rank(level) >= level_rank(required))
+}
+
+pub struct AppAccess {
+    pub app_permissions: HashMap<String, String>,
+    pub installation_permissions: HashMap<String, String>,
+    // The page of the App where the Owner adds a permission.
+    pub app_permissions_url: String,
+    // The page of the installation where the Owner accepts the new permissions.
+    pub installation_url: String,
+}
+
 pub fn manifest(origin: &str, name: &str) -> String {
     json!({
         "name": name,
@@ -226,13 +287,7 @@ pub fn manifest(origin: &str, name: &str) -> String {
         "callback_urls": [format!("{origin}/api/github/user-callback")],
         "request_oauth_on_install": true,
         "public": false,
-        "default_permissions": {
-            "issues": "write",
-            "pull_requests": "write",
-            "contents": "write",
-            "checks": "write",
-            "metadata": "read"
-        }
+        "default_permissions": REQUIRED_PERMISSIONS.iter().copied().collect::<BTreeMap<_, _>>()
     })
     .to_string()
 }
@@ -256,13 +311,7 @@ impl GitHub {
         app_slug: &str,
         private_key: &str,
     ) -> Result<Vec<Repository>, Box<dyn Error + Send + Sync>> {
-        let app = Octocrab::builder()
-            .base_uri(self.api_url.as_str())?
-            .app(
-                AppId(u64::try_from(app_id)?),
-                EncodingKey::from_rsa_pem(private_key.as_bytes())?,
-            )
-            .build()?;
+        let app = self.app_client(app_id, private_key)?;
         let installations =
             all_pages(&app, "/app/installations", |page: Vec<Installation>| page).await?;
         let mut repositories = Vec::new();
@@ -288,6 +337,64 @@ impl GitHub {
             }));
         }
         Ok(repositories)
+    }
+
+    fn app_client(
+        &self,
+        app_id: i64,
+        private_key: &str,
+    ) -> Result<Octocrab, Box<dyn Error + Send + Sync>> {
+        Ok(Octocrab::builder()
+            .base_uri(self.api_url.as_str())?
+            .app(
+                AppId(u64::try_from(app_id)?),
+                EncodingKey::from_rsa_pem(private_key.as_bytes())?,
+            )
+            .build()?)
+    }
+
+    pub async fn app_access(
+        &self,
+        app_id: i64,
+        app_slug: &str,
+        private_key: &str,
+        account: &str,
+    ) -> Result<AppAccess, Box<dyn Error + Send + Sync>> {
+        let app = self.app_client(app_id, private_key)?;
+        let installations =
+            all_pages(&app, "/app/installations", |page: Vec<Installation>| page).await?;
+        let installation = installations
+            .into_iter()
+            .find(|installation| installation.account.login.eq_ignore_ascii_case(account))
+            .ok_or_else(|| format!("The Mobius App has no installation in {account}."))?;
+        let found: AppPermissions = app.get("/app", None::<&()>).await?;
+        let organization = installation.account.account_type == "Organization";
+        let (app_permissions_url, installation_url) = if organization {
+            (
+                format!(
+                    "{}/organizations/{account}/settings/apps/{app_slug}/permissions",
+                    self.web_url
+                ),
+                format!(
+                    "{}/organizations/{account}/settings/installations/{}",
+                    self.web_url, installation.id
+                ),
+            )
+        } else {
+            (
+                format!("{}/settings/apps/{app_slug}/permissions", self.web_url),
+                format!(
+                    "{}/settings/installations/{}",
+                    self.web_url, installation.id
+                ),
+            )
+        };
+        Ok(AppAccess {
+            app_permissions: found.permissions,
+            installation_permissions: installation.permissions,
+            app_permissions_url,
+            installation_url,
+        })
     }
 
     pub async fn manifest_url(
@@ -382,12 +489,32 @@ impl GitHub {
             .await?;
         Ok(user.login)
     }
+
+    // The repository is public, so the call needs no token.
+    pub async fn latest_release(&self) -> Result<String, Box<dyn Error + Send + Sync>> {
+        let release: Release = self
+            .api
+            .get("/repos/Mobius-Toolkit/Mobius/releases/latest", None::<&()>)
+            .await?;
+        Ok(release.tag_name)
+    }
 }
 
 impl Repository {
     // The installation token of the last poll.
     pub fn token(&self) -> &str {
         &self.token
+    }
+
+    // A copy whose writes name the user of `user_token` as the actor, not the App.
+    pub fn with_user_token(
+        &self,
+        user_token: &str,
+    ) -> Result<Repository, Box<dyn Error + Send + Sync>> {
+        Ok(Repository {
+            client: self.client.user_access_token(user_token.to_string())?,
+            ..self.clone()
+        })
     }
 
     pub async fn create_draft_pull_request(
@@ -552,6 +679,51 @@ impl Repository {
         Ok(())
     }
 
+    pub async fn labels(&self) -> Result<Vec<RepositoryLabel>, Box<dyn Error + Send + Sync>> {
+        all_pages(
+            &self.client,
+            &format!("/repos/{}/labels", self.full_name),
+            |page: Vec<RepositoryLabel>| page,
+        )
+        .await
+    }
+
+    // The color goes without `#`.
+    pub async fn create_label(
+        &self,
+        name: &str,
+        color: &str,
+        description: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .post(
+                format!("/repos/{}/labels", self.full_name),
+                Some(&json!({ "name": name, "color": color, "description": description })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_label_color(
+        &self,
+        name: &str,
+        color: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .patch(
+                format!(
+                    "/repos/{}/labels/{}",
+                    self.full_name,
+                    name.replace(':', "%3A")
+                ),
+                Some(&json!({ "color": color })),
+            )
+            .await?;
+        Ok(())
+    }
+
     pub async fn close_as_not_planned(
         &self,
         number: i64,
@@ -561,6 +733,20 @@ impl Repository {
             .patch(
                 format!("/repos/{}/issues/{number}", self.full_name),
                 Some(&json!({ "state": "closed", "state_reason": "not_planned" })),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn close_as_completed(
+        &self,
+        number: i64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .patch(
+                format!("/repos/{}/issues/{number}", self.full_name),
+                Some(&json!({ "state": "closed", "state_reason": "completed" })),
             )
             .await?;
         Ok(())

@@ -113,12 +113,22 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
     github.add_label(REPOSITORY, 42, "mobius:ready", "owner");
     wait_for(async || (!inbox::list(engine).await.unwrap().is_empty()).then_some(())).await;
 
+    // The wide code block, the wide table, and the long URL scroll or break inside the bubble.
     chat::send(
         engine,
         "owner",
         REPOSITORY,
         12,
-        "What is the state of the plans?",
+        r#"What is the state of the plans? The full report is at https://example.com/reports/loyalty/plans/every-customer-segment-and-billing-period.
+
+```text
+summary = [{ plan: "standard", seats: 10, price_per_seat: 100, discount_code: "SPRING-SALE-EXTRA-LONG-2026", renewal: "monthly" }]
+```
+
+| Plan | Seats | Price per seat | Discount code | Region | Renewal |
+| --- | --- | --- | --- | --- | --- |
+| Standard | 10 | $100 | SPRING-SALE-EXTRA-LONG-2026 | Worldwide | Monthly |
+| Extended | 40 | $80 | AUTUMN-SALE-EXTRA-LONG-2026 | Europe | Yearly |"#,
     )
     .await
     .unwrap();
@@ -312,6 +322,168 @@ async fn log_in(browser: &Browser, url: &str) {
     page.close().await.unwrap();
 }
 
+// The server-side render shows the page before the app hydrates. The scroll effect sets
+// `__mobiusScroll` only when the app runs, so it marks a live page.
+async fn wait_until_live(page: &Page) {
+    wait_for(async || {
+        check(
+            page,
+            "(() => { const list = document.querySelector(\".msgs\");\
+             return !!(list && list.__mobiusScroll); })()"
+                .to_string(),
+        )
+        .await
+        .then_some(())
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
+async fn message_list_scrolls_to_the_bottom() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let url = serve_ui(&engine).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 1).then_some(())).await;
+    let (mut browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .no_sandbox()
+            .arg("--hide-scrollbars")
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
+    log_in(&browser, &format!("{url}/github")).await;
+    for (name, width, height, mobile) in [DESKTOP, PHONE] {
+        let page = open(
+            &browser,
+            &format!("{url}/workstreams/owner/shop/12"),
+            (name, width, height, mobile),
+        )
+        .await;
+        wait_until_ready(&page, "Integrate loyalty plans", false).await;
+        wait_until_live(&page).await;
+        for n in 0..20 {
+            let text = format!("spam {name} {n} {}", "word ".repeat(40));
+            chat::send(&engine, "owner", REPOSITORY, 12, &text)
+                .await
+                .unwrap();
+        }
+        // The list must show the last message and overflow, or the scroll position proves nothing.
+        let script = format!(
+            "(() => {{ const list = document.querySelector(\".msgs\");\
+             return list.textContent.includes(\"spam {name} 19\") \
+             && list.scrollHeight > list.clientHeight \
+             && list.scrollHeight - list.scrollTop - list.clientHeight < 5; }})()"
+        );
+        wait_for(async || check(&page, script.clone()).await.then_some(())).await;
+        page.close().await.unwrap();
+    }
+    browser.close().await.unwrap();
+}
+
+// An empty chat opens with the Brief expanded; a click on its head leaves only the title.
+#[tokio::test]
+#[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
+async fn brief() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.set_body(
+        REPOSITORY,
+        12,
+        "Reward repeat customers with **points** on every order.",
+    );
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 13, "Add discount codes");
+    github.set_body(REPOSITORY, 13, "Apply **codes** at checkout.");
+    github.add_label(REPOSITORY, 13, "mobius:workstream", "owner");
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    wait_for(async || {
+        let list = workstreams::list(&engine).await.unwrap();
+        (list.len() == 2 && list.iter().all(|workstream| !workstream.body.is_empty())).then_some(())
+    })
+    .await;
+    let url = serve_ui(&engine).await;
+    let (mut browser, mut handler) = Browser::launch(
+        // Without a data dir, every launch uses the same `chromiumoxide-runner` directory, so a second Chrome exits while the first runs.
+        BrowserConfig::builder()
+            .no_sandbox()
+            .user_data_dir(data_dir.path().join("chrome"))
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
+    log_in(&browser, &format!("{url}/github")).await;
+    let page = open(
+        &browser,
+        &format!("{url}/workstreams/owner/shop/12"),
+        DESKTOP,
+    )
+    .await;
+    let expanded = String::from(
+        "(() => {
+            const brief = document.querySelector('.brief .md');
+            return !!brief && brief.textContent.includes('points on every order')
+                && !!brief.querySelector('strong');
+        })()",
+    );
+    wait_for(async || check(&page, expanded.clone()).await.then_some(())).await;
+    let click = String::from(
+        "(() => {
+            const head = document.querySelector('.briefhead');
+            head?.click();
+            return !!head;
+        })()",
+    );
+    wait_for(async || check(&page, click.clone()).await.then_some(())).await;
+    let collapsed = String::from(
+        "(() => {
+            const brief = document.querySelector('.brief');
+            return !!brief && brief.textContent.includes('Integrate loyalty plans')
+                && !brief.querySelector('.md');
+        })()",
+    );
+    wait_for(async || check(&page, collapsed.clone()).await.then_some(())).await;
+    // The chat of another Workstream keeps no state of the one before: its Brief shows expanded.
+    let second = String::from(
+        "(() => {
+            const link = document.querySelector('a[href=\"/workstreams/owner/shop/13\"]');
+            link?.click();
+            return !!link;
+        })()",
+    );
+    wait_for(async || check(&page, second.clone()).await.then_some(())).await;
+    let expanded_second = String::from(
+        "(() => {
+            const brief = document.querySelector('.brief .md');
+            return !!brief && brief.textContent.includes('codes at checkout')
+                && !!brief.querySelector('strong');
+        })()",
+    );
+    wait_for(async || check(&page, expanded_second.clone()).await.then_some(())).await;
+    page.close().await.unwrap();
+    browser.close().await.unwrap();
+}
+
 #[tokio::test]
 #[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
 async fn screenshots() {
@@ -327,6 +499,7 @@ async fn screenshots() {
     let (mut browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
             .no_sandbox()
+            .user_data_dir(data_dir.path().join("chrome"))
             .arg("--hide-scrollbars")
             .build()
             .unwrap(),
@@ -372,15 +545,33 @@ async fn screenshots() {
         screenshot(&browser, &url, no_organization, viewport).await;
     }
 
-    for (repository, title) in [
-        (REPOSITORY, "Integrate loyalty plans"),
-        (GARDEN, "Plant roses"),
+    for (repository, title, brief) in [
+        (
+            REPOSITORY,
+            "Integrate loyalty plans",
+            "Reward repeat customers.\n\n- Points on every order\n- One **free** plan for staff",
+        ),
+        (
+            GARDEN,
+            "Plant roses",
+            "Plant **roses** along the south fence.",
+        ),
     ] {
         github.add_repository(repository);
         github.add_issue(repository, 12, title);
+        github.set_body(repository, 12, brief);
         github.add_label(repository, 12, "mobius:workstream", "owner");
     }
     seed(&engine, &github).await;
+    // The first poll created each missing Mobius label. For the Checkup shot,
+    // one label is missing again and one has a wrong color.
+    github.delete_repository_label(REPOSITORY, "mobius:no-workstream");
+    github.add_repository_label(
+        REPOSITORY,
+        "mobius:working",
+        "ededed",
+        "A Mobius agent works on this task",
+    );
     fix_times(&engine).await;
     for viewport in [DESKTOP, PHONE] {
         let (tasks_clicks, switch_clicks): (&[&str], &[&str]) = if viewport == PHONE {
@@ -442,10 +633,17 @@ async fn screenshots() {
                 inbox_count: true,
             },
             Shot {
-                name: "server-agents",
-                path: "/server-agents",
+                name: "checkup",
+                path: "/settings/checkup",
                 clicks: &[],
-                expected: "chat session",
+                expected: "missing: add on GitHub",
+                inbox_count: true,
+            },
+            Shot {
+                name: "agents",
+                path: "/agents",
+                clicks: &[],
+                expected: "owner/shop#41",
                 inbox_count: true,
             },
             Shot {
@@ -472,6 +670,35 @@ async fn screenshots() {
         ];
         for shot in shots {
             screenshot(&browser, &url, shot, viewport).await;
+        }
+        if viewport == PHONE {
+            // A wide message scrolls inside the bubble; the page itself never scrolls sideways.
+            let page = open(
+                &browser,
+                &format!("{url}/workstreams/owner/shop/12"),
+                ("check", 375, 667, true),
+            )
+            .await;
+            wait_until_ready(&page, "#42 waits for your decision.", false).await;
+            // `overflow-x: auto` keeps the wide block inside the bubble, so no ancestor overflows.
+            let script = String::from(
+                "(() => {
+                    const msgs = document.querySelector('.msgs');
+                    const bubble = document.querySelector('.msg.owner');
+                    const message = bubble?.querySelector('.md');
+                    const pre = message?.querySelector('pre');
+                    const table = message?.querySelector('table');
+                    const overflows = (element) => element.scrollWidth > element.clientWidth;
+                    const scrolls = (element) => getComputedStyle(element).overflowX === 'auto';
+                    return !!pre && !!table
+                        && overflows(pre) && scrolls(pre)
+                        && overflows(table) && scrolls(table)
+                        && !overflows(message) && !overflows(bubble) && !overflows(msgs)
+                        && document.documentElement.scrollWidth <= window.innerWidth;
+                })()",
+            );
+            wait_for(async || check(&page, script.clone()).await.then_some(())).await;
+            page.close().await.unwrap();
         }
     }
     browser.close().await.unwrap();

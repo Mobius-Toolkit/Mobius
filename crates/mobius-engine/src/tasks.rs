@@ -4,7 +4,8 @@ use std::error::Error;
 use mobius_domain::{Blocker, TaskLine};
 use mobius_github::{Issue, Repository};
 
-use crate::{Engine, WORKSTREAM_LABEL, ends, trust, workstreams};
+use crate::labels::WORKSTREAM_LABEL;
+use crate::{Engine, ends, trust, workstreams};
 
 // Issues below a Workstream issue of their own belong to that Workstream.
 pub async fn list(

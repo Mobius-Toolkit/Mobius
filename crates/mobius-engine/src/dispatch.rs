@@ -6,11 +6,9 @@ use mobius_store::Task;
 use time::OffsetDateTime;
 
 use crate::config::Config;
+use crate::labels::{NEEDS_HUMAN_LABEL, NO_WORKSTREAM_LABEL, READY_LABEL, WORKING_LABEL};
 use crate::trust::{app_login, trusted_author};
-use crate::{
-    Engine, NEEDS_HUMAN_LABEL, NO_WORKSTREAM_LABEL, READY_LABEL, TIME_FORMAT, WORKING_LABEL,
-    activity, inbox, lead_events, triager, workstreams,
-};
+use crate::{Engine, TIME_FORMAT, activity, implementer, inbox, lead_events, triager, workstreams};
 
 pub(crate) const READY_CURSOR: &str = "ready";
 
@@ -43,7 +41,8 @@ pub(crate) async fn dispatch_ready(
         if !trusted_author(&engine.config, app_slug, actor) {
             continue;
         }
-        if let Some(task) = engine.store.tasks().live(name, issue.number).await? {
+        let live = engine.store.tasks().live(name, issue.number).await?;
+        if let Some(task) = live.as_ref().filter(|task| task.state != "stopped") {
             repository.remove_label(issue.number, READY_LABEL).await?;
             activity::add(
                 engine,
@@ -69,6 +68,9 @@ pub(crate) async fn dispatch_ready(
             && !workstreams::autopilot(engine, repository, workstream).await?
         {
             continue;
+        }
+        if let Some(task) = live {
+            engine.store.tasks().end(task.id).await?;
         }
         dispatch(engine, repository, issue, workstream, actor).await?;
     }
@@ -295,6 +297,58 @@ pub(crate) async fn decline(
     )
     .await?;
     Ok(format!("Declined #{number}."))
+}
+
+pub(crate) async fn fix_round(
+    engine: &Engine,
+    repository: &Repository,
+    workstream: i64,
+    number: i64,
+    findings: &str,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let name = &repository.full_name;
+    let task = live_task(engine, name, workstream, number).await?;
+    let (Some(pull_request), Some(branch)) = (task.pull_request, task.branch) else {
+        return Err(format!("The task of #{number} has no pull request.").into());
+    };
+    let pull_request = repository.pull_request(pull_request).await?;
+    let title = repository
+        .issue(number)
+        .await?
+        .ok_or_else(|| format!("#{number} does not exist."))?
+        .title;
+    let tasks = engine.store.tasks();
+    if !tasks
+        .set_state(task.id, "ready_for_review", "working")
+        .await?
+    {
+        return Err(format!(
+            "The task of #{number} is {}, not ready_for_review.",
+            task.state
+        )
+        .into());
+    }
+    let round = implementer::Round {
+        repository: name.clone(),
+        workstream,
+        task: task.id,
+        number,
+        title,
+        branch,
+        pull_request,
+        check_run: None,
+        counts: true,
+        items: format!("\nFindings of the Lead:\n{findings}\n"),
+    };
+    if let Err(error) = implementer::fix_round(engine, repository, round).await {
+        tasks
+            .set_state(task.id, "working", "ready_for_review")
+            .await?;
+        return Err(error);
+    }
+    Ok(format!(
+        "Sent the findings to a fix round of #{number}. At max_fix_rounds, Mobius stops the task instead."
+    ))
 }
 
 // After a `move_issue` of the Triager, the Mobius App removes `mobius:no-workstream` and adds `mobius:ready` again. Only this sequence, after a triage of the Mobius App with no other `mobius:ready` between, counts with the actor of the `mobius:ready` before the triage.

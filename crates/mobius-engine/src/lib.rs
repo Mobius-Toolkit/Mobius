@@ -2,6 +2,7 @@ pub mod activity;
 pub mod agents;
 pub mod auth;
 pub mod chat;
+pub mod checkup;
 pub mod config;
 mod conflicts;
 mod dispatch;
@@ -15,6 +16,7 @@ pub mod inbox;
 pub mod init;
 mod issues;
 mod judge;
+pub mod labels;
 mod lead;
 mod lead_events;
 pub mod limits;
@@ -46,11 +48,6 @@ use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
 use tokio::sync::broadcast;
 
-const WORKSTREAM_LABEL: &str = "mobius:workstream";
-const READY_LABEL: &str = "mobius:ready";
-const WORKING_LABEL: &str = "mobius:working";
-const NEEDS_HUMAN_LABEL: &str = "mobius:needs-human";
-const NO_WORKSTREAM_LABEL: &str = "mobius:no-workstream";
 const TIME_FORMAT: &[BorrowedFormatItem] =
     format_description!("[year]-[month]-[day] [hour]:[minute] UTC");
 
@@ -65,6 +62,8 @@ pub struct Engine {
     harness_path: Arc<OsString>,
     port: u16,
     repositories: Arc<RwLock<Vec<Repository>>>,
+    // The repositories where the poll tried a label fix in this run of the engine, with success or failure.
+    labels_fixed: Arc<Mutex<std::collections::HashSet<String>>>,
     chats: Arc<Mutex<HashMap<ChatKey, ChatHandle>>>,
     event_sessions: Arc<Mutex<HashMap<(String, i64), lead_events::Wakes>>>,
     callers: Arc<Mutex<HashMap<String, mcp::Caller>>>,
@@ -79,12 +78,14 @@ pub struct Engine {
     lead_stops: broadcast::Sender<(String, i64)>,
     // The repositories that the first poll after start checked.
     recovered: Arc<Mutex<std::collections::HashSet<String>>>,
-    // Two sessions at the same usage limit make one pause.
+    // Two sessions at the same usage limit, or two checks on a full disk, make one pause.
     pausing: Arc<tokio::sync::Mutex<()>>,
     // Each end of a pause of a Harness wakes the sessions that wait for it.
     pauses_changed: Arc<tokio::sync::Notify>,
     // The drain for an upgrade.
     drain: Arc<drain::Drain>,
+    // The Housekeeper wakes the checks that wait for free disk space.
+    disk_freed: Arc<tokio::sync::Notify>,
     // The stop signal of the Triager session of each issue.
     triages: Arc<Mutex<HashMap<(String, i64), triager::Stop>>>,
     // For each task, the time of its newest Judge item and the moment when Mobius first saw it.
@@ -126,6 +127,7 @@ pub async fn start(
         harness_path: Arc::new(harness_path),
         port,
         repositories: Arc::default(),
+        labels_fixed: Arc::default(),
         chats: Arc::default(),
         event_sessions: Arc::default(),
         callers: Arc::default(),
@@ -139,6 +141,7 @@ pub async fn start(
         pausing: Arc::default(),
         pauses_changed: Arc::default(),
         drain: Arc::default(),
+        disk_freed: Arc::default(),
         triages: Arc::default(),
         quiet: Arc::default(),
     };

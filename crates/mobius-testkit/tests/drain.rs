@@ -85,7 +85,7 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub, go: &Path) -> Engine {
         data_dir.path(),
         "correct horse",
         &github.url,
-        "max_workers_total = 1\nreview_quiet_period = \"50ms\"",
+        "max_agents = 1\nreview_quiet_period = \"50ms\"",
     )
     .await;
     github::convert_manifest(&engine, "manifest-code")
@@ -185,7 +185,7 @@ async fn the_drain_holds_new_agents_waits_for_the_running_work_and_a_cancel_rele
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
     github.add_label(REPOSITORY, 43, "mobius:ready", "owner");
 
-    // The first Implementer runs a turn and the second waits for the one Worker slot.
+    // The first Implementer runs a turn and the second waits for the one agent slot.
     wait_for(async || {
         sessions(&engine, "implementer")
             .await
@@ -252,7 +252,7 @@ async fn the_drain_holds_new_agents_waits_for_the_running_work_and_a_cancel_rele
     assert!(!drain.is_finished());
     fs::write(&check_go, "").unwrap();
 
-    // The work ends: the pull request exists, and the chained Reviewer waits for a Worker slot.
+    // The work ends: the pull request exists, and the chained Reviewer waits for an agent slot.
     let pull_request = wait_for(async || {
         github
             .pull_requests(REPOSITORY)

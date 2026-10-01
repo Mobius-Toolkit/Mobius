@@ -4,13 +4,15 @@ use std::path::Path;
 use mobius_domain::{Author, Live};
 use mobius_github::Repository;
 use mobius_runner::{PromptError, Session};
+use mobius_store::NewSession;
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::config::RoleBinding;
-use crate::{Engine, agents, mcp, tasks};
+use crate::labels::WORKSTREAM_LABEL;
+use crate::{Engine, agents, mcp, plans, tasks};
 
 pub(crate) const SAVE_PROMPT: &str = "Save in the Workstream memory what the next session needs.";
 
@@ -21,18 +23,20 @@ pub(crate) async fn add_session(
     organization: &str,
     repository: &str,
     workstream: i64,
+    issue: Option<i64>,
 ) -> Result<i64, Box<dyn Error + Send + Sync>> {
     let session = engine
         .store
         .sessions()
-        .add(
+        .add(NewSession {
             role,
-            binding.harness,
-            &binding.model,
+            harness: binding.harness,
+            model: &binding.model,
             organization,
             repository,
             workstream,
-        )
+            issue,
+        })
         .await?;
     let id = session.id;
     engine.broadcast(Live::Agent(agents::node(session)));
@@ -101,6 +105,42 @@ pub(crate) async fn brief(
         .ok_or("The Workstream issue does not exist.")?
         .body
         .unwrap_or_default())
+}
+
+pub(crate) async fn move_task(
+    engine: &Engine,
+    repository: &Repository,
+    workstream: i64,
+    number: i64,
+    target: i64,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let issue = repository
+        .issue(number)
+        .await?
+        .filter(|issue| issue.pull_request.is_none())
+        .ok_or_else(|| format!("#{number} is not an issue of {}.", repository.full_name))?;
+    if !plans::in_workstream(repository, workstream, number).await? {
+        return Err(format!("#{number} is not in this Workstream.").into());
+    }
+    if target == workstream {
+        return Err(format!("#{target} is this Workstream.").into());
+    }
+    repository
+        .issue(target)
+        .await?
+        .filter(|issue| issue.state == "open" && issue.has_label(WORKSTREAM_LABEL))
+        .ok_or_else(|| format!("#{target} is not an open Workstream."))?;
+    if engine
+        .store
+        .tasks()
+        .live(&repository.full_name, number)
+        .await?
+        .is_some()
+    {
+        return Err(format!("#{number} has a live task. Stop the task first.").into());
+    }
+    repository.add_sub_issue(target, issue.id).await?;
+    Ok(format!("Moved #{number} to the Workstream #{target}."))
 }
 
 pub(crate) struct Recorder {
