@@ -7,13 +7,14 @@ use dioxus::prelude::*;
 use markdown::Markdown;
 use mobius_api::{
     active_agents, agent_tree, chat_seen, chat_send, chat_stop, chat_view, checkup, devices,
-    drain_state, fix_labels, github_apps, github_manifest, inbox_dismiss, inbox_items,
-    inbox_resume, live, login, logout, organizations, release, task_list, transcript_lines, unread,
-    workstream_autopilot, workstreams,
+    drain_cancel, drain_state, fix_labels, github_apps, github_manifest, inbox_dismiss,
+    inbox_items, inbox_resume, live, login, logout, organizations, release, task_list,
+    transcript_lines, unread, upgrade, upgrade_error as upgrade_error_state, workstream_autopilot,
+    workstreams,
 };
 use mobius_domain::{
-    AgentNode, Author, ChatMessage, FeedRow, InboxItem, InboxKind, LabelStatus, Live, PAUSED,
-    PermissionStatus, RepositoryCheckup, TaskLine, TranscriptLine, Workstream,
+    AgentNode, Author, ChatMessage, DrainEnd, FeedRow, InboxItem, InboxKind, LabelStatus, Live,
+    PAUSED, PermissionStatus, RepositoryCheckup, TaskLine, TranscriptLine, Workstream,
 };
 use time::UtcOffset;
 use time::macros::format_description;
@@ -43,6 +44,26 @@ document.addEventListener("visibilitychange", () => {
 setInterval(check, 5 * 60 * 1000);
 check();
 "#;
+
+// Runs after an upgrade call returns. The old server answers until it restarts, so only another build ends the wait.
+fn reload_on_new_build() -> String {
+    let build = serde_json::to_string(BUILD).unwrap_or_default();
+    format!(
+        r#"
+const wait = async () => {{
+    try {{
+        const response = await fetch("/ui-version", {{ cache: "no-store" }});
+        if (response.ok && (await response.text()).trim() !== {build}) {{
+            location.reload();
+            return;
+        }}
+    }} catch {{}}
+    setTimeout(wait, 1000);
+}};
+wait();
+"#
+    )
+}
 
 #[derive(Clone, PartialEq, Routable)]
 #[rustfmt::skip]
@@ -186,6 +207,8 @@ struct LiveState {
     created: Signal<Option<(String, i64)>>,
     // The number of agents the upgrade drain waits for. `None` means no drain.
     drain: Signal<Option<usize>>,
+    // The error of the last upgrade. An empty text means no error.
+    upgrade_error: Signal<String>,
 }
 
 fn select_organization(mut organization: Signal<String>, name: String) {
@@ -246,6 +269,9 @@ async fn follow_live(
         // The broadcast can run while no client listens, so a connect reads the current drain state.
         if let Ok(waiting) = drain_state().await {
             state.drain.set(waiting);
+        }
+        if let Ok(error) = upgrade_error_state().await {
+            state.upgrade_error.set(error.unwrap_or_default());
         }
         match live(after).await {
             Ok(mut events) => {
@@ -314,6 +340,9 @@ async fn follow_live(
                             state.created.set(Some((repository, number)));
                         }
                         Live::Drain { waiting } => state.drain.set(waiting),
+                        Live::UpgradeError(error) => {
+                            state.upgrade_error.set(error.unwrap_or_default());
+                        }
                     }
                 }
             }
@@ -342,6 +371,7 @@ fn Frame() -> Element {
     });
     use_context_provider(|| Organizations(organization_list));
     let new_release = use_resource(release);
+    let mut upgrading = use_signal(|| false);
     let Organization(organization) =
         use_context_provider(|| Organization(Signal::new(String::new())));
     let LocalOffset(mut local_offset) =
@@ -368,7 +398,9 @@ fn Frame() -> Element {
         inbox: Signal::new(HashMap::new()),
         created: Signal::new(None),
         drain: Signal::new(None),
+        upgrade_error: Signal::new(String::new()),
     });
+    let mut upgrade_error = state.upgrade_error;
     use_effect(move || {
         if let Some(Err(error)) = &*app_slugs.read()
             && unauthorized(error)
@@ -461,9 +493,37 @@ fn Frame() -> Element {
                         }
                     }
                     if let Some(Ok(Some(version))) = &*new_release.read() {
-                        button { class: "entry upd",
-                            span { class: "grow", "Upgrade" }
-                            span { class: "muted", "{version}" }
+                        if drain_waiting.is_some() {
+                            button { class: "entry upd",
+                                onclick: move |_| async move {
+                                    if let Err(failure) = drain_cancel().await {
+                                        upgrade_error.set(error_text(&failure));
+                                    }
+                                },
+                                span { class: "grow", "Cancel upgrade" }
+                            }
+                        } else {
+                            button { class: "entry upd",
+                                disabled: upgrading(),
+                                onclick: move |_| async move {
+                                    upgrading.set(true);
+                                    upgrade_error.set(String::new());
+                                    match upgrade().await {
+                                        Ok(DrainEnd::Drained) => {
+                                            document::eval(&reload_on_new_build());
+                                            return;
+                                        }
+                                        Ok(DrainEnd::Cancelled) => {}
+                                        Err(failure) => upgrade_error.set(error_text(&failure)),
+                                    }
+                                    upgrading.set(false);
+                                },
+                                span { class: "grow", "Upgrade" }
+                                span { class: "muted", "{version}" }
+                            }
+                        }
+                        if !upgrade_error().is_empty() {
+                            p { class: "error note", "{upgrade_error}" }
                         }
                     }
                     if new_build() {

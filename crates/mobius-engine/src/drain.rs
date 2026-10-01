@@ -21,6 +21,8 @@ pub(crate) struct Drain {
 struct State {
     on: bool,
     running: usize,
+    // Set by `seal`. A sealed drain accepts no new agent and ignores `cancel`.
+    sealed: bool,
 }
 
 impl Drain {
@@ -69,10 +71,13 @@ pub(crate) fn try_track(engine: &Engine) -> Option<Guard> {
     })
 }
 
-// Counts one agent from here until the guard drops, also while the drain is on. The chat Lead still runs during the drain, and the drain waits for it.
-pub(crate) fn track(engine: &Engine) -> Guard {
+// Counts one agent from here until the guard drops, also while the drain is on. The chat Lead still runs during the drain, and the drain waits for it. `None` after `seal`.
+pub(crate) fn track(engine: &Engine) -> Option<Guard> {
     let (on, running) = {
         let mut state = engine.drain.state.lock().unwrap();
+        if state.sealed {
+            return None;
+        }
         state.running += 1;
         (state.on, state.running)
     };
@@ -81,9 +86,9 @@ pub(crate) fn track(engine: &Engine) -> Guard {
             waiting: Some(running),
         });
     }
-    Guard {
+    Some(Guard {
         engine: engine.clone(),
-    }
+    })
 }
 
 // The number of agents the drain waits for, or `None` while no drain runs.
@@ -123,8 +128,42 @@ pub async fn start(engine: &Engine) -> DrainEnd {
     }
 }
 
-// Ends the drain: the held Workers start and the Workstreams with waiting events wake.
+pub(crate) enum Seal {
+    Sealed,
+    // An agent runs, and the caller must wait with `start` again.
+    Busy,
+    // A `cancel` ended the drain.
+    Cancelled,
+}
+
+// Closes the drain for the restart. After `Sealed`, no agent starts and `cancel` does nothing, until `abort`.
+pub(crate) fn seal(engine: &Engine) -> Seal {
+    let mut state = engine.drain.state.lock().unwrap();
+    if !state.on {
+        return Seal::Cancelled;
+    }
+    if state.running > 0 {
+        return Seal::Busy;
+    }
+    state.sealed = true;
+    Seal::Sealed
+}
+
+// Ends the drain: the held Workers start and the Workstreams with waiting events wake. A sealed drain ends only with `abort`.
 pub async fn cancel(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if engine.drain.state.lock().unwrap().sealed {
+        return Ok(());
+    }
+    release(engine).await
+}
+
+// Ends a sealed drain when the restart fails.
+pub(crate) async fn abort(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
+    engine.drain.state.lock().unwrap().sealed = false;
+    release(engine).await
+}
+
+async fn release(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
     {
         let mut state = engine.drain.state.lock().unwrap();
         if !state.on {

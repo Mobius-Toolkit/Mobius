@@ -143,8 +143,8 @@ pub(crate) async fn user_token(
 
 pub async fn new_release(engine: &Engine) -> Option<String> {
     let current = mobius_domain::RELEASE_VERSION?;
-    let tag = engine.github.latest_release().await.ok()?;
-    mobius_domain::newer_release(current, &tag).then_some(tag)
+    let release = engine.github.latest_release().await.ok()?;
+    mobius_domain::newer_release(current, &release.tag_name).then_some(release.tag_name)
 }
 
 #[cfg(test)]

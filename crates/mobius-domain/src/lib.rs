@@ -367,6 +367,8 @@ pub enum Live {
     Drain {
         waiting: Option<usize>,
     },
+    // The error of the last upgrade. `None` means the last upgrade has no error.
+    UpgradeError(Option<String>),
 }
 
 // What an upgrade drain gives back when it ends.

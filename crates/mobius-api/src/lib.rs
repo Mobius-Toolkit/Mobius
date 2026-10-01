@@ -17,7 +17,7 @@ use dioxus::server::axum::extract::{FromRequestParts, Query};
 use dioxus::server::http::request::Parts;
 #[cfg(feature = "server")]
 use mobius_engine::{
-    Engine, activity, agents, auth, chat, drain, github, inbox, limits, tasks, transcript,
+    Engine, activity, agents, auth, chat, drain, github, inbox, limits, tasks, transcript, upgrade,
     workstreams,
 };
 #[cfg(feature = "server")]
@@ -293,6 +293,17 @@ pub async fn transcript_lines(session: i64) -> ServerFnResult<Vec<TranscriptLine
     transcript::lines(&engine, session)
         .await
         .map_err(ServerFnError::new)
+}
+
+// The call returns `Drained` when the upgrade restarts Mobius, `Cancelled` when the Owner cancels the drain, or an error.
+#[post("/api/upgrade", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn upgrade() -> ServerFnResult<DrainEnd> {
+    upgrade::run(&engine).await.map_err(ServerFnError::new)
+}
+
+#[get("/api/upgrade/error", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn upgrade_error() -> ServerFnResult<Option<String>> {
+    Ok(upgrade::last_error(&engine))
 }
 
 #[get("/api/drain", _device: DeviceId, engine: Extension<Engine>)]
