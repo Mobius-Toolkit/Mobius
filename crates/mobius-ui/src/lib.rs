@@ -231,6 +231,12 @@ fn unauthorized(error: &ServerFnError) -> bool {
     matches!(error, ServerFnError::ServerError { code: 401, .. })
 }
 
+fn is_ime_key(event: &KeyboardEvent) -> bool {
+    event
+        .downcast::<web_sys::KeyboardEvent>()
+        .is_some_and(|event| event.key_code() == 229)
+}
+
 fn error_text(error: &ServerFnError) -> String {
     match error {
         ServerFnError::ServerError { message, .. } => message.clone(),
@@ -1301,7 +1307,6 @@ fn Conversation(
     let mut mic_active = use_signal(|| false);
     let mut brief_open = use_signal(|| None::<bool>);
     let mut touch = use_signal(|| true);
-    let mut composition_ended = use_signal(|| false);
     use_hook(move || {
         spawn(async move {
             let coarse: bool =
@@ -1603,15 +1608,13 @@ fn Conversation(
                             placeholder: "Write to the {agent}",
                             value: text,
                             oninput: move |event| text.set(event.value()),
-                            // Safari fires compositionend before the keydown of the Enter
-                            // that commits the candidate, and that keydown has isComposing false.
-                            oncompositionend: move |_| composition_ended.set(true),
-                            onkeyup: move |_| composition_ended.set(false),
+                            // Safari reports the Enter that commits an IME candidate with
+                            // isComposing false and keyCode 229.
                             onkeydown: move |event| {
                                 if event.key() == Key::Enter
                                     && !event.modifiers().shift()
                                     && !event.is_composing()
-                                    && !composition_ended()
+                                    && !is_ime_key(&event)
                                     && !touch()
                                 {
                                     event.prevent_default();
