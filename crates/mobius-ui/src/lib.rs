@@ -1299,6 +1299,17 @@ fn Conversation(
     let mut send_error = use_signal(String::new);
     let mut mic_active = use_signal(|| false);
     let mut brief_open = use_signal(|| None::<bool>);
+    let mut touch = use_signal(|| true);
+    use_hook(move || {
+        spawn(async move {
+            let coarse: bool =
+                document::eval("return window.matchMedia('(pointer: coarse)').matches;")
+                    .join()
+                    .await
+                    .unwrap_or(true);
+            touch.set(coarse);
+        })
+    });
     // The route keeps this scope when it moves to another Workstream, so the
     // choice of the Owner resets and the default of the new Workstream applies.
     use_effect(use_reactive(
@@ -1498,6 +1509,21 @@ fn Conversation(
     });
 
     let send_key = (organization.clone(), repository.clone());
+    let send = use_callback(move |_: ()| {
+        let (organization, repository) = send_key.clone();
+        spawn(async move {
+            if text().trim().is_empty() {
+                return;
+            }
+            match chat_send(organization, repository, number, text()).await {
+                Ok(()) => {
+                    text.set(String::new());
+                    send_error.set(String::new());
+                }
+                Err(failure) => send_error.set(error_text(&failure)),
+            }
+        });
+    });
     let stop_key = (organization.clone(), repository.clone());
     rsx! {
         div { class: "column",
@@ -1564,20 +1590,8 @@ fn Conversation(
                 form {
                     class: "composer",
                     onsubmit: move |event: FormEvent| {
-                        let (organization, repository) = send_key.clone();
-                        async move {
-                            event.prevent_default();
-                            if text().trim().is_empty() {
-                                return;
-                            }
-                            match chat_send(organization, repository, number, text()).await {
-                                Ok(()) => {
-                                    text.set(String::new());
-                                    send_error.set(String::new());
-                                }
-                                Err(failure) => send_error.set(error_text(&failure)),
-                            }
-                        }
+                        event.prevent_default();
+                        send(());
                     },
                     div { class: "grow",
                         textarea {
@@ -1585,6 +1599,16 @@ fn Conversation(
                             placeholder: "Write to the {agent}",
                             value: text,
                             oninput: move |event| text.set(event.value()),
+                            onkeydown: move |event| {
+                                if event.key() == Key::Enter
+                                    && !event.modifiers().shift()
+                                    && !event.is_composing()
+                                    && !touch()
+                                {
+                                    event.prevent_default();
+                                    send(());
+                                }
+                            },
                         }
                         div { class: "error", {send_error} }
                     }
