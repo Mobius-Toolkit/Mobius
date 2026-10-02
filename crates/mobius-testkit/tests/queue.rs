@@ -126,8 +126,9 @@ async fn task_state(engine: &Engine, number: i64) -> Option<String> {
 async fn a_second_implementer_waits_for_the_implementer_limit_while_a_researcher_starts() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
+    // The first prompt of a Lead session has the earlier events in its history, so the entry for the comment comes first.
     let lead = format!(
-        "{START_41}{START_43}[[prompts]]\nwhen = \"comment on #41\"\ncall = {{ tool = \"start_researcher\", arguments = {{ question = \"Where is the price?\" }} }}\n"
+        "[[prompts]]\nwhen = \"comment on #41\"\ncall = {{ tool = \"start_researcher\", arguments = {{ question = \"Where is the price?\" }} }}\n{START_41}{START_43}"
     );
     let engine = connect(
         &data_dir,
@@ -545,4 +546,48 @@ async fn a_stop_keeps_the_later_message_of_a_waiting_lead_chat() {
     // The chat history in the prompt still shows message A, but the turn answers message B.
     assert!(prompts.iter().any(|prompt| prompt.ends_with("Message B")));
     assert!(prompts.iter().all(|prompt| !prompt.ends_with("Message A")));
+}
+
+#[tokio::test]
+async fn a_stop_keeps_the_event_of_a_waiting_lead_chat() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_issue(REPOSITORY, 50, "Loyalty points");
+    github.add_label(REPOSITORY, 50, "mobius:workstream", "owner");
+    let lead = "[[prompts]]\nwhen = \"Plan the loyalty API\"\nhang = true\n[[prompts]]\nreply = [\"Done.\"]\n";
+    let engine = connect(
+        &data_dir,
+        &github,
+        "",
+        |config| config.roles.lead.max = 1,
+        lead,
+        "",
+    )
+    .await;
+
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the loyalty API")
+        .await
+        .unwrap();
+    // The first Lead chat takes the only lead slot.
+    prompted(&engine, REPOSITORY, 12, "lead_chat").await;
+
+    github.add_issue(REPOSITORY, 51, "Add points model");
+    github.add_sub_issue(REPOSITORY, 50, 51);
+    github.add_label(REPOSITORY, 51, "mobius:ready", "owner");
+    let queued = wait_for(async || {
+        sessions(&engine, REPOSITORY, 50, "lead_chat")
+            .await
+            .into_iter()
+            .find(|session| session.queue_reason.is_some())
+    })
+    .await;
+
+    chat::stop(&engine, "owner", REPOSITORY, 50).unwrap();
+    chat::stop(&engine, "owner", REPOSITORY, 12).unwrap();
+
+    let session = prompted(&engine, REPOSITORY, 50, "lead_chat").await;
+    assert_eq!(session.id, queued.id);
+    let prompts = prompts_of(&engine, session.id).await;
+    assert!(prompts[0].contains("# Event\n\n"), "{}", prompts[0]);
+    assert!(prompts[0].contains(" dispatch of #51 "), "{}", prompts[0]);
 }

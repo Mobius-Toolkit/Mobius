@@ -156,6 +156,8 @@ struct Records {
     failed_apps: HashSet<i64>,
     // The issues whose close request fails, as (repository, number).
     failed_closes: HashSet<(String, i64)>,
+    // The issues whose sub-issue list request fails, as (repository, number).
+    failed_sub_issues: HashSet<(String, i64)>,
     // The permissions of each App and of its installation by App id. An App without an entry has `DEFAULT_PERMISSIONS`.
     app_permissions: HashMap<i64, HashMap<String, String>>,
     installation_permissions: HashMap<i64, HashMap<String, String>>,
@@ -551,6 +553,14 @@ impl FakeGitHub {
             .lock()
             .unwrap()
             .failed_closes
+            .insert((repository.to_string(), number));
+    }
+
+    pub fn fail_sub_issues(&self, repository: &str, number: i64) {
+        self.state
+            .lock()
+            .unwrap()
+            .failed_sub_issues
             .insert((repository.to_string(), number));
     }
 
@@ -2106,6 +2116,12 @@ async fn sub_issues(
     let Some(parent) = records.issues.get(&(repository.clone(), number)) else {
         return not_found();
     };
+    if records
+        .failed_sub_issues
+        .contains(&(repository.clone(), number))
+    {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
     let children = parent
         .sub_issues
         .iter()

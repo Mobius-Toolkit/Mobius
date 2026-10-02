@@ -223,7 +223,7 @@ fn replies<'a>(
         .iter()
         .filter(|comment| {
             since.is_none_or(|since| comment.created_at > since)
-                && comment_is_lead_event(config, app_slug, comment)
+                && comment_is_event(config, app_slug, comment)
         })
         .collect();
     let answered = replies.iter().map(|comment| comment.created_at).max() > asked_at;
@@ -399,8 +399,8 @@ fn ready_actor<'a>(events: &'a [IssueEvent], app_login: &str) -> Option<&'a str>
         .and_then(actor)
 }
 
-// A comment of the Lead chat session has a trusted user as author and the Mobius App in `performed_via_github_app`.
-fn comment_is_lead_event(config: &Config, app_slug: &str, comment: &Comment) -> bool {
+// A comment of the Lead session has a trusted user as author and the Mobius App in `performed_via_github_app`.
+fn comment_is_event(config: &Config, app_slug: &str, comment: &Comment) -> bool {
     config
         .trusted_users
         .iter()
@@ -552,13 +552,13 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
     }
 
     #[test]
-    fn a_comment_of_a_trusted_user_is_a_lead_event() {
-        assert!(comment_is_lead_event(
+    fn a_comment_of_a_trusted_user_is_an_event() {
+        assert!(comment_is_event(
             &config(),
             "mobius-app",
             &comment("Owner", None)
         ));
-        assert!(comment_is_lead_event(
+        assert!(comment_is_event(
             &config(),
             "mobius-app",
             &comment("owner", Some("other-app"))
@@ -566,23 +566,23 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
     }
 
     #[test]
-    fn a_comment_of_the_chat_session_a_bot_or_a_stranger_is_not_a_lead_event() {
-        assert!(!comment_is_lead_event(
+    fn a_comment_of_the_chat_session_a_bot_or_a_stranger_is_not_an_event() {
+        assert!(!comment_is_event(
             &config(),
             "mobius-app",
             &comment("owner", Some("mobius-app"))
         ));
-        assert!(!comment_is_lead_event(
+        assert!(!comment_is_event(
             &config(),
             "mobius-app",
             &comment("coderabbitai[bot]", None)
         ));
-        assert!(!comment_is_lead_event(
+        assert!(!comment_is_event(
             &config(),
             "mobius-app",
             &comment("mobius-app[bot]", None)
         ));
-        assert!(!comment_is_lead_event(
+        assert!(!comment_is_event(
             &config(),
             "mobius-app",
             &comment("mallory", None)

@@ -150,7 +150,7 @@ async fn the_judge_routes_one_item_of_each_verdict() {
         followed.comments[1],
         (APP.to_string(), "Follow-up: #99.".to_string())
     );
-    assert!(prompts(&engine, "lead_event").await.iter().any(|prompt| prompt.contains(
+    assert!(prompts(&engine, "lead_chat").await.iter().any(|prompt| prompt.contains(
         " follow-up on pull request #42 of #41 \"Add plan model\", item 3:\n\n> Move the parser to its own crate.\n"
     )));
     // Mobius resolves the thread after its reply.
