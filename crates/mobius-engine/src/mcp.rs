@@ -735,7 +735,7 @@ impl Handler {
                         repository: self.caller.repository.clone(),
                         workstream: self.caller.workstream,
                         question,
-        parent: self.caller.session,
+                        parent: self.caller.session,
                     },
                 ));
                 Ok("Started a Researcher. The report arrives later.".to_string())
