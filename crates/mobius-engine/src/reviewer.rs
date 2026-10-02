@@ -205,6 +205,15 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
     let Some(_slot) = slot else {
         return lead::end_session(engine, session, "declined").await;
     };
+    // A comment of a trusted user during the wait for the slot resets the counters of the task.
+    let Some(task) = engine
+        .store
+        .tasks()
+        .live(&job.repository, job.number)
+        .await?
+    else {
+        return lead::end_session(engine, session, "stopped").await;
+    };
     let key = mcp::open(
         engine,
         mcp::Caller {
