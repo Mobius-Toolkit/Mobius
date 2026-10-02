@@ -99,6 +99,9 @@ async fn messages(engine: &Engine) -> Vec<ChatMessage> {
         .list("owner", REPOSITORY, 12)
         .await
         .unwrap()
+        .into_iter()
+        .filter(|message| message.author != Author::Event)
+        .collect()
 }
 
 #[tokio::test]

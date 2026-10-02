@@ -1,28 +1,45 @@
 use std::error::Error;
 use std::fmt::Write;
 
-use mobius_github::{PullRequest, Repository};
+use mobius_github::{CheckRun, PullRequest, Repository};
 use mobius_store::Task;
 
 use crate::{Engine, implementer, lead};
 
-// Gives `true` when a failed check run of the head starts a fix round.
+// Gives the completed check runs of other apps that failed on the head.
+pub async fn failed(
+    repository: &Repository,
+    head_sha: &str,
+) -> Result<Vec<CheckRun>, Box<dyn Error + Send + Sync>> {
+    Ok(repository
+        .check_runs(head_sha)
+        .await?
+        .into_iter()
+        .filter(|check_run| {
+            check_run.name != implementer::CHECK_RUN
+                && check_run.status == "completed"
+                && matches!(
+                    check_run.conclusion.as_deref(),
+                    Some("failure" | "timed_out" | "cancelled")
+                )
+        })
+        .collect())
+}
+
+// Gives `true` when a failed check run of the head starts a fix round. A head gets one round.
 pub(crate) async fn on_failure(
     engine: &Engine,
     repository: &Repository,
     task: &Task,
     pull_request: &PullRequest,
 ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    let tasks = engine.store.tasks();
+    let head = &pull_request.head.sha;
+    if tasks.check_head(task.id).await?.as_deref() == Some(head) {
+        return Ok(false);
+    }
     let mut items = String::new();
-    for check_run in repository.check_runs(&pull_request.head.sha).await? {
-        let failed = check_run.status == "completed"
-            && matches!(
-                check_run.conclusion.as_deref(),
-                Some("failure" | "timed_out")
-            );
-        if check_run.name == implementer::CHECK_RUN || !failed {
-            continue;
-        }
+    for check_run in failed(repository, head).await? {
         write!(
             items,
             "\nCheck run \"{}\", {}:\n{}\n\n{}\n",
@@ -50,7 +67,6 @@ pub(crate) async fn on_failure(
         .title;
     let parent =
         lead::newest_session(engine, &repository.full_name, task.workstream, task.issue).await?;
-    let tasks = engine.store.tasks();
     if !tasks
         .set_state(task.id, "ready_for_review", "working")
         .await?
@@ -76,5 +92,6 @@ pub(crate) async fn on_failure(
             .await?;
         return Err(error);
     }
+    tasks.set_check_head(task.id, head).await?;
     Ok(true)
 }

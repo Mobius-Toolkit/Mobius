@@ -135,6 +135,8 @@ pub struct Workstream {
     pub title: String,
     pub body: String,
     pub autopilot: bool,
+    // It is true when the Workstream has direct sub-issues and all of them are closed.
+    pub all_tasks_closed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -176,16 +178,18 @@ pub enum Author {
     Researcher,
     Triager,
     Mobius,
+    Event,
 }
 
 impl Author {
-    pub const ALL: [Author; 6] = [
+    pub const ALL: [Author; 7] = [
         Author::Owner,
         Author::Lead,
         Author::TellOwner,
         Author::Researcher,
         Author::Triager,
         Author::Mobius,
+        Author::Event,
     ];
 
     pub fn name(self) -> &'static str {
@@ -196,6 +200,7 @@ impl Author {
             Author::Researcher => "Researcher",
             Author::Triager => "Triager",
             Author::Mobius => "Mobius",
+            Author::Event => "Event",
         }
     }
 }

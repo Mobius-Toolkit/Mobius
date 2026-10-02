@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT chat_messages.organization, chat_messages.repository, chat_messages.workstream,\n                      count(*) AS \"count!: i64\"\n               FROM chat_messages\n               LEFT JOIN chat_seen ON chat_seen.organization = chat_messages.organization\n                                  AND chat_seen.repository = chat_messages.repository\n                                  AND chat_seen.workstream = chat_messages.workstream\n               WHERE chat_messages.author <> 'Owner' AND chat_messages.author <> 'Researcher'\n                 AND chat_messages.id > coalesce(chat_seen.message, 0)\n               GROUP BY chat_messages.organization, chat_messages.repository, chat_messages.workstream",
+  "query": "SELECT chat_messages.organization, chat_messages.repository, chat_messages.workstream,\n                      count(*) AS \"count!: i64\"\n               FROM chat_messages\n               LEFT JOIN chat_seen ON chat_seen.organization = chat_messages.organization\n                                  AND chat_seen.repository = chat_messages.repository\n                                  AND chat_seen.workstream = chat_messages.workstream\n               WHERE chat_messages.author NOT IN ('Owner', 'Researcher', 'Event')\n                 AND chat_messages.id > coalesce(chat_seen.message, 0)\n               GROUP BY chat_messages.organization, chat_messages.repository, chat_messages.workstream",
   "describe": {
     "columns": [
       {
@@ -53,5 +53,5 @@
       false
     ]
   },
-  "hash": "27c8ada45793971c99d264e5b6926920a1506cdda4cd227989d824ad8dc03c7d"
+  "hash": "c8c6c20254309778c93cba40305de28036677f5255d97e71451f4ac9265b0b85"
 }

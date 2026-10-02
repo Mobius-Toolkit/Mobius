@@ -166,6 +166,8 @@ pub struct PullRequest {
     pub draft: bool,
     // GitHub gives `null` while it computes the value.
     pub mergeable: Option<bool>,
+    // The single pull request endpoint gives the value. The list endpoint does not.
+    pub mergeable_state: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }

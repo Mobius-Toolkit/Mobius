@@ -182,7 +182,7 @@ impl ChatMessages<'_> {
                LEFT JOIN chat_seen ON chat_seen.organization = chat_messages.organization
                                   AND chat_seen.repository = chat_messages.repository
                                   AND chat_seen.workstream = chat_messages.workstream
-               WHERE chat_messages.author <> 'Owner' AND chat_messages.author <> 'Researcher'
+               WHERE chat_messages.author NOT IN ('Owner', 'Researcher', 'Event')
                  AND chat_messages.id > coalesce(chat_seen.message, 0)
                GROUP BY chat_messages.organization, chat_messages.repository, chat_messages.workstream"#
         )
@@ -199,8 +199,7 @@ impl ChatMessages<'_> {
     ) -> Result<Unread, Box<dyn Error + Send + Sync>> {
         let count = sqlx::query_scalar!(
             r#"SELECT count(*) AS "count!: i64" FROM chat_messages
-               WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Owner'
-                 AND author <> 'Researcher'
+               WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Owner', 'Researcher', 'Event')
                  AND id > coalesce((SELECT message FROM chat_seen
                                     WHERE organization = ? AND repository = ? AND workstream = ?), 0)"#,
             organization,

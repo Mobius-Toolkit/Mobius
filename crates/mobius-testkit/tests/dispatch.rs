@@ -1,6 +1,6 @@
 use std::fs;
 
-use mobius_domain::{Session, TaskLine, TranscriptRow};
+use mobius_domain::{Author, Session, TaskLine, TranscriptRow};
 use mobius_engine::{Engine, github, tasks, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
 use mobius_testkit::{install_fake_agent, start, wait_for};
@@ -112,6 +112,36 @@ async fn feed_texts(engine: &Engine) -> Vec<String> {
 }
 
 #[tokio::test]
+async fn a_lead_event_shows_in_the_chat_and_in_the_history_and_stays_read() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, SEEN).await;
+    add_task_issue(&github, 12, 41, "Add plan model");
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    let chat = engine.store.chat_messages();
+    let event = wait_for(async || {
+        let messages = chat.list("owner", REPOSITORY, 12).await.unwrap();
+        messages
+            .into_iter()
+            .find(|message| message.author == Author::Event)
+    })
+    .await;
+    assert!(event.text.contains("Add plan model"), "{}", event.text);
+    assert!(chat.unread().await.unwrap().is_empty());
+    assert_eq!(
+        chat.unread_of("owner", REPOSITORY, 12).await.unwrap().count,
+        0
+    );
+    let before = chat
+        .before("owner", REPOSITORY, 12, event.id + 1, 20)
+        .await
+        .unwrap();
+    assert_eq!(before.last().unwrap().id, event.id);
+}
+
+#[tokio::test]
 async fn a_ready_label_of_a_trusted_user_dispatches_the_issue_and_the_lead_declines_it() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
@@ -157,7 +187,8 @@ async fn a_ready_label_of_a_trusted_user_dispatches_the_issue_and_the_lead_decli
             .list("owner", REPOSITORY, 12)
             .await
             .unwrap()
-            .is_empty()
+            .iter()
+            .all(|message| message.author == Author::Event)
     );
     let feed = feed_texts(&engine).await;
     assert!(feed.contains(&"Dispatched \"Add plan model\"".to_string()));
