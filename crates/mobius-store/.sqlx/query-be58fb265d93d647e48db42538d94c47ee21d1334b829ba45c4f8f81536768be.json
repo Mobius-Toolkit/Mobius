@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, issue, workstream, state, branch, fix_rounds, pull_request,\n                      judged_at AS \"judged_at: OffsetDateTime\", worker, worker_input FROM tasks\n               WHERE repository = ? AND state <> 'ended'",
+  "query": "SELECT id, issue, workstream, state, branch, fix_rounds, review_rounds, pull_request,\n                      judged_at AS \"judged_at: OffsetDateTime\", worker, worker_input FROM tasks\n               WHERE repository = ? AND issue = ? AND state <> 'ended'",
   "describe": {
     "columns": [
       {
@@ -70,8 +70,19 @@
         }
       },
       {
-        "name": "pull_request",
+        "name": "review_rounds",
         "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "review_rounds"
+          }
+        }
+      },
+      {
+        "name": "pull_request",
+        "ordinal": 7,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "judged_at: OffsetDateTime",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "worker",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -104,7 +115,7 @@
       },
       {
         "name": "worker_input",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -115,7 +126,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       false,
@@ -124,11 +135,12 @@
       false,
       true,
       false,
+      false,
       true,
       true,
       true,
       true
     ]
   },
-  "hash": "ccd7141addc2cb54394328e851fb53ba82bd6a12f9a5ba2c2180000aa01f9469"
+  "hash": "be58fb265d93d647e48db42538d94c47ee21d1334b829ba45c4f8f81536768be"
 }

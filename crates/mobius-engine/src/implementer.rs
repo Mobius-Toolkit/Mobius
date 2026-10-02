@@ -126,34 +126,12 @@ pub(crate) async fn fix_round(
     round: Round,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let tasks = engine.store.tasks();
-    let max = engine.config.max_fix_rounds;
-    if round.counts && !tasks.add_fix_round(round.task, max).await? {
-        if !hand_to_human(engine, &round.repository, round.task, round.number).await? {
-            return Ok(());
-        }
-        let summary = format!("The pull request has open items after {max} fix rounds.");
-        match round.check_run {
-            Some(id) => repository.set_check_run_conclusion(id, "failure").await?,
-            None => {
-                repository
-                    .create_failed_check_run(
-                        CHECK_RUN,
-                        &round.pull_request.head.sha,
-                        "Fix rounds",
-                        &summary,
-                    )
-                    .await?
-            }
-        }
-        let text = stop_text(
-            OffsetDateTime::now_utc(),
-            round.number,
-            &round.title,
-            &format!(
-                "the pull request has open items after {max} fix rounds. Mobius set the Mobius check to failure and added mobius:needs-human."
-            ),
-        )?;
-        return lead_events::add(engine, &round.repository, round.workstream, "stop", &text).await;
+    if round.counts
+        && !tasks
+            .add_fix_round(round.task, engine.config.max_fix_rounds)
+            .await?
+    {
+        return stop_at_limit(engine, repository, &round, "fix").await;
     }
     let brief = lead::brief(repository, round.workstream).await?;
     let issue = repository
@@ -305,6 +283,41 @@ fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> + Send>> {
             ),
         }
     })
+}
+
+pub(crate) async fn stop_at_limit(
+    engine: &Engine,
+    repository: &Repository,
+    round: &Round,
+    limit: &str,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let max = engine.config.max_fix_rounds;
+    if !hand_to_human(engine, &round.repository, round.task, round.number).await? {
+        return Ok(());
+    }
+    let summary = format!("The pull request has open items after {max} {limit} rounds.");
+    match round.check_run {
+        Some(id) => repository.set_check_run_conclusion(id, "failure").await?,
+        None => {
+            repository
+                .create_failed_check_run(
+                    CHECK_RUN,
+                    &round.pull_request.head.sha,
+                    "Round limit",
+                    &summary,
+                )
+                .await?
+        }
+    }
+    let text = stop_text(
+        OffsetDateTime::now_utc(),
+        round.number,
+        &round.title,
+        &format!(
+            "the pull request has open items after {max} {limit} rounds. Mobius set the Mobius check to failure and added mobius:needs-human."
+        ),
+    )?;
+    lead_events::add(engine, &round.repository, round.workstream, "stop", &text).await
 }
 
 // Gives `false` when the task is not queued or working, for example after a decline of the Lead.
