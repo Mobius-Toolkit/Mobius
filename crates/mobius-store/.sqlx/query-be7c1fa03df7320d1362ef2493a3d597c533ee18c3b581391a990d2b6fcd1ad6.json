@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, payload, chat_message FROM lead_events AS event\n               WHERE repository = ? AND workstream = ? AND delivered_at IS NULL AND held = 0\n               AND NOT EXISTS (\n                   SELECT 1 FROM lead_events AS earlier\n                   WHERE earlier.repository = event.repository\n                   AND earlier.workstream = event.workstream\n                   AND earlier.issue = event.issue\n                   AND earlier.id < event.id\n                   AND earlier.delivered_at IS NULL AND earlier.held = 1\n               )\n               ORDER BY id",
+  "query": "UPDATE lead_events SET held = 0\n               WHERE repository = ? AND workstream = ? AND held = 1\n               RETURNING id, payload, issue, chat_message",
   "describe": {
     "columns": [
       {
@@ -26,8 +26,19 @@
         }
       },
       {
-        "name": "chat_message",
+        "name": "issue",
         "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "lead_events",
+            "name": "issue"
+          }
+        }
+      },
+      {
+        "name": "chat_message",
+        "ordinal": 3,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -43,8 +54,9 @@
     "nullable": [
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "16f131784770920424463547069d84b03e85f62dd3944b94d7c5db2197167d61"
+  "hash": "be7c1fa03df7320d1362ef2493a3d597c533ee18c3b581391a990d2b6fcd1ad6"
 }

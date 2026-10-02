@@ -1025,6 +1025,60 @@ reply = [\"Noted.\"]
 }
 
 #[tokio::test]
+async fn a_freed_event_does_not_move_a_later_event_of_another_task_before_a_queued_owner_message() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let script = format!(
+        "{OPTIONS}
+[[prompts]]
+call = {{ tool = \"hold_event\", arguments = {{}} }}
+
+[[prompts]]
+reply = [\"Noted.\"]
+
+[[prompts]]
+when = \"First decision\"
+hang = true
+
+[[prompts]]
+reply = [\"Noted.\"]
+
+[[prompts]]
+reply = [\"Noted.\"]
+
+[[prompts]]
+reply = [\"Noted.\"]
+
+[[prompts]]
+reply = [\"Noted.\"]
+"
+    );
+    let engine = connect_with(&data_dir, &github, &script, keep_session_open).await;
+    dispatch_task(&github, 41, "Add plan model");
+    wait_for(async || held(&engine, 1).await.then_some(())).await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "First decision")
+        .await
+        .unwrap();
+    wait_for(async || (event_prompts(&engine).await.len() == 2).then_some(())).await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "Second decision")
+        .await
+        .unwrap();
+    dispatch_task(&github, 42, "Add plan route");
+    wait_for(async || (event_count(&engine).await == 2).then_some(())).await;
+    chat::stop(&engine, "owner", REPOSITORY, 12).unwrap();
+
+    let prompts = wait_for(async || {
+        let prompts = event_prompts(&engine).await;
+        (prompts.len() == 5 && event_delivered(&engine).await).then_some(prompts)
+    })
+    .await;
+    assert_eq!(prompts[1], "First decision");
+    assert!(prompts[2].contains(" dispatch of #41 "), "{}", prompts[2]);
+    assert_eq!(prompts[3], "Second decision");
+    assert!(prompts[4].contains(" dispatch of #42 "), "{}", prompts[4]);
+}
+
+#[tokio::test]
 async fn a_held_event_stays_held_after_a_restart_until_a_turn_for_an_owner_message_ends() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;

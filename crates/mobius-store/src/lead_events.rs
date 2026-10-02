@@ -11,6 +11,7 @@ pub struct LeadEvents<'a> {
 pub struct LeadEvent {
     pub id: i64,
     pub payload: String,
+    pub issue: Option<i64>,
     // The chat entry of the event. An event of an older store has none.
     pub chat_message: Option<i64>,
 }
@@ -76,7 +77,7 @@ impl LeadEvents<'_> {
     ) -> Result<Vec<LeadEvent>, Box<dyn Error + Send + Sync>> {
         let events = sqlx::query_as!(
             LeadEvent,
-            r#"SELECT id, payload, chat_message FROM lead_events
+            r#"SELECT id, payload, issue, chat_message FROM lead_events
                WHERE repository = ? AND workstream = ? AND delivered_at IS NULL
                ORDER BY id"#,
             repository,
@@ -95,7 +96,7 @@ impl LeadEvents<'_> {
     ) -> Result<Vec<LeadEvent>, Box<dyn Error + Send + Sync>> {
         let events = sqlx::query_as!(
             LeadEvent,
-            r#"SELECT id, payload, chat_message FROM lead_events AS event
+            r#"SELECT id, payload, issue, chat_message FROM lead_events AS event
                WHERE repository = ? AND workstream = ? AND delivered_at IS NULL AND held = 0
                AND NOT EXISTS (
                    SELECT 1 FROM lead_events AS earlier
@@ -121,21 +122,23 @@ impl LeadEvents<'_> {
         Ok(())
     }
 
+    // Returns the events that were held.
     pub async fn free(
         &self,
         repository: &str,
         workstream: i64,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let freed = sqlx::query!(
-            "UPDATE lead_events SET held = 0
-             WHERE repository = ? AND workstream = ? AND held = 1",
+    ) -> Result<Vec<LeadEvent>, Box<dyn Error + Send + Sync>> {
+        let freed = sqlx::query_as!(
+            LeadEvent,
+            r#"UPDATE lead_events SET held = 0
+               WHERE repository = ? AND workstream = ? AND held = 1
+               RETURNING id, payload, issue, chat_message"#,
             repository,
             workstream
         )
-        .execute(self.pool)
-        .await?
-        .rows_affected();
-        Ok(freed > 0)
+        .fetch_all(self.pool)
+        .await?;
+        Ok(freed)
     }
 
     pub async fn deliver_all(
