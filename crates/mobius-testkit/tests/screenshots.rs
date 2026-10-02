@@ -1340,7 +1340,17 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     github.add_manifest_code("manifest-code");
-    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    let holding_lead = CLAUDE.replace(
+        "when = \"dispatch of #41\"\n",
+        "when = \"dispatch of #41\"\nhang = true\n",
+    );
+    assert_ne!(holding_lead, CLAUDE);
+    install_fake_harness(
+        data_dir.path(),
+        FAKE_AGENT,
+        "claude-agent-acp",
+        &holding_lead,
+    );
     install_fake_harness(data_dir.path(), FAKE_AGENT, "devin", COMMITTING_IMPLEMENTER);
     let engine = start(data_dir.path(), "correct horse", &github.url).await;
     let url = serve_ui(&engine).await;
@@ -1357,9 +1367,6 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
     github.fail_close(REPOSITORY, 13);
     wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 2).then_some(())).await;
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
-    chat::send(&engine, "owner", REPOSITORY, 12, "Hold the plan.")
-        .await
-        .unwrap();
     let agents = async || {
         engine
             .store

@@ -184,11 +184,16 @@ async fn a_completion_closes_the_workstream_and_ends_the_live_task() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github, IMPLEMENTER).await;
-    let hanging_reviewer = CLAUDE.replace(
-        "when = \"You are the Reviewer\"\nshell = \"true\"",
-        "when = \"You are the Reviewer\"\nhang = true",
-    );
-    assert_ne!(hanging_reviewer, CLAUDE);
+    let hanging_reviewer = CLAUDE
+        .replace(
+            "when = \"You are the Reviewer\"\nshell = \"true\"",
+            "when = \"You are the Reviewer\"\nhang = true",
+        )
+        .replace(
+            "when = \"dispatch of #41\"\n",
+            "when = \"dispatch of #41\"\nhang = true\n",
+        );
+    assert_eq!(hanging_reviewer.matches("hang = true").count(), 3);
     install_fake_harness(
         data_dir.path(),
         FAKE_AGENT,
@@ -196,9 +201,6 @@ async fn a_completion_closes_the_workstream_and_ends_the_live_task() {
         &hanging_reviewer,
     );
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
-    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the next step.")
-        .await
-        .unwrap();
     started(&engine, "lead_chat").await;
     started(&engine, "reviewer").await;
     assert!(!workstreams::list(&engine).await.unwrap()[0].all_tasks_closed);
