@@ -164,7 +164,10 @@ async fn session(
         organization(name),
         name,
         CHAT,
-        Some(number),
+        lead::Links {
+            issue: Some(number),
+            parent: None,
+        },
     )
     .await?;
     let mut recorder = Recorder::new(engine, session, organization(name), name, CHAT, None);

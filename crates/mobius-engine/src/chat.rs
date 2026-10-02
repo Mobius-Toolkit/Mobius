@@ -255,7 +255,7 @@ async fn run(
             &organization,
             &repository,
             workstream,
-            None,
+            lead::Links::default(),
         )
         .await
         {

@@ -26,6 +26,8 @@ pub(crate) struct Job {
     pub(crate) pull_request: PullRequest,
     pub(crate) head: String,
     pub(crate) check_run: i64,
+    // The session of the Implementer that pushed the head. `None` for a review that no Implementer session started.
+    pub(crate) parent: Option<i64>,
 }
 
 // Gives `false` when the task is not `working`, for example after a decline of the Lead.
@@ -75,6 +77,7 @@ pub(crate) async fn restart(
             pull_request,
             head,
             check_run,
+            parent: None,
         },
     ));
     Ok(())
@@ -131,7 +134,10 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         organization(&job.repository),
         &job.repository,
         job.workstream,
-        Some(job.number),
+        lead::Links {
+            issue: Some(job.number),
+            parent: job.parent,
+        },
     )
     .await?;
     let mut recorder = Recorder::new(
@@ -290,6 +296,7 @@ async fn review(
             check_run: Some(job.check_run),
             counts: true,
             items,
+            parent: None,
         },
     )
     .await

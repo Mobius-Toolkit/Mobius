@@ -16,6 +16,14 @@ use crate::{Engine, agents, mcp, plans, tasks};
 
 pub(crate) const SAVE_PROMPT: &str = "Save in the Workstream memory what the next session needs.";
 
+#[derive(Default)]
+pub(crate) struct Links {
+    // The issue the session works on.
+    pub(crate) issue: Option<i64>,
+    // The session of the agent that started this session.
+    pub(crate) parent: Option<i64>,
+}
+
 pub(crate) async fn add_session(
     engine: &Engine,
     role: &str,
@@ -23,7 +31,7 @@ pub(crate) async fn add_session(
     organization: &str,
     repository: &str,
     workstream: i64,
-    issue: Option<i64>,
+    links: Links,
 ) -> Result<i64, Box<dyn Error + Send + Sync>> {
     let session = engine
         .store
@@ -35,7 +43,8 @@ pub(crate) async fn add_session(
             organization,
             repository,
             workstream,
-            issue,
+            issue: links.issue,
+            parent: links.parent,
         })
         .await?;
     let id = session.id;

@@ -39,6 +39,8 @@ struct Job {
     pull_request: Option<PullRequest>,
     conflict_round: bool,
     prompt: String,
+    // The session of the Lead that started the Implementer. `None` when no agent started it.
+    parent: Option<i64>,
 }
 
 enum Outcome {
@@ -63,6 +65,7 @@ pub(crate) async fn start(
     workstream: i64,
     number: i64,
     instructions: &str,
+    parent: i64,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let name = &repository.full_name;
     let task = dispatch::live_task(engine, name, workstream, number).await?;
@@ -93,6 +96,7 @@ pub(crate) async fn start(
         prompt: format!(
             "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n{issue}\n# Lead instructions\n\n{instructions}"
         ),
+        parent: Some(parent),
     };
     engine
         .store
@@ -117,6 +121,7 @@ pub(crate) struct Round {
     pub(crate) counts: bool,
     // The prompt text of the open items with their actions.
     pub(crate) items: String,
+    pub(crate) parent: Option<i64>,
 }
 
 // At `max_fix_rounds`, a round that counts stops the task instead.
@@ -180,6 +185,7 @@ pub(crate) async fn fix_round(
             issue.body.unwrap_or_default(),
             round.items
         ),
+        parent: round.parent,
     };
     tasks.set_worker(job.task, ROLE, Some(&job.prompt)).await?;
     tokio::spawn(run(engine.clone(), job));
@@ -216,6 +222,7 @@ pub(crate) async fn restart(
         pull_request,
         conflict_round: task.worker.as_deref() == Some(CONFLICT_ROUND),
         prompt,
+        parent: None,
     };
     tokio::spawn(run(engine.clone(), job));
     Ok(())
@@ -257,6 +264,7 @@ pub(crate) async fn conflict_round(
         pull_request: Some(pull_request),
         conflict_round: true,
         prompt,
+        parent: None,
     };
     engine
         .store
@@ -337,7 +345,10 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         organization(&job.repository),
         &job.repository,
         job.workstream,
-        Some(job.number),
+        lead::Links {
+            issue: Some(job.number),
+            parent: job.parent,
+        },
     )
     .await?;
     let mut recorder = Recorder::new(
@@ -411,6 +422,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                     pull_request: pushed.pull_request,
                     head: pushed.head,
                     check_run: pushed.check_run,
+                    parent: Some(session),
                 },
             ));
             Ok(())

@@ -1,9 +1,9 @@
 use std::time::Duration;
 
-use mobius_domain::{AgentNode, Harness, Live, TranscriptLine};
+use mobius_domain::{AgentNode, Harness, Live, TranscriptLine, agent_rows};
 use mobius_engine::{Engine, activity, agents, chat, github, transcript, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
-use mobius_testkit::{install_fake_agent, start, wait_for};
+use mobius_testkit::{install_fake_agent, install_fake_harness, start, wait_for};
 use tempfile::TempDir;
 
 const REPOSITORY: &str = "owner/shop";
@@ -277,4 +277,71 @@ updates = [
             ("tool call update", None, Some("one\ntwo\nthree…")),
         ]
     );
+}
+
+#[tokio::test]
+async fn the_tree_shows_each_agent_below_the_agent_that_started_it() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 41, "Add plan model");
+    github.add_sub_issue(REPOSITORY, 12, 41);
+    github.set_check(REPOSITORY, "grep -q cents plan.txt");
+    let lead = r#"
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
+
+[[prompts]]
+when = "You are the Reviewer"
+shell = "true"
+"#;
+    let implementer = r#"
+[options]
+model = ["swe-1.5"]
+thought_level = ["high"]
+
+[[prompts]]
+shell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'"
+"#;
+    install_fake_harness(
+        data_dir.path(),
+        FAKE_AGENT,
+        "claude-agent-acp",
+        &format!("{OPTIONS}\n{lead}"),
+    );
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "devin", implementer);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    wait_for(async || (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    let rows = wait_for(async || {
+        let rows = agent_rows(tree(&engine).await);
+        rows.iter()
+            .any(|(_, node)| node.session.role == "reviewer")
+            .then_some(rows)
+    })
+    .await;
+    let reviewer = rows
+        .iter()
+        .position(|(_, node)| node.session.role == "reviewer")
+        .unwrap();
+    let (depth, node) = &rows[reviewer];
+    assert_eq!(*depth, 2);
+    let (depth, parent) = &rows[reviewer - 1];
+    assert_eq!(*depth, 1);
+    assert_eq!(parent.session.role, "implementer");
+    assert_eq!(node.session.parent, Some(parent.session.id));
+    let (depth, lead) = &rows[reviewer - 2];
+    assert_eq!(*depth, 0);
+    assert_eq!(lead.session.role, "lead_event");
+    assert_eq!(parent.session.parent, Some(lead.session.id));
+    assert_eq!(lead.session.parent, None);
 }

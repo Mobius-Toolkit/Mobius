@@ -310,6 +310,7 @@ pub(crate) async fn fix_round(
     workstream: i64,
     number: i64,
     findings: &str,
+    parent: i64,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let name = &repository.full_name;
     let task = live_task(engine, name, workstream, number).await?;
@@ -344,6 +345,7 @@ pub(crate) async fn fix_round(
         check_run: None,
         counts: true,
         items: format!("\nFindings of the Lead:\n{findings}\n"),
+        parent: Some(parent),
     };
     if let Err(error) = implementer::fix_round(engine, repository, round).await {
         tasks

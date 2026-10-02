@@ -66,6 +66,7 @@ pub(crate) async fn on_failure(
         check_run: None,
         counts: true,
         items,
+        parent: None,
     };
     if let Err(error) = implementer::fix_round(engine, repository, round).await {
         tasks

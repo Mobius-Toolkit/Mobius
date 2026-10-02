@@ -99,6 +99,7 @@ async fn a_restart_starts_the_implementer_again_and_the_event_session() {
                 repository: REPOSITORY,
                 workstream: 12,
                 issue: None,
+                parent: None,
             })
             .await
             .unwrap();

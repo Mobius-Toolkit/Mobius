@@ -254,6 +254,7 @@ async fn ready(
         pull_request,
         head,
         check_run,
+        parent: None,
     };
     reviewer::ready_for_review(engine, repository, &job, "reviewed").await
 }
@@ -298,7 +299,10 @@ async fn session(
         organization(&job.repository),
         &job.repository,
         job.workstream,
-        Some(job.number),
+        lead::Links {
+            issue: Some(job.number),
+            parent: None,
+        },
     )
     .await?;
     let mut recorder = Recorder::new(
@@ -468,6 +472,7 @@ async fn route(
             check_run: None,
             counts,
             items: round_text(&job.items, &routes.round),
+            parent: None,
         },
     )
     .await

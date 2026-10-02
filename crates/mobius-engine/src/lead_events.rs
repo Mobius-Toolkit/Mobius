@@ -137,7 +137,7 @@ async fn session(
         organization(repository),
         repository,
         workstream,
-        None,
+        lead::Links::default(),
     )
     .await?;
     let mut recorder = Recorder::new(

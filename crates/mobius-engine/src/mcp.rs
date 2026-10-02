@@ -657,6 +657,7 @@ impl Handler {
                     self.caller.workstream,
                     n,
                     &instructions,
+                    self.caller.session,
                 )
                 .await
             }
@@ -674,6 +675,7 @@ impl Handler {
                     self.caller.workstream,
                     n,
                     &findings,
+                    self.caller.session,
                 )
                 .await
             }
@@ -745,6 +747,7 @@ impl Handler {
                         workstream: self.caller.workstream,
                         question,
                         origin,
+                        parent: self.caller.session,
                     },
                 ));
                 Ok("Started a Researcher. The report arrives later.".to_string())

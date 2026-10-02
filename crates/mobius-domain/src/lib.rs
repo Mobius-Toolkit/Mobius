@@ -1,3 +1,6 @@
+use std::cmp::Reverse;
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
@@ -240,6 +243,8 @@ pub struct Session {
     pub queue_reason: Option<String>,
     // The one issue the session works on. `None` for the chats and the Researcher.
     pub issue: Option<i64>,
+    // The session of the agent that started this session. `None` when no agent started it.
+    pub parent: Option<i64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -247,6 +252,32 @@ pub struct AgentNode {
     pub session: Session,
     pub role: String,
     pub title: String,
+}
+
+// The nodes in tree order with their depth: each node follows its parent, and the newest node comes first among siblings.
+// A node whose parent is not in `nodes` has depth 0.
+pub fn agent_rows(nodes: Vec<AgentNode>) -> Vec<(usize, AgentNode)> {
+    let by_id: HashMap<i64, &AgentNode> =
+        nodes.iter().map(|node| (node.session.id, node)).collect();
+    let mut paths = Vec::new();
+    for node in &nodes {
+        let mut path = Vec::new();
+        let mut next = Some(node);
+        while let Some(node) = next {
+            path.push(Reverse(node.session.id));
+            next = node
+                .session
+                .parent
+                .and_then(|parent| by_id.get(&parent).copied());
+        }
+        path.reverse();
+        paths.push(path);
+    }
+    let mut rows: Vec<(Vec<Reverse<i64>>, AgentNode)> = paths.into_iter().zip(nodes).collect();
+    rows.sort_by(|(a, _), (b, _)| a.cmp(b));
+    rows.into_iter()
+        .map(|(path, node)| (path.len() - 1, node))
+        .collect()
 }
 
 // The open sessions of one role on the "Agents" page, with the role limit.
@@ -383,6 +414,47 @@ pub enum DrainEnd {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn node(id: i64, parent: Option<i64>) -> AgentNode {
+        AgentNode {
+            session: Session {
+                id,
+                role: "implementer".to_string(),
+                harness: Harness::ALL[0],
+                model: String::new(),
+                organization: String::new(),
+                repository: String::new(),
+                workstream: 12,
+                acp_session_id: None,
+                started_at: OffsetDateTime::UNIX_EPOCH,
+                ended_at: None,
+                end_reason: None,
+                queue_reason: None,
+                issue: None,
+                parent,
+            },
+            role: String::new(),
+            title: String::new(),
+        }
+    }
+
+    #[test]
+    fn agent_rows_put_each_node_below_its_parent_and_a_node_with_an_unknown_parent_at_the_top() {
+        let nodes = vec![
+            node(1, None),
+            node(2, Some(1)),
+            node(3, Some(2)),
+            node(4, Some(1)),
+            node(5, Some(99)),
+        ];
+
+        let rows: Vec<(usize, i64)> = agent_rows(nodes)
+            .into_iter()
+            .map(|(depth, node)| (depth, node.session.id))
+            .collect();
+
+        assert_eq!(rows, [(0, 5), (0, 1), (1, 4), (1, 2), (2, 3)]);
+    }
 
     #[test]
     fn a_newer_release_tag_counts_each_number() {
