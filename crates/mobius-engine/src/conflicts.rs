@@ -9,6 +9,10 @@ use time::OffsetDateTime;
 use crate::labels::NEEDS_HUMAN_LABEL;
 use crate::{Engine, TIME_FORMAT, implementer, inbox, lead_events};
 
+pub fn behind(pull_request: &PullRequest) -> bool {
+    pull_request.mergeable_state.as_deref() == Some("behind")
+}
+
 pub(crate) async fn on_conflict(
     engine: &Engine,
     repository: &Repository,

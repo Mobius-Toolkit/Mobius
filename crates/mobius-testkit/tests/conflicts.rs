@@ -323,3 +323,38 @@ async fn a_conflict_round_that_does_not_merge_the_base_branch_stops_the_task() {
     assert_eq!(implementers.len(), 2);
     assert_eq!(implementers[1].end_reason.as_deref(), Some("not_merged"));
 }
+
+#[tokio::test]
+async fn a_pull_request_behind_its_base_starts_one_conflict_round_that_merges_the_base_branch() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        NO_FINDING,
+        "[[prompts]]\nwhen = \"Merge the base branch and remove the conflicts.\"\nshell = \"git merge -q --no-edit origin/main\"\n",
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || (ready_for_review_events(&engine).await == 1).then_some(())).await;
+    let remote = github.remote(REPOSITORY);
+    let first = git(&remote, &["rev-parse", "mobius/41"]);
+    github.set_behind(REPOSITORY, 42);
+
+    github.commit_file(REPOSITORY, "price.txt", "dollars\n", "Add price");
+
+    wait_for(async || (ready_for_review_events(&engine).await == 2).then_some(())).await;
+    let head = git(&remote, &["rev-parse", "mobius/41"]);
+    git(&remote, &["merge-base", "--is-ancestor", &first, &head]);
+    git(&remote, &["merge-base", "--is-ancestor", "main", &head]);
+    assert_eq!(git(&remote, &["show", "mobius/41:price.txt"]), "dollars");
+    assert_eq!(sessions(&engine, "implementer").await.len(), 2);
+    let task = engine
+        .store
+        .tasks()
+        .live(REPOSITORY, 41)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(task.fix_rounds, 0);
+}

@@ -6,7 +6,7 @@ pub mod chat;
 mod checks;
 pub mod checkup;
 pub mod config;
-mod conflicts;
+pub mod conflicts;
 mod dispatch;
 pub mod drain;
 mod ends;
