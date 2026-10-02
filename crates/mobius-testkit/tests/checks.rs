@@ -180,6 +180,78 @@ async fn a_failed_check_run_on_the_head_starts_a_fix_round_with_the_check_and_it
 }
 
 #[tokio::test]
+async fn a_failed_github_actions_check_run_gives_the_last_200_lines_of_its_job_log() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, "").await;
+    let head = ready_for_review(&engine, &github).await;
+
+    let id = github.add_check_run(
+        REPOSITORY,
+        check_run("build", &head, "completed", Some("failure")),
+    );
+    github.set_check_run_app(id, "github-actions");
+    github.add_annotation(id, "plan.txt", 1, "Store the unit.");
+    let log: Vec<String> = (1..=250).map(|line| format!("log line {line}")).collect();
+    github.add_job_log(id, &log.join("\n"));
+
+    let round = round_prompt(&engine).await;
+    let annotation = round.find("- plan.txt line 1: Store the unit.\n").unwrap();
+    let tail = round
+        .find(&format!("\n{}\n", log[50..].join("\n")))
+        .unwrap();
+    let action = round.find("Action: fix\n").unwrap();
+    assert!(annotation < tail && tail < action, "{round}");
+    assert!(!round.contains("log line 50\n"), "{round}");
+}
+
+#[tokio::test]
+async fn a_failed_check_run_of_a_different_app_gives_no_job_log() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, "").await;
+    let head = ready_for_review(&engine, &github).await;
+
+    let id = github.add_check_run(
+        REPOSITORY,
+        check_run("build", &head, "completed", Some("failure")),
+    );
+    github.set_check_run_app(id, "other-ci");
+    github.add_job_log(id, "secret log line");
+
+    let round = round_prompt(&engine).await;
+
+    assert!(round.contains("Check run \"build\""), "{round}");
+    assert!(!round.contains("secret log line"), "{round}");
+}
+
+#[tokio::test]
+async fn a_failed_job_log_download_still_starts_the_fix_round() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, "").await;
+    let head = ready_for_review(&engine, &github).await;
+
+    let id = github.add_check_run(
+        REPOSITORY,
+        check_run("build", &head, "completed", Some("failure")),
+    );
+    github.set_check_run_app(id, "github-actions");
+    github.add_annotation(id, "plan.txt", 1, "Store the unit.");
+
+    let round = round_prompt(&engine).await;
+
+    for part in [
+        "Check run \"build\"",
+        "- plan.txt line 1: Store the unit.\n",
+        "Action: fix\n",
+    ] {
+        assert!(round.contains(part), "{part:?} in {round}");
+    }
+    assert!(!round.contains("job log"), "{round}");
+}
+
+#[tokio::test]
 async fn a_failed_check_run_on_the_same_head_starts_one_fix_round() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;

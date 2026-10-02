@@ -6,6 +6,9 @@ use mobius_store::Task;
 
 use crate::{Engine, implementer, lead};
 
+const GITHUB_ACTIONS: &str = "github-actions";
+const JOB_LOG_LINES: usize = 200;
+
 // Gives the completed check runs of other apps that failed on the head.
 pub async fn failed(
     repository: &Repository,
@@ -68,6 +71,13 @@ pub(crate) async fn on_failure(
                 "- {} line {}: {}",
                 annotation.path, annotation.start_line, annotation.message
             )?;
+        }
+        if check_run.app.is_some_and(|app| app.slug == GITHUB_ACTIONS)
+            && let Ok(log) = repository.job_log(check_run.id).await
+        {
+            let lines: Vec<&str> = log.lines().collect();
+            let tail = &lines[lines.len().saturating_sub(JOB_LOG_LINES)..];
+            write!(items, "\nEnd of the job log:\n{}\n", tail.join("\n"))?;
         }
         items.push_str("\nAction: fix\n");
     }
