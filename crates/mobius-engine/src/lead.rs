@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::path::Path;
 
-use mobius_domain::{Author, Live};
+use mobius_domain::{Author, Live, organization};
 use mobius_github::Repository;
 use mobius_runner::{PromptError, Session};
 use mobius_store::NewSession;
@@ -50,6 +50,43 @@ pub(crate) async fn add_session(
     let id = session.id;
     engine.broadcast(Live::Agent(agents::node(session)));
     Ok(id)
+}
+
+// The parent of a round that Mobius starts from the work of an earlier session: the newest session of the issue.
+pub(crate) async fn newest_session(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+    issue: i64,
+) -> Result<Option<i64>, Box<dyn Error + Send + Sync>> {
+    let sessions = engine
+        .store
+        .sessions()
+        .list(organization(repository), repository, workstream)
+        .await?;
+    Ok(sessions
+        .iter()
+        .rfind(|session| session.issue == Some(issue))
+        .map(|session| session.id))
+}
+
+// The parent of a session that replaces the ended session of `role`: the parent of the ended session.
+pub(crate) async fn restart_parent(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+    issue: i64,
+    role: &str,
+) -> Result<Option<i64>, Box<dyn Error + Send + Sync>> {
+    let sessions = engine
+        .store
+        .sessions()
+        .list(organization(repository), repository, workstream)
+        .await?;
+    Ok(sessions
+        .iter()
+        .rfind(|session| session.issue == Some(issue) && session.role == role)
+        .and_then(|session| session.parent))
 }
 
 pub(crate) async fn end_session(

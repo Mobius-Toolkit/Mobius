@@ -80,13 +80,27 @@ async fn a_restart_starts_the_implementer_again_and_the_event_session() {
     let github = FakeGitHub::start().await;
     add_issues(&github);
     // The store of a server that stopped during a turn of the Implementer.
-    let old = {
+    let (old, lead) = {
         let store = Store::open(data_dir.path()).await.unwrap();
         let task = store.tasks().add(REPOSITORY, 41, 12).await.unwrap();
         store.tasks().queue(task.id, "dispatched").await.unwrap();
         store
             .tasks()
             .set_state(task.id, "queued", "working")
+            .await
+            .unwrap();
+        let lead = store
+            .sessions()
+            .add(NewSession {
+                role: "lead_event",
+                harness: Harness::ClaudeCode,
+                model: "sonnet",
+                organization: "owner",
+                repository: REPOSITORY,
+                workstream: 12,
+                issue: None,
+                parent: None,
+            })
             .await
             .unwrap();
         let session = store
@@ -98,8 +112,8 @@ async fn a_restart_starts_the_implementer_again_and_the_event_session() {
                 organization: "owner",
                 repository: REPOSITORY,
                 workstream: 12,
-                issue: None,
-                parent: None,
+                issue: Some(41),
+                parent: Some(lead.id),
             })
             .await
             .unwrap();
@@ -118,7 +132,7 @@ async fn a_restart_starts_the_implementer_again_and_the_event_session() {
             .add(REPOSITORY, 12, "comment", "A comment before the restart.")
             .await
             .unwrap();
-        session.id
+        (session.id, lead.id)
     };
     let scratch = data_dir.path().join(format!("scratch/{old}"));
     fs::create_dir_all(&scratch).unwrap();
@@ -130,6 +144,7 @@ async fn a_restart_starts_the_implementer_again_and_the_event_session() {
     assert_eq!(implementers.len(), 2);
     assert_eq!(implementers[0].id, old);
     assert_eq!(implementers[0].end_reason.as_deref(), Some("restart"));
+    assert_eq!(implementers[1].parent, Some(lead));
     assert_eq!(prompts(&engine, implementers[1].id).await, [PROMPT]);
     assert!(!scratch.exists());
     wait_for(async || {

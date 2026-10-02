@@ -301,7 +301,8 @@ async fn session(
         job.workstream,
         lead::Links {
             issue: Some(job.number),
-            parent: None,
+            parent: lead::newest_session(engine, &job.repository, job.workstream, job.number)
+                .await?,
         },
     )
     .await?;
@@ -472,7 +473,8 @@ async fn route(
             check_run: None,
             counts,
             items: round_text(&job.items, &routes.round),
-            parent: None,
+            parent: lead::newest_session(engine, &job.repository, job.workstream, job.number)
+                .await?,
         },
     )
     .await

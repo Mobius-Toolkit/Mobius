@@ -39,7 +39,7 @@ struct Job {
     pull_request: Option<PullRequest>,
     conflict_round: bool,
     prompt: String,
-    // The session of the Lead that started the Implementer. `None` when no agent started it.
+    // The session of the agent that started the work, or of the newest session of the issue when Mobius started it.
     parent: Option<i64>,
 }
 
@@ -121,6 +121,7 @@ pub(crate) struct Round {
     pub(crate) counts: bool,
     // The prompt text of the open items with their actions.
     pub(crate) items: String,
+    // The session of the agent whose result started the round.
     pub(crate) parent: Option<i64>,
 }
 
@@ -222,7 +223,14 @@ pub(crate) async fn restart(
         pull_request,
         conflict_round: task.worker.as_deref() == Some(CONFLICT_ROUND),
         prompt,
-        parent: None,
+        parent: lead::restart_parent(
+            engine,
+            &repository.full_name,
+            task.workstream,
+            task.issue,
+            ROLE,
+        )
+        .await?,
     };
     tokio::spawn(run(engine.clone(), job));
     Ok(())
@@ -264,7 +272,8 @@ pub(crate) async fn conflict_round(
         pull_request: Some(pull_request),
         conflict_round: true,
         prompt,
-        parent: None,
+        parent: lead::newest_session(engine, &repository.full_name, task.workstream, task.issue)
+            .await?,
     };
     engine
         .store

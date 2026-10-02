@@ -4,7 +4,7 @@ use std::fmt::Write;
 use mobius_github::{PullRequest, Repository};
 use mobius_store::Task;
 
-use crate::{Engine, implementer};
+use crate::{Engine, implementer, lead};
 
 // Gives `true` when a failed check run of the head starts a fix round.
 pub(crate) async fn on_failure(
@@ -66,7 +66,8 @@ pub(crate) async fn on_failure(
         check_run: None,
         counts: true,
         items,
-        parent: None,
+        parent: lead::newest_session(engine, &repository.full_name, task.workstream, task.issue)
+            .await?,
     };
     if let Err(error) = implementer::fix_round(engine, repository, round).await {
         tasks

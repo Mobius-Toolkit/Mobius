@@ -26,7 +26,7 @@ pub(crate) struct Job {
     pub(crate) pull_request: PullRequest,
     pub(crate) head: String,
     pub(crate) check_run: i64,
-    // The session of the Implementer that pushed the head. `None` for a review that no Implementer session started.
+    // The session of the Implementer that pushed the head.
     pub(crate) parent: Option<i64>,
 }
 
@@ -77,7 +77,14 @@ pub(crate) async fn restart(
             pull_request,
             head,
             check_run,
-            parent: None,
+            parent: lead::restart_parent(
+                engine,
+                &repository.full_name,
+                task.workstream,
+                task.issue,
+                ROLE,
+            )
+            .await?,
         },
     ));
     Ok(())
@@ -296,7 +303,7 @@ async fn review(
             check_run: Some(job.check_run),
             counts: true,
             items,
-            parent: None,
+            parent: Some(session_id),
         },
     )
     .await
