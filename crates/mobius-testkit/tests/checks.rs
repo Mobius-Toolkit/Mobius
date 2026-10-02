@@ -230,10 +230,12 @@ async fn a_failed_check_run_at_max_fix_rounds_hands_the_task_to_a_human() {
 
     wait_for(async || (task_state(&engine).await.as_deref() == Some("needs_human")).then_some(()))
         .await;
-    assert!(
+    wait_for(async || {
         github
             .labels(REPOSITORY, 41)
             .contains(&"mobius:needs-human".to_string())
-    );
+            .then_some(())
+    })
+    .await;
     assert_eq!(sessions(&engine).await.len(), 1);
 }
