@@ -29,7 +29,7 @@ call = { tool = "submit_review", arguments = { body = "One finding.", comments =
 const FIX: &str = r#"[[prompts]]
 when = "Action: fix"
 shell = "echo 'cents per month' > plan.txt && git commit -q -am 'Store the unit' && git rev-parse HEAD"
-call = { tool = "reply_thread", arguments = { thread = 1, text = "Fixed in {shell}.", resolve = true } }
+call = { tool = "reply_thread", arguments = { thread = 2, text = "Fixed in {shell}.", resolve = true } }
 "#;
 const NO_FINDING: &str = "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"true\"\n";
 const LEAD_FINDINGS: &str = r#"[[prompts]]
@@ -287,7 +287,7 @@ async fn a_fix_round_replies_with_the_pushed_fix_commit_and_resolves_the_thread(
         &data_dir,
         &github,
         "",
-        &format!("[[prompts]]\nwhen = \"Thread 1, plan.txt line 1:\"\nshell = \"true\"\n{FINDING}"),
+        &format!("[[prompts]]\nwhen = \"Thread 2, plan.txt line 1:\"\nshell = \"true\"\n{FINDING}"),
         FIX,
     )
     .await;
@@ -297,7 +297,7 @@ async fn a_fix_round_replies_with_the_pushed_fix_commit_and_resolves_the_thread(
     wait_for(async || (!github.pull_requests(REPOSITORY).is_empty()).then_some(())).await;
     let reply = wait_for(async || {
         github
-            .review_thread(REPOSITORY, 42, 1)
+            .review_thread(REPOSITORY, 42, 2)
             .comments
             .get(1)
             .map(|(_, body)| body.clone())
@@ -321,7 +321,7 @@ async fn a_fix_round_replies_with_the_pushed_fix_commit_and_resolves_the_thread(
     let first = git(&remote, &["rev-parse", "mobius/41~1"]);
     assert_eq!(fix, head);
     assert_eq!(
-        github.review_thread(REPOSITORY, 42, 1),
+        github.review_thread(REPOSITORY, 42, 2),
         Thread {
             resolved: true,
             comments: vec![
@@ -358,7 +358,7 @@ async fn a_fix_round_replies_with_the_pushed_fix_commit_and_resolves_the_thread(
             "You are the Implementer".to_string(),
             "# Brief\n\nShip loyalty plans to all shops.\n".to_string(),
             "# Issue\n\n#41 Add plan model\n\nPlans have a price.\n".to_string(),
-            format!("# Open items\n\nThread 1, plan.txt line 1:\n\n@{APP_LOGIN}, "),
+            format!("# Open items\n\nThread 2, plan.txt line 1:\n\n@{APP_LOGIN}, "),
             "Store the unit.\n\nAction: fix\n".to_string(),
         ],
     );
@@ -373,7 +373,7 @@ async fn an_implementer_after_cannot_do_in_a_fix_round_continues_the_pull_reques
         &github,
         "",
         &format!(
-            "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = {{ tool = \"start_implementer\", arguments = {{ n = 41, instructions = \"Store the unit in the plan.\" }} }}\n[[prompts]]\nwhen = \"Thread 1, plan.txt line 1:\"\nshell = \"true\"\n{FINDING}"
+            "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = {{ tool = \"start_implementer\", arguments = {{ n = 41, instructions = \"Store the unit in the plan.\" }} }}\n[[prompts]]\nwhen = \"Thread 2, plan.txt line 1:\"\nshell = \"true\"\n{FINDING}"
         ),
         &format!(
             "[[prompts]]\nwhen = \"Action: fix\"\ncall = {{ tool = \"cannot_do\", arguments = {{ reason = \"The unit is not clear.\" }} }}\n{}",
@@ -402,7 +402,7 @@ async fn an_implementer_after_cannot_do_in_a_fix_round_continues_the_pull_reques
     .await;
     let head = git(&github.remote(REPOSITORY), &["rev-parse", "mobius/41"]);
     assert_eq!(
-        github.review_thread(REPOSITORY, 42, 1),
+        github.review_thread(REPOSITORY, 42, 2),
         Thread {
             resolved: true,
             comments: vec![
@@ -433,7 +433,7 @@ async fn an_implementer_after_cannot_do_in_a_fix_round_continues_the_pull_reques
 async fn a_finding_after_max_fix_rounds_stops_the_task_until_a_comment_of_a_trusted_user() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
-    let engine = connect(&data_dir, &github, "max_fix_rounds = 1", FINDING, FIX).await;
+    let engine = connect(&data_dir, &github, "max_fix_rounds = 2", FINDING, FIX).await;
 
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
 
@@ -444,7 +444,7 @@ async fn a_finding_after_max_fix_rounds_stops_the_task_until_a_comment_of_a_trus
             .iter()
             .any(|prompt| {
                 prompt.contains(
-                    " stop of #41 \"Add plan model\": the pull request has open items after 1 fix rounds. Mobius set the Mobius check to failure and added mobius:needs-human.",
+                    " stop of #41 \"Add plan model\": the pull request has open items after 2 review rounds. Mobius set the Mobius check to failure and added mobius:needs-human.",
                 )
             })
             .then_some(())
@@ -504,6 +504,7 @@ async fn a_finding_after_max_fix_rounds_stops_the_task_until_a_comment_of_a_trus
     github.add_comment(REPOSITORY, 42, "owner", "Store the unit in the name.");
 
     wait_for(async || (fix_rounds(&engine, 41).await == 0).then_some(())).await;
+    assert_eq!(review_rounds(&engine, 41).await, 0);
 }
 
 #[tokio::test]
@@ -650,4 +651,253 @@ async fn start_fix_round_refuses_a_task_that_is_not_ready_for_review() {
     );
     assert_eq!(fix_rounds(&engine, 41).await, 0);
     assert_eq!(implementer_prompts(&engine).await.len(), 1);
+}
+
+const FINDING_AFTER_GO: &str = r#"[[prompts]]
+when = "You are the Reviewer"
+shell = "while [ ! -e '{go}' ]; do sleep 0.05; done"
+call = { tool = "submit_review", arguments = { body = "One finding.", comments = [{ path = "plan.txt", line = 1, body = "Store the unit." }] } }
+"#;
+const EACH_FIX: &str = r#"[[prompts]]
+when = "Action: fix"
+shell = "echo $$ >> plan.txt && git commit -q -am 'Store the unit'"
+"#;
+
+fn round_comments(github: &FakeGitHub) -> Vec<String> {
+    if github.pull_requests(REPOSITORY).is_empty() {
+        return Vec::new();
+    }
+    github
+        .comments(REPOSITORY, 42)
+        .into_iter()
+        .filter(|(author, _)| author == APP_LOGIN)
+        .map(|(_, body)| body)
+        .collect()
+}
+
+async fn review_rounds(engine: &Engine, number: i64) -> i64 {
+    engine
+        .store
+        .tasks()
+        .live(REPOSITORY, number)
+        .await
+        .unwrap()
+        .unwrap()
+        .review_rounds
+}
+
+#[tokio::test]
+async fn a_review_round_posts_a_comment_and_updates_the_same_comment_with_the_results() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let go = data_dir.path().join("go");
+    let engine = connect(
+        &data_dir,
+        &github,
+        "",
+        &FINDING_AFTER_GO.replace("{go}", &go.display().to_string()),
+        EACH_FIX,
+    )
+    .await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    let started = wait_for(async || {
+        let comments = round_comments(&github);
+        (!comments.is_empty()).then_some(comments)
+    })
+    .await;
+    assert_eq!(started, ["Review started, round 1 of 7"]);
+
+    std::fs::write(&go, "").unwrap();
+
+    let ended = wait_for(async || {
+        let comments = round_comments(&github);
+        comments[0].starts_with("Review ended").then_some(comments)
+    })
+    .await;
+    assert_eq!(
+        ended[0],
+        "Review ended, round 1 of 7\n\nResult: A fix round started.\nOpen findings: 1\n\n- https://github.com/owner/shop/pull/42#discussion_r2"
+    );
+    wait_for(async || (review_rounds(&engine, 41).await == 1).then_some(())).await;
+}
+
+#[tokio::test]
+async fn the_review_round_at_max_fix_rounds_shows_the_limit_and_starts_no_next_round() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, "", FINDING, EACH_FIX).await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    wait_for(async || {
+        lead_prompts(&engine)
+            .await
+            .iter()
+            .any(|prompt| {
+                prompt.contains(
+                    " stop of #41 \"Add plan model\": the pull request has open items after 7 review rounds.",
+                )
+            })
+            .then_some(())
+    })
+    .await;
+    assert_eq!(sessions(&engine, "reviewer").await.len(), 7);
+    let comments = round_comments(&github);
+    assert_eq!(comments.len(), 7);
+    for (index, comment) in comments.iter().enumerate() {
+        assert!(
+            comment.starts_with(&format!("Review ended, round {} of 7\n", index + 1)),
+            "{comment}"
+        );
+    }
+    assert!(
+        comments[..6]
+            .iter()
+            .all(|comment| comment.contains("Result: A fix round started.\n"))
+    );
+    assert!(
+        comments[6].contains(
+            "Result: Limit reached (7 of 7). Mobius added mobius:needs-human. Add a comment on this pull request to continue.\n"
+        ),
+        "{}",
+        comments[6]
+    );
+    assert_eq!(review_rounds(&engine, 41).await, 7);
+    assert_eq!(fix_rounds(&engine, 41).await, 6);
+    assert_eq!(
+        task_state(&engine, 41).await.as_deref(),
+        Some("needs_human")
+    );
+    assert!(
+        github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:needs-human".to_string())
+    );
+}
+
+#[tokio::test]
+async fn a_failed_review_run_shows_the_reason_and_the_restart_keeps_the_round_number() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let flag = data_dir.path().join("died");
+    let engine = connect(
+        &data_dir,
+        &github,
+        "",
+        &format!(
+            "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"if [ -e '{0}' ]; then true; else touch '{0}'; kill -9 $PPID; fi\"\n",
+            flag.display()
+        ),
+        "",
+    )
+    .await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    wait_for(async || {
+        (task_state(&engine, 41).await.as_deref() == Some("ready_for_review")).then_some(())
+    })
+    .await;
+    let comments = round_comments(&github);
+    assert_eq!(comments.len(), 2);
+    assert!(
+        comments[0].starts_with("Review stopped, round 1 of 7\n\nThe run failed: "),
+        "{}",
+        comments[0]
+    );
+    assert!(
+        comments[1].starts_with(
+            "Review ended, round 1 of 7\n\nResult: Ready for review.\nOpen findings: 0"
+        ),
+        "{}",
+        comments[1]
+    );
+    assert_eq!(review_rounds(&engine, 41).await, 1);
+    assert_eq!(sessions(&engine, "reviewer").await.len(), 2);
+}
+
+#[tokio::test]
+async fn a_review_run_after_the_limit_posts_the_limit_comment() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        "max_fix_rounds = 1",
+        &format!("{NO_FINDING}{LEAD_FINDINGS}"),
+        "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo more >> plan.txt && git commit -q -am 'Remove the lines'\"\n",
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || {
+        (task_state(&engine, 41).await.as_deref() == Some("ready_for_review")).then_some(())
+    })
+    .await;
+
+    chat::send(&engine, "owner", REPOSITORY, 12, "Send the findings to #41")
+        .await
+        .unwrap();
+
+    wait_for(async || {
+        (task_state(&engine, 41).await.as_deref() == Some("needs_human")).then_some(())
+    })
+    .await;
+    let comments = wait_for(async || {
+        let comments = round_comments(&github);
+        (comments.len() == 2).then_some(comments)
+    })
+    .await;
+    assert!(comments[0].starts_with("Review ended, round 1 of 1\n"));
+    assert_eq!(
+        comments[1],
+        "Review not started. Limit reached (1 of 1). Mobius added mobius:needs-human. Add a comment on this pull request to continue."
+    );
+    assert_eq!(sessions(&engine, "reviewer").await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_comment_of_a_trusted_user_during_the_last_round_resets_the_limit_of_the_round() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let seen = data_dir.path().join("seen");
+    let go = data_dir.path().join("go");
+    let engine = connect(
+        &data_dir,
+        &github,
+        "max_fix_rounds = 2",
+        &format!(
+            "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"if [ -e '{0}' ]; then while [ ! -e '{1}' ]; do sleep 0.05; done; else touch '{0}'; fi\"\ncall = {{ tool = \"submit_review\", arguments = {{ body = \"One finding.\", comments = [{{ path = \"plan.txt\", line = 1, body = \"Store the unit.\" }}] }} }}\n",
+            seen.display(),
+            go.display()
+        ),
+        EACH_FIX,
+    )
+    .await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    wait_for(async || {
+        round_comments(&github)
+            .iter()
+            .any(|comment| comment.starts_with("Review started, round 2 of 2"))
+            .then_some(())
+    })
+    .await;
+    github.add_comment(REPOSITORY, 42, "owner", "Store the unit in the name.");
+    wait_for(async || (review_rounds(&engine, 41).await == 0).then_some(())).await;
+
+    std::fs::write(&go, "").unwrap();
+
+    let comments = wait_for(async || {
+        let comments = round_comments(&github);
+        (comments.len() > 2 && comments[1].starts_with("Review ended")).then_some(comments)
+    })
+    .await;
+    assert!(
+        comments[1].starts_with("Review ended, round 1 of 2\n\nResult: A fix round started.\n"),
+        "{}",
+        comments[1]
+    );
 }

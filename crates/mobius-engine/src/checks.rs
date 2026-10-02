@@ -26,6 +26,20 @@ pub async fn failed(
         .collect())
 }
 
+// Gives `true` when the head has a failed check run and no round yet.
+pub(crate) async fn unhandled_failure(
+    engine: &Engine,
+    repository: &Repository,
+    task: &Task,
+    pull_request: &PullRequest,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    let head = &pull_request.head.sha;
+    if engine.store.tasks().check_head(task.id).await?.as_deref() == Some(head) {
+        return Ok(false);
+    }
+    Ok(!failed(repository, head).await?.is_empty())
+}
+
 // Gives `true` when a failed check run of the head starts a fix round. A head gets one round.
 pub(crate) async fn on_failure(
     engine: &Engine,

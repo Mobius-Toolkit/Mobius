@@ -8,9 +8,9 @@ use markdown::Markdown;
 use mobius_api::{
     active_agents, agent_tree, chat_seen, chat_send, chat_stop, chat_view, checkup, devices,
     drain_cancel, drain_state, fix_labels, github_apps, github_manifest, inbox_dismiss,
-    inbox_items, inbox_resume, live, login, logout, organizations, release, task_list,
-    transcript_lines, unread, upgrade, upgrade_error as upgrade_error_state, workstream_autopilot,
-    workstreams,
+    inbox_items, inbox_resume, live, login, logout, organizations, release, release_changes,
+    task_list, transcript_lines, unread, upgrade, upgrade_error as upgrade_error_state,
+    workstream_autopilot, workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, DrainEnd, FeedRow, InboxItem, InboxKind, LabelStatus, Live,
@@ -392,6 +392,7 @@ fn Frame() -> Element {
         });
     });
     let mut upgrading = use_signal(|| false);
+    let mut changes_shown = use_signal(|| false);
     let Organization(organization) =
         use_context_provider(|| Organization(Signal::new(String::new())));
     let LocalOffset(mut local_offset) =
@@ -524,21 +525,39 @@ fn Frame() -> Element {
                         } else {
                             button { class: "entry upd",
                                 disabled: upgrading(),
-                                onclick: move |_| async move {
-                                    upgrading.set(true);
-                                    upgrade_error.set(String::new());
-                                    match upgrade().await {
-                                        Ok(DrainEnd::Drained) => {
-                                            document::eval(&reload_on_new_build());
-                                            return;
-                                        }
-                                        Ok(DrainEnd::Cancelled) => {}
-                                        Err(failure) => upgrade_error.set(error_text(&failure)),
-                                    }
-                                    upgrading.set(false);
-                                },
+                                onclick: move |_| changes_shown.set(true),
                                 span { class: "grow", "Upgrade" }
                                 span { class: "muted", "{version}" }
+                            }
+                        }
+                        if changes_shown() {
+                            div { class: "backdrop dim", onclick: move |_| changes_shown.set(false) }
+                            div { class: "modal",
+                                div { class: "head",
+                                    h2 { "Upgrade to {version}" }
+                                    button { class: "btn ghost", onclick: move |_| changes_shown.set(false), "Close" }
+                                }
+                                ReleaseChanges { version: version.clone() }
+                                div { class: "actions",
+                                    button { class: "btn primary",
+                                        disabled: upgrading(),
+                                        onclick: move |_| async move {
+                                            changes_shown.set(false);
+                                            upgrading.set(true);
+                                            upgrade_error.set(String::new());
+                                            match upgrade().await {
+                                                Ok(DrainEnd::Drained) => {
+                                                    document::eval(&reload_on_new_build());
+                                                    return;
+                                                }
+                                                Ok(DrainEnd::Cancelled) => {}
+                                                Err(failure) => upgrade_error.set(error_text(&failure)),
+                                            }
+                                            upgrading.set(false);
+                                        },
+                                        "Upgrade"
+                                    }
+                                }
                             }
                         }
                         if !upgrade_error().is_empty() {
@@ -588,6 +607,24 @@ fn Frame() -> Element {
         Some(Ok(_)) => rsx! { main { class: "center", GitHub {} } },
         Some(Err(error)) => rsx! { p { class: "error note", {error_text(error)} } },
         None => rsx! {},
+    }
+}
+
+#[component]
+fn ReleaseChanges(version: String) -> Element {
+    let changes = use_resource(use_reactive(&version, |version| async move {
+        release_changes(version).await
+    }));
+    match &*changes.read() {
+        Some(Ok(titles)) => rsx! {
+            ul { class: "changes",
+                for (index, title) in titles.iter().enumerate() {
+                    li { key: "{index}", "{title}" }
+                }
+            }
+        },
+        Some(Err(error)) => rsx! { p { class: "error note", {error_text(error)} } },
+        None => rsx! { p { class: "muted note", "Loading changes…" } },
     }
 }
 

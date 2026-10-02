@@ -148,6 +148,13 @@ pub async fn release() -> ServerFnResult<Option<String>> {
     Ok(github::new_release(&engine).await)
 }
 
+#[post("/api/release/changes", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn release_changes(new: String) -> ServerFnResult<Vec<String>> {
+    github::release_changes(&engine, &new)
+        .await
+        .map_err(ServerFnError::new)
+}
+
 #[get("/api/organizations", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn organizations() -> ServerFnResult<Vec<String>> {
     Ok(workstreams::organizations(&engine))

@@ -28,6 +28,7 @@ jobs:
       - run: cargo test -p mobius-testkit --test screenshots -- --ignored --test-threads=1
         env:
           DIOXUS_PUBLIC_PATH: ${{ github.workspace }}/dist/public
+          MOBIUS_VERSION: v0.1.0
       # Without `[skip ci]`, GitHub starts the pull_request workflows for this push and holds them for the approval of a maintainer.
       - run: |
           git add crates/mobius-ui/screenshots
