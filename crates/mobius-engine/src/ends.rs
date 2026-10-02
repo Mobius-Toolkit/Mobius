@@ -77,7 +77,15 @@ async fn check_task(
             issue.title,
             pull_request.number
         );
-        lead_events::add(engine, name, task.workstream, "end", &text).await?;
+        lead_events::add(
+            engine,
+            name,
+            task.workstream,
+            Some(task.issue),
+            "end",
+            &text,
+        )
+        .await?;
         return Ok(None);
     }
     if pull_request.is_none() && issue.state == "closed" {

@@ -153,6 +153,6 @@ pub(crate) async fn restart(
         "{} stop of #{number} \"{title}\": the Worker failed after {max} restarts. Mobius added mobius:needs-human. The last error ends with these lines:\n\n```\n{tail}\n```",
         OffsetDateTime::now_utc().format(TIME_FORMAT)?
     );
-    lead_events::add(engine, repository, workstream, "stop", &text).await?;
+    lead_events::add(engine, repository, workstream, Some(number), "stop", &text).await?;
     Ok(false)
 }

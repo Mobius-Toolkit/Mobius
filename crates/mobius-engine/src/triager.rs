@@ -197,6 +197,7 @@ async fn session(
             fix: None,
             review: None,
             judge: None,
+            turn: None,
         },
     )?;
     let dir = mobius_runner::scratch_dir(&engine.config.data_dir, session);

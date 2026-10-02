@@ -294,6 +294,7 @@ async fn the_lead_session_has_tell_owner() {
             "comment_pull_request",
             "create_workstream",
             "move_task",
+            "hold_event",
             "tell_owner"
         ]
     );

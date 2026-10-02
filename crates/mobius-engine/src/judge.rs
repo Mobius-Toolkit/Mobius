@@ -373,6 +373,7 @@ async fn session(
                 items: job.items.iter().map(|item| (item.id, item.bot)).collect(),
                 verdicts,
             }),
+            turn: None,
         },
     )?;
     let result = tokio::select! {
@@ -473,7 +474,15 @@ async fn route(
             job.title,
             item.map(|item| item.text.as_str()).unwrap_or_default()
         );
-        lead_events::add(engine, &job.repository, job.workstream, "follow_up", &event).await?;
+        lead_events::add(
+            engine,
+            &job.repository,
+            job.workstream,
+            Some(job.number),
+            "follow_up",
+            &event,
+        )
+        .await?;
     }
     if routes.round.is_empty() {
         tasks.set_state(job.task, "working", &job.from).await?;

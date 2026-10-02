@@ -11,6 +11,7 @@ pub struct LeadEvents<'a> {
 pub struct LeadEvent {
     pub id: i64,
     pub payload: String,
+    pub issue: Option<i64>,
     // The chat entry of the event. An event of an older store has none.
     pub chat_message: Option<i64>,
 }
@@ -20,15 +21,17 @@ impl LeadEvents<'_> {
         &self,
         repository: &str,
         workstream: i64,
+        issue: Option<i64>,
         kind: &str,
         payload: &str,
         chat_message: Option<i64>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let time = OffsetDateTime::now_utc();
         sqlx::query!(
-            "INSERT INTO lead_events (repository, workstream, kind, payload, time, chat_message) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message) VALUES (?, ?, ?, ?, ?, ?, ?)",
             repository,
             workstream,
+            issue,
             kind,
             payload,
             time,
@@ -74,7 +77,7 @@ impl LeadEvents<'_> {
     ) -> Result<Vec<LeadEvent>, Box<dyn Error + Send + Sync>> {
         let events = sqlx::query_as!(
             LeadEvent,
-            r#"SELECT id, payload, chat_message FROM lead_events
+            r#"SELECT id, payload, issue, chat_message FROM lead_events
                WHERE repository = ? AND workstream = ? AND delivered_at IS NULL
                ORDER BY id"#,
             repository,
@@ -83,6 +86,59 @@ impl LeadEvents<'_> {
         .fetch_all(self.pool)
         .await?;
         Ok(events)
+    }
+
+    // The undelivered events that are not held, in the order that they occurred. A held event holds each later event of its task issue.
+    pub async fn ready(
+        &self,
+        repository: &str,
+        workstream: i64,
+    ) -> Result<Vec<LeadEvent>, Box<dyn Error + Send + Sync>> {
+        let events = sqlx::query_as!(
+            LeadEvent,
+            r#"SELECT id, payload, issue, chat_message FROM lead_events AS event
+               WHERE repository = ? AND workstream = ? AND delivered_at IS NULL AND held = 0
+               AND NOT EXISTS (
+                   SELECT 1 FROM lead_events AS earlier
+                   WHERE earlier.repository = event.repository
+                   AND earlier.workstream = event.workstream
+                   AND earlier.issue = event.issue
+                   AND earlier.id < event.id
+                   AND earlier.delivered_at IS NULL AND earlier.held = 1
+               )
+               ORDER BY id"#,
+            repository,
+            workstream
+        )
+        .fetch_all(self.pool)
+        .await?;
+        Ok(events)
+    }
+
+    pub async fn hold(&self, id: i64) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query!("UPDATE lead_events SET held = 1 WHERE id = ?", id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // Returns the events that were held.
+    pub async fn free(
+        &self,
+        repository: &str,
+        workstream: i64,
+    ) -> Result<Vec<LeadEvent>, Box<dyn Error + Send + Sync>> {
+        let freed = sqlx::query_as!(
+            LeadEvent,
+            r#"UPDATE lead_events SET held = 0
+               WHERE repository = ? AND workstream = ? AND held = 1
+               RETURNING id, payload, issue, chat_message"#,
+            repository,
+            workstream
+        )
+        .fetch_all(self.pool)
+        .await?;
+        Ok(freed)
     }
 
     pub async fn deliver_all(
