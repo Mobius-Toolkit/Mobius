@@ -332,7 +332,7 @@ async fn review(
         .filter(|thread| is_open(thread, &trusted, &app_login))
         .collect();
     let max = i64::from(engine.config.max_fix_rounds);
-    let round = engine.store.tasks().add_review_round(job.task).await?;
+    let round = task.review_rounds + 1;
     if open.is_empty() {
         end_round(
             engine,
@@ -452,11 +452,10 @@ async fn end_round(
         open.len()
     );
     repository.update_comment(comment, body.trim_end()).await?;
-    engine
-        .store
-        .tasks()
-        .set_review_comment(job.task, None)
-        .await
+    let tasks = engine.store.tasks();
+    tasks.set_review_comment(job.task, None).await?;
+    tasks.add_review_round(job.task).await?;
+    Ok(())
 }
 
 // A task with no comment of a run in progress needs no update.
