@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)\n               VALUES (?, ?, ?, 'dispatched', ?)\n               RETURNING id AS \"id!\", issue, workstream, state, branch, fix_rounds, pull_request,\n                         judged_at AS \"judged_at: OffsetDateTime\", worker, worker_input",
+  "query": "SELECT id, issue, workstream, state, branch, fix_rounds, review_rounds, pull_request,\n                      judged_at AS \"judged_at: OffsetDateTime\", worker, worker_input FROM tasks\n               WHERE repository = ? AND pull_request = ? AND state <> 'ended'",
   "describe": {
     "columns": [
       {
-        "name": "id!",
+        "name": "id",
         "ordinal": 0,
         "type_info": "Integer",
         "origin": {
@@ -70,8 +70,19 @@
         }
       },
       {
-        "name": "pull_request",
+        "name": "review_rounds",
         "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "review_rounds"
+          }
+        }
+      },
+      {
+        "name": "pull_request",
+        "ordinal": 7,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "judged_at: OffsetDateTime",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "worker",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -104,7 +115,7 @@
       },
       {
         "name": "worker_input",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -115,7 +126,7 @@
       }
     ],
     "parameters": {
-      "Right": 4
+      "Right": 2
     },
     "nullable": [
       false,
@@ -124,11 +135,12 @@
       false,
       true,
       false,
+      false,
       true,
       true,
       true,
       true
     ]
   },
-  "hash": "01890fd417cdfb9fbf8c46f351dfcdf833ae966c7727a1b1d5e230ed722cd7c4"
+  "hash": "667adefe0c4db58207b38cb1aa0b78db9972f645a893608fc2e770dc18093745"
 }

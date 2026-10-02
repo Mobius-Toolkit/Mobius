@@ -125,6 +125,10 @@ _Avoid_: CI, pre-push hook
 One pass in which the Implementer changes a pull request to answer its open items: the findings of the Reviewer, the findings of the Lead, and the `fix` and `question` actions of the Judge. Only a pass with findings or a `fix` counts toward `max_fix_rounds`.
 _Avoid_: Iteration, cycle
 
+**Review round**:
+One run of the Reviewer that ends with a result. The Mobius App posts the comment "Review started, round N of M" on the pull request when the run starts, and updates the same comment when the run ends. M is `max_fix_rounds`. A run that fails or stops is not a review round, and the Reviewer starts again with the same N.
+_Avoid_: Review pass
+
 **Conflict round**:
 One pass in which the Implementer merges the base branch into a pull request to remove a merge conflict.
 _Avoid_: Rebase, sync

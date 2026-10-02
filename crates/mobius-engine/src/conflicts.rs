@@ -13,16 +13,19 @@ pub fn behind(pull_request: &PullRequest) -> bool {
     pull_request.mergeable_state.as_deref() == Some("behind")
 }
 
+// Gives `false` when the pull request is stale, so no round starts.
 pub(crate) async fn on_conflict(
     engine: &Engine,
     repository: &Repository,
     task: &Task,
     pull_request: PullRequest,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
     if OffsetDateTime::now_utc() - pull_request.created_at > engine.config.stale_pr_age {
-        stale(engine, repository, task, &pull_request).await
+        stale(engine, repository, task, &pull_request).await?;
+        Ok(false)
     } else {
-        implementer::conflict_round(engine, repository, task, pull_request).await
+        implementer::conflict_round(engine, repository, task, pull_request).await?;
+        Ok(true)
     }
 }
 

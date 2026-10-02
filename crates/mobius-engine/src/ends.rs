@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::error::Error;
 
 use mobius_github::{Issue, Repository};
@@ -7,19 +8,32 @@ use tokio::sync::broadcast::Receiver;
 
 use crate::labels::{NEEDS_HUMAN_LABEL, WORKING_LABEL};
 use crate::trust::app_login;
+use crate::workers::Work;
 use crate::{Engine, TIME_FORMAT, activity, checks, conflicts, implementer, judge, lead_events};
 
+// Adds the pull request of each task with work for an agent to `work`. A task that fails to check keeps its old entry.
 pub(crate) async fn check(
     engine: &Engine,
     app_slug: &str,
     repository: &Repository,
+    work: &mut BTreeMap<i64, Work>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     for task in engine.store.tasks().live_in(&repository.full_name).await? {
-        if let Err(error) = check_task(engine, app_slug, repository, &task).await {
-            eprintln!(
-                "mobius: task of {}#{}: {error}",
-                repository.full_name, task.issue
-            );
+        match check_task(engine, app_slug, repository, &task).await {
+            Ok(found) => work.extend(found.map(|found| (task.id, found))),
+            Err(error) => {
+                eprintln!(
+                    "mobius: task of {}#{}: {error}",
+                    repository.full_name, task.issue
+                );
+                work.extend(
+                    engine
+                        .workers
+                        .work()
+                        .remove(&task.id)
+                        .map(|old| (task.id, old)),
+                );
+            }
         }
     }
     Ok(())
@@ -30,7 +44,7 @@ async fn check_task(
     app_slug: &str,
     repository: &Repository,
     task: &Task,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<Option<Work>, Box<dyn Error + Send + Sync>> {
     let name = &repository.full_name;
     let Some(issue) = repository
         .issue(task.issue)
@@ -38,7 +52,7 @@ async fn check_task(
         .filter(|issue| !in_other_repository(issue, name))
     else {
         end(engine, repository, task).await?;
-        return Ok(());
+        return Ok(None);
     };
     let pull_request = match task.pull_request {
         Some(number) => Some(repository.pull_request(number).await?),
@@ -72,11 +86,11 @@ async fn check_task(
             &text,
         )
         .await?;
-        return Ok(());
+        return Ok(None);
     }
     if pull_request.is_none() && issue.state == "closed" {
         end(engine, repository, task).await?;
-        return Ok(());
+        return Ok(None);
     }
     if task.state != "stopped" && !issue.has_label(WORKING_LABEL) {
         let events = repository.issue_events(task.issue).await?;
@@ -95,28 +109,47 @@ async fn check_task(
         {
             stop(engine, repository, task, &issue, &actor.login).await?;
         }
-        return Ok(());
+        return Ok(None);
     }
     let Some(pull_request) = pull_request else {
-        return Ok(());
+        return Ok(None);
     };
+    // The work is the round that the task queues or runs now, or the round that this check starts.
+    let work = Work {
+        repository: name.clone(),
+        pull_request: pull_request.number,
+        created_at: pull_request.created_at,
+    };
+    if matches!(task.state.as_str(), "queued" | "working") {
+        let round = matches!(
+            task.worker.as_deref(),
+            Some(implementer::ROLE | implementer::CONFLICT_ROUND | judge::ROLE)
+        );
+        return Ok(round.then_some(work));
+    }
     if !matches!(
         task.state.as_str(),
         "ready_for_review" | "reviewed" | "needs_human"
     ) {
-        return Ok(());
+        return Ok(None);
     }
     if task.state == "ready_for_review"
         && (pull_request.mergeable == Some(false) || conflicts::behind(&pull_request))
     {
-        return conflicts::on_conflict(engine, repository, task, pull_request).await;
+        let round = conflicts::on_conflict(engine, repository, task, pull_request).await?;
+        return Ok(round.then_some(work));
     }
     if task.state == "ready_for_review"
         && checks::on_failure(engine, repository, task, &pull_request).await?
     {
-        return Ok(());
+        return Ok(Some(work));
     }
-    judge::check(engine, repository, task, pull_request).await
+    let waiting = task.state == "reviewed"
+        && (pull_request.mergeable == Some(false)
+            || conflicts::behind(&pull_request)
+            || checks::unhandled_failure(engine, repository, task, &pull_request).await?);
+    let judged = judge::check(engine, repository, task, pull_request, waiting).await?;
+    Ok(judged.then_some(work))
 }
 
 pub(crate) async fn lost_access(

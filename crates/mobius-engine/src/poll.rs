@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::error::Error;
 
 use mobius_domain::Live;
@@ -6,6 +7,7 @@ use time::OffsetDateTime;
 
 use crate::labels::{self, AUTOPILOT_LABEL, NO_WORKSTREAM_LABEL, WORKING_LABEL, WORKSTREAM_LABEL};
 use crate::trust::trusted_author;
+use crate::workers::Work;
 use crate::{
     Engine, activity, autopilot, dispatch, ends, lead_events, recovery, triager, workstreams,
 };
@@ -53,6 +55,8 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
     }
     *engine.repositories.write().unwrap() = repositories.clone();
     ends::lost_access(engine, &repositories).await?;
+    // The set is complete only after the poll reads all repositories.
+    let mut work = BTreeMap::new();
     for repository in &repositories {
         if engine
             .labels_fixed
@@ -63,10 +67,19 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
         {
             eprintln!("mobius: label fix of {}: {error}", repository.full_name);
         }
-        if let Err(error) = poll_repository(engine, &repository.app_slug, repository).await {
+        if let Err(error) =
+            poll_repository(engine, &repository.app_slug, repository, &mut work).await
+        {
             eprintln!("mobius: GitHub poll of {}: {error}", repository.full_name);
+            // A failed poll keeps the old work of the repository, so that it does not unblock a ticket.
+            for (task, old) in engine.workers.work() {
+                if old.repository == repository.full_name {
+                    work.entry(task).or_insert(old);
+                }
+            }
         }
     }
+    engine.workers.replace_work(work);
     Ok(())
 }
 
@@ -74,12 +87,13 @@ async fn poll_repository(
     engine: &Engine,
     app_slug: &str,
     repository: &Repository,
+    work: &mut BTreeMap<i64, Work>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     recovery::repository(engine, repository).await?;
     changed_issues(engine, app_slug, repository).await?;
     dispatch::dispatch_ready(engine, app_slug, repository).await?;
     autopilot::start(engine, app_slug, repository).await?;
-    ends::check(engine, app_slug, repository).await
+    ends::check(engine, app_slug, repository, work).await
 }
 
 // A direct sub-issue of a Workstream that opens or closes changes `all_tasks_closed` of the Workstream.

@@ -28,6 +28,23 @@ pub(crate) struct Job {
     pub(crate) check_run: i64,
 }
 
+impl Job {
+    fn round(&self, items: String) -> implementer::Round {
+        implementer::Round {
+            repository: self.repository.clone(),
+            workstream: self.workstream,
+            task: self.task,
+            number: self.number,
+            title: self.title.clone(),
+            branch: self.branch.clone(),
+            pull_request: self.pull_request.clone(),
+            check_run: Some(self.check_run),
+            counts: true,
+            items,
+        }
+    }
+}
+
 // Gives `false` when the task is not `working`, for example after a decline of the Lead.
 pub(crate) async fn queue(
     engine: &Engine,
@@ -50,6 +67,19 @@ pub(crate) async fn restart(
     let (Some(number), Some(branch)) = (task.pull_request, task.branch.clone()) else {
         return Ok(());
     };
+    if let Err(error) = abandon_round(
+        engine,
+        repository,
+        task,
+        "Mobius restarted before the run ended.",
+    )
+    .await
+    {
+        eprintln!(
+            "mobius: round comment of {}#{}: {error}",
+            repository.full_name, task.issue
+        );
+    }
     let pull_request = repository.pull_request(number).await?;
     let title = repository
         .issue(task.issue)
@@ -121,6 +151,29 @@ pub(crate) fn run(engine: Engine, job: Job) -> Pin<Box<dyn Future<Output = ()> +
 }
 
 async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let Some(task) = engine
+        .store
+        .tasks()
+        .live(&job.repository, job.number)
+        .await?
+    else {
+        return Ok(());
+    };
+    if task.review_rounds >= i64::from(engine.config.max_fix_rounds) {
+        let repository = engine.repository(&job.repository)?;
+        implementer::stop_at_limit(engine, &repository, &job.round(String::new()), "review")
+            .await?;
+        let max = engine.config.max_fix_rounds;
+        repository
+            .add_comment(
+                job.pull_request.number,
+                &format!(
+                    "Review not started. Limit reached ({max} of {max}). Mobius added mobius:needs-human. Add a comment on this pull request to continue."
+                ),
+            )
+            .await?;
+        return Ok(());
+    }
     // The subscription comes before the first state change, so the session gets each stop of the task.
     let mut stops = engine.stops.subscribe();
     let binding = &engine.config.roles.reviewer;
@@ -142,7 +195,8 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         job.workstream,
         None,
     );
-    let slot = match workers::slot(engine, job.task, session, workers::Role::Reviewer).await {
+    let slot = match workers::slot(engine, job.task, session, workers::Role::Reviewer, false).await
+    {
         Ok(slot) => slot,
         Err(error) => {
             recorder.fail(&error.to_string()).await?;
@@ -151,6 +205,15 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
     };
     let Some(_slot) = slot else {
         return lead::end_session(engine, session, "declined").await;
+    };
+    // A comment of a trusted user during the wait for the slot resets the counters of the task.
+    let Some(task) = engine
+        .store
+        .tasks()
+        .live(&job.repository, job.number)
+        .await?
+    else {
+        return lead::end_session(engine, session, "stopped").await;
     };
     let key = mcp::open(
         engine,
@@ -171,10 +234,27 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         },
     )?;
     let result = tokio::select! {
-        result = review(engine, job, session, &key, &mut recorder) => result.map(|()| "done"),
+        result = async {
+            let comment = start_round(engine, job, &task).await?;
+            review(engine, job, comment, session, &key, &mut recorder).await
+        } => result.map(|()| "done"),
         () = ends::stopped(&mut stops, job.task) => Ok("stopped"),
     };
     mcp::close(engine, &key);
+    let reason = match &result {
+        Ok("stopped") => Some("The task stopped.".to_string()),
+        Err(error) => Some(format!("The run failed: {error}")),
+        Ok(_) => None,
+    };
+    if let Some(reason) = reason {
+        let repository = engine.repository(&job.repository)?;
+        if let Err(error) = abandon_round(engine, &repository, &task, &reason).await {
+            eprintln!(
+                "mobius: round comment of {}#{}: {error}",
+                job.repository, job.number
+            );
+        }
+    }
     if let Ok("stopped") = result {
         let data_dir = &engine.config.data_dir;
         let dir = mobius_runner::review_dir(data_dir, &job.repository, session);
@@ -195,6 +275,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
 async fn review(
     engine: &Engine,
     job: &Job,
+    comment: i64,
     session_id: i64,
     session_key: &str,
     recorder: &mut Recorder,
@@ -246,13 +327,34 @@ async fn review(
         let _git = engine.git.lock().await;
         mobius_runner::remove_worktree(data_dir, name, &dir).await?;
     }
+    // A comment of a trusted user during the turn resets the counters of the task.
+    let Some(task) = engine
+        .store
+        .tasks()
+        .live(&job.repository, job.number)
+        .await?
+    else {
+        return Ok(());
+    };
     let app_login = app_login(&repository.app_slug);
     let threads = repository.review_threads(job.pull_request.number).await?;
     let open: Vec<&ReviewThread> = threads
         .iter()
         .filter(|thread| is_open(thread, &trusted, &app_login))
         .collect();
+    let max = i64::from(engine.config.max_fix_rounds);
+    let round = task.review_rounds + 1;
     if open.is_empty() {
+        end_round(
+            engine,
+            &repository,
+            job,
+            round,
+            comment,
+            "Ready for review.",
+            &open,
+        )
+        .await?;
         return ready_for_review(engine, &repository, job, "working").await;
     }
     // A finding of the Reviewer has only the first comment. A thread with a reply of a trusted user or bot goes to the Judge.
@@ -268,6 +370,16 @@ async fn review(
         .map(|thread| thread.comment)
         .collect();
     if findings.is_empty() {
+        end_round(
+            engine,
+            &repository,
+            job,
+            round,
+            comment,
+            "The Judge takes the open threads.",
+            &open,
+        )
+        .await?;
         engine
             .store
             .tasks()
@@ -275,25 +387,112 @@ async fn review(
             .await?;
         return Ok(());
     }
-    let items =
-        issues::fix_threads(&repository, job.pull_request.number, &findings, &trusted).await?;
-    implementer::fix_round(
-        engine,
-        &repository,
-        implementer::Round {
-            repository: job.repository.clone(),
-            workstream: job.workstream,
-            task: job.task,
-            number: job.number,
-            title: job.title.clone(),
-            branch: job.branch.clone(),
-            pull_request: job.pull_request.clone(),
-            check_run: Some(job.check_run),
-            counts: true,
-            items,
-        },
-    )
-    .await
+    let review_limit = round >= max;
+    let at_limit = review_limit || task.fix_rounds >= max;
+    let items = match at_limit {
+        true => String::new(),
+        false => {
+            issues::fix_threads(&repository, job.pull_request.number, &findings, &trusted).await?
+        }
+    };
+    let result = match (review_limit, at_limit) {
+        (true, _) => format!(
+            "Limit reached ({max} of {max}). Mobius added mobius:needs-human. Add a comment on this pull request to continue."
+        ),
+        (false, true) => format!(
+            "Fix round limit reached ({max} of {max}). Mobius added mobius:needs-human. Add a comment on this pull request to continue."
+        ),
+        (false, false) => "A fix round started.".to_string(),
+    };
+    end_round(engine, &repository, job, round, comment, &result, &open).await?;
+    match at_limit {
+        true => {
+            let limit = if review_limit { "review" } else { "fix" };
+            implementer::stop_at_limit(engine, &repository, &job.round(items), limit).await
+        }
+        false => implementer::fix_round(engine, &repository, job.round(items)).await,
+    }
+}
+
+// The run gets a new comment, also a restart with the same round number.
+async fn start_round(
+    engine: &Engine,
+    job: &Job,
+    task: &Task,
+) -> Result<i64, Box<dyn Error + Send + Sync>> {
+    let comment = engine
+        .repository(&job.repository)?
+        .add_comment(
+            job.pull_request.number,
+            &format!(
+                "Review started, round {} of {}",
+                task.review_rounds + 1,
+                engine.config.max_fix_rounds
+            ),
+        )
+        .await?;
+    engine
+        .store
+        .tasks()
+        .set_review_comment(job.task, Some(comment))
+        .await?;
+    Ok(comment)
+}
+
+async fn end_round(
+    engine: &Engine,
+    repository: &Repository,
+    job: &Job,
+    round: i64,
+    comment: i64,
+    result: &str,
+    open: &[&ReviewThread],
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let links: String = open
+        .iter()
+        .map(|thread| {
+            format!(
+                "- {}#discussion_r{}\n",
+                job.pull_request.html_url, thread.comment
+            )
+        })
+        .collect();
+    let body = format!(
+        "Review ended, round {round} of {}\n\nResult: {result}\nOpen findings: {}\n\n{links}",
+        engine.config.max_fix_rounds,
+        open.len()
+    );
+    repository.update_comment(comment, body.trim_end()).await?;
+    let tasks = engine.store.tasks();
+    tasks.set_review_comment(job.task, None).await?;
+    tasks.add_review_round(job.task).await?;
+    Ok(())
+}
+
+// A task with no comment of a run in progress needs no update.
+// The id leaves the task also when the update fails, so the failure does not repeat.
+async fn abandon_round(
+    engine: &Engine,
+    repository: &Repository,
+    task: &Task,
+    reason: &str,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let tasks = engine.store.tasks();
+    let Some(comment) = tasks.review_comment(task.id).await? else {
+        return Ok(());
+    };
+    let updated = repository
+        .update_comment(
+            comment,
+            &format!(
+                "Review stopped, round {} of {}\n\n{reason}",
+                task.review_rounds + 1,
+                engine.config.max_fix_rounds
+            ),
+        )
+        .await;
+    tasks.set_review_comment(task.id, None).await?;
+    updated
 }
 
 // A task that is not in the state `from`, for example after a decline of the Lead, stays a draft.
