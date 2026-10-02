@@ -190,6 +190,12 @@ pub struct CheckRun {
     pub conclusion: Option<String>,
     pub html_url: Option<String>,
     pub output: CheckRunOutput,
+    pub app: Option<CheckRunApp>,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct CheckRunApp {
+    pub slug: String,
 }
 
 #[derive(Clone, Deserialize)]
@@ -296,12 +302,13 @@ pub struct User {
 }
 
 // The permission names with the levels that the Mobius App needs.
-pub const REQUIRED_PERMISSIONS: [(&str, &str); 6] = [
+pub const REQUIRED_PERMISSIONS: [(&str, &str); 7] = [
     ("issues", "write"),
     ("pull_requests", "write"),
     ("contents", "write"),
     ("checks", "write"),
     ("workflows", "write"),
+    ("actions", "read"),
     ("metadata", "read"),
 ];
 
@@ -706,6 +713,17 @@ impl Repository {
             |page: Vec<Annotation>| page,
         )
         .await
+    }
+
+    // The job id of a check run of GitHub Actions is the id of the check run.
+    pub async fn job_log(&self, id: i64) -> Result<String, Box<dyn Error + Send + Sync>> {
+        let response = self
+            .client
+            ._get(format!("/repos/{}/actions/jobs/{id}/logs", self.full_name))
+            .await?;
+        let response = self.client.follow_location_to_data(response).await?;
+        let response = octocrab::map_github_error(response).await?;
+        Ok(self.client.body_to_string(response).await?)
     }
 
     pub async fn open_issues_with_label(
