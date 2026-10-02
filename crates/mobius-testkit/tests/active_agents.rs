@@ -13,16 +13,16 @@ thought_level = ["low", "high"]
 mode = ["default", "bypassPermissions"]
 
 [[prompts]]
+when = "Keep me company"
+hang = true
+
+[[prompts]]
 when = "dispatch of #41"
 call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
 
 [[prompts]]
 when = "comment on #41"
 call = { tool = "start_researcher", arguments = { question = "Where is the price?" } }
-
-[[prompts]]
-when = "Keep me company"
-hang = true
 "##;
 const HANGING: &str = r#"
 [options]

@@ -214,6 +214,7 @@ async fn a_report_for_the_event_session_goes_to_the_event_queue() {
             .await
             .unwrap()
             .messages
-            .is_empty()
+            .iter()
+            .all(|message| message.author == Author::Event)
     );
 }

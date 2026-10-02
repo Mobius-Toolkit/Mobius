@@ -22,20 +22,20 @@ thought_level = ["low", "medium", "high"]
 mode = ["default", "bypassPermissions"]
 
 [[prompts]]
-when = "dispatch of #41"
-call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
-
-[[prompts]]
-when = "dispatch of #43"
-call = { tool = "start_implementer", arguments = { n = 43, instructions = "Round prices down." } }
-
-[[prompts]]
 when = "Research the plan flow"
 call = { tool = "start_researcher", arguments = { question = "How do plans work?" } }
 
 [[prompts]]
 when = "Plan the loyalty API"
 reply = ["Hello"]
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
+
+[[prompts]]
+when = "dispatch of #43"
+call = { tool = "start_implementer", arguments = { n = 43, instructions = "Round prices down." } }
 
 [[prompts]]
 when = "You are the Judge"

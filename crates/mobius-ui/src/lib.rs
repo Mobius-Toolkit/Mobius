@@ -1356,7 +1356,12 @@ fn Conversation(
     let unread = state.unread.read().get(&key).copied().unwrap_or(0);
     let unread_messages: Vec<i64> = messages
         .iter()
-        .filter(|message| !matches!(message.author, Author::Owner | Author::Researcher))
+        .filter(|message| {
+            !matches!(
+                message.author,
+                Author::Owner | Author::Researcher | Author::Event
+            )
+        })
         .map(|message| message.id)
         .collect();
     // A new last message always scrolls the list to the bottom. A switch to another chat
@@ -1572,7 +1577,11 @@ fn Conversation(
                         div {
                             key: "{message.id}",
                             "data-message": "{message.id}",
-                            class: if message.author == Author::Owner { "msg owner" } else { "msg" },
+                            class: match message.author {
+                                Author::Owner => "msg owner",
+                                Author::Event => "msg event",
+                                _ => "msg",
+                            },
                             div { class: "meta",
                                 span {
                                     if message.author == Author::TellOwner {
