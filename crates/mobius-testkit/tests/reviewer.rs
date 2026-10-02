@@ -714,7 +714,7 @@ async fn a_review_round_posts_a_comment_and_updates_the_same_comment_with_the_re
         ended[0],
         "Review ended, round 1 of 7\n\nResult: A fix round started.\nOpen findings: 1\n\n- https://github.com/owner/shop/pull/42#discussion_r2"
     );
-    assert_eq!(review_rounds(&engine, 41).await, 1);
+    wait_for(async || (review_rounds(&engine, 41).await == 1).then_some(())).await;
 }
 
 #[tokio::test]
