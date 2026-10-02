@@ -1,4 +1,5 @@
 use std::fs;
+use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
@@ -133,13 +134,29 @@ fn dispatch_two(github: &FakeGitHub) {
     github.add_label(REPOSITORY, 43, "mobius:ready", "owner");
 }
 
+fn skip_missing<T>(result: io::Result<T>) -> Option<T> {
+    match result {
+        Ok(value) => Some(value),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => panic!("{error}"),
+    }
+}
+
 fn files_with(dir: &Path, text: &str) -> Vec<String> {
     let mut found = Vec::new();
-    for entry in fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
+    let Some(entries) = skip_missing(fs::read_dir(dir)) else {
+        return found;
+    };
+    for entry in entries {
+        let Some(entry) = skip_missing(entry) else {
+            continue;
+        };
+        let path = entry.path();
         if path.is_dir() {
             found.extend(files_with(&path, text));
-        } else if String::from_utf8_lossy(&fs::read(&path).unwrap()).contains(text) {
+        } else if let Some(content) = skip_missing(fs::read(&path))
+            && String::from_utf8_lossy(&content).contains(text)
+        {
             found.push(path.display().to_string());
         }
     }
