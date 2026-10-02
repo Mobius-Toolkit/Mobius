@@ -177,6 +177,10 @@ struct Records {
     check_runs: Vec<(String, CheckRun)>,
     // The annotations of each check run by id, as GitHub gives them.
     annotations: HashMap<usize, Vec<Value>>,
+    // The slug of the App of each check run by id. A check run with no entry has no App.
+    check_run_apps: HashMap<usize, String>,
+    // The job log of each check run by id. A check run with no log gives `404`.
+    job_logs: HashMap<usize, String>,
     submitted_reviews: Vec<(String, i64, SubmittedReview)>,
     // Issue comments and review comments share the ids, so an id names one comment.
     last_comment_id: i64,
@@ -581,6 +585,11 @@ impl FakeGitHub {
                 get(commit_check_runs),
             )
             .route(
+                "/repos/{owner}/{repo}/actions/jobs/{id}/logs",
+                get(job_log_redirect),
+            )
+            .route("/job-logs/{id}", get(job_log))
+            .route(
                 "/repos/{owner}/{repo}/pulls/{number}/reviews",
                 get(reviews).post(submit_review),
             )
@@ -868,6 +877,22 @@ impl FakeGitHub {
             .entry(id as usize)
             .or_default()
             .push(json!({ "path": path, "start_line": line, "message": message }));
+    }
+
+    pub fn set_check_run_app(&self, id: i64, slug: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .check_run_apps
+            .insert(id as usize, slug.to_string());
+    }
+
+    pub fn add_job_log(&self, id: i64, log: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .job_logs
+            .insert(id as usize, log.to_string());
     }
 
     pub fn submitted_reviews(&self, full_name: &str, number: i64) -> Vec<SubmittedReview> {
@@ -1727,8 +1752,9 @@ async fn update_check_run(
     Json(json!({ "id": id })).into_response()
 }
 
-fn check_run_json(id: usize, repository: &str, check_run: &CheckRun) -> Value {
+fn check_run_json(records: &Records, id: usize, repository: &str, check_run: &CheckRun) -> Value {
     json!({
+        "app": records.check_run_apps.get(&id).map(|slug| json!({ "slug": slug })),
         "id": id,
         "name": check_run.name,
         "status": check_run.status,
@@ -1753,7 +1779,7 @@ async fn commit_check_runs(
         .iter()
         .enumerate()
         .filter(|(_, (name, check_run))| *name == repository && check_run.head_sha == sha)
-        .map(|(index, (_, check_run))| check_run_json(index + 1, &repository, check_run))
+        .map(|(index, (_, check_run))| check_run_json(&records, index + 1, &repository, check_run))
         .collect();
     Json(json!({ "total_count": check_runs.len(), "check_runs": page.of(check_runs) }))
         .into_response()
@@ -1767,6 +1793,29 @@ async fn annotations(
     let records = state.lock().unwrap();
     let annotations = records.annotations.get(&id).cloned().unwrap_or_default();
     Json(page.of(annotations)).into_response()
+}
+
+async fn job_log_redirect(
+    State(state): State<Shared>,
+    Path((_, _, id)): Path<(String, String, usize)>,
+    headers: HeaderMap,
+) -> Response {
+    if !state.lock().unwrap().job_logs.contains_key(&id) {
+        return not_found();
+    }
+    let host = headers[header::HOST].to_str().unwrap();
+    (
+        StatusCode::FOUND,
+        [(header::LOCATION, format!("http://{host}/job-logs/{id}"))],
+    )
+        .into_response()
+}
+
+async fn job_log(State(state): State<Shared>, Path(id): Path<usize>) -> Response {
+    match state.lock().unwrap().job_logs.get(&id) {
+        Some(log) => log.clone().into_response(),
+        None => not_found(),
+    }
 }
 
 async fn submit_review(

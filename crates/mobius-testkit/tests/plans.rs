@@ -114,6 +114,8 @@ async fn mark_ready_adds_the_ready_label_when_the_workstream_has_no_autopilot() 
             .labels(REPOSITORY, 30)
             .contains(&"mobius:ready".to_string())
     );
+    let polls = github.not_modified_count();
+    wait_for(async || (github.not_modified_count() >= polls + 4).then_some(())).await;
     assert_eq!(
         engine.store.tasks().live(REPOSITORY, 30).await.unwrap(),
         None
