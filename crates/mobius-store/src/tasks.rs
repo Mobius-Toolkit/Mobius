@@ -268,14 +268,15 @@ impl Tasks<'_> {
         Ok(result.rows_affected() == 1)
     }
 
-    pub async fn add_review_round(&self, id: i64) -> Result<(), Box<dyn Error + Send + Sync>> {
-        sqlx::query!(
-            "UPDATE tasks SET review_rounds = review_rounds + 1 WHERE id = ?",
+    // Gives the number of the round that ended.
+    pub async fn add_review_round(&self, id: i64) -> Result<i64, Box<dyn Error + Send + Sync>> {
+        let round = sqlx::query_scalar!(
+            r#"UPDATE tasks SET review_rounds = review_rounds + 1 WHERE id = ? RETURNING review_rounds AS "review_rounds!""#,
             id
         )
-        .execute(self.pool)
+        .fetch_one(self.pool)
         .await?;
-        Ok(())
+        Ok(round)
     }
 
     // Gives the id of the pull request comment of the Reviewer run in progress.

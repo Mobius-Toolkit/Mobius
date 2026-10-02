@@ -332,12 +332,13 @@ async fn review(
         .filter(|thread| is_open(thread, &trusted, &app_login))
         .collect();
     let max = i64::from(engine.config.max_fix_rounds);
+    let round = engine.store.tasks().add_review_round(job.task).await?;
     if open.is_empty() {
         end_round(
             engine,
             &repository,
             job,
-            &task,
+            round,
             comment,
             "Ready for review.",
             &open,
@@ -362,7 +363,7 @@ async fn review(
             engine,
             &repository,
             job,
-            &task,
+            round,
             comment,
             "The Judge takes the open threads.",
             &open,
@@ -375,7 +376,7 @@ async fn review(
             .await?;
         return Ok(());
     }
-    let review_limit = task.review_rounds + 1 >= max;
+    let review_limit = round >= max;
     let at_limit = review_limit || task.fix_rounds >= max;
     let items = match at_limit {
         true => String::new(),
@@ -392,7 +393,7 @@ async fn review(
         ),
         (false, false) => "A fix round started.".to_string(),
     };
-    end_round(engine, &repository, job, &task, comment, &result, &open).await?;
+    end_round(engine, &repository, job, round, comment, &result, &open).await?;
     match at_limit {
         true => {
             let limit = if review_limit { "review" } else { "fix" };
@@ -427,12 +428,11 @@ async fn start_round(
     Ok(comment)
 }
 
-// Only a round that ends with a result counts toward `max_fix_rounds`.
 async fn end_round(
     engine: &Engine,
     repository: &Repository,
     job: &Job,
-    task: &Task,
+    round: i64,
     comment: i64,
     result: &str,
     open: &[&ReviewThread],
@@ -447,15 +447,16 @@ async fn end_round(
         })
         .collect();
     let body = format!(
-        "Review ended, round {} of {}\n\nResult: {result}\nOpen findings: {}\n\n{links}",
-        task.review_rounds + 1,
+        "Review ended, round {round} of {}\n\nResult: {result}\nOpen findings: {}\n\n{links}",
         engine.config.max_fix_rounds,
         open.len()
     );
     repository.update_comment(comment, body.trim_end()).await?;
-    let tasks = engine.store.tasks();
-    tasks.add_review_round(job.task).await?;
-    tasks.set_review_comment(job.task, None).await
+    engine
+        .store
+        .tasks()
+        .set_review_comment(job.task, None)
+        .await
 }
 
 // A task with no comment of a run in progress needs no update.
