@@ -41,6 +41,7 @@ async fn manifest_form_posts_the_manifest_to_the_settings_of_an_organization() {
                 "contents": "write",
                 "checks": "write",
                 "workflows": "write",
+                "actions": "read",
                 "metadata": "read"
             }
         })

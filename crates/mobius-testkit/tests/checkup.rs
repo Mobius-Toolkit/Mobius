@@ -255,6 +255,7 @@ async fn the_checkup_shows_the_status_of_each_app_permission_with_the_link_to_fi
             "contents",
             "checks",
             "workflows",
+            "actions",
             "metadata"
         ]
     );
@@ -277,6 +278,7 @@ async fn the_checkup_shows_the_status_of_each_app_permission_with_the_link_to_fi
         ("checks", "write"),
         ("metadata", "read"),
         ("workflows", "write"),
+        ("actions", "read"),
     ];
     github.set_app_permissions(APP_ID, &permissions);
     assert_eq!(
@@ -307,6 +309,44 @@ async fn the_checkup_shows_the_status_of_each_app_permission_with_the_link_to_fi
             .unwrap()
             .iter()
             .all(|permission| permission.status == PermissionStatus::Present)
+    );
+}
+
+#[tokio::test]
+async fn the_checkup_reports_the_missing_actions_read_permission() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    github.add_account("owner", "Organization");
+    github.add_repository(REPOSITORY);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    wait_for(async || {
+        workstreams::organizations(&engine)
+            .contains(&"owner".to_string())
+            .then_some(())
+    })
+    .await;
+    let cookie = cookie(&engine).await;
+    let status_of = async |name: &str| {
+        get_view(&engine, &cookie, "owner")
+            .await
+            .permissions
+            .unwrap()
+            .into_iter()
+            .find(|permission| permission.name == name)
+            .unwrap()
+            .status
+    };
+
+    assert_eq!(
+        status_of("actions").await,
+        PermissionStatus::Missing(format!(
+            "{}/organizations/owner/settings/apps/{APP_SLUG}/permissions",
+            github.url
+        ))
     );
 }
 
