@@ -278,7 +278,7 @@ async fn run(
             workstream,
             Some(author),
         );
-        // A stop while the session waits ends the chat and frees the place in the queue.
+        // A stop while the session waits drops the first message. The chat ends when no later message remains.
         let wait = workers::session_slot(
             &engine,
             session,
@@ -300,7 +300,14 @@ async fn run(
                     }
                     // The first message still turns, and the session closes after it.
                     Some(Command::Drain) => false,
-                    Some(Command::Stop) | None => true,
+                    Some(Command::Stop) => match queue.pop_front() {
+                        Some(next) => {
+                            first = next;
+                            false
+                        }
+                        None => true,
+                    },
+                    None => true,
                 },
             };
             if stopped {
