@@ -172,6 +172,29 @@ async fn a_completion_stops_the_lead() {
 }
 
 #[tokio::test]
+async fn a_failed_completion_keeps_the_lead_running() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, IMPLEMENTER).await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the next step.")
+        .await
+        .unwrap();
+    started(&engine, "lead_chat").await;
+    github.close_issue(REPOSITORY, 41);
+    github.fail_close(REPOSITORY, 12);
+
+    let result = workstreams::complete(&engine, REPOSITORY, 12).await;
+
+    assert!(result.is_err());
+    assert!(
+        sessions(&engine, "lead_chat")
+            .await
+            .iter()
+            .all(|session| session.ended_at.is_none())
+    );
+}
+
+#[tokio::test]
 async fn a_removal_of_the_workstream_label_ends_the_tasks_and_closes_nothing() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
