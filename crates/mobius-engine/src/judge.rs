@@ -76,29 +76,31 @@ struct Job {
 }
 
 // With no new item, a task in the state `reviewed` with no open thread is ready for review.
+// Gives `true` when the Judge has new items to handle for a task that does not wait for a human.
 pub(crate) async fn check(
     engine: &Engine,
     repository: &Repository,
     task: &Task,
     pull_request: PullRequest,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
     // The drain holds each new Judge. The next poll after a cancel starts it.
     if engine.drain.on() {
-        return Ok(());
+        return Ok(false);
     }
     let app_login = app_login(&repository.app_slug);
     let items = new_items(engine, repository, task, pull_request.number, &app_login).await?;
     // Only a trusted user continues a task that waits for a human.
     if task.state == "needs_human" && items.iter().all(|item| item.bot) {
-        return Ok(());
+        return Ok(false);
     }
     let Some(newest) = items.iter().map(|item| item.at).max() else {
         engine.quiet.lock().unwrap().remove(&task.id);
         if task.state == "reviewed" {
             ready(engine, repository, task, pull_request, &app_login).await?;
         }
-        return Ok(());
+        return Ok(false);
     };
+    let work = task.state != "needs_human";
     {
         let mut quiet = engine.quiet.lock().unwrap();
         let (seen, since) = quiet.entry(task.id).or_insert((newest, Instant::now()));
@@ -107,7 +109,7 @@ pub(crate) async fn check(
             *since = Instant::now();
         }
         if since.elapsed() < engine.config.review_quiet_period {
-            return Ok(());
+            return Ok(work);
         }
         quiet.remove(&task.id);
     }
@@ -119,7 +121,7 @@ pub(crate) async fn check(
     let stops = engine.stops.subscribe();
     // A drain that starts during this check holds the Judge.
     let Some(guard) = drain::try_track(engine) else {
-        return Ok(());
+        return Ok(work);
     };
     if !engine
         .store
@@ -127,7 +129,7 @@ pub(crate) async fn check(
         .set_state(task.id, &task.state, "working")
         .await?
     {
-        return Ok(());
+        return Ok(work);
     }
     engine
         .store
@@ -151,7 +153,7 @@ pub(crate) async fn check(
         },
         guard,
     ));
-    Ok(())
+    Ok(work)
 }
 
 async fn new_items(

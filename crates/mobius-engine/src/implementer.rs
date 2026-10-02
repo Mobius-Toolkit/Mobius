@@ -348,7 +348,16 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         job.workstream,
         None,
     );
-    let slot = match workers::slot(engine, job.task, session, workers::Role::Implementer).await {
+    let ticket = job.pull_request.is_none();
+    let slot = match workers::slot(
+        engine,
+        job.task,
+        session,
+        workers::Role::Implementer,
+        ticket,
+    )
+    .await
+    {
         Ok(slot) => slot,
         Err(error) => {
             recorder.fail(&error.to_string()).await?;
