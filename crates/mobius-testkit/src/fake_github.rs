@@ -154,6 +154,8 @@ struct Records {
     second_app_accounts: HashSet<String>,
     // The ids of the Apps whose installation list fails.
     failed_apps: HashSet<i64>,
+    // The issues whose close request fails, as (repository, number).
+    failed_closes: HashSet<(String, i64)>,
     // The permissions of each App and of its installation by App id. An App without an entry has `DEFAULT_PERMISSIONS`.
     app_permissions: HashMap<i64, HashMap<String, String>>,
     installation_permissions: HashMap<i64, HashMap<String, String>>,
@@ -541,6 +543,14 @@ impl FakeGitHub {
             state,
             remotes,
         }
+    }
+
+    pub fn fail_close(&self, repository: &str, number: i64) {
+        self.state
+            .lock()
+            .unwrap()
+            .failed_closes
+            .insert((repository.to_string(), number));
     }
 
     pub fn add_account(&self, login: &str, account_type: &'static str) {
@@ -1311,6 +1321,7 @@ impl Page {
 
 #[derive(Deserialize)]
 struct IssueFilter {
+    state: Option<String>,
     labels: Option<String>,
     since: Option<String>,
 }
@@ -1334,6 +1345,10 @@ async fn issues(
         .iter()
         .filter(|((name, _), issue)| {
             *name == repository
+                && filter
+                    .state
+                    .as_ref()
+                    .is_none_or(|state| state != "open" || issue.state == "open")
                 && filter
                     .labels
                     .as_ref()
@@ -1946,6 +1961,12 @@ async fn update_issue(
     let bot = records.app_login(&repository);
     if update.state != "closed" || !records.issues.contains_key(&(repository.clone(), number)) {
         return not_found();
+    }
+    if records
+        .failed_closes
+        .contains(&(repository.clone(), number))
+    {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     records.set_state(&repository, number, "closed", update.state_reason, &bot);
     Json(records.issue_json(&repository, number)).into_response()

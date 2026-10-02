@@ -132,6 +132,8 @@ pub struct Workstream {
     pub title: String,
     pub body: String,
     pub autopilot: bool,
+    // It is true when the Workstream has direct sub-issues and all of them are closed.
+    pub all_tasks_closed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
