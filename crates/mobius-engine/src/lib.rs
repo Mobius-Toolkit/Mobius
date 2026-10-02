@@ -3,7 +3,7 @@ pub mod agents;
 pub mod auth;
 mod autopilot;
 pub mod chat;
-mod checks;
+pub mod checks;
 pub mod checkup;
 pub mod config;
 mod conflicts;
