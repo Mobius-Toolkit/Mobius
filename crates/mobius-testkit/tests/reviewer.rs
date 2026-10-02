@@ -29,7 +29,7 @@ call = { tool = "submit_review", arguments = { body = "One finding.", comments =
 const FIX: &str = r#"[[prompts]]
 when = "Action: fix"
 shell = "echo 'cents per month' > plan.txt && git commit -q -am 'Store the unit' && git rev-parse HEAD"
-call = { tool = "reply_thread", arguments = { thread = 2, text = "Fixed in {shell}.", resolve = true } }
+call = { tool = "reply_thread", arguments = { thread = 2, text = "Fixed in {shell}." } }
 "#;
 const NO_FINDING: &str = "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"true\"\n";
 const LEAD_FINDINGS: &str = r#"[[prompts]]
