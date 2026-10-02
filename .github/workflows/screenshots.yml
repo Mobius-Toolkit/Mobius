@@ -8,7 +8,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ui: ${{ steps.ui.outputs.ui }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: ui
+        run: |
+          ui=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }} | .github/scripts/ui-changed.sh)
+          echo "ui=$ui" >> "$GITHUB_OUTPUT"
+
   screenshots:
+    needs: changes
+    # A skipped job counts as a pass for a required check, so a pull request with no UI changes can merge.
+    if: needs.changes.outputs.ui == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write

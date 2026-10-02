@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if grep -qE '^(crates/(mobius|mobius-ui|mobius-api|mobius-domain)/|crates/mobius-testkit/(tests/screenshots\.rs|src/|Cargo\.toml)$|(Cargo\.toml|Cargo\.lock|\.cargo/config\.toml)$|\.github/(workflows/screenshots\.yml|scripts/ui-changed\.sh)$)'; then
+  echo true
+else
+  echo false
+fi
