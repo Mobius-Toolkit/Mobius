@@ -195,7 +195,8 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         job.workstream,
         None,
     );
-    let slot = match workers::slot(engine, job.task, session, workers::Role::Reviewer).await {
+    let slot = match workers::slot(engine, job.task, session, workers::Role::Reviewer, false).await
+    {
         Ok(slot) => slot,
         Err(error) => {
             recorder.fail(&error.to_string()).await?;
