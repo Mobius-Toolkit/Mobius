@@ -170,6 +170,12 @@ async fn all_tasks_closed(engine: &Engine) -> bool {
     workstreams::list(engine).await.unwrap()[0].all_tasks_closed
 }
 
+// Gives the Mobius poll at least one full pass after the call.
+async fn wait_for_polls(github: &FakeGitHub) {
+    let before = github.not_modified_count();
+    wait_for(async || (github.not_modified_count() >= before + 4).then_some(())).await;
+}
+
 async fn workstream_with_task(engine: &Engine, github: &FakeGitHub) {
     github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
     github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
@@ -233,6 +239,7 @@ async fn the_close_of_a_sub_issue_goes_live_as_a_workstream_change() {
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github).await;
     workstream_with_task(&engine, &github).await;
+    wait_for_polls(&github).await;
     let mut feed = activity::feed(&engine, None).await.unwrap();
     github.close_issue(REPOSITORY, 41);
 
