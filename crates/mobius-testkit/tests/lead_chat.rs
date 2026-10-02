@@ -845,6 +845,39 @@ async fn an_event_during_a_turn_for_an_owner_message_gets_its_own_turn_after_tha
 }
 
 #[tokio::test]
+async fn an_event_keeps_its_place_before_a_later_owner_message_when_the_lead_held_no_event() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let script = format!(
+        "{OPTIONS}\n[[prompts]]\nwhen = \"Plan the API\"\nhang = true\n\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Done.\"]\n"
+    );
+    let engine = connect_with(&data_dir, &github, &script, keep_session_open).await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the API")
+        .await
+        .unwrap();
+    wait_for(async || {
+        let sessions = sessions(&engine).await;
+        let first = sessions.first()?;
+        (prompts(&transcript(&engine, first.id).await).len() == 1).then_some(())
+    })
+    .await;
+    dispatch_task(&github, 41, "Add plan model");
+    wait_for(async || (event_count(&engine).await == 1).then_some(())).await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "Also add a price")
+        .await
+        .unwrap();
+    chat::stop(&engine, "owner", REPOSITORY, 12).unwrap();
+
+    let prompts = wait_for(async || {
+        let prompts = event_prompts(&engine).await;
+        (prompts.len() == 3 && event_delivered(&engine).await).then_some(prompts)
+    })
+    .await;
+    assert!(prompts[1].contains(" dispatch of #41 "), "{}", prompts[1]);
+    assert_eq!(prompts[2], "Also add a price");
+}
+
+#[tokio::test]
 async fn an_event_and_an_owner_message_make_one_lead_session_for_the_workstream() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;

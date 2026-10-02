@@ -125,16 +125,17 @@ impl LeadEvents<'_> {
         &self,
         repository: &str,
         workstream: i64,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        sqlx::query!(
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let freed = sqlx::query!(
             "UPDATE lead_events SET held = 0
              WHERE repository = ? AND workstream = ? AND held = 1",
             repository,
             workstream
         )
         .execute(self.pool)
-        .await?;
-        Ok(())
+        .await?
+        .rows_affected();
+        Ok(freed > 0)
     }
 
     pub async fn deliver_all(
