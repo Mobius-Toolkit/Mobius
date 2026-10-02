@@ -120,6 +120,11 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
     github.add_label(REPOSITORY, 42, "mobius:ready", "owner");
     wait_for(async || (!inbox::list(engine).await.unwrap().is_empty()).then_some(())).await;
 
+    // The event entries of the labels hold the time of the run, so the screenshots keep only the fixed event entry.
+    sqlx::query("DELETE FROM chat_messages WHERE author = 'Event'")
+        .execute(&engine.store.pool)
+        .await
+        .unwrap();
     // The long event text and the long URL wrap inside the muted entry.
     engine
         .store
