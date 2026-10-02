@@ -16,15 +16,11 @@ mode = ["default", "bypassPermissions"]
 
 [[prompts]]
 when = "creation of Workstream #12"
-call = { tool = "create_issue", arguments = { title = "Add plan model", body = "Plans have a price.", parent = 12, blocked_by = [88], ready = false } }
+call = { tool = "create_issue", arguments = { title = "Add plan model", body = "Plans have a price.", parent = 12, blocked_by = [88] } }
 
 [[prompts]]
 when = "creation of Workstream #13"
-call = { tool = "create_issue", arguments = { title = "Add plan price", body = "", parent = 13, blocked_by = [], ready = true } }
-
-[[prompts]]
-when = "creation of Workstream #14"
-call = { tool = "create_issue", arguments = { title = "Add plan name", body = "", parent = 14, blocked_by = [], ready = true } }
+call = { tool = "mark_ready", arguments = { n = 30 } }
 "#;
 
 // The Workstream "Billing" exists before the first poll. Each test adds its Workstream after it, so the Lead gets a creation event.
@@ -102,73 +98,30 @@ async fn the_lead_creates_a_sub_issue_with_a_blocker_in_another_workstream() {
 }
 
 #[tokio::test]
-async fn a_ready_issue_needs_autopilot_from_a_trusted_user() {
+async fn mark_ready_adds_the_ready_label_when_the_workstream_has_no_autopilot() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github).await;
     github.add_issue(REPOSITORY, 13, "Plan prices");
-    github.add_issue(REPOSITORY, 14, "Plan names");
-    github.add_label(REPOSITORY, 14, "mobius:autopilot", "mallory");
+    github.add_issue(REPOSITORY, 30, "Add plan price");
+    github.add_sub_issue(REPOSITORY, 13, 30);
 
     github.add_label(REPOSITORY, 13, "mobius:workstream", "owner");
-    github.add_label(REPOSITORY, 14, "mobius:workstream", "owner");
 
-    for workstream in [13, 14] {
-        wait_for(async || {
-            (lead_replies(&engine, workstream).await
-                == "error: ready needs Autopilot on the Workstream issue.")
-                .then_some(())
-        })
-        .await;
-        assert!(github.sub_issue_numbers(REPOSITORY, workstream).is_empty());
-    }
-}
-
-#[tokio::test]
-async fn with_autopilot_a_ready_label_of_the_mobius_app_dispatches() {
-    let data_dir = TempDir::new().unwrap();
-    let github = FakeGitHub::start().await;
-    let engine = connect(&data_dir, &github).await;
-    let mut feed = activity::feed(&engine, None).await.unwrap();
-    github.add_issue(REPOSITORY, 14, "Plan names");
-    github.add_label(REPOSITORY, 14, "mobius:autopilot", "owner");
-
-    github.add_label(REPOSITORY, 14, "mobius:workstream", "owner");
-
-    let dispatched = wait_for(async || {
-        engine
-            .store
-            .events()
-            .latest(100)
-            .await
-            .unwrap()
-            .into_iter()
-            .find(|row| row.text == "Dispatched \"Add plan name\"")
-    })
-    .await;
-    assert_eq!(dispatched.actor, APP);
-    let task = engine
-        .store
-        .tasks()
-        .live(REPOSITORY, 89)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(task.workstream, 14);
+    wait_for(async || (lead_replies(&engine, 13).await == "Marked #30 ready.").then_some(())).await;
     assert!(
         github
-            .labels(REPOSITORY, 89)
-            .contains(&"mobius:working".to_string())
+            .labels(REPOSITORY, 30)
+            .contains(&"mobius:ready".to_string())
     );
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        while !matches!(feed.next().await, Some(Live::Workstreams)) {}
-    })
-    .await
-    .unwrap();
-    let list = workstreams::list(&engine).await.unwrap();
+    assert_eq!(
+        engine.store.tasks().live(REPOSITORY, 30).await.unwrap(),
+        None
+    );
     assert!(
-        list.iter()
-            .any(|workstream| workstream.number == 14 && workstream.autopilot)
+        !github
+            .labels(REPOSITORY, 13)
+            .contains(&"mobius:autopilot".to_string())
     );
 }
 

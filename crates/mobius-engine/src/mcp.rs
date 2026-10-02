@@ -209,7 +209,7 @@ fn tools(role: &str) -> Vec<Tool> {
             ),
             tool(
                 "create_issue",
-                "Create an issue below an issue of the Workstream. Mobius adds the blockers as native issue dependencies. With ready, Mobius adds mobius:ready, and this needs Autopilot.",
+                "Create an issue below an issue of the Workstream. Mobius adds the blockers as native issue dependencies.",
                 object(json!({
                     "title": {
                         "type": "string",
@@ -229,16 +229,12 @@ fn tools(role: &str) -> Vec<Tool> {
                         "type": "array",
                         "items": { "type": "integer", "minimum": 1 },
                         "description": "The issues that block this issue. They can be in another Workstream."
-                    },
-                    "ready": {
-                        "type": "boolean",
-                        "description": "true to add mobius:ready. This needs Autopilot."
                     }
                 })),
             ),
             tool(
                 "mark_ready",
-                "Add mobius:ready to an issue of the Workstream, so that Mobius dispatches it when it has no open blocker. This needs Autopilot.",
+                "Add mobius:ready to an issue of the Workstream. Use it when the Owner tells you to start an issue.",
                 object(json!({
                     "n": {
                         "type": "integer",
@@ -885,7 +881,7 @@ impl Handler {
                 if new.parent < 1 || new.blocked_by.iter().any(|number| *number < 1) {
                     return Err("parent and each blocked_by must be 1 or more.".into());
                 }
-                plans::create_issue(&self.engine, &repository, self.caller.workstream, &new).await
+                plans::create_issue(&repository, self.caller.workstream, &new).await
             }
             "mark_ready" => {
                 let MarkReady { n } = parse(tool, arguments)?;

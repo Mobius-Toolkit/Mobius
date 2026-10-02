@@ -13,20 +13,15 @@ pub(crate) struct NewIssue {
     pub(crate) body: String,
     pub(crate) parent: i64,
     pub(crate) blocked_by: Vec<i64>,
-    pub(crate) ready: bool,
 }
 
 pub(crate) async fn create_issue(
-    engine: &Engine,
     repository: &Repository,
     workstream: i64,
     new: &NewIssue,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     if new.parent != workstream && !in_workstream(repository, workstream, new.parent).await? {
         return Err(format!("#{} is not in this Workstream.", new.parent).into());
-    }
-    if new.ready && !workstreams::autopilot(engine, repository, workstream).await? {
-        return Err("ready needs Autopilot on the Workstream issue.".into());
     }
     let mut blocker_ids = Vec::new();
     for number in &new.blocked_by {
@@ -44,9 +39,6 @@ pub(crate) async fn create_issue(
     repository.add_sub_issue(new.parent, issue.id).await?;
     for id in blocker_ids {
         repository.add_blocked_by(issue.number, id).await?;
-    }
-    if new.ready {
-        repository.add_label(issue.number, READY_LABEL).await?;
     }
     Ok(format!("Created #{}.", issue.number))
 }
@@ -67,9 +59,6 @@ pub(crate) async fn mark_ready(
     }
     if !in_workstream(repository, workstream, number).await? {
         return Err(format!("#{number} is not in this Workstream.").into());
-    }
-    if !workstreams::autopilot(engine, repository, workstream).await? {
-        return Err("mark_ready needs Autopilot on the Workstream issue.".into());
     }
     repository.add_label(number, READY_LABEL).await?;
     Ok(format!("Marked #{number} ready."))
