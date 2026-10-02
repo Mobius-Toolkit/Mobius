@@ -82,9 +82,9 @@ async fn prompts(engine: &Engine, session: i64) -> Vec<String> {
         .collect()
 }
 
-async fn lead_event_prompts(engine: &Engine) -> Vec<String> {
+async fn lead_prompts(engine: &Engine) -> Vec<String> {
     let mut all = Vec::new();
-    for session in sessions(engine, "lead_event").await {
+    for session in sessions(engine, "lead_chat").await {
         all.extend(prompts(engine, session.id).await);
     }
     all
@@ -103,15 +103,15 @@ async fn task_state(engine: &Engine, number: i64) -> Option<String> {
 const NO_FINDING: &str = "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"true\"\n";
 
 async fn ready_for_review_events(engine: &Engine) -> usize {
-    lead_event_prompts(engine)
+    lead_prompts(engine)
         .await
         .iter()
-        .map(|prompt| {
-            prompt
-                .matches(" ready for review of #41 \"Add plan model\"")
-                .count()
+        .filter(|prompt| {
+            prompt.rsplit_once("# Event\n\n").is_some_and(|(_, event)| {
+                event.contains(" ready for review of #41 \"Add plan model\"")
+            })
         })
-        .sum()
+        .count()
 }
 
 #[tokio::test]
@@ -244,7 +244,7 @@ async fn a_stale_pull_request_with_a_merge_conflict_goes_to_a_human() {
     })
     .await;
     assert!(
-        lead_event_prompts(&engine).await.iter().any(|prompt| prompt.contains(
+        lead_prompts(&engine).await.iter().any(|prompt| prompt.contains(
             " stale pull request #42 of #41 \"Add plan model\": it has a merge conflict and is older than 7days. https://github.com/owner/shop/pull/42"
         ))
     );
@@ -290,7 +290,7 @@ async fn a_conflict_round_that_does_not_merge_the_base_branch_stops_the_task() {
     github.commit_file(REPOSITORY, "plan.txt", "dollars\n", "Use dollars");
 
     wait_for(async || {
-        lead_event_prompts(&engine)
+        lead_prompts(&engine)
             .await
             .iter()
             .any(|prompt| {
@@ -322,4 +322,69 @@ async fn a_conflict_round_that_does_not_merge_the_base_branch_stops_the_task() {
     let implementers = sessions(&engine, "implementer").await;
     assert_eq!(implementers.len(), 2);
     assert_eq!(implementers[1].end_reason.as_deref(), Some("not_merged"));
+}
+
+#[tokio::test]
+async fn a_pull_request_behind_its_base_starts_one_conflict_round_that_merges_the_base_branch() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        NO_FINDING,
+        "[[prompts]]\nwhen = \"Merge the base branch and remove the conflicts.\"\nshell = \"git merge -q --no-edit origin/main\"\n",
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || (ready_for_review_events(&engine).await == 1).then_some(())).await;
+    let remote = github.remote(REPOSITORY);
+    let first = git(&remote, &["rev-parse", "mobius/41"]);
+    github.set_behind(REPOSITORY, 42);
+
+    github.commit_file(REPOSITORY, "price.txt", "dollars\n", "Add price");
+
+    wait_for(async || (ready_for_review_events(&engine).await == 2).then_some(())).await;
+    let head = git(&remote, &["rev-parse", "mobius/41"]);
+    git(&remote, &["merge-base", "--is-ancestor", &first, &head]);
+    git(&remote, &["merge-base", "--is-ancestor", "main", &head]);
+    assert_eq!(git(&remote, &["show", "mobius/41:price.txt"]), "dollars");
+    assert_eq!(sessions(&engine, "implementer").await.len(), 2);
+    let task = engine
+        .store
+        .tasks()
+        .live(REPOSITORY, 41)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(task.fix_rounds, 0);
+}
+
+#[tokio::test]
+async fn a_stale_pull_request_behind_its_base_goes_to_a_human_with_the_behind_reason() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, NO_FINDING, "").await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || (ready_for_review_events(&engine).await == 1).then_some(())).await;
+    github.set_created_at(REPOSITORY, 42, 0);
+    github.set_behind(REPOSITORY, 42);
+
+    github.commit_file(REPOSITORY, "price.txt", "dollars\n", "Add price");
+
+    wait_for(async || {
+        (task_state(&engine, 41).await.as_deref() == Some("needs_human")).then_some(())
+    })
+    .await;
+    let stale: Vec<_> = inbox::list(&engine)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|item| item.kind == InboxKind::StalePullRequest)
+        .collect();
+    assert_eq!(stale.len(), 1);
+    assert_eq!(
+        stale[0].text,
+        "Pull request #42 of #41 \"Add plan model\" is behind its base branch and is older than 7days."
+    );
+    assert_eq!(sessions(&engine, "implementer").await.len(), 1);
 }

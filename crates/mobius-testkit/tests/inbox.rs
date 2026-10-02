@@ -1,14 +1,10 @@
-use std::fs;
 use std::time::Duration;
 
 use mobius_domain::{Author, ChatMessage, InboxKind, Live, Session, TranscriptRow, Unread};
-use mobius_engine::{Engine, activity, chat, github, inbox, workstreams};
+use mobius_engine::{Engine, activity, github, inbox, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
 use mobius_testkit::{install_fake_agent, start, wait_for};
-use rmcp::ServiceExt;
-use rmcp::model::CallToolRequestParams;
-use rmcp::transport::StreamableHttpClientTransport;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tempfile::TempDir;
 
 const REPOSITORY: &str = "owner/shop";
@@ -99,19 +95,22 @@ async fn messages(engine: &Engine) -> Vec<ChatMessage> {
         .list("owner", REPOSITORY, 12)
         .await
         .unwrap()
+        .into_iter()
+        .filter(|message| message.author != Author::Event)
+        .collect()
 }
 
 #[tokio::test]
 async fn the_lead_asks_a_question_and_a_trusted_reply_goes_to_the_lead_as_the_next_event() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
-    let script = "[[prompts]]\ncall = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n\n[[prompts]]\nreply = [\"Seen\"]\n\n[[prompts]]\nreply = [\"Seen\"]\n";
+    let script = "[[prompts]]\nwhen = \"comment on #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n\n[[prompts]]\nreply = [\"Seen\"]\n";
     let engine = connect(&data_dir, &github, script).await;
 
     dispatch(&github, 41, "Add plan model");
 
     let results = wait_for(async || {
-        let results = mcp_results(&engine, "lead_event").await;
+        let results = mcp_results(&engine, "lead_chat").await;
         (!results.is_empty()).then_some(results)
     })
     .await;
@@ -142,7 +141,7 @@ async fn the_lead_asks_a_question_and_a_trusted_reply_goes_to_the_lead_as_the_ne
     github.add_comment(REPOSITORY, 41, "owner", "Cents.");
 
     let prompts = wait_for(async || {
-        let prompts = all_prompts(&engine, "lead_event").await;
+        let prompts = all_prompts(&engine, "lead_chat").await;
         prompts
             .iter()
             .any(|prompt| {
@@ -168,7 +167,7 @@ async fn ask_on_an_issue_with_no_live_task_in_the_workstream_changes_nothing() {
     dispatch(&github, 40, "Plan API");
 
     let results = wait_for(async || {
-        let results = mcp_results(&engine, "lead_event").await;
+        let results = mcp_results(&engine, "lead_chat").await;
         (!results.is_empty()).then_some(results)
     })
     .await;
@@ -249,7 +248,7 @@ async fn dismiss_removes_the_item_from_the_inbox() {
 }
 
 #[tokio::test]
-async fn only_the_event_session_has_tell_owner() {
+async fn the_lead_session_has_tell_owner() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github, "[[prompts]]\nlist_tools = true\n").await;
@@ -257,7 +256,7 @@ async fn only_the_event_session_has_tell_owner() {
     dispatch(&github, 41, "Add plan model");
 
     let reply = wait_for(async || {
-        let session = sessions(&engine, "lead_event").await.pop()?;
+        let session = sessions(&engine, "lead_chat").await.pop()?;
         transcript(&engine, session.id)
             .await
             .iter()
@@ -293,62 +292,9 @@ async fn only_the_event_session_has_tell_owner() {
             "mark_ready",
             "reply_thread",
             "comment_pull_request",
+            "create_workstream",
+            "move_task",
             "tell_owner"
         ]
-    );
-}
-
-#[tokio::test]
-async fn the_chat_session_gets_the_new_tell_owner_messages_before_the_next_owner_message() {
-    let data_dir = TempDir::new().unwrap();
-    let github = FakeGitHub::start().await;
-    let script = "[[prompts]]\nhang = true\n\n[[prompts]]\nreply = [\"Seen\"]\n";
-    let engine = connect(&data_dir, &github, script).await;
-    dispatch(&github, 41, "Add plan model");
-    wait_for(async || (all_prompts(&engine, "lead_event").await.len() == 1).then_some(())).await;
-    let event_url = fs::read_to_string(data_dir.path().join("harnesses/mcp_url")).unwrap();
-    chat::send(&engine, "owner", REPOSITORY, 12, "Plan it")
-        .await
-        .unwrap();
-    wait_for(async || (all_prompts(&engine, "lead_chat").await.len() == 1).then_some(())).await;
-    let client = ().serve(StreamableHttpClientTransport::from_uri(event_url)).await.unwrap();
-    let result = client
-        .call_tool(
-            CallToolRequestParams::new("tell_owner").with_arguments(
-                json!({ "text": "#41 needs a decision." })
-                    .as_object()
-                    .unwrap()
-                    .clone(),
-            ),
-        )
-        .await
-        .unwrap();
-    assert_ne!(result.is_error, Some(true));
-    client.cancel().await.unwrap();
-
-    chat::send(&engine, "owner", REPOSITORY, 12, "Go on")
-        .await
-        .unwrap();
-    chat::stop(&engine, "owner", REPOSITORY, 12).unwrap();
-
-    let prompts = wait_for(async || {
-        let prompts = all_prompts(&engine, "lead_chat").await;
-        (prompts.len() >= 2).then_some(prompts)
-    })
-    .await;
-    assert!(
-        !prompts[0].contains("#41 needs a decision."),
-        "{}",
-        prompts[0]
-    );
-    assert!(
-        prompts[1].starts_with("# Event session messages\n\ntell_owner ("),
-        "{}",
-        prompts[1]
-    );
-    assert!(
-        prompts[1].ends_with("):\n#41 needs a decision.\n\n# Owner message\n\nGo on"),
-        "{}",
-        prompts[1]
     );
 }

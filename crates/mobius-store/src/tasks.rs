@@ -315,6 +315,28 @@ impl Tasks<'_> {
         Ok(())
     }
 
+    // The head of the pull request for which the last fix round for a failed check started.
+    pub async fn check_head(
+        &self,
+        id: i64,
+    ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+        let head = sqlx::query_scalar!("SELECT check_head FROM tasks WHERE id = ?", id)
+            .fetch_one(self.pool)
+            .await?;
+        Ok(head)
+    }
+
+    pub async fn set_check_head(
+        &self,
+        id: i64,
+        head: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query!("UPDATE tasks SET check_head = ? WHERE id = ?", head, id)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
     // Gives `false` when the task has `max` Worker restarts.
     pub async fn add_worker_restart(
         &self,

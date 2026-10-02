@@ -24,8 +24,8 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::threads::Target;
 use crate::{
-    Engine, chat, dispatch, implementer, issues, judge, lead, lead_events, plans, researcher,
-    reviewer, tasks, threads, triager, trust,
+    Engine, chat, dispatch, implementer, issues, judge, lead, plans, researcher, reviewer, tasks,
+    threads, triager, trust,
 };
 
 #[derive(Clone)]
@@ -114,8 +114,8 @@ async fn serve(
 }
 
 fn tools(role: &str) -> Vec<Tool> {
-    let mut tools = match role {
-        chat::ROLE | lead_events::ROLE => vec![
+    match role {
+        chat::ROLE => vec![
             tool(
                 "list_tasks",
                 "Give the task list of the Workstream: one line for each open issue.",
@@ -275,6 +275,49 @@ fn tools(role: &str) -> Vec<Tool> {
                     }
                 })),
             ),
+            tool(
+                "create_workstream",
+                "Create a Workstream in this repository: an issue with mobius:workstream. Call it only after the Owner approves the exact title and Brief in the chat.",
+                object(json!({
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The name of the Workstream."
+                    },
+                    "brief": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The Brief: the goal, the scope, and the limits of the Workstream."
+                    }
+                })),
+            ),
+            tool(
+                "move_task",
+                "Make a task of this Workstream a sub-issue of a different open Workstream in this repository. Call it only after the Owner approves the move in the chat. The task must not be in progress.",
+                object(json!({
+                    "n": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the task issue."
+                    },
+                    "workstream": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The number of the target Workstream issue."
+                    }
+                })),
+            ),
+            tool(
+                "tell_owner",
+                "Tell the Owner something. Mobius adds the text to the Lead chat and adds an Inbox item.",
+                object(json!({
+                    "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "The text for the Owner."
+                    }
+                })),
+            ),
         ],
         implementer::ROLE => vec![
             tool(
@@ -421,55 +464,7 @@ fn tools(role: &str) -> Vec<Tool> {
             })),
         )],
         _ => Vec::new(),
-    };
-    if role == chat::ROLE {
-        tools.push(tool(
-            "create_workstream",
-            "Create a Workstream in this repository: an issue with mobius:workstream. Call it only after the Owner approves the exact title and Brief in the chat.",
-            object(json!({
-                "title": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "The name of the Workstream."
-                },
-                "brief": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "The Brief: the goal, the scope, and the limits of the Workstream."
-                }
-            })),
-        ));
-        tools.push(tool(
-            "move_task",
-            "Make a task of this Workstream a sub-issue of a different open Workstream in this repository. Call it only after the Owner approves the move in the chat. The task must not be in progress.",
-            object(json!({
-                "n": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "The number of the task issue."
-                },
-                "workstream": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "The number of the target Workstream issue."
-                }
-            })),
-        ));
     }
-    if role == lead_events::ROLE {
-        tools.push(tool(
-            "tell_owner",
-            "Tell the Owner something. Mobius adds the text to the Lead chat and adds an Inbox item.",
-            object(json!({
-                "text": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "The text for the Owner."
-                }
-            })),
-        ));
-    }
-    tools
 }
 
 fn tool(name: &'static str, description: &'static str, properties: JsonObject) -> Tool {
@@ -689,7 +684,6 @@ impl Handler {
                     return Err("title and brief must not be empty.".into());
                 }
                 let number = triager::create_workstream(&repository, &title, &brief).await?;
-                // `WorkstreamCreated` moves an open Triager screen to the new chat, so the Lead chat gets `Workstreams`.
                 self.engine.broadcast(if self.caller.role == chat::ROLE {
                     Live::Workstreams
                 } else {
@@ -731,11 +725,6 @@ impl Handler {
                 if self.engine.drain.on() {
                     return Err("Mobius prepares an upgrade, so no Researcher starts now.".into());
                 }
-                let origin = if self.caller.role == chat::ROLE {
-                    researcher::Origin::Chat
-                } else {
-                    researcher::Origin::Events
-                };
                 // The subscription comes before the spawn, so the Researcher gets each stop of its Lead.
                 tokio::spawn(researcher::run(
                     self.engine.clone(),
@@ -744,7 +733,6 @@ impl Handler {
                         repository: self.caller.repository.clone(),
                         workstream: self.caller.workstream,
                         question,
-                        origin,
                     },
                 ));
                 Ok("Started a Researcher. The report arrives later.".to_string())

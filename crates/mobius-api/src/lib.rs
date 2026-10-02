@@ -183,6 +183,13 @@ pub async fn workstream_autopilot(
         .map_err(ServerFnError::new)
 }
 
+#[post("/api/workstreams/close", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn workstream_close(repository: String, workstream: i64) -> ServerFnResult<()> {
+    workstreams::complete(&engine, &repository, workstream)
+        .await
+        .map_err(ServerFnError::new)
+}
+
 #[get("/api/live?after", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn live(after: Option<i64>) -> ServerFnResult<ServerEvents<Live>> {
     let mut feed = activity::feed(&engine, after)

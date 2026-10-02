@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use mobius_domain::{Session, TranscriptRow};
 use mobius_engine::{Engine, github, workstreams};
 use mobius_testkit::fake_github::{CheckRun, CheckRunOutput, FakeGitHub};
@@ -29,6 +31,18 @@ thought_level = ["high"]
 [[prompts]]
 when = "Action: fix"
 shell = "echo 'cents per month' > plan.txt && git commit -q -am 'Fix the check'"
+
+[[prompts]]
+shell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'"
+"#;
+const IMPLEMENTER_WITH_NO_FIX: &str = r#"
+[options]
+model = ["swe-1.5"]
+thought_level = ["high"]
+
+[[prompts]]
+when = "Action: fix"
+shell = "true"
 
 [[prompts]]
 shell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'"
@@ -166,6 +180,56 @@ async fn a_failed_check_run_on_the_head_starts_a_fix_round_with_the_check_and_it
 }
 
 #[tokio::test]
+async fn a_failed_check_run_on_the_same_head_starts_one_fix_round() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, "").await;
+    install_fake_harness(
+        data_dir.path(),
+        FAKE_AGENT,
+        "devin",
+        IMPLEMENTER_WITH_NO_FIX,
+    );
+    let head = ready_for_review(&engine, &github).await;
+
+    github.add_check_run(
+        REPOSITORY,
+        check_run("build", &head, "completed", Some("failure")),
+    );
+    wait_for(async || (sessions(&engine).await.len() == 2).then_some(())).await;
+    wait_for(async || {
+        (task_state(&engine).await.as_deref() == Some("ready_for_review")).then_some(())
+    })
+    .await;
+    assert_eq!(
+        git(&github.remote(REPOSITORY), &["rev-parse", "mobius/41"]),
+        head
+    );
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    assert_eq!(sessions(&engine).await.len(), 2);
+    assert_eq!(
+        task_state(&engine).await.as_deref(),
+        Some("ready_for_review")
+    );
+}
+
+#[tokio::test]
+async fn a_cancelled_check_run_on_the_head_starts_a_fix_round() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, "").await;
+    let head = ready_for_review(&engine, &github).await;
+
+    github.add_check_run(
+        REPOSITORY,
+        check_run("build", &head, "completed", Some("cancelled")),
+    );
+
+    wait_for(async || (sessions(&engine).await.len() == 2).then_some(())).await;
+}
+
+#[tokio::test]
 async fn a_timed_out_check_run_on_the_head_starts_a_fix_round() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
@@ -243,10 +307,12 @@ async fn a_failed_check_run_at_max_fix_rounds_hands_the_task_to_a_human() {
 
     wait_for(async || (task_state(&engine).await.as_deref() == Some("needs_human")).then_some(()))
         .await;
-    assert!(
+    wait_for(async || {
         github
             .labels(REPOSITORY, 41)
             .contains(&"mobius:needs-human".to_string())
-    );
+            .then_some(())
+    })
+    .await;
     assert_eq!(sessions(&engine).await.len(), 1);
 }

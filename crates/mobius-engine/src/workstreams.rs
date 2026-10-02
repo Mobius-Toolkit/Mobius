@@ -23,6 +23,9 @@ pub async fn list(engine: &Engine) -> Result<Vec<Workstream>, Box<dyn Error + Se
                 repository: repository.full_name.clone(),
                 number: issue.number,
                 autopilot: issue_autopilot(engine, &repository, &issue).await?,
+                all_tasks_closed: all_tasks_closed(&repository, issue.number)
+                    .await
+                    .unwrap_or(false),
                 title: issue.title,
                 body: issue.body.unwrap_or_default(),
             });
@@ -51,13 +54,11 @@ pub(crate) async fn has_work(
     repository: &str,
     workstream: i64,
 ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-    let key = (repository.to_string(), workstream);
     if engine.chats.lock().unwrap().contains_key(&(
         organization(repository).to_string(),
         repository.to_string(),
         workstream,
-    )) || engine.event_sessions.lock().unwrap().contains_key(&key)
-    {
+    )) {
         return Ok(true);
     }
     Ok(engine
@@ -67,6 +68,36 @@ pub(crate) async fn has_work(
         .await?
         .iter()
         .any(|task| task.workstream == workstream))
+}
+
+async fn all_tasks_closed(
+    repository: &Repository,
+    workstream: i64,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    let sub_issues = repository.sub_issues(workstream).await?;
+    Ok(!sub_issues.is_empty() && sub_issues.iter().all(|issue| issue.state == "closed"))
+}
+
+// The poll of the close event runs `close` again, and the second run changes nothing.
+pub async fn complete(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let repository = engine.repository(repository)?;
+    let open_workstream = repository
+        .issue(workstream)
+        .await?
+        .is_some_and(|issue| issue.state == "open" && issue.has_label(WORKSTREAM_LABEL));
+    if !open_workstream {
+        return Err("The issue is not an open Workstream.".into());
+    }
+    if !all_tasks_closed(&repository, workstream).await? {
+        return Err("The Workstream has no task, or a task is open.".into());
+    }
+    repository.close_as_completed(workstream).await?;
+    engine.broadcast(Live::Workstreams);
+    close(engine, &repository, workstream).await
 }
 
 // The branches and the Lead directory stay.

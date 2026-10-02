@@ -203,8 +203,6 @@ struct LiveState {
     unread_read: Signal<bool>,
     agents: Signal<HashMap<i64, AgentNode>>,
     inbox: Signal<HashMap<i64, InboxItem>>,
-    // The Workstream that the Triager chat created last.
-    created: Signal<Option<(String, i64)>>,
     // The number of agents the upgrade drain waits for. `None` means no drain.
     drain: Signal<Option<usize>>,
     // The error of the last upgrade. An empty text means no error.
@@ -340,10 +338,8 @@ async fn follow_live(
                         Live::Inbox(item) => {
                             state.inbox.write().insert(item.id, item);
                         }
-                        Live::Workstreams => workstream_list.restart(),
-                        Live::WorkstreamCreated { repository, number } => {
+                        Live::Workstreams | Live::WorkstreamCreated { .. } => {
                             workstream_list.restart();
-                            state.created.set(Some((repository, number)));
                         }
                         Live::Drain { waiting } => state.drain.set(waiting),
                         Live::UpgradeError(error) => {
@@ -376,7 +372,25 @@ fn Frame() -> Element {
         organizations().await
     });
     use_context_provider(|| Organizations(organization_list));
-    let new_release = use_resource(release);
+    let mut new_release = use_resource(release);
+    let mut release_version = use_signal(|| None::<String>);
+    use_effect(move || {
+        // A failed check leaves the version of the last good check.
+        if let Some(Ok(version)) = &*new_release.read() {
+            release_version.set(version.clone());
+        }
+    });
+    use_effect(move || {
+        spawn(async move {
+            loop {
+                let _ = document::eval(
+                    "await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000));",
+                )
+                .await;
+                new_release.restart();
+            }
+        });
+    });
     let mut upgrading = use_signal(|| false);
     let Organization(organization) =
         use_context_provider(|| Organization(Signal::new(String::new())));
@@ -402,7 +416,6 @@ fn Frame() -> Element {
         unread_read: Signal::new(false),
         agents: Signal::new(HashMap::new()),
         inbox: Signal::new(HashMap::new()),
-        created: Signal::new(None),
         drain: Signal::new(None),
         upgrade_error: Signal::new(String::new()),
     });
@@ -498,7 +511,7 @@ fn Frame() -> Element {
                             }
                         }
                     }
-                    if let Some(Ok(Some(version))) = &*new_release.read() {
+                    if let Some(version) = release_version() {
                         if drain_waiting.is_some() {
                             button { class: "entry upd",
                                 onclick: move |_| async move {
@@ -866,24 +879,8 @@ fn Checkup() -> Element {
 
 #[component]
 fn NewWorkstream() -> Element {
-    let state: LiveState = use_context();
     let Organizations(organization_list) = use_context();
     let Organization(organization) = use_context();
-    let mut created = state.created;
-    let navigator = use_navigator();
-    // An earlier Workstream of the Triager chat does not open a chat.
-    use_hook(|| created.set(None));
-    use_effect(move || {
-        if let Some((repository, number)) = created() {
-            created.set(None);
-            let (owner, repo) = repository.split_once('/').unwrap_or_default();
-            navigator.push(Route::Chat {
-                owner: owner.to_string(),
-                repo: repo.to_string(),
-                number,
-            });
-        }
-    });
     if !matches!(&*organization_list.read(), Some(Ok(list)) if list.contains(&organization())) {
         return rsx! {
             div { class: "head", h2 { "New Workstream" } }
@@ -1356,7 +1353,12 @@ fn Conversation(
     let unread = state.unread.read().get(&key).copied().unwrap_or(0);
     let unread_messages: Vec<i64> = messages
         .iter()
-        .filter(|message| !matches!(message.author, Author::Owner | Author::Researcher))
+        .filter(|message| {
+            !matches!(
+                message.author,
+                Author::Owner | Author::Researcher | Author::Event
+            )
+        })
         .map(|message| message.id)
         .collect();
     // A new last message always scrolls the list to the bottom. A switch to another chat
@@ -1572,11 +1574,15 @@ fn Conversation(
                         div {
                             key: "{message.id}",
                             "data-message": "{message.id}",
-                            class: if message.author == Author::Owner { "msg owner" } else { "msg" },
+                            class: match message.author {
+                                Author::Owner => "msg owner",
+                                Author::Event => "msg event",
+                                _ => "msg",
+                            },
                             div { class: "meta",
                                 span {
                                     if message.author == Author::TellOwner {
-                                        "Lead · event session"
+                                        "Lead"
                                     } else {
                                         {message.author.name()}
                                     }

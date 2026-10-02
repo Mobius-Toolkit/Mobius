@@ -22,20 +22,20 @@ thought_level = ["low", "medium", "high"]
 mode = ["default", "bypassPermissions"]
 
 [[prompts]]
-when = "dispatch of #41"
-call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
-
-[[prompts]]
-when = "dispatch of #43"
-call = { tool = "start_implementer", arguments = { n = 43, instructions = "Round prices down." } }
-
-[[prompts]]
 when = "Research the plan flow"
 call = { tool = "start_researcher", arguments = { question = "How do plans work?" } }
 
 [[prompts]]
 when = "Plan the loyalty API"
 reply = ["Hello"]
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
+
+[[prompts]]
+when = "dispatch of #43"
+call = { tool = "start_implementer", arguments = { n = 43, instructions = "Round prices down." } }
 
 [[prompts]]
 when = "You are the Judge"
@@ -222,7 +222,7 @@ async fn the_drain_holds_new_agents_waits_for_the_running_work_and_a_cancel_rele
     })
     .await;
 
-    // A comment on the working task stays an undelivered event: no new event Lead turn starts.
+    // A comment on the working task stays an undelivered event: no new Lead turn starts.
     github.add_comment(REPOSITORY, 41, "owner", "One more thing.");
     wait_for(async || {
         (!engine
@@ -296,15 +296,13 @@ async fn the_drain_holds_new_agents_waits_for_the_running_work_and_a_cancel_rele
     // Each Lead saved its memory and closed, so the drain completes.
     assert_eq!(drain.await.unwrap(), DrainEnd::Drained);
     assert!(no_harness_process(&engine).await);
-    for role in ["lead_chat", "lead_event"] {
-        assert!(
-            role_prompts(&engine, role)
-                .await
-                .iter()
-                .any(|prompt| prompt == SAVE),
-            "{role} did not save its memory"
-        );
-    }
+    assert!(
+        role_prompts(&engine, "lead_chat")
+            .await
+            .iter()
+            .any(|prompt| prompt == SAVE),
+        "The Lead did not save its memory"
+    );
     // The held Worker's session shows the drain reason and has no Harness process.
     let second = sessions(&engine, "implementer")
         .await
@@ -350,7 +348,7 @@ async fn the_drain_holds_new_agents_waits_for_the_running_work_and_a_cancel_rele
     assert_eq!(second.queue_reason, None);
     // The waiting event goes to the Lead.
     wait_for(async || {
-        role_prompts(&engine, "lead_event")
+        role_prompts(&engine, "lead_chat")
             .await
             .iter()
             .any(|prompt| prompt.contains("One more thing."))

@@ -154,6 +154,10 @@ struct Records {
     second_app_accounts: HashSet<String>,
     // The ids of the Apps whose installation list fails.
     failed_apps: HashSet<i64>,
+    // The issues whose close request fails, as (repository, number).
+    failed_closes: HashSet<(String, i64)>,
+    // The issues whose sub-issue list request fails, as (repository, number).
+    failed_sub_issues: HashSet<(String, i64)>,
     // The permissions of each App and of its installation by App id. An App without an entry has `DEFAULT_PERMISSIONS`.
     app_permissions: HashMap<i64, HashMap<String, String>>,
     installation_permissions: HashMap<i64, HashMap<String, String>>,
@@ -168,6 +172,7 @@ struct Records {
     pull_requests: Vec<(String, PullRequest)>,
     // The creation time of each pull request, in seconds after the Unix epoch.
     pull_request_created_at: HashMap<(String, i64), i64>,
+    behind_pull_requests: HashSet<(String, i64)>,
     // The id of a check run is its index plus 1.
     check_runs: Vec<(String, CheckRun)>,
     // The annotations of each check run by id, as GitHub gives them.
@@ -547,6 +552,22 @@ impl FakeGitHub {
         }
     }
 
+    pub fn fail_close(&self, repository: &str, number: i64) {
+        self.state
+            .lock()
+            .unwrap()
+            .failed_closes
+            .insert((repository.to_string(), number));
+    }
+
+    pub fn fail_sub_issues(&self, repository: &str, number: i64) {
+        self.state
+            .lock()
+            .unwrap()
+            .failed_sub_issues
+            .insert((repository.to_string(), number));
+    }
+
     pub fn add_account(&self, login: &str, account_type: &'static str) {
         self.state
             .lock()
@@ -708,6 +729,15 @@ impl FakeGitHub {
             .unwrap()
             .pull_request_created_at
             .insert((full_name.to_string(), number), seconds);
+    }
+
+    // The pull request gives `mergeable_state` `behind` while its base is not an ancestor of its head.
+    pub fn set_behind(&self, full_name: &str, number: i64) {
+        self.state
+            .lock()
+            .unwrap()
+            .behind_pull_requests
+            .insert((full_name.to_string(), number));
     }
 
     // Commits `script` as an executable `.mobius/check` on `main`.
@@ -1315,6 +1345,7 @@ impl Page {
 
 #[derive(Deserialize)]
 struct IssueFilter {
+    state: Option<String>,
     labels: Option<String>,
     since: Option<String>,
 }
@@ -1338,6 +1369,10 @@ async fn issues(
         .iter()
         .filter(|((name, _), issue)| {
             *name == repository
+                && filter
+                    .state
+                    .as_ref()
+                    .is_none_or(|state| state != "open" || issue.state == "open")
                 && filter
                     .labels
                     .as_ref()
@@ -1547,6 +1582,17 @@ fn pull_request_json(records: &Records, repository: &str, number: i64) -> Value 
         &pull_request.head,
     ]);
     let head = git(&["rev-parse", &pull_request.head]);
+    let behind = records
+        .behind_pull_requests
+        .contains(&(repository.to_string(), number))
+        && !git(&[
+            "merge-base",
+            "--is-ancestor",
+            &pull_request.base,
+            &pull_request.head,
+        ])
+        .status
+        .success();
     json!({
         "number": number,
         "node_id": format!("PR_{number}"),
@@ -1556,6 +1602,7 @@ fn pull_request_json(records: &Records, repository: &str, number: i64) -> Value 
         "head": { "sha": String::from_utf8(head.stdout).unwrap().trim() },
         "draft": pull_request.draft,
         "mergeable": merge.status.success(),
+        "mergeable_state": if behind { "behind" } else { "clean" },
         "created_at": timestamp(records.pull_request_created_at[&(repository.to_string(), number)])
     })
 }
@@ -1978,6 +2025,12 @@ async fn update_issue(
     if update.state != "closed" || !records.issues.contains_key(&(repository.clone(), number)) {
         return not_found();
     }
+    if records
+        .failed_closes
+        .contains(&(repository.clone(), number))
+    {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
     records.set_state(&repository, number, "closed", update.state_reason, &bot);
     Json(records.issue_json(&repository, number)).into_response()
 }
@@ -2094,6 +2147,12 @@ async fn sub_issues(
     let Some(parent) = records.issues.get(&(repository.clone(), number)) else {
         return not_found();
     };
+    if records
+        .failed_sub_issues
+        .contains(&(repository.clone(), number))
+    {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
     let children = parent
         .sub_issues
         .iter()

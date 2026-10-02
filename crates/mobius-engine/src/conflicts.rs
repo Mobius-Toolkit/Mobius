@@ -9,6 +9,10 @@ use time::OffsetDateTime;
 use crate::labels::NEEDS_HUMAN_LABEL;
 use crate::{Engine, TIME_FORMAT, implementer, inbox, lead_events};
 
+pub fn behind(pull_request: &PullRequest) -> bool {
+    pull_request.mergeable_state.as_deref() == Some("behind")
+}
+
 pub(crate) async fn on_conflict(
     engine: &Engine,
     repository: &Repository,
@@ -44,6 +48,11 @@ async fn stale(
         .ok_or_else(|| format!("#{} does not exist.", task.issue))?
         .title;
     let age = format_duration(engine.config.stale_pr_age);
+    let reason = if behind(pull_request) {
+        "is behind its base branch"
+    } else {
+        "has a merge conflict"
+    };
     inbox::add(
         engine,
         InboxKind::StalePullRequest,
@@ -51,14 +60,14 @@ async fn stale(
         task.workstream,
         task.issue,
         &format!(
-            "Pull request #{} of #{} \"{title}\" has a merge conflict and is older than {age}.",
+            "Pull request #{} of #{} \"{title}\" {reason} and is older than {age}.",
             pull_request.number, task.issue
         ),
         &pull_request.html_url,
     )
     .await?;
     let text = format!(
-        "{} stale pull request #{} of #{} \"{title}\": it has a merge conflict and is older than {age}. {}",
+        "{} stale pull request #{} of #{} \"{title}\": it {reason} and is older than {age}. {}",
         OffsetDateTime::now_utc().format(TIME_FORMAT)?,
         pull_request.number,
         task.issue,

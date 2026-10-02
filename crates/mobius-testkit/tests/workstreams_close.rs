@@ -8,14 +8,14 @@ use tempfile::TempDir;
 const REPOSITORY: &str = "owner/shop";
 const APP: &str = "mobius-test[bot]";
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_fake-agent");
-const CLAUDE: &str = r#"
+const CLAUDE: &str = r##"
 [options]
 model = ["sonnet", "opus"]
 thought_level = ["low", "high"]
 mode = ["default", "bypassPermissions"]
 
 [[prompts]]
-when = "The Owner talks to you in this chat."
+when = "# Owner message"
 hang = true
 
 [[prompts]]
@@ -25,7 +25,7 @@ shell = "true"
 [[prompts]]
 when = "dispatch of #41"
 call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
-"#;
+"##;
 const IMPLEMENTER: &str = r#"
 [options]
 model = ["swe-1.5"]
@@ -81,6 +81,16 @@ async fn ended(engine: &Engine, role: &str) -> Session {
             .await
             .into_iter()
             .find(|session| session.ended_at.is_some())
+    })
+    .await
+}
+
+async fn stopped(engine: &Engine, role: &str) -> Session {
+    wait_for(async || {
+        sessions(engine, role)
+            .await
+            .into_iter()
+            .find(|session| session.end_reason.as_deref() == Some("stopped"))
     })
     .await
 }
@@ -148,8 +158,48 @@ async fn a_close_stops_the_lead_and_closes_the_pull_requests_and_issues_below() 
     );
     git(&github.remote(REPOSITORY), &["rev-parse", "mobius/41"]);
     assert!(data_dir.path().join("leads/owner/shop/12").exists());
-    let chat = ended(&engine, "lead_chat").await;
-    assert_eq!(chat.end_reason.as_deref(), Some("stopped"));
+    stopped(&engine, "lead_chat").await;
+}
+
+#[tokio::test]
+async fn a_completion_stops_the_lead() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, IMPLEMENTER).await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the next step.")
+        .await
+        .unwrap();
+    started(&engine, "lead_chat").await;
+    github.close_issue(REPOSITORY, 41);
+
+    workstreams::complete(&engine, REPOSITORY, 12)
+        .await
+        .unwrap();
+
+    stopped(&engine, "lead_chat").await;
+}
+
+#[tokio::test]
+async fn a_failed_completion_keeps_the_lead_running() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, IMPLEMENTER).await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the next step.")
+        .await
+        .unwrap();
+    started(&engine, "lead_chat").await;
+    github.close_issue(REPOSITORY, 41);
+    github.fail_close(REPOSITORY, 12);
+
+    let result = workstreams::complete(&engine, REPOSITORY, 12).await;
+
+    assert!(result.is_err());
+    assert!(
+        sessions(&engine, "lead_chat")
+            .await
+            .iter()
+            .all(|session| session.ended_at.is_none())
+    );
 }
 
 #[tokio::test]
@@ -197,7 +247,7 @@ async fn a_reopen_starts_a_lead_and_reopens_no_issue() {
     github.reopen_issue(REPOSITORY, 12);
 
     let prompt = wait_for(async || {
-        for session in sessions(&engine, "lead_event").await {
+        for session in sessions(&engine, "lead_chat").await {
             let rows: Vec<TranscriptRow> =
                 engine.store.transcript().list(session.id).await.unwrap();
             for row in rows.iter().filter(|row| row.kind == "prompt") {

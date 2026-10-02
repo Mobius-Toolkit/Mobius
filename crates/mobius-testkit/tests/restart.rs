@@ -75,7 +75,7 @@ async fn prompts(engine: &Engine, session: i64) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn a_restart_starts_the_implementer_again_and_the_event_session() {
+async fn a_restart_starts_the_implementer_again_and_the_lead_session() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     add_issues(&github);
@@ -114,7 +114,13 @@ async fn a_restart_starts_the_implementer_again_and_the_event_session() {
             .unwrap();
         store
             .lead_events()
-            .add(REPOSITORY, 12, "comment", "A comment before the restart.")
+            .add(
+                REPOSITORY,
+                12,
+                "comment",
+                "A comment before the restart.",
+                None,
+            )
             .await
             .unwrap();
         session.id
@@ -132,7 +138,7 @@ async fn a_restart_starts_the_implementer_again_and_the_event_session() {
     assert_eq!(prompts(&engine, implementers[1].id).await, [PROMPT]);
     assert!(!scratch.exists());
     wait_for(async || {
-        for session in sessions(&engine, "lead_event").await {
+        for session in sessions(&engine, "lead_chat").await {
             if prompts(&engine, session.id)
                 .await
                 .iter()

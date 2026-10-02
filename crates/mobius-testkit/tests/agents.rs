@@ -151,7 +151,7 @@ async fn the_transcript_folds_the_first_prompt_and_keeps_the_others_open() {
     let prompts: Vec<&TranscriptLine> = lines.iter().filter(|line| line.kind == "prompt").collect();
     assert_eq!(
         prompts[0].text,
-        "You are the Lead of one Workstream. The Owner talks to you in this chat.…"
+        "You are the Lead of one Workstream. The Owner talks to you in this chat. Mobius also sends you events in this session. A message of the Owner and an event come one at a time, in the order that they occurred.…"
     );
     assert!(prompts[0].folded);
     assert!(prompts[0].body.as_ref().unwrap().ends_with("Read the work"));

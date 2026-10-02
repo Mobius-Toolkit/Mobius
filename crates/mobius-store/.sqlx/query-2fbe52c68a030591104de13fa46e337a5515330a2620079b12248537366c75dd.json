@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT check_head FROM tasks WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "check_head",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "check_head"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "2fbe52c68a030591104de13fa46e337a5515330a2620079b12248537366c75dd"
+}

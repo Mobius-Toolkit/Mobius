@@ -108,9 +108,9 @@ fn prompts(rows: &[TranscriptRow]) -> Vec<String> {
         .collect()
 }
 
-async fn lead_event_prompts(engine: &Engine) -> Vec<String> {
+async fn lead_prompts(engine: &Engine) -> Vec<String> {
     let mut all = Vec::new();
-    for session in sessions(engine, "lead_event").await {
+    for session in sessions(engine, "lead_chat").await {
         all.extend(prompts(&transcript(engine, session.id).await));
     }
     all
@@ -253,7 +253,7 @@ async fn cannot_do_goes_to_the_lead_and_the_next_start_merges_a_branch_that_dive
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let lead = format!(
-        "[[prompts]]\nwhen = \"dispatch of #41\"\n{START}\n[[prompts]]\nwhen = \"comment on #41\"\n{START}"
+        "[[prompts]]\nwhen = \"comment on #41\"\n{START}\n[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"ok\"]\n[[prompts]]\nwhen = \"dispatch of #41\"\n{START}"
     );
     let engine = connect(
         &data_dir,
@@ -265,7 +265,7 @@ async fn cannot_do_goes_to_the_lead_and_the_next_start_merges_a_branch_that_dive
     .await;
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
     wait_for(async || {
-        lead_event_prompts(&engine)
+        lead_prompts(&engine)
             .await
             .iter()
             .any(|prompt| {
@@ -354,12 +354,9 @@ async fn a_push_that_github_rejects_stops_the_task_with_no_restart() {
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
 
     let prompt = wait_for(async || {
-        lead_event_prompts(&engine)
-            .await
-            .into_iter()
-            .find(|prompt| {
-                prompt.contains(" stop of #41 \"Add plan model\": GitHub rejected the push.")
-            })
+        lead_prompts(&engine).await.into_iter().find(|prompt| {
+            prompt.contains(" stop of #41 \"Add plan model\": GitHub rejected the push.")
+        })
     })
     .await;
     assert!(
@@ -493,7 +490,7 @@ async fn after_max_check_attempts_mobius_pushes_marks_the_check_run_as_failed_an
     })
     .await;
     wait_for(async || {
-        lead_event_prompts(&engine)
+        lead_prompts(&engine)
             .await
             .iter()
             .any(|prompt| {

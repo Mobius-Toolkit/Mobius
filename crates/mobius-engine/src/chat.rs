@@ -6,13 +6,16 @@ use std::path::Path;
 use mobius_domain::{Author, ChatMessage, ChatView, InboxKind, Live, organization};
 use mobius_github::Repository;
 use mobius_runner::Session;
-use mobius_store::NewInboxItem;
+use mobius_store::{LeadEvent, NewInboxItem};
 use serde_json::Value;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::lead::{self, Recorder, SAVE_PROMPT};
-use crate::{Engine, TIME_FORMAT, drain, gh, inbox, limits, mcp, triager, workers, workstreams};
+use crate::{
+    ChatKey, Engine, TIME_FORMAT, drain, gh, inbox, lead_events, limits, mcp, triager, workers,
+    workstreams,
+};
 
 pub(crate) const ROLE: &str = "lead_chat";
 const ROLE_PROMPT: &str = include_str!("prompts/lead.md");
@@ -23,9 +26,17 @@ pub(crate) struct ChatHandle {
     writing: bool,
 }
 
+// One turn of the session. An Owner message and an event share one queue, in the order that they occurred.
+#[derive(Clone, Debug)]
+enum Item {
+    Message(ChatMessage),
+    Event(LeadEvent),
+}
+
 #[derive(Debug)]
 enum Command {
     Prompt(ChatMessage),
+    Event(LeadEvent),
     Stop,
     // The drain for an upgrade: the session saves its memory and closes.
     Drain,
@@ -95,7 +106,7 @@ pub(crate) async fn post(
         None => {
             let (commands, receiver) = mpsc::unbounded_channel();
             chats.insert(
-                key,
+                key.clone(),
                 ChatHandle {
                     commands,
                     writing: true,
@@ -105,7 +116,70 @@ pub(crate) async fn post(
             tokio::spawn(run(
                 engine.clone(),
                 engine.lead_stops.subscribe(),
-                message,
+                key,
+                Item::Message(message),
+                receiver,
+                guard,
+            ));
+        }
+    }
+    engine.broadcast(Live::Lead {
+        organization: organization.to_string(),
+        repository: repository.to_string(),
+        workstream,
+        writing: true,
+        error: None,
+    });
+    Ok(())
+}
+
+// Sends each undelivered event of the Workstream to its Lead session, and starts the session when none runs. A session that already has an event skips the copy.
+pub(crate) async fn wake_events(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut events = engine
+        .store
+        .lead_events()
+        .undelivered(repository, workstream)
+        .await?
+        .into_iter();
+    let Some(first) = events.next() else {
+        return Ok(());
+    };
+    let organization = organization(repository);
+    let key = (organization.to_string(), repository.to_string(), workstream);
+    let mut chats = engine.chats.lock().unwrap();
+    match chats.get_mut(&key) {
+        Some(handle) => {
+            for event in std::iter::once(first).chain(events) {
+                handle.commands.send(Command::Event(event))?;
+            }
+            handle.writing = true;
+        }
+        None => {
+            // The drain holds each new session. Its events stay undelivered.
+            let Some(guard) = drain::try_track(engine) else {
+                return Ok(());
+            };
+            let (commands, receiver) = mpsc::unbounded_channel();
+            for event in events {
+                commands.send(Command::Event(event))?;
+            }
+            chats.insert(
+                key.clone(),
+                ChatHandle {
+                    commands,
+                    writing: true,
+                },
+            );
+            // The subscription comes before the spawn, so the session gets each stop of its Lead.
+            tokio::spawn(run(
+                engine.clone(),
+                engine.lead_stops.subscribe(),
+                key,
+                Item::Event(first),
                 receiver,
                 guard,
             ));
@@ -226,24 +300,21 @@ pub(crate) async fn tell_owner(
     Ok("Sent to the Owner.".to_string())
 }
 
-// After a crash, a new session gets the message of the failed turn as its first message. The queue keeps the later messages.
+// After a crash, a new session gets the item of the failed turn as its first item. The queue keeps the later items.
 async fn run(
     engine: Engine,
     mut stops: broadcast::Receiver<(String, i64)>,
-    first: ChatMessage,
+    (organization, repository, workstream): ChatKey,
+    first: Item,
     mut commands: UnboundedReceiver<Command>,
     _drain: drain::Guard,
 ) {
-    let (organization, repository, workstream) = (
-        first.organization.clone(),
-        first.repository.clone(),
-        first.workstream,
-    );
     let (role, binding, author) = if workstream == triager::CHAT {
         (triager::ROLE, &engine.config.roles.triager, Author::Triager)
     } else {
         (ROLE, &engine.config.roles.lead, Author::Lead)
     };
+    let chat_key = (organization.clone(), repository.clone(), workstream);
     let mut first = first;
     let mut queue = VecDeque::new();
     let mut crashes = 0;
@@ -278,7 +349,7 @@ async fn run(
             workstream,
             Some(author),
         );
-        // A stop while the session waits ends the chat and frees the place in the queue.
+        // A stop while the session waits drops a first item that is an Owner message. The chat ends when no later item remains. An event stays.
         let wait = workers::session_slot(
             &engine,
             session,
@@ -295,12 +366,24 @@ async fn run(
                 () = lead::stopped(&mut stops, &repository, workstream) => true,
                 command = commands.recv() => match command {
                     Some(Command::Prompt(message)) => {
-                        queue.push_back(message);
+                        queue.push_back(Item::Message(message));
                         false
                     }
-                    // The first message still turns, and the session closes after it.
+                    Some(Command::Event(event)) => {
+                        queue.push_back(Item::Event(event));
+                        false
+                    }
+                    // The first item still turns, and the session closes after it.
                     Some(Command::Drain) => false,
-                    Some(Command::Stop) | None => true,
+                    Some(Command::Stop) if matches!(first, Item::Event(_)) => false,
+                    Some(Command::Stop) => match queue.pop_front() {
+                        Some(next) => {
+                            first = next;
+                            false
+                        }
+                        None => true,
+                    },
+                    None => true,
                 },
             };
             if stopped {
@@ -374,12 +457,12 @@ async fn run(
         if !lead::context_error(&*error) {
             crashes += 1;
         }
-        if let Some(message) = current {
+        if let Some(item) = current {
             if crashes <= lead::MAX_CRASHES {
-                first = message;
+                first = item;
                 continue;
             }
-            if let Err(failure) = failed(&engine, &message).await {
+            if let Err(failure) = failed(&engine, &chat_key, &item).await {
                 eprintln!("mobius: chat session {session}: {failure}");
             }
         }
@@ -395,8 +478,13 @@ async fn run(
 
 async fn failed(
     engine: &Engine,
-    message: &ChatMessage,
+    (_, repository, workstream): &ChatKey,
+    item: &Item,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let message = match item {
+        Item::Message(message) => message,
+        Item::Event(_) => return lead_events::failed(engine, repository, *workstream).await,
+    };
     let item = engine
         .store
         .inbox_items()
@@ -437,33 +525,34 @@ fn finish(
 
 async fn chat(
     engine: &Engine,
-    first: &ChatMessage,
+    first: &Item,
     session_key: &str,
     recorder: &mut Recorder,
     commands: &mut UnboundedReceiver<Command>,
-    queue: &mut VecDeque<ChatMessage>,
-    // The message of the turn that runs. A crash in this turn sends the message again in a new session.
-    current: &mut Option<ChatMessage>,
+    queue: &mut VecDeque<Item>,
+    // The item of the turn that runs. A crash in this turn sends the item again in a new session.
+    current: &mut Option<Item>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let (organization, repository, workstream) = (
-        first.organization.as_str(),
-        first.repository.as_str(),
-        first.workstream,
-    );
-    let key = (organization.to_string(), repository.to_string(), workstream);
+    let (organization, repository, workstream) = recorder.chat_key();
+    let key = &(organization.to_string(), repository.to_string(), workstream);
+    let (organization, repository) = (&key.0, &key.1);
     let session_id = recorder.session();
     let triager = workstream == triager::CHAT;
     let data_dir = &engine.config.data_dir;
-    let (dir, prompt, binding, gh_url) = if triager {
-        let dir = mobius_runner::scratch_dir(data_dir, session_id);
-        fs::create_dir_all(&dir)?;
-        let prompt = triager::chat_prompt(engine, first, &history(engine, first).await?).await?;
-        (dir, prompt, &engine.config.roles.triager, None)
-    } else {
-        let dir = mobius_runner::lead_dir(data_dir, repository, workstream)?;
-        let prompt = first_prompt(engine, &dir, first).await?;
-        let url = gh::url(engine, session_key);
-        (dir, prompt, &engine.config.roles.lead, Some(url))
+    let (dir, prompt, binding, gh_url) = match first {
+        Item::Message(message) if triager => {
+            let dir = mobius_runner::scratch_dir(data_dir, session_id);
+            fs::create_dir_all(&dir)?;
+            let history = history(engine, key, message.id).await?;
+            let prompt = triager::chat_prompt(engine, message, &history).await?;
+            (dir, prompt, &engine.config.roles.triager, None)
+        }
+        _ => {
+            let dir = mobius_runner::lead_dir(data_dir, repository, workstream)?;
+            let prompt = first_prompt(engine, &dir, key, first).await?;
+            let url = gh::url(engine, session_key);
+            (dir, prompt, &engine.config.roles.lead, Some(url))
+        }
     };
     let (session, mut updates) = lead::start(
         engine,
@@ -474,20 +563,48 @@ async fn chat(
         gh_url.as_deref(),
     )
     .await?;
-    let mut last = first.id;
     *current = Some(first.clone());
-    turn(&session, &prompt, recorder, &mut updates, commands, queue).await?;
+    item_turn(
+        &session,
+        first,
+        &prompt,
+        recorder,
+        &mut updates,
+        commands,
+        queue,
+    )
+    .await?;
+    deliver(engine, first).await?;
     *current = None;
     loop {
-        while let Some(message) = queue.pop_front() {
-            let prompt = message_prompt(engine, &message, &mut last).await?;
-            *current = Some(message);
-            turn(&session, &prompt, recorder, &mut updates, commands, queue).await?;
+        while let Some(item) = queue.pop_front() {
+            let prompt = match &item {
+                Item::Message(message) => message_prompt(message),
+                // The drain holds each event. The event stays undelivered until the drain ends.
+                Item::Event(event) => {
+                    if engine.drain.on() || !pending(engine, repository, workstream, event).await? {
+                        continue;
+                    }
+                    event_prompt(event)
+                }
+            };
+            *current = Some(item.clone());
+            item_turn(
+                &session,
+                &item,
+                &prompt,
+                recorder,
+                &mut updates,
+                commands,
+                queue,
+            )
+            .await?;
+            deliver(engine, &item).await?;
             *current = None;
         }
         {
             let mut chats = engine.chats.lock().unwrap();
-            if let Some(handle) = chats.get_mut(&key)
+            if let Some(handle) = chats.get_mut(key)
                 && commands.is_empty()
             {
                 handle.writing = false;
@@ -500,7 +617,7 @@ async fn chat(
                 });
             }
         }
-        // A chat that the drain reaches while it is idle saves and closes at once. A queued message still turns.
+        // A chat that the drain reaches while it is idle saves and closes at once. A queued item still turns.
         let command = if engine.drain.on() {
             commands.try_recv().ok()
         } else {
@@ -519,7 +636,8 @@ async fn chat(
             }
         };
         match command {
-            Some(Command::Prompt(message)) => queue.push_back(message),
+            Some(Command::Prompt(message)) => queue.push_back(Item::Message(message)),
+            Some(Command::Event(event)) => queue.push_back(Item::Event(event)),
             Some(Command::Stop) => {}
             // The drain or the idle timeout closes the session. The Triager has no memory to save.
             Some(Command::Drain) | None => {
@@ -527,6 +645,7 @@ async fn chat(
                     turn(
                         &session,
                         SAVE_PROMPT,
+                        true,
                         recorder,
                         &mut updates,
                         commands,
@@ -536,7 +655,7 @@ async fn chat(
                 }
                 let mut chats = engine.chats.lock().unwrap();
                 if queue.is_empty() && commands.is_empty() {
-                    chats.remove(&key);
+                    chats.remove(key);
                     break;
                 }
             }
@@ -549,13 +668,57 @@ async fn chat(
     Ok(())
 }
 
-async fn turn(
+// A copy of an event that an earlier turn delivered is not pending.
+async fn pending(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+    event: &LeadEvent,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    Ok(engine
+        .store
+        .lead_events()
+        .undelivered(repository, workstream)
+        .await?
+        .iter()
+        .any(|undelivered| undelivered.id == event.id))
+}
+
+// The reply text of an event turn goes only to the transcript. The Lead uses `tell_owner` to write to the Owner.
+// A stop cancels only a turn for an Owner message. The Owner cannot see an event turn.
+async fn item_turn(
     session: &Session,
+    item: &Item,
     prompt: &str,
     recorder: &mut Recorder,
     updates: &mut UnboundedReceiver<Value>,
     commands: &mut UnboundedReceiver<Command>,
-    queue: &mut VecDeque<ChatMessage>,
+    queue: &mut VecDeque<Item>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if matches!(item, Item::Message(_)) {
+        return turn(session, prompt, true, recorder, updates, commands, queue).await;
+    }
+    let chat = recorder.set_chat(None);
+    turn(session, prompt, false, recorder, updates, commands, queue).await?;
+    recorder.set_chat(chat);
+    Ok(())
+}
+
+async fn deliver(engine: &Engine, item: &Item) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if let Item::Event(event) = item {
+        engine.store.lead_events().deliver(event.id).await?;
+    }
+    Ok(())
+}
+
+async fn turn(
+    session: &Session,
+    prompt: &str,
+    stoppable: bool,
+    recorder: &mut Recorder,
+    updates: &mut UnboundedReceiver<Value>,
+    commands: &mut UnboundedReceiver<Command>,
+    queue: &mut VecDeque<Item>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     loop {
         recorder.prompt(prompt).await?;
@@ -569,8 +732,13 @@ async fn turn(
                     result = &mut turn => break result,
                     Some(update) = updates.recv() => recorder.update(update).await?,
                     Some(command) = commands.recv() => match command {
-                        Command::Stop => session.cancel(),
-                        Command::Prompt(message) => queue.push_back(message),
+                        Command::Stop => {
+                            if stoppable {
+                                session.cancel();
+                            }
+                        }
+                        Command::Prompt(message) => queue.push_back(Item::Message(message)),
+                        Command::Event(event) => queue.push_back(Item::Event(event)),
                         // The session closes after the turn.
                         Command::Drain => {}
                     },
@@ -593,31 +761,37 @@ async fn turn(
 async fn first_prompt(
     engine: &Engine,
     dir: &Path,
-    first: &ChatMessage,
+    key: &ChatKey,
+    first: &Item,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let context = lead::context(engine, dir, &first.repository, first.workstream).await?;
+    let context = lead::context(engine, dir, &key.1, key.2).await?;
+    let (before, heading, text) = match first {
+        Item::Message(message) => (
+            message.id,
+            format!("{} message", message.author.name()),
+            &message.text,
+        ),
+        Item::Event(event) => (
+            event.chat_message.unwrap_or(i64::MAX),
+            "Event".to_string(),
+            &event.payload,
+        ),
+    };
     Ok(format!(
-        "{ROLE_PROMPT}\n{context}{}# {} message\n\n{}",
-        history(engine, first).await?,
-        first.author.name(),
-        first.text
+        "{ROLE_PROMPT}\n{context}{}# {heading}\n\n{text}",
+        history(engine, key, before).await?,
     ))
 }
 
 async fn history(
     engine: &Engine,
-    first: &ChatMessage,
+    (organization, repository, workstream): &ChatKey,
+    before: i64,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let messages = engine
         .store
         .chat_messages()
-        .before(
-            &first.organization,
-            &first.repository,
-            first.workstream,
-            first.id,
-            HISTORY_SIZE,
-        )
+        .before(organization, repository, *workstream, before, HISTORY_SIZE)
         .await?;
     let mut history = "# Chat history\n\n".to_string();
     for message in messages {
@@ -626,37 +800,15 @@ async fn history(
     Ok(history)
 }
 
-// The session already has each `tell_owner` message with an id up to `last`.
-async fn message_prompt(
-    engine: &Engine,
-    message: &ChatMessage,
-    last: &mut i64,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let told = engine
-        .store
-        .chat_messages()
-        .after(
-            &message.organization,
-            &message.repository,
-            message.workstream,
-            Author::TellOwner,
-            *last,
-        )
-        .await?;
-    let heading = format!("# {} message\n\n", message.author.name());
-    let Some(newest) = told.last() else {
-        return Ok(match message.author {
-            Author::Owner => message.text.clone(),
-            _ => format!("{heading}{}", message.text),
-        });
-    };
-    *last = newest.id;
-    let mut prompt = "# Event session messages\n\n".to_string();
-    for told in &told {
-        prompt.push_str(&block(told)?);
+fn message_prompt(message: &ChatMessage) -> String {
+    match message.author {
+        Author::Owner => message.text.clone(),
+        _ => format!("# {} message\n\n{}", message.author.name(), message.text),
     }
-    prompt.push_str(&format!("{heading}{}", message.text));
-    Ok(prompt)
+}
+
+fn event_prompt(event: &LeadEvent) -> String {
+    format!("# Event\n\n{}", event.payload)
 }
 
 fn block(message: &ChatMessage) -> Result<String, time::error::Format> {
