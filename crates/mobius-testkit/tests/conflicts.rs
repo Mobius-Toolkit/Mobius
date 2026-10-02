@@ -372,22 +372,19 @@ async fn a_stale_pull_request_behind_its_base_goes_to_a_human_with_the_behind_re
     github.commit_file(REPOSITORY, "price.txt", "dollars\n", "Add price");
 
     let stale = wait_for(async || {
-        let stale: Vec<_> = inbox::list(&engine)
+        inbox::list(&engine)
             .await
             .unwrap()
             .into_iter()
-            .filter(|item| item.kind == InboxKind::StalePullRequest)
-            .collect();
-        (!stale.is_empty()).then_some(stale)
+            .find(|item| item.kind == InboxKind::StalePullRequest)
     })
     .await;
-    wait_for(async || {
-        (task_state(&engine, 41).await.as_deref() == Some("needs_human")).then_some(())
-    })
-    .await;
-    assert_eq!(stale.len(), 1);
     assert_eq!(
-        stale[0].text,
+        task_state(&engine, 41).await.as_deref(),
+        Some("needs_human")
+    );
+    assert_eq!(
+        stale.text,
         "Pull request #42 of #41 \"Add plan model\" is behind its base branch and is older than 7days."
     );
     assert_eq!(sessions(&engine, "implementer").await.len(), 1);

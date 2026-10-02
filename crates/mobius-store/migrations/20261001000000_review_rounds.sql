@@ -1,0 +1,2 @@
+ALTER TABLE tasks ADD COLUMN review_rounds INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN review_comment INTEGER;

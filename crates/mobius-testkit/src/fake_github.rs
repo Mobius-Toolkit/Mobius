@@ -186,6 +186,10 @@ struct Records {
     repository_labels: BTreeMap<(String, String), RepositoryLabel>,
     // The (repository, name) of each label that got a PATCH request, in request order.
     label_patches: Vec<(String, String)>,
+    // The tag of the latest release. Without a tag, the repository has no release.
+    latest_release: Option<String>,
+    // The commit messages of each comparison, the oldest first.
+    compared_commit_messages: Vec<String>,
     clock: i64,
     not_modified: u32,
 }
@@ -499,6 +503,10 @@ impl FakeGitHub {
                 get(issue_comments).post(add_issue_comment),
             )
             .route(
+                "/repos/{owner}/{repo}/issues/comments/{id}",
+                patch(update_issue_comment),
+            )
+            .route(
                 "/repos/{owner}/{repo}/issues/{number}/labels",
                 post(add_labels),
             )
@@ -506,6 +514,8 @@ impl FakeGitHub {
                 "/repos/{owner}/{repo}/issues/{number}/labels/{name}",
                 delete(remove_label),
             )
+            .route("/repos/{owner}/{repo}/releases/latest", get(latest_release))
+            .route("/repos/{owner}/{repo}/compare/{range}", get(compare))
             .route("/repos/{owner}/{repo}/pulls", post(create_pull_request))
             .route(
                 "/repos/{owner}/{repo}/pulls/{number}",
@@ -725,6 +735,14 @@ impl FakeGitHub {
             .unwrap()
             .pull_request_created_at
             .insert((full_name.to_string(), number), seconds);
+    }
+
+    // The latest release has `tag`, and each comparison has the commits with `messages`, the oldest first.
+    pub fn set_release(&self, tag: &str, messages: &[&str]) {
+        let mut records = self.state.lock().unwrap();
+        records.latest_release = Some(tag.to_string());
+        records.compared_commit_messages =
+            messages.iter().map(|message| message.to_string()).collect();
     }
 
     // The pull request gives `mergeable_state` `behind` while its base is not an ancestor of its head.
@@ -1096,6 +1114,24 @@ fn not_found() -> Response {
         .into_response()
 }
 
+async fn latest_release(State(state): State<Shared>) -> Response {
+    match &state.lock().unwrap().latest_release {
+        Some(tag) => Json(json!({ "tag_name": tag, "assets": [] })).into_response(),
+        None => not_found(),
+    }
+}
+
+async fn compare(State(state): State<Shared>) -> Response {
+    let commits: Vec<Value> = state
+        .lock()
+        .unwrap()
+        .compared_commit_messages
+        .iter()
+        .map(|message| json!({ "commit": { "message": message } }))
+        .collect();
+    Json(json!({ "commits": commits })).into_response()
+}
+
 async fn account(State(state): State<Shared>, Path(name): Path<String>) -> Response {
     if APPS.iter().any(|app| name == format!("{}[bot]", app.slug)) {
         return Json(json!({ "login": name, "id": BOT_USER_ID, "type": "Bot" })).into_response();
@@ -1442,6 +1478,33 @@ async fn add_issue_comment(
     let bot = records.app_login(&repository);
     let comment = records.comment(&repository, number, &bot, &comment.body, None);
     (StatusCode::CREATED, Json(comment)).into_response()
+}
+
+async fn update_issue_comment(
+    State(state): State<Shared>,
+    Path((owner, repo, id)): Path<(String, String, i64)>,
+    Json(update): Json<NewComment>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    let now = records.tick();
+    let found = records
+        .issues
+        .iter_mut()
+        .filter(|((name, _), _)| *name == repository)
+        .find_map(|(_, issue)| {
+            let comment = issue
+                .comments
+                .iter_mut()
+                .find(|comment| comment["id"].as_i64() == Some(id))?;
+            comment["body"] = json!(update.body);
+            issue.updated_at = now;
+            Some(comment.clone())
+        });
+    match found {
+        Some(comment) => Json(comment).into_response(),
+        None => not_found(),
+    }
 }
 
 #[derive(Deserialize)]
