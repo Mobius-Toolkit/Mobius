@@ -155,7 +155,13 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
     };
     if task.review_rounds >= i64::from(engine.config.max_fix_rounds) {
         let repository = engine.repository(&job.repository)?;
-        return implementer::stop_at_limit(engine, &repository, &job.round(String::new())).await;
+        return implementer::stop_at_limit(
+            engine,
+            &repository,
+            &job.round(String::new()),
+            "review",
+        )
+        .await;
     }
     // The subscription comes before the first state change, so the session gets each stop of the task.
     let mut stops = engine.stops.subscribe();
@@ -220,7 +226,12 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
     };
     if let Some(reason) = reason {
         let repository = engine.repository(&job.repository)?;
-        abandon_round(engine, &repository, &task, &reason).await?;
+        if let Err(error) = abandon_round(engine, &repository, &task, &reason).await {
+            eprintln!(
+                "mobius: round comment of {}#{}: {error}",
+                job.repository, job.number
+            );
+        }
     }
     if let Ok("stopped") = result {
         let data_dir = &engine.config.data_dir;
@@ -345,7 +356,8 @@ async fn review(
             .await?;
         return Ok(());
     }
-    let at_limit = task.review_rounds + 1 >= max || task.fix_rounds >= max;
+    let review_limit = task.review_rounds + 1 >= max;
+    let at_limit = review_limit || task.fix_rounds >= max;
     let items = match at_limit {
         true => String::new(),
         false => {
@@ -360,7 +372,10 @@ async fn review(
     };
     end_round(engine, &repository, job, task, comment, &result, &open).await?;
     match at_limit {
-        true => implementer::stop_at_limit(engine, &repository, &job.round(items)).await,
+        true => {
+            let limit = if review_limit { "review" } else { "fix" };
+            implementer::stop_at_limit(engine, &repository, &job.round(items), limit).await
+        }
         false => implementer::fix_round(engine, &repository, job.round(items)).await,
     }
 }

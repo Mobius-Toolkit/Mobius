@@ -442,7 +442,7 @@ async fn a_finding_after_max_fix_rounds_stops_the_task_until_a_comment_of_a_trus
             .iter()
             .any(|prompt| {
                 prompt.contains(
-                    " stop of #41 \"Add plan model\": the pull request has open items after 2 fix rounds. Mobius set the Mobius check to failure and added mobius:needs-human.",
+                    " stop of #41 \"Add plan model\": the pull request has open items after 2 review rounds. Mobius set the Mobius check to failure and added mobius:needs-human.",
                 )
             })
             .then_some(())
@@ -731,7 +731,7 @@ async fn the_review_round_at_max_fix_rounds_shows_the_limit_and_starts_no_next_r
             .iter()
             .any(|prompt| {
                 prompt.contains(
-                    " stop of #41 \"Add plan model\": the pull request has open items after 7 fix rounds.",
+                    " stop of #41 \"Add plan model\": the pull request has open items after 7 review rounds.",
                 )
             })
             .then_some(())

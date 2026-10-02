@@ -131,7 +131,7 @@ pub(crate) async fn fix_round(
             .add_fix_round(round.task, engine.config.max_fix_rounds)
             .await?
     {
-        return stop_at_limit(engine, repository, &round).await;
+        return stop_at_limit(engine, repository, &round, "fix").await;
     }
     let brief = lead::brief(repository, round.workstream).await?;
     let issue = repository
@@ -289,12 +289,13 @@ pub(crate) async fn stop_at_limit(
     engine: &Engine,
     repository: &Repository,
     round: &Round,
+    limit: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let max = engine.config.max_fix_rounds;
     if !hand_to_human(engine, &round.repository, round.task, round.number).await? {
         return Ok(());
     }
-    let summary = format!("The pull request has open items after {max} fix rounds.");
+    let summary = format!("The pull request has open items after {max} {limit} rounds.");
     match round.check_run {
         Some(id) => repository.set_check_run_conclusion(id, "failure").await?,
         None => {
@@ -302,7 +303,7 @@ pub(crate) async fn stop_at_limit(
                 .create_failed_check_run(
                     CHECK_RUN,
                     &round.pull_request.head.sha,
-                    "Fix rounds",
+                    "Round limit",
                     &summary,
                 )
                 .await?
@@ -313,7 +314,7 @@ pub(crate) async fn stop_at_limit(
         round.number,
         &round.title,
         &format!(
-            "the pull request has open items after {max} fix rounds. Mobius set the Mobius check to failure and added mobius:needs-human."
+            "the pull request has open items after {max} {limit} rounds. Mobius set the Mobius check to failure and added mobius:needs-human."
         ),
     )?;
     lead_events::add(engine, &round.repository, round.workstream, "stop", &text).await
