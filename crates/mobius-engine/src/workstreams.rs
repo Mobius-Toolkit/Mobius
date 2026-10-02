@@ -23,7 +23,9 @@ pub async fn list(engine: &Engine) -> Result<Vec<Workstream>, Box<dyn Error + Se
                 repository: repository.full_name.clone(),
                 number: issue.number,
                 autopilot: issue_autopilot(engine, &repository, &issue).await?,
-                all_tasks_closed: all_tasks_closed(&repository, issue.number).await?,
+                all_tasks_closed: all_tasks_closed(&repository, issue.number)
+                    .await
+                    .unwrap_or(false),
                 title: issue.title,
                 body: issue.body.unwrap_or_default(),
             });

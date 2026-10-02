@@ -1,9 +1,10 @@
 use std::fs;
+use std::time::Duration;
 
 use mobius_domain::{Author, Session, TaskLine, TranscriptRow};
 use mobius_engine::{Engine, github, tasks, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
-use mobius_testkit::{install_fake_agent, start, wait_for};
+use mobius_testkit::{install_fake_agent, start_with, wait_for};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -28,7 +29,16 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub, prompts: &str) -> Engi
         FAKE_AGENT,
         &format!("{OPTIONS}\n{prompts}"),
     );
-    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let engine = start_with(
+        data_dir.path(),
+        "correct horse",
+        &github.url,
+        "",
+        |config| {
+            config.event_idle_timeout = Duration::from_secs(5);
+        },
+    )
+    .await;
     github::convert_manifest(&engine, "manifest-code")
         .await
         .unwrap();
