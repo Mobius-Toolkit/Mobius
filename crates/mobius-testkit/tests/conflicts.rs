@@ -358,3 +358,33 @@ async fn a_pull_request_behind_its_base_starts_one_conflict_round_that_merges_th
         .unwrap();
     assert_eq!(task.fix_rounds, 0);
 }
+
+#[tokio::test]
+async fn a_stale_pull_request_behind_its_base_goes_to_a_human_with_the_behind_reason() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, NO_FINDING, "").await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || (ready_for_review_events(&engine).await == 1).then_some(())).await;
+    github.set_created_at(REPOSITORY, 42, 0);
+    github.set_behind(REPOSITORY, 42);
+
+    github.commit_file(REPOSITORY, "price.txt", "dollars\n", "Add price");
+
+    wait_for(async || {
+        (task_state(&engine, 41).await.as_deref() == Some("needs_human")).then_some(())
+    })
+    .await;
+    let stale: Vec<_> = inbox::list(&engine)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|item| item.kind == InboxKind::StalePullRequest)
+        .collect();
+    assert_eq!(stale.len(), 1);
+    assert_eq!(
+        stale[0].text,
+        "Pull request #42 of #41 \"Add plan model\" is behind its base branch and is older than 7days."
+    );
+    assert_eq!(sessions(&engine, "implementer").await.len(), 1);
+}
