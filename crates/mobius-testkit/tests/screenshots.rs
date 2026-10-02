@@ -48,21 +48,22 @@ call = { tool = "tell_owner", arguments = { text = "#42 needs a decision: one pl
 when = "Start a Workstream for gift cards."
 reply = ["Title: Gift cards\n\nBrief: Sell gift cards in the shop."]
 
+# The prompt of a new Triager session holds the earlier Owner messages, and the first rule that matches wins. The later message comes first.
 [[prompts]]
-when = "Create the desktop Workstream."
-call = { tool = "create_workstream", arguments = { title = "Desktop plans", brief = "Plans for the desktop." } }
-
-[[prompts]]
-when = "Move #7 to the Workstream."
-call = { tool = "move_issue", arguments = { n = 7, workstream = 12 } }
+when = "Move #8 to the Workstream."
+call = { tool = "move_issue", arguments = { n = 8, workstream = 12 } }
 
 [[prompts]]
 when = "Create the phone Workstream."
 call = { tool = "create_workstream", arguments = { title = "Phone plans", brief = "Plans for the phone." } }
 
 [[prompts]]
-when = "Move #8 to the Workstream."
-call = { tool = "move_issue", arguments = { n = 8, workstream = 12 } }
+when = "Move #7 to the Workstream."
+call = { tool = "move_issue", arguments = { n = 7, workstream = 12 } }
+
+[[prompts]]
+when = "Create the desktop Workstream."
+call = { tool = "create_workstream", arguments = { title = "Desktop plans", brief = "Plans for the desktop." } }
 
 [[prompts]]
 when = "Which roses sell best?"
