@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, payload, issue, chat_message FROM lead_events AS event\n               WHERE repository = ? AND workstream = ? AND delivered_at IS NULL AND held = 0\n               AND NOT EXISTS (\n                   SELECT 1 FROM lead_events AS earlier\n                   WHERE earlier.repository = event.repository\n                   AND earlier.workstream = event.workstream\n                   AND earlier.issue = event.issue\n                   AND earlier.id < event.id\n                   AND earlier.delivered_at IS NULL AND earlier.held = 1\n               )\n               ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "lead_events",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "payload",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "lead_events",
+            "name": "payload"
+          }
+        }
+      },
+      {
+        "name": "issue",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "lead_events",
+            "name": "issue"
+          }
+        }
+      },
+      {
+        "name": "chat_message",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "lead_events",
+            "name": "chat_message"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "b77df330c9070342051ca55abf46bff3fc39a5431fe05e939367ae6f72bd51ca"
+}

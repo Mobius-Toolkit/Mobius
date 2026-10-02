@@ -76,5 +76,13 @@ async fn stale(
         task.issue,
         pull_request.html_url
     );
-    lead_events::add(engine, name, task.workstream, "stale_pull_request", &text).await
+    lead_events::add(
+        engine,
+        name,
+        task.workstream,
+        Some(task.issue),
+        "stale_pull_request",
+        &text,
+    )
+    .await
 }

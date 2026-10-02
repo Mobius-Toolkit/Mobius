@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use mobius_domain::{AgentNode, Harness, Live, TranscriptLine, agent_rows};
+use mobius_domain::{AgentNode, Harness, Live, TranscriptLine, agent_rows, shown_agents};
 use mobius_engine::{Engine, activity, agents, chat, github, transcript, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
 use mobius_testkit::{install_fake_agent, install_fake_harness, start, wait_for};
@@ -344,4 +344,96 @@ shell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan
     assert_eq!(lead.session.role, "lead_chat");
     assert_eq!(parent.session.parent, Some(lead.session.id));
     assert_eq!(lead.session.parent, None);
+}
+
+#[tokio::test]
+async fn the_list_hides_a_stopped_agent_unless_an_agent_below_it_is_active_or_the_toggle_is_on() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 41, "Add plan model");
+    github.add_sub_issue(REPOSITORY, 12, 41);
+    github.set_check(REPOSITORY, "grep -q cents plan.txt");
+    let lead = r#"
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
+
+[[prompts]]
+when = "You are the Reviewer"
+hang = true
+"#;
+    let implementer = r#"
+[options]
+model = ["swe-1.5"]
+thought_level = ["high"]
+
+[[prompts]]
+shell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'"
+"#;
+    install_fake_harness(
+        data_dir.path(),
+        FAKE_AGENT,
+        "claude-agent-acp",
+        &format!("{OPTIONS}\n{lead}"),
+    );
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "devin", implementer);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    wait_for(async || (!workstreams::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    let reviewer = wait_for(async || {
+        tree(&engine)
+            .await
+            .into_iter()
+            .find(|node| node.session.role == "reviewer")
+    })
+    .await;
+    let implementer = wait_for(async || {
+        tree(&engine)
+            .await
+            .into_iter()
+            .find(|node| node.session.id == reviewer.session.parent.unwrap())
+            .filter(|node| node.session.ended_at.is_some())
+    })
+    .await;
+    let shown = async |show_stopped: bool| -> Vec<(usize, i64, bool)> {
+        agent_rows(shown_agents(tree(&engine).await, show_stopped))
+            .into_iter()
+            .map(|(depth, node)| (depth, node.session.id, node.session.ended_at.is_some()))
+            .collect()
+    };
+    let lead = implementer.session.parent.unwrap();
+    let (lead, implementer, reviewer) = (lead, implementer.session.id, reviewer.session.id);
+
+    wait_for(async || {
+        let ended = tree(&engine)
+            .await
+            .iter()
+            .any(|node| node.session.id == lead && node.session.ended_at.is_some());
+        ended.then_some(())
+    })
+    .await;
+    let three_levels = [
+        (0, lead, true),
+        (1, implementer, true),
+        (2, reviewer, false),
+    ];
+    assert_eq!(shown(false).await, three_levels);
+    assert_eq!(shown(true).await, three_levels);
+
+    engine.store.sessions().end(reviewer, "done").await.unwrap();
+
+    assert_eq!(shown(false).await, []);
+    assert_eq!(
+        shown(true).await,
+        [(0, lead, true), (1, implementer, true), (2, reviewer, true)]
+    );
 }

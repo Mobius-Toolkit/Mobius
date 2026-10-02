@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE lead_events SET held = 1 WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "05ed73ba3a9874a51b8384fdba398eac73cbf273a95934cd47a99850a6bb94e9"
+}

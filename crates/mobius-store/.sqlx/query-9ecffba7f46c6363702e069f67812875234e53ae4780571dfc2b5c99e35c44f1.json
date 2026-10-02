@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, payload, chat_message FROM lead_events\n               WHERE repository = ? AND workstream = ? AND delivered_at IS NULL\n               ORDER BY id",
+  "query": "SELECT id, payload, issue, chat_message FROM lead_events\n               WHERE repository = ? AND workstream = ? AND delivered_at IS NULL\n               ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -26,8 +26,19 @@
         }
       },
       {
-        "name": "chat_message",
+        "name": "issue",
         "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "lead_events",
+            "name": "issue"
+          }
+        }
+      },
+      {
+        "name": "chat_message",
+        "ordinal": 3,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -43,8 +54,9 @@
     "nullable": [
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "3efe6a2d6b25215df030155259fc8d1833f087cd43723cbe422e42b24be43ee8"
+  "hash": "9ecffba7f46c6363702e069f67812875234e53ae4780571dfc2b5c99e35c44f1"
 }
