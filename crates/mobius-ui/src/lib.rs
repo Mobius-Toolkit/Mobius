@@ -236,6 +236,15 @@ fn is_ime_key(event: &KeyboardEvent) -> bool {
         .is_some_and(|event| event.key_code() == 229)
 }
 
+fn fold_event(author: &Author, text: &str) -> Option<(String, String)> {
+    if *author != Author::Event {
+        return None;
+    }
+    let (summary, body) = text.split_once('\n')?;
+    let body = body.trim_start_matches('\n');
+    (!body.is_empty()).then(|| (summary.to_string(), body.to_string()))
+}
+
 fn error_text(error: &ServerFnError) -> String {
     match error {
         ServerFnError::ServerError { message, .. } => message.clone(),
@@ -1680,7 +1689,14 @@ fn Conversation(
                                     {message.time.to_offset(local_offset()).format(format_description!("[hour]:[minute]")).unwrap_or_default()}
                                 }
                             }
-                            Markdown { text: message.text }
+                            if let Some((summary, body)) = fold_event(&message.author, &message.text) {
+                                details {
+                                    summary { "{summary}" }
+                                    Markdown { text: body }
+                                }
+                            } else {
+                                Markdown { text: message.text }
+                            }
                         }
                     }
                     if lead_state.writing {

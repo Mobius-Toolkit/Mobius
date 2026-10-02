@@ -576,6 +576,11 @@ button.chip.on {
   font-size: 12.5px;
 }
 
+.msg.event summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
 .msg .meta {
   display: flex;
   gap: 6px;
