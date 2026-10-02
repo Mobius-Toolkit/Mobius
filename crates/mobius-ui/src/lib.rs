@@ -203,8 +203,6 @@ struct LiveState {
     unread_read: Signal<bool>,
     agents: Signal<HashMap<i64, AgentNode>>,
     inbox: Signal<HashMap<i64, InboxItem>>,
-    // The Workstream that the Triager chat created last.
-    created: Signal<Option<(String, i64)>>,
     // The number of agents the upgrade drain waits for. `None` means no drain.
     drain: Signal<Option<usize>>,
     // The error of the last upgrade. An empty text means no error.
@@ -340,10 +338,8 @@ async fn follow_live(
                         Live::Inbox(item) => {
                             state.inbox.write().insert(item.id, item);
                         }
-                        Live::Workstreams => workstream_list.restart(),
-                        Live::WorkstreamCreated { repository, number } => {
+                        Live::Workstreams | Live::WorkstreamCreated { .. } => {
                             workstream_list.restart();
-                            state.created.set(Some((repository, number)));
                         }
                         Live::Drain { waiting } => state.drain.set(waiting),
                         Live::UpgradeError(error) => {
@@ -402,7 +398,6 @@ fn Frame() -> Element {
         unread_read: Signal::new(false),
         agents: Signal::new(HashMap::new()),
         inbox: Signal::new(HashMap::new()),
-        created: Signal::new(None),
         drain: Signal::new(None),
         upgrade_error: Signal::new(String::new()),
     });
@@ -866,24 +861,8 @@ fn Checkup() -> Element {
 
 #[component]
 fn NewWorkstream() -> Element {
-    let state: LiveState = use_context();
     let Organizations(organization_list) = use_context();
     let Organization(organization) = use_context();
-    let mut created = state.created;
-    let navigator = use_navigator();
-    // An earlier Workstream of the Triager chat does not open a chat.
-    use_hook(|| created.set(None));
-    use_effect(move || {
-        if let Some((repository, number)) = created() {
-            created.set(None);
-            let (owner, repo) = repository.split_once('/').unwrap_or_default();
-            navigator.push(Route::Chat {
-                owner: owner.to_string(),
-                repo: repo.to_string(),
-                number,
-            });
-        }
-    });
     if !matches!(&*organization_list.read(), Some(Ok(list)) if list.contains(&organization())) {
         return rsx! {
             div { class: "head", h2 { "New Workstream" } }

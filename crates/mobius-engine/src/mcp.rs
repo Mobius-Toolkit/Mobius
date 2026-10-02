@@ -689,7 +689,6 @@ impl Handler {
                     return Err("title and brief must not be empty.".into());
                 }
                 let number = triager::create_workstream(&repository, &title, &brief).await?;
-                // `WorkstreamCreated` moves an open Triager screen to the new chat, so the Lead chat gets `Workstreams`.
                 self.engine.broadcast(if self.caller.role == chat::ROLE {
                     Live::Workstreams
                 } else {
