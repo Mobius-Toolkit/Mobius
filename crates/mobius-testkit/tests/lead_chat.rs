@@ -797,6 +797,37 @@ async fn the_lead_gets_an_event_from_github_and_the_next_owner_question_in_the_s
 }
 
 #[tokio::test]
+async fn the_reply_text_of_an_event_turn_goes_only_to_the_transcript() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let script = format!(
+        "{OPTIONS}\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"The Owner dispatched #41.\"]\n"
+    );
+    let engine = connect_with(&data_dir, &github, &script, keep_session_open).await;
+
+    dispatch_task(&github, 41, "Add plan model");
+    wait_for(async || event_delivered(&engine).await.then_some(())).await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "What happened with #41?")
+        .await
+        .unwrap();
+
+    wait_for_lead_text(&engine, "The Owner dispatched #41.").await;
+    let lead_texts: Vec<String> = messages(&engine)
+        .await
+        .into_iter()
+        .filter(|message| message.author == Author::Lead)
+        .map(|message| message.text)
+        .collect();
+    assert_eq!(lead_texts, ["The Owner dispatched #41."]);
+    let session = sessions(&engine).await.remove(0);
+    let chunks = session_updates(
+        &transcript(&engine, session.id).await,
+        "agent_message_chunk",
+    );
+    assert_eq!(chunks[0]["content"]["text"], "Noted.");
+}
+
+#[tokio::test]
 async fn an_event_during_a_turn_for_an_owner_message_gets_its_own_turn_after_that_turn() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
