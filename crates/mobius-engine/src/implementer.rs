@@ -605,14 +605,7 @@ async fn implement(
         }
     };
     while let Ok(reply) = held.try_recv() {
-        threads::reply(
-            &repository,
-            pull_request.number,
-            &reply.target,
-            &reply.text,
-            reply.resolve,
-        )
-        .await?;
+        threads::reply(&repository, pull_request.number, &reply.target, &reply.text).await?;
     }
     if log.is_none() && !merged {
         repository

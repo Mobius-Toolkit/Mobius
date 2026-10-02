@@ -18,12 +18,7 @@ mode = ["default", "bypassPermissions"]
 
 [[prompts]]
 when = "You are the Judge"
-call = { tool = "submit_verdicts", arguments = { items = [
-    { item = 2, actions = [{ verdict = "fix", text = "Rename the field." }] },
-    { item = 3, actions = [{ verdict = "question", text = "Explain why the plan stores cents." }] },
-    { item = 4, actions = [{ verdict = "follow-up", text = "Move the parser to its own crate." }] },
-    { item = 5, actions = [{ verdict = "reject", text = "The API needs this name." }] },
-] } }
+{verdicts}
 
 [[prompts]]
 when = "You are the Reviewer"
@@ -37,6 +32,12 @@ call = { tool = "reply_thread", arguments = { thread = 4, text = "Follow-up: #99
 when = "dispatch of #41"
 call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
 "#;
+const VERDICTS: &str = r#"call = { tool = "submit_verdicts", arguments = { items = [
+    { item = 2, actions = [{ verdict = "fix", text = "Rename the field." }] },
+    { item = 3, actions = [{ verdict = "question", text = "Explain why the plan stores cents." }] },
+    { item = 4, actions = [{ verdict = "follow-up", text = "Move the parser to its own crate." }] },
+    { item = 5, actions = [{ verdict = "reject", text = "The API needs this name." }] },
+] } }"#;
 const IMPLEMENTER: &str = r#"
 [options]
 model = ["swe-1.5"]
@@ -45,13 +46,18 @@ thought_level = ["high"]
 [[prompts]]
 when = "Action: fix: Rename the field."
 shell = "echo 'price_cents' > plan.txt && git commit -q -am 'Rename the field' && git rev-parse HEAD"
-call = { tool = "reply_thread", arguments = { thread = 2, text = "Fixed in {shell}.", resolve = true } }
+call = { tool = "reply_thread", arguments = { thread = 2, text = "Fixed in {shell}." } }
 
 [[prompts]]
 shell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'"
 "#;
 
-async fn connect(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
+async fn connect(
+    data_dir: &TempDir,
+    github: &FakeGitHub,
+    verdicts: &str,
+    implementer: &str,
+) -> Engine {
     github.add_manifest_code("manifest-code");
     github.add_repository(REPOSITORY);
     github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
@@ -59,8 +65,13 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
     github.add_issue(REPOSITORY, 41, "Add plan model");
     github.add_sub_issue(REPOSITORY, 12, 41);
     github.set_body(REPOSITORY, 41, "Plans have a price.");
-    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
-    install_fake_harness(data_dir.path(), FAKE_AGENT, "devin", IMPLEMENTER);
+    install_fake_harness(
+        data_dir.path(),
+        FAKE_AGENT,
+        "claude-agent-acp",
+        &CLAUDE.replace("{verdicts}", verdicts),
+    );
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "devin", implementer);
     let engine = start_with_config(
         data_dir.path(),
         "correct horse",
@@ -111,11 +122,19 @@ async fn reply(github: &FakeGitHub, thread: i64) -> Thread {
     .await
 }
 
+async fn resolved(github: &FakeGitHub, thread: i64) -> Thread {
+    wait_for(async || {
+        let found = github.review_thread(REPOSITORY, 42, thread);
+        found.resolved.then_some(found)
+    })
+    .await
+}
+
 #[tokio::test]
 async fn the_judge_routes_one_item_of_each_verdict() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
-    let engine = connect(&data_dir, &github).await;
+    let engine = connect(&data_dir, &github, VERDICTS, IMPLEMENTER).await;
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
     wait_for(async || (!inbox::list(&engine).await.unwrap().is_empty()).then_some(())).await;
 
@@ -130,7 +149,7 @@ async fn the_judge_routes_one_item_of_each_verdict() {
         rejected.comments[1],
         (APP.to_string(), "The API needs this name.".to_string())
     );
-    assert!(!rejected.resolved);
+    resolved(&github, reject).await;
     let judge = prompts(&engine, "judge").await;
     assert_eq!(judge.len(), 1, "{judge:?}");
     let parts = [
@@ -150,15 +169,11 @@ async fn the_judge_routes_one_item_of_each_verdict() {
         followed.comments[1],
         (APP.to_string(), "Follow-up: #99.".to_string())
     );
+    resolved(&github, follow_up).await;
     assert!(prompts(&engine, "lead_chat").await.iter().any(|prompt| prompt.contains(
         " follow-up on pull request #42 of #41 \"Add plan model\", item 4:\n\n> Move the parser to its own crate.\n"
     )));
-    // Mobius resolves the thread after its reply.
-    let fixed = wait_for(async || {
-        let found = github.review_thread(REPOSITORY, 42, fix);
-        found.resolved.then_some(found)
-    })
-    .await;
+    let fixed = resolved(&github, fix).await;
     let head = git(&github.remote(REPOSITORY), &["rev-parse", "mobius/41"]);
     assert_eq!(
         fixed,
@@ -190,4 +205,102 @@ async fn the_judge_routes_one_item_of_each_verdict() {
         .unwrap()
         .unwrap();
     assert_eq!(task.fix_rounds, 1);
+}
+
+#[tokio::test]
+async fn an_implementer_reply_with_an_answer_and_no_commit_resolves_the_thread() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        r#"call = { tool = "submit_verdicts", arguments = { items = [
+    { item = 2, actions = [{ verdict = "question", text = "Explain why the plan stores cents." }] },
+] } }"#,
+        &IMPLEMENTER.replace(
+            "Action: fix: Rename the field.\"\nshell = \"echo 'price_cents' > plan.txt && git commit -q -am 'Rename the field' && git rev-parse HEAD\"\ncall = { tool = \"reply_thread\", arguments = { thread = 2, text = \"Fixed in {shell}.\" } }",
+            "Action: question: Explain why the plan stores cents.\"\ncall = { tool = \"reply_thread\", arguments = { thread = 2, text = \"Cents avoid rounding.\" } }",
+        ),
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || (!inbox::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+
+    let question = github.add_review_comment(REPOSITORY, 42, None, "owner", "Why cents?");
+
+    let answered = resolved(&github, question).await;
+    assert_eq!(
+        answered,
+        Thread {
+            resolved: true,
+            comments: vec![
+                ("owner".to_string(), "Why cents?".to_string()),
+                (APP.to_string(), "Cents avoid rounding.".to_string()),
+            ],
+        }
+    );
+}
+
+#[tokio::test]
+async fn an_implementer_reply_to_a_conversation_comment_resolves_nothing() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        r#"call = { tool = "submit_verdicts", arguments = { items = [
+    { item = 2, actions = [{ verdict = "question", text = "Explain why the plan stores cents." }] },
+] } }"#,
+        &IMPLEMENTER.replace(
+            "Action: fix: Rename the field.\"\nshell = \"echo 'price_cents' > plan.txt && git commit -q -am 'Rename the field' && git rev-parse HEAD\"\ncall = { tool = \"reply_thread\", arguments = { thread = 2, text = \"Fixed in {shell}.\" } }",
+            "Action: question: Explain why the plan stores cents.\"\ncall = { tool = \"reply_thread\", arguments = { thread = 2, text = \"Cents avoid rounding.\" } }",
+        ),
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || (!inbox::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+
+    let question = github.add_comment(REPOSITORY, 42, "owner", "Why cents?");
+
+    assert_eq!(question, 2);
+    let answer = (
+        APP.to_string(),
+        "> Why cents?\n\nCents avoid rounding.".to_string(),
+    );
+    wait_for(async || {
+        github
+            .comments(REPOSITORY, 42)
+            .contains(&answer)
+            .then_some(())
+    })
+    .await;
+    assert!(!github.review_thread(REPOSITORY, 42, question).resolved);
+}
+
+#[tokio::test]
+async fn a_comment_in_an_unresolved_thread_makes_the_judge_run_again() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        r#"call = { tool = "submit_verdicts", arguments = { items = [
+    { item = 2, actions = [{ verdict = "reject", text = "The API needs this name." }] },
+] } }"#,
+        IMPLEMENTER,
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || (!inbox::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+
+    let thread = github.add_review_comment(REPOSITORY, 42, None, BOT, "Rename plan to tier.");
+    resolved(&github, thread).await;
+    assert_eq!(prompts(&engine, "judge").await.len(), 1);
+
+    github.unresolve_review_thread(thread);
+    github.add_review_comment(REPOSITORY, 42, Some(thread), "owner", "Rename it anyway.");
+
+    wait_for(async || (prompts(&engine, "judge").await.len() == 2).then_some(())).await;
+    let judge = prompts(&engine, "judge").await;
+    assert!(judge[1].contains("Rename it anyway."), "{}", judge[1]);
 }

@@ -979,6 +979,11 @@ impl FakeGitHub {
         )
     }
 
+    // Marks the review thread that starts with the comment `root` as unresolved.
+    pub fn unresolve_review_thread(&self, root: i64) {
+        self.state.lock().unwrap().resolved_threads.remove(&root);
+    }
+
     // Gives the review thread that starts with the comment `root`.
     pub fn review_thread(&self, repository: &str, number: i64, root: i64) -> Thread {
         let records = self.state.lock().unwrap();

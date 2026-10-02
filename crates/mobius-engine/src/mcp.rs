@@ -68,7 +68,6 @@ pub(crate) struct Fix {
 pub(crate) struct Reply {
     pub(crate) target: Target,
     pub(crate) text: String,
-    pub(crate) resolve: bool,
 }
 
 // The key is valid until `close`.
@@ -333,7 +332,7 @@ fn tools(role: &str) -> Vec<Tool> {
             ),
             tool(
                 "reply_thread",
-                "Reply in a review thread of the pull request in a fix round. Mobius posts the reply after it pushes your commits, so the SHA of a fix commit in the text links to a pushed commit.",
+                "Reply in a review thread of the pull request in a fix round. Mobius posts the reply after it pushes your commits, so the SHA of a fix commit in the text links to a pushed commit. Mobius resolves the thread after the reply.",
                 object(json!({
                     "thread": {
                         "type": "integer",
@@ -344,10 +343,6 @@ fn tools(role: &str) -> Vec<Tool> {
                         "type": "string",
                         "minLength": 1,
                         "description": "The SHA of the fix commit, an answer, a follow-up link, or a reason to reject. Do not write an acknowledgement."
-                    },
-                    "resolve": {
-                        "type": "boolean",
-                        "description": "true when your commit fixes the thread."
                     }
                 })),
             ),
@@ -535,7 +530,6 @@ struct CannotDo {
 struct ReplyThread {
     thread: i64,
     text: String,
-    resolve: bool,
 }
 
 #[derive(Deserialize)]
@@ -768,7 +762,7 @@ impl Handler {
                     };
                     if let Some(target) = threads::target(&repository, pull_request, thread).await?
                     {
-                        threads::reply(&repository, pull_request, &target, &text, false).await?;
+                        threads::reply(&repository, pull_request, &target, &text).await?;
                         return Ok(format!("Replied to {thread}."));
                     }
                 }
@@ -778,11 +772,7 @@ impl Handler {
                 .into())
             }
             "reply_thread" => {
-                let ReplyThread {
-                    thread,
-                    text,
-                    resolve,
-                } = parse(tool, arguments)?;
+                let ReplyThread { thread, text } = parse(tool, arguments)?;
                 if text.trim().is_empty() {
                     return Err("text must not be empty.".into());
                 }
@@ -799,11 +789,7 @@ impl Handler {
                             fix.pull_request
                         )
                     })?;
-                fix.replies.send(Reply {
-                    target,
-                    text,
-                    resolve,
-                })?;
+                fix.replies.send(Reply { target, text })?;
                 Ok("Mobius posts the reply after it pushes your commits.".to_string())
             }
             "submit_verdicts" => {
