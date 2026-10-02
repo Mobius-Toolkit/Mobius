@@ -6,9 +6,13 @@ use std::time::Duration;
 use chromiumoxide::cdp::browser_protocol::emulation::{
     SetDeviceMetricsOverrideParams, SetTouchEmulationEnabledParams,
 };
-use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, DispatchKeyEventType};
+use chromiumoxide::cdp::browser_protocol::input::{
+    DispatchKeyEventParams, DispatchKeyEventType, DispatchTouchEventParams,
+    DispatchTouchEventReturns, DispatchTouchEventType, TouchPoint,
+};
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::page::ScreenshotParams;
+use chromiumoxide::types::{Command, Method, MethodId};
 use chromiumoxide::{Browser, BrowserConfig, Page};
 use dioxus::server::axum::Extension;
 use dioxus::server::axum::http::header::CONTENT_TYPE;
@@ -497,8 +501,54 @@ async fn tap_send(page: &Page, taps: usize) {
     .unwrap();
 }
 
+// `DispatchTouchEventParams` leaves out the empty `touchPoints` list, and Chrome requires it on `touchEnd`.
+#[derive(serde::Serialize)]
+struct TouchEnd {
+    r#type: &'static str,
+    #[serde(rename = "touchPoints")]
+    touch_points: [TouchPoint; 0],
+}
+
+impl Method for TouchEnd {
+    fn identifier(&self) -> MethodId {
+        "Input.dispatchTouchEvent".into()
+    }
+}
+
+impl Command for TouchEnd {
+    type Response = DispatchTouchEventReturns;
+}
+
+async fn touch_send(page: &Page) {
+    let center: Vec<f64> = page
+        .evaluate(
+            "(() => { const box = document.querySelector('.composer button[type=submit]').getBoundingClientRect();\
+             return [box.left + box.width / 2, box.top + box.height / 2]; })()",
+        )
+        .await
+        .unwrap()
+        .into_value()
+        .unwrap();
+    page.execute(DispatchTouchEventParams::new(
+        DispatchTouchEventType::TouchStart,
+        vec![TouchPoint::new(center[0], center[1])],
+    ))
+    .await
+    .unwrap();
+    page.execute(TouchEnd {
+        r#type: "touchEnd",
+        touch_points: [],
+    })
+    .await
+    .unwrap();
+}
+
 fn send_enabled() -> String {
     "!document.querySelector('.composer button[type=submit]').disabled".to_string()
+}
+
+fn input_is_focused() -> String {
+    "document.activeElement === document.querySelector('.composer textarea')".to_string()
 }
 
 fn input_is(value: &str) -> String {
@@ -548,6 +598,7 @@ async fn send_taps_once_and_the_buttons_are_easy_to_tap_on_the_phone() {
     tap_send(&page, 2).await;
     wait_for(async || owner_sent(&engine, "double").await.then_some(())).await;
     input.type_str("after").await.unwrap();
+    wait_for(async || check(&page, send_enabled()).await.then_some(())).await;
     tap_send(&page, 1).await;
     wait_for(async || owner_sent(&engine, "after").await.then_some(())).await;
     let view = chat::view(&engine, "owner", REPOSITORY, 12).await.unwrap();
@@ -596,6 +647,61 @@ async fn send_taps_once_and_the_buttons_are_easy_to_tap_on_the_phone() {
     input.type_str("!").await.unwrap();
     wait_for(async || check(&page, input_is("lost!")).await.then_some(())).await;
     assert!(!owner_sent(&engine, "lost").await);
+    page.close().await.unwrap();
+    browser.close().await.unwrap();
+}
+
+// The tap on Send does not move the focus away from the chat input, so the layout stays and the tap sends.
+#[tokio::test]
+#[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
+async fn one_tap_on_send_sends_while_the_chat_input_has_the_focus_on_the_phone() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let url = serve_ui(&engine).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 1).then_some(())).await;
+    let (mut browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .no_sandbox()
+            .arg("--hide-scrollbars")
+            .launch_timeout(Duration::from_secs(60))
+            .user_data_dir(data_dir.path().join("chrome"))
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
+    log_in(&browser, &format!("{url}/github")).await;
+    let page = open(&browser, &format!("{url}/workstreams/owner/shop/12"), PHONE).await;
+    wait_until_live(&page).await;
+    let input = page.find_element(".composer textarea").await.unwrap();
+    input
+        .click()
+        .await
+        .unwrap()
+        .type_str("one tap")
+        .await
+        .unwrap();
+    assert!(check(&page, input_is_focused()).await);
+    touch_send(&page).await;
+    wait_for(async || owner_sent(&engine, "one tap").await.then_some(())).await;
+    let view = chat::view(&engine, "owner", REPOSITORY, 12).await.unwrap();
+    let sent = view
+        .messages
+        .iter()
+        .filter(|message| message.author == Author::Owner)
+        .count();
+    assert_eq!(sent, 1);
+    assert!(check(&page, input_is_focused()).await);
     page.close().await.unwrap();
     browser.close().await.unwrap();
 }

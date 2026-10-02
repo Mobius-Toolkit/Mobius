@@ -1630,6 +1630,7 @@ fn Conversation(
                         button {
                             class: "btn danger",
                             r#type: "button",
+                            onmousedown: move |event| event.prevent_default(),
                             onclick: move |_| {
                                 let (organization, repository) = stop_key.clone();
                                 async move {
@@ -1692,6 +1693,7 @@ fn Conversation(
                         class: "btn primary",
                         r#type: "submit",
                         disabled: sending(),
+                        onmousedown: move |event| event.prevent_default(),
                         "Send"
                     }
                 }
