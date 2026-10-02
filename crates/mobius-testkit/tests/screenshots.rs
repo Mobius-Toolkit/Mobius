@@ -30,6 +30,7 @@ const REPOSITORY: &str = "owner/shop";
 // The organization `plants` has the second App. The switcher selects `owner` first, because `owner` comes first in the sorted list.
 const GARDEN: &str = "plants/garden";
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_fake-agent");
+// The prompt of a Lead holds the earlier events, so the rule of the newest dispatch comes first.
 const CLAUDE: &str = r##"
 [options]
 model = ["sonnet", "opus", "haiku"]
@@ -37,12 +38,12 @@ thought_level = ["low", "medium", "high"]
 mode = ["default", "bypassPermissions"]
 
 [[prompts]]
-when = "dispatch of #41"
-call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store the price in cents." } }
-
-[[prompts]]
 when = "dispatch of #42"
 call = { tool = "tell_owner", arguments = { text = "#42 needs a decision: one plan for each customer, or many?" } }
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store the price in cents." } }
 
 [[prompts]]
 when = "Start a Workstream for gift cards."

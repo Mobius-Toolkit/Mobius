@@ -26,10 +26,12 @@ pub(crate) struct Job {
     pub(crate) pull_request: PullRequest,
     pub(crate) head: String,
     pub(crate) check_run: i64,
+    // The session of the Implementer that pushed the head.
+    pub(crate) parent: Option<i64>,
 }
 
 impl Job {
-    fn round(&self, items: String) -> implementer::Round {
+    fn round(&self, items: String, parent: Option<i64>) -> implementer::Round {
         implementer::Round {
             repository: self.repository.clone(),
             workstream: self.workstream,
@@ -41,6 +43,7 @@ impl Job {
             check_run: Some(self.check_run),
             counts: true,
             items,
+            parent,
         }
     }
 }
@@ -105,6 +108,14 @@ pub(crate) async fn restart(
             pull_request,
             head,
             check_run,
+            parent: lead::restart_parent(
+                engine,
+                &repository.full_name,
+                task.workstream,
+                task.issue,
+                ROLE,
+            )
+            .await?,
         },
     ));
     Ok(())
@@ -161,8 +172,13 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
     };
     if task.review_rounds >= i64::from(engine.config.max_fix_rounds) {
         let repository = engine.repository(&job.repository)?;
-        implementer::stop_at_limit(engine, &repository, &job.round(String::new()), "review")
-            .await?;
+        implementer::stop_at_limit(
+            engine,
+            &repository,
+            &job.round(String::new(), job.parent),
+            "review",
+        )
+        .await?;
         let max = engine.config.max_fix_rounds;
         repository
             .add_comment(
@@ -184,7 +200,10 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         organization(&job.repository),
         &job.repository,
         job.workstream,
-        Some(job.number),
+        lead::Links {
+            issue: Some(job.number),
+            parent: job.parent,
+        },
     )
     .await?;
     let mut recorder = Recorder::new(
@@ -407,9 +426,17 @@ async fn review(
     match at_limit {
         true => {
             let limit = if review_limit { "review" } else { "fix" };
-            implementer::stop_at_limit(engine, &repository, &job.round(items), limit).await
+            implementer::stop_at_limit(
+                engine,
+                &repository,
+                &job.round(items, Some(session_id)),
+                limit,
+            )
+            .await
         }
-        false => implementer::fix_round(engine, &repository, job.round(items)).await,
+        false => {
+            implementer::fix_round(engine, &repository, job.round(items, Some(session_id))).await
+        }
     }
 }
 

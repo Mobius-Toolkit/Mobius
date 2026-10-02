@@ -9,7 +9,7 @@ use time::{Duration, OffsetDateTime};
 
 const REPOSITORY: &str = "owner/shop";
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_fake-agent");
-// The first rule that matches wins. The prompt of a new Lead session has the earlier events, so a rule of a later issue comes first.
+// The prompt of a Lead holds the earlier events, so the rule of the newest dispatch comes first.
 const CLAUDE: &str = r#"
 [options]
 model = ["sonnet", "opus"]

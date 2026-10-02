@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, role, harness, model, organization, repository, workstream, acp_session_id,\n                      started_at AS \"started_at: OffsetDateTime\",\n                      ended_at AS \"ended_at: OffsetDateTime\", end_reason, queue_reason, issue\n               FROM sessions WHERE organization = ? AND repository = ? AND workstream = ? ORDER BY id",
+  "query": "SELECT id, role, harness, model, organization, repository, workstream, acp_session_id,\n                      started_at AS \"started_at: OffsetDateTime\",\n                      ended_at AS \"ended_at: OffsetDateTime\", end_reason, queue_reason, issue, parent\n               FROM sessions WHERE organization = ? AND repository = ? AND workstream = ? ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -145,6 +145,17 @@
             "name": "issue"
           }
         }
+      },
+      {
+        "name": "parent",
+        "ordinal": 13,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "sessions",
+            "name": "parent"
+          }
+        }
       }
     ],
     "parameters": {
@@ -163,8 +174,9 @@
       true,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "1cd08bf9e1acb965e368fabac84d930b06e25784ddbb0a6ee39f8ee6622ed0fe"
+  "hash": "8e2886b26f28204b4dd4b80c3d1394b6b257726d977cb055e71e17ecdf0649a8"
 }
