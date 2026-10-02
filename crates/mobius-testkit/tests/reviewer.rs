@@ -615,7 +615,7 @@ async fn start_fix_round_sends_the_findings_of_the_lead_to_a_fix_round() {
     assert_eq!(fix_rounds(&engine, 41).await, 1);
     let lead = sessions(&engine, "lead_chat").await;
     let implementers = sessions(&engine, "implementer").await;
-    assert_eq!(implementers[1].parent, Some(lead[0].id));
+    assert_eq!(implementers[1].parent, Some(lead.last().unwrap().id));
 }
 
 #[tokio::test]
