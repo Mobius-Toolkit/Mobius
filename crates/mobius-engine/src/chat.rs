@@ -349,7 +349,7 @@ async fn run(
             workstream,
             Some(author),
         );
-        // A stop while the session waits drops the first item. The chat ends when no later item remains.
+        // A stop while the session waits drops a first item that is an Owner message. The chat ends when no later item remains. An event stays.
         let wait = workers::session_slot(
             &engine,
             session,
@@ -375,6 +375,7 @@ async fn run(
                     }
                     // The first item still turns, and the session closes after it.
                     Some(Command::Drain) => false,
+                    Some(Command::Stop) if matches!(first, Item::Event(_)) => false,
                     Some(Command::Stop) => match queue.pop_front() {
                         Some(next) => {
                             first = next;
@@ -644,6 +645,7 @@ async fn chat(
                     turn(
                         &session,
                         SAVE_PROMPT,
+                        true,
                         recorder,
                         &mut updates,
                         commands,
@@ -683,6 +685,7 @@ async fn pending(
 }
 
 // The reply text of an event turn goes only to the transcript. The Lead uses `tell_owner` to write to the Owner.
+// A stop cancels only a turn for an Owner message. The Owner cannot see an event turn.
 async fn item_turn(
     session: &Session,
     item: &Item,
@@ -693,10 +696,10 @@ async fn item_turn(
     queue: &mut VecDeque<Item>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if matches!(item, Item::Message(_)) {
-        return turn(session, prompt, recorder, updates, commands, queue).await;
+        return turn(session, prompt, true, recorder, updates, commands, queue).await;
     }
     let chat = recorder.set_chat(None);
-    turn(session, prompt, recorder, updates, commands, queue).await?;
+    turn(session, prompt, false, recorder, updates, commands, queue).await?;
     recorder.set_chat(chat);
     Ok(())
 }
@@ -711,6 +714,7 @@ async fn deliver(engine: &Engine, item: &Item) -> Result<(), Box<dyn Error + Sen
 async fn turn(
     session: &Session,
     prompt: &str,
+    stoppable: bool,
     recorder: &mut Recorder,
     updates: &mut UnboundedReceiver<Value>,
     commands: &mut UnboundedReceiver<Command>,
@@ -728,7 +732,11 @@ async fn turn(
                     result = &mut turn => break result,
                     Some(update) = updates.recv() => recorder.update(update).await?,
                     Some(command) = commands.recv() => match command {
-                        Command::Stop => session.cancel(),
+                        Command::Stop => {
+                            if stoppable {
+                                session.cancel();
+                            }
+                        }
                         Command::Prompt(message) => queue.push_back(Item::Message(message)),
                         Command::Event(event) => queue.push_back(Item::Event(event)),
                         // The session closes after the turn.

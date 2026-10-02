@@ -868,3 +868,34 @@ async fn an_event_and_an_owner_message_make_one_lead_session_for_the_workstream(
         ["lead_chat"]
     );
 }
+
+#[tokio::test]
+async fn a_stop_does_not_cancel_an_event_turn_and_the_event_stays_undelivered_until_the_turn_ends()
+{
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let script = format!("{OPTIONS}\n[[prompts]]\nhang = true\n");
+    let engine = connect_with(&data_dir, &github, &script, keep_session_open).await;
+    dispatch_task(&github, 41, "Add plan model");
+    wait_for(async || {
+        let session = sessions(&engine).await.into_iter().next()?;
+        (prompts(&transcript(&engine, session.id).await).len() == 1).then_some(())
+    })
+    .await;
+
+    chat::stop(&engine, "owner", REPOSITORY, 12).unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    let session = sessions(&engine).await.remove(0);
+    assert!(session.ended_at.is_none(), "{session:?}");
+    assert_eq!(
+        engine
+            .store
+            .lead_events()
+            .undelivered(REPOSITORY, 12)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
