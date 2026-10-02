@@ -341,7 +341,7 @@ shell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan
     assert_eq!(node.session.parent, Some(parent.session.id));
     let (depth, lead) = &rows[reviewer - 2];
     assert_eq!(*depth, 0);
-    assert_eq!(lead.session.role, "lead_event");
+    assert_eq!(lead.session.role, "lead_chat");
     assert_eq!(parent.session.parent, Some(lead.session.id));
     assert_eq!(lead.session.parent, None);
 }
