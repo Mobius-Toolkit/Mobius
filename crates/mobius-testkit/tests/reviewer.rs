@@ -348,6 +348,8 @@ async fn a_fix_round_replies_with_the_pushed_fix_commit_and_resolves_the_thread(
     assert_eq!(fix_rounds(&engine, 41).await, 1);
     let implementers = sessions(&engine, "implementer").await;
     assert_eq!(implementers.len(), 2);
+    let reviewers = sessions(&engine, "reviewer").await;
+    assert_eq!(implementers[1].parent, Some(reviewers[0].id));
     let prompts = texts(&transcript(&engine, implementers[1].id).await, "prompt");
     assert_eq!(prompts.len(), 1, "{prompts:?}");
     positions_are_sorted(
@@ -612,6 +614,9 @@ async fn start_fix_round_sends_the_findings_of_the_lead_to_a_fix_round() {
         ],
     );
     assert_eq!(fix_rounds(&engine, 41).await, 1);
+    let lead = sessions(&engine, "lead_chat").await;
+    let implementers = sessions(&engine, "implementer").await;
+    assert_eq!(implementers[1].parent, Some(lead.last().unwrap().id));
 }
 
 #[tokio::test]

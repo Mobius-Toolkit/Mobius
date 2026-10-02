@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use axum::extract::{Path, Request, State};
@@ -44,6 +44,8 @@ pub(crate) struct Caller {
     pub(crate) review: Option<Review>,
     // The items of the Judge session and the sender of each valid `submit_verdicts` call.
     pub(crate) judge: Option<Judge>,
+    // The turn of the Lead session. `hold_event` holds the event of this turn.
+    pub(crate) turn: Option<Arc<Mutex<chat::Current>>>,
 }
 
 #[derive(Clone)]
@@ -307,6 +309,11 @@ fn tools(role: &str) -> Vec<Tool> {
                 })),
             ),
             tool(
+                "hold_event",
+                "Hold the event of this turn until the Owner decides. Mobius sends the event again after the end of your next reply to the Owner. A later event of the same task issue waits behind it. Call it only in a turn for an event.",
+                object(json!({})),
+            ),
+            tool(
                 "tell_owner",
                 "Tell the Owner something. Mobius adds the text to the Lead chat and adds an Inbox item.",
                 object(json!({
@@ -481,6 +488,10 @@ struct ListTasks {}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct HoldEvent {}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ReadIssue {
     n: i64,
 }
@@ -646,6 +657,7 @@ impl Handler {
                     self.caller.workstream,
                     n,
                     &instructions,
+                    self.caller.session,
                 )
                 .await
             }
@@ -663,6 +675,7 @@ impl Handler {
                     self.caller.workstream,
                     n,
                     &findings,
+                    self.caller.session,
                 )
                 .await
             }
@@ -727,6 +740,7 @@ impl Handler {
                         repository: self.caller.repository.clone(),
                         workstream: self.caller.workstream,
                         question,
+                        parent: self.caller.session,
                     },
                 ));
                 Ok("Started a Researcher. The report arrives later.".to_string())
@@ -883,6 +897,10 @@ impl Handler {
                     })?;
                 repository.add_comment(n, &text).await?;
                 Ok(format!("Commented on #{n}."))
+            }
+            "hold_event" => {
+                let HoldEvent {} = parse(tool, arguments)?;
+                chat::hold_event(self.caller.turn.as_ref().ok_or_else(unknown)?)
             }
             "tell_owner" => {
                 let TellOwner { text } = parse(tool, arguments)?;

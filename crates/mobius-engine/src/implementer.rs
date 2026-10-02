@@ -39,6 +39,8 @@ struct Job {
     pull_request: Option<PullRequest>,
     conflict_round: bool,
     prompt: String,
+    // The session of the agent that started the work, or of the newest session of the issue when Mobius started it.
+    parent: Option<i64>,
 }
 
 enum Outcome {
@@ -63,6 +65,7 @@ pub(crate) async fn start(
     workstream: i64,
     number: i64,
     instructions: &str,
+    parent: i64,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let name = &repository.full_name;
     let task = dispatch::live_task(engine, name, workstream, number).await?;
@@ -93,6 +96,7 @@ pub(crate) async fn start(
         prompt: format!(
             "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n{issue}\n# Lead instructions\n\n{instructions}"
         ),
+        parent: Some(parent),
     };
     engine
         .store
@@ -117,6 +121,8 @@ pub(crate) struct Round {
     pub(crate) counts: bool,
     // The prompt text of the open items with their actions.
     pub(crate) items: String,
+    // The session of the agent whose result started the round.
+    pub(crate) parent: Option<i64>,
 }
 
 // At `max_fix_rounds`, a round that counts stops the task instead.
@@ -158,6 +164,7 @@ pub(crate) async fn fix_round(
             issue.body.unwrap_or_default(),
             round.items
         ),
+        parent: round.parent,
     };
     tasks.set_worker(job.task, ROLE, Some(&job.prompt)).await?;
     tokio::spawn(run(engine.clone(), job));
@@ -194,6 +201,14 @@ pub(crate) async fn restart(
         pull_request,
         conflict_round: task.worker.as_deref() == Some(CONFLICT_ROUND),
         prompt,
+        parent: lead::restart_parent(
+            engine,
+            &repository.full_name,
+            task.workstream,
+            task.issue,
+            ROLE,
+        )
+        .await?,
     };
     tokio::spawn(run(engine.clone(), job));
     Ok(())
@@ -210,6 +225,8 @@ pub(crate) async fn conflict_round(
         .issue(task.issue)
         .await?
         .ok_or_else(|| format!("#{} does not exist.", task.issue))?;
+    let parent =
+        lead::newest_session(engine, &repository.full_name, task.workstream, task.issue).await?;
     if !engine
         .store
         .tasks()
@@ -235,6 +252,7 @@ pub(crate) async fn conflict_round(
         pull_request: Some(pull_request),
         conflict_round: true,
         prompt,
+        parent,
     };
     engine
         .store
@@ -317,7 +335,15 @@ pub(crate) async fn stop_at_limit(
             "the pull request has open items after {max} {limit} rounds. Mobius set the Mobius check to failure and added mobius:needs-human."
         ),
     )?;
-    lead_events::add(engine, &round.repository, round.workstream, "stop", &text).await
+    lead_events::add(
+        engine,
+        &round.repository,
+        round.workstream,
+        Some(round.number),
+        "stop",
+        &text,
+    )
+    .await
 }
 
 // Gives `false` when the task is not queued or working, for example after a decline of the Lead.
@@ -350,7 +376,10 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
         organization(&job.repository),
         &job.repository,
         job.workstream,
-        Some(job.number),
+        lead::Links {
+            issue: Some(job.number),
+            parent: job.parent,
+        },
     )
     .await?;
     let mut recorder = Recorder::new(
@@ -398,6 +427,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
             }),
             review: None,
             judge: None,
+            turn: None,
         },
     )?;
     let result = tokio::select! {
@@ -433,6 +463,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                     pull_request: pushed.pull_request,
                     head: pushed.head,
                     check_run: pushed.check_run,
+                    parent: Some(session),
                 },
             ));
             Ok(())
@@ -451,7 +482,15 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                     engine.config.max_check_attempts
                 ),
             )?;
-            lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
+            lead_events::add(
+                engine,
+                &job.repository,
+                job.workstream,
+                Some(job.number),
+                "stop",
+                &text,
+            )
+            .await
         }
         Ok(Outcome::NotMerged) => {
             lead::end_session(engine, session, "not_merged").await?;
@@ -464,7 +503,15 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                 &job.title,
                 "the conflict round did not merge the base branch. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.",
             )?;
-            lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
+            lead_events::add(
+                engine,
+                &job.repository,
+                job.workstream,
+                Some(job.number),
+                "stop",
+                &text,
+            )
+            .await
         }
         Ok(Outcome::PushRejected(error)) => {
             lead::end_session(engine, session, "push_rejected").await?;
@@ -479,7 +526,15 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                     "GitHub rejected the push. Mobius added mobius:needs-human. Git gave this error:\n\n```\n{error}\n```"
                 ),
             )?;
-            lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
+            lead_events::add(
+                engine,
+                &job.repository,
+                job.workstream,
+                Some(job.number),
+                "stop",
+                &text,
+            )
+            .await
         }
         Ok(Outcome::CannotDo(reason)) => {
             lead::end_session(engine, session, "cannot_do").await?;
@@ -493,7 +548,15 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                 return Ok(());
             }
             let text = cannot_do_text(OffsetDateTime::now_utc(), job, &reason)?;
-            lead_events::add(engine, &job.repository, job.workstream, "cannot_do", &text).await
+            lead_events::add(
+                engine,
+                &job.repository,
+                job.workstream,
+                Some(job.number),
+                "cannot_do",
+                &text,
+            )
+            .await
         }
         Err(error) => {
             recorder.fail(&error.to_string()).await?;

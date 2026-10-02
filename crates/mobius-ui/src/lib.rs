@@ -14,7 +14,8 @@ use mobius_api::{
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, DrainEnd, FeedRow, InboxItem, InboxKind, LabelStatus, Live,
-    PAUSED, PermissionStatus, RepositoryCheckup, TaskLine, TranscriptLine, Workstream,
+    PAUSED, PermissionStatus, RepositoryCheckup, TaskLine, TranscriptLine, Workstream, agent_rows,
+    shown_agents,
 };
 use time::UtcOffset;
 use time::macros::format_description;
@@ -1754,6 +1755,7 @@ fn Agents(repository: String, number: i64, on_close: Option<EventHandler>) -> El
     ));
     let mut tasks_tab = use_signal(|| false);
     let mut selected = use_signal(|| None::<i64>);
+    let mut show_stopped = use_signal(|| false);
 
     let mut nodes: HashMap<i64, AgentNode> = match &*tree.read() {
         Some(Ok(list)) => list
@@ -1772,15 +1774,15 @@ fn Agents(repository: String, number: i64, on_close: Option<EventHandler>) -> El
             nodes.insert(node.session.id, node.clone());
         }
     }
-    let mut nodes: Vec<AgentNode> = nodes.into_values().collect();
-    nodes.sort_by_key(|node| Reverse(node.session.id));
+    let selected_node = selected().and_then(|id| nodes.get(&id).cloned());
+    let rows = agent_rows(shown_agents(nodes.into_values().collect(), show_stopped()));
     let close = on_close.map(|on_close| {
         rsx! {
             button { class: "btn ghost", onclick: move |_| on_close.call(()), "Close" }
         }
     });
 
-    if let Some(node) = selected().and_then(|id| nodes.iter().find(|node| node.session.id == id)) {
+    if let Some(node) = selected_node {
         return rsx! {
             div { class: "head",
                 button { class: "back", onclick: move |_| selected.set(None), "‹ Agents" }
@@ -1804,10 +1806,19 @@ fn Agents(repository: String, number: i64, on_close: Option<EventHandler>) -> El
                 if let Some(Err(error)) = &*tree.read() {
                     div { class: "error note", {error_text(error)} }
                 }
-                for node in nodes {
+                div { class: "chips",
+                    button {
+                        class: if show_stopped() { "chip on" } else { "chip" },
+                        aria_pressed: show_stopped(),
+                        onclick: move |_| show_stopped.set(!show_stopped()),
+                        "Show stopped agents"
+                    }
+                }
+                for (depth, node) in rows.iter().cloned() {
                     AgentEntry {
                         key: "{node.session.id}",
                         node: node.clone(),
+                        depth,
                         onclick: move |_| selected.set(Some(node.session.id)),
                     }
                 }
@@ -1862,7 +1873,7 @@ fn TaskEntry(line: TaskLine) -> Element {
 }
 
 #[component]
-fn AgentEntry(node: AgentNode, onclick: EventHandler<MouseEvent>) -> Element {
+fn AgentEntry(node: AgentNode, depth: usize, onclick: EventHandler<MouseEvent>) -> Element {
     let LocalOffset(local_offset) = use_context();
     let session = &node.session;
     let time = format_description!("[month]-[day] [hour]:[minute]");
@@ -1893,12 +1904,15 @@ fn AgentEntry(node: AgentNode, onclick: EventHandler<MouseEvent>) -> Element {
         .clone()
         .unwrap_or_else(|| format!("{start}{end}"));
     rsx! {
-        button { class: "node", onclick: move |event| onclick.call(event),
+        button { class: "node", style: "--depth: {depth}", onclick: move |event| onclick.call(event),
             span { class: dot }
             span { class: "grow",
                 span { class: "role", "{node.role}" }
                 " {node.title}"
                 div { class: "muted small", "{session.harness.name()} · {session.model} · {detail}" }
+            }
+            if session.ended_at.is_some() {
+                span { class: "chip plain", "stopped" }
             }
             if let Some(reason) = &session.queue_reason {
                 if reason.starts_with(PAUSED) {

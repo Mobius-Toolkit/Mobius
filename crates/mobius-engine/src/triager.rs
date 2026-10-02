@@ -164,7 +164,10 @@ async fn session(
         organization(name),
         name,
         CHAT,
-        Some(number),
+        lead::Links {
+            issue: Some(number),
+            parent: None,
+        },
     )
     .await?;
     let mut recorder = Recorder::new(engine, session, organization(name), name, CHAT, None);
@@ -194,6 +197,7 @@ async fn session(
             fix: None,
             review: None,
             judge: None,
+            turn: None,
         },
     )?;
     let dir = mobius_runner::scratch_dir(&engine.config.data_dir, session);

@@ -13,6 +13,7 @@ pub(crate) async fn add(
     engine: &Engine,
     repository: &str,
     workstream: i64,
+    issue: Option<i64>,
     kind: &str,
     payload: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -30,7 +31,14 @@ pub(crate) async fn add(
     engine
         .store
         .lead_events()
-        .add(repository, workstream, kind, payload, Some(message.id))
+        .add(
+            repository,
+            workstream,
+            issue,
+            kind,
+            payload,
+            Some(message.id),
+        )
         .await?;
     engine.broadcast(Live::Message(message));
     chat::wake_events(engine, repository, workstream).await
@@ -42,7 +50,7 @@ pub(crate) async fn failed(
     workstream: i64,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let events = engine.store.lead_events();
-    for event in events.undelivered(repository, workstream).await? {
+    for event in events.ready(repository, workstream).await? {
         let item = engine
             .store
             .inbox_items()

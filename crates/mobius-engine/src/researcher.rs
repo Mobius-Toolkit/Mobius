@@ -16,6 +16,7 @@ pub(crate) struct Job {
     pub(crate) repository: String,
     pub(crate) workstream: i64,
     pub(crate) question: String,
+    pub(crate) parent: i64,
 }
 
 pub(crate) async fn run(engine: Engine, mut stops: Receiver<(String, i64)>, job: Job) {
@@ -41,7 +42,10 @@ async fn session(
         organization(&job.repository),
         &job.repository,
         job.workstream,
-        None,
+        lead::Links {
+            issue: None,
+            parent: Some(job.parent),
+        },
     )
     .await?;
     let mut recorder = Recorder::new(
@@ -78,6 +82,7 @@ async fn session(
             fix: None,
             review: None,
             judge: None,
+            turn: None,
         },
     )?;
     let result = tokio::select! {

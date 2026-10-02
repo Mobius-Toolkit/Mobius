@@ -244,6 +244,52 @@ impl Records {
             .unwrap_or_else(|| self.app_login(repository))
     }
 
+    fn insert_pull_request(&mut self, repository: &str, new: NewPullRequest) -> i64 {
+        let bot = self.app_login(repository);
+        let number = self
+            .issues
+            .keys()
+            .filter(|(name, _)| *name == repository)
+            .map(|(_, number)| number + 1)
+            .max()
+            .unwrap_or(1);
+        let updated_at = self.tick();
+        self.issues.insert(
+            (repository.to_string(), number),
+            Issue {
+                title: new.title.clone(),
+                body: new.body.clone(),
+                author: bot.clone(),
+                pull_request: true,
+                merged_at: None,
+                state_reason: None,
+                state: "open",
+                sub_issues: Vec::new(),
+                blocked_by: Vec::new(),
+                labels: Vec::new(),
+                updated_at,
+                events: Vec::new(),
+                comments: Vec::new(),
+                reviews: Vec::new(),
+                review_comments: Vec::new(),
+            },
+        );
+        self.pull_request_created_at
+            .insert((repository.to_string(), number), updated_at);
+        self.pull_requests.push((
+            repository.to_string(),
+            PullRequest {
+                number,
+                title: new.title,
+                body: new.body,
+                head: new.head,
+                base: new.base,
+                draft: new.draft,
+            },
+        ));
+        number
+    }
+
     fn insert_issue(
         &mut self,
         repository: &str,
@@ -769,6 +815,20 @@ impl FakeGitHub {
         git(work.path(), &["add", ".mobius/check"]);
         git(work.path(), &["commit", "-m", "Add the local check"]);
         git(work.path(), &["push", "origin", "HEAD:refs/heads/main"]);
+    }
+
+    // Opens a pull request from `head` into `main`, as the App bot, and gives its number.
+    pub fn open_pull_request(&self, repository: &str, title: &str, head: &str) -> i64 {
+        self.state.lock().unwrap().insert_pull_request(
+            repository,
+            NewPullRequest {
+                title: title.to_string(),
+                head: head.to_string(),
+                base: "main".to_string(),
+                body: String::new(),
+                draft: false,
+            },
+        )
     }
 
     pub fn pull_requests(&self, full_name: &str) -> Vec<PullRequest> {
@@ -1548,49 +1608,7 @@ async fn create_pull_request(
 ) -> Response {
     let repository = format!("{owner}/{repo}");
     let mut records = state.lock().unwrap();
-    let bot = records.app_login(&repository);
-    let number = records
-        .issues
-        .keys()
-        .filter(|(name, _)| *name == repository)
-        .map(|(_, number)| number + 1)
-        .max()
-        .unwrap_or(1);
-    let updated_at = records.tick();
-    records.issues.insert(
-        (repository.clone(), number),
-        Issue {
-            title: new.title.clone(),
-            body: new.body.clone(),
-            author: bot.clone(),
-            pull_request: true,
-            merged_at: None,
-            state_reason: None,
-            state: "open",
-            sub_issues: Vec::new(),
-            blocked_by: Vec::new(),
-            labels: Vec::new(),
-            updated_at,
-            events: Vec::new(),
-            comments: Vec::new(),
-            reviews: Vec::new(),
-            review_comments: Vec::new(),
-        },
-    );
-    records
-        .pull_request_created_at
-        .insert((repository.clone(), number), updated_at);
-    records.pull_requests.push((
-        repository.clone(),
-        PullRequest {
-            number,
-            title: new.title,
-            body: new.body,
-            head: new.head,
-            base: new.base,
-            draft: new.draft,
-        },
-    ));
+    let number = records.insert_pull_request(&repository, new);
     let mut json = pull_request_json(&records, &repository, number);
     json["mergeable"] = Value::Null;
     (StatusCode::CREATED, Json(json)).into_response()

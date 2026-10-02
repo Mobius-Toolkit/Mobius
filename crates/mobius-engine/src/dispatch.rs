@@ -119,7 +119,15 @@ pub(crate) async fn dispatch(
         actor,
         issue.body.as_deref().unwrap_or_default(),
     )?;
-    lead_events::add(engine, name, workstream, "dispatch", &text).await
+    lead_events::add(
+        engine,
+        name,
+        workstream,
+        Some(issue.number),
+        "dispatch",
+        &text,
+    )
+    .await
 }
 
 pub(crate) async fn comment_events(
@@ -154,7 +162,15 @@ pub(crate) async fn comment_events(
             &comment.user.login,
             &comment.body,
         )?;
-        lead_events::add(engine, name, task.workstream, "comment", &text).await?;
+        lead_events::add(
+            engine,
+            name,
+            task.workstream,
+            Some(issue.number),
+            "comment",
+            &text,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -310,6 +326,7 @@ pub(crate) async fn fix_round(
     workstream: i64,
     number: i64,
     findings: &str,
+    parent: i64,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let name = &repository.full_name;
     let task = live_task(engine, name, workstream, number).await?;
@@ -344,6 +361,7 @@ pub(crate) async fn fix_round(
         check_run: None,
         counts: true,
         items: format!("\nFindings of the Lead:\n{findings}\n"),
+        parent: Some(parent),
     };
     if let Err(error) = implementer::fix_round(engine, repository, round).await {
         tasks
