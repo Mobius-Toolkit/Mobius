@@ -680,9 +680,6 @@ fn WorkstreamEntry(workstream: Workstream) -> Element {
             to: Route::Chat { owner: owner.to_string(), repo: repo.to_string(), number: workstream.number },
             span { class: "grow", "{workstream.title}" }
             span { class: "muted small", "#{workstream.number}" }
-            if workstream.all_tasks_closed {
-                span { class: "chip plain", "done" }
-            }
             if unread > 0 {
                 span { class: "count", "{unread}" }
             }
