@@ -717,8 +717,15 @@ button.chip.on {
   height: 100dvh;
 }
 
-.column > .note {
+.chat > .note {
   padding: 8px 14px;
+}
+
+.closing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .side {
@@ -1053,6 +1060,7 @@ a.node {
   }
 
   .item .btn,
+  .closing .btn,
   .login .btn,
   .connect .btn {
     padding-top: 11px;
