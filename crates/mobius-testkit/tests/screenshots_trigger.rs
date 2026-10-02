@@ -39,3 +39,8 @@ fn ui_file_runs_the_screenshots() {
 fn engine_code_runs_the_screenshots() {
     assert_eq!(ui_changed("crates/mobius-engine/src/checkup.rs\n"), "true");
 }
+
+#[test]
+fn testkit_source_runs_the_screenshots() {
+    assert_eq!(ui_changed("crates/mobius-testkit/src/lib.rs\n"), "true");
+}
