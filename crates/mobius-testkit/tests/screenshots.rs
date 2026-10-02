@@ -170,7 +170,7 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
         .execute(&engine.store.pool)
         .await
         .unwrap();
-    // The long event text and the long URL wrap inside the muted entry.
+    // The first line of the event text and the long URL wrap inside the muted entry, and the rest is collapsed.
     engine
         .store
         .chat_messages()
@@ -179,7 +179,7 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
             REPOSITORY,
             12,
             Author::Event,
-            "A trusted user commented on #41 \"Add plan model\": https://example.com/reports/loyalty/plans/every-customer-segment-and-billing-period",
+            "A trusted user commented on #41 \"Add plan model\": https://example.com/reports/loyalty/plans/every-customer-segment-and-billing-period\n\nThe plans need a seat limit for each billing period.",
         )
         .await
         .unwrap();
@@ -487,11 +487,20 @@ async fn an_event_shows_in_the_chat_with_the_muted_style_and_wraps_on_the_phone(
     github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
     github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
     wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 1).then_some(())).await;
-    let text = format!("A comment arrived: {}", "word".repeat(60));
+    let text = format!(
+        "A comment arrived: {}\n\nThe rest of the comment.",
+        "word".repeat(60)
+    );
     engine
         .store
         .chat_messages()
         .add("owner", REPOSITORY, 12, Author::Event, &text)
+        .await
+        .unwrap();
+    engine
+        .store
+        .chat_messages()
+        .add("owner", REPOSITORY, 12, Author::Event, "A label changed.")
         .await
         .unwrap();
     let (mut browser, mut handler) = Browser::launch(
@@ -526,6 +535,26 @@ async fn an_event_shows_in_the_chat_with_the_muted_style_and_wraps_on_the_phone(
              && list.scrollWidth <= list.clientWidth; })()"
             .to_string();
         wait_for(async || check(&page, script.clone()).await.then_some(())).await;
+        let collapsed = "(() => { const events = [...document.querySelectorAll(\".msg.event\")];\
+             const folded = events.find((event) => event.textContent.includes(\"A comment arrived\"));\
+             const single = events.find((event) => event.textContent.includes(\"A label changed.\"));\
+             return !!folded && !!single && !single.querySelector(\"details\") \
+             && !folded.querySelector(\"details\").open \
+             && folded.querySelector(\"summary\").textContent.startsWith(\"A comment arrived\") \
+             && !folded.querySelector(\".md\").checkVisibility(); })()"
+            .to_string();
+        wait_for(async || check(&page, collapsed.clone()).await.then_some(())).await;
+        page.find_element(".msg.event summary")
+            .await
+            .unwrap()
+            .click()
+            .await
+            .unwrap();
+        let opened = "(() => { const details = document.querySelector(\".msg.event details\");\
+             return details.open && details.querySelector(\".md\").checkVisibility() \
+             && document.querySelector(\".msgs\").scrollWidth <= document.querySelector(\".msgs\").clientWidth; })()"
+            .to_string();
+        wait_for(async || check(&page, opened.clone()).await.then_some(())).await;
         page.close().await.unwrap();
     }
     browser.close().await.unwrap();
