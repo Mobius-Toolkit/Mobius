@@ -82,9 +82,9 @@ async fn sessions(engine: &Engine, role: &str) -> Vec<Session> {
         .collect()
 }
 
-async fn lead_event_prompts(engine: &Engine) -> Vec<String> {
+async fn lead_prompts(engine: &Engine) -> Vec<String> {
     let mut all = Vec::new();
-    for session in sessions(engine, "lead_event").await {
+    for session in sessions(engine, "lead_chat").await {
         let rows: Vec<TranscriptRow> = engine.store.transcript().list(session.id).await.unwrap();
         all.extend(
             rows.iter()
@@ -167,7 +167,7 @@ async fn a_worker_that_dies_after_max_worker_restarts_goes_to_a_human() {
     );
     assert!(github.pull_requests(REPOSITORY).is_empty());
     let prompt = wait_for(async || {
-        lead_event_prompts(&engine)
+        lead_prompts(&engine)
             .await
             .into_iter()
             .find(|prompt| prompt.contains(" stop of #41 \"Add plan model\":"))
@@ -200,7 +200,7 @@ async fn a_lead_that_crashes_gets_the_same_event_in_a_new_session() {
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
 
     wait_for(async || (!sessions(&engine, "implementer").await.is_empty()).then_some(())).await;
-    let leads = sessions(&engine, "lead_event").await;
+    let leads = sessions(&engine, "lead_chat").await;
     assert!(leads.len() >= 2, "{leads:?}");
     assert_eq!(leads[0].end_reason.as_deref(), Some("failed"));
 }
@@ -228,7 +228,7 @@ async fn a_lead_that_always_crashes_sends_the_event_to_the_inbox() {
         "{}",
         item.text
     );
-    assert_eq!(sessions(&engine, "lead_event").await.len(), 4);
+    assert_eq!(sessions(&engine, "lead_chat").await.len(), 4);
 }
 
 #[tokio::test]

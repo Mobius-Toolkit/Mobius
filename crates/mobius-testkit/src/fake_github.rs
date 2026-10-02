@@ -156,6 +156,8 @@ struct Records {
     failed_apps: HashSet<i64>,
     // The issues whose close request fails, as (repository, number).
     failed_closes: HashSet<(String, i64)>,
+    // The issues whose sub-issue list request fails, as (repository, number).
+    failed_sub_issues: HashSet<(String, i64)>,
     // The permissions of each App and of its installation by App id. An App without an entry has `DEFAULT_PERMISSIONS`.
     app_permissions: HashMap<i64, HashMap<String, String>>,
     installation_permissions: HashMap<i64, HashMap<String, String>>,
@@ -497,6 +499,10 @@ impl FakeGitHub {
                 get(issue_comments).post(add_issue_comment),
             )
             .route(
+                "/repos/{owner}/{repo}/issues/comments/{id}",
+                patch(update_issue_comment),
+            )
+            .route(
                 "/repos/{owner}/{repo}/issues/{number}/labels",
                 post(add_labels),
             )
@@ -551,6 +557,14 @@ impl FakeGitHub {
             .lock()
             .unwrap()
             .failed_closes
+            .insert((repository.to_string(), number));
+    }
+
+    pub fn fail_sub_issues(&self, repository: &str, number: i64) {
+        self.state
+            .lock()
+            .unwrap()
+            .failed_sub_issues
             .insert((repository.to_string(), number));
     }
 
@@ -1434,6 +1448,33 @@ async fn add_issue_comment(
     (StatusCode::CREATED, Json(comment)).into_response()
 }
 
+async fn update_issue_comment(
+    State(state): State<Shared>,
+    Path((owner, repo, id)): Path<(String, String, i64)>,
+    Json(update): Json<NewComment>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    let now = records.tick();
+    let found = records
+        .issues
+        .iter_mut()
+        .filter(|((name, _), _)| *name == repository)
+        .find_map(|(_, issue)| {
+            let comment = issue
+                .comments
+                .iter_mut()
+                .find(|comment| comment["id"].as_i64() == Some(id))?;
+            comment["body"] = json!(update.body);
+            issue.updated_at = now;
+            Some(comment.clone())
+        });
+    match found {
+        Some(comment) => Json(comment).into_response(),
+        None => not_found(),
+    }
+}
+
 #[derive(Deserialize)]
 struct NewLabels {
     labels: Vec<String>,
@@ -2106,6 +2147,12 @@ async fn sub_issues(
     let Some(parent) = records.issues.get(&(repository.clone(), number)) else {
         return not_found();
     };
+    if records
+        .failed_sub_issues
+        .contains(&(repository.clone(), number))
+    {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
     let children = parent
         .sub_issues
         .iter()

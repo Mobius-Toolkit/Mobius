@@ -7,10 +7,12 @@ pub struct LeadEvents<'a> {
     pub(crate) pool: &'a SqlitePool,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LeadEvent {
     pub id: i64,
     pub payload: String,
+    // The chat entry of the event. An event of an older store has none.
+    pub chat_message: Option<i64>,
 }
 
 impl LeadEvents<'_> {
@@ -20,38 +22,21 @@ impl LeadEvents<'_> {
         workstream: i64,
         kind: &str,
         payload: &str,
+        chat_message: Option<i64>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let time = OffsetDateTime::now_utc();
         sqlx::query!(
-            "INSERT INTO lead_events (repository, workstream, kind, payload, time) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO lead_events (repository, workstream, kind, payload, time, chat_message) VALUES (?, ?, ?, ?, ?, ?)",
             repository,
             workstream,
             kind,
             payload,
-            time
+            time,
+            chat_message
         )
         .execute(self.pool)
         .await?;
         Ok(())
-    }
-
-    // Gives the oldest event that no turn delivered.
-    pub async fn next(
-        &self,
-        repository: &str,
-        workstream: i64,
-    ) -> Result<Option<LeadEvent>, Box<dyn Error + Send + Sync>> {
-        let event = sqlx::query_as!(
-            LeadEvent,
-            r#"SELECT id, payload FROM lead_events
-               WHERE repository = ? AND workstream = ? AND delivered_at IS NULL
-               ORDER BY id LIMIT 1"#,
-            repository,
-            workstream
-        )
-        .fetch_optional(self.pool)
-        .await?;
-        Ok(event)
     }
 
     pub async fn waiting_workstreams(
@@ -89,7 +74,7 @@ impl LeadEvents<'_> {
     ) -> Result<Vec<LeadEvent>, Box<dyn Error + Send + Sync>> {
         let events = sqlx::query_as!(
             LeadEvent,
-            r#"SELECT id, payload FROM lead_events
+            r#"SELECT id, payload, chat_message FROM lead_events
                WHERE repository = ? AND workstream = ? AND delivered_at IS NULL
                ORDER BY id"#,
             repository,

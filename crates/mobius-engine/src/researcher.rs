@@ -3,26 +3,19 @@ use std::error::Error;
 use mobius_domain::{Author, organization};
 use mobius_runner::Session;
 use serde_json::Value;
-use time::OffsetDateTime;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::lead::{self, Recorder};
-use crate::{Engine, TIME_FORMAT, chat, lead_events, limits, mcp, workers};
+use crate::{Engine, chat, limits, mcp, workers};
 
 pub(crate) const ROLE: &str = "researcher";
 const ROLE_PROMPT: &str = include_str!("prompts/researcher.md");
-
-pub(crate) enum Origin {
-    Chat,
-    Events,
-}
 
 pub(crate) struct Job {
     pub(crate) repository: String,
     pub(crate) workstream: i64,
     pub(crate) question: String,
-    pub(crate) origin: Origin,
 }
 
 pub(crate) async fn run(engine: Engine, mut stops: Receiver<(String, i64)>, job: Job) {
@@ -119,33 +112,19 @@ async fn deliver(
     job: &Job,
     report: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    match job.origin {
-        Origin::Chat => {
-            let text = format!(
-                "Report of the Researcher on \"{}\":\n\n{report}",
-                job.question
-            );
-            chat::post(
-                engine,
-                organization(&job.repository),
-                &job.repository,
-                job.workstream,
-                Author::Researcher,
-                &text,
-            )
-            .await
-        }
-        Origin::Events => {
-            let quoted: Vec<String> = report.lines().map(|line| format!("> {line}")).collect();
-            let text = format!(
-                "{} report of the Researcher on \"{}\":\n\n{}",
-                OffsetDateTime::now_utc().format(TIME_FORMAT)?,
-                job.question,
-                quoted.join("\n")
-            );
-            lead_events::add(engine, &job.repository, job.workstream, "research", &text).await
-        }
-    }
+    let text = format!(
+        "Report of the Researcher on \"{}\":\n\n{report}",
+        job.question
+    );
+    chat::post(
+        engine,
+        organization(&job.repository),
+        &job.repository,
+        job.workstream,
+        Author::Researcher,
+        &text,
+    )
+    .await
 }
 
 async fn research(

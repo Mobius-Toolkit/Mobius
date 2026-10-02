@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT review_comment FROM tasks WHERE id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "review_comment",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "review_comment"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "c75ddb5fdb8e532d1ec137a7443f3a146b50d1cbf627eb5eb48281cd47341827"
+}

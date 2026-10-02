@@ -126,32 +126,6 @@ impl ChatMessages<'_> {
         rows.into_iter().rev().map(Row::message).collect()
     }
 
-    pub async fn after(
-        &self,
-        organization: &str,
-        repository: &str,
-        workstream: i64,
-        author: Author,
-        id: i64,
-    ) -> Result<Vec<ChatMessage>, Box<dyn Error + Send + Sync>> {
-        let author = author.name();
-        let rows = sqlx::query_as!(
-            Row,
-            r#"SELECT id, organization, repository, workstream, author, time AS "time: OffsetDateTime", text
-               FROM chat_messages
-               WHERE organization = ? AND repository = ? AND workstream = ? AND author = ? AND id > ?
-               ORDER BY id"#,
-            organization,
-            repository,
-            workstream,
-            author,
-            id
-        )
-        .fetch_all(self.pool)
-        .await?;
-        rows.into_iter().map(Row::message).collect()
-    }
-
     pub async fn set_seen(
         &self,
         organization: &str,

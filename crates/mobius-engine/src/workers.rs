@@ -12,20 +12,47 @@ use crate::{Engine, agents, drain, limits};
 #[derive(Default)]
 pub(crate) struct Workers {
     counts: Mutex<Counts>,
+    // The pull requests with work for an agent, by the id of their task. The poll replaces the whole map.
+    work: Mutex<BTreeMap<i64, Work>>,
     // Each change of the counts or of the queue wakes all queued agents.
     pub(crate) changed: Notify,
+}
+
+// A pull request with work for an agent.
+#[derive(Clone, PartialEq)]
+pub(crate) struct Work {
+    pub(crate) repository: String,
+    pub(crate) pull_request: i64,
+    pub(crate) created_at: OffsetDateTime,
+}
+
+impl Workers {
+    pub(crate) fn work(&self) -> BTreeMap<i64, Work> {
+        self.work.lock().unwrap().clone()
+    }
+
+    pub(crate) fn replace_work(&self, next: BTreeMap<i64, Work>) {
+        {
+            let mut work = self.work.lock().unwrap();
+            if *work == next {
+                return;
+            }
+            *work = next;
+        }
+        self.changed.notify_waiters();
+    }
 }
 
 #[derive(Default)]
 struct Counts {
     running: BTreeMap<Role, u32>,
-    // The key is the task id, and the value is the role of its session.
-    queued: HashMap<i64, Role>,
+    // The key is the task id. The value is the role of its session, and `true` for a new ticket: an Implementer with no pull request.
+    queued: HashMap<i64, (Role, bool)>,
     // The waiting sessions with no task, ordered by their time in the queue.
     waiting: BTreeMap<(OffsetDateTime, i64), Role>,
 }
 
-// The limit group of a session. The lead_chat and lead_event sessions share the group `lead`.
+// The limit group of a session.
 #[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Role {
     Lead,
@@ -58,10 +85,10 @@ impl Role {
         }
     }
 
-    // The group of a session role. The lead_chat and lead_event sessions share the group `lead`.
+    // The group of a session role.
     pub(crate) fn of_session(role: &str) -> Option<Role> {
         Some(match role {
-            crate::chat::ROLE | crate::lead_events::ROLE => Self::Lead,
+            crate::chat::ROLE => Self::Lead,
             crate::triager::ROLE => Self::Triager,
             crate::implementer::ROLE => Self::Implementer,
             crate::researcher::ROLE => Self::Researcher,
@@ -135,11 +162,11 @@ struct Queued {
 }
 
 impl Queued {
-    fn new(engine: &Engine, place: Place, session: i64, role: Role) -> Queued {
+    fn new(engine: &Engine, place: Place, session: i64, role: Role, ticket: bool) -> Queued {
         let mut counts = engine.workers.counts.lock().unwrap();
         match place {
             Place::Task(task) => {
-                counts.queued.insert(task, role);
+                counts.queued.insert(task, (role, ticket));
             }
             Place::Since(since) => {
                 counts.waiting.insert((since, session), role);
@@ -171,15 +198,17 @@ impl Drop for Queued {
 }
 
 // Gives `None` when the task leaves the queue before it gets a slot, for example after a decline of the Lead.
+// A new ticket gets no slot while a pull request has work for an agent.
 pub(crate) async fn slot(
     engine: &Engine,
     task: i64,
     session: i64,
     role: Role,
+    ticket: bool,
 ) -> Result<Option<Slot>, Box<dyn Error + Send + Sync>> {
     let place = Place::Task(task);
-    let queued = Queued::new(engine, place, session, role);
-    let slot = wait(engine, place, session, role).await;
+    let queued = Queued::new(engine, place, session, role, ticket);
+    let slot = wait(engine, place, session, role, ticket).await;
     drop(queued);
     let Some(slot) = slot? else {
         return Ok(None);
@@ -204,8 +233,8 @@ pub(crate) async fn session_slot(
     role: Role,
 ) -> Result<Slot, Box<dyn Error + Send + Sync>> {
     let place = Place::Since(OffsetDateTime::now_utc());
-    let queued = Queued::new(engine, place, session, role);
-    let slot = wait(engine, place, session, role).await;
+    let queued = Queued::new(engine, place, session, role, false);
+    let slot = wait(engine, place, session, role, false).await;
     drop(queued);
     let slot = slot?.expect("a session with no task keeps its place in the queue");
     let started = engine.store.sessions().start(session).await?;
@@ -219,11 +248,34 @@ enum Place {
     Since(OffsetDateTime),
 }
 
+// The place of a queued session. A pull request with work for an agent comes before all other sessions, by its creation time. The others follow by their time in the queue.
+type Rank = (u8, OffsetDateTime, u8, i64);
+
+fn rank(work: &BTreeMap<i64, Work>, task: i64, queued_at: OffsetDateTime) -> Rank {
+    match work.get(&task) {
+        Some(work) => (0, work.created_at, 0, task),
+        None => (1, queued_at, 0, task),
+    }
+}
+
+// Gives the reason why a new ticket waits, for the oldest pull request with work for an agent.
+fn gate(work: &BTreeMap<i64, Work>, ticket: bool) -> Option<String> {
+    if !ticket {
+        return None;
+    }
+    let oldest = work.values().min_by_key(|work| work.created_at)?;
+    Some(format!(
+        "an open pull request has agent work ({}#{})",
+        oldest.repository, oldest.pull_request
+    ))
+}
+
 async fn wait(
     engine: &Engine,
     place: Place,
     session: i64,
     role: Role,
+    ticket: bool,
 ) -> Result<Option<Slot>, Box<dyn Error + Send + Sync>> {
     let harness = role.binding(&engine.config).harness;
     let mut shown = None;
@@ -232,37 +284,41 @@ async fn wait(
         tokio::pin!(changed);
         changed.as_mut().enable();
         let queue = engine.store.tasks().queued().await?;
+        let work = engine.workers.work();
+        let own = match place {
+            Place::Task(task) => {
+                let Some((_, at)) = queue.iter().find(|(id, _)| *id == task) else {
+                    return Ok(None);
+                };
+                rank(&work, task, *at)
+            }
+            Place::Since(since) => (1, since, 1, session),
+        };
         // A paused Harness takes no slot, so a pause does not count toward a limit.
         let pause = match role.pauses() {
             true => engine.store.harness_pauses().get(harness).await?,
             false => None,
         };
-        let (position, at) = match place {
-            Place::Task(task) => {
-                let Some(position) = queue.iter().position(|(id, _)| *id == task) else {
-                    return Ok(None);
-                };
-                (position, queue[position].1)
-            }
-            Place::Since(since) => (queue.iter().filter(|(_, at)| *at <= since).count(), since),
-        };
         let text = {
             let mut counts = engine.workers.counts.lock().unwrap();
-            let bound = match place {
-                Place::Task(_) => (at, i64::MIN),
-                Place::Since(_) => (at, session),
-            };
-            let mut earlier: Vec<(OffsetDateTime, Role)> = queue[..position]
+            // A new ticket that waits for the gate does not take a slot, so it does not hold the sessions behind it.
+            let mut earlier: Vec<(Rank, Role)> = queue
                 .iter()
-                .filter_map(|(id, at)| counts.queued.get(id).map(|role| (*at, *role)))
+                .filter_map(|(id, at)| {
+                    let (queued_role, queued_ticket) = *counts.queued.get(id)?;
+                    let rank = rank(&work, *id, *at);
+                    (rank < own && !(queued_ticket && !work.is_empty()))
+                        .then_some((rank, queued_role))
+                })
                 .collect();
             earlier.extend(
                 counts
                     .waiting
-                    .range(..bound)
-                    .map(|(key, role)| (key.0, *role)),
+                    .iter()
+                    .map(|((since, id), role)| ((1, *since, 1, *id), *role))
+                    .filter(|(rank, _)| *rank < own),
             );
-            earlier.sort_unstable_by_key(|(at, _)| *at);
+            earlier.sort_unstable_by_key(|(rank, _)| *rank);
             let earlier: Vec<Role> = earlier.into_iter().map(|(_, role)| role).collect();
             // A drain that starts while the session waits keeps it in the queue.
             let drain = role.drains().then(|| drain::try_track(engine));
@@ -271,7 +327,8 @@ async fn wait(
             } else {
                 match &pause {
                     Some(pause) => Some(limits::reason(pause)?),
-                    None => reason(&engine.config, &counts.running, &earlier, role),
+                    None => gate(&work, ticket)
+                        .or_else(|| reason(&engine.config, &counts.running, &earlier, role)),
                 }
             };
             let Some(text) = text else {
@@ -426,5 +483,78 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
             reason(&config(), &running, &[Role::Implementer], Role::Reviewer),
             None
         );
+    }
+
+    fn at(seconds: i64) -> OffsetDateTime {
+        OffsetDateTime::from_unix_timestamp(seconds).unwrap()
+    }
+
+    fn work(pull_request: i64, created_at: i64) -> Work {
+        Work {
+            repository: "owner/shop".to_string(),
+            pull_request,
+            created_at: at(created_at),
+        }
+    }
+
+    fn order(work: &BTreeMap<i64, Work>, queue: &[(i64, i64)]) -> Vec<i64> {
+        let mut queue: Vec<(Rank, i64)> = queue
+            .iter()
+            .map(|(task, queued_at)| (rank(work, *task, at(*queued_at)), *task))
+            .collect();
+        queue.sort();
+        queue.into_iter().map(|(_, task)| task).collect()
+    }
+
+    #[test]
+    fn with_no_work_the_queue_keeps_the_order_of_the_time_in_the_queue() {
+        let queue = [(3, 10), (1, 30), (2, 20)];
+
+        assert_eq!(order(&BTreeMap::new(), &queue), [3, 2, 1]);
+    }
+
+    #[test]
+    fn a_task_with_work_comes_before_an_older_task_with_no_work() {
+        let work = BTreeMap::from([(2, work(7, 500))]);
+
+        assert_eq!(order(&work, &[(1, 10), (2, 20), (3, 30)]), [2, 1, 3]);
+    }
+
+    #[test]
+    fn tasks_with_work_follow_the_creation_time_of_their_pull_request() {
+        let work = BTreeMap::from([(1, work(7, 500)), (2, work(8, 100)), (3, work(9, 300))]);
+
+        assert_eq!(order(&work, &[(1, 10), (2, 20), (3, 30)]), [2, 3, 1]);
+    }
+
+    #[test]
+    fn a_waiting_session_with_no_task_comes_after_each_task_with_work() {
+        let work = BTreeMap::from([(2, work(7, 500))]);
+        let session = (1, at(5), 1, 9);
+
+        assert!(rank(&work, 2, at(20)) < session);
+        assert!(rank(&work, 1, at(10)) > session);
+    }
+
+    #[test]
+    fn a_new_ticket_waits_for_the_oldest_pull_request_with_work() {
+        let work = BTreeMap::from([(1, work(7, 500)), (2, work(8, 100))]);
+
+        assert_eq!(
+            gate(&work, true).as_deref(),
+            Some("an open pull request has agent work (owner/shop#8)")
+        );
+    }
+
+    #[test]
+    fn a_new_ticket_with_no_work_does_not_wait() {
+        assert_eq!(gate(&BTreeMap::new(), true), None);
+    }
+
+    #[test]
+    fn work_does_not_stop_a_session_that_is_not_a_new_ticket() {
+        let work = BTreeMap::from([(1, work(7, 500))]);
+
+        assert_eq!(gate(&work, false), None);
     }
 }

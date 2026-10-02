@@ -18,7 +18,7 @@ pub struct Config {
     pub max_agents: u32,
     #[serde(default = "default_max_checks")]
     pub max_checks: u32,
-    #[serde(default = "default_three")]
+    #[serde(default = "default_max_fix_rounds")]
     pub max_fix_rounds: u32,
     #[serde(default = "default_three")]
     pub max_check_attempts: u32,
@@ -32,8 +32,6 @@ pub struct Config {
     pub stale_pr_age: Duration,
     #[serde(with = "humantime_serde", default = "default_lead_idle_timeout")]
     pub lead_idle_timeout: Duration,
-    #[serde(with = "humantime_serde", default = "default_event_idle_timeout")]
-    pub event_idle_timeout: Duration,
     #[serde(with = "humantime_serde", default = "default_poll_interval")]
     pub poll_interval: Duration,
     #[serde(with = "humantime_serde", default = "default_housekeeper_interval")]
@@ -134,6 +132,10 @@ fn default_max_checks() -> u32 {
     1
 }
 
+fn default_max_fix_rounds() -> u32 {
+    7
+}
+
 fn default_three() -> u32 {
     3
 }
@@ -152,10 +154,6 @@ fn default_stale_pr_age() -> Duration {
 
 fn default_lead_idle_timeout() -> Duration {
     Duration::from_secs(60 * 60)
-}
-
-fn default_event_idle_timeout() -> Duration {
-    Duration::from_secs(15 * 60)
 }
 
 fn default_poll_interval() -> Duration {
@@ -247,7 +245,7 @@ judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
         );
         assert_eq!(config.max_agents, 4);
         assert_eq!(config.max_checks, 1);
-        assert_eq!(config.max_fix_rounds, 3);
+        assert_eq!(config.max_fix_rounds, 7);
         assert_eq!(config.max_check_attempts, 3);
         assert_eq!(config.max_worker_restarts, 3);
         assert_eq!(config.check_timeout, Duration::from_secs(15 * 60));

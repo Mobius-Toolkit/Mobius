@@ -5,7 +5,7 @@ use mobius_github::Repository;
 use mobius_store::{NewInboxItem, Task};
 
 use crate::labels::{NEEDS_HUMAN_LABEL, WORKING_LABEL};
-use crate::{Engine, implementer, judge, lead_events, reviewer, workstreams};
+use crate::{Engine, chat, implementer, judge, reviewer, workstreams};
 
 const LOST_TEXT: &str = "Mobius lost the state of this task. Add mobius:ready to start again.";
 
@@ -40,7 +40,7 @@ pub(crate) async fn repository(
         }
     }
     for workstream in engine.store.lead_events().waiting_workstreams(name).await? {
-        lead_events::wake(engine, name, workstream);
+        chat::wake_events(engine, name, workstream).await?;
     }
     Ok(())
 }
