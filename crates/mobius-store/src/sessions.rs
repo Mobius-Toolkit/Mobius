@@ -22,6 +22,7 @@ struct Row {
     end_reason: Option<String>,
     queue_reason: Option<String>,
     issue: Option<i64>,
+    parent: Option<i64>,
 }
 
 impl Row {
@@ -44,6 +45,7 @@ impl Row {
             end_reason: self.end_reason,
             queue_reason: self.queue_reason,
             issue: self.issue,
+            parent: self.parent,
         })
     }
 }
@@ -56,6 +58,7 @@ pub struct NewSession<'a> {
     pub repository: &'a str,
     pub workstream: i64,
     pub issue: Option<i64>,
+    pub parent: Option<i64>,
 }
 
 impl Sessions<'_> {
@@ -67,11 +70,11 @@ impl Sessions<'_> {
         let started_at = OffsetDateTime::now_utc();
         sqlx::query_as!(
             Row,
-            r#"INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, started_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            r#"INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, parent, started_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
-                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue"#,
+                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue, parent"#,
             session.role,
             harness,
             session.model,
@@ -79,6 +82,7 @@ impl Sessions<'_> {
             session.repository,
             session.workstream,
             session.issue,
+            session.parent,
             started_at
         )
         .fetch_one(self.pool)
@@ -111,7 +115,7 @@ impl Sessions<'_> {
             r#"UPDATE sessions SET queue_reason = ? WHERE id = ?
                RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
-                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue"#,
+                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue, parent"#,
             reason,
             id
         )
@@ -129,7 +133,7 @@ impl Sessions<'_> {
             r#"UPDATE sessions SET queue_reason = NULL WHERE id = ?
                RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
-                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue"#,
+                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue, parent"#,
             id
         )
         .fetch_one(self.pool)
@@ -144,7 +148,7 @@ impl Sessions<'_> {
             r#"UPDATE sessions SET started_at = ?, queue_reason = NULL WHERE id = ?
                RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
-                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue"#,
+                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue, parent"#,
             started_at,
             id
         )
@@ -164,7 +168,7 @@ impl Sessions<'_> {
             r#"UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
                RETURNING id AS "id!", role, harness, model, organization, repository, workstream, acp_session_id,
                          started_at AS "started_at: OffsetDateTime",
-                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue"#,
+                         ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue, parent"#,
             ended_at,
             reason,
             id
@@ -187,7 +191,7 @@ impl Sessions<'_> {
             Row,
             r#"SELECT id, role, harness, model, organization, repository, workstream, acp_session_id,
                       started_at AS "started_at: OffsetDateTime",
-                      ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue
+                      ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue, parent
                FROM sessions WHERE ended_at IS NULL ORDER BY id"#,
         )
         .fetch_all(self.pool)
@@ -203,7 +207,7 @@ impl Sessions<'_> {
             Row,
             r#"SELECT id, role, harness, model, organization, repository, workstream, acp_session_id,
                       started_at AS "started_at: OffsetDateTime",
-                      ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue
+                      ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue, parent
                FROM sessions WHERE role = ? ORDER BY id"#,
             role
         )
@@ -222,7 +226,7 @@ impl Sessions<'_> {
             Row,
             r#"SELECT id, role, harness, model, organization, repository, workstream, acp_session_id,
                       started_at AS "started_at: OffsetDateTime",
-                      ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue
+                      ended_at AS "ended_at: OffsetDateTime", end_reason, queue_reason, issue, parent
                FROM sessions WHERE organization = ? AND repository = ? AND workstream = ? ORDER BY id"#,
             organization,
             repository,

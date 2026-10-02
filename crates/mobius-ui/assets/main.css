@@ -785,7 +785,7 @@ button.chip.on {
   gap: 8px;
   width: 100%;
   padding: 8px 14px;
-  /* A nested task indents one step for each level below the Workstream. */
+  /* A nested task or agent indents one step for each level below the top level. */
   padding-left: calc(14px + var(--depth, 0) * 18px);
   border: none;
   background: none;

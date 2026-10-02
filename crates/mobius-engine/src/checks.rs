@@ -4,7 +4,7 @@ use std::fmt::Write;
 use mobius_github::{CheckRun, PullRequest, Repository};
 use mobius_store::Task;
 
-use crate::{Engine, implementer};
+use crate::{Engine, implementer, lead};
 
 // Gives the completed check runs of other apps that failed on the head.
 pub async fn failed(
@@ -79,6 +79,8 @@ pub(crate) async fn on_failure(
         .await?
         .ok_or_else(|| format!("#{} does not exist.", task.issue))?
         .title;
+    let parent =
+        lead::newest_session(engine, &repository.full_name, task.workstream, task.issue).await?;
     if !tasks
         .set_state(task.id, "ready_for_review", "working")
         .await?
@@ -96,6 +98,7 @@ pub(crate) async fn on_failure(
         check_run: None,
         counts: true,
         items,
+        parent,
     };
     if let Err(error) = implementer::fix_round(engine, repository, round).await {
         tasks
