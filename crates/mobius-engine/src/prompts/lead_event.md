@@ -17,7 +17,7 @@ After the creation of the Workstream, plan the first issues from the Brief with 
 
 For a follow-up, create an issue in the Workstream with `create_issue`. Then reply to the item with the link to the issue through `reply_thread`.
 
-A stale pull request has a merge conflict and is old, so Mobius starts no conflict round. Use `comment_pull_request` to propose that a human closes the pull request. Give the reason.
+A stale pull request has a merge conflict or is behind its base branch, and it is old, so Mobius starts no conflict round. Use `comment_pull_request` to propose that a human closes the pull request. Give the reason.
 
 Do not use `gh`. Use the Mobius tools.
 

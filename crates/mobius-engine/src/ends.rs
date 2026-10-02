@@ -98,7 +98,9 @@ async fn check_task(
     ) {
         return Ok(());
     }
-    if task.state == "ready_for_review" && pull_request.mergeable == Some(false) {
+    if task.state == "ready_for_review"
+        && (pull_request.mergeable == Some(false) || conflicts::behind(&pull_request))
+    {
         return conflicts::on_conflict(engine, repository, task, pull_request).await;
     }
     if task.state == "ready_for_review"

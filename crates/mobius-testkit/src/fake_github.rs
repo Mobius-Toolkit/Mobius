@@ -170,6 +170,7 @@ struct Records {
     pull_requests: Vec<(String, PullRequest)>,
     // The creation time of each pull request, in seconds after the Unix epoch.
     pull_request_created_at: HashMap<(String, i64), i64>,
+    behind_pull_requests: HashSet<(String, i64)>,
     // The id of a check run is its index plus 1.
     check_runs: Vec<(String, CheckRun)>,
     // The annotations of each check run by id, as GitHub gives them.
@@ -714,6 +715,15 @@ impl FakeGitHub {
             .unwrap()
             .pull_request_created_at
             .insert((full_name.to_string(), number), seconds);
+    }
+
+    // The pull request gives `mergeable_state` `behind` while its base is not an ancestor of its head.
+    pub fn set_behind(&self, full_name: &str, number: i64) {
+        self.state
+            .lock()
+            .unwrap()
+            .behind_pull_requests
+            .insert((full_name.to_string(), number));
     }
 
     // Commits `script` as an executable `.mobius/check` on `main`.
@@ -1531,6 +1541,17 @@ fn pull_request_json(records: &Records, repository: &str, number: i64) -> Value 
         &pull_request.head,
     ]);
     let head = git(&["rev-parse", &pull_request.head]);
+    let behind = records
+        .behind_pull_requests
+        .contains(&(repository.to_string(), number))
+        && !git(&[
+            "merge-base",
+            "--is-ancestor",
+            &pull_request.base,
+            &pull_request.head,
+        ])
+        .status
+        .success();
     json!({
         "number": number,
         "node_id": format!("PR_{number}"),
@@ -1540,6 +1561,7 @@ fn pull_request_json(records: &Records, repository: &str, number: i64) -> Value 
         "head": { "sha": String::from_utf8(head.stdout).unwrap().trim() },
         "draft": pull_request.draft,
         "mergeable": merge.status.success(),
+        "mergeable_state": if behind { "behind" } else { "clean" },
         "created_at": timestamp(records.pull_request_created_at[&(repository.to_string(), number)])
     })
 }
