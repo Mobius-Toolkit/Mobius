@@ -83,14 +83,11 @@ async fn poll_repository(
 }
 
 // A direct sub-issue of a Workstream that opens or closes changes `all_tasks_closed` of the Workstream.
-async fn direct_task(
-    repository: &Repository,
-    number: i64,
-) -> Result<bool, Box<dyn Error + Send + Sync>> {
-    Ok(repository
-        .parent(number)
-        .await?
-        .is_some_and(|parent| parent.has_label(WORKSTREAM_LABEL)))
+// When the parent is unknown, the answer is `true`, because a needless broadcast changes nothing.
+async fn direct_task(repository: &Repository, number: i64) -> bool {
+    repository.parent(number).await.map_or(true, |parent| {
+        parent.is_some_and(|parent| parent.has_label(WORKSTREAM_LABEL))
+    })
 }
 
 async fn changed_issues(
@@ -106,6 +103,8 @@ async fn changed_issues(
     else {
         return Ok(());
     };
+    // At the first poll of a repository, Mobius cannot see which event is new, and the UI reads the whole list.
+    let first_poll = cursor.since.is_none();
     let mut workstreams_changed = false;
     for issue in &page.issues {
         if issue.pull_request.is_some() {
@@ -119,7 +118,8 @@ async fn changed_issues(
             triager::stop(engine, app_slug, repository, issue.number).await?;
         }
         let labeled = issue.has_label(WORKSTREAM_LABEL);
-        workstreams_changed |= labeled || direct_task(repository, issue.number).await?;
+        workstreams_changed |=
+            labeled || (!first_poll && direct_task(repository, issue.number).await);
         if !labeled && !workstreams::has_work(engine, name, issue.number).await? {
             continue;
         }
@@ -131,8 +131,6 @@ async fn changed_issues(
                 continue;
             }
             let trusted = trusted_author(&engine.config, app_slug, &actor.login);
-            // At the first poll of a repository, Mobius cannot see which event is new.
-            let first_poll = cursor.since.is_none();
             match (
                 event.event.as_str(),
                 event.label.as_ref().map(|label| label.name.as_str()),

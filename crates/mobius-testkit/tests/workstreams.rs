@@ -299,3 +299,19 @@ async fn a_completion_with_an_open_sub_issue_closes_nothing() {
     assert_eq!(github.state(REPOSITORY, 12), ("open".to_string(), None));
     assert_eq!(github.state(REPOSITORY, 41), ("open".to_string(), None));
 }
+
+#[tokio::test]
+async fn a_completion_of_an_issue_without_the_workstream_label_closes_nothing() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+    github.add_issue(REPOSITORY, 13, "Fix the footer");
+    github.add_issue(REPOSITORY, 42, "Round the price");
+    github.add_sub_issue(REPOSITORY, 13, 42);
+    github.close_issue(REPOSITORY, 42);
+
+    let result = workstreams::complete(&engine, REPOSITORY, 13).await;
+
+    assert!(result.is_err());
+    assert_eq!(github.state(REPOSITORY, 13), ("open".to_string(), None));
+}
