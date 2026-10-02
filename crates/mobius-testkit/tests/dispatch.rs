@@ -34,7 +34,9 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub, prompts: &str) -> Engi
         "correct horse",
         &github.url,
         "",
-        |config| config.lead_idle_timeout = Duration::from_secs(1),
+        |config| {
+            config.lead_idle_timeout = Duration::from_secs(5);
+        },
     )
     .await;
     github::convert_manifest(&engine, "manifest-code")
