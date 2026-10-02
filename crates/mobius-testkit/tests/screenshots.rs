@@ -71,10 +71,6 @@ when = "Which roses sell best?"
 reply = ["Red roses sell best."]
 
 [[prompts]]
-when = "Hold the plan."
-hang = true
-
-[[prompts]]
 when = "You are the Reviewer"
 hang = true
 
