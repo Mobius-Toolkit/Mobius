@@ -140,8 +140,8 @@ async fn check_task(
         && (pull_request.mergeable == Some(false)
             || conflicts::behind(&pull_request)
             || checks::unhandled_failure(engine, repository, task, &pull_request).await?);
-    let judged = judge::check(engine, repository, task, pull_request).await?;
-    Ok((judged || waiting).then_some(work))
+    let judged = judge::check(engine, repository, task, pull_request, waiting).await?;
+    Ok(judged.then_some(work))
 }
 
 pub(crate) async fn lost_access(

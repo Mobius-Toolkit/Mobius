@@ -77,11 +77,13 @@ struct Job {
 
 // With no new item, a task in the state `reviewed` with no open thread is ready for review.
 // Gives `true` when the Judge has new items to handle for a task that does not wait for a human.
+// With no new item, gives `other_work` when the task leaves the state `reviewed`.
 pub(crate) async fn check(
     engine: &Engine,
     repository: &Repository,
     task: &Task,
     pull_request: PullRequest,
+    other_work: bool,
 ) -> Result<bool, Box<dyn Error + Send + Sync>> {
     // The drain holds each new Judge. The next poll after a cancel starts it.
     if engine.drain.on() {
@@ -96,7 +98,8 @@ pub(crate) async fn check(
     let Some(newest) = items.iter().map(|item| item.at).max() else {
         engine.quiet.lock().unwrap().remove(&task.id);
         if task.state == "reviewed" {
-            ready(engine, repository, task, pull_request, &app_login).await?;
+            let left = ready(engine, repository, task, pull_request, &app_login).await?;
+            return Ok(left && other_work);
         }
         return Ok(false);
     };
@@ -227,7 +230,7 @@ async fn ready(
     task: &Task,
     pull_request: PullRequest,
     app_login: &str,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
     let trusted = trust::trusted_authors(engine, repository);
     if repository
         .review_threads(pull_request.number)
@@ -235,7 +238,7 @@ async fn ready(
         .iter()
         .any(|thread| reviewer::is_open(thread, &trusted, app_login))
     {
-        return Ok(());
+        return Ok(false);
     }
     let title = repository
         .issue(task.issue)
@@ -257,7 +260,8 @@ async fn ready(
         head,
         check_run,
     };
-    reviewer::ready_for_review(engine, repository, &job, "reviewed").await
+    reviewer::ready_for_review(engine, repository, &job, "reviewed").await?;
+    Ok(true)
 }
 
 // A failed session still marks its items as judged, so the same items start no new Judge.

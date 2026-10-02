@@ -5,6 +5,7 @@ use mobius_engine::{Engine, github, workstreams};
 use mobius_testkit::fake_github::{CheckRun, CheckRunOutput, FakeGitHub};
 use mobius_testkit::{git, install_fake_harness, start_with_config, wait_for};
 use tempfile::TempDir;
+use time::{Duration, OffsetDateTime};
 
 const REPOSITORY: &str = "owner/shop";
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_fake-agent");
@@ -235,4 +236,43 @@ async fn a_failed_check_on_a_head_that_got_its_fix_round_does_not_stop_a_new_tic
 
     wait_for_state(&engine, 43, "ready_for_review").await;
     assert_eq!(sessions(&engine, 41).await.len(), 2);
+}
+
+#[tokio::test]
+async fn a_reviewed_pull_request_with_an_open_thread_does_not_stop_a_new_ticket() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, "max_agents = 1").await;
+    let (_, pull_request) = ready_for_review(&engine, &github, 41).await;
+    github.set_created_at(REPOSITORY, pull_request, 0);
+    let task = engine
+        .store
+        .tasks()
+        .live(REPOSITORY, 41)
+        .await
+        .unwrap()
+        .unwrap();
+    engine
+        .store
+        .tasks()
+        .set_judged_at(task.id, OffsetDateTime::now_utc() + Duration::days(1))
+        .await
+        .unwrap();
+    github.add_review_comment(REPOSITORY, pull_request, None, "owner", "Use cents.");
+    assert!(
+        engine
+            .store
+            .tasks()
+            .set_state(task.id, "ready_for_review", "reviewed")
+            .await
+            .unwrap()
+    );
+    github.set_behind(REPOSITORY, pull_request);
+    github.commit_file(REPOSITORY, "price.txt", "dollars\n", "Add price");
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    github.add_label(REPOSITORY, 43, "mobius:ready", "owner");
+
+    wait_for_state(&engine, 43, "ready_for_review").await;
+    assert_eq!(task_state(&engine, 41).await.as_deref(), Some("reviewed"));
 }
