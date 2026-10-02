@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use mobius_domain::{Author, ChatMessage, ChatView, InboxKind, Live, organization};
 use mobius_github::Repository;
@@ -31,6 +32,14 @@ pub(crate) struct ChatHandle {
 enum Item {
     Message(ChatMessage),
     Event(LeadEvent),
+}
+
+// The turn that runs. A crash in this turn sends its item again in a new session.
+#[derive(Default)]
+pub(crate) struct Current {
+    item: Option<Item>,
+    // The Lead called `hold_event` in this turn.
+    held: bool,
 }
 
 #[derive(Debug)]
@@ -133,7 +142,7 @@ pub(crate) async fn post(
     Ok(())
 }
 
-// Sends each undelivered event of the Workstream to its Lead session, and starts the session when none runs. A session that already has an event skips the copy.
+// Sends each ready event of the Workstream to its Lead session, and starts the session when none runs. A session that already has an event skips the copy.
 pub(crate) async fn wake_events(
     engine: &Engine,
     repository: &str,
@@ -142,7 +151,7 @@ pub(crate) async fn wake_events(
     let mut events = engine
         .store
         .lead_events()
-        .undelivered(repository, workstream)
+        .ready(repository, workstream)
         .await?
         .into_iter();
     let Some(first) = events.next() else {
@@ -410,6 +419,7 @@ async fn run(
                 );
             }
         };
+        let current = Arc::new(Mutex::new(Current::default()));
         let caller = mcp::Caller {
             session,
             role,
@@ -420,6 +430,7 @@ async fn run(
             fix: None,
             review: None,
             judge: None,
+            turn: Some(current.clone()),
         };
         let key = match mcp::open(&engine, caller) {
             Ok(key) => key,
@@ -433,9 +444,8 @@ async fn run(
                 );
             }
         };
-        let mut current = None;
         let result = tokio::select! {
-            result = chat(&engine, &first, &key, &mut recorder, &mut commands, &mut queue, &mut current) => result.map(|()| "idle"),
+            result = chat(&engine, &first, &key, &mut recorder, &mut commands, &mut queue, &current) => result.map(|()| "idle"),
             () = lead::stopped(&mut stops, &repository, workstream) => Ok("stopped"),
         };
         mcp::close(&engine, &key);
@@ -457,7 +467,8 @@ async fn run(
         if !lead::context_error(&*error) {
             crashes += 1;
         }
-        if let Some(item) = current {
+        let item = current.lock().unwrap().item.take();
+        if let Some(item) = item {
             if crashes <= lead::MAX_CRASHES {
                 first = item;
                 continue;
@@ -530,8 +541,7 @@ async fn chat(
     recorder: &mut Recorder,
     commands: &mut UnboundedReceiver<Command>,
     queue: &mut VecDeque<Item>,
-    // The item of the turn that runs. A crash in this turn sends the item again in a new session.
-    current: &mut Option<Item>,
+    current: &Mutex<Current>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let (organization, repository, workstream) = recorder.chat_key();
     let key = &(organization.to_string(), repository.to_string(), workstream);
@@ -563,7 +573,7 @@ async fn chat(
         gh_url.as_deref(),
     )
     .await?;
-    *current = Some(first.clone());
+    current.lock().unwrap().item = Some(first.clone());
     item_turn(
         &session,
         first,
@@ -574,8 +584,7 @@ async fn chat(
         queue,
     )
     .await?;
-    deliver(engine, first).await?;
-    *current = None;
+    end_turn(engine, repository, workstream, first, current, queue).await?;
     loop {
         while let Some(item) = queue.pop_front() {
             let prompt = match &item {
@@ -588,7 +597,7 @@ async fn chat(
                     event_prompt(event)
                 }
             };
-            *current = Some(item.clone());
+            current.lock().unwrap().item = Some(item.clone());
             item_turn(
                 &session,
                 &item,
@@ -599,8 +608,7 @@ async fn chat(
                 queue,
             )
             .await?;
-            deliver(engine, &item).await?;
-            *current = None;
+            end_turn(engine, repository, workstream, &item, current, queue).await?;
         }
         {
             let mut chats = engine.chats.lock().unwrap();
@@ -668,7 +676,7 @@ async fn chat(
     Ok(())
 }
 
-// A copy of an event that an earlier turn delivered is not pending.
+// A copy of an event that an earlier turn delivered or held is not pending. A held event holds the copies of each later event of its task issue.
 async fn pending(
     engine: &Engine,
     repository: &str,
@@ -678,10 +686,10 @@ async fn pending(
     Ok(engine
         .store
         .lead_events()
-        .undelivered(repository, workstream)
+        .ready(repository, workstream)
         .await?
         .iter()
-        .any(|undelivered| undelivered.id == event.id))
+        .any(|ready| ready.id == event.id))
 }
 
 // The reply text of an event turn goes only to the transcript. The Lead uses `tell_owner` to write to the Owner.
@@ -704,10 +712,40 @@ async fn item_turn(
     Ok(())
 }
 
-async fn deliver(engine: &Engine, item: &Item) -> Result<(), Box<dyn Error + Send + Sync>> {
-    if let Item::Event(event) = item {
-        engine.store.lead_events().deliver(event.id).await?;
+pub(crate) fn hold_event(current: &Mutex<Current>) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let mut current = current.lock().unwrap();
+    if !matches!(current.item, Some(Item::Event(_))) {
+        return Err("hold_event works only in a turn for an event.".into());
     }
+    current.held = true;
+    Ok(
+        "Mobius holds the event. It sends the event again after your next reply to the Owner."
+            .to_string(),
+    )
+}
+
+// An event is delivered at the end of its turn, unless the Lead held it. The end of a turn for an Owner message frees each held event.
+async fn end_turn(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+    item: &Item,
+    current: &Mutex<Current>,
+    queue: &mut VecDeque<Item>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let events = engine.store.lead_events();
+    match item {
+        Item::Event(event) if current.lock().unwrap().held => events.hold(event.id).await?,
+        Item::Event(event) => events.deliver(event.id).await?,
+        Item::Message(message) if message.author == Author::Owner => {
+            events.free(repository, workstream).await?;
+            for event in events.ready(repository, workstream).await? {
+                queue.push_back(Item::Event(event));
+            }
+        }
+        Item::Message(_) => {}
+    }
+    *current.lock().unwrap() = Current::default();
     Ok(())
 }
 

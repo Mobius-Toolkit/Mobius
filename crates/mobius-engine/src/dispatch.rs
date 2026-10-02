@@ -119,7 +119,15 @@ pub(crate) async fn dispatch(
         actor,
         issue.body.as_deref().unwrap_or_default(),
     )?;
-    lead_events::add(engine, name, workstream, "dispatch", &text).await
+    lead_events::add(
+        engine,
+        name,
+        workstream,
+        Some(issue.number),
+        "dispatch",
+        &text,
+    )
+    .await
 }
 
 pub(crate) async fn comment_events(
@@ -154,7 +162,15 @@ pub(crate) async fn comment_events(
             &comment.user.login,
             &comment.body,
         )?;
-        lead_events::add(engine, name, task.workstream, "comment", &text).await?;
+        lead_events::add(
+            engine,
+            name,
+            task.workstream,
+            Some(issue.number),
+            "comment",
+            &text,
+        )
+        .await?;
     }
     Ok(())
 }

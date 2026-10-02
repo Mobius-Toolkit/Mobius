@@ -78,6 +78,7 @@ async fn session(
             fix: None,
             review: None,
             judge: None,
+            turn: None,
         },
     )?;
     let result = tokio::select! {

@@ -163,7 +163,8 @@ async fn changed_issues(
                             &actor.login,
                             issue.body.as_deref().unwrap_or_default(),
                         )?;
-                        lead_events::add(engine, name, issue.number, "creation", &text).await?;
+                        lead_events::add(engine, name, issue.number, None, "creation", &text)
+                            .await?;
                     }
                 }
                 // A removal from any author counts, because it only stops work.

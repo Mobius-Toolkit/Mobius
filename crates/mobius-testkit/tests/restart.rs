@@ -117,6 +117,7 @@ async fn a_restart_starts_the_implementer_again_and_the_lead_session() {
             .add(
                 REPOSITORY,
                 12,
+                Some(41),
                 "comment",
                 "A comment before the restart.",
                 None,

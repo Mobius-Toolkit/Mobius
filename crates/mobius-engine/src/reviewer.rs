@@ -167,6 +167,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                 head: job.head.clone(),
             }),
             judge: None,
+            turn: None,
         },
     )?;
     let result = tokio::select! {
@@ -336,6 +337,7 @@ pub(crate) async fn ready_for_review(
         engine,
         &job.repository,
         job.workstream,
+        Some(job.number),
         "ready_for_review",
         &text,
     )

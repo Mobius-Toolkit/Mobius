@@ -153,7 +153,15 @@ pub(crate) async fn fix_round(
                 "the pull request has open items after {max} fix rounds. Mobius set the Mobius check to failure and added mobius:needs-human."
             ),
         )?;
-        return lead_events::add(engine, &round.repository, round.workstream, "stop", &text).await;
+        return lead_events::add(
+            engine,
+            &round.repository,
+            round.workstream,
+            Some(round.number),
+            "stop",
+            &text,
+        )
+        .await;
     }
     let brief = lead::brief(repository, round.workstream).await?;
     let issue = repository
@@ -376,6 +384,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
             }),
             review: None,
             judge: None,
+            turn: None,
         },
     )?;
     let result = tokio::select! {
@@ -429,7 +438,15 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                     engine.config.max_check_attempts
                 ),
             )?;
-            lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
+            lead_events::add(
+                engine,
+                &job.repository,
+                job.workstream,
+                Some(job.number),
+                "stop",
+                &text,
+            )
+            .await
         }
         Ok(Outcome::NotMerged) => {
             lead::end_session(engine, session, "not_merged").await?;
@@ -442,7 +459,15 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                 &job.title,
                 "the conflict round did not merge the base branch. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.",
             )?;
-            lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
+            lead_events::add(
+                engine,
+                &job.repository,
+                job.workstream,
+                Some(job.number),
+                "stop",
+                &text,
+            )
+            .await
         }
         Ok(Outcome::PushRejected(error)) => {
             lead::end_session(engine, session, "push_rejected").await?;
@@ -457,7 +482,15 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                     "GitHub rejected the push. Mobius added mobius:needs-human. Git gave this error:\n\n```\n{error}\n```"
                 ),
             )?;
-            lead_events::add(engine, &job.repository, job.workstream, "stop", &text).await
+            lead_events::add(
+                engine,
+                &job.repository,
+                job.workstream,
+                Some(job.number),
+                "stop",
+                &text,
+            )
+            .await
         }
         Ok(Outcome::CannotDo(reason)) => {
             lead::end_session(engine, session, "cannot_do").await?;
@@ -471,7 +504,15 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
                 return Ok(());
             }
             let text = cannot_do_text(OffsetDateTime::now_utc(), job, &reason)?;
-            lead_events::add(engine, &job.repository, job.workstream, "cannot_do", &text).await
+            lead_events::add(
+                engine,
+                &job.repository,
+                job.workstream,
+                Some(job.number),
+                "cannot_do",
+                &text,
+            )
+            .await
         }
         Err(error) => {
             recorder.fail(&error.to_string()).await?;
