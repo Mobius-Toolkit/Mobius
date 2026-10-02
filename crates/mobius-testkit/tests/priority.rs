@@ -9,6 +9,7 @@ use time::{Duration, OffsetDateTime};
 
 const REPOSITORY: &str = "owner/shop";
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_fake-agent");
+// A new Lead session gets the earlier events in its first prompt, so the newest dispatch comes first.
 const CLAUDE: &str = r#"
 [options]
 model = ["sonnet", "opus"]
@@ -20,16 +21,16 @@ when = "You are the Reviewer"
 shell = "true"
 
 [[prompts]]
-when = "dispatch of #41"
-call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
+when = "dispatch of #45"
+call = { tool = "start_implementer", arguments = { n = 45, instructions = "Add a price page." } }
 
 [[prompts]]
 when = "dispatch of #43"
 call = { tool = "start_implementer", arguments = { n = 43, instructions = "Round prices down." } }
 
 [[prompts]]
-when = "dispatch of #45"
-call = { tool = "start_implementer", arguments = { n = 45, instructions = "Add a price page." } }
+when = "dispatch of #41"
+call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
 "#;
 const IMPLEMENTER: &str = r#"
 [options]
