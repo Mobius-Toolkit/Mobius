@@ -170,10 +170,12 @@ async fn all_tasks_closed(engine: &Engine) -> bool {
     workstreams::list(engine).await.unwrap()[0].all_tasks_closed
 }
 
-// Gives the Mobius poll at least one full pass after the call.
-async fn wait_for_polls(github: &FakeGitHub) {
-    let before = github.not_modified_count();
-    wait_for(async || (github.not_modified_count() >= before + 4).then_some(())).await;
+// Ends after the polls of the setup sent their last broadcast, so a later broadcast has a new cause.
+async fn wait_until_quiet(feed: &mut Feed) {
+    while tokio::time::timeout(Duration::from_millis(500), feed.next())
+        .await
+        .is_ok()
+    {}
 }
 
 async fn workstream_with_task(engine: &Engine, github: &FakeGitHub) {
@@ -239,8 +241,8 @@ async fn the_close_of_a_sub_issue_goes_live_as_a_workstream_change() {
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github).await;
     workstream_with_task(&engine, &github).await;
-    wait_for_polls(&github).await;
     let mut feed = activity::feed(&engine, None).await.unwrap();
+    wait_until_quiet(&mut feed).await;
     github.close_issue(REPOSITORY, 41);
 
     tokio::time::timeout(Duration::from_secs(5), async {
