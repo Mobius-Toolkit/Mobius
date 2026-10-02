@@ -10,7 +10,7 @@ use mobius_api::{
     drain_cancel, drain_state, fix_labels, github_apps, github_manifest, inbox_dismiss,
     inbox_items, inbox_resume, live, login, logout, organizations, release, task_list,
     transcript_lines, unread, upgrade, upgrade_error as upgrade_error_state, workstream_autopilot,
-    workstreams,
+    workstream_close, workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, DrainEnd, FeedRow, InboxItem, InboxKind, LabelStatus, Live,
@@ -1114,6 +1114,8 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     // error are keyed by the Workstream, so a late answer cannot touch another chat.
     let mut autopilot_call = use_signal(|| None::<(String, i64)>);
     let mut autopilot_error = use_signal(|| None::<((String, i64), String)>);
+    let mut close_call = use_signal(|| None::<(String, i64)>);
+    let mut close_error = use_signal(|| None::<((String, i64), String)>);
     let workstream = match &*workstream_list.read() {
         Some(Ok(list)) => list
             .iter()
@@ -1127,6 +1129,13 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     let autopilot_busy = autopilot_call().is_some_and(|key| key.0 == repository && key.1 == number);
     let autopilot_note = autopilot_error()
         .and_then(|(key, text)| (key.0 == repository && key.1 == number).then_some(text));
+    let all_tasks_closed = workstream
+        .as_ref()
+        .is_some_and(|workstream| workstream.all_tasks_closed);
+    let close_busy = close_call().is_some_and(|key| key.0 == repository && key.1 == number);
+    let close_note = close_error()
+        .and_then(|(key, text)| (key.0 == repository && key.1 == number).then_some(text));
+    let close_repository = repository.clone();
     let switch_repository = repository.clone();
     rsx! {
         div { class: "page",
@@ -1173,6 +1182,41 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
                 note: rsx! {
                     if let Some(note) = autopilot_note {
                         div { class: "error note", {note} }
+                    }
+                    if all_tasks_closed {
+                        div { class: "note closing",
+                            span { "All tasks are closed." }
+                            button {
+                                class: "btn primary",
+                                disabled: close_busy,
+                                onclick: move |_| {
+                                    let repository = close_repository.clone();
+                                    async move {
+                                        let key = (repository.clone(), number);
+                                        close_call.set(Some(key.clone()));
+                                        match workstream_close(repository, number).await {
+                                            Ok(()) => {
+                                                if close_error().is_some_and(|(other, _)| other == key) {
+                                                    close_error.set(None);
+                                                }
+                                            }
+                                            Err(failure) => {
+                                                close_error
+                                                    .set(Some((key.clone(), error_text(&failure))))
+                                            }
+                                        }
+                                        workstream_list.restart();
+                                        if close_call() == Some(key) {
+                                            close_call.set(None);
+                                        }
+                                    }
+                                },
+                                "Close Workstream"
+                            }
+                            if let Some(note) = close_note {
+                                span { class: "error", {note} }
+                            }
+                        }
                     }
                 },
                 tail: rsx! {

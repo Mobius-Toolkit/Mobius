@@ -26,6 +26,24 @@ shell = "true"
 when = "dispatch of #41"
 call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
 "#;
+const CLAUDE_HANGING_REVIEWER: &str = r#"
+[options]
+model = ["sonnet", "opus"]
+thought_level = ["low", "high"]
+mode = ["default", "bypassPermissions"]
+
+[[prompts]]
+when = "The Owner talks to you in this chat."
+hang = true
+
+[[prompts]]
+when = "You are the Reviewer"
+hang = true
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
+"#;
 const IMPLEMENTER: &str = r#"
 [options]
 model = ["swe-1.5"]
@@ -169,6 +187,62 @@ async fn a_completion_stops_the_lead() {
 
     let chat = ended(&engine, "lead_chat").await;
     assert_eq!(chat.end_reason.as_deref(), Some("stopped"));
+}
+
+#[tokio::test]
+async fn a_completion_closes_the_workstream_and_ends_the_live_task() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, IMPLEMENTER).await;
+    install_fake_harness(
+        data_dir.path(),
+        FAKE_AGENT,
+        "claude-agent-acp",
+        CLAUDE_HANGING_REVIEWER,
+    );
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the next step.")
+        .await
+        .unwrap();
+    started(&engine, "lead_chat").await;
+    started(&engine, "reviewer").await;
+    assert!(!workstreams::list(&engine).await.unwrap()[0].all_tasks_closed);
+
+    // The pull request is open and the Reviewer works, so only the completion ends them.
+    github.close_issue(REPOSITORY, 41);
+
+    wait_for(async || {
+        workstreams::list(&engine).await.unwrap()[0]
+            .all_tasks_closed
+            .then_some(())
+    })
+    .await;
+    assert!(
+        engine
+            .store
+            .tasks()
+            .live(REPOSITORY, 41)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    workstreams::complete(&engine, REPOSITORY, 12)
+        .await
+        .unwrap();
+    assert_eq!(
+        github.state(REPOSITORY, 12),
+        ("closed".to_string(), Some("completed".to_string()))
+    );
+    assert_eq!(
+        engine.store.tasks().live(REPOSITORY, 41).await.unwrap(),
+        None
+    );
+    for role in ["reviewer", "lead_chat"] {
+        assert_eq!(
+            ended(&engine, role).await.end_reason.as_deref(),
+            Some("stopped")
+        );
+    }
 }
 
 #[tokio::test]

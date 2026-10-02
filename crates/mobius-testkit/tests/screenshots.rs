@@ -1294,3 +1294,102 @@ async fn the_triager_chat_stays_open_after_its_actions() {
     }
     browser.close().await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
+async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let url = serve_ui(&engine).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    github.add_repository(REPOSITORY);
+    for (number, title, task) in [(12, "Desktop plans", 41), (13, "Phone plans", 42)] {
+        github.add_issue(REPOSITORY, number, title);
+        github.add_label(REPOSITORY, number, "mobius:workstream", "owner");
+        github.add_issue(REPOSITORY, task, "Add plan model");
+        github.add_sub_issue(REPOSITORY, number, task);
+    }
+    github.fail_close(REPOSITORY, 13);
+    wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 2).then_some(())).await;
+    let (mut browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .launch_timeout(Duration::from_secs(60))
+            .no_sandbox()
+            .arg("--hide-scrollbars")
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
+    log_in(&browser, &format!("{url}/github")).await;
+    for (viewport, number, title, task, closes) in [
+        (DESKTOP, 12, "Desktop plans", 41, true),
+        (PHONE, 13, "Phone plans", 42, false),
+    ] {
+        let page = open(
+            &browser,
+            &format!("{url}/workstreams/owner/shop/{number}"),
+            viewport,
+        )
+        .await;
+        wait_until_ready(&page, title, false).await;
+        wait_until_live(&page).await;
+        assert!(!check(&page, "!!document.querySelector('.closing')".to_string()).await);
+
+        github.close_issue(REPOSITORY, task);
+
+        wait_for(async || {
+            check(&page, "!!document.querySelector('.closing')".to_string())
+                .await
+                .then_some(())
+        })
+        .await;
+        assert!(
+            check(
+                &page,
+                "(() => { const note = document.querySelector('.closing');\
+                 const button = note.querySelector('button').getBoundingClientRect();\
+                 return button.left >= 0 && button.right <= window.innerWidth \
+                 && note.scrollWidth <= note.clientWidth; })()"
+                    .to_string()
+            )
+            .await
+        );
+        assert!(
+            check(
+                &page,
+                "(() => { document.querySelector('.closing button').click(); return true; })()"
+                    .to_string()
+            )
+            .await
+        );
+        let link =
+            format!("!!document.querySelector('a[href=\"/workstreams/owner/shop/{number}\"]')");
+        if closes {
+            wait_for(async || (github.state(REPOSITORY, number).0 == "closed").then_some(())).await;
+            wait_for(async || (!check(&page, link.clone()).await).then_some(())).await;
+            assert!(!check(&page, "!!document.querySelector('.closing')".to_string()).await);
+        } else {
+            wait_for(async || {
+                check(
+                    &page,
+                    "!!document.querySelector('.closing .error')?.textContent".to_string(),
+                )
+                .await
+                .then_some(())
+            })
+            .await;
+            assert_eq!(github.state(REPOSITORY, number).0, "open");
+            assert!(check(&page, link).await);
+            assert!(check(&page, "!!document.querySelector('.closing')".to_string()).await);
+        }
+        page.close().await.unwrap();
+    }
+    browser.close().await.unwrap();
+}

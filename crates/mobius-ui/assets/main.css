@@ -677,6 +677,13 @@ button.chip.on {
   padding: 8px 14px;
 }
 
+.closing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .side {
   width: 360px;
   flex: none;
@@ -1009,6 +1016,7 @@ a.node {
   }
 
   .item .btn,
+  .closing .btn,
   .login .btn,
   .connect .btn {
     padding-top: 11px;
