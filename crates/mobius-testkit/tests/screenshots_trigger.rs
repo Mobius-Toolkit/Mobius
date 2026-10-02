@@ -23,7 +23,7 @@ fn ui_changed(files: &str) -> String {
 }
 
 #[test]
-fn server_code_does_not_run_the_screenshots() {
+fn docs_change_does_not_run_the_screenshots() {
     assert_eq!(ui_changed("docs/install.md\n"), "false");
 }
 
