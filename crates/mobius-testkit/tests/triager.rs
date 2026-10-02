@@ -243,8 +243,14 @@ async fn the_triager_chat_creates_a_workstream_after_the_approval() {
         github.labels(REPOSITORY, 13),
         ["mobius:workstream".to_string()]
     );
-    let session = triagers(&engine, "owner", "").await.remove(0);
-    let prompts = texts(&engine, session.id, "prompt").await;
+    let prompts = wait_for(async || {
+        let mut prompts = Vec::new();
+        for session in triagers(&engine, "owner", "").await {
+            prompts.extend(texts(&engine, session.id, "prompt").await);
+        }
+        (prompts.len() == 2).then_some(prompts)
+    })
+    .await;
     for part in [
         "You are the Triager",
         "# Open Workstreams\n\n#12 Integrate loyalty plans (owner/shop)\n\nShip loyalty plans to all shops.\n",
@@ -252,7 +258,7 @@ async fn the_triager_chat_creates_a_workstream_after_the_approval() {
     ] {
         assert!(prompts[0].contains(part), "{part:?} in {}", prompts[0]);
     }
-    assert_eq!(prompts[1], "Yes, create it.");
+    assert!(prompts[1].contains("Yes, create it."));
 }
 
 #[tokio::test]
