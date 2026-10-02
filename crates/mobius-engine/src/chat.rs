@@ -725,6 +725,7 @@ pub(crate) fn hold_event(current: &Mutex<Current>) -> Result<String, Box<dyn Err
 }
 
 // An event is delivered at the end of its turn, unless the Lead held it. The end of a turn for an Owner message frees each held event.
+// The freed events replace the queued events, so that a later event of a task does not pass its held event.
 async fn end_turn(
     engine: &Engine,
     repository: &str,
@@ -739,6 +740,7 @@ async fn end_turn(
         Item::Event(event) => events.deliver(event.id).await?,
         Item::Message(message) if message.author == Author::Owner => {
             events.free(repository, workstream).await?;
+            queue.retain(|item| matches!(item, Item::Message(_)));
             for event in events.ready(repository, workstream).await? {
                 queue.push_back(Item::Event(event));
             }
