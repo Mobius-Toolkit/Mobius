@@ -24,13 +24,18 @@ fn ui_changed(files: &str) -> String {
 
 #[test]
 fn server_code_does_not_run_the_screenshots() {
-    assert_eq!(ui_changed("crates/mobius-engine/src/checks.rs\n"), "false");
+    assert_eq!(ui_changed("docs/install.md\n"), "false");
 }
 
 #[test]
 fn ui_file_runs_the_screenshots() {
     assert_eq!(
-        ui_changed("crates/mobius-engine/src/checks.rs\ncrates/mobius-ui/src/lib.rs\n"),
+        ui_changed("docs/install.md\ncrates/mobius-ui/src/lib.rs\n"),
         "true"
     );
+}
+
+#[test]
+fn engine_code_runs_the_screenshots() {
+    assert_eq!(ui_changed("crates/mobius-engine/src/checkup.rs\n"), "true");
 }
