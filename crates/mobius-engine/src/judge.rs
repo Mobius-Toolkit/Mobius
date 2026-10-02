@@ -462,7 +462,7 @@ async fn route(
     }
     for (id, reason) in &routes.rejects {
         if let Some(target) = threads::target(&repository, pull_request, *id).await? {
-            threads::reply(&repository, pull_request, &target, reason, false).await?;
+            threads::reply(&repository, pull_request, &target, reason).await?;
         }
     }
     for (id, text) in &routes.follow_ups {

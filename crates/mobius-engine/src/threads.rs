@@ -32,22 +32,19 @@ pub(crate) async fn target(
         .map(|comment| Target::Comment { body: comment.body }))
 }
 
-// A conversation comment has no thread, so the reply is a new comment that quotes it, and Mobius cannot resolve it.
+// A reply to a review thread resolves the thread. A conversation comment has no thread, so the reply is a new comment that quotes it, and Mobius cannot resolve it.
 pub(crate) async fn reply(
     repository: &Repository,
     pull_request: i64,
     target: &Target,
     text: &str,
-    resolve: bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match target {
         Target::Thread { comment, node } => {
             repository
                 .reply_to_review_comment(pull_request, *comment, text)
                 .await?;
-            if resolve {
-                repository.resolve_review_thread(node).await?;
-            }
+            repository.resolve_review_thread(node).await?;
         }
         Target::Comment { body } => {
             let quoted: Vec<String> = body.lines().map(|line| format!("> {line}")).collect();
