@@ -549,7 +549,7 @@ impl GitHub {
             .await?)
     }
 
-    // The messages of the commits after `current` up to `new`, the oldest first. A page holds at most 100 commits.
+    // The messages of the commits after `current` up to `new`, the oldest first. The response holds at most 250 commits.
     pub async fn commit_messages(
         &self,
         current: &str,
@@ -559,7 +559,7 @@ impl GitHub {
             .api
             .get(
                 format!("/repos/Mobius-Toolkit/Mobius/compare/{current}...{new}"),
-                Some(&[("per_page", "100")]),
+                None::<&()>,
             )
             .await?;
         Ok(comparison
