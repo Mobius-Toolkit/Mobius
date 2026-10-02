@@ -371,16 +371,20 @@ async fn a_stale_pull_request_behind_its_base_goes_to_a_human_with_the_behind_re
 
     github.commit_file(REPOSITORY, "price.txt", "dollars\n", "Add price");
 
-    wait_for(async || {
-        (task_state(&engine, 41).await.as_deref() == Some("needs_human")).then_some(())
+    let stale = wait_for(async || {
+        let stale: Vec<_> = inbox::list(&engine)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|item| item.kind == InboxKind::StalePullRequest)
+            .collect();
+        (!stale.is_empty()).then_some(stale)
     })
     .await;
-    let stale: Vec<_> = inbox::list(&engine)
-        .await
-        .unwrap()
-        .into_iter()
-        .filter(|item| item.kind == InboxKind::StalePullRequest)
-        .collect();
+    assert_eq!(
+        task_state(&engine, 41).await.as_deref(),
+        Some("needs_human")
+    );
     assert_eq!(stale.len(), 1);
     assert_eq!(
         stale[0].text,
