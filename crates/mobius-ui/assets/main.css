@@ -525,6 +525,13 @@ button.chip.on {
   border-color: transparent;
 }
 
+.msg.event {
+  background: transparent;
+  border-style: dashed;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
 .msg .meta {
   display: flex;
   gap: 6px;

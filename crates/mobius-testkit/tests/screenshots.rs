@@ -136,6 +136,25 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
     github.add_label(REPOSITORY, 42, "mobius:ready", "owner");
     wait_for(async || (!inbox::list(engine).await.unwrap().is_empty()).then_some(())).await;
 
+    // The event entries of the labels hold the time of the run, so the screenshots keep only the fixed event entry.
+    sqlx::query("DELETE FROM chat_messages WHERE author = 'Event'")
+        .execute(&engine.store.pool)
+        .await
+        .unwrap();
+    // The long event text and the long URL wrap inside the muted entry.
+    engine
+        .store
+        .chat_messages()
+        .add(
+            "owner",
+            REPOSITORY,
+            12,
+            Author::Event,
+            "A trusted user commented on #41 \"Add plan model\": https://example.com/reports/loyalty/plans/every-customer-segment-and-billing-period",
+        )
+        .await
+        .unwrap();
+
     // The wide code block, the wide table, and the long URL scroll or break inside the bubble.
     chat::send(
         engine,
@@ -417,6 +436,66 @@ async fn message_list_scrolls_to_the_bottom() {
              && list.scrollHeight > list.clientHeight \
              && list.scrollHeight - list.scrollTop - list.clientHeight < 5; }})()"
         );
+        wait_for(async || check(&page, script.clone()).await.then_some(())).await;
+        page.close().await.unwrap();
+    }
+    browser.close().await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
+async fn an_event_shows_in_the_chat_with_the_muted_style_and_wraps_on_the_phone() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let url = serve_ui(&engine).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 1).then_some(())).await;
+    let text = format!("A comment arrived: {}", "word".repeat(60));
+    engine
+        .store
+        .chat_messages()
+        .add("owner", REPOSITORY, 12, Author::Event, &text)
+        .await
+        .unwrap();
+    let (mut browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .launch_timeout(Duration::from_secs(60))
+            .no_sandbox()
+            .arg("--hide-scrollbars")
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
+    log_in(&browser, &format!("{url}/github")).await;
+    for viewport in [DESKTOP, PHONE] {
+        let page = open(
+            &browser,
+            &format!("{url}/workstreams/owner/shop/12"),
+            viewport,
+        )
+        .await;
+        wait_until_ready(&page, "A comment arrived", false).await;
+        let script = "(() => { const event = document.querySelector(\".msg.event\");\
+             const root = getComputedStyle(document.documentElement);\
+             const probe = document.createElement(\"span\");\
+             probe.style.color = root.getPropertyValue(\"--muted\");\
+             document.body.append(probe);\
+             const muted = getComputedStyle(probe).color;\
+             probe.remove();\
+             const list = document.querySelector(\".msgs\");\
+             return !!event && getComputedStyle(event).color === muted \
+             && list.scrollWidth <= list.clientWidth; })()"
+            .to_string();
         wait_for(async || check(&page, script.clone()).await.then_some(())).await;
         page.close().await.unwrap();
     }

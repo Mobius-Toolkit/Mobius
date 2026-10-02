@@ -175,16 +175,18 @@ pub enum Author {
     Researcher,
     Triager,
     Mobius,
+    Event,
 }
 
 impl Author {
-    pub const ALL: [Author; 6] = [
+    pub const ALL: [Author; 7] = [
         Author::Owner,
         Author::Lead,
         Author::TellOwner,
         Author::Researcher,
         Author::Triager,
         Author::Mobius,
+        Author::Event,
     ];
 
     pub fn name(self) -> &'static str {
@@ -195,6 +197,7 @@ impl Author {
             Author::Researcher => "Researcher",
             Author::Triager => "Triager",
             Author::Mobius => "Mobius",
+            Author::Event => "Event",
         }
     }
 }
