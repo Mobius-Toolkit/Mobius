@@ -259,6 +259,7 @@ async fn ready(
         pull_request,
         head,
         check_run,
+        parent: None,
     };
     reviewer::ready_for_review(engine, repository, &job, "reviewed").await?;
     Ok(true)
@@ -291,6 +292,30 @@ async fn run(engine: Engine, mut stops: Receiver<i64>, job: Job, _drain: drain::
     }
 }
 
+// A Judge that replaces a Judge that a restart ended shows below the parent of the ended Judge.
+async fn parent(engine: &Engine, job: &Job) -> Result<Option<i64>, Box<dyn Error + Send + Sync>> {
+    let sessions = engine
+        .store
+        .sessions()
+        .list(
+            organization(&job.repository),
+            &job.repository,
+            job.workstream,
+        )
+        .await?;
+    let restarted = sessions
+        .iter()
+        .rfind(|session| session.issue == Some(job.number))
+        .is_some_and(|session| {
+            session.role == ROLE && session.end_reason.as_deref() == Some("restart")
+        });
+    if restarted {
+        return lead::restart_parent(engine, &job.repository, job.workstream, job.number, ROLE)
+            .await;
+    }
+    lead::newest_session(engine, &job.repository, job.workstream, job.number).await
+}
+
 async fn session(
     engine: &Engine,
     stops: &mut Receiver<i64>,
@@ -304,7 +329,10 @@ async fn session(
         organization(&job.repository),
         &job.repository,
         job.workstream,
-        Some(job.number),
+        lead::Links {
+            issue: Some(job.number),
+            parent: parent(engine, job).await?,
+        },
     )
     .await?;
     let mut recorder = Recorder::new(
@@ -345,6 +373,7 @@ async fn session(
                 items: job.items.iter().map(|item| (item.id, item.bot)).collect(),
                 verdicts,
             }),
+            turn: None,
         },
     )?;
     let result = tokio::select! {
@@ -445,7 +474,15 @@ async fn route(
             job.title,
             item.map(|item| item.text.as_str()).unwrap_or_default()
         );
-        lead_events::add(engine, &job.repository, job.workstream, "follow_up", &event).await?;
+        lead_events::add(
+            engine,
+            &job.repository,
+            job.workstream,
+            Some(job.number),
+            "follow_up",
+            &event,
+        )
+        .await?;
     }
     if routes.round.is_empty() {
         tasks.set_state(job.task, "working", &job.from).await?;
@@ -474,6 +511,8 @@ async fn route(
             check_run: None,
             counts,
             items: round_text(&job.items, &routes.round),
+            parent: lead::newest_session(engine, &job.repository, job.workstream, job.number)
+                .await?,
         },
     )
     .await

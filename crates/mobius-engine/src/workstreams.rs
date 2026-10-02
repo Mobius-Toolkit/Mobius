@@ -177,7 +177,15 @@ pub(crate) async fn reopen(
         actor,
         issue.body.as_deref().unwrap_or_default(),
     )?;
-    lead_events::add(engine, &repository.full_name, issue.number, "reopen", &text).await
+    lead_events::add(
+        engine,
+        &repository.full_name,
+        issue.number,
+        None,
+        "reopen",
+        &text,
+    )
+    .await
 }
 
 pub(crate) async fn workstream_of(

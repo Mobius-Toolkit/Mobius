@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "a72125dfae6faf39f0b261d687db901d6a1ca97aee1f91143de934571b597dfd"
+}
