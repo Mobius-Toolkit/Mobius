@@ -104,7 +104,7 @@ async fn messages(engine: &Engine) -> Vec<ChatMessage> {
 async fn the_lead_asks_a_question_and_a_trusted_reply_goes_to_the_lead_as_the_next_event() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
-    let script = "[[prompts]]\ncall = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n\n[[prompts]]\nreply = [\"Seen\"]\n\n[[prompts]]\nreply = [\"Seen\"]\n";
+    let script = "[[prompts]]\nwhen = \"comment on #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n\n[[prompts]]\nreply = [\"Seen\"]\n";
     let engine = connect(&data_dir, &github, script).await;
 
     dispatch(&github, 41, "Add plan model");

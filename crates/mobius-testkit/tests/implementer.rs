@@ -253,7 +253,7 @@ async fn cannot_do_goes_to_the_lead_and_the_next_start_merges_a_branch_that_dive
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let lead = format!(
-        "[[prompts]]\nwhen = \"dispatch of #41\"\n{START}\n[[prompts]]\nwhen = \"comment on #41\"\n{START}"
+        "[[prompts]]\nwhen = \"comment on #41\"\n{START}\n[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"ok\"]\n[[prompts]]\nwhen = \"dispatch of #41\"\n{START}"
     );
     let engine = connect(
         &data_dir,
