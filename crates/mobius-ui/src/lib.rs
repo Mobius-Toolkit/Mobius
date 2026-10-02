@@ -1136,6 +1136,11 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
     let close_note = close_error()
         .and_then(|(key, text)| (key.0 == repository && key.1 == number).then_some(text));
     let close_repository = repository.clone();
+    let here = Route::Chat {
+        owner: owner.clone(),
+        repo: repo.clone(),
+        number,
+    };
     let switch_repository = repository.clone();
     rsx! {
         div { class: "page",
@@ -1191,6 +1196,7 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
                                 disabled: close_busy,
                                 onclick: move |_| {
                                     let repository = close_repository.clone();
+                                    let here = here.clone();
                                     async move {
                                         let key = (repository.clone(), number);
                                         close_call.set(Some(key.clone()));
@@ -1198,6 +1204,9 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
                                             Ok(()) => {
                                                 if close_error().is_some_and(|(other, _)| other == key) {
                                                     close_error.set(None);
+                                                }
+                                                if dioxus::router::router().current::<Route>() == here {
+                                                    navigator().replace(Route::WorkstreamList {});
                                                 }
                                             }
                                             Err(failure) => {

@@ -69,6 +69,10 @@ when = "Which roses sell best?"
 reply = ["Red roses sell best."]
 
 [[prompts]]
+when = "Hold the plan."
+hang = true
+
+[[prompts]]
 reply = ["The Implementer works on #41. #42 waits for your decision."]
 "##;
 const IMPLEMENTER: &str = r#"
@@ -1302,6 +1306,7 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
     let github = FakeGitHub::start().await;
     github.add_manifest_code("manifest-code");
     install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "devin", IMPLEMENTER);
     let engine = start(data_dir.path(), "correct horse", &github.url).await;
     let url = serve_ui(&engine).await;
     github::convert_manifest(&engine, "manifest-code")
@@ -1316,6 +1321,28 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
     }
     github.fail_close(REPOSITORY, 13);
     wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 2).then_some(())).await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    chat::send(&engine, "owner", REPOSITORY, 12, "Hold the plan.")
+        .await
+        .unwrap();
+    let agents = async || {
+        engine
+            .store
+            .sessions()
+            .list("owner", REPOSITORY, 12)
+            .await
+            .unwrap()
+    };
+    wait_for(async || {
+        let sessions = agents().await;
+        (["lead_chat", "implementer"].iter().all(|role| {
+            sessions
+                .iter()
+                .any(|session| session.role == *role && session.acp_session_id.is_some())
+        }))
+        .then_some(())
+    })
+    .await;
     let (mut browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
             .launch_timeout(Duration::from_secs(60))
@@ -1373,6 +1400,20 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
             format!("!!document.querySelector('a[href=\"/workstreams/owner/shop/{number}\"]')");
         if closes {
             wait_for(async || (github.state(REPOSITORY, number).0 == "closed").then_some(())).await;
+            wait_for(async || {
+                agents()
+                    .await
+                    .iter()
+                    .all(|session| session.ended_at.is_some())
+                    .then_some(())
+            })
+            .await;
+            for role in ["lead_chat", "implementer"] {
+                assert!(agents().await.iter().any(|session| {
+                    session.role == role && session.end_reason.as_deref() == Some("stopped")
+                }));
+            }
+            assert!(check(&page, "location.pathname === '/workstreams'".to_string()).await);
             wait_for(async || (!check(&page, link.clone()).await).then_some(())).await;
             assert!(!check(&page, "!!document.querySelector('.closing')".to_string()).await);
         } else {
