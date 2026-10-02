@@ -811,3 +811,42 @@ async fn a_failed_review_run_shows_the_reason_and_the_restart_keeps_the_round_nu
     assert_eq!(review_rounds(&engine, 41).await, 1);
     assert_eq!(sessions(&engine, "reviewer").await.len(), 2);
 }
+
+#[tokio::test]
+async fn a_review_run_after_the_limit_posts_the_limit_comment() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        "max_fix_rounds = 1",
+        &format!("{NO_FINDING}{LEAD_FINDINGS}"),
+        "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo more >> plan.txt && git commit -q -am 'Remove the lines'\"\n",
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || {
+        (task_state(&engine, 41).await.as_deref() == Some("ready_for_review")).then_some(())
+    })
+    .await;
+
+    chat::send(&engine, "owner", REPOSITORY, 12, "Send the findings to #41")
+        .await
+        .unwrap();
+
+    wait_for(async || {
+        (task_state(&engine, 41).await.as_deref() == Some("needs_human")).then_some(())
+    })
+    .await;
+    let comments = wait_for(async || {
+        let comments = round_comments(&github);
+        (comments.len() == 2).then_some(comments)
+    })
+    .await;
+    assert!(comments[0].starts_with("Review ended, round 1 of 1\n"));
+    assert_eq!(
+        comments[1],
+        "Review not started. Limit reached (1 of 1). Mobius added mobius:needs-human. Add a comment on this pull request to continue."
+    );
+    assert_eq!(sessions(&engine, "reviewer").await.len(), 1);
+}

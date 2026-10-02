@@ -161,13 +161,18 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
     };
     if task.review_rounds >= i64::from(engine.config.max_fix_rounds) {
         let repository = engine.repository(&job.repository)?;
-        return implementer::stop_at_limit(
-            engine,
-            &repository,
-            &job.round(String::new()),
-            "review",
-        )
-        .await;
+        implementer::stop_at_limit(engine, &repository, &job.round(String::new()), "review")
+            .await?;
+        let max = engine.config.max_fix_rounds;
+        repository
+            .add_comment(
+                job.pull_request.number,
+                &format!(
+                    "Review not started. Limit reached ({max} of {max}). Mobius added mobius:needs-human. Add a comment on this pull request to continue."
+                ),
+            )
+            .await?;
+        return Ok(());
     }
     // The subscription comes before the first state change, so the session gets each stop of the task.
     let mut stops = engine.stops.subscribe();
@@ -370,11 +375,14 @@ async fn review(
             issues::fix_threads(&repository, job.pull_request.number, &findings, &trusted).await?
         }
     };
-    let result = match at_limit {
-        true => format!(
+    let result = match (review_limit, at_limit) {
+        (true, _) => format!(
             "Limit reached ({max} of {max}). Mobius added mobius:needs-human. Add a comment on this pull request to continue."
         ),
-        false => "A fix round started.".to_string(),
+        (false, true) => format!(
+            "Fix round limit reached ({max} of {max}). Mobius added mobius:needs-human. Add a comment on this pull request to continue."
+        ),
+        (false, false) => "A fix round started.".to_string(),
     };
     end_round(engine, &repository, job, task, comment, &result, &open).await?;
     match at_limit {
