@@ -1,5 +1,7 @@
 # The Lead runs as short sessions, not one long session
 
+Replaced by [ADR 0010](0010-one-lead-session-gets-events-and-owner-messages.md).
+
 A Lead is not one Harness session that lives as long as its Workstream. Each Workstream has one chat session and one event session. The chat session starts on demand when the Owner writes, and Mobius closes it after `lead_idle_timeout` with no turn. The event session starts when an event arrives. It gets one event in each turn, and Mobius closes it after `event_idle_timeout` with no event. Each new session gets the Brief, the index of the Workstream memory, the task list, and either the last chat messages or the first event. So the context of the Lead stays small, events never break a discussion with the Owner, and idle Workstreams use no process.
 
 ## Considered Options

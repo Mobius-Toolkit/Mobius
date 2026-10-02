@@ -23,7 +23,7 @@ An external coding-agent program (for example Claude Code, Antigravity CLI, Devi
 _Avoid_: Provider, backend, model
 
 **Mobius App**:
-The GitHub App of one Mobius server. Agents act on GitHub as the App. The Chat session acts as the Owner through the App.
+The GitHub App of one Mobius server. Agents act on GitHub as the App. The Lead session acts as the Owner through the App.
 _Avoid_: Bot account, machine user
 
 **Trusted user**:
@@ -49,16 +49,20 @@ The fixed instructions that Mobius gives to each session of one Role.
 _Avoid_: System prompt, persona
 
 **Lead**:
-The top-level agent of one Workstream, and the only agent that the Owner talks to about the work of that Workstream. It works in one chat session and in event sessions.
+The top-level agent of one Workstream, and the only agent that the Owner talks to about the work of that Workstream. It works in one Lead session.
 _Avoid_: Orchestrator, manager, coordinator
 
-**Chat session**:
-The Lead session that talks with the Owner. It starts when the Owner writes and closes when it is idle. It acts on GitHub as the Owner, through the Mobius App.
-_Avoid_: Conversation, main session
+**Lead session**:
+The one session of a Lead. It starts when the Owner writes or when an event arrives, and it closes when it is idle. It gets the Owner messages and the events in one queue, one item in each turn. It acts on GitHub as the Owner, through the Mobius App.
+_Avoid_: Chat session, event session, conversation, main session
 
-**Event session**:
-A Lead session that handles events from GitHub and from Workers, one event in each turn, and closes when it is idle.
-_Avoid_: Background session, event handler
+**Event entry**:
+The muted entry in the chat for one event. It looks different from a message of the Owner and from a message of the Lead.
+_Avoid_: Notification, system message
+
+**Held event**:
+An event that the Lead keeps with `hold_event` until the next reply to the Owner. It also holds the later events of the same task issue. Mobius sends it again after the end of the next turn for an Owner message.
+_Avoid_: Snoozed event, postponed event
 
 **Triager**:
 The top-level agent that helps the Owner compose a new Workstream and its Brief, and that proposes a Workstream for an issue with no Workstream.
