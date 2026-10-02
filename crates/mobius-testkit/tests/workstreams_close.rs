@@ -26,24 +26,6 @@ shell = "true"
 when = "dispatch of #41"
 call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
 "#;
-const CLAUDE_HANGING_REVIEWER: &str = r#"
-[options]
-model = ["sonnet", "opus"]
-thought_level = ["low", "high"]
-mode = ["default", "bypassPermissions"]
-
-[[prompts]]
-when = "The Owner talks to you in this chat."
-hang = true
-
-[[prompts]]
-when = "You are the Reviewer"
-hang = true
-
-[[prompts]]
-when = "dispatch of #41"
-call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
-"#;
 const IMPLEMENTER: &str = r#"
 [options]
 model = ["swe-1.5"]
@@ -198,7 +180,10 @@ async fn a_completion_closes_the_workstream_and_ends_the_live_task() {
         data_dir.path(),
         FAKE_AGENT,
         "claude-agent-acp",
-        CLAUDE_HANGING_REVIEWER,
+        &CLAUDE.replace(
+            "when = \"You are the Reviewer\"\nshell = \"true\"",
+            "when = \"You are the Reviewer\"\nhang = true",
+        ),
     );
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
     chat::send(&engine, "owner", REPOSITORY, 12, "Plan the next step.")

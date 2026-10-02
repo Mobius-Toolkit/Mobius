@@ -74,6 +74,10 @@ when = "Hold the plan."
 hang = true
 
 [[prompts]]
+when = "You are the Reviewer"
+hang = true
+
+[[prompts]]
 reply = ["The Implementer works on #41. #42 waits for your decision."]
 "##;
 const IMPLEMENTER: &str = r#"
@@ -83,6 +87,14 @@ thought_level = ["high"]
 
 [[prompts]]
 hang = true
+"#;
+const COMMITTING_IMPLEMENTER: &str = r#"
+[options]
+model = ["swe-1.5"]
+thought_level = ["high"]
+
+[[prompts]]
+shell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'"
 "#;
 // The name, the width, the height, and the mobile flag.
 type Viewport = (&'static str, u32, u32, bool);
@@ -1307,7 +1319,7 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
     let github = FakeGitHub::start().await;
     github.add_manifest_code("manifest-code");
     install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
-    install_fake_harness(data_dir.path(), FAKE_AGENT, "devin", IMPLEMENTER);
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "devin", COMMITTING_IMPLEMENTER);
     let engine = start(data_dir.path(), "correct horse", &github.url).await;
     let url = serve_ui(&engine).await;
     github::convert_manifest(&engine, "manifest-code")
@@ -1336,7 +1348,7 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
     };
     wait_for(async || {
         let sessions = agents().await;
-        (["lead_chat", "implementer"].iter().all(|role| {
+        (["lead_chat", "reviewer"].iter().all(|role| {
             sessions
                 .iter()
                 .any(|session| session.role == *role && session.acp_session_id.is_some())
@@ -1389,6 +1401,15 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
             )
             .await
         );
+        if closes {
+            // The pull request of the task is open, so only the closure of the Workstream ends the Reviewer.
+            assert!(
+                agents()
+                    .await
+                    .iter()
+                    .any(|session| { session.role == "reviewer" && session.ended_at.is_none() })
+            );
+        }
         assert!(
             check(
                 &page,
@@ -1409,12 +1430,17 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
                     .then_some(())
             })
             .await;
-            for role in ["lead_chat", "implementer"] {
+            for role in ["lead_chat", "reviewer"] {
                 assert!(agents().await.iter().any(|session| {
                     session.role == role && session.end_reason.as_deref() == Some("stopped")
                 }));
             }
-            assert!(check(&page, "location.pathname === '/workstreams'".to_string()).await);
+            wait_for(async || {
+                check(&page, "location.pathname === '/workstreams'".to_string())
+                    .await
+                    .then_some(())
+            })
+            .await;
             wait_for(async || (!check(&page, link.clone()).await).then_some(())).await;
             assert!(!check(&page, "!!document.querySelector('.closing')".to_string()).await);
         } else {

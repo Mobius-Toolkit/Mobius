@@ -1202,9 +1202,6 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
                                         close_call.set(Some(key.clone()));
                                         match workstream_close(repository, number).await {
                                             Ok(()) => {
-                                                if close_error().is_some_and(|(other, _)| other == key) {
-                                                    close_error.set(None);
-                                                }
                                                 if dioxus::router::router().current::<Route>() == here {
                                                     navigator().replace(Route::WorkstreamList {});
                                                 }
