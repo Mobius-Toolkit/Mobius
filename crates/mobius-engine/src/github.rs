@@ -147,6 +147,21 @@ pub async fn new_release(engine: &Engine) -> Option<String> {
     mobius_domain::newer_release(current, &release.tag_name).then_some(release.tag_name)
 }
 
+pub async fn release_changes(
+    engine: &Engine,
+    new: &str,
+) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    let Some(current) = mobius_domain::RELEASE_VERSION else {
+        return Err("This Mobius build is not a release.".into());
+    };
+    let messages = engine.github.commit_messages(current, new).await?;
+    Ok(messages
+        .iter()
+        .rev()
+        .map(|message| message.lines().next().unwrap_or_default().to_string())
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

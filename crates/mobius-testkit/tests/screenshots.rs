@@ -1294,3 +1294,49 @@ async fn the_triager_chat_stays_open_after_its_actions() {
     }
     browser.close().await.unwrap();
 }
+
+// The Upgrade button needs a release version, so the test also needs `MOBIUS_VERSION` at build time.
+#[tokio::test]
+#[ignore = "starts Chrome, serves the web bundle in DIOXUS_PUBLIC_PATH, and needs MOBIUS_VERSION at build time"]
+async fn the_upgrade_modal_lists_the_release_changes() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    github.set_release(
+        "v0.1.4",
+        &[
+            "Send all events and Owner messages to one lead session (#317)",
+            "Check for a new release each hour (#316)\n\nThe check runs once each hour.",
+            "Server: keep a Workstream in the list when its sub-issues cannot be read (#314)",
+            "Show the release changes in a modal before the upgrade (#320)",
+        ],
+    );
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let url = serve_ui(&engine).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    let (mut browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .launch_timeout(Duration::from_secs(60))
+            .no_sandbox()
+            .arg("--hide-scrollbars")
+            .user_data_dir(data_dir.path().join("chrome"))
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
+    log_in(&browser, &format!("{url}/github")).await;
+    let upgrade = Shot {
+        name: "upgrade",
+        path: "/workstreams/new",
+        clicks: &["button.entry.upd"],
+        expected: "Show the release changes in a modal before the upgrade (#320)",
+        inbox_count: false,
+    };
+    screenshot(&browser, &url, upgrade, DESKTOP).await;
+    browser.close().await.unwrap();
+}
