@@ -82,9 +82,9 @@ async fn prompts(engine: &Engine, session: i64) -> Vec<String> {
         .collect()
 }
 
-async fn lead_event_prompts(engine: &Engine) -> Vec<String> {
+async fn lead_prompts(engine: &Engine) -> Vec<String> {
     let mut all = Vec::new();
-    for session in sessions(engine, "lead_event").await {
+    for session in sessions(engine, "lead_chat").await {
         all.extend(prompts(engine, session.id).await);
     }
     all
@@ -103,15 +103,15 @@ async fn task_state(engine: &Engine, number: i64) -> Option<String> {
 const NO_FINDING: &str = "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"true\"\n";
 
 async fn ready_for_review_events(engine: &Engine) -> usize {
-    lead_event_prompts(engine)
+    lead_prompts(engine)
         .await
         .iter()
-        .map(|prompt| {
-            prompt
-                .matches(" ready for review of #41 \"Add plan model\"")
-                .count()
+        .filter(|prompt| {
+            prompt.rsplit_once("# Event\n\n").is_some_and(|(_, event)| {
+                event.contains(" ready for review of #41 \"Add plan model\"")
+            })
         })
-        .sum()
+        .count()
 }
 
 #[tokio::test]
@@ -244,7 +244,7 @@ async fn a_stale_pull_request_with_a_merge_conflict_goes_to_a_human() {
     })
     .await;
     assert!(
-        lead_event_prompts(&engine).await.iter().any(|prompt| prompt.contains(
+        lead_prompts(&engine).await.iter().any(|prompt| prompt.contains(
             " stale pull request #42 of #41 \"Add plan model\": it has a merge conflict and is older than 7days. https://github.com/owner/shop/pull/42"
         ))
     );
@@ -290,7 +290,7 @@ async fn a_conflict_round_that_does_not_merge_the_base_branch_stops_the_task() {
     github.commit_file(REPOSITORY, "plan.txt", "dollars\n", "Use dollars");
 
     wait_for(async || {
-        lead_event_prompts(&engine)
+        lead_prompts(&engine)
             .await
             .iter()
             .any(|prompt| {

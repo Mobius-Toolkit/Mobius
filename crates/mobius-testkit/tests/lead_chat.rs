@@ -3,9 +3,10 @@ use std::path::Path;
 use std::time::Duration;
 
 use mobius_domain::{Author, ChatMessage, Live, Session, TranscriptRow, Unread};
+use mobius_engine::config::Config;
 use mobius_engine::{Engine, activity, chat, github, tasks, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
-use mobius_testkit::{install_fake_agent, start, wait_for, wait_for_first_poll};
+use mobius_testkit::{install_fake_agent, start_with, wait_for, wait_for_first_poll};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -19,12 +20,21 @@ mode = ["default", "bypassPermissions"]
 "#;
 
 async fn connect(data_dir: &TempDir, github: &FakeGitHub, script: &str) -> Engine {
+    connect_with(data_dir, github, script, |_| {}).await
+}
+
+async fn connect_with(
+    data_dir: &TempDir,
+    github: &FakeGitHub,
+    script: &str,
+    adjust: impl FnOnce(&mut Config),
+) -> Engine {
     github.add_manifest_code("manifest-code");
     github.add_repository(REPOSITORY);
     github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
     github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
     install_fake_agent(data_dir.path(), FAKE_AGENT, script);
-    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let engine = start_with(data_dir.path(), "correct horse", &github.url, "", adjust).await;
     github::convert_manifest(&engine, "manifest-code")
         .await
         .unwrap();
@@ -557,7 +567,7 @@ call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "
         "{list:?}"
     );
 
-    // The event session of the new Workstream does not have `create_workstream`.
+    // The Lead of the new Workstream has the same tools as the Lead of the first Workstream.
     let tools = wait_for(async || {
         let session = engine
             .store
@@ -566,7 +576,7 @@ call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "
             .await
             .unwrap()
             .into_iter()
-            .find(|session| session.role == "lead_event")?;
+            .find(|session| session.role == "lead_chat")?;
         transcript(&engine, session.id)
             .await
             .iter()
@@ -588,9 +598,9 @@ call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();
-    assert!(names.contains(&"tell_owner"), "{names:?}");
-    assert!(!names.contains(&"create_workstream"), "{names:?}");
-    assert!(!names.contains(&"move_task"), "{names:?}");
+    for name in ["tell_owner", "create_workstream", "move_task"] {
+        assert!(names.contains(&name), "{names:?}");
+    }
 }
 
 #[tokio::test]
@@ -732,4 +742,129 @@ call = { tool = "move_task", arguments = { n = 21, workstream = 20 } }
     wait_for_lead_text(&engine, "error: #13 has a live task. Stop the task first.").await;
     assert_eq!(github.sub_issue_numbers(REPOSITORY, 12), [13, 14, 15]);
     assert_eq!(github.sub_issue_numbers(REPOSITORY, 20), [21]);
+}
+
+fn dispatch_task(github: &FakeGitHub, number: i64, title: &str) {
+    github.add_issue(REPOSITORY, number, title);
+    github.add_sub_issue(REPOSITORY, 12, number);
+    github.add_label(REPOSITORY, number, "mobius:ready", "owner");
+}
+
+fn keep_session_open(config: &mut Config) {
+    config.lead_idle_timeout = Duration::from_secs(30);
+}
+
+async fn event_delivered(engine: &Engine) -> bool {
+    messages(engine)
+        .await
+        .iter()
+        .any(|message| message.author == Author::Event)
+        && engine
+            .store
+            .lead_events()
+            .undelivered(REPOSITORY, 12)
+            .await
+            .unwrap()
+            .is_empty()
+}
+
+#[tokio::test]
+async fn the_lead_gets_an_event_from_github_and_the_next_owner_question_in_the_same_session() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let script = format!(
+        "{OPTIONS}\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"The Owner dispatched #41.\"]\n"
+    );
+    let engine = connect_with(&data_dir, &github, &script, keep_session_open).await;
+
+    dispatch_task(&github, 41, "Add plan model");
+    wait_for(async || event_delivered(&engine).await.then_some(())).await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "What happened with #41?")
+        .await
+        .unwrap();
+
+    wait_for_lead_text(&engine, "The Owner dispatched #41.").await;
+    let sessions = sessions(&engine).await;
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    let prompts = prompts(&transcript(&engine, sessions[0].id).await);
+    assert_eq!(prompts.len(), 2, "{prompts:?}");
+    let (_, event) = prompts[0].rsplit_once("# Event\n\n").unwrap();
+    assert!(
+        event.contains(" dispatch of #41 \"Add plan model\" by @owner:"),
+        "{event}"
+    );
+    assert_eq!(prompts[1], "What happened with #41?");
+}
+
+#[tokio::test]
+async fn an_event_during_a_turn_for_an_owner_message_gets_its_own_turn_after_that_turn() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let script = format!(
+        "{OPTIONS}\n[[prompts]]\nwhen = \"Plan the API\"\nhang = true\n\n[[prompts]]\nreply = [\"Noted.\"]\n"
+    );
+    let engine = connect_with(&data_dir, &github, &script, keep_session_open).await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "Plan the API")
+        .await
+        .unwrap();
+    wait_for(async || {
+        let sessions = sessions(&engine).await;
+        let first = sessions.first()?;
+        (prompts(&transcript(&engine, first.id).await).len() == 1).then_some(())
+    })
+    .await;
+
+    dispatch_task(&github, 41, "Add plan model");
+    wait_for(async || {
+        messages(&engine)
+            .await
+            .iter()
+            .any(|message| message.author == Author::Event)
+            .then_some(())
+    })
+    .await;
+    let session = sessions(&engine).await.remove(0);
+    assert_eq!(prompts(&transcript(&engine, session.id).await).len(), 1);
+    assert!(!event_delivered(&engine).await);
+    chat::stop(&engine, "owner", REPOSITORY, 12).unwrap();
+
+    let prompts = wait_for(async || {
+        let prompts = prompts(&transcript(&engine, session.id).await);
+        (prompts.len() == 2 && event_delivered(&engine).await).then_some(prompts)
+    })
+    .await;
+    assert!(
+        prompts[0].ends_with("# Owner message\n\nPlan the API"),
+        "{}",
+        prompts[0]
+    );
+    assert!(prompts[1].starts_with("# Event\n\n"), "{}", prompts[1]);
+    assert!(prompts[1].contains(" dispatch of #41 "), "{}", prompts[1]);
+    assert_eq!(sessions(&engine).await.len(), 1);
+}
+
+#[tokio::test]
+async fn an_event_and_an_owner_message_make_one_lead_session_for_the_workstream() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let script = format!(
+        "{OPTIONS}\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Hello\"]\n"
+    );
+    let engine = connect_with(&data_dir, &github, &script, keep_session_open).await;
+
+    dispatch_task(&github, 41, "Add plan model");
+    wait_for(async || event_delivered(&engine).await.then_some(())).await;
+    chat::send(&engine, "owner", REPOSITORY, 12, "Hello")
+        .await
+        .unwrap();
+
+    wait_for_lead_text(&engine, "Hello").await;
+    let sessions = sessions(&engine).await;
+    assert_eq!(
+        sessions
+            .iter()
+            .map(|session| session.role.as_str())
+            .collect::<Vec<_>>(),
+        ["lead_chat"]
+    );
 }

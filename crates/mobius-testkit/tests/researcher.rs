@@ -24,11 +24,7 @@ when = "report of the Researcher"
 reply = ["I have the report."]
 
 [[prompts]]
-when = "The Owner talks to you in this chat."
-call = { tool = "start_researcher", arguments = { question = "Where do plans store the price?" } }
-
-[[prompts]]
-when = "dispatch of #41"
+when = "# Owner message"
 call = { tool = "start_researcher", arguments = { question = "Where do plans store the price?" } }
 "##;
 const RESEARCHER: &str = r#"
@@ -183,38 +179,5 @@ async fn a_report_for_the_chat_goes_to_a_chat_session() {
             .iter()
             .filter(|message| message.author != Author::Owner)
             .count() as i64
-    );
-}
-
-#[tokio::test]
-async fn a_report_for_the_event_session_goes_to_the_event_queue() {
-    let data_dir = TempDir::new().unwrap();
-    let github = FakeGitHub::start().await;
-    let engine = connect(&data_dir, &github).await;
-    github.add_issue(REPOSITORY, 41, "Add plan model");
-    github.add_sub_issue(REPOSITORY, 12, 41);
-
-    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
-
-    researcher_report(&data_dir, &github, &engine).await;
-    wait_for(async || {
-        prompts(&engine, "lead_event")
-            .await
-            .iter()
-            .any(|prompt| {
-                prompt.contains(&format!(
-                    " report of the Researcher on \"{QUESTION}\":\n\n> Plans store the price in cents.\n"
-                ))
-            })
-            .then_some(())
-    })
-    .await;
-    assert!(
-        chat::view(&engine, "owner", REPOSITORY, 12)
-            .await
-            .unwrap()
-            .messages
-            .iter()
-            .all(|message| message.author == Author::Event)
     );
 }

@@ -68,9 +68,9 @@ async fn sessions(engine: &Engine, role: &str) -> Vec<Session> {
         .collect()
 }
 
-async fn lead_event_prompts(engine: &Engine) -> Vec<String> {
+async fn lead_prompts(engine: &Engine) -> Vec<String> {
     let mut all = Vec::new();
-    for session in sessions(engine, "lead_event").await {
+    for session in sessions(engine, "lead_chat").await {
         let rows: Vec<TranscriptRow> = engine.store.transcript().list(session.id).await.unwrap();
         all.extend(
             rows.iter()
@@ -132,7 +132,7 @@ async fn a_merge_ends_the_task_and_keeps_the_branch() {
     assert!(!worktree.exists());
     git(&github.remote(REPOSITORY), &["rev-parse", "mobius/41"]);
     wait_for(async || {
-        lead_event_prompts(&engine)
+        lead_prompts(&engine)
             .await
             .iter()
             .any(|prompt| {

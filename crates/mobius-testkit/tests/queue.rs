@@ -126,8 +126,9 @@ async fn task_state(engine: &Engine, number: i64) -> Option<String> {
 async fn a_second_implementer_waits_for_the_implementer_limit_while_a_researcher_starts() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
+    // The first prompt of a Lead session has the earlier events in its history, so the entry for the comment comes first.
     let lead = format!(
-        "{START_41}{START_43}[[prompts]]\nwhen = \"comment on #41\"\ncall = {{ tool = \"start_researcher\", arguments = {{ question = \"Where is the price?\" }} }}\n"
+        "[[prompts]]\nwhen = \"comment on #41\"\ncall = {{ tool = \"start_researcher\", arguments = {{ question = \"Where is the price?\" }} }}\n{START_41}{START_43}"
     );
     let engine = connect(
         &data_dir,

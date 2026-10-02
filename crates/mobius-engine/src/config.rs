@@ -32,8 +32,6 @@ pub struct Config {
     pub stale_pr_age: Duration,
     #[serde(with = "humantime_serde", default = "default_lead_idle_timeout")]
     pub lead_idle_timeout: Duration,
-    #[serde(with = "humantime_serde", default = "default_event_idle_timeout")]
-    pub event_idle_timeout: Duration,
     #[serde(with = "humantime_serde", default = "default_poll_interval")]
     pub poll_interval: Duration,
     #[serde(with = "humantime_serde", default = "default_housekeeper_interval")]
@@ -152,10 +150,6 @@ fn default_stale_pr_age() -> Duration {
 
 fn default_lead_idle_timeout() -> Duration {
     Duration::from_secs(60 * 60)
-}
-
-fn default_event_idle_timeout() -> Duration {
-    Duration::from_secs(15 * 60)
 }
 
 fn default_poll_interval() -> Duration {

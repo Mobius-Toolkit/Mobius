@@ -46,7 +46,6 @@ trusted_users = ["owner"]
 data_dir = "{}"
 poll_interval = "50ms"
 lead_idle_timeout = "300ms"
-event_idle_timeout = "1s"
 {extra_config}
 
 [roles]

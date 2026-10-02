@@ -52,13 +52,11 @@ pub(crate) async fn has_work(
     repository: &str,
     workstream: i64,
 ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-    let key = (repository.to_string(), workstream);
     if engine.chats.lock().unwrap().contains_key(&(
         organization(repository).to_string(),
         repository.to_string(),
         workstream,
-    )) || engine.event_sessions.lock().unwrap().contains_key(&key)
-    {
+    )) {
         return Ok(true);
     }
     Ok(engine
