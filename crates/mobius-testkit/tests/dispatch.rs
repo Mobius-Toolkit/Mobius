@@ -1,9 +1,10 @@
 use std::fs;
+use std::time::Duration;
 
 use mobius_domain::{Author, Session, TaskLine, TranscriptRow};
 use mobius_engine::{Engine, github, tasks, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
-use mobius_testkit::{install_fake_agent, start, wait_for};
+use mobius_testkit::{install_fake_agent, start_with, wait_for};
 use serde_json::Value;
 use tempfile::TempDir;
 
@@ -28,7 +29,16 @@ async fn connect(data_dir: &TempDir, github: &FakeGitHub, prompts: &str) -> Engi
         FAKE_AGENT,
         &format!("{OPTIONS}\n{prompts}"),
     );
-    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let engine = start_with(
+        data_dir.path(),
+        "correct horse",
+        &github.url,
+        "",
+        |config| {
+            config.lead_idle_timeout = Duration::from_secs(5);
+        },
+    )
+    .await;
     github::convert_manifest(&engine, "manifest-code")
         .await
         .unwrap();
@@ -54,7 +64,7 @@ async fn live_workstream(engine: &Engine, issue: i64) -> i64 {
     .await
 }
 
-async fn event_sessions(engine: &Engine, workstream: i64) -> Vec<Session> {
+async fn lead_sessions(engine: &Engine, workstream: i64) -> Vec<Session> {
     engine
         .store
         .sessions()
@@ -62,13 +72,13 @@ async fn event_sessions(engine: &Engine, workstream: i64) -> Vec<Session> {
         .await
         .unwrap()
         .into_iter()
-        .filter(|session| session.role == "lead_event")
+        .filter(|session| session.role == "lead_chat")
         .collect()
 }
 
-async fn ended_event_session(engine: &Engine) -> Session {
+async fn ended_lead_session(engine: &Engine) -> Session {
     wait_for(async || {
-        event_sessions(engine, 12)
+        lead_sessions(engine, 12)
             .await
             .into_iter()
             .next()
@@ -91,9 +101,9 @@ fn prompts(rows: &[TranscriptRow]) -> Vec<String> {
         .collect()
 }
 
-async fn all_event_prompts(engine: &Engine) -> Vec<String> {
+async fn all_lead_prompts(engine: &Engine) -> Vec<String> {
     let mut all = Vec::new();
-    for session in event_sessions(engine, 12).await {
+    for session in lead_sessions(engine, 12).await {
         all.extend(prompts(&transcript(engine, session.id).await));
     }
     all
@@ -112,7 +122,7 @@ async fn feed_texts(engine: &Engine) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn a_lead_event_shows_in_the_chat_and_in_the_history_and_stays_read() {
+async fn an_event_shows_in_the_chat_and_in_the_history_and_stays_read() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github, SEEN).await;
@@ -161,7 +171,7 @@ async fn a_ready_label_of_a_trusted_user_dispatches_the_issue_and_the_lead_decli
         .then_some(())
     })
     .await;
-    let session = ended_event_session(&engine).await;
+    let session = ended_lead_session(&engine).await;
     assert_eq!(session.end_reason.as_deref(), Some("idle"));
     let rows = transcript(&engine, session.id).await;
     let call = rows.iter().find(|row| row.kind == "mcp_call").unwrap();
@@ -175,10 +185,10 @@ async fn a_ready_label_of_a_trusted_user_dispatches_the_issue_and_the_lead_decli
         engine
             .store
             .lead_events()
-            .next(REPOSITORY, 12)
+            .undelivered(REPOSITORY, 12)
             .await
             .unwrap(),
-        None
+        []
     );
     assert!(
         engine
@@ -208,21 +218,21 @@ async fn the_first_prompt_has_the_context_and_each_later_turn_has_one_event() {
     fs::write(lead_dir.join("MEMORY.md"), "- [Plans](plans.md)\n").unwrap();
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
     live_workstream(&engine, 41).await;
-    wait_for(async || (all_event_prompts(&engine).await.len() == 1).then_some(())).await;
+    wait_for(async || (all_lead_prompts(&engine).await.len() == 1).then_some(())).await;
 
     github.add_comment(REPOSITORY, 41, "owner", "Round down.");
 
-    let session = ended_event_session(&engine).await;
+    let session = ended_lead_session(&engine).await;
     assert_eq!(session.end_reason.as_deref(), Some("idle"));
     let prompts = prompts(&transcript(&engine, session.id).await);
     assert_eq!(prompts.len(), 3, "{prompts:?}");
     let parts = [
-        "You are the Lead of one Workstream. Mobius sends you one event in each turn",
+        "You are the Lead of one Workstream. The Owner talks to you in this chat.",
         "# Brief\n\nShip loyalty plans to all shops.\n",
         "# MEMORY.md\n\n- [Plans](plans.md)\n",
         "# Task list\n\n#41 Add plan model: working\n\n",
-        "# Event\n\n",
-        " dispatch of #41 \"Add plan model\" by @owner:\n\n> Store plans in cents.",
+        "# Chat history\n\n",
+        "\n# Event\n\n",
     ];
     let positions: Vec<usize> = parts
         .iter()
@@ -233,7 +243,12 @@ async fn the_first_prompt_has_the_context_and_each_later_turn_has_one_event() {
         })
         .collect();
     assert!(positions.is_sorted(), "{}", prompts[0]);
-    assert!(prompts[0].ends_with("> Store plans in cents."));
+    let (_, event) = prompts[0].rsplit_once("# Event\n\n").unwrap();
+    assert!(
+        event
+            .ends_with(" dispatch of #41 \"Add plan model\" by @owner:\n\n> Store plans in cents."),
+        "{event}"
+    );
     assert!(
         prompts[1].ends_with(" comment on #41 \"Add plan model\" by @owner:\n\n> Round down."),
         "{}",
@@ -361,7 +376,7 @@ async fn a_ready_label_on_an_issue_with_a_live_task_has_no_effect() {
 }
 
 #[tokio::test]
-async fn only_a_comment_of_a_trusted_user_on_a_working_issue_is_a_lead_event() {
+async fn only_a_comment_of_a_trusted_user_on_a_working_issue_is_an_event() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github, SEEN).await;
@@ -374,7 +389,7 @@ async fn only_a_comment_of_a_trusted_user_on_a_working_issue_is_a_lead_event() {
     github.add_comment(REPOSITORY, 41, "owner", "Round down.");
 
     let prompts = wait_for(async || {
-        let prompts = all_event_prompts(&engine).await;
+        let prompts = all_lead_prompts(&engine).await;
         prompts
             .iter()
             .any(|prompt| prompt.contains("> Round down."))

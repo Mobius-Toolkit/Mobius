@@ -227,6 +227,11 @@ impl Recorder {
         }
     }
 
+    // Gives the previous author.
+    pub(crate) fn set_chat(&mut self, chat: Option<Author>) -> Option<Author> {
+        std::mem::replace(&mut self.chat, chat)
+    }
+
     pub(crate) fn engine(&self) -> &Engine {
         &self.engine
     }

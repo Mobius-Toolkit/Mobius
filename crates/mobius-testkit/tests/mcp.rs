@@ -117,7 +117,8 @@ async fn the_lead_gets_the_mobius_url_and_only_the_lead_tools() {
             "reply_thread",
             "comment_pull_request",
             "create_workstream",
-            "move_task"
+            "move_task",
+            "tell_owner"
         ]
     );
     for tool in tools {

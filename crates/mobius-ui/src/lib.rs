@@ -372,7 +372,25 @@ fn Frame() -> Element {
         organizations().await
     });
     use_context_provider(|| Organizations(organization_list));
-    let new_release = use_resource(release);
+    let mut new_release = use_resource(release);
+    let mut release_version = use_signal(|| None::<String>);
+    use_effect(move || {
+        // A failed check leaves the version of the last good check.
+        if let Some(Ok(version)) = &*new_release.read() {
+            release_version.set(version.clone());
+        }
+    });
+    use_effect(move || {
+        spawn(async move {
+            loop {
+                let _ = document::eval(
+                    "await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000));",
+                )
+                .await;
+                new_release.restart();
+            }
+        });
+    });
     let mut upgrading = use_signal(|| false);
     let Organization(organization) =
         use_context_provider(|| Organization(Signal::new(String::new())));
@@ -493,7 +511,7 @@ fn Frame() -> Element {
                             }
                         }
                     }
-                    if let Some(Ok(Some(version))) = &*new_release.read() {
+                    if let Some(version) = release_version() {
                         if drain_waiting.is_some() {
                             button { class: "entry upd",
                                 onclick: move |_| async move {
@@ -1564,7 +1582,7 @@ fn Conversation(
                             div { class: "meta",
                                 span {
                                     if message.author == Author::TellOwner {
-                                        "Lead · event session"
+                                        "Lead"
                                     } else {
                                         {message.author.name()}
                                     }

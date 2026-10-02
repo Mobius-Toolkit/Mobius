@@ -135,9 +135,9 @@ fn texts(rows: &[TranscriptRow], kind: &str) -> Vec<String> {
         .collect()
 }
 
-async fn lead_event_prompts(engine: &Engine) -> Vec<String> {
+async fn lead_prompts(engine: &Engine) -> Vec<String> {
     let mut all = Vec::new();
-    for session in sessions(engine, "lead_event").await {
+    for session in sessions(engine, "lead_chat").await {
         all.extend(texts(&transcript(engine, session.id).await, "prompt"));
     }
     all
@@ -216,7 +216,7 @@ async fn a_reviewer_that_finds_nothing_takes_the_task_to_ready_for_review() {
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
 
     wait_for(async || {
-        lead_event_prompts(&engine)
+        lead_prompts(&engine)
             .await
             .iter()
             .any(|prompt| {
@@ -310,7 +310,7 @@ async fn a_fix_round_replies_with_the_pushed_fix_commit_and_resolves_the_thread(
         .unwrap();
     assert_eq!(git(&remote, &["cat-file", "-t", fix]), "commit");
     wait_for(async || {
-        lead_event_prompts(&engine)
+        lead_prompts(&engine)
             .await
             .iter()
             .any(|prompt| prompt.contains(" ready for review of #41 \"Add plan model\""))
@@ -393,7 +393,7 @@ async fn an_implementer_after_cannot_do_in_a_fix_round_continues_the_pull_reques
     })
     .await;
     wait_for(async || {
-        lead_event_prompts(&engine)
+        lead_prompts(&engine)
             .await
             .iter()
             .any(|prompt| prompt.contains(" ready for review of #41 \"Add plan model\""))
@@ -439,7 +439,7 @@ async fn a_finding_after_max_fix_rounds_stops_the_task_until_a_comment_of_a_trus
 
     ended_reviewers(&engine, 1).await;
     wait_for(async || {
-        lead_event_prompts(&engine)
+        lead_prompts(&engine)
             .await
             .iter()
             .any(|prompt| {
@@ -511,13 +511,14 @@ async fn a_queued_reviewer_gets_the_earlier_threads_of_trusted_authors() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let go = data_dir.path().join("go");
+    // The first prompt of a Lead session has the earlier events in its history, so the entry for #41 comes before the entry for #43.
     let engine = connect_with(
         &data_dir,
         &github,
         "",
         |config| config.roles.reviewer.max = 1,
         &format!(
-            "[[prompts]]\nwhen = \"# Issue\\n\\n#43 Add plan price\"\nshell = \"while [ ! -e '{}' ]; do sleep 0.05; done\"\n[[prompts]]\nwhen = \"dispatch of #43\"\ncall = {{ tool = \"start_implementer\", arguments = {{ n = 43, instructions = \"Add a price.\" }} }}\n",
+            "{START}[[prompts]]\nwhen = \"# Issue\\n\\n#43 Add plan price\"\nshell = \"while [ ! -e '{}' ]; do sleep 0.05; done\"\n[[prompts]]\nwhen = \"dispatch of #43\"\ncall = {{ tool = \"start_implementer\", arguments = {{ n = 43, instructions = \"Add a price.\" }} }}\n",
             go.display()
         ),
         "",

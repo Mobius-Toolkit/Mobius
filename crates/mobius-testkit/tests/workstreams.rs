@@ -223,6 +223,22 @@ async fn a_workstream_with_only_closed_sub_issues_has_all_tasks_closed() {
 }
 
 #[tokio::test]
+async fn a_workstream_whose_sub_issues_cannot_be_read_stays_in_the_list() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+    workstream_with_task(&engine, &github).await;
+    github.close_issue(REPOSITORY, 41);
+    github.fail_sub_issues(REPOSITORY, 12);
+
+    let list = workstreams::list(&engine).await.unwrap();
+
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].number, 12);
+    assert!(!list[0].all_tasks_closed);
+}
+
+#[tokio::test]
 async fn an_open_nested_sub_issue_does_not_count() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;

@@ -4,12 +4,12 @@ use std::sync::Mutex;
 use mobius_domain::{DrainEnd, Live};
 use tokio::sync::Notify;
 
-use crate::{Engine, chat, lead_events};
+use crate::{Engine, chat};
 
 // The queue reason of a Worker that the drain holds.
 pub(crate) const REASON: &str = "Mobius prepares an upgrade";
 
-// The drain for an upgrade. While `on`, no new Worker, Judge, Triager, or event Lead turn starts, and `running` counts each agent that the drain waits for.
+// The drain for an upgrade. While `on`, no new Worker, Judge, Triager, or event turn of the Lead starts, and `running` counts each agent that the drain waits for.
 #[derive(Default)]
 pub(crate) struct Drain {
     state: Mutex<State>,
@@ -106,7 +106,6 @@ pub async fn start(engine: &Engine) -> DrainEnd {
     // The Workers that wait for a slot show the drain reason.
     engine.workers.changed.notify_waiters();
     chat::close_all(engine);
-    lead_events::close_all(engine);
     engine.broadcast(Live::Drain {
         waiting: Some(waiting),
     });
@@ -175,7 +174,7 @@ async fn release(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
     engine.broadcast(Live::Drain { waiting: None });
     engine.workers.changed.notify_waiters();
     for (repository, workstream) in engine.store.lead_events().waiting().await? {
-        lead_events::wake(engine, &repository, workstream);
+        chat::wake_events(engine, &repository, workstream).await?;
     }
     Ok(())
 }
