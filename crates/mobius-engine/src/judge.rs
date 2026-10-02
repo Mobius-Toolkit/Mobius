@@ -286,6 +286,30 @@ async fn run(engine: Engine, mut stops: Receiver<i64>, job: Job, _drain: drain::
     }
 }
 
+// A Judge that replaces a Judge that a restart ended shows below the parent of the ended Judge.
+async fn parent(engine: &Engine, job: &Job) -> Result<Option<i64>, Box<dyn Error + Send + Sync>> {
+    let sessions = engine
+        .store
+        .sessions()
+        .list(
+            organization(&job.repository),
+            &job.repository,
+            job.workstream,
+        )
+        .await?;
+    let restarted = sessions
+        .iter()
+        .rfind(|session| session.issue == Some(job.number))
+        .is_some_and(|session| {
+            session.role == ROLE && session.end_reason.as_deref() == Some("restart")
+        });
+    if restarted {
+        return lead::restart_parent(engine, &job.repository, job.workstream, job.number, ROLE)
+            .await;
+    }
+    lead::newest_session(engine, &job.repository, job.workstream, job.number).await
+}
+
 async fn session(
     engine: &Engine,
     stops: &mut Receiver<i64>,
@@ -301,8 +325,7 @@ async fn session(
         job.workstream,
         lead::Links {
             issue: Some(job.number),
-            parent: lead::newest_session(engine, &job.repository, job.workstream, job.number)
-                .await?,
+            parent: parent(engine, job).await?,
         },
     )
     .await?;
