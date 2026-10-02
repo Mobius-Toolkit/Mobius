@@ -247,6 +247,8 @@ pub(crate) async fn conflict_round(
         .issue(task.issue)
         .await?
         .ok_or_else(|| format!("#{} does not exist.", task.issue))?;
+    let parent =
+        lead::newest_session(engine, &repository.full_name, task.workstream, task.issue).await?;
     if !engine
         .store
         .tasks()
@@ -272,8 +274,7 @@ pub(crate) async fn conflict_round(
         pull_request: Some(pull_request),
         conflict_round: true,
         prompt,
-        parent: lead::newest_session(engine, &repository.full_name, task.workstream, task.issue)
-            .await?,
+        parent,
     };
     engine
         .store

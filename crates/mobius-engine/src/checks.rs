@@ -48,6 +48,8 @@ pub(crate) async fn on_failure(
         .await?
         .ok_or_else(|| format!("#{} does not exist.", task.issue))?
         .title;
+    let parent =
+        lead::newest_session(engine, &repository.full_name, task.workstream, task.issue).await?;
     let tasks = engine.store.tasks();
     if !tasks
         .set_state(task.id, "ready_for_review", "working")
@@ -66,8 +68,7 @@ pub(crate) async fn on_failure(
         check_run: None,
         counts: true,
         items,
-        parent: lead::newest_session(engine, &repository.full_name, task.workstream, task.issue)
-            .await?,
+        parent,
     };
     if let Err(error) = implementer::fix_round(engine, repository, round).await {
         tasks
