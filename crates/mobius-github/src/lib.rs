@@ -261,6 +261,21 @@ pub struct ReleaseAsset {
 }
 
 #[derive(Deserialize)]
+struct Comparison {
+    commits: Vec<ComparedCommit>,
+}
+
+#[derive(Deserialize)]
+struct ComparedCommit {
+    commit: CommitData,
+}
+
+#[derive(Deserialize)]
+struct CommitData {
+    message: String,
+}
+
+#[derive(Deserialize)]
 pub struct UserTokens {
     pub access_token: String,
     pub refresh_token: String,
@@ -532,6 +547,26 @@ impl GitHub {
             .api
             .get("/repos/Mobius-Toolkit/Mobius/releases/latest", None::<&()>)
             .await?)
+    }
+
+    // The messages of the commits after `current` up to `new`, the oldest first. A page holds at most 100 commits.
+    pub async fn commit_messages(
+        &self,
+        current: &str,
+        new: &str,
+    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        let comparison: Comparison = self
+            .api
+            .get(
+                format!("/repos/Mobius-Toolkit/Mobius/compare/{current}...{new}"),
+                Some(&[("per_page", "100")]),
+            )
+            .await?;
+        Ok(comparison
+            .commits
+            .into_iter()
+            .map(|compared| compared.commit.message)
+            .collect())
     }
 
     pub fn release_url(&self, tag: &str, asset: &str) -> String {
