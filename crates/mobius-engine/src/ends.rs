@@ -115,7 +115,7 @@ async fn check_task(
     if matches!(task.state.as_str(), "queued" | "working") {
         let round = matches!(
             task.worker.as_deref(),
-            Some(implementer::ROLE | implementer::CONFLICT_ROUND)
+            Some(implementer::ROLE | implementer::CONFLICT_ROUND | judge::ROLE)
         );
         return Ok(round.then_some(work));
     }
@@ -136,8 +136,12 @@ async fn check_task(
     {
         return Ok(Some(work));
     }
+    let waiting = task.state == "reviewed"
+        && (pull_request.mergeable == Some(false)
+            || conflicts::behind(&pull_request)
+            || checks::unhandled_failure(engine, repository, task, &pull_request).await?);
     let judged = judge::check(engine, repository, task, pull_request).await?;
-    Ok(judged.then_some(work))
+    Ok((judged || waiting).then_some(work))
 }
 
 pub(crate) async fn lost_access(
