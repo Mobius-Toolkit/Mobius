@@ -139,6 +139,21 @@ async fn seed(engine: &Engine, github: &FakeGitHub) {
         .unwrap();
     wait_for(async || (workstreams::list(engine).await.unwrap().len() == 2).then_some(())).await;
 
+    github.add_issue(REPOSITORY, 13, "Seasonal prices");
+    github.set_body(REPOSITORY, 13, "Change the prices for each season.");
+    github.add_label(REPOSITORY, 13, "mobius:workstream", "owner");
+    wait_for(async || (workstreams::list(engine).await.unwrap().len() == 3).then_some(())).await;
+    github.add_issue(REPOSITORY, 43, "Add season table");
+    github.add_sub_issue(REPOSITORY, 13, 43);
+    github.close_issue(REPOSITORY, 43);
+    wait_for(async || {
+        let list = workstreams::list(engine).await.unwrap();
+        list.iter()
+            .any(|workstream| workstream.number == 13 && workstream.all_tasks_closed)
+            .then_some(())
+    })
+    .await;
+
     github.add_issue(REPOSITORY, 41, "Add plan model");
     github.add_sub_issue(REPOSITORY, 12, 41);
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
@@ -1142,6 +1157,13 @@ async fn screenshots() {
                 path: "/workstreams/owner/shop/12",
                 clicks: &[],
                 expected: "#42 waits for your decision.",
+                inbox_count: true,
+            },
+            Shot {
+                name: "chat-all-tasks-closed",
+                path: "/workstreams/owner/shop/13",
+                clicks: &[],
+                expected: "All tasks are closed.",
                 inbox_count: true,
             },
             Shot {

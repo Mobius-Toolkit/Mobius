@@ -680,6 +680,9 @@ fn WorkstreamEntry(workstream: Workstream) -> Element {
             to: Route::Chat { owner: owner.to_string(), repo: repo.to_string(), number: workstream.number },
             span { class: "grow", "{workstream.title}" }
             span { class: "muted small", "#{workstream.number}" }
+            if workstream.all_tasks_closed {
+                span { class: "chip plain", "done" }
+            }
             if unread > 0 {
                 span { class: "count", "{unread}" }
             }
@@ -1199,6 +1202,7 @@ fn Chat(owner: String, repo: String, number: i64) -> Element {
                                     let here = here.clone();
                                     async move {
                                         let key = (repository.clone(), number);
+                                        close_error.set(None);
                                         close_call.set(Some(key.clone()));
                                         match workstream_close(repository, number).await {
                                             Ok(()) => {

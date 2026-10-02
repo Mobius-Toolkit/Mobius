@@ -176,14 +176,16 @@ async fn a_completion_closes_the_workstream_and_ends_the_live_task() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
     let engine = connect(&data_dir, &github, IMPLEMENTER).await;
+    let hanging_reviewer = CLAUDE.replace(
+        "when = \"You are the Reviewer\"\nshell = \"true\"",
+        "when = \"You are the Reviewer\"\nhang = true",
+    );
+    assert_ne!(hanging_reviewer, CLAUDE);
     install_fake_harness(
         data_dir.path(),
         FAKE_AGENT,
         "claude-agent-acp",
-        &CLAUDE.replace(
-            "when = \"You are the Reviewer\"\nshell = \"true\"",
-            "when = \"You are the Reviewer\"\nhang = true",
-        ),
+        &hanging_reviewer,
     );
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
     chat::send(&engine, "owner", REPOSITORY, 12, "Plan the next step.")
