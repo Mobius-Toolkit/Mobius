@@ -180,6 +180,69 @@ async fn a_completion_stops_the_lead() {
 }
 
 #[tokio::test]
+async fn a_completion_closes_the_workstream_and_ends_the_live_task() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, IMPLEMENTER).await;
+    let hanging_reviewer = CLAUDE
+        .replace(
+            "when = \"You are the Reviewer\"\nshell = \"true\"",
+            "when = \"You are the Reviewer\"\nhang = true",
+        )
+        .replace(
+            "when = \"dispatch of #41\"\n",
+            "when = \"dispatch of #41\"\nhang = true\n",
+        );
+    assert_eq!(hanging_reviewer.matches("hang = true").count(), 3);
+    install_fake_harness(
+        data_dir.path(),
+        FAKE_AGENT,
+        "claude-agent-acp",
+        &hanging_reviewer,
+    );
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    started(&engine, "lead_chat").await;
+    started(&engine, "reviewer").await;
+    assert!(!workstreams::list(&engine).await.unwrap()[0].all_tasks_closed);
+
+    // The pull request is open and the Reviewer works, so only the completion ends them.
+    github.close_issue(REPOSITORY, 41);
+
+    wait_for(async || {
+        workstreams::list(&engine).await.unwrap()[0]
+            .all_tasks_closed
+            .then_some(())
+    })
+    .await;
+    assert!(
+        engine
+            .store
+            .tasks()
+            .live(REPOSITORY, 41)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    workstreams::complete(&engine, REPOSITORY, 12)
+        .await
+        .unwrap();
+    assert_eq!(
+        github.state(REPOSITORY, 12),
+        ("closed".to_string(), Some("completed".to_string()))
+    );
+    assert_eq!(
+        engine.store.tasks().live(REPOSITORY, 41).await.unwrap(),
+        None
+    );
+    for role in ["reviewer", "lead_chat"] {
+        assert_eq!(
+            ended(&engine, role).await.end_reason.as_deref(),
+            Some("stopped")
+        );
+    }
+}
+
+#[tokio::test]
 async fn a_failed_completion_keeps_the_lead_running() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
