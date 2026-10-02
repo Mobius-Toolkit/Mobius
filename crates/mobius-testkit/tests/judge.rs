@@ -19,10 +19,10 @@ mode = ["default", "bypassPermissions"]
 [[prompts]]
 when = "You are the Judge"
 call = { tool = "submit_verdicts", arguments = { items = [
-    { item = 1, actions = [{ verdict = "fix", text = "Rename the field." }] },
-    { item = 2, actions = [{ verdict = "question", text = "Explain why the plan stores cents." }] },
-    { item = 3, actions = [{ verdict = "follow-up", text = "Move the parser to its own crate." }] },
-    { item = 4, actions = [{ verdict = "reject", text = "The API needs this name." }] },
+    { item = 2, actions = [{ verdict = "fix", text = "Rename the field." }] },
+    { item = 3, actions = [{ verdict = "question", text = "Explain why the plan stores cents." }] },
+    { item = 4, actions = [{ verdict = "follow-up", text = "Move the parser to its own crate." }] },
+    { item = 5, actions = [{ verdict = "reject", text = "The API needs this name." }] },
 ] } }
 
 [[prompts]]
@@ -31,7 +31,7 @@ shell = "true"
 
 [[prompts]]
 when = "follow-up on pull request #42"
-call = { tool = "reply_thread", arguments = { thread = 3, text = "Follow-up: #99." } }
+call = { tool = "reply_thread", arguments = { thread = 4, text = "Follow-up: #99." } }
 
 [[prompts]]
 when = "dispatch of #41"
@@ -45,7 +45,7 @@ thought_level = ["high"]
 [[prompts]]
 when = "Action: fix: Rename the field."
 shell = "echo 'price_cents' > plan.txt && git commit -q -am 'Rename the field' && git rev-parse HEAD"
-call = { tool = "reply_thread", arguments = { thread = 1, text = "Fixed in {shell}.", resolve = true } }
+call = { tool = "reply_thread", arguments = { thread = 2, text = "Fixed in {shell}.", resolve = true } }
 
 [[prompts]]
 shell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'"
@@ -123,7 +123,7 @@ async fn the_judge_routes_one_item_of_each_verdict() {
     let question = github.add_comment(REPOSITORY, 42, "owner", "Why cents?");
     let follow_up = github.add_review_comment(REPOSITORY, 42, None, "owner", "Split the parser.");
     let reject = github.add_review_comment(REPOSITORY, 42, None, BOT, "Rename plan to tier.");
-    assert_eq!([fix, question, follow_up, reject], [1, 2, 3, 4]);
+    assert_eq!([fix, question, follow_up, reject], [2, 3, 4, 5]);
 
     let rejected = reply(&github, reject).await;
     assert_eq!(
@@ -137,10 +137,10 @@ async fn the_judge_routes_one_item_of_each_verdict() {
         "You are the Judge",
         "# Issue\n\n#41 Add plan model\n\nPlans have a price.\n",
         "# Items\n",
-        "Thread 1, src/plan.rs line 12:\n\n@owner, ",
-        "Thread 3, src/plan.rs line 12:",
-        "Thread 4, src/plan.rs line 12:\n\n@coderabbitai[bot], ",
-        "Comment 2:\n\n@owner, ",
+        "Thread 2, src/plan.rs line 12:\n\n@owner, ",
+        "Thread 4, src/plan.rs line 12:",
+        "Thread 5, src/plan.rs line 12:\n\n@coderabbitai[bot], ",
+        "Comment 3:\n\n@owner, ",
     ];
     for part in parts {
         assert!(judge[0].contains(part), "{part:?} in {}", judge[0]);
@@ -151,7 +151,7 @@ async fn the_judge_routes_one_item_of_each_verdict() {
         (APP.to_string(), "Follow-up: #99.".to_string())
     );
     assert!(prompts(&engine, "lead_event").await.iter().any(|prompt| prompt.contains(
-        " follow-up on pull request #42 of #41 \"Add plan model\", item 3:\n\n> Move the parser to its own crate.\n"
+        " follow-up on pull request #42 of #41 \"Add plan model\", item 4:\n\n> Move the parser to its own crate.\n"
     )));
     // Mobius resolves the thread after its reply.
     let fixed = wait_for(async || {
@@ -173,15 +173,15 @@ async fn the_judge_routes_one_item_of_each_verdict() {
     let round = prompts(&engine, "implementer").await.pop().unwrap();
     for part in [
         "# Open items\n",
-        "Thread 1, src/plan.rs line 12:",
+        "Thread 2, src/plan.rs line 12:",
         "Action: fix: Rename the field.\n",
-        "Comment 2:",
+        "Comment 3:",
         "Action: question: Explain why the plan stores cents.\n",
     ] {
         assert!(round.contains(part), "{part:?} in {round}");
     }
-    assert!(!round.contains("Thread 3"), "{round}");
     assert!(!round.contains("Thread 4"), "{round}");
+    assert!(!round.contains("Thread 5"), "{round}");
     let task = engine
         .store
         .tasks()

@@ -15,6 +15,8 @@ pub struct Task {
     pub state: String,
     pub branch: Option<String>,
     pub fix_rounds: i64,
+    // The number of Reviewer runs that ended with a result.
+    pub review_rounds: i64,
     pub pull_request: Option<i64>,
     // The time of the newest comment that the Judge got.
     pub judged_at: Option<OffsetDateTime>,
@@ -36,7 +38,7 @@ impl Tasks<'_> {
             Task,
             r#"INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
                VALUES (?, ?, ?, 'dispatched', ?)
-               RETURNING id AS "id!", issue, workstream, state, branch, fix_rounds, pull_request,
+               RETURNING id AS "id!", issue, workstream, state, branch, fix_rounds, review_rounds, pull_request,
                          judged_at AS "judged_at: OffsetDateTime", worker, worker_input"#,
             repository,
             issue,
@@ -55,7 +57,7 @@ impl Tasks<'_> {
     ) -> Result<Option<Task>, Box<dyn Error + Send + Sync>> {
         let task = sqlx::query_as!(
             Task,
-            r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request,
+            r#"SELECT id, issue, workstream, state, branch, fix_rounds, review_rounds, pull_request,
                       judged_at AS "judged_at: OffsetDateTime", worker, worker_input FROM tasks
                WHERE repository = ? AND issue = ? AND state <> 'ended'"#,
             repository,
@@ -188,7 +190,7 @@ impl Tasks<'_> {
     ) -> Result<Vec<Task>, Box<dyn Error + Send + Sync>> {
         let tasks = sqlx::query_as!(
             Task,
-            r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request,
+            r#"SELECT id, issue, workstream, state, branch, fix_rounds, review_rounds, pull_request,
                       judged_at AS "judged_at: OffsetDateTime", worker, worker_input FROM tasks
                WHERE repository = ? AND state <> 'ended'"#,
             repository
@@ -239,7 +241,7 @@ impl Tasks<'_> {
     ) -> Result<Option<Task>, Box<dyn Error + Send + Sync>> {
         let task = sqlx::query_as!(
             Task,
-            r#"SELECT id, issue, workstream, state, branch, fix_rounds, pull_request,
+            r#"SELECT id, issue, workstream, state, branch, fix_rounds, review_rounds, pull_request,
                       judged_at AS "judged_at: OffsetDateTime", worker, worker_input FROM tasks
                WHERE repository = ? AND pull_request = ? AND state <> 'ended'"#,
             repository,
@@ -264,6 +266,42 @@ impl Tasks<'_> {
         .execute(self.pool)
         .await?;
         Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn add_review_round(&self, id: i64) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query!(
+            "UPDATE tasks SET review_rounds = review_rounds + 1 WHERE id = ?",
+            id
+        )
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    // Gives the id of the pull request comment of the Reviewer run in progress.
+    pub async fn review_comment(
+        &self,
+        id: i64,
+    ) -> Result<Option<i64>, Box<dyn Error + Send + Sync>> {
+        let comment = sqlx::query_scalar!("SELECT review_comment FROM tasks WHERE id = ?", id)
+            .fetch_one(self.pool)
+            .await?;
+        Ok(comment)
+    }
+
+    pub async fn set_review_comment(
+        &self,
+        id: i64,
+        comment: Option<i64>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query!(
+            "UPDATE tasks SET review_comment = ? WHERE id = ?",
+            comment,
+            id
+        )
+        .execute(self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn set_judged_at(
@@ -295,7 +333,7 @@ impl Tasks<'_> {
 
     pub async fn reset_counters(&self, id: i64) -> Result<(), Box<dyn Error + Send + Sync>> {
         sqlx::query!(
-            "UPDATE tasks SET fix_rounds = 0, worker_restarts = 0 WHERE id = ?",
+            "UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0 WHERE id = ?",
             id
         )
         .execute(self.pool)

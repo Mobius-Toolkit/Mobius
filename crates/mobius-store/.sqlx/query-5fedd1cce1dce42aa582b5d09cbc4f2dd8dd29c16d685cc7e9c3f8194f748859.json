@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, issue, workstream, state, branch, fix_rounds, pull_request,\n                      judged_at AS \"judged_at: OffsetDateTime\", worker, worker_input FROM tasks\n               WHERE repository = ? AND pull_request = ? AND state <> 'ended'",
+  "query": "SELECT id, issue, workstream, state, branch, fix_rounds, review_rounds, pull_request,\n                      judged_at AS \"judged_at: OffsetDateTime\", worker, worker_input FROM tasks\n               WHERE repository = ? AND state <> 'ended'",
   "describe": {
     "columns": [
       {
@@ -70,8 +70,19 @@
         }
       },
       {
-        "name": "pull_request",
+        "name": "review_rounds",
         "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tasks",
+            "name": "review_rounds"
+          }
+        }
+      },
+      {
+        "name": "pull_request",
+        "ordinal": 7,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -82,7 +93,7 @@
       },
       {
         "name": "judged_at: OffsetDateTime",
-        "ordinal": 7,
+        "ordinal": 8,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +104,7 @@
       },
       {
         "name": "worker",
-        "ordinal": 8,
+        "ordinal": 9,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -104,7 +115,7 @@
       },
       {
         "name": "worker_input",
-        "ordinal": 9,
+        "ordinal": 10,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -115,7 +126,7 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 1
     },
     "nullable": [
       false,
@@ -124,11 +135,12 @@
       false,
       true,
       false,
+      false,
       true,
       true,
       true,
       true
     ]
   },
-  "hash": "14b32aadeb06060a84f8cd22a47a99b0520934d8fc14dc6d87261360f7a66b00"
+  "hash": "5fedd1cce1dce42aa582b5d09cbc4f2dd8dd29c16d685cc7e9c3f8194f748859"
 }

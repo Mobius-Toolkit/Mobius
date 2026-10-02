@@ -220,8 +220,21 @@ async fn a_running_check_run_and_a_passed_check_run_have_no_effect() {
 async fn a_failed_check_run_at_max_fix_rounds_hands_the_task_to_a_human() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
-    let engine = connect(&data_dir, &github, "max_fix_rounds = 0").await;
+    let engine = connect(&data_dir, &github, "max_fix_rounds = 1").await;
     let head = ready_for_review(&engine, &github).await;
+    let task = engine
+        .store
+        .tasks()
+        .live(REPOSITORY, 41)
+        .await
+        .unwrap()
+        .unwrap();
+    engine
+        .store
+        .tasks()
+        .add_fix_round(task.id, 1)
+        .await
+        .unwrap();
 
     github.add_check_run(
         REPOSITORY,

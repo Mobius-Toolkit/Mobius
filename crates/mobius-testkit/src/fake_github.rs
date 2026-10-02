@@ -494,6 +494,10 @@ impl FakeGitHub {
                 get(issue_comments).post(add_issue_comment),
             )
             .route(
+                "/repos/{owner}/{repo}/issues/comments/{id}",
+                patch(update_issue_comment),
+            )
+            .route(
                 "/repos/{owner}/{repo}/issues/{number}/labels",
                 post(add_labels),
             )
@@ -1407,6 +1411,33 @@ async fn add_issue_comment(
     let bot = records.app_login(&repository);
     let comment = records.comment(&repository, number, &bot, &comment.body, None);
     (StatusCode::CREATED, Json(comment)).into_response()
+}
+
+async fn update_issue_comment(
+    State(state): State<Shared>,
+    Path((owner, repo, id)): Path<(String, String, i64)>,
+    Json(update): Json<NewComment>,
+) -> Response {
+    let repository = format!("{owner}/{repo}");
+    let mut records = state.lock().unwrap();
+    let now = records.tick();
+    let found = records
+        .issues
+        .iter_mut()
+        .filter(|((name, _), _)| *name == repository)
+        .find_map(|(_, issue)| {
+            let comment = issue
+                .comments
+                .iter_mut()
+                .find(|comment| comment["id"].as_i64() == Some(id))?;
+            comment["body"] = json!(update.body);
+            issue.updated_at = now;
+            Some(comment.clone())
+        });
+    match found {
+        Some(comment) => Json(comment).into_response(),
+        None => not_found(),
+    }
 }
 
 #[derive(Deserialize)]

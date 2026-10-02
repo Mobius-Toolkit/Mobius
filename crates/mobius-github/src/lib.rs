@@ -830,15 +830,31 @@ impl Repository {
         Ok(())
     }
 
+    // Gives the id of the new comment.
     pub async fn add_comment(
         &self,
         number: i64,
         body: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let _: serde_json::Value = self
+    ) -> Result<i64, Box<dyn Error + Send + Sync>> {
+        let created: Created = self
             .client
             .post(
                 format!("/repos/{}/issues/{number}/comments", self.full_name),
+                Some(&json!({ "body": body })),
+            )
+            .await?;
+        Ok(created.id)
+    }
+
+    pub async fn update_comment(
+        &self,
+        id: i64,
+        body: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let _: serde_json::Value = self
+            .client
+            .patch(
+                format!("/repos/{}/issues/comments/{id}", self.full_name),
                 Some(&json!({ "body": body })),
             )
             .await?;
