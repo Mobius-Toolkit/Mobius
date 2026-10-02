@@ -82,6 +82,17 @@ async fn poll_repository(
     ends::check(engine, app_slug, repository).await
 }
 
+// A direct sub-issue of a Workstream that opens or closes changes `all_tasks_closed` of the Workstream.
+async fn direct_task(
+    repository: &Repository,
+    number: i64,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    Ok(repository
+        .parent(number)
+        .await?
+        .is_some_and(|parent| parent.has_label(WORKSTREAM_LABEL)))
+}
+
 async fn changed_issues(
     engine: &Engine,
     app_slug: &str,
@@ -108,7 +119,7 @@ async fn changed_issues(
             triager::stop(engine, app_slug, repository, issue.number).await?;
         }
         let labeled = issue.has_label(WORKSTREAM_LABEL);
-        workstreams_changed |= labeled;
+        workstreams_changed |= labeled || direct_task(repository, issue.number).await?;
         if !labeled && !workstreams::has_work(engine, name, issue.number).await? {
             continue;
         }
