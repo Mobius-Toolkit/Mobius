@@ -67,13 +67,19 @@ pub(crate) async fn restart(
     let (Some(number), Some(branch)) = (task.pull_request, task.branch.clone()) else {
         return Ok(());
     };
-    abandon_round(
+    if let Err(error) = abandon_round(
         engine,
         repository,
         task,
         "Mobius restarted before the run ended.",
     )
-    .await?;
+    .await
+    {
+        eprintln!(
+            "mobius: round comment of {}#{}: {error}",
+            repository.full_name, task.issue
+        );
+    }
     let pull_request = repository.pull_request(number).await?;
     let title = repository
         .issue(task.issue)
@@ -437,6 +443,7 @@ async fn end_round(
 }
 
 // A task with no comment of a run in progress needs no update.
+// The id leaves the task also when the update fails, so the failure does not repeat.
 async fn abandon_round(
     engine: &Engine,
     repository: &Repository,
@@ -447,7 +454,7 @@ async fn abandon_round(
     let Some(comment) = tasks.review_comment(task.id).await? else {
         return Ok(());
     };
-    repository
+    let updated = repository
         .update_comment(
             comment,
             &format!(
@@ -456,8 +463,9 @@ async fn abandon_round(
                 engine.config.max_fix_rounds
             ),
         )
-        .await?;
-    tasks.set_review_comment(task.id, None).await
+        .await;
+    tasks.set_review_comment(task.id, None).await?;
+    updated
 }
 
 // A task that is not in the state `from`, for example after a decline of the Lead, stays a draft.
