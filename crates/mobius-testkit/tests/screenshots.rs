@@ -49,6 +49,22 @@ when = "Start a Workstream for gift cards."
 reply = ["Title: Gift cards\n\nBrief: Sell gift cards in the shop."]
 
 [[prompts]]
+when = "Create the desktop Workstream."
+call = { tool = "create_workstream", arguments = { title = "Desktop plans", brief = "Plans for the desktop." } }
+
+[[prompts]]
+when = "Move #7 to the Workstream."
+call = { tool = "move_issue", arguments = { n = 7, workstream = 12 } }
+
+[[prompts]]
+when = "Create the phone Workstream."
+call = { tool = "create_workstream", arguments = { title = "Phone plans", brief = "Plans for the phone." } }
+
+[[prompts]]
+when = "Move #8 to the Workstream."
+call = { tool = "move_issue", arguments = { n = 8, workstream = 12 } }
+
+[[prompts]]
 when = "Which roses sell best?"
 reply = ["Red roses sell best."]
 
@@ -1121,6 +1137,81 @@ async fn screenshots() {
             wait_for(async || check(&page, script.clone()).await.then_some(())).await;
             page.close().await.unwrap();
         }
+    }
+    browser.close().await.unwrap();
+}
+
+// The Triager chat stays open after `create_workstream` and `move_issue`, and the sidebar lists the new Workstream.
+#[tokio::test]
+#[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
+async fn the_triager_chat_stays_open_after_its_actions() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let url = serve_ui(&engine).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 7, "Add plan prices");
+    github.add_issue(REPOSITORY, 8, "Add plan names");
+    wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 1).then_some(())).await;
+    let (mut browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .launch_timeout(Duration::from_secs(60))
+            .no_sandbox()
+            .arg("--hide-scrollbars")
+            .user_data_dir(data_dir.path().join("chrome"))
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
+    log_in(&browser, &format!("{url}/github")).await;
+    for (viewport, create, moved, number, issue) in [
+        (
+            DESKTOP,
+            "Create the desktop Workstream.",
+            "Move #7 to the Workstream.",
+            13,
+            7,
+        ),
+        (
+            PHONE,
+            "Create the phone Workstream.",
+            "Move #8 to the Workstream.",
+            14,
+            8,
+        ),
+    ] {
+        let page = open(&browser, &format!("{url}/workstreams/new"), viewport).await;
+        wait_until_live(&page).await;
+        chat::send(&engine, "owner", "", 0, create).await.unwrap();
+        let link =
+            format!("!!document.querySelector('a[href=\"/workstreams/owner/shop/{number}\"]')");
+        wait_for(async || check(&page, link.clone()).await.then_some(())).await;
+        chat::send(&engine, "owner", "", 0, moved).await.unwrap();
+        wait_for(async || {
+            github
+                .sub_issue_numbers(REPOSITORY, 12)
+                .contains(&issue)
+                .then_some(())
+        })
+        .await;
+        assert!(
+            check(
+                &page,
+                "location.pathname === '/workstreams/new'".to_string()
+            )
+            .await
+        );
+        assert!(check(&page, link).await);
+        page.close().await.unwrap();
     }
     browser.close().await.unwrap();
 }
