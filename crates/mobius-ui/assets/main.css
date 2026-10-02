@@ -717,7 +717,7 @@ button.chip.on {
   height: 100dvh;
 }
 
-.column > .note {
+.chat > .note {
   padding: 8px 14px;
 }
 

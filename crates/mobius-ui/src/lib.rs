@@ -1636,7 +1636,6 @@ fn Conversation(
                 }
                 {tail}
             }
-            {note}
             div { class: "chat",
                 if let Some(workstream) = brief {
                     div { class: "brief",
@@ -1651,6 +1650,7 @@ fn Conversation(
                         }
                     }
                 }
+                {note}
                 div { class: "msgs",
                     if let Some(Err(error)) = &*history.read() {
                         div { class: "error", {error_text(error)} }
