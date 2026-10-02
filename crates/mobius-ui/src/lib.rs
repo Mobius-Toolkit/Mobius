@@ -1582,7 +1582,7 @@ fn Conversation(
                             div { class: "meta",
                                 span {
                                     if message.author == Author::TellOwner {
-                                        "Lead · event session"
+                                        "Lead"
                                     } else {
                                         {message.author.name()}
                                     }

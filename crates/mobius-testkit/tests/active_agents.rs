@@ -6,6 +6,7 @@ use tempfile::TempDir;
 
 const REPOSITORY: &str = "owner/shop";
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_fake-agent");
+// The first prompt of a Lead session has the earlier events in its history, so the entries for the later events come first.
 const LEAD: &str = r##"
 [options]
 model = ["sonnet", "opus"]
@@ -17,12 +18,12 @@ when = "Keep me company"
 hang = true
 
 [[prompts]]
-when = "dispatch of #41"
-call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
-
-[[prompts]]
 when = "comment on #41"
 call = { tool = "start_researcher", arguments = { question = "Where is the price?" } }
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "start_implementer", arguments = { n = 41, instructions = "Store plans in cents." } }
 "##;
 const HANGING: &str = r#"
 [options]
@@ -78,13 +79,14 @@ async fn the_page_counts_the_open_sessions_of_each_role_against_its_limit() {
     github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
     wait_for(async || (overview(&engine).await.groups[2].count == 1).then_some(())).await;
 
-    // The comment starts a Researcher, and the message keeps a Lead chat open.
+    // The comment starts a Researcher. The message comes after it, because the hanging turn of the message holds the later events.
     github.add_comment(REPOSITORY, 41, "owner", "Where is the price?");
+    wait_for(async || (overview(&engine).await.groups[3].count == 1).then_some(())).await;
     chat::send(&engine, "owner", REPOSITORY, 12, "Keep me company")
         .await
         .unwrap();
 
-    // The Lead event sessions end, so only the Lead chat holds a lead slot.
+    // The Lead sessions of the events end at the idle timeout, so only the Lead session of the message holds a lead slot.
     let overview = wait_for(async || {
         let overview = overview(&engine).await;
         let rows: Vec<usize> = overview

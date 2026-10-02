@@ -25,7 +25,7 @@ struct Counts {
     waiting: BTreeMap<(OffsetDateTime, i64), Role>,
 }
 
-// The limit group of a session. The lead_chat and lead_event sessions share the group `lead`.
+// The limit group of a session.
 #[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Role {
     Lead,
@@ -58,10 +58,10 @@ impl Role {
         }
     }
 
-    // The group of a session role. The lead_chat and lead_event sessions share the group `lead`.
+    // The group of a session role.
     pub(crate) fn of_session(role: &str) -> Option<Role> {
         Some(match role {
-            crate::chat::ROLE | crate::lead_events::ROLE => Self::Lead,
+            crate::chat::ROLE => Self::Lead,
             crate::triager::ROLE => Self::Triager,
             crate::implementer::ROLE => Self::Implementer,
             crate::researcher::ROLE => Self::Researcher,
