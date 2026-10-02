@@ -118,8 +118,9 @@ async fn changed_issues(
             triager::stop(engine, app_slug, repository, issue.number).await?;
         }
         let labeled = issue.has_label(WORKSTREAM_LABEL);
-        workstreams_changed |=
-            labeled || (!first_poll && direct_task(repository, issue.number).await);
+        workstreams_changed = workstreams_changed
+            || labeled
+            || (!first_poll && direct_task(repository, issue.number).await);
         if !labeled && !workstreams::has_work(engine, name, issue.number).await? {
             continue;
         }
