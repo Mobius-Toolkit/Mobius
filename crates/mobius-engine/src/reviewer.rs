@@ -225,7 +225,7 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
     let result = tokio::select! {
         result = async {
             let comment = start_round(engine, job, &task).await?;
-            review(engine, job, &task, comment, session, &key, &mut recorder).await
+            review(engine, job, comment, session, &key, &mut recorder).await
         } => result.map(|()| "done"),
         () = ends::stopped(&mut stops, job.task) => Ok("stopped"),
     };
@@ -264,7 +264,6 @@ async fn session(engine: &Engine, job: &Job) -> Result<(), Box<dyn Error + Send 
 async fn review(
     engine: &Engine,
     job: &Job,
-    task: &Task,
     comment: i64,
     session_id: i64,
     session_key: &str,
@@ -317,6 +316,15 @@ async fn review(
         let _git = engine.git.lock().await;
         mobius_runner::remove_worktree(data_dir, name, &dir).await?;
     }
+    // A comment of a trusted user during the turn resets the counters of the task.
+    let Some(task) = engine
+        .store
+        .tasks()
+        .live(&job.repository, job.number)
+        .await?
+    else {
+        return Ok(());
+    };
     let app_login = app_login(&repository.app_slug);
     let threads = repository.review_threads(job.pull_request.number).await?;
     let open: Vec<&ReviewThread> = threads
@@ -329,7 +337,7 @@ async fn review(
             engine,
             &repository,
             job,
-            task,
+            &task,
             comment,
             "Ready for review.",
             &open,
@@ -354,7 +362,7 @@ async fn review(
             engine,
             &repository,
             job,
-            task,
+            &task,
             comment,
             "The Judge takes the open threads.",
             &open,
@@ -384,7 +392,7 @@ async fn review(
         ),
         (false, false) => "A fix round started.".to_string(),
     };
-    end_round(engine, &repository, job, task, comment, &result, &open).await?;
+    end_round(engine, &repository, job, &task, comment, &result, &open).await?;
     match at_limit {
         true => {
             let limit = if review_limit { "review" } else { "fix" };

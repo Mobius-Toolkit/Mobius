@@ -850,3 +850,48 @@ async fn a_review_run_after_the_limit_posts_the_limit_comment() {
     );
     assert_eq!(sessions(&engine, "reviewer").await.len(), 1);
 }
+
+#[tokio::test]
+async fn a_comment_of_a_trusted_user_during_the_last_round_resets_the_limit_of_the_round() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let seen = data_dir.path().join("seen");
+    let go = data_dir.path().join("go");
+    let engine = connect(
+        &data_dir,
+        &github,
+        "max_fix_rounds = 2",
+        &format!(
+            "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"if [ -e '{0}' ]; then while [ ! -e '{1}' ]; do sleep 0.05; done; else touch '{0}'; fi\"\ncall = {{ tool = \"submit_review\", arguments = {{ body = \"One finding.\", comments = [{{ path = \"plan.txt\", line = 1, body = \"Store the unit.\" }}] }} }}\n",
+            seen.display(),
+            go.display()
+        ),
+        EACH_FIX,
+    )
+    .await;
+
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    wait_for(async || {
+        round_comments(&github)
+            .iter()
+            .any(|comment| comment.starts_with("Review started, round 2 of 2"))
+            .then_some(())
+    })
+    .await;
+    github.add_comment(REPOSITORY, 42, "owner", "Store the unit in the name.");
+    wait_for(async || (review_rounds(&engine, 41).await == 0).then_some(())).await;
+
+    std::fs::write(&go, "").unwrap();
+
+    let comments = wait_for(async || {
+        let comments = round_comments(&github);
+        (comments.len() > 2 && comments[1].starts_with("Review ended")).then_some(comments)
+    })
+    .await;
+    assert!(
+        comments[1].starts_with("Review ended, round 1 of 2\n\nResult: A fix round started.\n"),
+        "{}",
+        comments[1]
+    );
+}
