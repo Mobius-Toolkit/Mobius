@@ -546,6 +546,10 @@ fn Frame() -> Element {
                     Link { class: "navbtn", active_class: "sel", to: Route::Checkup {}, "Checkup" }
                     Link { class: "navbtn", active_class: "sel", to: Route::AgentsPage {}, "Agents" }
                 }
+                // The rail hides on a phone, so the upgrade line repeats above the page.
+                if let Some(waiting) = drain_waiting {
+                    div { class: "upd phone", DrainText { waiting } }
+                }
                 if let Some(version) = release_version() {
                     if changes_shown() {
                         div { class: "backdrop dim", onclick: move |_| changes_shown.set(false) }
@@ -577,9 +581,7 @@ fn Frame() -> Element {
                             }
                         }
                     }
-                    // The rail hides on a phone, so the upgrade line repeats above the page.
-                    if let Some(waiting) = drain_waiting {
-                        div { class: "upd phone", DrainText { waiting } }
+                    if drain_waiting.is_some() {
                         button { class: "upd phone",
                             onclick: move |_| async move {
                                 if let Err(failure) = drain_cancel().await {
