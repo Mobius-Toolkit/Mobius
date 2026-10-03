@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 dioxus = { workspace = true, features = ["router"] }
+dioxus-icons = { workspace = true }
 dioxus-primitives = { workspace = true }
 futures-util = { workspace = true }
 mobius-api = { workspace = true }

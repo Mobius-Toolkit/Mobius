@@ -6,37 +6,55 @@ use dioxus_primitives::merge_attributes;
 struct Styles;
 
 #[derive(Copy, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub enum ButtonVariant {
     #[default]
     Primary,
+    Secondary,
     Destructive,
     Outline,
     Ghost,
+    Link,
 }
 
 impl ButtonVariant {
     pub fn class(&self) -> &'static str {
         match self {
             ButtonVariant::Primary => "primary",
+            ButtonVariant::Secondary => "secondary",
             ButtonVariant::Destructive => "destructive",
             ButtonVariant::Outline => "outline",
             ButtonVariant::Ghost => "ghost",
+            ButtonVariant::Link => "link",
         }
     }
 }
 
 #[derive(Copy, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub enum ButtonSize {
+    Xs,
     Sm,
     #[default]
     Default,
+    Lg,
+    Icon,
+    IconXs,
+    IconSm,
+    IconLg,
 }
 
 impl ButtonSize {
     pub fn class(&self) -> &'static str {
         match self {
+            ButtonSize::Xs => "xs",
             ButtonSize::Sm => "sm",
             ButtonSize::Default => "default",
+            ButtonSize::Lg => "lg",
+            ButtonSize::Icon => "icon",
+            ButtonSize::IconXs => "icon-xs",
+            ButtonSize::IconSm => "icon-sm",
+            ButtonSize::IconLg => "icon-lg",
         }
     }
 }
@@ -84,24 +102,6 @@ pub fn Button(
                 }
             },
             ..merged,
-            {children}
-        }
-    }
-}
-
-#[component]
-pub fn ButtonLink(
-    #[props(default)] variant: ButtonVariant,
-    #[props(default)] size: ButtonSize,
-    #[props(into)] to: NavigationTarget,
-    children: Element,
-) -> Element {
-    rsx! {
-        Link {
-            class: Styles::dx_button.to_string(),
-            "data-style": variant.class(),
-            "data-size": size.class(),
-            to,
             {children}
         }
     }

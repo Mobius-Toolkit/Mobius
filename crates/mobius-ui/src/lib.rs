@@ -1,4 +1,4 @@
-mod components;
+pub mod components;
 mod markdown;
 
 use std::cmp::Reverse;
@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::pin::pin;
 
 use components::badge::{Badge, BadgeVariant};
-use components::button::{Button, ButtonLink, ButtonSize, ButtonVariant};
+use components::button::{Button, ButtonSize, ButtonVariant};
 use components::input::Input;
 use components::label::Label;
 use components::textarea::Textarea;
@@ -28,6 +28,9 @@ use mobius_domain::{
 };
 use time::UtcOffset;
 use time::macros::format_description;
+
+#[css_module("/src/components/button/style.css")]
+struct ButtonStyles;
 
 const THEME_CSS: Asset = asset!("/assets/dx-components-theme.css");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
@@ -849,7 +852,13 @@ fn WorkstreamList() -> Element {
             } else {
                 h2 { class: "grow", "Workstreams" }
             }
-            ButtonLink { variant: ButtonVariant::Primary, to: Route::NewWorkstream {}, "+ New" }
+            Link {
+                class: ButtonStyles::dx_button.to_string(),
+                "data-style": "primary",
+                "data-size": "default",
+                to: Route::NewWorkstream {},
+                "+ New"
+            }
         }
         div { class: "list",
             WorkstreamEntries {}
@@ -903,13 +912,15 @@ fn label_status(status: &LabelStatus) -> Element {
     match status {
         LabelStatus::Present => rsx! { Badge { variant: BadgeVariant::Secondary, "present" } },
         LabelStatus::WrongColor(color) => rsx! {
-            Badge { variant: BadgeVariant::Warning, "wrong color: #{color}" }
+            Badge { variant: BadgeVariant::Secondary, "data-tone": "warning", "wrong color: #{color}" }
         },
         // Mobius does not rename labels, so a human fixes the name.
         LabelStatus::WrongCase(name) => rsx! {
-            Badge { variant: BadgeVariant::Warning, "wrong case: {name}" }
+            Badge { variant: BadgeVariant::Secondary, "data-tone": "warning", "wrong case: {name}" }
         },
-        LabelStatus::Missing => rsx! { Badge { variant: BadgeVariant::Warning, "missing" } },
+        LabelStatus::Missing => {
+            rsx! { Badge { variant: BadgeVariant::Secondary, "data-tone": "warning", "missing" } }
+        }
     }
 }
 
@@ -918,12 +929,12 @@ fn permission_status(status: &PermissionStatus) -> Element {
         PermissionStatus::Present => rsx! { Badge { variant: BadgeVariant::Secondary, "present" } },
         PermissionStatus::NotAccepted(url) => rsx! {
             a { href: "{url}", target: "_blank",
-                Badge { variant: BadgeVariant::Warning, "not accepted: accept on GitHub" }
+                Badge { variant: BadgeVariant::Secondary, "data-tone": "warning", "not accepted: accept on GitHub" }
             }
         },
         PermissionStatus::Missing(url) => rsx! {
             a { href: "{url}", target: "_blank",
-                Badge { variant: BadgeVariant::Warning, "missing: add on GitHub" }
+                Badge { variant: BadgeVariant::Secondary, "data-tone": "warning", "missing: add on GitHub" }
             }
         },
     }
@@ -1114,7 +1125,7 @@ fn AgentRow(node: AgentNode) -> Element {
                 }
             }
             if let Some(reason) = &node.session.queue_reason {
-                Badge { variant: BadgeVariant::Warning,
+                Badge { variant: BadgeVariant::Secondary, "data-tone": "warning",
                     if reason.starts_with(PAUSED) { "paused" } else { "queued" }
                 }
             }
@@ -2087,9 +2098,9 @@ fn AgentEntry(node: AgentNode, depth: usize, onclick: EventHandler<MouseEvent>) 
             }
             if let Some(reason) = &session.queue_reason {
                 if reason.starts_with(PAUSED) {
-                    Badge { variant: BadgeVariant::Warning, "paused" }
+                    Badge { variant: BadgeVariant::Secondary, "data-tone": "warning", "paused" }
                 } else {
-                    Badge { variant: BadgeVariant::Warning, "queued" }
+                    Badge { variant: BadgeVariant::Secondary, "data-tone": "warning", "queued" }
                 }
             }
         }

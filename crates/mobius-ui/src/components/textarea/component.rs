@@ -3,6 +3,27 @@ use dioxus::prelude::*;
 #[css_module("/src/components/textarea/style.css")]
 struct Styles;
 
+#[derive(Copy, Clone, PartialEq, Default)]
+#[non_exhaustive]
+pub enum TextareaVariant {
+    #[default]
+    Default,
+    Fade,
+    Outline,
+    Ghost,
+}
+
+impl TextareaVariant {
+    pub fn class(&self) -> &'static str {
+        match self {
+            TextareaVariant::Default => "default",
+            TextareaVariant::Fade => "fade",
+            TextareaVariant::Outline => "outline",
+            TextareaVariant::Ghost => "ghost",
+        }
+    }
+}
+
 #[component]
 pub fn Textarea(
     oninput: Option<EventHandler<FormEvent>>,
@@ -24,6 +45,7 @@ pub fn Textarea(
     oncut: Option<EventHandler<ClipboardEvent>>,
     onpaste: Option<EventHandler<ClipboardEvent>>,
     onmounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)] variant: TextareaVariant,
     #[props(extends=GlobalAttributes)]
     #[props(extends=textarea)]
     attributes: Vec<Attribute>,
@@ -33,6 +55,7 @@ pub fn Textarea(
         textarea {
             class: Styles::dx_textarea,
             "data-slot": "textarea",
+            "data-style": variant.class(),
             oninput: move |e| _ = oninput.map(|callback| callback(e)),
             onchange: move |e| _ = onchange.map(|callback| callback(e)),
             oninvalid: move |e| _ = oninvalid.map(|callback| callback(e)),

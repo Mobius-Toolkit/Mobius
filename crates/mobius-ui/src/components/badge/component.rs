@@ -1,14 +1,17 @@
 use dioxus::prelude::*;
+use dioxus_icons::lucide::BadgeCheck;
 
 #[css_module("/src/components/badge/style.css")]
 struct Styles;
 
 #[derive(Copy, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub enum BadgeVariant {
     #[default]
     Primary,
     Secondary,
-    Warning,
+    Destructive,
+    Outline,
 }
 
 impl BadgeVariant {
@@ -16,7 +19,8 @@ impl BadgeVariant {
         match self {
             BadgeVariant::Primary => "primary",
             BadgeVariant::Secondary => "secondary",
-            BadgeVariant::Warning => "warning",
+            BadgeVariant::Destructive => "destructive",
+            BadgeVariant::Outline => "outline",
         }
     }
 }
@@ -38,11 +42,33 @@ pub struct BadgeProps {
 #[component]
 pub fn Badge(props: BadgeProps) -> Element {
     rsx! {
+        BadgeElement {
+            "padding": true,
+            variant: props.variant,
+            attributes: props.attributes,
+            {props.children}
+        }
+    }
+}
+
+#[component]
+fn BadgeElement(props: BadgeProps) -> Element {
+    rsx! {
         span {
             class: Styles::dx_badge,
             "data-style": props.variant.class(),
             ..props.attributes,
             {props.children}
+        }
+    }
+}
+
+#[component]
+pub fn VerifiedIcon() -> Element {
+    rsx! {
+        BadgeCheck {
+            size: "12px",
+            stroke: "var(--secondary-color-4)",
         }
     }
 }
