@@ -28,6 +28,7 @@ pub(crate) async fn sync(
 // Applies the change of one issue of the repository to the copy, and gives `true` when the copy changes.
 // `events` are all events of the issue. The parent is read for an issue that the copy does not have,
 // because its new link to a Workstream or a task changes the walk order of that Workstream.
+// A task that gets or loses the Workstream label changes the walk order of its Workstream too.
 pub(crate) async fn update(
     engine: &Engine,
     repository: &Repository,
@@ -41,6 +42,15 @@ pub(crate) async fn update(
         .workstream_of(name, issue.number, &issue.repository_url)
         .await?
         .is_some();
+    let label_changed = copy
+        .workstreams_with_label_change(
+            name,
+            issue.number,
+            &issue.repository_url,
+            WORKSTREAM_LABEL,
+            issue.has_label(WORKSTREAM_LABEL),
+        )
+        .await?;
     let stored = copy.has_workstream(name, issue.number).await?;
     let wanted = issue.has_label(WORKSTREAM_LABEL) && issue.state == "open";
     let autopilot = issue.has_label(AUTOPILOT_LABEL)
@@ -75,7 +85,12 @@ pub(crate) async fn update(
             .collect(),
         author: issue.user.login.clone(),
     };
-    changed |= copy.update_issue(name, &changed_issue).await?;
+    changed |= copy.update_issue(&changed_issue).await?;
+    for workstream in label_changed {
+        let issues = tree(repository, workstream).await?;
+        copy.replace_issues(name, workstream, &issues).await?;
+        changed = true;
+    }
     if known || !find_parent {
         return Ok(changed);
     }

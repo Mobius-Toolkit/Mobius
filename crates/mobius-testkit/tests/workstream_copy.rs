@@ -539,6 +539,79 @@ async fn a_change_of_a_local_issue_does_not_change_the_foreign_row_with_the_same
 }
 
 #[tokio::test]
+async fn a_task_that_gets_the_workstream_label_becomes_a_leaf_of_its_workstream() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+
+    github.add_label(REPOSITORY, 41, "mobius:workstream", "owner");
+
+    wait_for(async || (workstream_numbers(&engine).await == [12, 41]).then_some(())).await;
+    wait_for(async || (issue_numbers(&engine).await == [41, 50]).then_some(())).await;
+    let owners: Vec<i64> = issues(&engine)
+        .await
+        .into_iter()
+        .map(|(workstream, ..)| workstream)
+        .collect();
+    assert_eq!(owners, [12, 41]);
+}
+
+#[tokio::test]
+async fn a_task_that_loses_the_workstream_label_gets_its_tree_back_in_its_workstream() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 41, "Add plan model");
+    github.add_label(REPOSITORY, 41, "mobius:workstream", "owner");
+    github.add_sub_issue(REPOSITORY, 12, 41);
+    github.add_issue(REPOSITORY, 50, "Store the price in cents");
+    github.add_sub_issue(REPOSITORY, 41, 50);
+    let engine = connect(&data_dir, &github).await;
+    wait_for(async || (workstream_numbers(&engine).await == [12, 41]).then_some(())).await;
+    wait_for_first_poll(&engine, REPOSITORY).await;
+    assert_eq!(issue_numbers(&engine).await, [41, 50]);
+
+    github.remove_label(REPOSITORY, 41, "mobius:workstream", "owner");
+
+    wait_for(async || (workstream_numbers(&engine).await == [12]).then_some(())).await;
+    wait_for(async || (issue_numbers(&engine).await == [41, 50]).then_some(())).await;
+    let parents: Vec<(i64, i64)> = issues(&engine)
+        .await
+        .into_iter()
+        .map(|(workstream, _, parent, ..)| (workstream, parent))
+        .collect();
+    assert_eq!(parents, [(12, 12), (12, 41)]);
+}
+
+#[tokio::test]
+async fn a_closed_issue_of_another_repository_has_the_state_closed_in_the_copy() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_repository("other/repo");
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    github.add_issue("other/repo", 77, "A task in another repository");
+    github.add_foreign_sub_issue(REPOSITORY, 12, "other/repo", 77);
+    let engine = connect(&data_dir, &github).await;
+    workstreams(&engine).await;
+    wait_for_first_poll(&engine, REPOSITORY).await;
+    wait_for_first_poll(&engine, "other/repo").await;
+
+    github.close_issue("other/repo", 77);
+
+    wait_for(async || {
+        let states: Vec<String> = issues(&engine)
+            .await
+            .into_iter()
+            .map(|(_, _, _, state, _)| state)
+            .collect();
+        (states == ["closed"]).then_some(())
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn a_poll_with_no_change_in_the_copy_sends_no_workstreams_event() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;

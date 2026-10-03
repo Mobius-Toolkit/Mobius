@@ -135,6 +135,34 @@ impl WorkstreamCopy<'_> {
         .await?)
     }
 
+    // Gives the Workstreams of the repository that hold the issue as a task and
+    // store its label `name` differently from `present`.
+    pub async fn workstreams_with_label_change(
+        &self,
+        repository: &str,
+        number: i64,
+        repository_url: &str,
+        name: &str,
+        present: bool,
+    ) -> Result<Vec<i64>, Box<dyn Error + Send + Sync>> {
+        Ok(sqlx::query_scalar!(
+            r#"SELECT i.workstream AS "workstream!: i64" FROM copied_issues i
+               WHERE i.repository = ?1 AND i.number = ?2 AND i.repository_url = ?3
+                 AND EXISTS (
+                     SELECT 1 FROM copied_issue_labels l
+                     WHERE l.repository = i.repository AND l.workstream = i.workstream
+                       AND l.position = i.position AND l.name = ?4
+                 ) != ?5"#,
+            repository,
+            number,
+            repository_url,
+            name,
+            present
+        )
+        .fetch_all(self.pool)
+        .await?)
+    }
+
     pub async fn add_workstream(
         &self,
         repository: &str,
@@ -201,22 +229,21 @@ impl WorkstreamCopy<'_> {
         Ok(())
     }
 
-    // Changes each row of the issue in the repository, and gives `false` when the stored values are equal.
+    // Changes each row of the issue in all repositories, and gives `false` when the stored values are equal.
+    // A tree can hold an issue of another repository as a leaf, so the repository of the row can differ.
     pub async fn update_issue(
         &self,
-        repository: &str,
         issue: &ChangedIssue,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         let mut transaction = self.pool.begin().await?;
         let updated = sqlx::query!(
             "UPDATE copied_issues SET title = ?1, body = ?2, state = ?3, author = ?4
-             WHERE repository = ?5 AND number = ?6 AND repository_url = ?7
+             WHERE number = ?5 AND repository_url = ?6
                AND (title != ?1 OR body != ?2 OR state != ?3 OR author != ?4)",
             issue.title,
             issue.body,
             issue.state,
             issue.author,
-            repository,
             issue.number,
             issue.repository_url
         )
@@ -226,9 +253,8 @@ impl WorkstreamCopy<'_> {
         let mut labels = issue.labels.clone();
         labels.sort();
         let rows = sqlx::query!(
-            "SELECT workstream, position FROM copied_issues
-             WHERE repository = ? AND number = ? AND repository_url = ?",
-            repository,
+            "SELECT repository, workstream, position FROM copied_issues
+             WHERE number = ? AND repository_url = ?",
             issue.number,
             issue.repository_url
         )
@@ -238,7 +264,7 @@ impl WorkstreamCopy<'_> {
             let stored = sqlx::query_scalar!(
                 "SELECT name FROM copied_issue_labels
                  WHERE repository = ? AND workstream = ? AND position = ? ORDER BY name",
-                repository,
+                row.repository,
                 row.workstream,
                 row.position
             )
@@ -251,7 +277,7 @@ impl WorkstreamCopy<'_> {
             sqlx::query!(
                 "DELETE FROM copied_issue_labels
                  WHERE repository = ? AND workstream = ? AND position = ?",
-                repository,
+                row.repository,
                 row.workstream,
                 row.position
             )
@@ -259,7 +285,7 @@ impl WorkstreamCopy<'_> {
             .await?;
             insert_labels(
                 &mut transaction,
-                repository,
+                &row.repository,
                 row.workstream,
                 row.position,
                 &labels,
