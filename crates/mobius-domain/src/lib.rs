@@ -152,6 +152,16 @@ pub struct TaskLine {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NeedsHuman {
+    pub number: i64,
+    pub title: String,
+    pub url: String,
+    // They are set when the live task of the issue has a pull request.
+    pub pull_request: Option<i64>,
+    pub pull_request_url: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Blocker {
     pub number: i64,
     // It holds a title only when the blocker is in another Workstream.
