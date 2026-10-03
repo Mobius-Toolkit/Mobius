@@ -219,6 +219,45 @@ async fn a_task_in_needs_human_stays_in_needs_human_after_the_next_polls() {
 }
 
 #[tokio::test]
+async fn a_comment_of_the_owner_keeps_mobius_needs_human_on_a_task_in_needs_human() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let implementer = "[[prompts]]\nshell = \"kill -9 $PPID\"\n";
+    let engine = connect(
+        &data_dir,
+        &github,
+        &dispatch_start(),
+        implementer,
+        "max_worker_restarts = 1",
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || {
+        github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:needs-human".to_string())
+            .then_some(())
+    })
+    .await;
+
+    github.add_comment(REPOSITORY, 41, "owner", "I will look at it.");
+    wait_for(async || {
+        lead_prompts(&engine)
+            .await
+            .into_iter()
+            .find(|prompt| prompt.contains("comment on #41"))
+    })
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    assert!(
+        github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:needs-human".to_string())
+    );
+}
+
+#[tokio::test]
 async fn a_lead_that_crashes_gets_the_same_event_in_a_new_session() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;

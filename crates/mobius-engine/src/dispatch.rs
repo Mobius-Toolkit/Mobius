@@ -149,7 +149,7 @@ pub(crate) async fn comment_events(
         engine.store.tasks().reset_counters(task.id).await?;
     }
     let (replies, answered) = replies(&engine.config, app_slug, &comments, since);
-    if answered && issue.has_label(NEEDS_HUMAN_LABEL) {
+    if answered && task.state != "needs_human" && issue.has_label(NEEDS_HUMAN_LABEL) {
         repository
             .remove_label(issue.number, NEEDS_HUMAN_LABEL)
             .await?;
