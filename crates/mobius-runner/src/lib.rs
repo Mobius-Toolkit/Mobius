@@ -279,6 +279,26 @@ pub async fn fetch(
     Ok(())
 }
 
+// Gives the text of `path` on `origin/<branch>` from the last `fetch`, or `None` when the file does not exist there.
+pub async fn show(
+    data_dir: &Path,
+    repository: &str,
+    branch: &str,
+    path: &str,
+) -> Result<Option<String>, String> {
+    let bare = bare_dir(data_dir, repository);
+    let name = format!("origin/{branch}");
+    if run(git(&bare, data_dir, None).args(["ls-tree", "--name-only", &name, "--", path]))
+        .await?
+        .is_empty()
+    {
+        return Ok(None);
+    }
+    run(git(&bare, data_dir, None).args(["show", &format!("{name}:{path}")]))
+        .await
+        .map(Some)
+}
+
 // Makes `task-<n>` on the first branch of `mobius/<n>`, `mobius/<n>-2`, ... that is free locally and on `origin`, and gives the branch.
 pub async fn add_worktree(
     data_dir: &Path,

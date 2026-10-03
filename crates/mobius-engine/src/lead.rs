@@ -141,6 +141,29 @@ pub(crate) async fn context(
     ))
 }
 
+// The facts file and the instruction file of `role` come from the default branch, so a pull request cannot change them for its own agents.
+pub(crate) async fn repository_sections(
+    engine: &Engine,
+    repository: &Repository,
+    role: &str,
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let data_dir = &engine.config.data_dir;
+    let name = &repository.full_name;
+    let branch = &repository.default_branch;
+    let _git = engine.git.lock().await;
+    mobius_runner::fetch(data_dir, name, &repository.clone_url, repository.token()).await?;
+    let mut sections = String::new();
+    for (heading, path) in [
+        ("Repository facts", "AGENTS.md".to_string()),
+        ("Role instructions", format!(".mobius/roles/{role}.md")),
+    ] {
+        if let Some(text) = mobius_runner::show(data_dir, name, branch, &path).await? {
+            sections.push_str(&format!("# {heading}\n\n{text}\n\n"));
+        }
+    }
+    Ok(sections)
+}
+
 pub(crate) async fn brief(
     repository: &Repository,
     workstream: i64,
