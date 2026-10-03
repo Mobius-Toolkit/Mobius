@@ -1,0 +1,113 @@
+.dx-button {
+  display: inline-flex;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--text-base);
+  font-weight: 500;
+  gap: var(--space-2);
+  line-height: 1.25rem;
+  outline: none;
+  text-decoration: none;
+  transition-duration: 150ms;
+  transition-property: background-color, border-color, box-shadow, color;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+}
+
+.dx-button[data-size="sm"] {
+  height: var(--control-height-sm);
+  padding: 0 var(--space-3);
+  gap: var(--space-1);
+}
+
+.dx-button[data-size="default"] {
+  height: var(--control-height);
+  padding: 0 var(--space-4);
+}
+
+.dx-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.dx-button:focus-visible {
+  box-shadow: var(--ring);
+}
+
+.dx-button[data-style="primary"] {
+  background-color: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.dx-button[data-style="primary"]:not(:disabled):hover {
+  background-color: color-mix(in oklab, var(--accent) 88%, var(--ink));
+}
+
+.dx-button[data-style="primary"]:not(:disabled):active {
+  background-color: color-mix(in oklab, var(--accent) 76%, var(--ink));
+}
+
+.dx-button[data-style="primary"]:focus-visible {
+  box-shadow: var(--shadow-sm), var(--ring);
+}
+
+.dx-button[data-style="outline"] {
+  border-color: var(--line-strong);
+  background-color: var(--raised);
+  box-shadow: var(--shadow-sm);
+  color: var(--ink);
+}
+
+.dx-button[data-style="outline"]:not(:disabled):hover {
+  background-color: color-mix(in oklab, var(--raised) 94%, var(--ink));
+}
+
+.dx-button[data-style="outline"]:not(:disabled):active {
+  background-color: color-mix(in oklab, var(--raised) 86%, var(--ink));
+}
+
+.dx-button[data-style="outline"]:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-sm), var(--ring);
+}
+
+.dx-button[data-style="destructive"] {
+  border-color: var(--crit);
+  background-color: var(--raised);
+  box-shadow: var(--shadow-sm);
+  color: var(--crit);
+}
+
+.dx-button[data-style="destructive"]:not(:disabled):hover {
+  background-color: var(--crit-soft);
+}
+
+.dx-button[data-style="destructive"]:not(:disabled):active {
+  background-color: color-mix(in oklab, var(--crit-soft) 80%, var(--crit));
+}
+
+.dx-button[data-style="destructive"]:focus-visible {
+  box-shadow: var(--shadow-sm), 0 0 0 3px color-mix(in oklab, var(--crit) 40%, transparent);
+}
+
+.dx-button[data-style="ghost"] {
+  background-color: transparent;
+  color: var(--ink);
+}
+
+.dx-button[data-style="ghost"]:not(:disabled):hover {
+  background-color: color-mix(in oklab, var(--ink) 8%, transparent);
+}
+
+.dx-button[data-style="ghost"]:not(:disabled):active {
+  background-color: color-mix(in oklab, var(--ink) 16%, transparent);
+}

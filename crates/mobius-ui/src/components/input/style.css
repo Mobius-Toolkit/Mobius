@@ -1,0 +1,40 @@
+.dx-input {
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--control-height);
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background-color: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: var(--text-input);
+  gap: var(--space-1);
+  outline: none;
+  transition-duration: 150ms;
+  transition-property: background-color, box-shadow;
+}
+
+.dx-input::placeholder {
+  color: var(--muted);
+}
+
+.dx-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.dx-input:hover:not(:disabled) {
+  background-color: color-mix(in oklab, var(--raised) 96%, var(--ink));
+}
+
+.dx-input:focus-visible {
+  background-color: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--accent), var(--ring);
+}
