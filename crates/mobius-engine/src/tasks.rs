@@ -1,10 +1,10 @@
 use std::error::Error;
 
-use mobius_domain::{Blocker, TaskLine};
+use mobius_domain::{Blocker, Live, NeedsHuman, TaskLine};
 use mobius_github::{Issue, Repository};
 
-use crate::labels::WORKSTREAM_LABEL;
-use crate::{Engine, ends, trust, workstreams};
+use crate::labels::{NEEDS_HUMAN_LABEL, READY_LABEL, WORKSTREAM_LABEL};
+use crate::{Engine, ends, github, trust, workstreams};
 
 // Issues below a Workstream issue of their own belong to that Workstream.
 // The walk is depth-first, so a nested task follows its parent in the list.
@@ -57,6 +57,66 @@ pub async fn list(
         frames.push((depth + i64::from(visible), children));
     }
     Ok(lines)
+}
+
+// The walk of `list`, but it keeps the open issues that have `mobius:needs-human`.
+pub async fn needs_human(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+) -> Result<Vec<NeedsHuman>, Box<dyn Error + Send + Sync>> {
+    let repository = engine.repository(repository)?;
+    let trusted = trust::trusted_authors(engine, &repository);
+    let mut issues = Vec::new();
+    let mut frames: Vec<(i64, std::vec::IntoIter<Issue>)> =
+        vec![(0, repository.sub_issues(workstream).await?.into_iter())];
+    while let Some((_, issue)) = next_issue(&mut frames) {
+        if issue.has_label(WORKSTREAM_LABEL)
+            || ends::in_other_repository(&issue, &repository.full_name)
+        {
+            continue;
+        }
+        frames.push((0, repository.sub_issues(issue.number).await?.into_iter()));
+        if issue.state != "open"
+            || !trusted(&issue.user.login)
+            || !issue.has_label(NEEDS_HUMAN_LABEL)
+        {
+            continue;
+        }
+        let pull_request = engine
+            .store
+            .tasks()
+            .live(&repository.full_name, issue.number)
+            .await?
+            .and_then(|task| task.pull_request);
+        let pull_request_url = match pull_request {
+            Some(number) => Some(repository.pull_request(number).await?.html_url),
+            None => None,
+        };
+        issues.push(NeedsHuman {
+            number: issue.number,
+            title: issue.title,
+            url: issue.html_url,
+            pull_request,
+            pull_request_url,
+        });
+    }
+    Ok(issues)
+}
+
+// The write uses the token of the Owner, because dispatch trusts `mobius:ready` only from a trusted user.
+pub async fn resume(
+    engine: &Engine,
+    repository: &str,
+    issue: i64,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let repository = engine.repository(repository)?;
+    let user_token = github::user_token(engine, repository.app_id).await?;
+    let as_owner = repository.with_user_token(&user_token)?;
+    as_owner.remove_label(issue, NEEDS_HUMAN_LABEL).await?;
+    as_owner.add_label(issue, READY_LABEL).await?;
+    engine.broadcast(Live::Workstreams);
+    Ok(())
 }
 
 // Gives the next issue of the deepest frame, dropping each frame that ran out.

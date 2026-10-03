@@ -11,9 +11,9 @@ use markdown::Markdown;
 use mobius_api::{
     active_agents, agent_tree, chat_seen, chat_send, chat_stop, chat_view, checkup, devices,
     drain_cancel, drain_state, fix_labels, github_apps, github_manifest, inbox_dismiss,
-    inbox_items, inbox_resume, live, login, logout, organizations, release, release_changes,
-    task_list, transcript_lines, unread, upgrade, upgrade_error as upgrade_error_state,
-    workstream_autopilot, workstream_close, workstreams,
+    inbox_items, inbox_resume, live, login, logout, needs_human_list, organizations, release,
+    release_changes, task_list, task_resume, transcript_lines, unread, upgrade,
+    upgrade_error as upgrade_error_state, workstream_autopilot, workstream_close, workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, DrainEnd, FeedRow, InboxItem, InboxKind, LabelStatus, Live,
@@ -802,6 +802,7 @@ fn WorkstreamEntries() -> Element {
 #[component]
 fn WorkstreamEntry(workstream: Workstream) -> Element {
     let state: LiveState = use_context();
+    let Workstreams(workstream_list) = use_context();
     let (owner, repo) = workstream.repository.split_once('/').unwrap_or_default();
     let unread = state
         .unread
@@ -813,6 +814,17 @@ fn WorkstreamEntry(workstream: Workstream) -> Element {
         ))
         .copied()
         .unwrap_or(0);
+    let needs_human = use_resource(use_reactive(
+        (&workstream.repository, &workstream.number),
+        move |(repository, number)| async move {
+            workstream_list.read();
+            needs_human_list(repository, number).await
+        },
+    ));
+    let needs_human = match &*needs_human.read() {
+        Some(Ok(issues)) => issues.len(),
+        _ => 0,
+    };
     rsx! {
         Link {
             class: "entry",
@@ -822,6 +834,9 @@ fn WorkstreamEntry(workstream: Workstream) -> Element {
             span { class: "muted small", "#{workstream.number}" }
             if workstream.all_tasks_closed {
                 span { class: "chip plain", "done" }
+            }
+            if needs_human > 0 {
+                span { class: "chip warn", "needs you" }
             }
             if unread > 0 {
                 span { class: "count", "{unread}" }
@@ -1722,6 +1737,7 @@ fn Conversation(
         });
     });
     let stop_key = (organization.clone(), repository.clone());
+    let lead_chat = brief.is_some();
     rsx! {
         div { class: "column",
             div { class: "head",
@@ -1794,6 +1810,9 @@ fn Conversation(
                     if let Some(error) = lead_state.error {
                         div { class: "error", "The chat session failed: {error}" }
                     }
+                }
+                if lead_chat {
+                    NeedsHumanList { repository: repository.clone(), number }
                 }
                 form {
                     class: "composer",
@@ -1981,6 +2000,59 @@ fn Agents(repository: String, number: i64, on_close: Option<EventHandler>) -> El
                 }
             }
         }
+    }
+}
+
+// A `Live::Workstreams` event reads the list again.
+#[component]
+fn NeedsHumanList(repository: String, number: i64) -> Element {
+    let Workstreams(mut workstream_list) = use_context();
+    let mut error = use_signal(String::new);
+    let issues = use_resource(use_reactive(
+        (&repository, &number),
+        move |(repository, number)| async move {
+            workstream_list.read();
+            needs_human_list(repository, number).await
+        },
+    ));
+    match &*issues.read() {
+        None => rsx! {},
+        Some(Err(failure)) => rsx! {
+            div { class: "error note", {error_text(failure)} }
+        },
+        Some(Ok(issues)) if issues.is_empty() => rsx! {},
+        Some(Ok(issues)) => rsx! {
+            div { class: "needs-human",
+                if !error().is_empty() {
+                    div { class: "error", {error} }
+                }
+                for issue in issues.iter().cloned() {
+                    div { key: "{issue.number}", class: "item",
+                        a { class: "grow", href: "{issue.url}", target: "_blank", "#{issue.number} {issue.title}" }
+                        if let (Some(number), Some(url)) = (issue.pull_request, issue.pull_request_url) {
+                            a { href: "{url}", target: "_blank", "PR #{number}" }
+                        }
+                        button {
+                            class: "btn primary",
+                            onclick: {
+                                let repository = repository.clone();
+                                move |_| {
+                                    let repository = repository.clone();
+                                    async move {
+                                        match task_resume(repository, issue.number).await {
+                                            Ok(()) => error.set(String::new()),
+                                            Err(failure) => error.set(error_text(&failure)),
+                                        }
+                                        workstream_list.restart();
+                                    }
+                                }
+                            },
+                            "Resume"
+                        }
+                    }
+                }
+            }
+        },
     }
 }
 
