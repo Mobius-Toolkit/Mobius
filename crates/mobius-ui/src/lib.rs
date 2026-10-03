@@ -329,6 +329,7 @@ async fn follow_live(
                     state.reconnects += 1;
                     workstream_list.restart();
                     state.leads.write().clear();
+                    state.messages.write().clear();
                 }
                 // The server subscribes before `live` returns, so a count read now misses no later event.
                 if let Ok(counts) = unread().await {
@@ -1028,13 +1029,14 @@ fn NewWorkstream() -> Element {
 }
 
 // All active agents of the server in one group for each role, of all organizations.
-// The resource runs again when a `Live::Agent` event changes `LiveState.agents`:
-// at the start of a session, at the slot start, at a change of the queue reason, and at the end.
+// The resource runs again after a new live connection and when a `Live::Agent` event changes
+// `LiveState.agents`: at the start of a session, at the slot start, at a change of the queue reason, and at the end.
 #[component]
 fn AgentsPage() -> Element {
     let state: LiveState = use_context();
     let LoginShown(mut login_shown) = use_context();
     let resource = use_resource(move || async move {
+        state.reconnects.read();
         state.agents.read();
         active_agents().await
     });
