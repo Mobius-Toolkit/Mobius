@@ -1506,16 +1506,19 @@ fn Conversation(
         Some(Ok(view)) => (view.messages.clone(), view.writing, Some(view.lead)),
         _ => (Vec::new(), false, None),
     };
-    let history_ids: Vec<i64> = messages.iter().map(|message| message.id).collect();
     for message in state.messages.read().iter() {
         if message.organization != organization
             || message.repository != repository
             || message.workstream != number
-            || history_ids.contains(&message.id)
         {
             continue;
         }
-        messages.push(message.clone());
+        // The Lead only appends text to a message, so the longer text is the newer text.
+        match messages.iter_mut().find(|held| held.id == message.id) {
+            Some(held) if message.text.len() > held.text.len() => *held = message.clone(),
+            Some(_) => {}
+            None => messages.push(message.clone()),
+        }
     }
     messages.sort_by_key(|message| message.id);
     // While the history loads, `messages` is still empty, so the default waits for it.
