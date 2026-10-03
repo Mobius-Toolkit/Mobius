@@ -256,6 +256,7 @@ async fn the_needs_human_list_has_the_open_issues_with_the_label_in_the_whole_tr
     github.add_issue(REPOSITORY, 42, "Let customers change plans");
     github.add_sub_issue(REPOSITORY, 12, 42);
     github.add_label(REPOSITORY, 42, "mobius:working", "owner");
+    engine.store.tasks().add(REPOSITORY, 42, 12).await.unwrap();
     github.add_issue(REPOSITORY, 43, "Add season table");
     github.add_sub_issue(REPOSITORY, 12, 43);
     github.add_label(REPOSITORY, 43, "mobius:needs-human", "owner");
