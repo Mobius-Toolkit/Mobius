@@ -30,6 +30,7 @@ pub(crate) async fn sync(
 // because its new link to a Workstream or a task changes the walk order of that Workstream.
 // A task that gets or loses the Workstream label changes the walk order of its Workstream too,
 // and the Workstream of its blockers in the other trees.
+// A new Workstream changes the Workstream of the blockers that are in its tree, in the other trees.
 pub(crate) async fn update(
     engine: &Engine,
     repository: &Repository,
@@ -58,6 +59,7 @@ pub(crate) async fn update(
         && workstreams::added_by_trusted_user(&engine.config, events);
     let body = issue.body.clone().unwrap_or_default();
     let mut changed = false;
+    let mut added = Vec::new();
     if stored && !wanted {
         copy.remove_workstream(name, issue.number).await?;
         changed = true;
@@ -66,11 +68,9 @@ pub(crate) async fn update(
             .update_workstream(name, issue.number, &issue.title, &body, autopilot)
             .await?;
     } else if wanted {
-        copy.add_workstream(
-            name,
-            &copied_workstream(repository, issue, autopilot).await?,
-        )
-        .await?;
+        let workstream = copied_workstream(repository, issue, autopilot).await?;
+        copy.add_workstream(name, &workstream).await?;
+        added = workstream.issues.iter().map(|issue| issue.number).collect();
         changed = true;
     }
     let changed_issue = ChangedIssue {
@@ -98,6 +98,13 @@ pub(crate) async fn update(
     for workstream in stale {
         for blocked in copy.workstreams_with_blocker_in(name, workstream).await? {
             if !rebuilt.contains(&blocked) {
+                rebuilt.push(blocked);
+            }
+        }
+    }
+    for number in added {
+        for blocked in copy.workstreams_with_blocker(name, number).await? {
+            if blocked != issue.number && !rebuilt.contains(&blocked) {
                 rebuilt.push(blocked);
             }
         }

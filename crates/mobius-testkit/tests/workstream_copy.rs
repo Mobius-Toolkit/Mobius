@@ -801,3 +801,29 @@ async fn a_task_that_loses_the_workstream_label_changes_the_workstream_of_a_bloc
     })
     .await;
 }
+
+#[tokio::test]
+async fn a_new_workstream_changes_the_workstream_of_a_blocker_in_another_tree() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_issue(REPOSITORY, 41, "Add plan model");
+    github.add_issue(REPOSITORY, 50, "Store the price in cents");
+    github.add_sub_issue(REPOSITORY, 41, 50);
+    github.add_issue(REPOSITORY, 20, "Billing");
+    github.add_label(REPOSITORY, 20, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 60, "Invoice model");
+    github.add_sub_issue(REPOSITORY, 20, 60);
+    github.add_blocker(REPOSITORY, 60, 50);
+    let engine = connect(&data_dir, &github).await;
+    workstreams(&engine).await;
+    wait_for_first_poll(&engine, REPOSITORY).await;
+    assert_eq!(blockers(&engine).await, [(60, 50, None, None)]);
+
+    github.add_label(REPOSITORY, 41, "mobius:workstream", "owner");
+
+    wait_for(async || {
+        (blockers(&engine).await == [(60, 50, Some(41), Some("Add plan model".to_string()))])
+            .then_some(())
+    })
+    .await;
+}
