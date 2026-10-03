@@ -17,6 +17,7 @@ pub(crate) async fn add(
     kind: &str,
     payload: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let _order = engine.chat_order.lock().await;
     let message = engine
         .store
         .chat_messages()
@@ -41,7 +42,7 @@ pub(crate) async fn add(
         )
         .await?;
     engine.broadcast(Live::Message(message));
-    chat::wake_events(engine, repository, workstream).await
+    chat::send_events(engine, repository, workstream).await
 }
 
 pub(crate) async fn failed(

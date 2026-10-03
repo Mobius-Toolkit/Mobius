@@ -88,6 +88,7 @@ pub(crate) async fn post(
     let Some(guard) = drain::track(engine) else {
         return Err("Mobius restarts for an upgrade. Send the message after the restart.".into());
     };
+    let _order = engine.chat_order.lock().await;
     let message = engine
         .store
         .chat_messages()
@@ -142,8 +143,17 @@ pub(crate) async fn post(
     Ok(())
 }
 
-// Sends each ready event of the Workstream to its Lead session, and starts the session when none runs. A session that already has an event skips the copy.
 pub(crate) async fn wake_events(
+    engine: &Engine,
+    repository: &str,
+    workstream: i64,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let _order = engine.chat_order.lock().await;
+    send_events(engine, repository, workstream).await
+}
+
+// Sends each ready event of the Workstream to its Lead session, and starts the session when none runs. A session that already has an event skips the copy. The caller holds `chat_order`.
+pub(crate) async fn send_events(
     engine: &Engine,
     repository: &str,
     workstream: i64,
