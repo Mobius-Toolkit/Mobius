@@ -841,7 +841,7 @@ a.node {
   background: var(--surface);
   border-top-left-radius: var(--radius-xl);
   border-top-right-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-lg-up);
 }
 
 .login {
@@ -870,6 +870,10 @@ a.node {
 @media (max-width: 700px) {
   .shell {
     flex-direction: column;
+  }
+
+  .center {
+    width: 100%;
   }
 
   .rail {

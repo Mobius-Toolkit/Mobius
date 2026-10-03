@@ -1508,7 +1508,7 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
         wait_until_live(&page).await;
         assert!(!check(&page, "!!document.querySelector('.closing')".to_string()).await);
         let done = format!(
-            "document.querySelector('a[href=\"/workstreams/owner/shop/{number}\"] .chip')?.textContent === 'done'"
+            "document.querySelector('a[href=\"/workstreams/owner/shop/{number}\"] [data-style]')?.textContent === 'done'"
         );
         assert!(!check(&page, done.clone()).await);
 

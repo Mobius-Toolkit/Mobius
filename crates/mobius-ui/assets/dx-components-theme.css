@@ -75,6 +75,7 @@
   /* Shadows */
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.08);
   --shadow-lg: 0 8px 30px rgb(0 0 0 / 0.2);
+  --shadow-lg-up: 0 -8px 30px rgb(0 0 0 / 0.2);
   --ring: 0 0 0 3px color-mix(in oklab, var(--accent) 40%, transparent);
 
   /* Controls */
