@@ -893,7 +893,12 @@ async fn an_event_keeps_its_place_before_a_later_owner_message_when_the_lead_hel
     })
     .await;
     dispatch_task(&github, 41, "Add plan model");
-    wait_for(async || (event_count(&engine).await == 1).then_some(())).await;
+    wait_for(async || {
+        let events = engine.store.lead_events();
+        let undelivered = events.undelivered(REPOSITORY, 12).await.unwrap();
+        (event_count(&engine).await == 1 && undelivered.len() == 1).then_some(())
+    })
+    .await;
     chat::send(&engine, "owner", REPOSITORY, 12, "Also add a price")
         .await
         .unwrap();
