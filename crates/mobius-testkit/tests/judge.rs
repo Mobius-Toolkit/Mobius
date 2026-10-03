@@ -368,3 +368,21 @@ async fn a_fix_round_of_the_judge_from_needs_human_puts_the_working_label_back()
     })
     .await;
 }
+
+#[tokio::test]
+async fn a_removal_of_the_working_label_stops_a_task_while_the_judge_runs_from_a_state_other_than_needs_human()
+ {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github, "hang = true", IMPLEMENTER).await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || (!inbox::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+    github.add_comment(REPOSITORY, 42, "owner", "Why cents?");
+    wait_for(async || (task_state(&engine).await.as_deref() == Some("working")).then_some(()))
+        .await;
+
+    github.remove_label(REPOSITORY, 41, "mobius:working", "mallory");
+
+    wait_for(async || (task_state(&engine).await.as_deref() == Some("stopped")).then_some(()))
+        .await;
+}
