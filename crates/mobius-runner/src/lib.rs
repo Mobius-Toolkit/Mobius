@@ -885,18 +885,14 @@ mod tests {
         assert_eq!(find("git", &path), None);
     }
 
-    fn executable(file: &Path) {
-        fs::create_dir_all(file.parent().unwrap()).unwrap();
-        fs::write(file, "#!/bin/sh\n").unwrap();
-        fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-
     #[test]
     fn the_gh_wrapper_runs_the_real_gh_when_the_path_has_the_mobius_wrappers_first() {
         let data_dir = tempfile::tempdir().unwrap();
         let real = tempfile::tempdir().unwrap();
         prepare(data_dir.path(), Path::new("/usr/bin/gh")).unwrap();
-        executable(&real.path().join("gh"));
+        let real_gh = real.path().join("gh");
+        fs::write(&real_gh, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&real_gh, fs::Permissions::from_mode(0o755)).unwrap();
         let path = env::join_paths([
             data_dir.path().join("agent-env/chat-bin"),
             data_dir.path().join("agent-env/bin"),
@@ -911,10 +907,7 @@ mod tests {
         let last_line = wrapper.lines().last().unwrap();
         assert_eq!(
             last_line,
-            format!(
-                "GH_TOKEN=$token exec '{}' \"$@\"",
-                real.path().join("gh").display()
-            )
+            format!("GH_TOKEN=$token exec '{}' \"$@\"", real_gh.display())
         );
     }
 
