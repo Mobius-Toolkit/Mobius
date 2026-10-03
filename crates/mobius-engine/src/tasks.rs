@@ -59,30 +59,39 @@ pub async fn list(
     Ok(lines)
 }
 
-// The walk of `list`, but it keeps the open issues that have `mobius:needs-human`.
+// The open issues with `mobius:needs-human` of one repository, each with its Workstream.
+// The label list needs one request, so it does not walk the sub-issue tree.
+async fn needs_human_issues(
+    engine: &Engine,
+    repository: &Repository,
+) -> Result<Vec<(i64, Issue)>, Box<dyn Error + Send + Sync>> {
+    let trusted = trust::trusted_authors(engine, repository);
+    let mut issues = Vec::new();
+    for issue in repository.open_issues_with_label(NEEDS_HUMAN_LABEL).await? {
+        if issue.has_label(WORKSTREAM_LABEL)
+            || ends::in_other_repository(&issue, &repository.full_name)
+            || !trusted(&issue.user.login)
+        {
+            continue;
+        }
+        if let Some(workstream) = workstreams::workstream_of(repository, issue.number).await? {
+            issues.push((workstream, issue));
+        }
+    }
+    Ok(issues)
+}
+
 pub async fn needs_human(
     engine: &Engine,
     repository: &str,
     workstream: i64,
 ) -> Result<Vec<NeedsHuman>, Box<dyn Error + Send + Sync>> {
     let repository = engine.repository(repository)?;
-    let trusted = trust::trusted_authors(engine, &repository);
-    let mut issues = Vec::new();
-    let mut frames: Vec<(i64, std::vec::IntoIter<Issue>)> =
-        vec![(0, repository.sub_issues(workstream).await?.into_iter())];
-    while let Some((_, issue)) = next_issue(&mut frames) {
-        if issue.has_label(WORKSTREAM_LABEL)
-            || ends::in_other_repository(&issue, &repository.full_name)
-        {
-            continue;
-        }
-        frames.push((0, repository.sub_issues(issue.number).await?.into_iter()));
-        if issue.state != "open"
-            || !trusted(&issue.user.login)
-            || !issue.has_label(NEEDS_HUMAN_LABEL)
-        {
-            continue;
-        }
+    let mut issues = needs_human_issues(engine, &repository).await?;
+    issues.retain(|(issue_workstream, _)| *issue_workstream == workstream);
+    issues.sort_by_key(|(_, issue)| issue.number);
+    let mut result = Vec::new();
+    for (_, issue) in issues {
         let pull_request = engine
             .store
             .tasks()
@@ -93,7 +102,7 @@ pub async fn needs_human(
             Some(number) => Some(repository.pull_request(number).await?.html_url),
             None => None,
         };
-        issues.push(NeedsHuman {
+        result.push(NeedsHuman {
             number: issue.number,
             title: issue.title,
             url: issue.html_url,
@@ -101,7 +110,23 @@ pub async fn needs_human(
             pull_request_url,
         });
     }
-    Ok(issues)
+    Ok(result)
+}
+
+// The Workstreams that have a needs-human issue, as repository and number.
+pub async fn needs_human_workstreams(
+    engine: &Engine,
+) -> Result<Vec<(String, i64)>, Box<dyn Error + Send + Sync>> {
+    let repositories = engine.repositories.read().unwrap().clone();
+    let mut workstreams = Vec::new();
+    for repository in repositories {
+        for (workstream, _) in needs_human_issues(engine, &repository).await? {
+            workstreams.push((repository.full_name.clone(), workstream));
+        }
+    }
+    workstreams.sort();
+    workstreams.dedup();
+    Ok(workstreams)
 }
 
 // The write uses the token of the Owner, because dispatch trusts `mobius:ready` only from a trusted user.

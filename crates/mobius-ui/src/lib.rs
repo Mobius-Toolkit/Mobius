@@ -11,9 +11,10 @@ use markdown::Markdown;
 use mobius_api::{
     active_agents, agent_tree, chat_seen, chat_send, chat_stop, chat_view, checkup, devices,
     drain_cancel, drain_state, fix_labels, github_apps, github_manifest, inbox_dismiss,
-    inbox_items, inbox_resume, live, login, logout, needs_human_list, organizations, release,
-    release_changes, task_list, task_resume, transcript_lines, unread, upgrade,
-    upgrade_error as upgrade_error_state, workstream_autopilot, workstream_close, workstreams,
+    inbox_items, inbox_resume, live, login, logout, needs_human_list, needs_human_workstreams,
+    organizations, release, release_changes, task_list, task_resume, transcript_lines, unread,
+    upgrade, upgrade_error as upgrade_error_state, workstream_autopilot, workstream_close,
+    workstreams,
 };
 use mobius_domain::{
     AgentNode, Author, ChatMessage, DrainEnd, FeedRow, InboxItem, InboxKind, LabelStatus, Live,
@@ -788,10 +789,21 @@ fn OrganizationSwitch() -> Element {
 fn WorkstreamEntries() -> Element {
     let Workstreams(workstream_list) = use_context();
     let Organization(organization) = use_context();
+    let needs_human = use_resource(move || async move {
+        workstream_list.read();
+        needs_human_workstreams().await
+    });
     match &*workstream_list.read() {
         Some(Ok(list)) => rsx! {
             for workstream in list.iter().filter(|workstream| mobius_domain::organization(&workstream.repository) == organization()).cloned() {
-                WorkstreamEntry { key: "{workstream.repository}#{workstream.number}", workstream }
+                WorkstreamEntry {
+                    key: "{workstream.repository}#{workstream.number}",
+                    needs_human: matches!(
+                        &*needs_human.read(),
+                        Some(Ok(keys)) if keys.contains(&(workstream.repository.clone(), workstream.number))
+                    ),
+                    workstream,
+                }
             }
         },
         Some(Err(error)) => rsx! { div { class: "error entry", {error_text(error)} } },
@@ -800,9 +812,8 @@ fn WorkstreamEntries() -> Element {
 }
 
 #[component]
-fn WorkstreamEntry(workstream: Workstream) -> Element {
+fn WorkstreamEntry(workstream: Workstream, needs_human: bool) -> Element {
     let state: LiveState = use_context();
-    let Workstreams(workstream_list) = use_context();
     let (owner, repo) = workstream.repository.split_once('/').unwrap_or_default();
     let unread = state
         .unread
@@ -814,17 +825,6 @@ fn WorkstreamEntry(workstream: Workstream) -> Element {
         ))
         .copied()
         .unwrap_or(0);
-    let needs_human = use_resource(use_reactive(
-        (&workstream.repository, &workstream.number),
-        move |(repository, number)| async move {
-            workstream_list.read();
-            needs_human_list(repository, number).await
-        },
-    ));
-    let needs_human = match &*needs_human.read() {
-        Some(Ok(issues)) => issues.len(),
-        _ => 0,
-    };
     rsx! {
         Link {
             class: "entry",
@@ -835,7 +835,7 @@ fn WorkstreamEntry(workstream: Workstream) -> Element {
             if workstream.all_tasks_closed {
                 span { class: "chip plain", "done" }
             }
-            if needs_human > 0 {
+            if needs_human {
                 span { class: "chip warn", "needs you" }
             }
             if unread > 0 {

@@ -312,6 +312,13 @@ pub async fn needs_human_list(
         .map_err(ServerFnError::new)
 }
 
+#[get("/api/tasks/needs-human-workstreams", _device: DeviceId, engine: Extension<Engine>)]
+pub async fn needs_human_workstreams() -> ServerFnResult<Vec<(String, i64)>> {
+    tasks::needs_human_workstreams(&engine)
+        .await
+        .map_err(ServerFnError::new)
+}
+
 #[post("/api/tasks/resume", _device: DeviceId, engine: Extension<Engine>)]
 pub async fn task_resume(repository: String, issue: i64) -> ServerFnResult<()> {
     tasks::resume(&engine, &repository, issue)

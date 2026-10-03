@@ -1,7 +1,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use dioxus::server::axum::Extension;
-use mobius_engine::{Engine, auth, github, workstreams};
+use mobius_engine::{Engine, auth, github, tasks, workstreams};
 use mobius_testkit::fake_github::FakeGitHub;
 use mobius_testkit::{start, wait_for};
 use serde_json::json;
@@ -303,6 +303,30 @@ async fn the_needs_human_list_has_the_open_issues_with_the_label_in_the_whole_tr
         ]),
         "{body}"
     );
+}
+
+#[tokio::test]
+async fn the_needs_human_workstreams_have_each_a_task_with_the_label() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(&data_dir, &github).await;
+    github.add_issue(REPOSITORY, 41, "Add plan model");
+    github.add_sub_issue(REPOSITORY, 12, 41);
+    github.add_issue(REPOSITORY, 42, "Let customers change plans");
+    github.add_sub_issue(REPOSITORY, 41, 42);
+    github.add_label(REPOSITORY, 42, "mobius:needs-human", "owner");
+    github.add_issue(REPOSITORY, 13, "Add a storefront");
+    github.add_label(REPOSITORY, 13, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 43, "Add season table");
+    github.add_sub_issue(REPOSITORY, 13, 43);
+    github.add_issue(REPOSITORY, 44, "Add price table");
+    github.add_sub_issue(REPOSITORY, 13, 44);
+    github.add_label(REPOSITORY, 44, "mobius:needs-human", "owner");
+    github.close_issue(REPOSITORY, 44);
+
+    let workstreams = tasks::needs_human_workstreams(&engine).await.unwrap();
+
+    assert_eq!(workstreams, [(REPOSITORY.to_string(), 12)]);
 }
 
 #[tokio::test]
