@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, TryLockError};
+use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -93,7 +94,7 @@ judge       = {{ harness = "claude-code", model = "haiku",   effort = "low" }}
         count
     }
 
-    fn start_server(&self) -> Child {
+    fn start_server(&self) -> (Child, u16) {
         let stubs = self.home.path().join("stubs");
         fs::create_dir_all(&stubs).unwrap();
         for program in [
@@ -112,12 +113,23 @@ judge       = {{ harness = "claude-code", model = "haiku",   effort = "low" }}
             std::iter::once(stubs).chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
         )
         .unwrap();
-        self.command(&[])
+        let public = self.home.path().join("public");
+        fs::create_dir_all(&public).unwrap();
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let server = self
+            .command(&[])
             .env("PATH", path)
+            .env("PORT", port.to_string())
+            .env("DIOXUS_PUBLIC_PATH", public)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .unwrap()
+            .unwrap();
+        (server, port)
     }
 
     fn lock_is_held(&self) -> bool {
@@ -127,13 +139,14 @@ judge       = {{ harness = "claude-code", model = "haiku",   effort = "low" }}
         matches!(file.try_lock(), Err(TryLockError::WouldBlock))
     }
 
-    fn wait_until_server_holds_lock(&self, server: &mut Child) {
+    fn assert_server_holds_lock(&self, server: &mut Child, port: u16) {
         let deadline = Instant::now() + Duration::from_secs(60);
-        while !self.lock_is_held() {
+        while TcpStream::connect(("127.0.0.1", port)).is_err() {
             assert!(server.try_wait().unwrap().is_none(), "the server stopped");
-            assert!(Instant::now() < deadline, "the server did not get the lock");
+            assert!(Instant::now() < deadline, "the server did not listen");
             std::thread::sleep(Duration::from_millis(50));
         }
+        assert!(self.lock_is_held());
     }
 }
 
@@ -223,15 +236,15 @@ fn second_process_fails_and_changes_nothing() {
 #[test]
 fn server_gets_the_lock_after_the_holder_is_killed() {
     let setup = Setup::new();
-    let mut first = setup.start_server();
-    setup.wait_until_server_holds_lock(&mut first);
+    let (mut first, port) = setup.start_server();
+    setup.assert_server_holds_lock(&mut first, port);
 
     first.kill().unwrap();
     first.wait().unwrap();
 
     assert!(!setup.lock_is_held());
-    let mut second = setup.start_server();
-    setup.wait_until_server_holds_lock(&mut second);
+    let (mut second, port) = setup.start_server();
+    setup.assert_server_holds_lock(&mut second, port);
     second.kill().unwrap();
     second.wait().unwrap();
 }
