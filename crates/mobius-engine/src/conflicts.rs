@@ -6,7 +6,7 @@ use mobius_github::{PullRequest, Repository};
 use mobius_store::Task;
 use time::OffsetDateTime;
 
-use crate::labels::NEEDS_HUMAN_LABEL;
+use crate::labels::{NEEDS_HUMAN_LABEL, WORKING_LABEL};
 use crate::{Engine, TIME_FORMAT, implementer, inbox, lead_events};
 
 pub fn behind(pull_request: &PullRequest) -> bool {
@@ -44,6 +44,7 @@ async fn stale(
     {
         return Ok(());
     }
+    repository.remove_label(task.issue, WORKING_LABEL).await?;
     repository.add_label(task.issue, NEEDS_HUMAN_LABEL).await?;
     let title = repository
         .issue(task.issue)

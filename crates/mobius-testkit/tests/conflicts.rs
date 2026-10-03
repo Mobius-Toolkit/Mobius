@@ -253,6 +253,11 @@ async fn a_stale_pull_request_with_a_merge_conflict_goes_to_a_human() {
             .labels(REPOSITORY, 41)
             .contains(&"mobius:needs-human".to_string())
     );
+    assert!(
+        !github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:working".to_string())
+    );
     let stale: Vec<_> = inbox::list(&engine)
         .await
         .unwrap()
@@ -314,6 +319,11 @@ async fn a_conflict_round_that_does_not_merge_the_base_branch_stops_the_task() {
         github
             .labels(REPOSITORY, 41)
             .contains(&"mobius:needs-human".to_string())
+    );
+    assert!(
+        !github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:working".to_string())
     );
     assert_eq!(
         task_state(&engine, 41).await.as_deref(),
