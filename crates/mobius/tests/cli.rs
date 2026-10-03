@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, TryLockError};
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -141,11 +142,12 @@ judge       = {{ harness = "claude-code", model = "haiku",   effort = "low" }}
 
     fn assert_server_holds_lock(&self, server: &mut Child, port: u16) {
         let deadline = Instant::now() + Duration::from_secs(60);
-        while TcpStream::connect(("127.0.0.1", port)).is_err() {
+        while !server_answers(port) {
             assert!(server.try_wait().unwrap().is_none(), "the server stopped");
-            assert!(Instant::now() < deadline, "the server did not listen");
+            assert!(Instant::now() < deadline, "the server did not answer");
             std::thread::sleep(Duration::from_millis(50));
         }
+        assert!(server.try_wait().unwrap().is_none(), "the server stopped");
         assert!(self.lock_is_held());
     }
 
@@ -156,6 +158,17 @@ judge       = {{ harness = "claude-code", model = "haiku",   effort = "low" }}
             std::thread::sleep(Duration::from_millis(50));
         }
     }
+}
+
+fn server_answers(port: u16) -> bool {
+    let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) else {
+        return false;
+    };
+    let request = "GET /api/devices HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    let mut response = String::new();
+    stream.write_all(request.as_bytes()).is_ok()
+        && stream.read_to_string(&mut response).is_ok()
+        && response.starts_with("HTTP/1.1 401")
 }
 
 fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
