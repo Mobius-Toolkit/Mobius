@@ -1030,7 +1030,7 @@ fn NewWorkstream() -> Element {
 
 // All active agents of the server in one group for each role, of all organizations.
 // The resource runs again after a new live connection and when a `Live::Agent` event changes
-// `LiveState.agents`: at the start of a session, at the slot start, at a change of the queue reason, and at the end.
+// `LiveState.agents`: at the start of a session, at the slot start, at a change of the queue reason, when the pull request opens, and at the end.
 #[component]
 fn AgentsPage() -> Element {
     let state: LiveState = use_context();
