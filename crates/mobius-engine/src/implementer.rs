@@ -363,8 +363,8 @@ pub(crate) async fn hand_to_human(
         return Ok(false);
     }
     let repository = engine.repository(repository)?;
-    repository.add_label(number, NEEDS_HUMAN_LABEL).await?;
     repository.remove_label(number, WORKING_LABEL).await?;
+    repository.add_label(number, NEEDS_HUMAN_LABEL).await?;
     Ok(true)
 }
 

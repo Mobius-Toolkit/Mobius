@@ -44,8 +44,8 @@ async fn stale(
     {
         return Ok(());
     }
-    repository.add_label(task.issue, NEEDS_HUMAN_LABEL).await?;
     repository.remove_label(task.issue, WORKING_LABEL).await?;
+    repository.add_label(task.issue, NEEDS_HUMAN_LABEL).await?;
     let title = repository
         .issue(task.issue)
         .await?
