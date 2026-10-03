@@ -175,6 +175,7 @@ impl WorkstreamCopy<'_> {
     }
 
     // Gives `false` when the stored values are equal.
+    // The blockers of the repository that are in this Workstream get the new title too.
     pub async fn update_workstream(
         &self,
         repository: &str,
@@ -183,13 +184,41 @@ impl WorkstreamCopy<'_> {
         body: &str,
         autopilot: bool,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let result = sqlx::query!(
+        let mut transaction = self.pool.begin().await?;
+        let updated = sqlx::query!(
             "UPDATE copied_workstreams SET title = ?1, body = ?2, autopilot = ?3
              WHERE repository = ?4 AND number = ?5
                AND (title != ?1 OR body != ?2 OR autopilot != ?3)",
             title,
             body,
             autopilot,
+            repository,
+            number
+        )
+        .execute(&mut *transaction)
+        .await?;
+        let titled = sqlx::query!(
+            "UPDATE copied_blockers SET blocker_workstream_title = ?1
+             WHERE repository = ?2 AND blocker_workstream = ?3
+               AND blocker_workstream_title IS NOT ?1",
+            title,
+            repository,
+            number
+        )
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(updated.rows_affected() > 0 || titled.rows_affected() > 0)
+    }
+
+    // Gives `false` when no blocker row has the issue.
+    pub async fn remove_blocker(
+        &self,
+        repository: &str,
+        number: i64,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let result = sqlx::query!(
+            "DELETE FROM copied_blockers WHERE repository = ? AND number = ?",
             repository,
             number
         )

@@ -167,6 +167,8 @@ async fn changed_issues(
                 }
             }
         }
+        // Without a copy, the Workstreams screen reads GitHub, so it must read again.
+        workstreams_changed |= !copied;
         for event in events {
             let Some(actor) = event.actor else {
                 continue;

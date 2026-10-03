@@ -86,6 +86,9 @@ pub(crate) async fn update(
         author: issue.user.login.clone(),
     };
     changed |= copy.update_issue(&changed_issue).await?;
+    if issue.state != "open" {
+        changed |= copy.remove_blocker(name, issue.number).await?;
+    }
     for workstream in label_changed {
         let issues = tree(repository, workstream).await?;
         copy.replace_issues(name, workstream, &issues).await?;

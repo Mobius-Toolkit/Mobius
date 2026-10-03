@@ -668,3 +668,64 @@ async fn a_failed_update_of_the_copy_does_not_repeat_the_events_of_the_poll() {
         .count();
     assert_eq!(new_workstreams, 1);
 }
+
+// Task 42 of Workstream 12 is blocked by task 60 of Workstream 13.
+async fn copied_blocker(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 13, "Billing");
+    github.add_label(REPOSITORY, 13, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 42, "Let customers change plans");
+    github.add_sub_issue(REPOSITORY, 12, 42);
+    github.add_issue(REPOSITORY, 60, "Invoice model");
+    github.add_sub_issue(REPOSITORY, 13, 60);
+    github.add_blocker(REPOSITORY, 42, 60);
+    let engine = connect(data_dir, github).await;
+    workstreams(&engine).await;
+    wait_for_first_poll(&engine, REPOSITORY).await;
+    engine
+}
+
+#[tokio::test]
+async fn a_closed_blocker_is_removed_from_the_copy() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_blocker(&data_dir, &github).await;
+    assert_eq!(blockers(&engine).await.len(), 1);
+
+    github.close_issue(REPOSITORY, 60);
+
+    wait_for(async || blockers(&engine).await.is_empty().then_some(())).await;
+}
+
+#[tokio::test]
+async fn a_new_title_of_a_workstream_changes_the_title_in_the_blockers_of_the_copy() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_blocker(&data_dir, &github).await;
+
+    github.set_title(REPOSITORY, 13, "Invoices");
+
+    wait_for(async || {
+        (blockers(&engine).await == [(42, 60, Some(13), Some("Invoices".to_string()))])
+            .then_some(())
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_repository_without_a_copy_sends_a_workstreams_event_for_a_new_workstream_label() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+    let mut feed = activity::feed(&engine, None).await.unwrap();
+    github.add_issue(REPOSITORY, 13, "Billing");
+    github.fail_sub_issues(REPOSITORY, 12);
+    github.add_sub_issue_of(REPOSITORY, 12, 42, "Let customers change plans");
+    next_workstreams(&mut feed).await;
+    wait_until_quiet(&mut feed).await;
+
+    github.add_label(REPOSITORY, 13, "mobius:workstream", "owner");
+
+    next_workstreams(&mut feed).await;
+}
