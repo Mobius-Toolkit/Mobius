@@ -83,33 +83,6 @@
   --control-height: 2.25rem;
   --control-height-sm: 2rem;
   --content-width: 56rem;
-
-  /* The names that the Dioxus components use */
-  --primary-color: var(--raised);
-  --primary-color-1: var(--surface);
-  --primary-color-2: var(--raised);
-  --primary-color-3: var(--surface);
-  --primary-color-4: var(--ground);
-  --primary-color-5: var(--ground);
-  --primary-color-6: var(--line);
-  --primary-color-7: var(--line-strong);
-  --secondary-color: var(--ink);
-  --secondary-color-1: var(--ink);
-  --secondary-color-2: var(--ink);
-  --secondary-color-3: var(--ink);
-  --secondary-color-4: var(--ink);
-  --secondary-color-5: var(--muted);
-  --secondary-color-6: var(--line);
-  --focused-border-color: var(--accent);
-  --primary-success-color: var(--ok-soft);
-  --secondary-success-color: var(--ok);
-  --primary-warning-color: var(--warn-soft);
-  --secondary-warning-color: var(--warn);
-  --primary-error-color: var(--crit);
-  --secondary-error-color: var(--crit);
-  --contrast-error-color: var(--on-accent);
-  --primary-info-color: var(--accent-soft);
-  --secondary-info-color: var(--accent);
 }
 
 /* Safari zooms the page on a focus in a field with a font smaller than 16px. */
