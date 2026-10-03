@@ -1403,6 +1403,22 @@ async fn the_upgrade_modal_lists_the_release_changes() {
         inbox_count: false,
     };
     screenshot(&browser, &url, upgrade, DESKTOP).await;
+    let line = Shot {
+        name: "upgrade-line",
+        path: "/workstreams",
+        clicks: &[],
+        expected: "Upgrade v0.1.4",
+        inbox_count: false,
+    };
+    screenshot(&browser, &url, line, PHONE).await;
+    let modal = Shot {
+        name: "upgrade",
+        path: "/workstreams",
+        clicks: &["button.upd.phone"],
+        expected: "Show the release changes in a modal before the upgrade (#320)",
+        inbox_count: false,
+    };
+    screenshot(&browser, &url, modal, PHONE).await;
     browser.close().await.unwrap();
 }
 
