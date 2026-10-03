@@ -28,7 +28,9 @@ pub use sessions::{NewSession, Sessions};
 pub use sync_cursors::{SyncCursor, SyncCursors};
 pub use tasks::{Task, Tasks};
 pub use transcript::Transcript;
-pub use workstream_copy::{CopiedBlocker, CopiedIssue, CopiedWorkstream, WorkstreamCopy};
+pub use workstream_copy::{
+    ChangedIssue, CopiedBlocker, CopiedIssue, CopiedWorkstream, WorkstreamCopy,
+};
 
 #[derive(Clone)]
 pub struct Store {

@@ -1,7 +1,11 @@
+use std::time::Duration;
+
+use mobius_domain::Live;
+use mobius_engine::activity::{self, Feed};
 use mobius_engine::{Engine, github};
 use mobius_store::CopiedWorkstream;
 use mobius_testkit::fake_github::FakeGitHub;
-use mobius_testkit::{start, wait_for};
+use mobius_testkit::{start, wait_for, wait_for_first_poll};
 use tempfile::TempDir;
 
 const REPOSITORY: &str = "owner/shop";
@@ -283,4 +287,290 @@ async fn the_full_sync_forgets_the_rows_of_a_repository_that_is_not_polled() {
             .await
             .unwrap();
     assert!(stale.is_empty());
+}
+
+async fn workstream_numbers(engine: &Engine) -> Vec<i64> {
+    sqlx::query_scalar("SELECT number FROM copied_workstreams WHERE repository = ? ORDER BY number")
+        .bind(REPOSITORY)
+        .fetch_all(&engine.store.pool)
+        .await
+        .unwrap()
+}
+
+async fn title(engine: &Engine, number: i64) -> String {
+    sqlx::query_scalar("SELECT title FROM copied_issues WHERE repository = ? AND number = ?")
+        .bind(REPOSITORY)
+        .bind(number)
+        .fetch_one(&engine.store.pool)
+        .await
+        .unwrap()
+}
+
+async fn issue_numbers(engine: &Engine) -> Vec<i64> {
+    issues(engine)
+        .await
+        .into_iter()
+        .map(|(_, number, ..)| number)
+        .collect()
+}
+
+// Workstream 12 has the task 41, and 41 has the task 50.
+async fn copied_workstream(data_dir: &TempDir, github: &FakeGitHub) -> Engine {
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    github.add_issue(REPOSITORY, 41, "Add plan model");
+    github.add_sub_issue(REPOSITORY, 12, 41);
+    github.add_issue(REPOSITORY, 50, "Store the price in cents");
+    github.add_sub_issue(REPOSITORY, 41, 50);
+    let engine = connect(data_dir, github).await;
+    workstreams(&engine).await;
+    wait_for_first_poll(&engine, REPOSITORY).await;
+    engine
+}
+
+async fn issues_cursor(engine: &Engine) -> Option<time::OffsetDateTime> {
+    engine
+        .store
+        .sync_cursors()
+        .get(REPOSITORY, "issues")
+        .await
+        .unwrap()
+        .since
+}
+
+// Ends after the poll processed the changes that the test made before.
+async fn wait_for_poll_after(engine: &Engine, since: Option<time::OffsetDateTime>) {
+    wait_for(async || (issues_cursor(engine).await > since).then_some(())).await;
+}
+
+async fn next_workstreams(feed: &mut Feed) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while feed.next().await.unwrap() != Live::Workstreams {}
+    })
+    .await
+    .unwrap();
+}
+
+async fn wait_until_quiet(feed: &mut Feed) {
+    while tokio::time::timeout(Duration::from_millis(500), feed.next())
+        .await
+        .is_ok()
+    {}
+}
+
+#[tokio::test]
+async fn a_new_issue_under_a_workstream_is_copied_in_the_walk_order() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+
+    github.add_sub_issue_of(REPOSITORY, 12, 42, "Let customers change plans");
+
+    wait_for(async || (issue_numbers(&engine).await == [41, 50, 42]).then_some(())).await;
+}
+
+#[tokio::test]
+async fn a_new_issue_under_a_nested_task_is_copied_below_its_parent() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+    github.add_sub_issue_of(REPOSITORY, 12, 42, "Let customers change plans");
+    wait_for(async || (issue_numbers(&engine).await == [41, 50, 42]).then_some(())).await;
+
+    github.add_sub_issue_of(REPOSITORY, 41, 51, "Round the price");
+
+    wait_for(async || (issue_numbers(&engine).await == [41, 50, 51, 42]).then_some(())).await;
+    let parents: Vec<i64> = issues(&engine)
+        .await
+        .into_iter()
+        .map(|(_, _, parent, ..)| parent)
+        .collect();
+    assert_eq!(parents, [12, 41, 41, 12]);
+}
+
+#[tokio::test]
+async fn a_new_label_and_a_removed_label_change_the_labels_of_the_copied_issue() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+
+    github.add_label(REPOSITORY, 41, "bug", "owner");
+    github.add_label(REPOSITORY, 41, "mobius:working", "owner");
+
+    wait_for(async || (labels(&engine, 41).await == ["bug", "mobius:working"]).then_some(())).await;
+
+    github.remove_label(REPOSITORY, 41, "bug", "owner");
+
+    wait_for(async || (labels(&engine, 41).await == ["mobius:working"]).then_some(())).await;
+}
+
+#[tokio::test]
+async fn a_closed_issue_has_the_state_closed_in_the_copy() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+
+    github.close_issue(REPOSITORY, 41);
+
+    wait_for(async || {
+        let states: Vec<String> = issues(&engine)
+            .await
+            .into_iter()
+            .map(|(_, _, _, state, _)| state)
+            .collect();
+        (states == ["closed", "open"]).then_some(())
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_new_title_and_a_new_body_change_the_copied_issue_and_the_copied_workstream() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+
+    github.set_title(REPOSITORY, 41, "Add the plan table");
+    github.set_title(REPOSITORY, 12, "Integrate loyalty tiers");
+    github.set_body(REPOSITORY, 12, "Brief of the tiers");
+
+    wait_for(async || (title(&engine, 41).await == "Add the plan table").then_some(())).await;
+    wait_for(async || {
+        let rows = workstreams(&engine).await;
+        (rows[0].1 == "Integrate loyalty tiers" && rows[0].2 == "Brief of the tiers").then_some(())
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_new_workstream_is_copied_with_its_tree() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+    github.add_issue(REPOSITORY, 13, "Billing");
+    github.add_sub_issue_of(REPOSITORY, 13, 60, "Invoice model");
+
+    github.add_label(REPOSITORY, 13, "mobius:workstream", "owner");
+
+    wait_for(async || (workstream_numbers(&engine).await == [12, 13]).then_some(())).await;
+    assert_eq!(
+        issues(&engine).await[2],
+        (13, 60, 13, "open".to_string(), "owner".to_string())
+    );
+}
+
+#[tokio::test]
+async fn a_closed_workstream_is_removed_with_its_tree() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+
+    github.close_issue(REPOSITORY, 12);
+
+    wait_for(async || workstream_numbers(&engine).await.is_empty().then_some(())).await;
+    assert_eq!(issue_numbers(&engine).await, Vec::<i64>::new());
+    assert_eq!(labels(&engine, 41).await, Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn a_workstream_that_loses_the_label_is_removed_with_its_tree() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+    github.add_label(REPOSITORY, 41, "bug", "owner");
+    wait_for(async || (labels(&engine, 41).await == ["bug"]).then_some(())).await;
+
+    github.remove_label(REPOSITORY, 12, "mobius:workstream", "owner");
+
+    wait_for(async || workstream_numbers(&engine).await.is_empty().then_some(())).await;
+    assert_eq!(issue_numbers(&engine).await, Vec::<i64>::new());
+    assert_eq!(labels(&engine, 41).await, Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn autopilot_is_on_after_a_trusted_user_adds_the_label_and_off_after_the_removal() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+    let autopilot = || async {
+        let rows = workstreams(&engine).await;
+        rows[0].3
+    };
+
+    github.add_label(REPOSITORY, 12, "mobius:autopilot", "owner");
+
+    wait_for(async || autopilot().await.then_some(())).await;
+
+    github.remove_label(REPOSITORY, 12, "mobius:autopilot", "owner");
+
+    wait_for(async || (!autopilot().await).then_some(())).await;
+}
+
+#[tokio::test]
+async fn autopilot_stays_off_after_an_untrusted_user_adds_the_label() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+    let before = issues_cursor(&engine).await;
+
+    github.add_label(REPOSITORY, 12, "mobius:autopilot", "mallory");
+
+    wait_for_poll_after(&engine, before).await;
+    assert!(!workstreams(&engine).await[0].3);
+}
+
+#[tokio::test]
+async fn a_change_of_a_local_issue_does_not_change_the_foreign_row_with_the_same_number() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    github.add_issue("other/repo", 77, "A task in another repository");
+    github.add_foreign_sub_issue(REPOSITORY, 12, "other/repo", 77);
+    github.add_issue(REPOSITORY, 77, "A different issue");
+    let engine = connect(&data_dir, &github).await;
+    workstreams(&engine).await;
+    wait_for_first_poll(&engine, REPOSITORY).await;
+    let before = issues_cursor(&engine).await;
+
+    github.set_title(REPOSITORY, 77, "A renamed issue");
+
+    wait_for_poll_after(&engine, before).await;
+    assert_eq!(title(&engine, 77).await, "A task in another repository");
+}
+
+#[tokio::test]
+async fn a_poll_with_no_change_in_the_copy_sends_no_workstreams_event() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+    let mut feed = activity::feed(&engine, None).await.unwrap();
+    wait_until_quiet(&mut feed).await;
+    let before = issues_cursor(&engine).await;
+
+    github.add_issue(REPOSITORY, 13, "Fix the footer");
+    github.add_comment(
+        REPOSITORY,
+        50,
+        "owner",
+        "A comment changes no copied value.",
+    );
+
+    wait_for_poll_after(&engine, before).await;
+    while let Ok(live) = tokio::time::timeout(Duration::from_millis(300), feed.next()).await {
+        assert_ne!(live.unwrap(), Live::Workstreams);
+    }
+}
+
+#[tokio::test]
+async fn a_change_in_the_copy_sends_a_workstreams_event() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+    let mut feed = activity::feed(&engine, None).await.unwrap();
+    wait_until_quiet(&mut feed).await;
+
+    github.set_title(REPOSITORY, 41, "Add the plan table");
+
+    next_workstreams(&mut feed).await;
+    assert_eq!(title(&engine, 41).await, "Add the plan table");
 }

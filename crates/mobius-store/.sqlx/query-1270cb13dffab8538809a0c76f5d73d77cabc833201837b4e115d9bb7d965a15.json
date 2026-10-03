@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE copied_issues SET title = ?1, body = ?2, state = ?3, author = ?4\n             WHERE repository = ?5 AND number = ?6 AND repository_url = ?7\n               AND (title != ?1 OR body != ?2 OR state != ?3 OR author != ?4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "1270cb13dffab8538809a0c76f5d73d77cabc833201837b4e115d9bb7d965a15"
+}
