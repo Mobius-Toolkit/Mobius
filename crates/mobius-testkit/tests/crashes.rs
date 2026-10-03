@@ -318,9 +318,15 @@ async fn mobius_ready_on_a_task_in_needs_human_with_no_pull_request_starts_the_i
         Some(github.pull_requests(REPOSITORY)[0].head.clone()),
         stopped.branch
     );
+    wait_for(async || {
+        (!github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:ready".to_string()))
+        .then_some(())
+    })
+    .await;
     let labels = github.labels(REPOSITORY, 41);
     assert!(labels.contains(&"mobius:working".to_string()), "{labels:?}");
-    assert!(!labels.contains(&"mobius:ready".to_string()), "{labels:?}");
     assert!(
         !labels.contains(&"mobius:needs-human".to_string()),
         "{labels:?}"
