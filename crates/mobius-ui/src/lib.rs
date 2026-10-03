@@ -329,6 +329,7 @@ async fn follow_live(
                     state.reconnects += 1;
                     workstream_list.restart();
                     state.leads.write().clear();
+                    state.agents.write().clear();
                 }
                 // The server subscribes before `live` returns, so a count read now misses no later event.
                 if let Ok(counts) = unread().await {
