@@ -148,6 +148,14 @@ judge       = {{ harness = "claude-code", model = "haiku",   effort = "low" }}
         }
         assert!(self.lock_is_held());
     }
+
+    fn assert_lock_is_released(&self) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while self.lock_is_held() {
+            assert!(Instant::now() < deadline, "the lock stayed held");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
 }
 
 fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
@@ -242,7 +250,7 @@ fn server_gets_the_lock_after_the_holder_is_killed() {
     first.kill().unwrap();
     first.wait().unwrap();
 
-    assert!(!setup.lock_is_held());
+    setup.assert_lock_is_released();
     let (mut second, port) = setup.start_server();
     setup.assert_server_holds_lock(&mut second, port);
     second.kill().unwrap();
