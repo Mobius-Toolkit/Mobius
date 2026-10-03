@@ -120,16 +120,19 @@ async fn resume(
         (Some(_), false) => "working",
         (None, _) => "dispatched",
     };
+    let parent = lead::newest_session(engine, name, task.workstream, issue.number).await?;
+    let items = match &pull_request {
+        Some(pull_request) if !conflict => continue_items(engine, repository, pull_request).await?,
+        _ => String::new(),
+    };
     if !tasks.set_state(task.id, "needs_human", to).await? {
         return Ok(());
     }
-    let parent = lead::newest_session(engine, name, task.workstream, issue.number).await?;
     let started = match pull_request {
         Some(pull_request) if conflict => {
             implementer::conflict_round(engine, repository, task, pull_request).await
         }
         Some(pull_request) => {
-            let items = continue_items(engine, repository, &pull_request).await?;
             implementer::fix_round(
                 engine,
                 repository,
