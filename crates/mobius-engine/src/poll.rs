@@ -137,7 +137,7 @@ async fn changed_issues(
     };
     // At the first poll of a repository, Mobius cannot see which event is new.
     let first_poll = cursor.since.is_none();
-    let copied = engine.copied.lock().unwrap().contains(name);
+    let mut copied = engine.copied.lock().unwrap().contains(name);
     let mut workstreams_changed = false;
     for issue in &page.issues {
         if issue.pull_request.is_some() {
@@ -156,9 +156,16 @@ async fn changed_issues(
         } else {
             Vec::new()
         };
-        // After a failed full sync, the next full sync replaces the copy.
-        if copied && copy::update(engine, repository, issue, &events, !first_poll).await? {
-            workstreams_changed = true;
+        // After a failed update, the next poll replaces the copy with a full sync.
+        if copied {
+            match copy::update(engine, repository, issue, &events, !first_poll).await {
+                Ok(changed) => workstreams_changed |= changed,
+                Err(error) => {
+                    eprintln!("mobius: update of the copy of {name}: {error}");
+                    engine.copied.lock().unwrap().remove(name);
+                    copied = false;
+                }
+            }
         }
         for event in events {
             let Some(actor) = event.actor else {

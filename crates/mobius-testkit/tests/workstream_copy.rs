@@ -647,3 +647,24 @@ async fn a_change_in_the_copy_sends_a_workstreams_event() {
     next_workstreams(&mut feed).await;
     assert_eq!(title(&engine, 41).await, "Add the plan table");
 }
+
+#[tokio::test]
+async fn a_failed_update_of_the_copy_does_not_repeat_the_events_of_the_poll() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = copied_workstream(&data_dir, &github).await;
+    github.add_issue(REPOSITORY, 13, "Billing");
+    let before = issues_cursor(&engine).await;
+    github.fail_sub_issues(REPOSITORY, 12);
+
+    github.add_label(REPOSITORY, 13, "mobius:workstream", "owner");
+    github.add_sub_issue_of(REPOSITORY, 12, 42, "Let customers change plans");
+
+    wait_for_poll_after(&engine, before).await;
+    let rows = engine.store.events().latest(100).await.unwrap();
+    let new_workstreams = rows
+        .iter()
+        .filter(|row| row.text == "New Workstream \"Billing\"")
+        .count();
+    assert_eq!(new_workstreams, 1);
+}
