@@ -1227,7 +1227,7 @@ async fn screenshots() {
                 name: "agents",
                 path: "/agents",
                 clicks: &[],
-                expected: "owner/shop#41",
+                expected: "Ticket #41 Add plan model",
                 inbox_count: true,
             },
             Shot {

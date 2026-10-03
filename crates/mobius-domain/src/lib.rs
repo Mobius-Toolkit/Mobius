@@ -312,6 +312,15 @@ pub fn shown_agents(nodes: Vec<AgentNode>, show_stopped: bool) -> Vec<AgentNode>
         .collect()
 }
 
+// An open session on the "Agents" page. A title is `None` when the store has no copy of the Workstream or the issue.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ActiveAgent {
+    pub node: AgentNode,
+    pub workstream_title: Option<String>,
+    pub issue_title: Option<String>,
+    pub pull_request: Option<i64>,
+}
+
 // The open sessions of one role on the "Agents" page, with the role limit.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AgentGroup {
@@ -319,7 +328,7 @@ pub struct AgentGroup {
     // The sessions that hold a slot. A queued session shows in `agents` but does not count.
     pub count: u32,
     pub max: u32,
-    pub agents: Vec<AgentNode>,
+    pub agents: Vec<ActiveAgent>,
 }
 
 // The "Agents" page: the global count and one group for each role.
