@@ -329,7 +329,6 @@ async fn follow_live(
                     state.reconnects += 1;
                     workstream_list.restart();
                     state.leads.write().clear();
-                    state.messages.write().clear();
                 }
                 // The server subscribes before `live` returns, so a count read now misses no later event.
                 if let Ok(counts) = unread().await {
@@ -1507,14 +1506,16 @@ fn Conversation(
         Some(Ok(view)) => (view.messages.clone(), view.writing, Some(view.lead)),
         _ => (Vec::new(), false, None),
     };
+    let history_ids: Vec<i64> = messages.iter().map(|message| message.id).collect();
     for message in state.messages.read().iter() {
         if message.organization != organization
             || message.repository != repository
             || message.workstream != number
+            || history_ids.contains(&message.id)
         {
             continue;
         }
-        upsert(&mut messages, message.clone());
+        messages.push(message.clone());
     }
     messages.sort_by_key(|message| message.id);
     // While the history loads, `messages` is still empty, so the default waits for it.
