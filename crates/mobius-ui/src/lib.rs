@@ -50,15 +50,22 @@ check();
 "#;
 
 // Sends a message when the page becomes visible again or the browser comes back online. A phone
-// that stops the page in the background can leave a live stream open with no error.
+// that stops the page in the background can leave a live stream open with no error. Only the
+// newest call of this script receives the messages, and `window.liveWake = null` stops them.
 const LIVE_WAKE: &str = r#"
-window.addEventListener("online", () => dioxus.send(true));
-document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) {
-        dioxus.send(true);
-    }
-});
+if (!window.liveWakeListening) {
+    window.liveWakeListening = true;
+    window.addEventListener("online", () => window.liveWake?.());
+    document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) {
+            window.liveWake?.();
+        }
+    });
+}
+window.liveWake = () => dioxus.send(true);
 "#;
+
+const LIVE_WAKE_STOP: &str = "window.liveWake = null;";
 
 // Runs after an upgrade call returns. The old server answers until it restarts, so only another build ends the wait.
 fn reload_on_new_build() -> String {
@@ -302,7 +309,6 @@ async fn follow_live(
 ) {
     let mut after = None;
     let mut first = true;
-    let mut wake = document::eval(LIVE_WAKE);
     loop {
         if let Ok(items) = inbox_items().await {
             state
@@ -318,10 +324,11 @@ async fn follow_live(
         }
         match live(after).await {
             Ok(mut events) => {
+                let mut wake = document::eval(LIVE_WAKE);
                 if !first {
                     state.reconnects += 1;
                     workstream_list.restart();
-                    state.leads.write().retain(|_, lead| lead.error.is_some());
+                    state.leads.write().clear();
                 }
                 // The server subscribes before `live` returns, so a count read now misses no later event.
                 if let Ok(counts) = unread().await {
@@ -391,6 +398,7 @@ async fn follow_live(
                         }
                     }
                 }
+                document::eval(LIVE_WAKE_STOP);
             }
             Err(error) if unauthorized(&error) => {
                 login_shown.set(true);
