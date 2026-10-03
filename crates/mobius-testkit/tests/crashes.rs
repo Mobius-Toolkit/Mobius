@@ -258,6 +258,81 @@ async fn a_comment_of_the_owner_keeps_mobius_needs_human_on_a_task_in_needs_huma
 }
 
 #[tokio::test]
+async fn mobius_ready_on_a_task_in_needs_human_with_no_pull_request_starts_the_implementer_on_the_same_branch()
+ {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let go = data_dir.path().join("go");
+    let implementer = format!(
+        "[[prompts]]\nshell = \"if [ -e '{}' ]; then {COMMIT}; else kill -9 $PPID; fi\"\n",
+        go.display()
+    );
+    let engine = connect(
+        &data_dir,
+        &github,
+        &dispatch_start(),
+        &implementer,
+        "max_worker_restarts = 1",
+    )
+    .await;
+    github.set_body(REPOSITORY, 41, "Plans have a price.");
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    let stopped = wait_for(async || {
+        engine
+            .store
+            .tasks()
+            .live(REPOSITORY, 41)
+            .await
+            .unwrap()
+            .filter(|task| task.state == "needs_human")
+    })
+    .await;
+    wait_for(async || {
+        github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:needs-human".to_string())
+            .then_some(())
+    })
+    .await;
+    assert!(github.pull_requests(REPOSITORY).is_empty());
+    fs::write(&go, "").unwrap();
+
+    github.remove_label(REPOSITORY, 41, "mobius:needs-human", "owner");
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+
+    let task = wait_for(async || {
+        engine
+            .store
+            .tasks()
+            .live(REPOSITORY, 41)
+            .await
+            .unwrap()
+            .filter(|task| task.pull_request.is_some())
+    })
+    .await;
+    assert_eq!(task.id, stopped.id);
+    assert_eq!(task.branch, stopped.branch);
+    assert_eq!(github.pull_requests(REPOSITORY).len(), 1);
+    assert!(stopped.branch.is_some());
+    assert_eq!(
+        Some(github.pull_requests(REPOSITORY)[0].head.clone()),
+        stopped.branch
+    );
+    let labels = github.labels(REPOSITORY, 41);
+    assert!(labels.contains(&"mobius:working".to_string()), "{labels:?}");
+    assert!(!labels.contains(&"mobius:ready".to_string()), "{labels:?}");
+    assert!(
+        !labels.contains(&"mobius:needs-human".to_string()),
+        "{labels:?}"
+    );
+    wait_for(async || {
+        let implementers = sessions(&engine, "implementer").await;
+        (implementers.last().unwrap().end_reason.as_deref() == Some("done")).then_some(())
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn a_lead_that_crashes_gets_the_same_event_in_a_new_session() {
     let data_dir = TempDir::new().unwrap();
     let github = FakeGitHub::start().await;
