@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 
 use mobius_domain::Live;
-use mobius_github::Repository;
+use mobius_github::{Issue, Repository};
 use time::OffsetDateTime;
 
 use crate::labels::{
@@ -132,6 +132,22 @@ async fn direct_task(repository: &Repository, number: i64) -> bool {
     })
 }
 
+// The needs-human list of a Workstream shows tasks of any depth. The label goes on or off an issue with a live task.
+async fn task_changed(
+    engine: &Engine,
+    repository: &Repository,
+    issue: &Issue,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    Ok(issue.has_label(NEEDS_HUMAN_LABEL)
+        || engine
+            .store
+            .tasks()
+            .live(&repository.full_name, issue.number)
+            .await?
+            .is_some()
+        || direct_task(repository, issue.number).await)
+}
+
 async fn changed_issues(
     engine: &Engine,
     app_slug: &str,
@@ -162,7 +178,7 @@ async fn changed_issues(
         let labeled = issue.has_label(WORKSTREAM_LABEL);
         workstreams_changed = workstreams_changed
             || labeled
-            || (!first_poll && direct_task(repository, issue.number).await);
+            || (!first_poll && task_changed(engine, repository, issue).await?);
         if !labeled && !workstreams::has_work(engine, name, issue.number).await? {
             continue;
         }
