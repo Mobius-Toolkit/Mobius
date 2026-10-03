@@ -65,7 +65,7 @@ pub(crate) async fn start(
     workstream: i64,
     number: i64,
     instructions: &str,
-    parent: i64,
+    parent: Option<i64>,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let name = &repository.full_name;
     let task = dispatch::live_task(engine, name, workstream, number).await?;
@@ -97,7 +97,7 @@ pub(crate) async fn start(
         prompt: format!(
             "{ROLE_PROMPT}\n{sections}# Brief\n\n{brief}\n\n# Issue\n\n{issue}\n# Lead instructions\n\n{instructions}"
         ),
-        parent: Some(parent),
+        parent,
     };
     engine
         .store
