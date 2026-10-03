@@ -1087,6 +1087,9 @@ fn AgentRow(agent: ActiveAgent) -> Element {
                 div { "{node.role} {node.title}" }
                 div { class: "muted small",
                     "{session.role} · {session.organization}"
+                    if session.workstream != 0 || session.issue.is_some() {
+                        " · {session.repository}"
+                    }
                     if let Some(reason) = &session.queue_reason {
                         " · {reason}"
                     }
