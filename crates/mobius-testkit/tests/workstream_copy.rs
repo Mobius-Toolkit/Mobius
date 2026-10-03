@@ -1,4 +1,5 @@
 use mobius_engine::{Engine, github};
+use mobius_store::CopiedWorkstream;
 use mobius_testkit::fake_github::FakeGitHub;
 use mobius_testkit::{start, wait_for};
 use tempfile::TempDir;
@@ -244,4 +245,42 @@ async fn the_full_sync_copies_a_sub_issue_of_another_repository_as_a_leaf() {
         "{repository_url}"
     );
     assert_eq!(blockers(&engine).await, []);
+}
+
+#[tokio::test]
+async fn the_full_sync_forgets_the_rows_of_a_repository_that_is_not_polled() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    engine
+        .store
+        .workstream_copy()
+        .replace(
+            "owner/gone",
+            &[CopiedWorkstream {
+                number: 5,
+                title: "An old Workstream".to_string(),
+                body: String::new(),
+                autopilot: false,
+                issues: Vec::new(),
+            }],
+        )
+        .await
+        .unwrap();
+
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+
+    workstreams(&engine).await;
+    let stale: Vec<i64> =
+        sqlx::query_scalar("SELECT number FROM copied_workstreams WHERE repository = 'owner/gone'")
+            .fetch_all(&engine.store.pool)
+            .await
+            .unwrap();
+    assert!(stale.is_empty());
 }

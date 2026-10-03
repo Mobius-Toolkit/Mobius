@@ -35,6 +35,21 @@ pub struct CopiedBlocker {
 }
 
 impl WorkstreamCopy<'_> {
+    pub async fn forget_except(
+        &self,
+        repositories: &[String],
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let stored = sqlx::query_scalar!("SELECT DISTINCT repository FROM copied_workstreams")
+            .fetch_all(self.pool)
+            .await?;
+        for repository in stored {
+            if !repositories.contains(&repository) {
+                self.replace(&repository, &[]).await?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn replace(
         &self,
         repository: &str,

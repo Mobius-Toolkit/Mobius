@@ -31,6 +31,7 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
         return Ok(());
     }
     let mut repositories = Vec::new();
+    let mut listed_all = true;
     for app in apps {
         match engine
             .github
@@ -39,6 +40,7 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
         {
             Ok(found) => repositories.extend(found),
             Err(error) => {
+                listed_all = false;
                 eprintln!("mobius: GitHub poll of the App {}: {error}", app.slug);
                 // A failed list keeps the last known repositories of the App, so that `lost_access` ends none of their tasks.
                 repositories.extend(
@@ -55,6 +57,13 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
     }
     *engine.repositories.write().unwrap() = repositories.clone();
     ends::lost_access(engine, &repositories).await?;
+    if listed_all {
+        let names: Vec<String> = repositories
+            .iter()
+            .map(|repository| repository.full_name.clone())
+            .collect();
+        engine.store.workstream_copy().forget_except(&names).await?;
+    }
     // The set is complete only after the poll reads all repositories.
     let mut work = BTreeMap::new();
     for repository in &repositories {
