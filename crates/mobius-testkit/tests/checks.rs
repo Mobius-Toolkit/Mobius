@@ -386,5 +386,10 @@ async fn a_failed_check_run_at_max_fix_rounds_hands_the_task_to_a_human() {
             .then_some(())
     })
     .await;
+    assert!(
+        !github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:working".to_string())
+    );
     assert_eq!(sessions(&engine).await.len(), 1);
 }

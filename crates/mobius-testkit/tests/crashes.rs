@@ -152,6 +152,11 @@ async fn a_worker_that_dies_after_max_worker_restarts_goes_to_a_human() {
             .then_some(())
     })
     .await;
+    assert!(
+        !github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:working".to_string())
+    );
     let implementers = sessions(&engine, "implementer").await;
     assert_eq!(implementers.len(), 2);
     assert_eq!(
@@ -177,6 +182,40 @@ async fn a_worker_that_dies_after_max_worker_restarts_goes_to_a_human() {
         prompt.contains("the Worker failed after 1 restarts. Mobius added mobius:needs-human. The last error ends with these lines:\n\n```\nIncoming transport closed"),
         "{prompt}"
     );
+}
+
+#[tokio::test]
+async fn a_task_in_needs_human_stays_in_needs_human_after_the_next_polls() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let implementer = "[[prompts]]\nshell = \"kill -9 $PPID\"\n";
+    let engine = connect(
+        &data_dir,
+        &github,
+        &dispatch_start(),
+        implementer,
+        "max_worker_restarts = 1",
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || {
+        let labels = github.labels(REPOSITORY, 41);
+        (labels.contains(&"mobius:needs-human".to_string())
+            && !labels.contains(&"mobius:working".to_string()))
+        .then_some(())
+    })
+    .await;
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let task = engine
+        .store
+        .tasks()
+        .live(REPOSITORY, 41)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(task.state, "needs_human");
 }
 
 #[tokio::test]

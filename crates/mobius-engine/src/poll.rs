@@ -5,7 +5,9 @@ use mobius_domain::Live;
 use mobius_github::Repository;
 use time::OffsetDateTime;
 
-use crate::labels::{self, AUTOPILOT_LABEL, NO_WORKSTREAM_LABEL, WORKING_LABEL, WORKSTREAM_LABEL};
+use crate::labels::{
+    self, AUTOPILOT_LABEL, NEEDS_HUMAN_LABEL, NO_WORKSTREAM_LABEL, WORKING_LABEL, WORKSTREAM_LABEL,
+};
 use crate::trust::trusted_author;
 use crate::workers::Work;
 use crate::{
@@ -125,7 +127,7 @@ async fn changed_issues(
             dispatch::pull_request_comments(engine, repository, issue.number, cursor.since).await?;
             continue;
         }
-        if issue.has_label(WORKING_LABEL) {
+        if issue.has_label(WORKING_LABEL) || issue.has_label(NEEDS_HUMAN_LABEL) {
             dispatch::comment_events(engine, app_slug, repository, issue, cursor.since).await?;
         }
         if !issue.has_label(NO_WORKSTREAM_LABEL) {

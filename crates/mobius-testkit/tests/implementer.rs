@@ -369,6 +369,11 @@ async fn a_push_that_github_rejects_stops_the_task_with_no_restart() {
             .labels(REPOSITORY, 41)
             .contains(&"mobius:needs-human".to_string())
     );
+    assert!(
+        !github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:working".to_string())
+    );
     assert_eq!(task_state(&engine).await.as_deref(), Some("needs_human"));
     assert!(github.pull_requests(REPOSITORY).is_empty());
     let implementers = ended_implementers(&engine, 1).await;
@@ -522,6 +527,11 @@ async fn after_max_check_attempts_mobius_pushes_marks_the_check_run_as_failed_an
         github
             .labels(REPOSITORY, 41)
             .contains(&"mobius:needs-human".to_string())
+    );
+    assert!(
+        !github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:working".to_string())
     );
     assert_eq!(task_state(&engine).await.as_deref(), Some("needs_human"));
     assert!(sessions(&engine, "reviewer").await.is_empty());

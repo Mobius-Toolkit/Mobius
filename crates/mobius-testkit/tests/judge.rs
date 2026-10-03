@@ -58,6 +58,16 @@ async fn connect(
     verdicts: &str,
     implementer: &str,
 ) -> Engine {
+    connect_with(data_dir, github, "", verdicts, implementer).await
+}
+
+async fn connect_with(
+    data_dir: &TempDir,
+    github: &FakeGitHub,
+    extra_config: &str,
+    verdicts: &str,
+    implementer: &str,
+) -> Engine {
     github.add_manifest_code("manifest-code");
     github.add_repository(REPOSITORY);
     github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
@@ -76,7 +86,7 @@ async fn connect(
         data_dir.path(),
         "correct horse",
         &github.url,
-        &format!("trusted_bots = [\"{BOT}\"]\nreview_quiet_period = \"200ms\""),
+        &format!("trusted_bots = [\"{BOT}\"]\nreview_quiet_period = \"200ms\"\n{extra_config}"),
     )
     .await;
     github::convert_manifest(&engine, "manifest-code")
@@ -112,6 +122,16 @@ async fn prompts(engine: &Engine, role: &str) -> Vec<String> {
         );
     }
     all
+}
+
+async fn task_state(engine: &Engine) -> Option<String> {
+    engine
+        .store
+        .tasks()
+        .live(REPOSITORY, 41)
+        .await
+        .unwrap()
+        .map(|task| task.state)
 }
 
 async fn reply(github: &FakeGitHub, thread: i64) -> Thread {
@@ -303,4 +323,48 @@ async fn a_comment_in_an_unresolved_thread_makes_the_judge_run_again() {
     wait_for(async || (prompts(&engine, "judge").await.len() == 2).then_some(())).await;
     let judge = prompts(&engine, "judge").await;
     assert!(judge[1].contains("Rename it anyway."), "{}", judge[1]);
+}
+
+#[tokio::test]
+async fn a_fix_round_of_the_judge_from_needs_human_puts_the_working_label_back() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect_with(
+        &data_dir,
+        &github,
+        "max_fix_rounds = 1",
+        "shell = \"true\"",
+        &format!(
+            "{IMPLEMENTER}\n[[prompts]]\nwhen = \"Action: fix\"\nshell = \"echo x >> plan.txt && git commit -q -am Fix\"\n"
+        ),
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || (!inbox::list(&engine).await.unwrap().is_empty()).then_some(())).await;
+
+    github.add_review_comment(REPOSITORY, 42, None, BOT, "Rename plan to tier.");
+    wait_for(async || {
+        (task_state(&engine).await.as_deref() == Some("ready_for_review")).then_some(())
+    })
+    .await;
+    github.add_review_comment(REPOSITORY, 42, None, BOT, "Rename tier to plan.");
+    wait_for(async || (task_state(&engine).await.as_deref() == Some("needs_human")).then_some(()))
+        .await;
+    wait_for(async || {
+        let labels = github.labels(REPOSITORY, 41);
+        (labels.contains(&"mobius:needs-human".to_string())
+            && !labels.contains(&"mobius:working".to_string()))
+        .then_some(())
+    })
+    .await;
+
+    github.add_comment(REPOSITORY, 42, "owner", "Continue.");
+
+    wait_for(async || {
+        let labels = github.labels(REPOSITORY, 41);
+        (labels.contains(&"mobius:working".to_string())
+            && !labels.contains(&"mobius:needs-human".to_string()))
+        .then_some(())
+    })
+    .await;
 }

@@ -494,6 +494,11 @@ async fn a_finding_after_max_fix_rounds_stops_the_task_until_a_comment_of_a_trus
             .labels(REPOSITORY, 41)
             .contains(&"mobius:needs-human".to_string())
     );
+    assert!(
+        !github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:working".to_string())
+    );
     assert!(inbox::list(&engine).await.unwrap().is_empty());
     assert_eq!(
         task_state(&engine, 41).await.as_deref(),
@@ -774,6 +779,11 @@ async fn the_review_round_at_max_fix_rounds_shows_the_limit_and_starts_no_next_r
         github
             .labels(REPOSITORY, 41)
             .contains(&"mobius:needs-human".to_string())
+    );
+    assert!(
+        !github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:working".to_string())
     );
 }
 

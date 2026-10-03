@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 
-use crate::labels::NEEDS_HUMAN_LABEL;
+use crate::labels::{NEEDS_HUMAN_LABEL, WORKING_LABEL};
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
 use crate::{
@@ -490,6 +490,7 @@ async fn route(
         return Ok(());
     }
     if job.from == "needs_human" {
+        repository.add_label(job.number, WORKING_LABEL).await?;
         repository
             .remove_label(job.number, NEEDS_HUMAN_LABEL)
             .await?;

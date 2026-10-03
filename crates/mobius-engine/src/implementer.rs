@@ -10,7 +10,7 @@ use serde_json::Value;
 use time::OffsetDateTime;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 
-use crate::labels::NEEDS_HUMAN_LABEL;
+use crate::labels::{NEEDS_HUMAN_LABEL, WORKING_LABEL};
 use crate::lead::{self, Recorder};
 use crate::trust::{self, app_login};
 use crate::{
@@ -362,10 +362,9 @@ pub(crate) async fn hand_to_human(
     {
         return Ok(false);
     }
-    engine
-        .repository(repository)?
-        .add_label(number, NEEDS_HUMAN_LABEL)
-        .await?;
+    let repository = engine.repository(repository)?;
+    repository.add_label(number, NEEDS_HUMAN_LABEL).await?;
+    repository.remove_label(number, WORKING_LABEL).await?;
     Ok(true)
 }
 
