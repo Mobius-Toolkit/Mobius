@@ -428,6 +428,16 @@ a.btn {
   border-bottom: 1px solid var(--line);
 }
 
+@media (min-width: 701px) {
+  .entry.hinted {
+    flex-wrap: wrap;
+  }
+
+  .entry.hinted .grow {
+    flex-basis: 100%;
+  }
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;

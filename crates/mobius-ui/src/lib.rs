@@ -827,7 +827,7 @@ fn WorkstreamEntry(workstream: Workstream, needs_human: bool) -> Element {
         .unwrap_or(0);
     rsx! {
         Link {
-            class: "entry",
+            class: if needs_human { "entry hinted" } else { "entry" },
             active_class: "sel",
             to: Route::Chat { owner: owner.to_string(), repo: repo.to_string(), number: workstream.number },
             span { class: "grow", "{workstream.title}" }
