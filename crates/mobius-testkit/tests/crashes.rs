@@ -2,7 +2,7 @@ use std::fs;
 
 use mobius_domain::{InboxKind, Session, TranscriptRow};
 use mobius_engine::{Engine, github, inbox, workstreams};
-use mobius_testkit::fake_github::FakeGitHub;
+use mobius_testkit::fake_github::{APP_SLUG, FakeGitHub};
 use mobius_testkit::{install_fake_harness, start_with_config, wait_for};
 use serde_json::Value;
 use tempfile::TempDir;
@@ -336,6 +336,49 @@ async fn mobius_ready_on_a_task_in_needs_human_with_no_pull_request_starts_the_i
         (implementers.last().unwrap().end_reason.as_deref() == Some("done")).then_some(())
     })
     .await;
+}
+
+#[tokio::test]
+async fn mobius_ready_of_the_app_on_a_task_in_needs_human_has_no_effect_when_autopilot_is_off() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let implementer = "[[prompts]]\nshell = \"kill -9 $PPID\"\n";
+    let engine = connect(
+        &data_dir,
+        &github,
+        &dispatch_start(),
+        implementer,
+        "max_worker_restarts = 1",
+    )
+    .await;
+    github.add_label(REPOSITORY, 41, "mobius:ready", "owner");
+    wait_for(async || {
+        github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:needs-human".to_string())
+            .then_some(())
+    })
+    .await;
+    let implementers = sessions(&engine, "implementer").await.len();
+
+    github.remove_label(REPOSITORY, 41, "mobius:needs-human", "owner");
+    github.add_label(REPOSITORY, 41, "mobius:ready", &format!("{APP_SLUG}[bot]"));
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    let task = engine
+        .store
+        .tasks()
+        .live(REPOSITORY, 41)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(task.state, "needs_human");
+    assert_eq!(sessions(&engine, "implementer").await.len(), implementers);
+    assert!(
+        github
+            .labels(REPOSITORY, 41)
+            .contains(&"mobius:ready".to_string())
+    );
 }
 
 #[tokio::test]

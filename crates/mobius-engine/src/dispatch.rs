@@ -47,6 +47,11 @@ pub(crate) async fn dispatch_ready(
         }
         let live = engine.store.tasks().live(name, issue.number).await?;
         if let Some(task) = live.as_ref().filter(|task| task.state == "needs_human") {
+            if actor.eq_ignore_ascii_case(&app_login(app_slug))
+                && !workstreams::autopilot(engine, repository, task.workstream).await?
+            {
+                continue;
+            }
             resume(engine, repository, issue, task, actor).await?;
             continue;
         }
