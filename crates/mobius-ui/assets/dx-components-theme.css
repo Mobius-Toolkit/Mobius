@@ -1,0 +1,102 @@
+/* The design rules of the UI. Every color, size, space, radius and shadow of
+ * the UI comes from the variables of this file.
+ *
+ * A color has the form `var(--dark, A) var(--light, B)`. The media queries
+ * below empty one of the two variables, so a color takes the value A in dark
+ * mode and the value B in light mode.
+ */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --dark: initial;
+    --light: ;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --dark: ;
+    --light: initial;
+  }
+}
+
+:root {
+  color-scheme: light dark;
+
+  /* Colors */
+  --ground: var(--dark, #121614) var(--light, #e9ece8);
+  --surface: var(--dark, #1a1f1d) var(--light, #f7f8f6);
+  --raised: var(--dark, #222826) var(--light, #ffffff);
+  --ink: var(--dark, #e3e8e5) var(--light, #1c2220);
+  --muted: var(--dark, #8f9994) var(--light, #66706b);
+  --line: var(--dark, #323a36) var(--light, #d5dad5);
+  --line-strong: var(--dark, #4a554f) var(--light, #b3bcb6);
+  --accent: var(--dark, #7fb0dc) var(--light, #2d5f8b);
+  --accent-soft: var(--dark, #1f3244) var(--light, #dde7f0);
+  --on-accent: var(--dark, #0f1b26) var(--light, #ffffff);
+  --crit: var(--dark, #e27d7d) var(--light, #b03a3a);
+  --crit-soft: var(--dark, #3d2222) var(--light, #f7e0e0);
+  --ok: var(--dark, #6cc08c) var(--light, #2f7a4c);
+  --ok-soft: var(--dark, #1c3326) var(--light, #dcefe2);
+  --warn: var(--dark, #e0a54c) var(--light, #a86a14);
+  --warn-soft: var(--dark, #3a2d17) var(--light, #f6e9d2);
+  --owner: var(--dark, #223029) var(--light, #e3ebe4);
+  --hover: color-mix(in oklab, var(--ink) 8%, transparent);
+  --pressed: color-mix(in oklab, var(--ink) 16%, transparent);
+  --scrim: rgb(0 0 0 / 0.18);
+
+  /* Fonts */
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, Menlo, monospace;
+
+  /* Type scale */
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1rem;
+
+  /* Spacing scale */
+  --space-0: 0.125rem;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  /* Radii */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-full: 999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.08);
+  --shadow-lg: 0 8px 30px rgb(0 0 0 / 0.2);
+  --shadow-lg-up: 0 -8px 30px rgb(0 0 0 / 0.2);
+  --ring: 0 0 0 3px color-mix(in oklab, var(--accent) 40%, transparent);
+
+  /* Controls */
+  --tap: 2.75rem;
+  --text-input: var(--text-base);
+  --control-height: 2.25rem;
+  --control-height-sm: 2rem;
+  --content-width: 56rem;
+}
+
+/* Safari zooms the page on a focus in a field with a font smaller than 16px. */
+@media (pointer: coarse) {
+  :root {
+    --text-input: var(--text-lg);
+  }
+}
+
+/* A tap target of at least 44px on a phone. */
+@media (max-width: 700px) {
+  :root {
+    --control-height: var(--tap);
+    --control-height-sm: var(--tap);
+  }
+}
