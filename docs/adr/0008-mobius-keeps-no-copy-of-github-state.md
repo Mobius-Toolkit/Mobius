@@ -1,5 +1,7 @@
 # Mobius keeps no copy of GitHub state
 
+Replaced by [ADR 0010](0010-mobius-keeps-a-local-copy-of-workstream-and-task-data.md).
+
 GitHub holds all work state: the Workstream issues, the Briefs, the task tree, the blockers, the labels, the PRs, the review threads, and the comments. Mobius reads this state from GitHub when it needs it and keeps no copy. The local store holds only the state that GitHub does not have: the tasks and their counters, the sessions and their transcripts, the chat history, the Lead event queue, the activity feed, the Inbox, the Harness pauses, and the poll cursors. So GitHub and Mobius never disagree about work state, and a human can change the work on GitHub at any time.
 
 ## Considered Options
