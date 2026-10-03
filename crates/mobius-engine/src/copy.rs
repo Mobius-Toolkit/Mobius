@@ -28,7 +28,8 @@ pub(crate) async fn sync(
 // Applies the change of one issue of the repository to the copy, and gives `true` when the copy changes.
 // `events` are all events of the issue. The parent is read for an issue that the copy does not have,
 // because its new link to a Workstream or a task changes the walk order of that Workstream.
-// A task that gets or loses the Workstream label changes the walk order of its Workstream too.
+// A task that gets or loses the Workstream label changes the walk order of its Workstream too,
+// and the Workstream of its blockers in the other trees.
 pub(crate) async fn update(
     engine: &Engine,
     repository: &Repository,
@@ -89,7 +90,19 @@ pub(crate) async fn update(
     if issue.state != "open" {
         changed |= copy.remove_blocker(name, issue.number).await?;
     }
-    for workstream in label_changed {
+    let mut stale = label_changed.clone();
+    if stored && !wanted {
+        stale.push(issue.number);
+    }
+    let mut rebuilt = label_changed;
+    for workstream in stale {
+        for blocked in copy.workstreams_with_blocker_in(name, workstream).await? {
+            if !rebuilt.contains(&blocked) {
+                rebuilt.push(blocked);
+            }
+        }
+    }
+    for workstream in rebuilt {
         let issues = tree(repository, workstream).await?;
         copy.replace_issues(name, workstream, &issues).await?;
         changed = true;

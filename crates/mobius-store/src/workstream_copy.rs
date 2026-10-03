@@ -163,6 +163,22 @@ impl WorkstreamCopy<'_> {
         .await?)
     }
 
+    // Gives the Workstreams of the repository whose trees have a blocker row in the Workstream `blocker_workstream`.
+    pub async fn workstreams_with_blocker_in(
+        &self,
+        repository: &str,
+        blocker_workstream: i64,
+    ) -> Result<Vec<i64>, Box<dyn Error + Send + Sync>> {
+        Ok(sqlx::query_scalar!(
+            r#"SELECT DISTINCT workstream AS "workstream!: i64" FROM copied_blockers
+               WHERE repository = ? AND blocker_workstream = ?"#,
+            repository,
+            blocker_workstream
+        )
+        .fetch_all(self.pool)
+        .await?)
+    }
+
     pub async fn add_workstream(
         &self,
         repository: &str,
