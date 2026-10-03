@@ -2,8 +2,11 @@ mod markdown;
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
+use std::pin::pin;
 
+use dioxus::fullstack::ServerEvents;
 use dioxus::prelude::*;
+use futures_util::future::{Either, select};
 use markdown::Markdown;
 use mobius_api::{
     active_agents, agent_tree, chat_seen, chat_send, chat_stop, chat_view, checkup, devices,
@@ -45,6 +48,24 @@ document.addEventListener("visibilitychange", () => {
 setInterval(check, 5 * 60 * 1000);
 check();
 "#;
+
+// Sends a message when the page becomes visible again or the browser comes back online. A phone
+// that stops the page in the background can leave a live stream open with no error. Only the
+// newest call of this script receives the messages, and `window.liveWake = null` stops them.
+const LIVE_WAKE: &str = r#"
+if (!window.liveWakeListening) {
+    window.liveWakeListening = true;
+    window.addEventListener("online", () => window.liveWake?.());
+    document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) {
+            window.liveWake?.();
+        }
+    });
+}
+window.liveWake = () => dioxus.send(true);
+"#;
+
+const LIVE_WAKE_STOP: &str = "window.liveWake = null;";
 
 // Runs after an upgrade call returns. The old server answers until it restarts, so only another build ends the wait.
 fn reload_on_new_build() -> String {
@@ -202,6 +223,8 @@ struct LiveState {
     unread: Signal<HashMap<ChatKey, i64>>,
     // True after the first read of the unread counts, whether it worked or not.
     unread_read: Signal<bool>,
+    // The number of live connections after the first. Data that only live events update reads again when it changes.
+    reconnects: Signal<u32>,
     agents: Signal<HashMap<i64, AgentNode>>,
     inbox: Signal<HashMap<i64, InboxItem>>,
     // The number of agents the upgrade drain waits for. `None` means no drain.
@@ -268,12 +291,24 @@ fn upsert(messages: &mut Vec<ChatMessage>, message: ChatMessage) {
     }
 }
 
+// Gives `None` when the stream ends or the page wakes up, so the caller connects again.
+async fn next_event(
+    events: &mut ServerEvents<Live>,
+    wake: &mut document::Eval,
+) -> Option<Result<Live, ServerFnError>> {
+    match select(pin!(events.recv()), pin!(wake.recv::<bool>())).await {
+        Either::Left((event, _)) => event,
+        Either::Right(_) => None,
+    }
+}
+
 async fn follow_live(
     mut state: LiveState,
     mut workstream_list: Resource<ServerFnResult<Vec<Workstream>>>,
     mut login_shown: Signal<bool>,
 ) {
     let mut after = None;
+    let mut first = true;
     loop {
         if let Ok(items) = inbox_items().await {
             state
@@ -289,6 +324,13 @@ async fn follow_live(
         }
         match live(after).await {
             Ok(mut events) => {
+                let mut wake = document::eval(LIVE_WAKE);
+                if !first {
+                    state.reconnects += 1;
+                    workstream_list.restart();
+                    state.leads.write().clear();
+                    state.agents.write().clear();
+                }
                 // The server subscribes before `live` returns, so a count read now misses no later event.
                 if let Ok(counts) = unread().await {
                     state.unread.set(
@@ -304,7 +346,7 @@ async fn follow_live(
                     );
                 }
                 state.unread_read.set(true);
-                while let Some(Ok(event)) = events.recv().await {
+                while let Some(Ok(event)) = next_event(&mut events, &mut wake).await {
                     match event {
                         Live::Feed(row) => {
                             after = Some(row.id);
@@ -357,6 +399,7 @@ async fn follow_live(
                         }
                     }
                 }
+                document::eval(LIVE_WAKE_STOP);
             }
             Err(error) if unauthorized(&error) => {
                 login_shown.set(true);
@@ -366,6 +409,7 @@ async fn follow_live(
         }
         // The web build has no timer crate, so a JavaScript timer makes the delay.
         let _ = document::eval("await new Promise(resolve => setTimeout(resolve, 1000));").await;
+        first = false;
     }
 }
 
@@ -425,6 +469,7 @@ fn Frame() -> Element {
         leads: Signal::new(HashMap::new()),
         unread: Signal::new(HashMap::new()),
         unread_read: Signal::new(false),
+        reconnects: Signal::new(0),
         agents: Signal::new(HashMap::new()),
         inbox: Signal::new(HashMap::new()),
         drain: Signal::new(None),
@@ -984,13 +1029,14 @@ fn NewWorkstream() -> Element {
 }
 
 // All active agents of the server in one group for each role, of all organizations.
-// The resource runs again when a `Live::Agent` event changes `LiveState.agents`:
-// at the start of a session, at the slot start, at a change of the queue reason, and at the end.
+// The resource runs again after a new live connection and when a `Live::Agent` event changes
+// `LiveState.agents`: at the start of a session, at the slot start, at a change of the queue reason, and at the end.
 #[component]
 fn AgentsPage() -> Element {
     let state: LiveState = use_context();
     let LoginShown(mut login_shown) = use_context();
     let resource = use_resource(move || async move {
+        state.reconnects.read();
         state.agents.read();
         active_agents().await
     });
@@ -1421,9 +1467,11 @@ fn Conversation(
     // The resource keeps the result of the old chat until the result of the new chat
     // arrives, so this key names the chat that the result belongs to.
     let mut loaded_chat = use_signal(|| None::<ChatKey>);
+    let reconnects = state.reconnects;
     let history = use_resource(use_reactive(
         (&organization, &repository, &number),
         move |(organization, repository, number)| async move {
+            reconnects.read();
             let view = chat_view(organization.clone(), repository.clone(), number).await;
             loaded_chat.set(Some((organization, repository, number)));
             view
@@ -1466,7 +1514,12 @@ fn Conversation(
         {
             continue;
         }
-        upsert(&mut messages, message.clone());
+        // The Lead only appends text to a message, so the longer text is the newer text.
+        match messages.iter_mut().find(|held| held.id == message.id) {
+            Some(held) if message.text.len() > held.text.len() => *held = message.clone(),
+            Some(_) => {}
+            None => messages.push(message.clone()),
+        }
     }
     messages.sort_by_key(|message| message.id);
     // While the history loads, `messages` is still empty, so the default waits for it.
@@ -1849,9 +1902,13 @@ fn Conversation(
 #[component]
 fn Agents(repository: String, number: i64, on_close: Option<EventHandler>) -> Element {
     let state: LiveState = use_context();
+    let reconnects = state.reconnects;
     let tree = use_resource(use_reactive(
         (&repository, &number),
-        |(repository, number)| async move { agent_tree(repository, number).await },
+        move |(repository, number)| async move {
+            reconnects.read();
+            agent_tree(repository, number).await
+        },
     ));
     let mut tasks_tab = use_signal(|| false);
     let mut selected = use_signal(|| None::<i64>);

@@ -10,6 +10,9 @@ use chromiumoxide::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType, DispatchTouchEventParams,
     DispatchTouchEventReturns, DispatchTouchEventType, TouchPoint,
 };
+use chromiumoxide::cdp::browser_protocol::network::{
+    EmulateNetworkConditionsByRuleParams, NetworkConditions,
+};
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::types::{Command, Method, MethodId};
@@ -1581,5 +1584,72 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
         }
         page.close().await.unwrap();
     }
+    browser.close().await.unwrap();
+}
+
+async fn set_offline(page: &Page, offline: bool) {
+    page.execute(EmulateNetworkConditionsByRuleParams::new(
+        offline,
+        vec![NetworkConditions::new("", 0.0, -1.0, -1.0)],
+    ))
+    .await
+    .unwrap();
+}
+
+// The server sends no live event for a message that the store gets while the connection is down.
+#[tokio::test]
+#[ignore = "starts Chrome and serves the web bundle in DIOXUS_PUBLIC_PATH"]
+async fn the_open_chat_shows_the_messages_that_arrived_while_the_connection_was_down() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    github.add_manifest_code("manifest-code");
+    install_fake_harness(data_dir.path(), FAKE_AGENT, "claude-agent-acp", CLAUDE);
+    let engine = start(data_dir.path(), "correct horse", &github.url).await;
+    let url = serve_ui(&engine).await;
+    github::convert_manifest(&engine, "manifest-code")
+        .await
+        .unwrap();
+    github.add_repository(REPOSITORY);
+    github.add_issue(REPOSITORY, 12, "Integrate loyalty plans");
+    github.add_label(REPOSITORY, 12, "mobius:workstream", "owner");
+    wait_for(async || (workstreams::list(&engine).await.unwrap().len() == 1).then_some(())).await;
+    let (mut browser, mut handler) = Browser::launch(
+        BrowserConfig::builder()
+            .launch_timeout(Duration::from_secs(60))
+            .no_sandbox()
+            .arg("--hide-scrollbars")
+            .user_data_dir(data_dir.path().join("chrome"))
+            .build()
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    tokio::spawn(async move { while handler.next().await.is_some() {} });
+    log_in(&browser, &format!("{url}/github")).await;
+    let page = open(&browser, &format!("{url}/workstreams/owner/shop/12"), PHONE).await;
+    wait_until_live(&page).await;
+    page.evaluate("window.__sameDocument = true").await.unwrap();
+    set_offline(&page, true).await;
+    engine
+        .store
+        .chat_messages()
+        .add("owner", REPOSITORY, 12, Author::Lead, "Sent while offline.")
+        .await
+        .unwrap();
+    set_offline(&page, false).await;
+    let script = "document.querySelector('.msgs').textContent.includes('Sent while offline.') \
+                  && window.__sameDocument === true"
+        .to_string();
+    // The rule does not change `navigator`, so the page gets the event that a browser sends when the network returns.
+    // The page ignores the event until the first live connection exists, so each poll sends the event again.
+    wait_for(async || {
+        page.evaluate("window.dispatchEvent(new Event('online'))")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        check(&page, script.clone()).await.then_some(())
+    })
+    .await;
+    page.close().await.unwrap();
     browser.close().await.unwrap();
 }

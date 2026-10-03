@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 dioxus = { workspace = true, features = ["router"] }
+futures-util = { workspace = true }
 mobius-api = { workspace = true }
 mobius-domain = { workspace = true }
 pulldown-cmark = { workspace = true }
