@@ -316,6 +316,7 @@ async fn review(
         .await?
     };
     let brief = lead::brief(&repository, job.workstream).await?;
+    let sections = lead::repository_sections(engine, &repository, ROLE).await?;
     let issue = repository
         .issue(job.number)
         .await?
@@ -323,7 +324,7 @@ async fn review(
     let trusted = trust::trusted_authors(engine, &repository);
     let threads = issues::review_threads(&repository, job.pull_request.number, &trusted).await?;
     let prompt = format!(
-        "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Commits\n\nBase commit: {base}\nHead commit: {}\n\nThe changes are `git diff {base} {}`.\n\n# Review threads\n{threads}",
+        "{ROLE_PROMPT}\n{sections}# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Commits\n\nBase commit: {base}\nHead commit: {}\n\nThe changes are `git diff {base} {}`.\n\n# Review threads\n{threads}",
         job.number,
         issue.title,
         issue.body.unwrap_or_default(),

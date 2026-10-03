@@ -70,6 +70,7 @@ pub(crate) async fn start(
     let name = &repository.full_name;
     let task = dispatch::live_task(engine, name, workstream, number).await?;
     let brief = lead::brief(repository, workstream).await?;
+    let sections = lead::repository_sections(engine, repository, ROLE).await?;
     let title = repository
         .issue(number)
         .await?
@@ -94,7 +95,7 @@ pub(crate) async fn start(
         pull_request,
         conflict_round: false,
         prompt: format!(
-            "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n{issue}\n# Lead instructions\n\n{instructions}"
+            "{ROLE_PROMPT}\n{sections}# Brief\n\n{brief}\n\n# Issue\n\n{issue}\n# Lead instructions\n\n{instructions}"
         ),
         parent: Some(parent),
     };
@@ -140,6 +141,7 @@ pub(crate) async fn fix_round(
         return stop_at_limit(engine, repository, &round, "fix").await;
     }
     let brief = lead::brief(repository, round.workstream).await?;
+    let sections = lead::repository_sections(engine, repository, ROLE).await?;
     let issue = repository
         .issue(round.number)
         .await?
@@ -158,7 +160,7 @@ pub(crate) async fn fix_round(
         pull_request: Some(round.pull_request),
         conflict_round: false,
         prompt: format!(
-            "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Open items\n{}",
+            "{ROLE_PROMPT}\n{sections}# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Open items\n{}",
             round.number,
             issue.title,
             issue.body.unwrap_or_default(),
@@ -221,6 +223,7 @@ pub(crate) async fn conflict_round(
     pull_request: PullRequest,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let brief = lead::brief(repository, task.workstream).await?;
+    let sections = lead::repository_sections(engine, repository, ROLE).await?;
     let issue = repository
         .issue(task.issue)
         .await?
@@ -236,7 +239,7 @@ pub(crate) async fn conflict_round(
         return Ok(());
     }
     let prompt = format!(
-        "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Base branch\n\norigin/{}\n\nMerge the base branch and remove the conflicts. Make no other change.",
+        "{ROLE_PROMPT}\n{sections}# Brief\n\n{brief}\n\n# Issue\n\n#{} {}\n\n{}\n\n# Base branch\n\norigin/{}\n\nMerge the base branch and remove the conflicts. Make no other change.",
         task.issue,
         issue.title,
         issue.body.unwrap_or_default(),

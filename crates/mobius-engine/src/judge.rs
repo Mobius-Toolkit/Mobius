@@ -428,9 +428,10 @@ async fn judge(
         mobius_runner::add_detached_worktree(data_dir, name, &dir, &job.pull_request.head.sha)
             .await?;
     }
+    let sections = lead::repository_sections(engine, &repository, ROLE).await?;
     let items: String = job.items.iter().map(|item| item.text.as_str()).collect();
     let prompt = format!(
-        "{ROLE_PROMPT}\n# Issue\n\n#{} {}\n\n{}\n\n# Items\n{items}",
+        "{ROLE_PROMPT}\n{sections}# Issue\n\n#{} {}\n\n{}\n\n# Items\n{items}",
         job.number, job.title, job.body
     );
     limits::wait(engine, engine.config.roles.judge.harness, Some(session_id)).await?;

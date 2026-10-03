@@ -155,8 +155,9 @@ async fn research(
         .await?;
     }
     let brief = lead::brief(&repository, job.workstream).await?;
+    let sections = lead::repository_sections(engine, &repository, ROLE).await?;
     let prompt = format!(
-        "{ROLE_PROMPT}\n# Brief\n\n{brief}\n\n# Question\n\n{}",
+        "{ROLE_PROMPT}\n{sections}# Brief\n\n{brief}\n\n# Question\n\n{}",
         job.question
     );
     let (session, mut updates) = lead::start(

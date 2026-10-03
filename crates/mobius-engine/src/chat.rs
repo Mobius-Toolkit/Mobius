@@ -821,6 +821,7 @@ async fn first_prompt(
     first: &Item,
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let context = lead::context(engine, dir, &key.1, key.2).await?;
+    let sections = lead::repository_sections(engine, &engine.repository(&key.1)?, "lead").await?;
     let (before, heading, text) = match first {
         Item::Message(message) => (
             message.id,
@@ -834,7 +835,7 @@ async fn first_prompt(
         ),
     };
     Ok(format!(
-        "{ROLE_PROMPT}\n{context}{}# {heading}\n\n{text}",
+        "{ROLE_PROMPT}\n{sections}{context}{}# {heading}\n\n{text}",
         history(engine, key, before).await?,
     ))
 }

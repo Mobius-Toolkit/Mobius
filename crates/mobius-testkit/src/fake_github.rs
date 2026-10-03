@@ -777,7 +777,9 @@ impl FakeGitHub {
             work.path(),
             &["clone", "--branch=main", remote.to_str().unwrap(), "."],
         );
-        fs::write(work.path().join(path), content).unwrap();
+        let file = work.path().join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, content).unwrap();
         git(work.path(), &["add", path]);
         git(work.path(), &["commit", "-m", message]);
         git(work.path(), &["push", "origin", "HEAD:refs/heads/main"]);
