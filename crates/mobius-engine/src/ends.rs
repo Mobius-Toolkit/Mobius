@@ -92,7 +92,9 @@ async fn check_task(
         end(engine, repository, task).await?;
         return Ok(None);
     }
-    if !matches!(task.state.as_str(), "stopped" | "needs_human") && !issue.has_label(WORKING_LABEL)
+    if !matches!(task.state.as_str(), "stopped" | "needs_human")
+        && task.worker.as_deref() != Some(judge::ROLE)
+        && !issue.has_label(WORKING_LABEL)
     {
         let events = repository.issue_events(task.issue).await?;
         if let Some(actor) = events

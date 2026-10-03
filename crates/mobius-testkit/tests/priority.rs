@@ -12,7 +12,7 @@ const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_fake-agent");
 // The prompt of a Lead holds the earlier events, so the rule of the newest dispatch comes first.
 const CLAUDE: &str = r#"
 [options]
-model = ["sonnet", "opus"]
+model = ["sonnet", "opus", "haiku"]
 thought_level = ["low", "high"]
 mode = ["default", "bypassPermissions"]
 
@@ -214,6 +214,45 @@ async fn a_pull_request_in_needs_human_does_not_stop_a_new_ticket() {
     assert_eq!(
         task_state(&engine, 41).await.as_deref(),
         Some("needs_human")
+    );
+}
+
+#[tokio::test]
+async fn a_judge_that_runs_from_needs_human_holds_a_new_ticket() {
+    let data_dir = TempDir::new().unwrap();
+    let github = FakeGitHub::start().await;
+    let engine = connect(
+        &data_dir,
+        &github,
+        "max_agents = 2\nreview_quiet_period = \"200ms\"",
+    )
+    .await;
+    install_fake_harness(
+        data_dir.path(),
+        FAKE_AGENT,
+        "claude-agent-acp",
+        &format!("[[prompts]]\nwhen = \"You are the Judge\"\nhang = true\n{CLAUDE}"),
+    );
+    let (_, pull_request) = ready_for_review(&engine, &github, 41).await;
+    github.set_created_at(REPOSITORY, pull_request, 0);
+    github.set_behind(REPOSITORY, pull_request);
+    github.commit_file(REPOSITORY, "price.txt", "dollars\n", "Add price");
+    wait_for_state(&engine, 41, "needs_human").await;
+    github.add_comment(REPOSITORY, pull_request, "owner", "Continue.");
+    wait_for_state(&engine, 41, "working").await;
+
+    github.add_label(REPOSITORY, 43, "mobius:ready", "owner");
+
+    let ticket = wait_for(async || {
+        sessions(&engine, 43)
+            .await
+            .into_iter()
+            .find_map(|session| session.queue_reason)
+    })
+    .await;
+    assert_eq!(
+        ticket,
+        format!("an open pull request has agent work ({REPOSITORY}#{pull_request})")
     );
 }
 
