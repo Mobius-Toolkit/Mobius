@@ -513,13 +513,7 @@ fn Frame() -> Element {
                     if let Some(waiting) = drain_waiting {
                         div { class: "entry",
                             span { class: "dot queued" }
-                            span { class: "grow muted small",
-                                if waiting == 0 {
-                                    "Upgrade is ready to restart"
-                                } else {
-                                    "Upgrade waits for {waiting} agents"
-                                }
-                            }
+                            span { class: "grow muted small", DrainText { waiting } }
                         }
                     }
                     if let Some(version) = release_version() {
@@ -540,36 +534,6 @@ fn Frame() -> Element {
                                 span { class: "muted", "{version}" }
                             }
                         }
-                        if changes_shown() {
-                            div { class: "backdrop dim", onclick: move |_| changes_shown.set(false) }
-                            div { class: "modal",
-                                div { class: "head",
-                                    h2 { "Upgrade to {version}" }
-                                    button { class: "btn ghost", onclick: move |_| changes_shown.set(false), "Close" }
-                                }
-                                ReleaseChanges { version: version.clone() }
-                                div { class: "actions",
-                                    button { class: "btn primary",
-                                        disabled: upgrading(),
-                                        onclick: move |_| async move {
-                                            changes_shown.set(false);
-                                            upgrading.set(true);
-                                            upgrade_error.set(String::new());
-                                            match upgrade().await {
-                                                Ok(DrainEnd::Drained) => {
-                                                    document::eval(&reload_on_new_build());
-                                                    return;
-                                                }
-                                                Ok(DrainEnd::Cancelled) => {}
-                                                Err(failure) => upgrade_error.set(error_text(&failure)),
-                                            }
-                                            upgrading.set(false);
-                                        },
-                                        "Upgrade"
-                                    }
-                                }
-                            }
-                        }
                         if !upgrade_error().is_empty() {
                             p { class: "error note", "{upgrade_error}" }
                         }
@@ -581,6 +545,61 @@ fn Frame() -> Element {
                     Link { class: "navbtn", active_class: "sel", to: Route::Devices {}, "Devices" }
                     Link { class: "navbtn", active_class: "sel", to: Route::Checkup {}, "Checkup" }
                     Link { class: "navbtn", active_class: "sel", to: Route::AgentsPage {}, "Agents" }
+                }
+                // The rail hides on a phone, so the upgrade line repeats above the page.
+                if let Some(waiting) = drain_waiting {
+                    div { class: "upd phone", DrainText { waiting } }
+                }
+                if let Some(version) = release_version() {
+                    if changes_shown() {
+                        div { class: "backdrop dim", onclick: move |_| changes_shown.set(false) }
+                        div { class: "modal",
+                            div { class: "head",
+                                h2 { "Upgrade to {version}" }
+                                button { class: "btn ghost", onclick: move |_| changes_shown.set(false), "Close" }
+                            }
+                            ReleaseChanges { version: version.clone() }
+                            div { class: "actions",
+                                button { class: "btn primary",
+                                    disabled: upgrading(),
+                                    onclick: move |_| async move {
+                                        changes_shown.set(false);
+                                        upgrading.set(true);
+                                        upgrade_error.set(String::new());
+                                        match upgrade().await {
+                                            Ok(DrainEnd::Drained) => {
+                                                document::eval(&reload_on_new_build());
+                                                return;
+                                            }
+                                            Ok(DrainEnd::Cancelled) => {}
+                                            Err(failure) => upgrade_error.set(error_text(&failure)),
+                                        }
+                                        upgrading.set(false);
+                                    },
+                                    "Upgrade"
+                                }
+                            }
+                        }
+                    }
+                    if drain_waiting.is_some() {
+                        button { class: "upd phone",
+                            onclick: move |_| async move {
+                                if let Err(failure) = drain_cancel().await {
+                                    upgrade_error.set(error_text(&failure));
+                                }
+                            },
+                            "Cancel upgrade"
+                        }
+                    } else {
+                        button { class: "upd phone",
+                            disabled: upgrading(),
+                            onclick: move |_| changes_shown.set(true),
+                            "Upgrade {version}"
+                        }
+                    }
+                    if !upgrade_error().is_empty() {
+                        p { class: "error note phone", "{upgrade_error}" }
+                    }
                 }
                 // The rail hides on a phone, so the note repeats above the page.
                 if new_build() {
@@ -617,6 +636,17 @@ fn Frame() -> Element {
         Some(Ok(_)) => rsx! { main { class: "center", GitHub {} } },
         Some(Err(error)) => rsx! { p { class: "error note", {error_text(error)} } },
         None => rsx! {},
+    }
+}
+
+#[component]
+fn DrainText(waiting: usize) -> Element {
+    rsx! {
+        if waiting == 0 {
+            "Upgrade is ready to restart"
+        } else {
+            "Upgrade waits for {waiting} agents"
+        }
     }
 }
 
