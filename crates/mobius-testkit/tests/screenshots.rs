@@ -1637,14 +1637,19 @@ async fn the_open_chat_shows_the_messages_that_arrived_while_the_connection_was_
         .await
         .unwrap();
     set_offline(&page, false).await;
-    // The rule does not change `navigator`, so the page gets the event that a browser sends when the network returns.
-    page.evaluate("window.dispatchEvent(new Event('online'))")
-        .await
-        .unwrap();
     let script = "document.querySelector('.msgs').textContent.includes('Sent while offline.') \
                   && window.__sameDocument === true"
         .to_string();
-    wait_for(async || check(&page, script.clone()).await.then_some(())).await;
+    // The rule does not change `navigator`, so the page gets the event that a browser sends when the network returns.
+    // The page ignores the event until the first live connection exists, so each poll sends the event again.
+    wait_for(async || {
+        page.evaluate("window.dispatchEvent(new Event('online'))")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        check(&page, script.clone()).await.then_some(())
+    })
+    .await;
     page.close().await.unwrap();
     browser.close().await.unwrap();
 }
