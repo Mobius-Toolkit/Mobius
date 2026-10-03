@@ -7,6 +7,7 @@ pub mod checks;
 pub mod checkup;
 pub mod config;
 pub mod conflicts;
+mod copy;
 mod dispatch;
 pub mod drain;
 mod ends;
@@ -65,6 +66,8 @@ pub struct Engine {
     harness_path: Arc<OsString>,
     port: u16,
     repositories: Arc<RwLock<Vec<Repository>>>,
+    // The repositories where a full sync of the copy of the Workstream and task data succeeded in this run of the engine.
+    copied: Arc<Mutex<std::collections::HashSet<String>>>,
     // The repositories where the poll tried a label fix in this run of the engine, with success or failure.
     labels_fixed: Arc<Mutex<std::collections::HashSet<String>>>,
     chats: Arc<Mutex<HashMap<ChatKey, ChatHandle>>>,
@@ -135,6 +138,7 @@ pub async fn start(
         harness_path: Arc::new(harness_path),
         port,
         repositories: Arc::default(),
+        copied: Arc::default(),
         labels_fixed: Arc::default(),
         chats: Arc::default(),
         chat_order: Arc::default(),

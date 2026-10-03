@@ -9,6 +9,7 @@ mod sessions;
 mod sync_cursors;
 mod tasks;
 mod transcript;
+mod workstream_copy;
 
 use std::error::Error;
 use std::fs;
@@ -27,6 +28,7 @@ pub use sessions::{NewSession, Sessions};
 pub use sync_cursors::{SyncCursor, SyncCursors};
 pub use tasks::{Task, Tasks};
 pub use transcript::Transcript;
+pub use workstream_copy::{CopiedBlocker, CopiedIssue, CopiedWorkstream, WorkstreamCopy};
 
 #[derive(Clone)]
 pub struct Store {
@@ -87,5 +89,9 @@ impl Store {
 
     pub fn transcript(&self) -> Transcript<'_> {
         Transcript { pool: &self.pool }
+    }
+
+    pub fn workstream_copy(&self) -> WorkstreamCopy<'_> {
+        WorkstreamCopy { pool: &self.pool }
     }
 }

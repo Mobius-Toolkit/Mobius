@@ -9,7 +9,7 @@ use crate::labels::{self, AUTOPILOT_LABEL, NO_WORKSTREAM_LABEL, WORKING_LABEL, W
 use crate::trust::trusted_author;
 use crate::workers::Work;
 use crate::{
-    Engine, activity, autopilot, dispatch, ends, lead_events, recovery, triager, workstreams,
+    Engine, activity, autopilot, copy, dispatch, ends, lead_events, recovery, triager, workstreams,
 };
 
 const ISSUES: &str = "issues";
@@ -31,6 +31,7 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
         return Ok(());
     }
     let mut repositories = Vec::new();
+    let mut listed_all = true;
     for app in apps {
         match engine
             .github
@@ -39,6 +40,7 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
         {
             Ok(found) => repositories.extend(found),
             Err(error) => {
+                listed_all = false;
                 eprintln!("mobius: GitHub poll of the App {}: {error}", app.slug);
                 // A failed list keeps the last known repositories of the App, so that `lost_access` ends none of their tasks.
                 repositories.extend(
@@ -55,6 +57,13 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
     }
     *engine.repositories.write().unwrap() = repositories.clone();
     ends::lost_access(engine, &repositories).await?;
+    if listed_all {
+        let names: Vec<String> = repositories
+            .iter()
+            .map(|repository| repository.full_name.clone())
+            .collect();
+        engine.store.workstream_copy().forget_except(&names).await?;
+    }
     // The set is complete only after the poll reads all repositories.
     let mut work = BTreeMap::new();
     for repository in &repositories {
@@ -66,6 +75,23 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
             && let Err(error) = labels::fix(repository).await
         {
             eprintln!("mobius: label fix of {}: {error}", repository.full_name);
+        }
+        if !engine
+            .copied
+            .lock()
+            .unwrap()
+            .contains(&repository.full_name)
+        {
+            match copy::sync(engine, repository).await {
+                Ok(()) => {
+                    engine
+                        .copied
+                        .lock()
+                        .unwrap()
+                        .insert(repository.full_name.clone());
+                }
+                Err(error) => eprintln!("mobius: full sync of {}: {error}", repository.full_name),
+            }
         }
         if let Err(error) =
             poll_repository(engine, &repository.app_slug, repository, &mut work).await
