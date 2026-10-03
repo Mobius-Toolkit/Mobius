@@ -68,6 +68,8 @@ pub struct Engine {
     // The repositories where the poll tried a label fix in this run of the engine, with success or failure.
     labels_fixed: Arc<Mutex<std::collections::HashSet<String>>>,
     chats: Arc<Mutex<HashMap<ChatKey, ChatHandle>>>,
+    // A chat entry that goes to a Lead session takes its place in the chat and in the session under this lock, so the two orders stay equal.
+    chat_order: Arc<tokio::sync::Mutex<()>>,
     callers: Arc<Mutex<HashMap<String, mcp::Caller>>>,
     live: broadcast::Sender<Live>,
     // All tasks of a repository share one bare clone, and two git commands that write its refs at the same time can fail on a ref lock.
@@ -135,6 +137,7 @@ pub async fn start(
         repositories: Arc::default(),
         labels_fixed: Arc::default(),
         chats: Arc::default(),
+        chat_order: Arc::default(),
         callers: Arc::default(),
         live: broadcast::channel(256).0,
         git: Arc::default(),
