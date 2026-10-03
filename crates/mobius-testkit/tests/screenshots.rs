@@ -1498,6 +1498,10 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
         wait_until_ready(&page, title, false).await;
         wait_until_live(&page).await;
         assert!(!check(&page, "!!document.querySelector('.closing')".to_string()).await);
+        let done = format!(
+            "document.querySelector('a[href=\"/workstreams/owner/shop/{number}\"] .chip')?.textContent === 'done'"
+        );
+        assert!(!check(&page, done.clone()).await);
 
         github.close_issue(REPOSITORY, task);
 
@@ -1507,6 +1511,7 @@ async fn the_note_closes_the_workstream_when_all_tasks_are_closed() {
                 .then_some(())
         })
         .await;
+        wait_for(async || check(&page, done.clone()).await.then_some(())).await;
         assert!(
             check(
                 &page,
