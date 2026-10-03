@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM copied_blockers WHERE repository = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "bab8e4683220f7b7a7ffc33f1ba0e397d2f22ff6d818bf8759c7228de79d3e94"
+}

@@ -60,9 +60,9 @@ pub async fn list(
 }
 
 // Gives the next issue of the deepest frame, dropping each frame that ran out.
-pub(crate) fn next_issue(
-    frames: &mut Vec<(i64, std::vec::IntoIter<Issue>)>,
-) -> Option<(i64, Issue)> {
+pub(crate) fn next_issue<T: Copy>(
+    frames: &mut Vec<(T, std::vec::IntoIter<Issue>)>,
+) -> Option<(T, Issue)> {
     loop {
         match frames.last_mut() {
             Some((depth, issues)) => match issues.next() {

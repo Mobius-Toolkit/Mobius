@@ -9,7 +9,7 @@ use crate::labels::{self, AUTOPILOT_LABEL, NO_WORKSTREAM_LABEL, WORKING_LABEL, W
 use crate::trust::trusted_author;
 use crate::workers::Work;
 use crate::{
-    Engine, activity, autopilot, dispatch, ends, lead_events, recovery, triager, workstreams,
+    Engine, activity, autopilot, copy, dispatch, ends, lead_events, recovery, triager, workstreams,
 };
 
 const ISSUES: &str = "issues";
@@ -66,6 +66,23 @@ async fn poll(engine: &Engine) -> Result<(), Box<dyn Error + Send + Sync>> {
             && let Err(error) = labels::fix(repository).await
         {
             eprintln!("mobius: label fix of {}: {error}", repository.full_name);
+        }
+        if !engine
+            .copied
+            .lock()
+            .unwrap()
+            .contains(&repository.full_name)
+        {
+            match copy::sync(engine, repository).await {
+                Ok(()) => {
+                    engine
+                        .copied
+                        .lock()
+                        .unwrap()
+                        .insert(repository.full_name.clone());
+                }
+                Err(error) => eprintln!("mobius: full sync of {}: {error}", repository.full_name),
+            }
         }
         if let Err(error) =
             poll_repository(engine, &repository.app_slug, repository, &mut work).await
