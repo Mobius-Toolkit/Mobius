@@ -68,10 +68,7 @@ async fn needs_human_issues(
     let trusted = trust::trusted_authors(engine, repository);
     let mut issues = Vec::new();
     for issue in repository.open_issues_with_label(NEEDS_HUMAN_LABEL).await? {
-        if issue.has_label(WORKSTREAM_LABEL)
-            || ends::in_other_repository(&issue, &repository.full_name)
-            || !trusted(&issue.user.login)
-        {
+        if issue.has_label(WORKSTREAM_LABEL) || !trusted(&issue.user.login) {
             continue;
         }
         if let Some(workstream) = workstreams::workstream_of(repository, issue.number).await? {
