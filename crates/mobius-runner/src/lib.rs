@@ -49,6 +49,12 @@ pub fn find(program: &str, path: &OsStr) -> Option<PathBuf> {
         })
 }
 
+pub fn find_gh(data_dir: &Path, path: &OsStr) -> Option<PathBuf> {
+    let agent_env = agent_env(data_dir);
+    let dirs = env::split_paths(path).filter(|dir| !dir.starts_with(&agent_env));
+    find("gh", &env::join_paths(dirs).ok()?)
+}
+
 fn agent_env(data_dir: &Path) -> PathBuf {
     data_dir.join("agent-env")
 }
@@ -877,6 +883,52 @@ mod tests {
         assert_eq!(find("gh", &path), Some(program));
         assert_eq!(find("curl", &path), None);
         assert_eq!(find("git", &path), None);
+    }
+
+    fn executable(file: &Path) {
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn the_gh_wrapper_runs_the_real_gh_when_the_path_has_the_mobius_wrappers_first() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let real = tempfile::tempdir().unwrap();
+        prepare(data_dir.path(), Path::new("/usr/bin/gh")).unwrap();
+        executable(&real.path().join("gh"));
+        let path = env::join_paths([
+            data_dir.path().join("agent-env/chat-bin"),
+            data_dir.path().join("agent-env/bin"),
+            real.path().to_path_buf(),
+        ])
+        .unwrap();
+
+        let gh = find_gh(data_dir.path(), &path).unwrap();
+        prepare(data_dir.path(), &gh).unwrap();
+
+        let wrapper = fs::read_to_string(data_dir.path().join("agent-env/chat-bin/gh")).unwrap();
+        let last_line = wrapper.lines().last().unwrap();
+        assert_eq!(
+            last_line,
+            format!(
+                "GH_TOKEN=$token exec '{}' \"$@\"",
+                real.path().join("gh").display()
+            )
+        );
+    }
+
+    #[test]
+    fn find_gh_gives_nothing_when_the_path_has_only_the_mobius_wrappers() {
+        let data_dir = tempfile::tempdir().unwrap();
+        prepare(data_dir.path(), Path::new("/usr/bin/gh")).unwrap();
+        let path = env::join_paths([
+            data_dir.path().join("agent-env/chat-bin"),
+            data_dir.path().join("agent-env/bin"),
+        ])
+        .unwrap();
+
+        assert_eq!(find_gh(data_dir.path(), &path), None);
     }
 
     #[test]

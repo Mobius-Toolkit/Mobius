@@ -128,7 +128,8 @@ pub async fn start(
     harness_path: OsString,
     port: u16,
 ) -> Result<Engine, Box<dyn Error + Send + Sync>> {
-    let gh = mobius_runner::find("gh", &harness_path).ok_or("`gh` is not on PATH")?;
+    let gh =
+        mobius_runner::find_gh(&config.data_dir, &harness_path).ok_or("`gh` is not on PATH")?;
     mobius_runner::prepare(&config.data_dir, &gh)?;
     let checks = Arc::new(tokio::sync::Semaphore::new(config.max_checks as usize));
     let engine = Engine {
