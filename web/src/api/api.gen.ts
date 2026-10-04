@@ -27,6 +27,49 @@ export interface Activity {
 }
 
 /**
+ * Agent is the session of an agent.
+ */
+export interface Agent {
+  /** EndReason tells why the session ended, for example done or failed. It is empty while the session is live */
+  endReason: string;
+  /**
+     * EndedAt is the end of the session, or null while the session is live
+     * @nullable
+     */
+  endedAt: string | null;
+  /** Harness is the Harness of the session, for example claude-code */
+  harness: string;
+  /** ID is the id of the session */
+  id: number;
+  /**
+     * Issue is the one issue that the session works on, or null
+     * @nullable
+     */
+  issue: number | null;
+  /** Model is the model of the session */
+  model: string;
+  /** Name is the name of the Role, for example Lead */
+  name: string;
+  /** Organization is the owner of the repository */
+  organization: string;
+  /**
+     * Parent is the id of the session of the agent that started this session, or null
+     * @nullable
+     */
+  parent: number | null;
+  /** Repository is the repository as "owner/name". It is empty for the Triager chat */
+  repository: string;
+  /** Role is the Role as the sessions table names it, for example lead_chat */
+  role: string;
+  /** StartedAt is the start of the session */
+  startedAt: string;
+  /** Title tells what the session works on, for example "chat session". It can be empty */
+  title: string;
+  /** Workstream is the number of the Workstream issue. It is 0 for the Triager */
+  workstream: number;
+}
+
+/**
  * LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change
  */
 export type CheckupLabelFix = typeof CheckupLabelFix[keyof typeof CheckupLabelFix];
@@ -146,6 +189,11 @@ export interface Devices {
   thisDevice: number;
 }
 
+export interface EnvelopeArrayAgent {
+  /** Data is the payload of the response */
+  data: Agent[];
+}
+
 /**
  * GitHubApp is a Mobius App on GitHub.
  */
@@ -161,6 +209,50 @@ export interface GitHubApp {
 export interface EnvelopeArrayGitHubApp {
   /** Data is the payload of the response */
   data: GitHubApp[];
+}
+
+/**
+ * Kind is prompt, update, mcp_call or error
+ */
+export type TranscriptLineKind = typeof TranscriptLineKind[keyof typeof TranscriptLineKind];
+
+
+export const TranscriptLineKind = {
+  prompt: 'prompt',
+  update: 'update',
+  mcp_call: 'mcp_call',
+  error: 'error',
+} as const;
+
+/**
+ * TranscriptLine is a row of the Transcript of a session.
+ */
+export interface TranscriptLine {
+  /** Body is the text below Text. It can be empty */
+  body: string;
+  /** Failed is true for an error row and for a Mobius tool call that failed */
+  failed: boolean;
+  /** Folded is true for the first prompt of the session, which starts with the Role prompt */
+  folded: boolean;
+  /** HarnessToolName is the name of a Mobius tool in the Harness, for example mcp__mobius__list_tasks. It is empty for each other row */
+  harnessToolName: string;
+  /** ID increases with each new row of all sessions */
+  id: number;
+  /** Kind is prompt, update, mcp_call or error */
+  kind: TranscriptLineKind;
+  /** Raw is the JSON text of the row, for example the full ACP update */
+  raw: string;
+  /** Session is the id of the session */
+  session: number;
+  /** Text is the one line that the UI always shows */
+  text: string;
+  /** Time is the time of the row */
+  time: string;
+}
+
+export interface EnvelopeArrayTranscriptLine {
+  /** Data is the payload of the response */
+  data: TranscriptLine[];
 }
 
 /**
@@ -250,11 +342,19 @@ export interface FixLabelsBody {
 }
 
 /**
- * LiveEvents are the events of the live event stream.
+ * LiveEvents are the events of the live event stream. Only an activity has an event id.
  */
 export type LiveEvents = {
   data: Activity;
   event: 'activity';
+  id?: string;
+} | {
+  data: Agent;
+  event: 'agent';
+  id?: string;
+} | {
+  data: TranscriptLine;
+  event: 'transcript';
   id?: string;
 };
 
@@ -299,6 +399,71 @@ export type GetCheckupParams = {
  */
 organization: string;
 };
+
+export type getTranscriptResponse200 = {
+  data: EnvelopeArrayTranscriptLine
+  status: 200
+}
+
+export type getTranscriptResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getTranscriptResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getTranscriptResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getTranscriptResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getTranscriptResponseSuccess = (getTranscriptResponse200) & {
+  headers: Headers;
+};
+export type getTranscriptResponseError = (getTranscriptResponse400 | getTranscriptResponse401 | getTranscriptResponse422 | getTranscriptResponse500) & {
+  headers: Headers;
+};
+
+export type getTranscriptResponse = (getTranscriptResponseSuccess | getTranscriptResponseError)
+
+export const getGetTranscriptUrl = (id: number,) => {
+
+
+
+
+  return `/api/agents/${id}/transcript`
+}
+
+/**
+ * GetTranscript returns the Transcript of a session, the oldest row first.
+ */
+export const getTranscript = async (id: number, ): Promise<getTranscriptResponse> => {
+
+  const res = await fetch(getGetTranscriptUrl(id),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getTranscriptResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getTranscriptResponse
+}
+
+
 
 export type getCheckupResponse200 = {
   data: EnvelopeCheckup
@@ -953,4 +1118,73 @@ export const listWorkstreams = async ( ): Promise<listWorkstreamsResponse> => {
 
   const data: listWorkstreamsResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listWorkstreamsResponse
+}
+
+
+
+export type listAgentsResponse200 = {
+  data: EnvelopeArrayAgent
+  status: 200
+}
+
+export type listAgentsResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listAgentsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listAgentsResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listAgentsResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listAgentsResponseSuccess = (listAgentsResponse200) & {
+  headers: Headers;
+};
+export type listAgentsResponseError = (listAgentsResponse400 | listAgentsResponse401 | listAgentsResponse422 | listAgentsResponse500) & {
+  headers: Headers;
+};
+
+export type listAgentsResponse = (listAgentsResponseSuccess | listAgentsResponseError)
+
+export const getListAgentsUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/agents`
+}
+
+/**
+ * ListAgents returns the sessions of a Workstream, the oldest first. Each session has the session that started it as its parent.
+ */
+export const listAgents = async (owner: string,
+    name: string,
+    number: number, ): Promise<listAgentsResponse> => {
+
+  const res = await fetch(getListAgentsUrl(owner,name,number),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listAgentsResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listAgentsResponse
 }

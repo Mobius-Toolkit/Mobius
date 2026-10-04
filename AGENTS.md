@@ -39,6 +39,7 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 
 - Use the fakes of `internal/testkit` for GitHub and for the agents. To add an endpoint to the fake GitHub, add its route in `routes`, its handler next to the handlers of the same area, and its state as a field of `FakeGitHub`.
 - A test package that installs a fake Harness (`testkit.InstallFakeHarness` or `testkit.InstallFakeAgent`) calls `testkit.Main(m)` from its `TestMain`.
+- The gh of the agent environment is a link to the test binary. Thus a test package whose agents run gh calls `runner.GH` from its `TestMain` when the program name is gh, as `internal/engine` does.
 - Wait for a condition with `testkit.WaitFor`. Do not sleep for a fixed time. Before a test changes an issue, wait for the first poll of its repository (`WaitForFirstPoll`).
 
 ## Before a push
@@ -48,11 +49,11 @@ Run `.mobius/check` (or `make check`). It must pass.
 ## Layout
 
 ```
-cmd/mobius/            the mobius command: serve (the default) and init
+cmd/mobius/            the mobius command: serve (the default) and init. With the name gh, it is the gh of the agent environment
 internal/api/          the Gork routes and handlers, and the device login check of each route
 internal/auth/         the access password and the device logins
 internal/config/       reads config.toml
-internal/engine/       the poll of the repositories, the Mobius labels, the checkup and the trust rules
+internal/engine/       the poll of the repositories, the Mobius labels, the checkup, the trust rules, and the agent sessions with their Mobius tools and Transcripts
 internal/github/       the GitHub Apps: the App setup, the user tokens, the installation tokens and the repositories
 internal/mcp/          the Mobius MCP server and the gh token of each session key
 internal/runner/       starts an agent session of a Harness through ACP, and holds the gh of the agent environment
