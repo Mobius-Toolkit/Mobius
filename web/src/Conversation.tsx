@@ -43,6 +43,10 @@ function upsert(list: ChatMessage[], message: ChatMessage) {
   )
 }
 
+function atEnd(list: HTMLElement) {
+  return list.scrollHeight - list.scrollTop - list.clientHeight < 40
+}
+
 function Message({ message }: { message: ChatMessage }) {
   const event = message.author === 'Event'
   const [summary, ...rest] = message.text.split('\n')
@@ -116,6 +120,9 @@ export function Conversation({
   const [text, setText] = useState('')
   const [sendError, setSendError] = useState('')
   const [sending, setSending] = useState(false)
+  // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
+  // message.
+  const inFlight = useRef(false)
   const [briefOpen, setBriefOpen] = useState<boolean>()
   const listRef = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
@@ -205,6 +212,8 @@ export function Conversation({
       if (element) {
         list.scrollTop +=
           element.getBoundingClientRect().top - list.getBoundingClientRect().top
+        // The scroll event can come after the next render, and that render must not scroll to the end.
+        pinned.current = atEnd(list)
         return
       }
       list.scrollTop = list.scrollHeight
@@ -220,10 +229,11 @@ export function Conversation({
   })
 
   const send = () => {
-    if (sending || !text.trim()) {
+    if (inFlight.current || !text.trim()) {
       return
     }
     const sent = text
+    inFlight.current = true
     setSending(true)
     setText('')
     sendChat({ organization, repository, workstream, text: sent })
@@ -243,7 +253,10 @@ export function Conversation({
         setText((current) => sent + current)
         setSendError(String(err))
       })
-      .finally(() => setSending(false))
+      .finally(() => {
+        inFlight.current = false
+        setSending(false)
+      })
   }
 
   const stop = () => {
@@ -287,9 +300,7 @@ export function Conversation({
       <div
         ref={listRef}
         onScroll={(event) => {
-          const list = event.currentTarget
-          pinned.current =
-            list.scrollHeight - list.scrollTop - list.clientHeight < 40
+          pinned.current = atEnd(event.currentTarget)
         }}
         className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto bg-muted/40 p-4"
       >
@@ -319,7 +330,7 @@ export function Conversation({
       </div>
       {footer}
       <form
-        className="flex items-end gap-2 border-t p-3"
+        className="flex items-end gap-2 border-t p-3 max-md:[&>button]:h-11"
         onSubmit={(event) => {
           event.preventDefault()
           send()
