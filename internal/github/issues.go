@@ -5,6 +5,7 @@ import (
 	"errors"
 	"iter"
 	"net/http"
+	"slices"
 	"strings"
 
 	gh "github.com/google/go-github/v92/github"
@@ -187,4 +188,26 @@ func (r Repository) Reviews(ctx context.Context, number int64) ([]*gh.PullReques
 // ReviewComments gives the review comments of the pull request number.
 func (r Repository) ReviewComments(ctx context.Context, number int64) ([]*gh.PullRequestComment, error) {
 	return all(r.Client.PullRequests.ListCommentsIter(ctx, r.Owner(), r.Name(), int(number), &gh.PullRequestListCommentsOptions{ListOptions: gh.ListOptions{PerPage: 100}}))
+}
+
+// OpenIssuesWithLabel gives the open issues with label. It gives no pull request.
+func (r Repository) OpenIssuesWithLabel(ctx context.Context, label string) ([]*gh.Issue, error) {
+	issues, err := all(r.Client.Issues.ListByRepoIter(ctx, r.Owner(), r.Name(), &gh.IssueListByRepoOptions{State: "open", Labels: []string{label}, ListOptions: gh.ListOptions{PerPage: 100}}))
+	return slices.DeleteFunc(issues, (*gh.Issue).IsPullRequest), err
+}
+
+// AddLabel adds label to the issue number.
+func (r Repository) AddLabel(ctx context.Context, number int64, label string) error {
+	_, _, err := r.Client.Issues.AddLabelsToIssue(ctx, r.Owner(), r.Name(), int(number), []string{label})
+	return err
+}
+
+// RemoveLabel removes label from the issue number. An issue with no such label is no error.
+func (r Repository) RemoveLabel(ctx context.Context, number int64, label string) error {
+	_, err := r.Client.Issues.RemoveLabelForIssue(ctx, r.Owner(), r.Name(), int(number), label)
+	var response *gh.ErrorResponse
+	if errors.As(err, &response) && response.Response.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	return err
 }

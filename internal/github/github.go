@@ -193,6 +193,19 @@ func (g *GitHub) InstallURL(slug string) string {
 	return g.webURL + "/apps/" + url.PathEscape(slug) + "/installations/new"
 }
 
+// LatestRelease gives the latest release of Mobius.
+//
+// The call has no token: the releases of Mobius are public, so a server with no App can also upgrade.
+func (g *GitHub) LatestRelease(ctx context.Context) (*gh.RepositoryRelease, error) {
+	release, _, err := g.api.Repositories.GetLatestRelease(ctx, "Mobius-Toolkit", "Mobius")
+	return release, err
+}
+
+// ReleaseURL gives the download URL of the file asset of the release of Mobius with tag.
+func (g *GitHub) ReleaseURL(tag, asset string) string {
+	return g.webURL + "/Mobius-Toolkit/Mobius/releases/download/" + url.PathEscape(tag) + "/" + url.PathEscape(asset)
+}
+
 type userTokens struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
