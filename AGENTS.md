@@ -35,6 +35,12 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 
 `internal/store/migrations/` holds copies of the migration files of the Rust version (`crates/mobius-store/migrations` in Mobius-Toolkit/Mobius). Do not change these files. Add a new migration only as a copy of a new Rust migration.
 
+## Tests
+
+- Use the fakes of `internal/testkit` for GitHub and for the agents. To add an endpoint to the fake GitHub, add its route in `routes`, its handler next to the handlers of the same area, and its state as a field of `FakeGitHub`.
+- A test package that installs a fake Harness (`testkit.InstallFakeHarness` or `testkit.InstallFakeAgent`) calls `testkit.Main(m)` from its `TestMain`.
+- Wait for a condition with `testkit.WaitFor`. Do not sleep for a fixed time. Before a test changes an issue, wait for the first poll of its repository (`WaitForFirstPoll`).
+
 ## Before a push
 
 Run `.mobius/check` (or `make check`). It must pass.
@@ -48,6 +54,9 @@ internal/api/          the Gork routes and handlers
 internal/mcp/          the Mobius MCP server and its tools
 internal/runner/       starts a Claude Code session through ACP
 internal/store/        the SQLite database: goose migrations and sqlc queries
+internal/testkit/      the fake GitHub, the fake agent as a Harness command, and the waits of the tests
+internal/testkit/fakeagent/  the fake ACP agent that plays a TOML script (the format is in its package comment)
+internal/testkit/testserver/ starts the Mobius server for a test
 api/openapi.json       the generated OpenAPI spec
 web/                   the React frontend (Vite, TypeScript, Tailwind CSS, shadcn/ui)
 web/src/api/           the generated API client and types
