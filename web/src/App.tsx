@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { client } from '@/api/client'
+import { onLiveEvent } from '@/api/events'
 import type { components } from '@/api/schema'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -77,10 +78,9 @@ function LiveEvents() {
     const source = new EventSource('/api/events')
     source.addEventListener('open', () => setConnected(true))
     source.addEventListener('error', () => setConnected(false))
-    source.addEventListener('activity', (e) => {
-      const activity = JSON.parse(e.data) as Activity
-      setActivities((prev) => [activity, ...prev].slice(0, maxActivities))
-    })
+    onLiveEvent(source, 'activity', (activity) =>
+      setActivities((prev) => [activity, ...prev].slice(0, maxActivities)),
+    )
     return () => source.close()
   }, [])
 
