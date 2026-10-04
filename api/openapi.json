@@ -2911,7 +2911,17 @@
           },
           "kind": {
             "type": "string",
-            "description": "Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, ready for review, stale pull request, usage limit for a pause of a Harness, Lead failed for a message or an event that the Lead did not take, stopped for a task that stopped, or full disk"
+            "description": "Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, and Lead failed for a message or an event that the Lead did not take",
+            "enum": [
+              "question",
+              "Lead",
+              "ready for review",
+              "stale pull request",
+              "usage limit",
+              "Lead failed",
+              "stopped",
+              "full disk"
+            ]
           },
           "link": {
             "type": "string",
