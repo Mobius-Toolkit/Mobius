@@ -101,3 +101,48 @@ func (h *handlers) GetUpgrade(_ context.Context, _ GetUpgradeRequest) (*GetUpgra
 func drainOf(state engine.DrainState) Drain {
 	return Drain{On: state.On, Waiting: int64(state.Waiting)}
 }
+
+// Release is the newest release of Mobius.
+type Release struct {
+	// Version is the tag of the newest release when it is newer than this program, for example v0.2.0. It is empty
+	// when no newer release exists, and for a local build
+	Version string `gork:"version"`
+}
+
+// GetReleaseRequest is the request of GetRelease.
+type GetReleaseRequest struct{}
+
+// GetReleaseResponse is the response of GetRelease.
+type GetReleaseResponse struct {
+	Body Envelope[Release]
+}
+
+// GetRelease returns the newest release of Mobius when it is newer than this program.
+func (h *handlers) GetRelease(ctx context.Context, _ GetReleaseRequest) (*GetReleaseResponse, error) {
+	version, err := h.engine.NewRelease(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &GetReleaseResponse{Body: Envelope[Release]{Data: Release{Version: version}}}, nil
+}
+
+// ListReleaseChangesRequest is the request of ListReleaseChanges.
+type ListReleaseChangesRequest struct{}
+
+// ListReleaseChangesResponse is the response of ListReleaseChanges.
+type ListReleaseChangesResponse struct {
+	Body Envelope[[]string]
+}
+
+// ListReleaseChanges returns the first line of the message of each commit after this release up to the newest
+// release of Mobius, the newest first.
+func (h *handlers) ListReleaseChanges(ctx context.Context, _ ListReleaseChangesRequest) (*ListReleaseChangesResponse, error) {
+	changes, err := h.engine.ReleaseChanges(ctx)
+	if engine.Refused(err) {
+		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &ListReleaseChangesResponse{Body: Envelope[[]string]{Data: changes}}, nil
+}

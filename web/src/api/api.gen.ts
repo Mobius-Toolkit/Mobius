@@ -455,6 +455,22 @@ export interface EnvelopeManifestForm {
 }
 
 /**
+ * Release is the newest release of Mobius.
+ */
+export interface Release {
+  /** Version is the tag of the newest release when it is newer than this program, for example v0.2.0. It is empty when no newer release exists, and for a local build */
+  version: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeRelease {
+  /** Data is the payload of the response */
+  data: Release;
+}
+
+/**
  * Upgrade is the state of the last upgrade.
  */
 export interface Upgrade {
@@ -1712,6 +1728,141 @@ export const listOrganizations = async ( ): Promise<listOrganizationsResponse> =
 
   const data: listOrganizationsResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listOrganizationsResponse
+}
+
+
+
+export type getReleaseResponse200 = {
+  data: EnvelopeRelease
+  status: 200
+}
+
+export type getReleaseResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getReleaseResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getReleaseResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getReleaseResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getReleaseResponseSuccess = (getReleaseResponse200) & {
+  headers: Headers;
+};
+export type getReleaseResponseError = (getReleaseResponse400 | getReleaseResponse401 | getReleaseResponse422 | getReleaseResponse500) & {
+  headers: Headers;
+};
+
+export type getReleaseResponse = (getReleaseResponseSuccess | getReleaseResponseError)
+
+export const getGetReleaseUrl = () => {
+
+
+
+
+  return `/api/release`
+}
+
+/**
+ * GetRelease returns the newest release of Mobius when it is newer than this program.
+ */
+export const getRelease = async ( ): Promise<getReleaseResponse> => {
+
+  const res = await fetch(getGetReleaseUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getReleaseResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getReleaseResponse
+}
+
+
+
+export type listReleaseChangesResponse200 = {
+  data: EnvelopeArrayString
+  status: 200
+}
+
+export type listReleaseChangesResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listReleaseChangesResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listReleaseChangesResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type listReleaseChangesResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listReleaseChangesResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listReleaseChangesResponseSuccess = (listReleaseChangesResponse200) & {
+  headers: Headers;
+};
+export type listReleaseChangesResponseError = (listReleaseChangesResponse400 | listReleaseChangesResponse401 | listReleaseChangesResponse409 | listReleaseChangesResponse422 | listReleaseChangesResponse500) & {
+  headers: Headers;
+};
+
+export type listReleaseChangesResponse = (listReleaseChangesResponseSuccess | listReleaseChangesResponseError)
+
+export const getListReleaseChangesUrl = () => {
+
+
+
+
+  return `/api/release/changes`
+}
+
+/**
+ * ListReleaseChanges returns the first line of the message of each commit after this release up to the newest release of Mobius, the newest first.
+ */
+export const listReleaseChanges = async ( ): Promise<listReleaseChangesResponse> => {
+
+  const res = await fetch(getListReleaseChangesUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listReleaseChangesResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listReleaseChangesResponse
 }
 
 

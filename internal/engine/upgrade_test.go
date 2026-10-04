@@ -3,6 +3,7 @@ package engine_test
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
@@ -75,5 +76,74 @@ func TestAnUpgradeToTheNewestReleaseFailsWithNoDrain(t *testing.T) {
 	}
 	if got := server.Engine.Draining(); got.On {
 		t.Errorf("drain = %+v", got)
+	}
+}
+
+// getData sends a GET request to path of the API, and decodes the data of the response into data. It gives the status and
+// the error text of the response.
+func getData(t *testing.T, server *testserver.Server, path string, data any) (int, string) {
+	t.Helper()
+	response, err := server.Client.Get(server.URL + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	body := struct {
+		Data  any    `json:"data"`
+		Error string `json:"error"`
+	}{Data: data}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	return response.StatusCode, body.Error
+}
+
+func newRelease(t *testing.T, server *testserver.Server) string {
+	t.Helper()
+	var release struct {
+		Version string `json:"version"`
+	}
+	if status, text := getData(t, server, "/api/release", &release); status != http.StatusOK {
+		t.Fatalf("release = %d %q", status, text)
+	}
+	return release.Version
+}
+
+func TestTheReleaseIsTheNewestReleaseWhenItIsNewerThanThisProgram(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	fake.SetLatestRelease("v0.2.0")
+	defer func() { engine.Release = "" }()
+
+	for _, release := range []struct{ current, want string }{{"", ""}, {"v0.1.4", "v0.2.0"}, {"v0.2.0", ""}} {
+		engine.Release = release.current
+		if got := newRelease(t, server); got != release.want {
+			t.Errorf("release of %q = %q, want %q", release.current, got, release.want)
+		}
+	}
+}
+
+func TestTheReleaseChangesGiveTheFirstLineOfEachCommitTheNewestFirst(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	fake.SetLatestRelease("v0.2.0")
+	fake.SetComparedCommits(
+		"Check for a new release each hour (#316)\n\nThe check runs once each hour.",
+		"Show the release changes in a modal before the upgrade (#320)",
+	)
+
+	var changes []string
+	if status, text := getData(t, server, "/api/release/changes", &changes); status != http.StatusConflict || text != "This Mobius build is not a release." {
+		t.Errorf("changes of a local build = %d %q", status, text)
+	}
+	engine.Release = "v0.1.4"
+	defer func() { engine.Release = "" }()
+	if status, text := getData(t, server, "/api/release/changes", &changes); status != http.StatusOK {
+		t.Fatalf("changes = %d %q", status, text)
+	}
+
+	want := []string{"Show the release changes in a modal before the upgrade (#320)", "Check for a new release each hour (#316)"}
+	if !reflect.DeepEqual(changes, want) {
+		t.Errorf("changes = %q", changes)
 	}
 }
