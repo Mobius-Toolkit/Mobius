@@ -11,11 +11,10 @@ import (
 func TestListWorkstreams(t *testing.T) {
 	mux, db := testMux(t)
 	exec(t, db, `
-		INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES
-			('o/a', 11, 1, 'working', '2026-10-01T10:00:00Z'),
-			('o/a', 12, 1, 'ended', '2026-10-01T11:00:00Z');
-		INSERT INTO chat_messages (repository, workstream, author, time, text, organization) VALUES
-			('o/b', 5, 'owner', '2026-10-02T10:00:00.25Z', 'Hello', 'o');
+		INSERT INTO copied_workstreams (repository, number, title, body, autopilot) VALUES
+			('o/a', 1, 'Loyalty plans', 'Ship the plans.', 1);
+		INSERT INTO copied_issues (repository, workstream, position, number, parent, title, body, state, author, html_url, repository_url) VALUES
+			('o/a', 1, 0, 11, 1, 'Plan model', '', 'closed', 'owner', '', '');
 	`)
 
 	rec := httptest.NewRecorder()
@@ -25,11 +24,12 @@ func TestListWorkstreams(t *testing.T) {
 		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body)
 	}
 	type workstream struct {
-		Repository   string `json:"repository"`
-		Number       int64  `json:"number"`
-		Tasks        int64  `json:"tasks"`
-		OpenTasks    int64  `json:"openTasks"`
-		LastActivity string `json:"lastActivity"`
+		Repository     string `json:"repository"`
+		Number         int64  `json:"number"`
+		Title          string `json:"title"`
+		Brief          string `json:"brief"`
+		Autopilot      bool   `json:"autopilot"`
+		AllTasksClosed bool   `json:"allTasksClosed"`
 	}
 	var body struct {
 		Data []workstream `json:"data"`
@@ -37,10 +37,7 @@ func TestListWorkstreams(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
 	}
-	want := []workstream{
-		{Repository: "o/b", Number: 5, Tasks: 0, OpenTasks: 0, LastActivity: "2026-10-02T10:00:00.25Z"},
-		{Repository: "o/a", Number: 1, Tasks: 2, OpenTasks: 1, LastActivity: "2026-10-01T11:00:00Z"},
-	}
+	want := []workstream{{Repository: "o/a", Number: 1, Title: "Loyalty plans", Brief: "Ship the plans.", Autopilot: true, AllTasksClosed: true}}
 	if !slices.Equal(body.Data, want) {
 		t.Errorf("workstreams = %+v, want %+v", body.Data, want)
 	}

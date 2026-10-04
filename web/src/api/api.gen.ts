@@ -353,19 +353,21 @@ export interface EnvelopeArrayTranscriptLine {
 }
 
 /**
- * Workstream is a Workstream that has rows in the database.
+ * Workstream is an open Workstream of a managed repository.
  */
 export interface Workstream {
-  /** LastActivity is the time of the latest row of the Workstream */
-  lastActivity: string;
+  /** AllTasksClosed is true when the Workstream issue has sub-issues and each one is closed */
+  allTasksClosed: boolean;
+  /** Autopilot is true when a trusted user added mobius:autopilot last */
+  autopilot: boolean;
+  /** Brief is the body of the Workstream issue: the goal, the scope and the limits of the Workstream */
+  brief: string;
   /** Number is the number of the Workstream issue */
   number: number;
-  /** OpenTasks is the number of tasks that are not ended or stopped */
-  openTasks: number;
   /** Repository is the repository of the Workstream issue, as "owner/name" */
   repository: string;
-  /** Tasks is the number of tasks of the Workstream */
-  tasks: number;
+  /** Title is the title of the Workstream issue */
+  title: string;
 }
 
 /**
@@ -511,11 +513,20 @@ export type LiveEvents = {
   data: Upgrade;
   event: 'upgrade';
   id?: string;
+} | {
+  data: { [key: string]: unknown };
+  event: 'workstreams';
+  id?: string;
 };
 
 export interface LoginBody {
   /** Password is the access password */
   password: string;
+}
+
+export interface SetAutopilotBody {
+  /** On turns Autopilot on when true, and off when false */
+  on?: boolean;
 }
 
 /**
@@ -1883,7 +1894,7 @@ export const getListWorkstreamsUrl = () => {
 }
 
 /**
- * ListWorkstreams returns the Workstreams of the database, the most recently active first.
+ * ListWorkstreams returns the open Workstreams from the local copy of GitHub, by repository and the newest first. The copy can be one poll interval old.
  */
 export const listWorkstreams = async ( ): Promise<listWorkstreamsResponse> => {
 
@@ -1970,4 +1981,153 @@ export const listAgents = async (owner: string,
 
   const data: listAgentsResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listAgentsResponse
+}
+
+
+
+export type setAutopilotResponse204 = {
+  data: void
+  status: 204
+}
+
+export type setAutopilotResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type setAutopilotResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type setAutopilotResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type setAutopilotResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type setAutopilotResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type setAutopilotResponseSuccess = (setAutopilotResponse204) & {
+  headers: Headers;
+};
+export type setAutopilotResponseError = (setAutopilotResponse400 | setAutopilotResponse401 | setAutopilotResponse409 | setAutopilotResponse422 | setAutopilotResponse500) & {
+  headers: Headers;
+};
+
+export type setAutopilotResponse = (setAutopilotResponseSuccess | setAutopilotResponseError)
+
+export const getSetAutopilotUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/autopilot`
+}
+
+/**
+ * SetAutopilot turns Autopilot of the Workstream on or off. Mobius changes mobius:autopilot with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+ */
+export const setAutopilot = async (owner: string,
+    name: string,
+    number: number,
+    setAutopilotBody: SetAutopilotBody, ): Promise<setAutopilotResponse> => {
+
+  const res = await fetch(getSetAutopilotUrl(owner,name,number),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(setAutopilotBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: setAutopilotResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as setAutopilotResponse
+}
+
+
+
+export type completeWorkstreamResponse204 = {
+  data: void
+  status: 204
+}
+
+export type completeWorkstreamResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type completeWorkstreamResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type completeWorkstreamResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type completeWorkstreamResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type completeWorkstreamResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type completeWorkstreamResponseSuccess = (completeWorkstreamResponse204) & {
+  headers: Headers;
+};
+export type completeWorkstreamResponseError = (completeWorkstreamResponse400 | completeWorkstreamResponse401 | completeWorkstreamResponse409 | completeWorkstreamResponse422 | completeWorkstreamResponse500) & {
+  headers: Headers;
+};
+
+export type completeWorkstreamResponse = (completeWorkstreamResponseSuccess | completeWorkstreamResponseError)
+
+export const getCompleteWorkstreamUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/complete`
+}
+
+/**
+ * CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open Workstream, or when the Workstream has no task or an open task.
+ */
+export const completeWorkstream = async (owner: string,
+    name: string,
+    number: number, ): Promise<completeWorkstreamResponse> => {
+
+  const res = await fetch(getCompleteWorkstreamUrl(owner,name,number),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: completeWorkstreamResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as completeWorkstreamResponse
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 
@@ -376,9 +377,13 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	if err != nil {
 		return "", err
 	}
-	if _, _, err := repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), []string{workstreamLabel}); err != nil {
+	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), []string{workstreamLabel}); err != nil {
 		return "", err
 	}
+	if _, err := e.updateCopy(ctx, repository, issue, nil, false); err != nil {
+		log.Printf("copy the new Workstream %s#%d: %v", repository.FullName, issue.GetNumber(), err)
+	}
+	e.publish(Change{Workstreams: true})
 	return fmt.Sprintf("Created the Workstream #%d.", issue.GetNumber()), nil
 }
 
@@ -437,6 +442,9 @@ func (e *Engine) moveTask(ctx context.Context, c caller, repository github.Repos
 	if _, _, err := repository.Client.SubIssue.Add(ctx, repository.Owner(), repository.Name(), input.Workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
 		return "", err
 	}
+	if err := e.recopyTrees(ctx, repository, c.workstream, input.Workstream); err != nil {
+		log.Printf("copy the trees of %s#%d and #%d: %v", repository.FullName, c.workstream, input.Workstream, err)
+	}
 	return fmt.Sprintf("Moved #%d to the Workstream #%d.", input.N, input.Workstream), nil
 }
 
@@ -469,6 +477,9 @@ func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repo
 		if _, _, err := repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, int(input.N), []string{readyLabel}); err != nil {
 			return "", err
 		}
+	}
+	if err := e.recopyTrees(ctx, repository, input.Workstream); err != nil {
+		log.Printf("copy the tree of %s#%d: %v", repository.FullName, input.Workstream, err)
 	}
 	return fmt.Sprintf("Moved #%d to the Workstream #%d.", input.N, input.Workstream), nil
 }

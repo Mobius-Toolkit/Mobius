@@ -154,7 +154,7 @@ func serve(configPath string) error {
 		return err
 	}
 	mcpServer := mcp.New()
-	e := engine.New(queries, gh, cfg, engine.Agents{
+	e := engine.New(db, gh, cfg, engine.Agents{
 		MCP:  mcpServer,
 		Addr: net.JoinHostPort("127.0.0.1", strconv.FormatUint(port, 10)),
 		Path: path,

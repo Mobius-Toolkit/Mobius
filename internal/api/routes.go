@@ -24,6 +24,8 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Delete("/api/devices/{id}", h.Logout, loggedIn("devices")...)
 	r.Get("/api/health", GetHealth, loggedIn("health")...)
 	r.Get("/api/workstreams", h.ListWorkstreams, loggedIn("workstreams")...)
+	r.Put("/api/workstreams/{owner}/{name}/{number}/autopilot", h.SetAutopilot, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusConflict))...)
+	r.Post("/api/workstreams/{owner}/{name}/{number}/complete", h.CompleteWorkstream, append(loggedIn("workstreams"), api.WithErrorResponses(http.StatusConflict))...)
 	r.Get("/api/events", h.StreamEvents, loggedIn("events")...)
 	r.Get("/api/workstreams/{owner}/{name}/{number}/agents", h.ListAgents, loggedIn("agents")...)
 	r.Get("/api/agents", h.ListActiveAgents, loggedIn("agents")...)

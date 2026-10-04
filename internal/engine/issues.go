@@ -148,13 +148,18 @@ func reply(ctx context.Context, repository github.Repository, pullRequest, id in
 			continue
 		}
 		// A conversation comment has no thread, so the reply is a new comment that quotes it, and nobody can resolve it.
-		var quoted []string
-		for line := range strings.Lines(comment.GetBody()) {
-			quoted = append(quoted, "> "+strings.TrimSuffix(line, "\n"))
-		}
-		body := strings.Join(quoted, "\n") + "\n\n" + text
+		body := quote(comment.GetBody()) + "\n\n" + text
 		_, _, err := repository.Client.Issues.CreateComment(ctx, repository.Owner(), repository.Name(), int(pullRequest), gh.IssueCommentRequest{Body: body})
 		return true, err
 	}
 	return false, nil
+}
+
+// quote gives text with "> " before each line.
+func quote(text string) string {
+	var quoted []string
+	for line := range strings.Lines(text) {
+		quoted = append(quoted, "> "+strings.TrimSuffix(line, "\n"))
+	}
+	return strings.Join(quoted, "\n")
 }

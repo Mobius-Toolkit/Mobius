@@ -44,7 +44,7 @@ func (e *Engine) RestartWorker(ctx context.Context, task store.Task, title strin
 	}
 	text := fmt.Sprintf("%s stop of #%d \"%s\": the Worker failed after %d restarts. Mobius added mobius:needs-human. The last error ends with these lines:\n\n```\n%s\n```",
 		time.Now().UTC().Format(timeFormat), task.Issue, title, e.config.MaxWorkerRestarts, tail(err.Error(), errorTail))
-	return false, e.addLeadEvent(ctx, task, "stop", text)
+	return false, e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", text)
 }
 
 // restartDelay gives the wait before the restart number restart, which counts from 1, after err at now.
@@ -95,13 +95,13 @@ func (e *Engine) handToHuman(ctx context.Context, task store.Task) (bool, error)
 	return true, repository.AddLabel(ctx, task.Issue, needsHumanLabel)
 }
 
-// addLeadEvent adds an event of kind about the task for the Lead of its Workstream, with its entry in the chat.
-func (e *Engine) addLeadEvent(ctx context.Context, task store.Task, kind, text string) error {
-	organization, _, _ := strings.Cut(task.Repository, "/")
+// addLeadEvent adds an event of kind about the issue for the Lead of the Workstream, with its entry in the chat.
+func (e *Engine) addLeadEvent(ctx context.Context, repository string, workstream int64, issue sql.NullInt64, kind, text string) error {
+	organization, _, _ := strings.Cut(repository, "/")
 	message, err := e.queries.AddChatMessage(ctx, store.AddChatMessageParams{
 		Organization: organization,
-		Repository:   task.Repository,
-		Workstream:   task.Workstream,
+		Repository:   repository,
+		Workstream:   workstream,
 		Author:       "Event",
 		Time:         now(),
 		Text:         text,
@@ -110,9 +110,9 @@ func (e *Engine) addLeadEvent(ctx context.Context, task store.Task, kind, text s
 		return err
 	}
 	return e.queries.AddLeadEvent(ctx, store.AddLeadEventParams{
-		Repository:  task.Repository,
-		Workstream:  task.Workstream,
-		Issue:       sql.NullInt64{Int64: task.Issue, Valid: true},
+		Repository:  repository,
+		Workstream:  workstream,
+		Issue:       issue,
 		Kind:        kind,
 		Payload:     text,
 		Time:        now(),

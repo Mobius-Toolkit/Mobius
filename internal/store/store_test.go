@@ -132,7 +132,8 @@ func TestOpenAdoptsSqlxVersions(t *testing.T) {
 	}
 }
 
-func TestListWorkstreams(t *testing.T) {
+// A Workstream has all tasks closed when its issue has sub-issues and each one is closed. An issue deeper in the tree does not count.
+func TestListCopiedWorkstreams(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(ctx, filepath.Join(t.TempDir(), "mobius.db"))
 	if err != nil {
@@ -140,27 +141,30 @@ func TestListWorkstreams(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 	_, err = db.Exec(`
-		INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES
-			('o/a', 11, 1, 'working', '2026-10-01T10:00:00Z'),
-			('o/a', 12, 1, 'ended', '2026-10-01T11:00:00Z'),
-			('o/a', 13, 1, 'stopped', '2026-10-01T12:00:00Z');
-		INSERT INTO sessions (role, harness, model, repository, workstream, started_at, organization) VALUES
-			('lead', 'claude', 'opus', 'o/b', 5, '2026-10-02T10:00:00Z', 'o'),
-			('triager', 'claude', 'opus', '', 0, '2026-10-03T10:00:00Z', 'o');
-		INSERT INTO events (time, repository, workstream, issue, actor, text, link) VALUES
-			('2026-10-01T13:00:00.5Z', 'o/a', 1, 11, 'bot', 'Dispatched', 'https://example.com');
+		INSERT INTO copied_workstreams (repository, number, title, body, autopilot) VALUES
+			('o/a', 1, 'No task', '', 0),
+			('o/a', 2, 'Open task', 'Brief', 1),
+			('o/a', 3, 'Closed tasks', '', 0),
+			('o/b', 1, 'Other repository', '', 0);
+		INSERT INTO copied_issues (repository, workstream, position, number, parent, title, body, state, author, html_url, repository_url) VALUES
+			('o/a', 2, 0, 20, 2, 'Task', '', 'closed', 'owner', '', ''),
+			('o/a', 2, 1, 21, 2, 'Task', '', 'open', 'owner', '', ''),
+			('o/a', 3, 0, 30, 3, 'Task', '', 'closed', 'owner', '', ''),
+			('o/a', 3, 1, 31, 30, 'Nested task', '', 'open', 'owner', '', '');
 	`)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := New(db).ListWorkstreams(ctx)
+	got, err := New(db).ListCopiedWorkstreams(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []ListWorkstreamsRow{
-		{Repository: "o/b", Workstream: 5, LastActivity: "2026-10-02T10:00:00Z", Tasks: 0, OpenTasks: 0},
-		{Repository: "o/a", Workstream: 1, LastActivity: "2026-10-01T13:00:00.5Z", Tasks: 3, OpenTasks: 1},
+	want := []ListCopiedWorkstreamsRow{
+		{Repository: "o/a", Number: 3, Title: "Closed tasks", AllTasksClosed: true},
+		{Repository: "o/a", Number: 2, Title: "Open task", Body: "Brief", Autopilot: true},
+		{Repository: "o/a", Number: 1, Title: "No task"},
+		{Repository: "o/b", Number: 1, Title: "Other repository"},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("workstreams = %+v, want %+v", got, want)

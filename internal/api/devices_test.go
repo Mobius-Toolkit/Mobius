@@ -190,7 +190,7 @@ func TestSpecGivesTheSessionCookieAnd401ToEachRouteButLogin(t *testing.T) {
 	}
 	for _, route := range router.GetRegistry().GetRoutes() {
 		item := spec.Paths[route.Path]
-		operation := map[string]*api.Operation{http.MethodGet: item.Get, http.MethodPost: item.Post, http.MethodDelete: item.Delete}[route.Method]
+		operation := map[string]*api.Operation{http.MethodGet: item.Get, http.MethodPost: item.Post, http.MethodPut: item.Put, http.MethodDelete: item.Delete}[route.Method]
 		unauthorized := operation.Responses["401"]
 		if unauthorized == nil || unauthorized.Content["application/json"].Schema.Ref != "#/components/schemas/ErrorResponse" {
 			t.Errorf("%s %s: 401 response = %+v", route.Method, route.Path, unauthorized)
