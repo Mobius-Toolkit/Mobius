@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# Each run makes the tag of the next patch version after the newest tag, so two runs must not overlap.
+concurrency:
+  group: release
+  cancel-in-progress: true
+
+jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: tag
+        run: |
+          last=$(git tag --list 'v*' --sort=-v:refname | head -n 1)
+          if [ -z "$last" ]; then
+            echo "tag=v0.1.0" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${last%.*}.$((${last##*.} + 1))" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: web/package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile && pnpm build
+        working-directory: web
+
+      - run: |
+          build() {
+            mkdir "$1"
+            GOOS=$2 GOARCH=$3 go build -ldflags "-X github.com/Mobius-Toolkit/mobius-go/internal/engine.Release=$TAG" -o "$1/mobius" ./cmd/mobius
+            tar -czf "mobius-$1.tar.gz" -C "$1" mobius
+          }
+          build aarch64-apple-darwin darwin arm64
+          build x86_64-unknown-linux-gnu linux amd64
+        env:
+          CGO_ENABLED: 0
+          TAG: ${{ steps.tag.outputs.tag }}
+
+      - run: |
+          mkdir unpacked
+          tar -xzf mobius-x86_64-unknown-linux-gnu.tar.gz -C unpacked
+          test ! -e ~/.mobius
+          unpacked/mobius --help
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release
+          path: mobius-*.tar.gz
+
+  release:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release
+
+      - run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" mobius-*.tar.gz
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.tag }}
