@@ -7,6 +7,8 @@ export default defineConfig({
   use: {
     baseURL: `http://${addr}`,
     userAgent: 'Mobius screenshots',
+    // page.route does not see the requests that pass through a service worker.
+    serviceWorkers: 'block',
   },
   webServer: {
     // A cached test result ends at once and serves nothing, so -count=1 runs the server each time.

@@ -6,18 +6,27 @@ import {
 } from '@/api/api.gen'
 import { Badge } from '@/components/ui/badge'
 import { LoginContext } from '@/lib/login'
+import { Agents } from './Agents'
 import { Checkup } from './Checkup'
 import { Devices } from './Devices'
 import { Frame } from './Frame'
 import { GitHub } from './GitHub'
 import { Login } from './Login'
 import { Settings } from './Settings'
+import { Workstreams } from './Workstreams'
 
-const paths = ['/settings', '/settings/checkup', '/devices', '/github']
+const paths = [
+  '/workstreams',
+  '/agents',
+  '/settings',
+  '/settings/checkup',
+  '/devices',
+  '/github',
+]
 
 function currentPath() {
   if (!paths.includes(window.location.pathname)) {
-    window.history.replaceState(null, '', '/settings')
+    window.history.replaceState(null, '', '/workstreams')
   }
   return window.location.pathname
 }
@@ -45,6 +54,17 @@ function App() {
   const [organizations, setOrganizations] = useState<string[]>([])
   const [organization, setOrganization] = useState('')
   const [error, setError] = useState<string>()
+  const [source, setSource] = useState<EventSource>()
+  const live = !loginShown && apps !== undefined && apps.length > 0
+
+  useEffect(() => {
+    if (!live) {
+      return
+    }
+    const events = new EventSource('/api/events')
+    events.addEventListener('open', () => setSource(events), { once: true })
+    return () => events.close()
+  }, [live])
 
   useEffect(() => {
     if (loginShown) {
@@ -107,7 +127,12 @@ function App() {
         organizations={organizations}
         organization={organization}
         onSelect={selectOrganization}
+        source={source}
       >
+        {path === '/workstreams' && (
+          <Workstreams organization={organization} source={source} />
+        )}
+        {path === '/agents' && <Agents source={source} />}
         {path === '/settings' && <Settings />}
         {path === '/settings/checkup' && (
           <Checkup organization={organization} />
