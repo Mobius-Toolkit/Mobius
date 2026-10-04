@@ -49,8 +49,8 @@ type TranscriptLine struct {
 	Session int64 `gork:"session"`
 	// Time is the time of the row
 	Time time.Time `gork:"time"`
-	// Kind is prompt, update, mcp_call or error
-	Kind string `gork:"kind" validate:"oneof=prompt update mcp_call error"`
+	// Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer
+	Kind string `gork:"kind" validate:"oneof=prompt update mcp_call error check"`
 	// Text is the one line that the UI always shows
 	Text string `gork:"text"`
 	// HarnessToolName is the name of a Mobius tool in the Harness, for example mcp__mobius__list_tasks. It is empty for each other row

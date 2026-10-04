@@ -62,7 +62,7 @@ func TestTheAgentsPageCountsTheOpenSessionsOfEachRoleAgainstItsLimit(t *testing.
 		cfg.Roles.Implementer.Max = 3
 		cfg.Roles.Researcher.Max = 1
 	})
-	implementer := start(t, server, implementerSpec(t, server, 41))
+	implementer := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, implementer, "stopped")
 	lead := start(t, server, leadSpec(t))
 	defer end(t, lead, "idle")

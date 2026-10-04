@@ -65,14 +65,15 @@ cmd/mobius/            the mobius command: serve (the default) and init. With th
 internal/api/          the Gork routes and handlers, and the device login check of each route
 internal/auth/         the access password and the device logins
 internal/config/       reads config.toml
-internal/engine/       the poll of the repositories, the Mobius labels, the checkup, the trust rules, the Workstreams with their local copy, the Autopilot switch and the close, the dispatch, the Lead chat with the Lead events, the Triager, the Inbox, the Tasks tab, the agent sessions with their Mobius tools and Transcripts, the Worker slots and the queue, the usage-limit pauses, the Worker restarts, the Housekeeper, the recovery after a restart, the drain and the upgrade
+internal/engine/       the poll of the repositories, the Mobius labels, the checkup, the trust rules, the Workstreams with their local copy, the Autopilot switch and the close, the dispatch, the Lead chat with the Lead events, the Triager, the Inbox, the Tasks tab, the Implementer with the local check and the pull request, the fix rounds and the conflict rounds, the end of a task, the Researcher, the agent sessions with their Mobius tools and Transcripts, the Worker slots and the queue, the usage-limit pauses, the Worker restarts, the Housekeeper, the recovery after a restart, the drain and the upgrade
 internal/github/       the GitHub Apps: the App setup, the user tokens, the installation tokens and the repositories
 internal/mcp/          the Mobius MCP server and the gh token of each session key
-internal/runner/       starts an agent session of a Harness through ACP, holds the gh of the agent environment, and fetches the bare clones of the repositories
+internal/runner/       starts an agent session of a Harness through ACP, holds the gh of the agent environment, fetches the bare clones of the repositories with their worktrees, and runs the local check
 internal/setup/        mobius init: asks for the values of a new config.toml and writes it
 internal/store/        the SQLite database: goose migrations and sqlc queries
-internal/testkit/      the fake GitHub with a git repository for each repository, the fake agent as a Harness command, and the waits of the tests
+internal/testkit/      the fake GitHub with a git repository for each repository, the fake agent as a Harness command, the fake df, and the waits of the tests
 internal/testkit/fakeagent/  the fake ACP agent that plays a TOML script (the format is in its package comment)
+internal/testkit/fakedf/     the program df of the tests, with the free space of SetFreeSpace
 internal/testkit/testserver/ starts the Mobius server for a test
 api/openapi.json       the generated OpenAPI spec
 web/                   the React frontend (Vite, TypeScript, Tailwind CSS, shadcn/ui)

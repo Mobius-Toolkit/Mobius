@@ -114,9 +114,9 @@ func TestTheDrainHoldsNewWorkersWaitsForTheRunningSessionsAndACancelReleasesThem
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nhang = true\n", func(cfg *config.Config) { cfg.MaxAgents = 1 })
 	states := drainEvents(t, server)
-	implementer := start(t, server, implementerSpec(t, server, 41))
+	implementer := start(t, server, implementerSpec(t, server, fake, 41))
 	go func() { _ = implementer.Prompt(t.Context(), "Store plans in cents.") }()
-	held := startLater(t.Context(), server, implementerSpec(t, server, 43))
+	held := startLater(t.Context(), server, implementerSpec(t, server, fake, 43))
 	waiting := queued(t, server, engine.ImplementerRole)
 	lead := start(t, server, leadSpec(t))
 

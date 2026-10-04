@@ -111,6 +111,14 @@ func (e *Engine) ReplaceWork(work map[int64]Work) {
 	}
 }
 
+// currentWork gives the pull requests with work for an agent of the last ReplaceWork, by the id of their task.
+func (e *Engine) currentWork() map[int64]Work {
+	w := &e.workers
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return maps.Clone(w.work)
+}
+
 // WakeQueue makes each queued session read the queue again. Call it after a change of the state of a queued task,
 // for example after a decline.
 func (e *Engine) WakeQueue() {

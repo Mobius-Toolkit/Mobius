@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
 )
 
@@ -41,5 +42,34 @@ func TestTheLeadGetsOnlyTheInstructionsOfTheLead(t *testing.T) {
 
 	if !strings.Contains(prompt, "# Role instructions\n\nPlan small tasks.\n\n") || strings.Contains(prompt, "Check the units") {
 		t.Errorf("prompt = %s", prompt)
+	}
+}
+
+func TestTheImplementerAndTheResearcherGetTheFactsAndOnlyTheirOwnInstructions(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"" + question + "\"\ncall = { tool = \"start_researcher\", arguments = { question = \"" + question + "\" } }\n\n" + leadStarts
+	server, dataDir := connectTask(t, fake, lead, commits, noChange)
+	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+"[[prompts]]\nreply = [\"Plans store the price in cents.\"]\n")
+	fake.CommitFile(shop, "AGENTS.md", fact, "Add the facts")
+	fake.CommitFile(shop, ".mobius/roles/implementer.md", "Commit small steps.", "Add the role file")
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	sendChat(t, server, leadChat, question)
+
+	for _, role := range []string{engine.ImplementerRole, engine.ResearcherRole} {
+		prompt := testkit.WaitForValue(t, func() (string, bool) {
+			sessions := roleSessions(t, server, role)
+			if len(sessions) == 0 {
+				return "", false
+			}
+			prompts := promptTexts(t, server, sessions[0].ID)
+			return strings.Join(prompts, ""), len(prompts) > 0
+		})
+		if !strings.Contains(prompt, "# Repository facts\n\n"+fact+"\n\n") {
+			t.Errorf("%s: %s", role, prompt)
+		}
+		if section := strings.Contains(prompt, "# Role instructions\n\nCommit small steps.\n\n"); section != (role == engine.ImplementerRole) || strings.Count(prompt, "# Role instructions") > 1 {
+			t.Errorf("%s: %s", role, prompt)
+		}
 	}
 }

@@ -74,7 +74,7 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimit)
 	changes := listen(t, server)
-	agent := start(t, server, implementerSpec(t, server, 41))
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, agent, "done")
 	before := time.Now()
 	prompted := make(chan error, 1)
@@ -110,7 +110,7 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	reason := "paused until " + until.UTC().Format("2006-01-02 15:04 UTC")
 	testkit.WaitFor(t, func() bool { return session(t, server, agent.ID()).QueueReason.String == reason })
 	// The pause also holds a Worker of the paused Harness in the queue.
-	second := startLater(t.Context(), server, implementerSpec(t, server, 43))
+	second := startLater(t.Context(), server, implementerSpec(t, server, fake, 43))
 	testkit.WaitFor(t, func() bool {
 		return len(tree(t, server)) == 2 && tree(t, server)[1].Session.QueueReason.String == reason
 	})
@@ -161,4 +161,38 @@ func TestAPauseOfTheEarlierRunEndsAtItsTime(t *testing.T) {
 		_, paused := devinPause(t, server)
 		return !paused && dismissed(t, server, 5)
 	})
+}
+
+func TestAUsageLimitOfTheImplementerHoldsThePullRequestUntilResume(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	limited := "[[prompts]]\nerror = { code = -32011, message = \"Rate limited\", data = { retryAfterSeconds = 3600 } }\n\n" + commits
+	server, _ := connectTask(t, fake, leadStarts, limited, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range inbox(t, server) {
+			if item.Kind == "usage limit" {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+	testkit.WaitFor(t, func() bool { _, paused := devinPause(t, server); return paused })
+	if len(fake.PullRequests(shop)) != 0 {
+		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
+	}
+
+	if err := server.Engine.Resume(t.Context(), item.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
+	if _, paused := devinPause(t, server); paused || !dismissed(t, server, item.ID) {
+		t.Errorf("paused = %v, dismissed = %v", paused, dismissed(t, server, item.ID))
+	}
+	prompts := promptTexts(t, server, roleSessions(t, server, engine.ImplementerRole)[0].ID)
+	if len(prompts) != 2 || prompts[0] != prompts[1] {
+		t.Errorf("prompts = %q", prompts)
+	}
 }

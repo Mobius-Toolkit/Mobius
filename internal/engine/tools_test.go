@@ -79,7 +79,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"ask", "comment_pull_request", "create_issue", "create_workstream", "hold_event", "list_tasks", "mark_ready", "move_task", "read_issue", "reply_thread", "tell_owner"}
+	want := []string{"ask", "comment_pull_request", "create_issue", "create_workstream", "decline", "hold_event", "list_tasks", "mark_ready", "move_task", "read_issue", "reply_thread", "start_fix_round", "start_implementer", "start_researcher", "tell_owner"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}
@@ -96,6 +96,8 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 	reviewer.Role = engine.ReviewerRole
 	implementer := leadSpec(t)
 	implementer.Role = engine.ImplementerRole
+	researcher := leadSpec(t)
+	researcher.Role = engine.ResearcherRole
 
 	for _, c := range []struct {
 		spec engine.Spec
@@ -103,7 +105,8 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 	}{
 		{triager, []string{"create_workstream", "move_issue"}},
 		{reviewer, []string{}},
-		{implementer, []string{}},
+		{implementer, []string{"cannot_do", "reply_thread"}},
+		{researcher, []string{}},
 	} {
 		session := run(t, server, c.spec, "List the tools")
 		if got := toolNames(t, reply(t, server, session)); !reflect.DeepEqual(got, c.want) {
@@ -355,8 +358,13 @@ func TestMarkReadyAddsTheReadyLabelToATrustedIssueOfTheWorkstream(t *testing.T) 
 }
 
 // addTask adds a live task of issue in the Workstream with pullRequest.
-func addTask(t *testing.T, server *testserver.Server, issue, workstream, pullRequest int64) {
+// addTask adds a task of the issue in the Workstream with the pull request. The issue is open on the fake GitHub, so
+// the poll keeps the task.
+func addTask(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, issue, workstream, pullRequest int64) {
 	t.Helper()
+	if !fake.HasIssue(shop, issue) {
+		fake.AddIssue(shop, issue, "Task")
+	}
 	_, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request)
 		VALUES ('owner/shop', ?, ?, 'ready_for_review', '2026-10-04T10:00:00Z', ?)`, issue, workstream, pullRequest)
 	if err != nil {
@@ -370,8 +378,8 @@ func TestCommentPullRequestCommentsOnThePullRequestOfALiveTaskOfTheWorkstream(t 
 		call("comment_pull_request", `{ n = 46, text = "Close it." }`))
 	fake.AddPullRequest(shop, 45, "Add plan model")
 	fake.AddPullRequest(shop, 46, "Other model")
-	addTask(t, server, 41, 12, 45)
-	addTask(t, server, 42, 20, 46)
+	addTask(t, server, fake, 41, 12, 45)
+	addTask(t, server, fake, 42, 20, 46)
 
 	session := run(t, server, leadSpec(t), "1. ", "2. ")
 
@@ -394,7 +402,7 @@ func TestReplyThreadRepliesInAReviewThreadAndResolvesIt(t *testing.T) {
 	server, _ := connect(t, fake, call("reply_thread", "{ thread = "+itoa(root)+`, text = "Fixed in abc123." }`)+
 		call("reply_thread", "{ thread = "+itoa(comment)+`, text = "Follow-up: #50." }`)+
 		call("reply_thread", `{ thread = 9999, text = "No." }`))
-	addTask(t, server, 41, 12, 45)
+	addTask(t, server, fake, 41, 12, 45)
 
 	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ")
 
@@ -457,7 +465,7 @@ func TestMoveTaskMovesAnIssueOfTheWorkstreamWithNoLiveTask(t *testing.T) {
 		fake.AddIssue(shop, number, "Task")
 		fake.AddSubIssue(shop, 12, number)
 	}
-	addTask(t, server, 42, 12, 0)
+	addTask(t, server, fake, 42, 12, 0)
 
 	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ", "4. ")
 

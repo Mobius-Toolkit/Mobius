@@ -131,33 +131,63 @@ func inWorkstream(ctx context.Context, repository github.Repository, workstream,
 // reply replies with text to the review thread that starts with the comment id, or to the conversation comment id,
 // of the pull request. It gives false when the pull request has no such thread and no such comment.
 func reply(ctx context.Context, repository github.Repository, pullRequest, id int64, text string) (bool, error) {
-	threads, err := repository.ReviewThreads(ctx, pullRequest)
-	if err != nil {
+	target, found, err := findTarget(ctx, repository, pullRequest, id)
+	if err != nil || !found {
 		return false, err
 	}
+	return true, target.post(ctx, repository, pullRequest, text)
+}
+
+// replyTarget is a review thread or a conversation comment of a pull request.
+type replyTarget struct {
+	// id is the id of the first comment of the review thread, or of the conversation comment.
+	id int64
+	// thread is the GraphQL node id of the review thread, or "" for a conversation comment.
+	thread string
+	// body is the text of the conversation comment.
+	body string
+}
+
+// heldReply is a reply of the Implementer that waits for the push of its commits.
+type heldReply struct {
+	target replyTarget
+	text   string
+}
+
+// findTarget gives the review thread that starts with the comment id, or the conversation comment id, of the pull
+// request. It gives false when the pull request has no such thread and no such comment.
+func findTarget(ctx context.Context, repository github.Repository, pullRequest, id int64) (replyTarget, bool, error) {
+	threads, err := repository.ReviewThreads(ctx, pullRequest)
+	if err != nil {
+		return replyTarget{}, false, err
+	}
 	for _, thread := range threads {
-		if thread.Comment != id {
-			continue
+		if thread.Comment == id {
+			return replyTarget{id: id, thread: thread.ID}, true, nil
 		}
-		if _, _, err := repository.Client.PullRequests.CreateCommentInReplyTo(ctx, repository.Owner(), repository.Name(), int(pullRequest), text, id); err != nil {
-			return false, err
-		}
-		return true, repository.ResolveReviewThread(ctx, thread.ID)
 	}
 	comments, err := repository.Comments(ctx, pullRequest)
 	if err != nil {
-		return false, err
+		return replyTarget{}, false, err
 	}
 	for _, comment := range comments {
-		if comment.GetID() != id {
-			continue
+		if comment.GetID() == id {
+			return replyTarget{id: id, body: comment.GetBody()}, true, nil
 		}
-		// A conversation comment has no thread, so the reply is a new comment that quotes it, and nobody can resolve it.
-		body := quote(comment.GetBody()) + "\n\n" + text
-		_, _, err := repository.Client.Issues.CreateComment(ctx, repository.Owner(), repository.Name(), int(pullRequest), gh.IssueCommentRequest{Body: body})
-		return true, err
 	}
-	return false, nil
+	return replyTarget{}, false, nil
+}
+
+// post replies with text to the target on the pull request. A reply to a review thread resolves the thread.
+func (t replyTarget) post(ctx context.Context, repository github.Repository, pullRequest int64, text string) error {
+	if t.thread != "" {
+		if _, _, err := repository.Client.PullRequests.CreateCommentInReplyTo(ctx, repository.Owner(), repository.Name(), int(pullRequest), text, t.id); err != nil {
+			return err
+		}
+		return repository.ResolveReviewThread(ctx, t.thread)
+	}
+	// A conversation comment has no thread, so the reply is a new comment that quotes it, and nobody can resolve it.
+	return repository.AddComment(ctx, pullRequest, quote(t.body)+"\n\n"+text)
 }
 
 // quote gives text with "> " before each line.

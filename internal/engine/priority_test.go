@@ -1,46 +1,121 @@
 package engine_test
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/Mobius-Toolkit/mobius-go/internal/config"
 	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
+	"github.com/Mobius-Toolkit/mobius-go/internal/store"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
+	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
 )
+
+// leadStartsThree is a Lead that starts an Implementer for the dispatch of #41, #43 and #45. The prompt of a Lead
+// holds the earlier events, so the rule of the newest dispatch comes first.
+const leadStartsThree = `
+[[prompts]]
+when = "dispatch of #45"
+call = { tool = "start_implementer", arguments = { n = 45, instructions = "Add a price page." } }
+
+` + leadStartsTwo
+
+// connectThree starts a server with the tasks #41, #43 and #45 of the Workstream #12, one agent slot, and the
+// Implementer.
+func connectThree(t *testing.T, fake *testkit.FakeGitHub, implementer string) (*testserver.Server, string) {
+	t.Helper()
+	server, dataDir := connectTask(t, fake, leadStartsThree, implementer, func(cfg *config.Config) { cfg.MaxAgents = 1 })
+	for _, number := range []int64{43, 45} {
+		fake.AddSubIssueOf(shop, 12, number, fmt.Sprintf("Task %d", number))
+	}
+	return server, dataDir
+}
+
+func waitForState(t *testing.T, server *testserver.Server, number int64, state string) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, number) == state })
+}
+
+// liveTaskState gives the state of the live task of the issue number, or "".
+func liveTaskState(t *testing.T, server *testserver.Server, number int64) string {
+	t.Helper()
+	var state string
+	if err := server.DB.QueryRow("SELECT coalesce(max(state), '') FROM tasks WHERE issue = ? AND state <> 'ended'", number).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	return state
+}
+
+// issueImplementers gives the Implementer sessions of the issue number, the oldest first.
+func issueImplementers(t *testing.T, server *testserver.Server, number int64) []store.Session {
+	t.Helper()
+	return slices.DeleteFunc(roleSessions(t, server, engine.ImplementerRole), func(session store.Session) bool { return session.Issue.Int64 != number })
+}
+
+// readyPullRequest dispatches #41, waits until its task is ready for review, and gives the head of its branch and the
+// number of its pull request.
+func readyPullRequest(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) (string, int64) {
+	t.Helper()
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForState(t, server, 41, "ready_for_review")
+	return head(t, fake, "mobius/41"), fake.PullRequests(shop)[0].Number
+}
 
 func TestAFreeSlotGoesToTheFixRoundOfAnOldPullRequestBeforeANewTicket(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxAgents = 1 })
-	running := start(t, server, implementerSpec(t, server, 43))
-	ticketSpec := implementerSpec(t, server, 45)
-	ticket := startLater(t.Context(), server, ticketSpec)
-	waiting := queued(t, server, engine.ImplementerRole)
-	fixSpec := implementerSpec(t, server, 41)
-	server.Engine.ReplaceWork(map[int64]engine.Work{fixSpec.Task: {Repository: shop, PullRequest: 42, CreatedAt: time.Unix(1000, 0)}})
-	fix := startLater(t.Context(), server, fixSpec)
-	testkit.WaitFor(t, func() bool { return len(tree(t, server)) == 3 && tree(t, server)[2].Session.QueueReason.Valid })
+	server, dataDir := connectThree(t, fake, fixes)
+	sha, pullRequest := readyPullRequest(t, server, fake)
+	fake.SetCreatedAt(shop, pullRequest, 1000)
+	goFile := filepath.Join(dataDir, "go")
+	fake.SetCheck(shop, fmt.Sprintf("while [ ! -e '%s' ]; do sleep 0.05; done", goFile))
+	fake.AddLabel(shop, 43, "mobius:ready", "owner")
+	waitForState(t, server, 43, "working")
+	fake.AddLabel(shop, 45, "mobius:ready", "owner")
+	waitForState(t, server, 45, "queued")
 
-	end(t, running, "done")
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 
-	fixAgent := await(t, fix)
-	if got := session(t, server, waiting.ID); got.QueueReason.String != "no free agent slot (1/1)" {
-		t.Errorf("ticket = %+v", got)
+	waitForState(t, server, 41, "queued")
+	ticket := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := issueImplementers(t, server, 45)
+		if len(sessions) == 0 {
+			return store.Session{}, false
+		}
+		return sessions[0], sessions[0].QueueReason.Valid
+	})
+	if ticket.QueueReason.String != "no free agent slot (1/1)" {
+		t.Errorf("queue reason = %s", ticket.QueueReason.String)
 	}
-	end(t, fixAgent, "done")
-	ticketAgent := await(t, ticket)
-	defer end(t, ticketAgent, "done")
-	startsAfter(t, session(t, server, ticketAgent.ID()), session(t, server, fixAgent.ID()))
+	// The poll after the start of the round gives the pull request its work.
+	waitForPolls(t, fake)
+
+	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForState(t, server, 41, "working")
+	if state := liveTaskState(t, server, 45); state != "queued" {
+		t.Errorf("state of #45 = %s", state)
+	}
+	waitForState(t, server, 45, "ready_for_review")
+	startsAfter(t, issueImplementers(t, server, 45)[0], issueImplementers(t, server, 41)[1])
+	if head(t, fake, "mobius/41") == sha {
+		t.Error("the fix round pushed nothing")
+	}
 }
 
 // A pull request with work for an agent does not hold a new ticket while a slot is free (Mobius#385).
 func TestWithTwoFreeSlotsAFixAndANewTicketBothStart(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
-	fixSpec := implementerSpec(t, server, 41)
+	fixSpec := implementerSpec(t, server, fake, 41)
 	server.Engine.ReplaceWork(map[int64]engine.Work{fixSpec.Task: {Repository: shop, PullRequest: 42, CreatedAt: time.Unix(1000, 0)}})
 
-	ticket := start(t, server, implementerSpec(t, server, 45))
+	ticket := start(t, server, implementerSpec(t, server, fake, 45))
 	defer end(t, ticket, "done")
 	fix := start(t, server, fixSpec)
 	defer end(t, fix, "done")
@@ -49,5 +124,51 @@ func TestWithTwoFreeSlotsAFixAndANewTicketBothStart(t *testing.T) {
 		if got := session(t, server, agent.ID()); got.QueueReason.Valid {
 			t.Errorf("session = %+v", got)
 		}
+	}
+}
+
+func TestAPullRequestThatWaitsForTheOwnerDoesNotStopANewTicket(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectThree(t, fake, fixes)
+	readyPullRequest(t, server, fake)
+
+	fake.AddLabel(shop, 43, "mobius:ready", "owner")
+
+	waitForState(t, server, 43, "ready_for_review")
+	if state := liveTaskState(t, server, 41); state != "ready_for_review" {
+		t.Errorf("state of #41 = %s", state)
+	}
+}
+
+func TestAPullRequestInNeedsHumanDoesNotStopANewTicket(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectThree(t, fake, fixes)
+	_, pullRequest := readyPullRequest(t, server, fake)
+	fake.SetCreatedAt(shop, pullRequest, 0)
+	fake.SetBehind(shop, pullRequest)
+	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
+	waitForState(t, server, 41, "needs_human")
+
+	fake.AddLabel(shop, 43, "mobius:ready", "owner")
+
+	waitForState(t, server, 43, "ready_for_review")
+	if state := liveTaskState(t, server, 41); state != "needs_human" {
+		t.Errorf("state of #41 = %s", state)
+	}
+}
+
+func TestAFailedCheckOnAHeadThatGotItsFixRoundDoesNotStopANewTicket(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectThree(t, fake, fixesNothing)
+	sha, _ := readyPullRequest(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+	testkit.WaitFor(t, func() bool { return len(issueImplementers(t, server, 41)) == 2 })
+	waitForState(t, server, 41, "ready_for_review")
+
+	fake.AddLabel(shop, 43, "mobius:ready", "owner")
+
+	waitForState(t, server, 43, "ready_for_review")
+	if count := len(issueImplementers(t, server, 41)); count != 2 {
+		t.Errorf("Implementers of #41 = %d", count)
 	}
 }

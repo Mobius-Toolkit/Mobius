@@ -168,12 +168,18 @@ func (e *Engine) SendChat(ctx context.Context, key ChatKey, text string) error {
 	if !slices.Contains(e.github.Organizations(), key.Organization) {
 		return refuse("Mobius has no repository in the organization \"%s\".", key.Organization)
 	}
+	return e.postChat(ctx, key, ownerAuthor, text)
+}
+
+// postChat adds the message text of author to the chat, and gives it to the agent of the chat. It starts the agent
+// when none runs.
+func (e *Engine) postChat(ctx context.Context, key ChatKey, author, text string) error {
 	if e.sealed() {
 		return refuse("Mobius restarts for an upgrade. Send the message after the restart.")
 	}
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
-	message, err := e.addChatMessage(ctx, key, ownerAuthor, text)
+	message, err := e.addChatMessage(ctx, key, author, text)
 	if err != nil {
 		return err
 	}
@@ -292,9 +298,10 @@ func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 	return nil
 }
 
-// stopLead ends the Lead chat of the Workstream at once.
+// stopLead ends the Lead chat of the Workstream and its Researchers at once.
 func (e *Engine) stopLead(repository string, workstream int64) {
 	key := leadChat(repository, workstream)
+	e.stop(key)
 	e.chatsMu.Lock()
 	defer e.chatsMu.Unlock()
 	if c, ok := e.chats[key]; ok {

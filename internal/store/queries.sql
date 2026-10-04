@@ -66,6 +66,9 @@ UPDATE sessions SET acp_session_id = ? WHERE id = ?;
 UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
 RETURNING *;
 
+-- name: GetSession :one
+SELECT * FROM sessions WHERE id = ?;
+
 -- name: ListSessions :many
 SELECT * FROM sessions WHERE organization = ? AND repository = ? AND workstream = ? ORDER BY id;
 
@@ -240,6 +243,34 @@ UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0 WHERE id
 
 -- name: EndTask :exec
 UPDATE tasks SET state = 'ended' WHERE id = ?;
+
+-- name: QueueTask :execrows
+UPDATE tasks SET state = 'queued', queued_at = sqlc.arg(queued_at) WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
+
+-- A restart keeps the place of the task in the queue.
+-- name: RequeueTask :execrows
+UPDATE tasks SET state = 'queued' WHERE id = ? AND state IN ('queued', 'working');
+
+-- name: SetTaskWorker :exec
+UPDATE tasks SET worker = ?, worker_input = ? WHERE id = ?;
+
+-- name: SetTaskBranch :exec
+UPDATE tasks SET branch = ? WHERE id = ?;
+
+-- name: SetTaskPullRequest :exec
+UPDATE tasks SET pull_request = ? WHERE id = ?;
+
+-- name: AddFixRound :execrows
+UPDATE tasks SET fix_rounds = fix_rounds + 1 WHERE id = sqlc.arg(id) AND fix_rounds < sqlc.arg(max);
+
+-- name: SetTaskCheckHead :exec
+UPDATE tasks SET check_head = ? WHERE id = ?;
+
+-- name: StopTask :execrows
+UPDATE tasks SET state = 'stopped' WHERE id = ? AND state NOT IN ('stopped', 'ended');
+
+-- name: ListLiveTaskRepositories :many
+SELECT DISTINCT repository FROM tasks WHERE state <> 'ended' ORDER BY repository;
 
 -- name: ListTaskPullRequests :many
 SELECT CAST(pull_request AS INTEGER) FROM tasks WHERE repository = ? AND workstream = ? AND pull_request IS NOT NULL ORDER BY id;

@@ -141,19 +141,6 @@ func (e *Engine) stopWorkstream(ctx context.Context, repository github.Repositor
 	return nil
 }
 
-// endTask ends the task, and removes mobius:working and mobius:needs-human from its issue. A queued Worker of the
-// task leaves the queue. The branch stays.
-func (e *Engine) endTask(ctx context.Context, repository github.Repository, task store.Task) error {
-	if err := e.queries.EndTask(ctx, task.ID); err != nil {
-		return err
-	}
-	e.WakeQueue()
-	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
-		return err
-	}
-	return repository.RemoveLabel(ctx, task.Issue, needsHumanLabel)
-}
-
 // hasWork tells if the Workstream has a Lead or live tasks. An issue that lost mobius:workstream can still have them.
 func (e *Engine) hasWork(ctx context.Context, repository string, workstream int64) (bool, error) {
 	if e.hasLead(repository, workstream) {

@@ -1,8 +1,9 @@
 // Package engine holds the work of Mobius on the managed repositories: the poll, the Mobius labels, the checkup,
 // the trust rules, the Workstreams with their local copy, the Autopilot switch and the close, the dispatch, the Lead
-// chat with the Lead events, the Triager, the Inbox, the Tasks tab, the agent sessions with their Mobius tools and
-// Transcripts, the Worker slots, the usage-limit pauses, the Housekeeper, the recovery after a restart, the drain and
-// the upgrade.
+// chat with the Lead events, the Triager, the Inbox, the Tasks tab, the Implementer with the local check and the pull
+// request, the fix rounds and the conflict rounds, the end of a task, the Researcher, the agent sessions with their
+// Mobius tools and Transcripts, the Worker slots, the usage-limit pauses, the Housekeeper, the recovery after a
+// restart, the drain and the upgrade.
 package engine
 
 import (
@@ -34,7 +35,8 @@ type Engine struct {
 
 	workers workers
 	drain   drain
-	// pausing makes one pause of two sessions that reach the same usage limit.
+	// pausing makes one pause of two sessions that reach the same usage limit, and one Inbox item of two checks on a
+	// full disk.
 	pausing sync.Mutex
 	// pausesChanged wakes the sessions that wait for the end of a pause.
 	pausesChanged signal
@@ -51,6 +53,20 @@ type Engine struct {
 	// gitMu makes the git commands of the bare clones run one after the other. Two git commands that write the refs of
 	// a clone at the same time can fail on a ref lock.
 	gitMu sync.Mutex
+	// checks holds one value for each local check that runs, at most max_checks.
+	checks chan struct{}
+	// diskFreed wakes the checks that wait for free disk space.
+	diskFreed signal
+
+	// stopsMu guards stops and closed.
+	stopsMu sync.Mutex
+	// stops holds the context of the Workers of each task, by the id of the task, and of the Researchers of each Lead,
+	// by the ChatKey of the Lead. A stop of the task or the Lead ends the context.
+	stops map[any]stopper
+	// closed tells that Run ended, so no new Worker starts.
+	closed bool
+	// running counts the Workers that run.
+	running sync.WaitGroup
 
 	mu        sync.Mutex
 	listeners map[chan Change]bool
@@ -81,8 +97,54 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		workers:     newWorkers(),
 		chats:       map[ChatKey]*chat{},
 		triages:     map[triageKey]triage{},
+		checks:      make(chan struct{}, cfg.MaxChecks),
+		stops:       map[any]stopper{},
 		listeners:   map[chan Change]bool{},
 	}
+}
+
+// stopper is a context of Workers with the function that ends it.
+type stopper struct {
+	ctx  context.Context
+	stop context.CancelFunc
+}
+
+// startWorker runs work in the background with the context of key, a task id or the ChatKey of a Lead. The context
+// ends at the next stop of key and at the end of Run. After the end of Run, startWorker does nothing.
+func (e *Engine) startWorker(key any, work func(context.Context)) {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	if e.closed {
+		return
+	}
+	found, ok := e.stops[key]
+	if !ok {
+		found.ctx, found.stop = context.WithCancel(context.Background())
+		e.stops[key] = found
+	}
+	e.running.Go(func() { work(found.ctx) })
+}
+
+// stop ends the context of the Workers of key.
+func (e *Engine) stop(key any) {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	if found, ok := e.stops[key]; ok {
+		found.stop()
+		delete(e.stops, key)
+	}
+}
+
+// stopWorkers ends each Worker and waits for its end.
+func (e *Engine) stopWorkers() {
+	e.stopsMu.Lock()
+	e.closed = true
+	for key, found := range e.stops {
+		found.stop()
+		delete(e.stops, key)
+	}
+	e.stopsMu.Unlock()
+	e.running.Wait()
 }
 
 // Recover ends the sessions of the earlier run of the server, and starts the timer of each pause.
@@ -110,12 +172,13 @@ func (e *Engine) Recover(ctx context.Context) error {
 }
 
 // Run polls each poll_interval and runs the Housekeeper each housekeeper_interval, until ctx ends. Then it ends each
-// chat and each Triager, and waits for their ends.
+// Worker, each chat and each Triager, and waits for their ends.
 func (e *Engine) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Go(func() { every(ctx, e.config.HousekeeperInterval, e.keepHouse) })
 	every(ctx, e.config.PollInterval, e.poll)
 	wg.Wait()
+	e.stopWorkers()
 	e.stopAgents()
 }
 

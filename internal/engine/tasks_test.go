@@ -164,10 +164,11 @@ func TestTheNeedsHumanListHasTheOpenIssuesWithTheLabelInTheTrees(t *testing.T) {
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 13, "Add a storefront")
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	// The issue of a task exists, so the poll keeps the task.
+	fake.AddIssue(shop, 41, "Add plan model")
 	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request)
 		VALUES ('owner/shop', 41, 12, 'needs_human', '2026-09-30T00:00:00Z', 45)`)
 	server.WaitForFirstPoll(t, shop)
-	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddLabel(shop, 41, "mobius:needs-human", "owner")
 	fake.AddPullRequest(shop, 45, "Add plan model")

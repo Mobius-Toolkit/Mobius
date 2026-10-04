@@ -23,8 +23,12 @@ func roleSpec(t *testing.T, role string) engine.Spec {
 }
 
 // implementerSpec adds a queued task of the issue number in the Workstream #12, and gives the spec of its Implementer.
-func implementerSpec(t *testing.T, server *testserver.Server, number int64) engine.Spec {
+// The issue is open on the fake GitHub, so the poll keeps the task.
+func implementerSpec(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, number int64) engine.Spec {
 	t.Helper()
+	if !fake.HasIssue(shop, number) {
+		fake.AddIssue(shop, number, "Task")
+	}
 	queuedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	result, err := server.DB.Exec("INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, queued_at) VALUES (?, ?, 12, 'queued', ?, ?)", shop, number, queuedAt, queuedAt)
 	if err != nil {
@@ -118,8 +122,8 @@ func startsAfter(t *testing.T, later, earlier store.Session) {
 func TestASecondImplementerWaitsForTheImplementerLimitWhileAResearcherStarts(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
-	first := start(t, server, implementerSpec(t, server, 41))
-	second := startLater(t.Context(), server, implementerSpec(t, server, 43))
+	first := start(t, server, implementerSpec(t, server, fake, 41))
+	second := startLater(t.Context(), server, implementerSpec(t, server, fake, 43))
 
 	waiting := queued(t, server, engine.ImplementerRole)
 
@@ -145,7 +149,7 @@ func TestASecondImplementerWaitsForTheImplementerLimitWhileAResearcherStarts(t *
 func TestAJudgeWaitsForTheGlobalLimitBehindARunningImplementer(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxAgents = 1 })
-	implementer := start(t, server, implementerSpec(t, server, 41))
+	implementer := start(t, server, implementerSpec(t, server, fake, 41))
 	judge := startLater(t.Context(), server, roleSpec(t, engine.JudgeRole))
 
 	waiting := queued(t, server, engine.JudgeRole)
@@ -165,7 +169,7 @@ func TestAJudgeWithCountsInMaxAgentsFalseStartsWhileTheGlobalLimitIsFull(t *test
 		cfg.MaxAgents = 1
 		cfg.Roles.Judge.CountsInMaxAgents = false
 	})
-	implementer := start(t, server, implementerSpec(t, server, 41))
+	implementer := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, implementer, "stopped")
 
 	judge := start(t, server, roleSpec(t, engine.JudgeRole))
@@ -179,7 +183,7 @@ func TestAJudgeWithCountsInMaxAgentsFalseStartsWhileTheGlobalLimitIsFull(t *test
 func TestALeadAndATriagerStartWhileTheGlobalLimitIsFull(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxAgents = 1 })
-	implementer := start(t, server, implementerSpec(t, server, 41))
+	implementer := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, implementer, "stopped")
 
 	lead := start(t, server, leadSpec(t))
@@ -243,9 +247,9 @@ func TestAStopEndsAWaitingLead(t *testing.T) {
 func TestASessionWhoseTaskLeavesTheQueueEndsAsDeclined(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
-	first := start(t, server, implementerSpec(t, server, 41))
+	first := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, first, "done")
-	spec := implementerSpec(t, server, 43)
+	spec := implementerSpec(t, server, fake, 43)
 	second := startLater(t.Context(), server, spec)
 	waiting := queued(t, server, engine.ImplementerRole)
 

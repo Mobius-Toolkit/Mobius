@@ -263,3 +263,39 @@ func TestAReopenStartsALeadWithTheEvent(t *testing.T) {
 		t.Errorf("state of #41 = %s, %s", state, reason)
 	}
 }
+
+func TestACloseKeepsTheBranchOfTheClosedPullRequest(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	readyWithItem(t, server, fake)
+
+	fake.CloseIssue(shop, 12)
+
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 42), closedComment) })
+	if state, _ := fake.State(shop, 42); state != "closed" || live(t, server) {
+		t.Errorf("state = %s, live = %v", state, live(t, server))
+	}
+	head(t, fake, "mobius/41")
+}
+
+func TestARemovalOfTheWorkstreamLabelStopsTheRunningImplementer(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, hangs, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool {
+		sessions := roleSessions(t, server, engine.ImplementerRole)
+		return len(sessions) > 0 && sessions[0].AcpSessionID.Valid
+	})
+
+	fake.RemoveLabel(shop, 12, "mobius:workstream", "mallory")
+
+	if session := endedImplementers(t, server, 1)[0]; session.EndReason.String != "stopped" {
+		t.Errorf("end reason = %s", session.EndReason.String)
+	}
+	testkit.WaitFor(t, func() bool { return !live(t, server) && !hasLabel(fake, "mobius:working") })
+	for _, number := range []int64{12, 41} {
+		if state, _ := fake.State(shop, number); state != "open" {
+			t.Errorf("state of #%d = %s", number, state)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -283,36 +284,47 @@ func TestOnlyACommentOfATrustedUserOnTheIssueOfALiveTaskIsAnEvent(t *testing.T) 
 	}
 }
 
-// startWithStoppedTask starts a server with the Workstream #12, its stopped task #41 and the open pull request #45 of
-// the task.
+// startWithStoppedTask starts a server with the Workstream #12, its stopped task #41 and the open pull request #42 of
+// the task from the branch mobius/41.
 func startWithStoppedTask(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
-	fake.AddPullRequest(shop, 45, "Add plan model")
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request, fix_rounds)
-		VALUES ('owner/shop', 41, 12, 'stopped', '2026-10-04T10:00:00Z', 45, 3)`); err != nil {
+	fake.PushCommit(shop, "mobius/41", "Add plan model")
+	fake.OpenPullRequest(shop, "Add plan model", "mobius/41")
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request, branch, fix_rounds)
+		VALUES ('owner/shop', 41, 12, 'stopped', '2026-10-04T10:00:00Z', 42, 'mobius/41', 3)`); err != nil {
 		t.Fatal(err)
 	}
 	return server
 }
 
-func TestACommentOnThePullRequestOfAStoppedTaskGoesToTheLeadWithTheStateOfTheTask(t *testing.T) {
+// A comment on the pull request of a stopped task continues the task (Mobius#225, Mobius#253).
+func TestACommentOnThePullRequestOfAStoppedTaskContinuesTheTaskAndGoesToTheLead(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 
-	fake.AddComment(shop, 45, "owner", "Address the review comments.")
+	comment := fake.AddComment(shop, 42, "owner", "Address the review comments.")
 
 	prompt := testkit.WaitForValue(t, func() (string, bool) {
 		prompts := leadPrompts(t, server)
 		return strings.Join(prompts, "\n"), len(prompts) > 0
 	})
-	if !strings.Contains(prompt, ` comment on #45 "Add plan model" by @owner:`+"\n\n> Address the review comments.\n\nThe state of the task of #41 is stopped.") {
+	if !strings.Contains(prompt, ` comment on #42 "Add plan model" by @owner:`+"\n\n> Address the review comments.\n\nThe state of the task of #41 is ") ||
+		strings.Contains(prompt, "The state of the task of #41 is stopped.") {
 		t.Errorf("prompt = %s", prompt)
 	}
-	if got := liveTaskOf(t, server, 41).FixRounds; got != 0 {
-		t.Errorf("fix rounds = %d", got)
+	session := endedImplementers(t, server, 1)[0]
+	if round := promptTexts(t, server, session.ID)[0]; !strings.Contains(round, fmt.Sprintf("# Open items\n\nComment %d:\n\n@owner, ", comment)) ||
+		!strings.Contains(round, "Address the review comments.\n\nAction: fix\n") {
+		t.Errorf("round = %s", round)
+	}
+	if task := liveTaskOf(t, server, 41); task.FixRounds != 1 || task.PullRequest.Int64 != 42 {
+		t.Errorf("task = %+v", task)
+	}
+	if !slices.Contains(feedTexts(t, server), `Continued "Add plan model"`) {
+		t.Errorf("feed = %q", feedTexts(t, server))
 	}
 }
 
@@ -333,7 +345,7 @@ func TestAReviewCommentOfATrustedUserResetsTheCountersOfTheTask(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 
-	fake.AddReviewComment(shop, 45, 0, "owner", "Rename plan to tier.")
+	fake.AddReviewComment(shop, 42, 0, "owner", "Rename plan to tier.")
 
 	testkit.WaitFor(t, func() bool { return liveTaskOf(t, server, 41).FixRounds == 0 })
 }
@@ -358,4 +370,61 @@ func TestACommentOfTheOwnerKeepsMobiusNeedsHumanOnATaskInNeedsHuman(t *testing.T
 	if !slices.Contains(fake.Labels(shop, 41), "mobius:needs-human") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
+}
+
+func TestTheLeadDeclinesADispatchedTask(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"Split it into a model and an API.\" } }\n")
+
+	dispatchTask(fake, 41, "Add plan model")
+
+	testkit.WaitFor(t, func() bool {
+		return reflect.DeepEqual(fake.Comments(shop, 41), []testkit.Comment{{Author: "mobius-test[bot]", Body: "Split it into a model and an API."}}) && len(fake.Labels(shop, 41)) == 0
+	})
+	session := endedChatSession(t, server, 0)
+	if session.EndReason.String != "idle" {
+		t.Errorf("end reason = %s", session.EndReason.String)
+	}
+	if calls := mcpCalls(t, server, session.ID); len(calls) != 1 || calls[0]["result"] != "Declined #41." {
+		t.Errorf("calls = %+v", calls)
+	}
+	if hasLiveTask(t, server, 41) || len(undelivered(t, server)) != 0 {
+		t.Errorf("live = %v, undelivered = %+v", hasLiveTask(t, server, 41), undelivered(t, server))
+	}
+	for _, line := range chatLines(t, server, leadChat) {
+		if line.Author != "Event" {
+			t.Errorf("chat = %+v", chatLines(t, server, leadChat))
+		}
+	}
+	feed := feedTexts(t, server)
+	if !slices.Contains(feed, `Dispatched "Add plan model"`) || !slices.Contains(feed, `Declined "Add plan model"`) {
+		t.Errorf("feed = %q", feed)
+	}
+}
+
+// A decline of a task with an open pull request closes the pull request and fails its Mobius check (Mobius#255).
+func TestADeclineClosesTheOpenPullRequestOfTheTask(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	// The first prompt of a new session has the earlier events in its history, so the rule of the newest event comes first.
+	lead := "[[prompts]]\nwhen = \"ready for review of #41\"\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"#43 has this work.\" } }\n\n" + leadStarts
+	server, _ := connectTask(t, fake, lead, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool {
+		if len(fake.PullRequests(shop)) == 0 {
+			return false
+		}
+		state, _ := fake.State(shop, 42)
+		return state == "closed" && !hasLiveTask(t, server, 41)
+	})
+	runs := fake.CheckRuns(shop)
+	if last := runs[len(runs)-1]; last.HeadSHA != head(t, fake, "mobius/41") || last.Conclusion != "failure" || last.Output.Title != "Declined" || last.Output.Summary != "#43 has this work." {
+		t.Errorf("check runs = %+v", runs)
+	}
+	comment := testkit.Comment{Author: "mobius-test[bot]", Body: "#43 has this work."}
+	if !slices.Contains(fake.Comments(shop, 42), comment) || !slices.Contains(fake.Comments(shop, 41), comment) {
+		t.Errorf("comments = %+v, %+v", fake.Comments(shop, 42), fake.Comments(shop, 41))
+	}
+	head(t, fake, "mobius/41")
 }
