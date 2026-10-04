@@ -83,6 +83,8 @@ web/public/            the files of the PWA: the web app manifest, the service w
 web/e2e/               the Playwright tests of the UI, and TestServer, the server that they test
 web/embed.go           embeds web/dist into the binary and serves it
 .mobius/check          the local check, also used in CI
+docs/install.md        the install guide
+.github/workflows/     ci.yml checks each pull request. release.yml checks each push to main and releases it with the next patch tag
 ```
 
 ## Commands
