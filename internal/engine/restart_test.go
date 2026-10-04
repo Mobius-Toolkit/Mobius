@@ -9,33 +9,43 @@ import (
 	"testing"
 
 	"github.com/Mobius-Toolkit/mobius-go/internal/config"
+	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
 )
 
-func TestARestartEndsTheSessionsOfTheEarlierRunAndTheHousekeeperRemovesTheirDirectories(t *testing.T) {
+func TestARestartStartsTheImplementerAgainAndTheHousekeeperRemovesTheDirectoriesOfTheEarlierRun(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
+	const prompt = "You are the Implementer of one task. Store plans in cents."
 	var scratch string
-	server, _ := connectWith(t, fake, "", func(cfg *config.Config) {
+	server, dataDir := connectWith(t, fake, "", func(cfg *config.Config) {
+		fake.AddIssue(shop, 41, "Add plan model")
+		fake.AddSubIssue(shop, 12, 41)
+		fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
+		testkit.InstallFakeHarness(t, cfg.DataDir, "devin", options+commits)
 		// The store of a server that stopped during a turn of the Implementer.
 		seed(t, cfg.DataDir,
 			`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, queued_at, worker, worker_input)
-			 VALUES (1, 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'implementer', 'You are the Implementer of one task.')`,
+			 VALUES (1, 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'implementer', '`+prompt+`')`,
 			`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, issue, parent, started_at)
 			 VALUES (1, 'lead_event', 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, NULL, NULL, '2026-10-04T10:00:00Z'),
 			        (2, 'implementer', 'devin', 'swe-1.5', 'owner', 'owner/shop', 12, 41, 1, '2026-10-04T10:00:00Z')`,
-			`INSERT INTO transcript (session, time, kind, json) VALUES (2, '2026-10-04T10:00:00Z', 'prompt', '{"text":"You are the Implementer of one task."}')`)
+			`INSERT INTO transcript (session, time, kind, json) VALUES (2, '2026-10-04T10:00:00Z', 'prompt', '{"text":"`+prompt+`"}')`)
 		scratch = filepath.Join(cfg.DataDir, "scratch", "2")
 		if err := os.MkdirAll(scratch, 0o750); err != nil {
 			t.Fatal(err)
 		}
 	})
 
-	var reasons []string
-	for _, node := range tree(t, server) {
-		reasons = append(reasons, node.Session.EndReason.String)
+	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
+	implementers := roleSessions(t, server, engine.ImplementerRole)
+	if len(implementers) != 2 || implementers[0].ID != 2 || implementers[0].EndReason.String != "restart" || implementers[1].Parent.Int64 != 1 {
+		t.Errorf("Implementers = %+v", implementers)
 	}
-	if !reflect.DeepEqual(reasons, []string{"restart", "restart"}) {
-		t.Errorf("end reasons = %q", reasons)
+	if prompts := promptTexts(t, server, implementers[1].ID); !reflect.DeepEqual(prompts, []string{prompt}) {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if head := testkit.Git(t, filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41"), "branch", "--show-current"); head != "mobius/41" {
+		t.Errorf("branch = %s", head)
 	}
 	testkit.WaitFor(t, func() bool {
 		_, err := os.Stat(scratch)

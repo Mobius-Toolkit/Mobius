@@ -145,3 +145,19 @@ func TestAnEndedTaskDoesNotStartAgain(t *testing.T) {
 		t.Error("the ended task started again")
 	}
 }
+
+func TestADeclinedTaskDoesNotStartAgain(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	prepareAutopilot(fake, true)
+	addTaskIssue(fake, 41, "Add plan model")
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"Split it.\" } }\n")
+	server := startServerWith(t, fake, testserver.Config(t, dataDir), "")
+	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 41)) == 1 && !hasLiveTask(t, server, 41) })
+
+	waitForPolls(t, fake)
+
+	if len(fake.Comments(shop, 41)) != 1 || hasLiveTask(t, server, 41) || activeTasks(t, server) != 0 {
+		t.Errorf("comments = %+v, live = %v", fake.Comments(shop, 41), hasLiveTask(t, server, 41))
+	}
+}

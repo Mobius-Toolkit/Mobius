@@ -37,13 +37,9 @@ func (e *Engine) RestartWorker(ctx context.Context, task store.Task, title strin
 	if !errors.Is(dbErr, sql.ErrNoRows) {
 		return false, dbErr
 	}
-	handed, dbErr := e.handToHuman(ctx, task)
-	if dbErr != nil || !handed {
-		return false, dbErr
-	}
-	text := fmt.Sprintf("%s stop of #%d \"%s\": the Worker failed after %d restarts. Mobius added mobius:needs-human. The last error ends with these lines:\n\n```\n%s\n```",
-		time.Now().UTC().Format(timeFormat), task.Issue, title, e.config.MaxWorkerRestarts, tail(err.Error(), errorTail))
-	return false, e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", text)
+	reason := fmt.Sprintf("the Worker failed after %d restarts. Mobius added mobius:needs-human. The last error ends with these lines:\n\n```\n%s\n```",
+		e.config.MaxWorkerRestarts, tail(err.Error(), errorTail))
+	return false, e.handOver(ctx, task, title, reason)
 }
 
 // restartDelay gives the wait before the restart number restart, which counts from 1, after err at now.

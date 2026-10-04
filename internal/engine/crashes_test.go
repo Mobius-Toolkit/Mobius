@@ -3,6 +3,7 @@ package engine_test
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -45,7 +46,7 @@ func dieOnce(t *testing.T, server *testserver.Server, spec engine.Spec) error {
 func TestAWorkerThatDiesStartsAgainAfterAGrowingWait(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, dies)
-	spec := implementerSpec(t, server, 41)
+	spec := implementerSpec(t, server, fake, 41)
 	failure := dieOnce(t, server, spec)
 
 	var waits []time.Duration
@@ -78,7 +79,7 @@ func TestAWorkerThatDiesAfterMaxWorkerRestartsGoesToAHuman(t *testing.T) {
 	})
 	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options+"[[prompts]]\nreply = [\"Seen\"]\n")
 	fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
-	spec := implementerSpec(t, server, 41)
+	spec := implementerSpec(t, server, fake, 41)
 
 	var restarts []bool
 	for {
@@ -165,6 +166,7 @@ func TestTheHousekeeperRemovesTheDirectoriesThatNothingOwns(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	var stale, owned []string
 	connectWith(t, fake, "", func(cfg *config.Config) {
+		fake.AddIssue(shop, 41, "Add plan model")
 		seed(t, cfg.DataDir, `INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z')`)
 		worktrees := filepath.Join(cfg.DataDir, "worktrees", "owner", "shop")
 		stale = []string{filepath.Join(worktrees, "task-99"), filepath.Join(worktrees, "review-12345"), filepath.Join(cfg.DataDir, "scratch", "777")}
@@ -231,5 +233,105 @@ func TestALeadThatAlwaysCrashesSendsTheEventToTheInbox(t *testing.T) {
 	}
 	if got := undelivered(t, server); len(got) != 0 {
 		t.Errorf("undelivered = %+v", got)
+	}
+}
+
+// dieOnceThen is the shell of an Implementer whose Harness dies in its first turn and runs then after that. The flag
+// file tells that a Harness died.
+func dieOnceThen(flag, then string) string {
+	return fmt.Sprintf("[[prompts]]\nshell = \"if [ -e '%[1]s' ]; then %[2]s; else touch '%[1]s'; kill -9 $PPID; fi\"\n", flag, then)
+}
+
+const commitShell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'"
+
+func TestAWorkerThatDiesStartsAgainAndDoesTheWork(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectTask(t, fake, leadStarts, "", noChange)
+	testkit.InstallFakeHarness(t, dataDir, "devin", options+dieOnceThen(filepath.Join(dataDir, "died"), commitShell))
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
+	sessions := endedImplementers(t, server, 2)
+	if sessions[0].EndReason.String != "failed" || sessions[1].EndReason.String != "done" {
+		t.Errorf("sessions = %+v", sessions)
+	}
+}
+
+// handedToHuman starts a server with an Implementer that always dies and max_worker_restarts 1, dispatches #41, and
+// waits until its task waits for a human.
+func handedToHuman(t *testing.T, fake *testkit.FakeGitHub, implementer string) *testserver.Server {
+	t.Helper()
+	server, _ := connectTask(t, fake, leadStarts, implementer, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool {
+		return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:working")
+	})
+	return server
+}
+
+func TestATaskInNeedsHumanStaysInNeedsHumanAfterTheNextPolls(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := handedToHuman(t, fake, dies)
+
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+}
+
+func TestMobiusReadyOnATaskInNeedsHumanWithNoPullRequestStartsTheImplementerOnTheSameBranch(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	goFile := filepath.Join(t.TempDir(), "go")
+	server := handedToHuman(t, fake, fmt.Sprintf("[[prompts]]\nshell = \"if [ -e '%s' ]; then %s; else kill -9 $PPID; fi\"\n", goFile, commitShell))
+	stopped := liveTask(t, server, 41)
+	if len(fake.PullRequests(shop)) != 0 || !stopped.Branch.Valid {
+		t.Fatalf("pull requests = %+v, task = %+v", fake.PullRequests(shop), stopped)
+	}
+	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	task := testkit.WaitForValue(t, func() (store.Task, bool) {
+		task := liveTask(t, server, 41)
+		return task, task.PullRequest.Valid
+	})
+	if task.ID != stopped.ID || task.Branch != stopped.Branch {
+		t.Errorf("task = %+v", task)
+	}
+	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 1 || pullRequests[0].Head != stopped.Branch.String {
+		t.Errorf("pull requests = %+v", pullRequests)
+	}
+	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:ready") })
+	if !hasLabel(fake, "mobius:working") || hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+	testkit.WaitFor(t, func() bool {
+		sessions := roleSessions(t, server, engine.ImplementerRole)
+		return sessions[len(sessions)-1].EndReason.String == "done"
+	})
+}
+
+func TestMobiusReadyOfTheAppOnATaskInNeedsHumanHasNoEffectWhenAutopilotIsOff(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := handedToHuman(t, fake, dies)
+	implementers := len(roleSessions(t, server, engine.ImplementerRole))
+
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+	fake.AddLabel(shop, 41, "mobius:ready", testkit.AppSlug+"[bot]")
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+	if got := len(roleSessions(t, server, engine.ImplementerRole)); got != implementers {
+		t.Errorf("Implementers = %d", got)
+	}
+	if !hasLabel(fake, "mobius:ready") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 }

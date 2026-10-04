@@ -13,6 +13,13 @@ const (
 	leadKind     = "Lead"
 )
 
+// The kinds of the Inbox items of the pull requests and the checks.
+const (
+	readyForReviewKind   = "ready for review"
+	stalePullRequestKind = "stale pull request"
+	fullDiskKind         = "full disk"
+)
+
 // addInboxItem adds the Inbox item at the time now, and sends it to the listeners.
 func (e *Engine) addInboxItem(ctx context.Context, params store.AddInboxItemParams) (store.InboxItem, error) {
 	params.Time = now()

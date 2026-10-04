@@ -205,6 +205,23 @@ func (q *Queries) AddEvent(ctx context.Context, arg AddEventParams) error {
 	return err
 }
 
+const addFixRound = `-- name: AddFixRound :execrows
+UPDATE tasks SET fix_rounds = fix_rounds + 1 WHERE id = ?1 AND fix_rounds < ?2
+`
+
+type AddFixRoundParams struct {
+	ID  int64
+	Max int64
+}
+
+func (q *Queries) AddFixRound(ctx context.Context, arg AddFixRoundParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, addFixRound, arg.ID, arg.Max)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const addGitHubApp = `-- name: AddGitHubApp :exec
 INSERT INTO github_apps (app_id, slug, private_key, client_id, client_secret)
 VALUES (?, ?, ?, ?, ?)
@@ -942,6 +959,32 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 		&i.ReviewRounds,
 		&i.ReviewComment,
 		&i.CheckHead,
+	)
+	return i, err
+}
+
+const getSession = `-- name: GetSession :one
+SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent FROM sessions WHERE id = ?
+`
+
+func (q *Queries) GetSession(ctx context.Context, id int64) (Session, error) {
+	row := q.db.QueryRowContext(ctx, getSession, id)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.Role,
+		&i.Harness,
+		&i.Model,
+		&i.Repository,
+		&i.Workstream,
+		&i.AcpSessionID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.EndReason,
+		&i.QueueReason,
+		&i.Organization,
+		&i.Issue,
+		&i.Parent,
 	)
 	return i, err
 }
@@ -1717,6 +1760,33 @@ func (q *Queries) ListLatestEvents(ctx context.Context, limit int64) ([]Event, e
 	return items, nil
 }
 
+const listLiveTaskRepositories = `-- name: ListLiveTaskRepositories :many
+SELECT DISTINCT repository FROM tasks WHERE state <> 'ended' ORDER BY repository
+`
+
+func (q *Queries) ListLiveTaskRepositories(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listLiveTaskRepositories)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var repository string
+		if err := rows.Scan(&repository); err != nil {
+			return nil, err
+		}
+		items = append(items, repository)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLiveTasks = `-- name: ListLiveTasks :many
 SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
 `
@@ -2203,6 +2273,37 @@ func (q *Queries) ListWaitingLeadWorkstreams(ctx context.Context) ([]ListWaiting
 	return items, nil
 }
 
+const queueTask = `-- name: QueueTask :execrows
+UPDATE tasks SET state = 'queued', queued_at = ?1 WHERE id = ?2 AND state = ?3
+`
+
+type QueueTaskParams struct {
+	QueuedAt  sql.NullString
+	ID        int64
+	FromState string
+}
+
+func (q *Queries) QueueTask(ctx context.Context, arg QueueTaskParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, queueTask, arg.QueuedAt, arg.ID, arg.FromState)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const requeueTask = `-- name: RequeueTask :execrows
+UPDATE tasks SET state = 'queued' WHERE id = ? AND state IN ('queued', 'working')
+`
+
+// A restart keeps the place of the task in the queue.
+func (q *Queries) RequeueTask(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, requeueTask, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const resetTaskCounters = `-- name: ResetTaskCounters :exec
 UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0 WHERE id = ?
 `
@@ -2334,6 +2435,48 @@ func (q *Queries) SetSyncCursor(ctx context.Context, arg SetSyncCursorParams) er
 	return err
 }
 
+const setTaskBranch = `-- name: SetTaskBranch :exec
+UPDATE tasks SET branch = ? WHERE id = ?
+`
+
+type SetTaskBranchParams struct {
+	Branch sql.NullString
+	ID     int64
+}
+
+func (q *Queries) SetTaskBranch(ctx context.Context, arg SetTaskBranchParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskBranch, arg.Branch, arg.ID)
+	return err
+}
+
+const setTaskCheckHead = `-- name: SetTaskCheckHead :exec
+UPDATE tasks SET check_head = ? WHERE id = ?
+`
+
+type SetTaskCheckHeadParams struct {
+	CheckHead sql.NullString
+	ID        int64
+}
+
+func (q *Queries) SetTaskCheckHead(ctx context.Context, arg SetTaskCheckHeadParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskCheckHead, arg.CheckHead, arg.ID)
+	return err
+}
+
+const setTaskPullRequest = `-- name: SetTaskPullRequest :exec
+UPDATE tasks SET pull_request = ? WHERE id = ?
+`
+
+type SetTaskPullRequestParams struct {
+	PullRequest sql.NullInt64
+	ID          int64
+}
+
+func (q *Queries) SetTaskPullRequest(ctx context.Context, arg SetTaskPullRequestParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskPullRequest, arg.PullRequest, arg.ID)
+	return err
+}
+
 const setTaskState = `-- name: SetTaskState :execrows
 UPDATE tasks SET state = ?1 WHERE id = ?2 AND state = ?3
 `
@@ -2350,6 +2493,21 @@ func (q *Queries) SetTaskState(ctx context.Context, arg SetTaskStateParams) (int
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setTaskWorker = `-- name: SetTaskWorker :exec
+UPDATE tasks SET worker = ?, worker_input = ? WHERE id = ?
+`
+
+type SetTaskWorkerParams struct {
+	Worker      sql.NullString
+	WorkerInput sql.NullString
+	ID          int64
+}
+
+func (q *Queries) SetTaskWorker(ctx context.Context, arg SetTaskWorkerParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskWorker, arg.Worker, arg.WorkerInput, arg.ID)
+	return err
 }
 
 const setTranscriptJSON = `-- name: SetTranscriptJSON :one
@@ -2427,6 +2585,18 @@ func (q *Queries) StartSession(ctx context.Context, arg StartSessionParams) (Ses
 		&i.Parent,
 	)
 	return i, err
+}
+
+const stopTask = `-- name: StopTask :execrows
+UPDATE tasks SET state = 'stopped' WHERE id = ? AND state NOT IN ('stopped', 'ended')
+`
+
+func (q *Queries) StopTask(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, stopTask, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateCopiedBlockerTitles = `-- name: UpdateCopiedBlockerTitles :execrows

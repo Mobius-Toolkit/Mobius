@@ -1034,3 +1034,69 @@ type chatState struct {
 	Workstream int64 `json:"workstream"`
 	Writing    bool  `json:"writing"`
 }
+
+func TestTheLeadChatRefusesToMoveATaskWhenTheTaskOrTheTargetDoesNotFit(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	// The first prompt of a new session has the earlier messages in its history, so the prompt of the newest message comes first.
+	server, _ := connect(t, fake, `
+[[prompts]]
+when = "case-live"
+call = { tool = "move_task", arguments = { n = 13, workstream = 20 } }
+
+[[prompts]]
+when = "case-plain"
+call = { tool = "move_task", arguments = { n = 13, workstream = 14 } }
+
+[[prompts]]
+when = "case-closed"
+call = { tool = "move_task", arguments = { n = 13, workstream = 22 } }
+
+[[prompts]]
+when = "case-self"
+call = { tool = "move_task", arguments = { n = 13, workstream = 12 } }
+
+[[prompts]]
+when = "case-pull"
+call = { tool = "move_task", arguments = { n = 15, workstream = 20 } }
+
+[[prompts]]
+when = "case-other"
+call = { tool = "move_task", arguments = { n = 21, workstream = 20 } }
+`)
+	fake.AddIssue(shop, 13, "Add the API route")
+	fake.AddIssue(shop, 14, "Add plan model")
+	fake.AddPullRequest(shop, 15, "Add the API route")
+	fake.AddSubIssue(shop, 12, 13)
+	fake.AddSubIssue(shop, 12, 14)
+	fake.AddSubIssue(shop, 12, 15)
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 21, "Invoice totals")
+	fake.AddSubIssue(shop, 20, 21)
+	fake.AddIssue(shop, 22, "Old Billing")
+	fake.AddLabel(shop, 22, "mobius:workstream", "owner")
+	fake.CloseIssue(shop, 22)
+
+	for _, c := range []struct{ message, result string }{
+		{"case-other", "error: #21 is not in this Workstream."},
+		{"case-pull", "error: #15 is not an issue of owner/shop."},
+		{"case-self", "error: #12 is this Workstream."},
+		{"case-closed", "error: #22 is not an open Workstream."},
+		{"case-plain", "error: #14 is not an open Workstream."},
+	} {
+		sendChat(t, server, leadChat, c.message)
+		waitForChat(t, server, leadChat, "Lead", c.result)
+	}
+	if _, err := server.DB.Exec("INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES (?, 13, 12, 'dispatched', ?)", shop, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	sendChat(t, server, leadChat, "case-live")
+
+	waitForChat(t, server, leadChat, "Lead", "error: #13 has a live task. Stop the task first.")
+	if got := fake.SubIssueNumbers(shop, 12); !reflect.DeepEqual(got, []int64{13, 14, 15}) {
+		t.Errorf("sub-issues of #12 = %v", got)
+	}
+	if got := fake.SubIssueNumbers(shop, 20); !reflect.DeepEqual(got, []int64{21}) {
+		t.Errorf("sub-issues of #20 = %v", got)
+	}
+}

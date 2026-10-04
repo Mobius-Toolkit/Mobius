@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -44,8 +45,10 @@ type Spec struct {
 	Parent sql.NullInt64
 	// Task is the id of the queued task of the session, or 0. The session waits for its slot at the place of the task in the queue.
 	Task int64
-	// Dir is the working directory of the agent. With an empty Dir, the agent works in scratch/<session id> below the
-	// data directory, and the end of the session removes that directory.
+	// PullRequest is the pull request that the Implementer of a fix round or a conflict round works on, or 0.
+	PullRequest int64
+	// Dir is the working directory of the agent. With an empty Dir, Start makes scratch/<session id> below the data
+	// directory, the agent works there, and the end of the session removes that directory.
 	Dir string
 }
 
@@ -79,6 +82,10 @@ type Agent struct {
 	message int64
 	// reply is the reply text of the turn after its last tool call.
 	reply strings.Builder
+	// cannotDo is the reason of the cannot_do of the Implementer in the last turn, or "".
+	cannotDo string
+	// replies are the replies of the reply_thread calls of the Implementer that wait for the push.
+	replies []heldReply
 }
 
 // Node is a session in the agent tree of a Workstream.
@@ -133,6 +140,31 @@ func endParams(id int64, reason string) store.EndSessionParams {
 // ErrLeftQueue. When ctx ends before the agent starts, the session ends with the reason "stopped". When the start
 // fails, the session ends with the reason "failed" and the error in its Transcript.
 func (e *Engine) Start(ctx context.Context, spec Spec) (*Agent, error) {
+	a, err := e.addAgent(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	// The end of a session must also work after the end of ctx.
+	ended := context.WithoutCancel(ctx)
+	if spec.Dir == "" {
+		a.scratch = filepath.Join(e.config.DataDir, "scratch", strconv.FormatInt(a.id, 10))
+		a.spec.Dir = a.scratch
+		if err := os.MkdirAll(a.scratch, 0o750); err != nil {
+			return nil, a.Fail(ended, err)
+		}
+	}
+	if err := a.open(ctx); err != nil {
+		if ctx.Err() != nil {
+			return nil, errors.Join(err, a.End(ended, "stopped"))
+		}
+		return nil, a.Fail(ended, err)
+	}
+	return a, nil
+}
+
+// addAgent adds the session of spec and waits for a slot of its Role, with the ends of Start. A Worker then
+// prepares its directory and opens the agent itself.
+func (e *Engine) addAgent(ctx context.Context, spec Spec) (*Agent, error) {
 	binding, ok := roleBinding(e.config, spec.Role)
 	if !ok {
 		return nil, fmt.Errorf("the Role %s has no Role binding", spec.Role)
@@ -160,15 +192,7 @@ func (e *Engine) Start(ctx context.Context, spec Spec) (*Agent, error) {
 	}
 	e.publish(Change{Node: new(node(session))})
 	a := &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker}
-	// The end of a session must also work after the end of ctx.
 	ended := context.WithoutCancel(ctx)
-	if spec.Dir == "" {
-		a.scratch = filepath.Join(e.config.DataDir, "scratch", strconv.FormatInt(a.id, 10))
-		a.spec.Dir = a.scratch
-		if err := os.MkdirAll(a.scratch, 0o750); err != nil {
-			return nil, a.Fail(ended, err)
-		}
-	}
 	if err := e.takeSlot(ctx, a); err != nil {
 		switch {
 		case errors.Is(err, ErrLeftQueue):
@@ -183,18 +207,14 @@ func (e *Engine) Start(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, a.Fail(ended, err)
 	}
 	e.publish(Change{Node: new(node(started))})
-	if err := a.open(ctx, binding); err != nil {
-		if ctx.Err() != nil {
-			return nil, errors.Join(err, a.End(ended, "stopped"))
-		}
-		return nil, a.Fail(ended, err)
-	}
 	return a, nil
 }
 
-// open starts the Harness and configures the session. A Claude Code session with no tools/list in toolsTimeout
-// has no Mobius tools (Mobius#254), so open starts its Harness again, at most max_worker_restarts times.
-func (a *Agent) open(ctx context.Context, binding config.RoleBinding) error {
+// open starts the Harness in the directory of the session and configures the session. A Claude Code session with no
+// tools/list in toolsTimeout has no Mobius tools (Mobius#254), so open starts its Harness again, at most
+// max_worker_restarts times.
+func (a *Agent) open(ctx context.Context) error {
+	binding, _ := roleBinding(a.engine.config, a.spec.Role)
 	for restart := 0; ; restart++ {
 		if err := a.startHarness(ctx); err != nil {
 			return err
@@ -232,6 +252,7 @@ func (a *Agent) startHarness(ctx context.Context) error {
 		organization: spec.Organization,
 		repository:   spec.Repository,
 		workstream:   spec.Workstream,
+		agent:        a,
 	})}
 	ghTokenURL := ""
 	if spec.Role == LeadRole {
@@ -283,6 +304,7 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 		a.chunk = nil
 		a.message = 0
 		a.reply.Reset()
+		a.cannotDo = ""
 		a.mu.Unlock()
 		if err != nil {
 			return err
@@ -516,21 +538,21 @@ type ActiveAgents struct {
 	Groups []AgentGroup
 }
 
-// ActiveAgents gives the open sessions with the limits of the config. A queued session is in its group, but it holds no slot.
+// ActiveAgents gives the open sessions with the limits of the config. A queued session is in its group, but it holds
+// no slot. A session that holds a slot can show a queue reason too, for example a pause or the phase of its check.
 func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 	rows, err := e.queries.ListOpenSessions(ctx)
 	if err != nil {
 		return ActiveAgents{}, err
 	}
-	running := map[string]int{}
+	e.workers.mu.Lock()
+	running := maps.Clone(e.workers.running)
+	e.workers.mu.Unlock()
 	agents := map[string][]ActiveAgent{}
 	for _, row := range rows {
 		role := row.Session.Role
 		if _, ok := roleBinding(e.config, role); !ok {
 			continue
-		}
-		if !row.Session.QueueReason.Valid {
-			running[role]++
 		}
 		agents[role] = append(agents[role], ActiveAgent{node(row.Session), row.WorkstreamTitle, row.IssueTitle, row.PullRequest})
 	}

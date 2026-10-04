@@ -23,7 +23,7 @@ type Line struct {
 	ID      int64
 	Session int64
 	Time    time.Time
-	// Kind is prompt, update, mcp_call or error.
+	// Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer.
 	Kind string
 	// Text is the one line that the UI always shows.
 	Text string
@@ -86,6 +86,8 @@ func line(row store.Transcript, folded bool) (Line, error) {
 	case "error":
 		line.firstLine(stringField(value, "message"))
 		line.Error = true
+	case "check":
+		line.firstLine(stringField(value, "text"))
 	default:
 		line.update(field(value, "update"))
 	}

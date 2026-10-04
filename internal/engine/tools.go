@@ -26,6 +26,7 @@ type caller struct {
 	// repository is empty for the Triager chat.
 	repository string
 	workstream int64
+	agent      *Agent
 }
 
 // refusal is a refused request, for example a tool call. Its text goes back to the agent or the Owner as a sentence.
@@ -60,6 +61,40 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue or the pull request."},
 				},
 				e.readIssueTool),
+			tool(e, c, "start_implementer",
+				"Start an Implementer for a dispatched task. The Implementer sees only the Brief, the issue, and your instructions. Mobius pushes its commits and opens a draft pull request. Returns at once.",
+				map[string]any{
+					"n":            map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"instructions": map[string]any{"type": "string", "minLength": 1, "description": "The goal, the limits, and what \"done\" means."},
+				},
+				e.startImplementerTool),
+			tool(e, c, "start_fix_round",
+				"Start a fix round on the pull request of a task that is ready_for_review. The Implementer gets your findings as the open items. The round counts toward max_fix_rounds. Returns at once.",
+				map[string]any{
+					"n":        map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"findings": map[string]any{"type": "string", "minLength": 1, "description": "Your findings on the pull request: what to change and why."},
+				},
+				e.startFixRound),
+			tool(e, c, "start_researcher",
+				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the Brief and the question. The tool returns at once, and the report arrives later.",
+				map[string]any{
+					"question": map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
+				},
+				e.startResearcher),
+			tool(e, c, "ask",
+				"Ask the people on a task issue a question. Mobius posts the question as a comment, adds mobius:needs-human, and adds an Inbox item for the Owner. The reply arrives later as an event.",
+				map[string]any{
+					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"text": map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue."},
+				},
+				e.ask),
+			tool(e, c, "decline",
+				"Decline a task. Mobius posts the reason as a comment on the issue, removes mobius:working, and ends the task.",
+				map[string]any{
+					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"reason": map[string]any{"type": "string", "minLength": 1, "description": "The reason for the people on the issue."},
+				},
+				e.decline),
 			tool(e, c, "create_issue",
 				"Create an issue below an issue of the Workstream. Mobius adds the blockers as native issue dependencies.",
 				map[string]any{
@@ -100,13 +135,6 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue."},
 				},
 				e.moveTask),
-			tool(e, c, "ask",
-				"Ask the people on a task issue a question. Mobius posts the question as a comment, adds mobius:needs-human, and adds an Inbox item for the Owner. The reply arrives later as an event.",
-				map[string]any{
-					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"text": map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue."},
-				},
-				e.ask),
 			tool(e, c, "hold_event",
 				"Hold the event of this turn until the Owner decides. Mobius sends the event again after the end of your next reply to the Owner. A later event of the same task issue waits behind it. Call it only in a turn for an event.",
 				map[string]any{},
@@ -117,6 +145,22 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The text for the Owner."},
 				},
 				e.tellOwner),
+		}
+	case ImplementerRole:
+		return []mcp.Tool{
+			tool(e, c, "cannot_do",
+				"Tell the Lead that you cannot do the task. Mobius ends your turn and pushes nothing.",
+				map[string]any{
+					"reason": map[string]any{"type": "string", "minLength": 1, "description": "The reason for the Lead."},
+				},
+				e.cannotDo),
+			tool(e, c, "reply_thread",
+				"Reply in a review thread of the pull request in a fix round. Mobius posts the reply after it pushes your commits, so the SHA of a fix commit in the text links to a pushed commit. Mobius resolves the thread after the reply.",
+				map[string]any{
+					"thread": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the thread or the comment in the prompt. Mobius cannot resolve a conversation comment."},
+					"text":   map[string]any{"type": "string", "minLength": 1, "description": "The SHA of the fix commit, an answer, a follow-up link, or a reason to reject. Do not write an acknowledgement."},
+				},
+				e.holdReply),
 		}
 	case TriagerRole:
 		return []mcp.Tool{
@@ -252,6 +296,29 @@ type workstreamInput struct {
 type moveInput struct {
 	N          int64 `json:"n"`
 	Workstream int64 `json:"workstream"`
+}
+
+type implementerInput struct {
+	N            int64  `json:"n"`
+	Instructions string `json:"instructions"`
+}
+
+type findingsInput struct {
+	N        int64  `json:"n"`
+	Findings string `json:"findings"`
+}
+
+type questionInput struct {
+	Question string `json:"question"`
+}
+
+type declineInput struct {
+	N      int64  `json:"n"`
+	Reason string `json:"reason"`
+}
+
+type reasonInput struct {
+	Reason string `json:"reason"`
 }
 
 func empty(text string) bool {
