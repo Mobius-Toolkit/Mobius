@@ -137,7 +137,8 @@ type graphqlComment struct {
 	} `json:"author"`
 }
 
-// graphql answers the review threads query and the mutation resolveReviewThread, each in one page.
+// graphql answers the review threads query and the mutations resolveReviewThread and markPullRequestReadyForReview,
+// each in one page.
 // The node id of a thread is "RT_" and the id of its first comment.
 func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 	var request struct {
@@ -156,6 +157,10 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 	variables := request.Variables
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if strings.Contains(request.Query, "markPullRequestReadyForReview") {
+		g.markReadyForReview(w, variables.ID)
+		return
+	}
 	if strings.Contains(request.Query, "resolveReviewThread") {
 		root, err := strconv.ParseInt(strings.TrimPrefix(variables.ID, "RT_"), 10, 64)
 		if err != nil || !strings.HasPrefix(variables.ID, "RT_") {

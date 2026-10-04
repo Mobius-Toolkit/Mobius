@@ -9,15 +9,25 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/fakeagent"
+	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/fakedf"
 )
 
 // Main runs the tests of the package. When the test binary runs as a Harness command
-// of InstallFakeHarness, Main runs the fake agent in place of the tests.
+// of InstallFakeHarness, Main runs the fake agent in place of the tests, and as the df of SetFreeSpace, it gives the
+// free space of SetFreeSpace.
 func Main(m *testing.M) {
+	if filepath.Base(os.Args[0]) == "df" {
+		if err := fakedf.Run(filepath.Clean(os.Args[0] + ".free")); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if slices.Contains(harnessPrograms, filepath.Base(os.Args[0])) {
 		if err := fakeagent.Run(filepath.Clean(os.Args[0] + ".toml")); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -50,6 +60,28 @@ func InstallFakeHarness(t testing.TB, dataDir, program, script string) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(executable, command); err != nil && !errors.Is(err, fs.ErrExist) {
+		t.Fatal(err)
+	}
+}
+
+// SetFreeSpace makes the program df in dataDir/harnesses give kibibytes KiB of free space, also as the text of the file
+// dataDir/harnesses/df.free. The program is a link to the test binary, so the test package must call Main from its
+// TestMain.
+func SetFreeSpace(t testing.TB, dataDir string, kibibytes int64) {
+	t.Helper()
+	harnesses := filepath.Join(dataDir, "harnesses")
+	if err := os.MkdirAll(harnesses, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	df := filepath.Join(harnesses, "df")
+	if err := os.WriteFile(df+".free", []byte(strconv.FormatInt(kibibytes, 10)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(executable, df); err != nil && !errors.Is(err, fs.ErrExist) {
 		t.Fatal(err)
 	}
 }

@@ -334,7 +334,7 @@ func (g *FakeGitHub) listInstallationRepositories(w http.ResponseWriter, r *http
 				Name:          name,
 				Owner:         map[string]string{"login": owner},
 				DefaultBranch: "main",
-				CloneURL:      "file://" + g.remote(repository),
+				CloneURL:      "file://" + g.Remote(repository),
 			})
 		}
 	}
