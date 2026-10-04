@@ -49,14 +49,13 @@ Run `.mobius/check` (or `make check`). It must pass.
 
 ```
 cmd/mobius/            the mobius command: serve (the default) and init
-cmd/mobius-session/    starts one Claude Code session with the Mobius MCP server (needs claude-agent-acp on PATH)
 internal/api/          the Gork routes and handlers, and the device login check of each route
 internal/auth/         the access password and the device logins
 internal/config/       reads config.toml
 internal/engine/       the poll of the repositories, the Mobius labels, the checkup and the trust rules
 internal/github/       the GitHub Apps: the App setup, the user tokens, the installation tokens and the repositories
 internal/mcp/          the Mobius MCP server and its tools
-internal/runner/       starts an agent session of a Harness through ACP
+internal/runner/       starts an agent session of a Harness through ACP, and holds the gh of the agent environment
 internal/setup/        mobius init: asks for the values of a new config.toml and writes it
 internal/store/        the SQLite database: goose migrations and sqlc queries
 internal/testkit/      the fake GitHub, the fake agent as a Harness command, and the waits of the tests

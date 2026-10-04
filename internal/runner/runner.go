@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,18 +38,35 @@ var fullAutoModes = map[config.Harness]string{
 // The ACP error code of session/new when the agent needs a login.
 const authRequired = -32000
 
+// ghURLEnv is the environment variable of an agent process that gives the URL of the token of its gh.
+const ghURLEnv = "MOBIUS_GH_TOKEN_URL"
+
 func agentEnv(dataDir string) string {
 	return filepath.Join(dataDir, "agent-env")
 }
 
-// Prepare writes the agent environment below dataDir.
+// Prepare writes the agent environment below dataDir. The gh of the agent environment is a link to
+// this program, and this program runs GH when its name is gh.
 func Prepare(dataDir string) error {
 	agentEnv := agentEnv(dataDir)
-	if err := os.MkdirAll(filepath.Join(agentEnv, "gh-config"), 0o750); err != nil {
-		return err
+	for _, dir := range []string{"gh-config", "bin"} {
+		if err := os.MkdirAll(filepath.Join(agentEnv, dir), 0o750); err != nil {
+			return err
+		}
 	}
 	// An empty helper clears the credential helpers of the system git config.
-	return os.WriteFile(filepath.Join(agentEnv, "gitconfig"), []byte("[credential]\n\thelper =\n"), 0o600)
+	if err := os.WriteFile(filepath.Join(agentEnv, "gitconfig"), []byte("[credential]\n\thelper =\n"), 0o600); err != nil {
+		return err
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	gh := filepath.Join(agentEnv, "bin", "gh")
+	if err := os.Remove(gh); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return os.Symlink(self, gh)
 }
 
 // Missing gives each of programs that is not on path.
@@ -65,83 +83,112 @@ func Missing(path string, programs ...string) []string {
 func find(program, path string) string {
 	for _, dir := range filepath.SplitList(path) {
 		file := filepath.Join(dir, program)
-		info, err := os.Stat(file)
-		if err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
+		if info, err := os.Stat(file); err == nil && executable(info) {
 			return file
 		}
 	}
 	return ""
 }
 
-func command(ctx context.Context, file, cwd, dataDir, path string) *exec.Cmd {
+func executable(info fs.FileInfo) bool {
+	return info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
+}
+
+// FindGH gives the first gh on path that is not this program, or "" when path has no such gh.
+// The gh of the agent environment is this program, so FindGH never gives it.
+func FindGH(path string) string {
+	self, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	selfInfo, err := os.Stat(self)
+	if err != nil {
+		return ""
+	}
+	for _, dir := range filepath.SplitList(path) {
+		file := filepath.Join(dir, "gh")
+		if info, err := os.Stat(file); err == nil && executable(info) && !os.SameFile(info, selfInfo) {
+			return file
+		}
+	}
+	return ""
+}
+
+func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL string) *exec.Cmd {
 	agentEnv := agentEnv(dataDir)
 	cmd := exec.CommandContext(ctx, file)
 	cmd.Dir = cwd
 	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
-		return strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=")
+		return strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, ghURLEnv+"=")
 	})
 	cmd.Env = append(cmd.Env,
 		"GH_CONFIG_DIR="+filepath.Join(agentEnv, "gh-config"),
 		"GIT_CONFIG_GLOBAL="+filepath.Join(agentEnv, "gitconfig"),
 		"GIT_TERMINAL_PROMPT=0",
-		"PATH="+path,
+		"PATH="+filepath.Join(agentEnv, "bin")+string(filepath.ListSeparator)+path,
 	)
+	if ghTokenURL != "" {
+		cmd.Env = append(cmd.Env, ghURLEnv+"="+ghTokenURL)
+	}
 	return cmd
 }
 
 // Session is one ACP session of a Harness.
 type Session struct {
 	harness config.Harness
-	conn    *acp.ClientSideConnection
+	conn    *acp.Connection
 	id      acp.SessionId
 	options []acp.SessionConfigOption
 	cmd     *exec.Cmd
 	stop    context.CancelFunc
 }
 
-func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, path string) (*exec.Cmd, error) {
+func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, path, ghTokenURL string) (*exec.Cmd, error) {
 	program := Program(harness)
 	file := find(program, path)
 	if file == "" {
 		return nil, fmt.Errorf("%s is not on PATH", program)
 	}
-	cmd := command(ctx, file, cwd, dataDir, path)
+	cmd := command(ctx, file, cwd, dataDir, path, ghTokenURL)
 	if harness == config.Devin {
 		cmd.Args = append(cmd.Args, "acp")
 	}
 	return cmd, nil
 }
 
-// Start starts the agent of harness in cwd with the Mobius MCP server at mcpURL, and opens a session.
-// It gives each session/update notification of the session to updates.
-func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpURL string, updates func(acp.SessionNotification)) (*Session, error) {
-	program := Program(harness)
-	processCtx, stop := context.WithCancel(context.Background())
-	cmd, err := harnessCommand(processCtx, harness, cwd, dataDir, path)
-	if err != nil {
-		stop()
-		return nil, err
-	}
+// connect starts cmd and gives the ACP connection to its stdin and stdout.
+func connect(cmd *exec.Cmd, updates func(json.RawMessage)) (*acp.Connection, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		stop()
 		return nil, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		stop()
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return acp.NewConnection(handler(updates), stdin, stdout), nil
+}
+
+// Start starts the agent of harness in cwd with the Mobius MCP server at mcpURL, and opens a session.
+// It gives the params of each session/update notification to updates, as the agent sent them.
+// The gh of the agent gets its token from ghTokenURL. With an empty ghTokenURL, the gh of the agent refuses to run.
+func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpURL, ghTokenURL string, updates func(json.RawMessage)) (*Session, error) {
+	program := Program(harness)
+	processCtx, stop := context.WithCancel(context.Background())
+	cmd, err := harnessCommand(processCtx, harness, cwd, dataDir, path, ghTokenURL)
+	if err != nil {
+		stop()
+		return nil, err
+	}
+	conn, err := connect(cmd, updates)
+	if err != nil {
 		stop()
 		return nil, fmt.Errorf("%s: %w", program, err)
 	}
-	session := &Session{
-		harness: harness,
-		conn:    acp.NewClientSideConnection(client{updates: updates}, stdin, stdout),
-		cmd:     cmd,
-		stop:    stop,
-	}
+	session := &Session{harness: harness, conn: conn, cmd: cmd, stop: stop}
 	if err := session.open(ctx, cwd, mcpURL); err != nil {
 		session.Close()
 		return nil, fmt.Errorf("%s: %w", program, describe(err))
@@ -156,20 +203,13 @@ func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpU
 func LogInAntigravity(ctx context.Context, cwd, dataDir, path string) (bool, error) {
 	processCtx, stop := context.WithCancel(context.Background())
 	defer stop()
-	cmd, err := harnessCommand(processCtx, config.Antigravity, cwd, dataDir, path)
+	cmd, err := harnessCommand(processCtx, config.Antigravity, cwd, dataDir, path, "")
 	if err != nil {
 		return false, err
 	}
 	cmd.Stderr = os.Stderr
-	stdin, err := cmd.StdinPipe()
+	conn, err := connect(cmd, func(json.RawMessage) {})
 	if err != nil {
-		return false, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return false, err
-	}
-	if err := cmd.Start(); err != nil {
 		return false, err
 	}
 	defer func() {
@@ -177,16 +217,15 @@ func LogInAntigravity(ctx context.Context, cwd, dataDir, path string) (bool, err
 		// The kill ends the agent, so Wait gives an error that tells nothing new.
 		_ = cmd.Wait()
 	}()
-	conn := acp.NewClientSideConnection(client{updates: func(acp.SessionNotification) {}}, stdin, stdout)
-	if _, err := conn.Initialize(ctx, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber}); err != nil {
+	if _, err := acp.SendRequest[acp.InitializeResponse](conn, ctx, acp.AgentMethodInitialize, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber}); err != nil {
 		return false, describe(err)
 	}
-	_, err = conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
+	_, err = acp.SendRequest[acp.NewSessionResponse](conn, ctx, acp.AgentMethodSessionNew, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
 	var requestErr *acp.RequestError
 	if !errors.As(err, &requestErr) || requestErr.Code != authRequired {
 		return false, describe(err)
 	}
-	if _, err := conn.Authenticate(ctx, acp.AuthenticateRequest{MethodId: "oauth-personal"}); err != nil {
+	if _, err := acp.SendRequest[acp.AuthenticateResponse](conn, ctx, acp.AgentMethodAuthenticate, acp.AuthenticateRequest{MethodId: "oauth-personal"}); err != nil {
 		return false, describe(err)
 	}
 	return true, nil
@@ -209,10 +248,10 @@ func describe(err error) error {
 }
 
 func (s *Session) open(ctx context.Context, cwd, mcpURL string) error {
-	if _, err := s.conn.Initialize(ctx, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber}); err != nil {
+	if _, err := acp.SendRequest[acp.InitializeResponse](s.conn, ctx, acp.AgentMethodInitialize, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber}); err != nil {
 		return err
 	}
-	response, err := s.conn.NewSession(ctx, acp.NewSessionRequest{
+	response, err := acp.SendRequest[acp.NewSessionResponse](s.conn, ctx, acp.AgentMethodSessionNew, acp.NewSessionRequest{
 		Cwd: cwd,
 		McpServers: []acp.McpServer{{Http: &acp.McpServerHttpInline{
 			Name:    "mobius",
@@ -294,7 +333,7 @@ func (s *Session) set(ctx context.Context, category acp.SessionConfigOptionCateg
 	if !slices.Contains(values, value) {
 		return errors.New(refused)
 	}
-	response, err := s.conn.SetSessionConfigOption(ctx, acp.SetSessionConfigOptionRequest{ValueId: &acp.SetSessionConfigOptionValueId{
+	response, err := acp.SendRequest[acp.SetSessionConfigOptionResponse](s.conn, ctx, acp.AgentMethodSessionSetConfigOption, acp.SetSessionConfigOptionRequest{ValueId: &acp.SetSessionConfigOptionValueId{
 		SessionId: s.id,
 		ConfigId:  option.Id,
 		Value:     acp.SessionConfigValueId(value),
@@ -323,9 +362,10 @@ func values(option *acp.SessionConfigOptionSelect) []string {
 	return values
 }
 
-// Prompt sends text and holds until the turn ends.
+// Prompt sends text and holds until the turn ends. The updates of the turn go to the updates
+// function of Start before Prompt returns.
 func (s *Session) Prompt(ctx context.Context, text string) (acp.StopReason, error) {
-	response, err := s.conn.Prompt(ctx, acp.PromptRequest{SessionId: s.id, Prompt: []acp.ContentBlock{acp.TextBlock(text)}})
+	response, err := acp.SendRequest[acp.PromptResponse](s.conn, ctx, acp.AgentMethodSessionPrompt, acp.PromptRequest{SessionId: s.id, Prompt: []acp.ContentBlock{acp.TextBlock(text)}})
 	return response.StopReason, err
 }
 
@@ -336,17 +376,23 @@ func (s *Session) Close() {
 	_ = s.cmd.Wait()
 }
 
-type client struct {
-	updates func(acp.SessionNotification)
-}
-
-func (c client) SessionUpdate(_ context.Context, notification acp.SessionNotification) error {
-	c.updates(notification)
-	return nil
-}
-
-func (client) RequestPermission(_ context.Context, request acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	return acp.RequestPermissionResponse{Outcome: permission(request.Options)}, nil
+// handler gives the params of each session/update notification to updates, and allows each permission request.
+// The session gives the agent no file system and no terminal, so the agent must not call other methods.
+func handler(updates func(json.RawMessage)) acp.MethodHandler {
+	return func(_ context.Context, method string, params json.RawMessage) (any, *acp.RequestError) {
+		switch method {
+		case acp.ClientMethodSessionUpdate:
+			updates(params)
+			return nil, nil
+		case acp.ClientMethodSessionRequestPermission:
+			var request acp.RequestPermissionRequest
+			if err := json.Unmarshal(params, &request); err != nil {
+				return nil, acp.NewInvalidParams(err.Error())
+			}
+			return acp.RequestPermissionResponse{Outcome: permission(request.Options)}, nil
+		}
+		return nil, acp.NewMethodNotFound(method)
+	}
 }
 
 func permission(options []acp.PermissionOption) acp.RequestPermissionOutcome {
@@ -356,34 +402,4 @@ func permission(options []acp.PermissionOption) acp.RequestPermissionOutcome {
 		}
 	}
 	return acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}}
-}
-
-// The session gives the agent no file system and no terminal, so the agent must not call these methods.
-
-func (client) ReadTextFile(context.Context, acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
-	return acp.ReadTextFileResponse{}, acp.NewMethodNotFound(acp.ClientMethodFsReadTextFile)
-}
-
-func (client) WriteTextFile(context.Context, acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
-	return acp.WriteTextFileResponse{}, acp.NewMethodNotFound(acp.ClientMethodFsWriteTextFile)
-}
-
-func (client) CreateTerminal(context.Context, acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {
-	return acp.CreateTerminalResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalCreate)
-}
-
-func (client) KillTerminal(context.Context, acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
-	return acp.KillTerminalResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalKill)
-}
-
-func (client) TerminalOutput(context.Context, acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {
-	return acp.TerminalOutputResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalOutput)
-}
-
-func (client) ReleaseTerminal(context.Context, acp.ReleaseTerminalRequest) (acp.ReleaseTerminalResponse, error) {
-	return acp.ReleaseTerminalResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalRelease)
-}
-
-func (client) WaitForTerminalExit(context.Context, acp.WaitForTerminalExitRequest) (acp.WaitForTerminalExitResponse, error) {
-	return acp.WaitForTerminalExitResponse{}, acp.NewMethodNotFound(acp.ClientMethodTerminalWaitForExit)
 }
