@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -469,5 +470,29 @@ func TestABodyWithAnUnknownFieldIsRefused(t *testing.T) {
 
 	if response.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d", response.StatusCode)
+	}
+}
+
+func TestTheNewAppPageSendsTheBrowserToTheRedirectURLWithANewCodeAndTheState(t *testing.T) {
+	github := NewFakeGitHub(t)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	manifest := url.Values{"manifest": {`{"redirect_url": "https://mobius.example.ts.net/api/github/manifest-callback"}`}}
+
+	response, err := client.PostForm(github.URL+"/organizations/acme/settings/apps/new?state=abc", manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+
+	want := "https://mobius.example.ts.net/api/github/manifest-callback?code=manifest-code-1&state=abc"
+	if response.StatusCode != http.StatusFound || response.Header.Get("Location") != want {
+		t.Errorf("status %d, location %q", response.StatusCode, response.Header.Get("Location"))
+	}
+	var app struct {
+		ID int64 `json:"id"`
+	}
+	send(t, http.MethodPost, github.URL+"/app-manifests/manifest-code-1/conversions", "", "", &app)
+	if app.ID != AppID {
+		t.Errorf("app = %+v", app)
 	}
 }

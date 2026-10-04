@@ -157,7 +157,7 @@ func TestLogoutEndsTheDeviceLogin(t *testing.T) {
 
 func TestEachAPIRouteButLoginNeedsTheSessionCookie(t *testing.T) {
 	mux, _, _ := newMux(t)
-	router := Routes(http.NewServeMux(), nil, nil)
+	router := Routes(http.NewServeMux(), nil, nil, nil)
 	routes := router.GetRegistry().GetRoutes()
 	if len(routes) < 2 {
 		t.Fatalf("routes = %d", len(routes))
@@ -181,7 +181,7 @@ func TestEachAPIRouteButLoginNeedsTheSessionCookie(t *testing.T) {
 }
 
 func TestSpecGivesTheSessionCookieAnd401ToEachRouteButLogin(t *testing.T) {
-	router := Routes(http.NewServeMux(), nil, nil)
+	router := Routes(http.NewServeMux(), nil, nil, nil)
 	spec := api.GenerateOpenAPI(router.GetRegistry())
 
 	want := &api.SecurityScheme{Type: "apiKey", In: "cookie", Name: sessionCookie}

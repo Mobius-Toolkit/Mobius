@@ -47,3 +47,17 @@ DELETE FROM device_logins WHERE id = ?;
 
 -- name: DeleteOtherPasswordLogins :exec
 DELETE FROM device_logins WHERE password_fingerprint != ?;
+
+-- name: AddGitHubApp :exec
+INSERT INTO github_apps (app_id, slug, private_key, client_id, client_secret)
+VALUES (?, ?, ?, ?, ?);
+
+-- name: ListGitHubApps :many
+SELECT * FROM github_apps ORDER BY app_id;
+
+-- name: GetGitHubApp :one
+SELECT * FROM github_apps WHERE app_id = ?;
+
+-- name: SetUserTokens :exec
+UPDATE github_apps SET user_token = ?, refresh_token = ?, user_token_expires_at = ?
+WHERE app_id = ?;

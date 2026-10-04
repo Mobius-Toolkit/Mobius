@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 )
 
 const addDeviceLogin = `-- name: AddDeviceLogin :exec
@@ -27,6 +28,30 @@ func (q *Queries) AddDeviceLogin(ctx context.Context, arg AddDeviceLoginParams) 
 		arg.PasswordFingerprint,
 		arg.UserAgent,
 		arg.CreatedAt,
+	)
+	return err
+}
+
+const addGitHubApp = `-- name: AddGitHubApp :exec
+INSERT INTO github_apps (app_id, slug, private_key, client_id, client_secret)
+VALUES (?, ?, ?, ?, ?)
+`
+
+type AddGitHubAppParams struct {
+	AppID        int64
+	Slug         string
+	PrivateKey   string
+	ClientID     string
+	ClientSecret string
+}
+
+func (q *Queries) AddGitHubApp(ctx context.Context, arg AddGitHubAppParams) error {
+	_, err := q.db.ExecContext(ctx, addGitHubApp,
+		arg.AppID,
+		arg.Slug,
+		arg.PrivateKey,
+		arg.ClientID,
+		arg.ClientSecret,
 	)
 	return err
 }
@@ -58,6 +83,26 @@ func (q *Queries) FindDeviceLogin(ctx context.Context, tokenHash []byte) (int64,
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const getGitHubApp = `-- name: GetGitHubApp :one
+SELECT app_id, slug, private_key, client_id, client_secret, user_token, refresh_token, user_token_expires_at FROM github_apps WHERE app_id = ?
+`
+
+func (q *Queries) GetGitHubApp(ctx context.Context, appID int64) (GithubApp, error) {
+	row := q.db.QueryRowContext(ctx, getGitHubApp, appID)
+	var i GithubApp
+	err := row.Scan(
+		&i.AppID,
+		&i.Slug,
+		&i.PrivateKey,
+		&i.ClientID,
+		&i.ClientSecret,
+		&i.UserToken,
+		&i.RefreshToken,
+		&i.UserTokenExpiresAt,
+	)
+	return i, err
 }
 
 const listDeviceLogins = `-- name: ListDeviceLogins :many
@@ -115,6 +160,42 @@ func (q *Queries) ListEventsAfter(ctx context.Context, id int64) ([]Event, error
 			&i.Actor,
 			&i.Text,
 			&i.Link,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGitHubApps = `-- name: ListGitHubApps :many
+SELECT app_id, slug, private_key, client_id, client_secret, user_token, refresh_token, user_token_expires_at FROM github_apps ORDER BY app_id
+`
+
+func (q *Queries) ListGitHubApps(ctx context.Context) ([]GithubApp, error) {
+	rows, err := q.db.QueryContext(ctx, listGitHubApps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GithubApp
+	for rows.Next() {
+		var i GithubApp
+		if err := rows.Scan(
+			&i.AppID,
+			&i.Slug,
+			&i.PrivateKey,
+			&i.ClientID,
+			&i.ClientSecret,
+			&i.UserToken,
+			&i.RefreshToken,
+			&i.UserTokenExpiresAt,
 		); err != nil {
 			return nil, err
 		}
@@ -229,4 +310,26 @@ func (q *Queries) ListWorkstreams(ctx context.Context) ([]ListWorkstreamsRow, er
 		return nil, err
 	}
 	return items, nil
+}
+
+const setUserTokens = `-- name: SetUserTokens :exec
+UPDATE github_apps SET user_token = ?, refresh_token = ?, user_token_expires_at = ?
+WHERE app_id = ?
+`
+
+type SetUserTokensParams struct {
+	UserToken          sql.NullString
+	RefreshToken       sql.NullString
+	UserTokenExpiresAt sql.NullString
+	AppID              int64
+}
+
+func (q *Queries) SetUserTokens(ctx context.Context, arg SetUserTokensParams) error {
+	_, err := q.db.ExecContext(ctx, setUserTokens,
+		arg.UserToken,
+		arg.RefreshToken,
+		arg.UserTokenExpiresAt,
+		arg.AppID,
+	)
+	return err
 }

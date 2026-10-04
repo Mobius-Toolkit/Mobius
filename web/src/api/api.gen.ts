@@ -26,6 +26,15 @@ export interface Activity {
   workstream: number;
 }
 
+export interface CreateManifestFormBody {
+  /** Account is the GitHub user or organization that owns the new App */
+  account: string;
+  /** Name is the name of the new App */
+  name?: string;
+  /** Origin is the origin of the Mobius UI, for example https://mobius.example.ts.net */
+  origin: string;
+}
+
 /**
  * DeviceLogin is the login of a device with the access password.
  */
@@ -49,6 +58,23 @@ export interface Devices {
 }
 
 /**
+ * GitHubApp is a Mobius App on GitHub.
+ */
+export interface GitHubApp {
+  /** InstallURL is the page of GitHub that installs the App on repositories */
+  installUrl: string;
+  /** Repositories are the repositories of the installations of the App, as "owner/name" */
+  repositories: string[];
+  /** Slug is the name of the App in its GitHub URLs */
+  slug: string;
+}
+
+export interface EnvelopeArrayGitHubApp {
+  /** Data is the payload of the response */
+  data: GitHubApp[];
+}
+
+/**
  * Workstream is a Workstream that has rows in the database.
  */
 export interface Workstream {
@@ -69,6 +95,11 @@ export interface EnvelopeArrayWorkstream {
   data: Workstream[];
 }
 
+export interface EnvelopeArrayString {
+  /** Data is the payload of the response */
+  data: string[];
+}
+
 export interface EnvelopeDevices {
   /** Data is the payload of the response */
   data: Devices;
@@ -87,6 +118,21 @@ export interface Health {
 export interface EnvelopeHealth {
   /** Data is the payload of the response */
   data: Health;
+}
+
+/**
+ * ManifestForm is the form that the browser posts to GitHub to create a Mobius App.
+ */
+export interface ManifestForm {
+  /** Manifest is the value of the form field "manifest" */
+  manifest: string;
+  /** URL is the action of the form */
+  url: string;
+}
+
+export interface EnvelopeManifestForm {
+  /** Data is the payload of the response */
+  data: ManifestForm;
 }
 
 /**
@@ -278,6 +324,136 @@ export const logout = async (id: number, ): Promise<logoutResponse> => {
 
 
 
+export type listGitHubAppsResponse200 = {
+  data: EnvelopeArrayGitHubApp
+  status: 200
+}
+
+export type listGitHubAppsResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listGitHubAppsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listGitHubAppsResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listGitHubAppsResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listGitHubAppsResponseSuccess = (listGitHubAppsResponse200) & {
+  headers: Headers;
+};
+export type listGitHubAppsResponseError = (listGitHubAppsResponse400 | listGitHubAppsResponse401 | listGitHubAppsResponse422 | listGitHubAppsResponse500) & {
+  headers: Headers;
+};
+
+export type listGitHubAppsResponse = (listGitHubAppsResponseSuccess | listGitHubAppsResponseError)
+
+export const getListGitHubAppsUrl = () => {
+
+
+
+
+  return `/api/github/apps`
+}
+
+/**
+ * ListGitHubApps returns the Mobius Apps with the repositories of their installations.
+ */
+export const listGitHubApps = async ( ): Promise<listGitHubAppsResponse> => {
+
+  const res = await fetch(getListGitHubAppsUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listGitHubAppsResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listGitHubAppsResponse
+}
+
+
+
+export type createManifestFormResponse200 = {
+  data: EnvelopeManifestForm
+  status: 200
+}
+
+export type createManifestFormResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type createManifestFormResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type createManifestFormResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type createManifestFormResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type createManifestFormResponseSuccess = (createManifestFormResponse200) & {
+  headers: Headers;
+};
+export type createManifestFormResponseError = (createManifestFormResponse400 | createManifestFormResponse401 | createManifestFormResponse422 | createManifestFormResponse500) & {
+  headers: Headers;
+};
+
+export type createManifestFormResponse = (createManifestFormResponseSuccess | createManifestFormResponseError)
+
+export const getCreateManifestFormUrl = () => {
+
+
+
+
+  return `/api/github/manifest`
+}
+
+/**
+ * CreateManifestForm returns the form that creates a Mobius App in a GitHub account. After the form, GitHub sends the browser to GET /api/github/manifest-callback.
+ */
+export const createManifestForm = async (createManifestFormBody: CreateManifestFormBody, ): Promise<createManifestFormResponse> => {
+
+  const res = await fetch(getCreateManifestFormUrl(),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(createManifestFormBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: createManifestFormResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as createManifestFormResponse
+}
+
+
+
 export type getHealthResponse200 = {
   data: EnvelopeHealth
   status: 200
@@ -404,6 +580,71 @@ export const login = async (loginBody: LoginBody, ): Promise<loginResponse> => {
 
   const data: loginResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as loginResponse
+}
+
+
+
+export type listOrganizationsResponse200 = {
+  data: EnvelopeArrayString
+  status: 200
+}
+
+export type listOrganizationsResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listOrganizationsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listOrganizationsResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listOrganizationsResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listOrganizationsResponseSuccess = (listOrganizationsResponse200) & {
+  headers: Headers;
+};
+export type listOrganizationsResponseError = (listOrganizationsResponse400 | listOrganizationsResponse401 | listOrganizationsResponse422 | listOrganizationsResponse500) & {
+  headers: Headers;
+};
+
+export type listOrganizationsResponse = (listOrganizationsResponseSuccess | listOrganizationsResponseError)
+
+export const getListOrganizationsUrl = () => {
+
+
+
+
+  return `/api/organizations`
+}
+
+/**
+ * ListOrganizations returns the owners of the repositories of the Mobius Apps, sorted.
+ */
+export const listOrganizations = async ( ): Promise<listOrganizationsResponse> => {
+
+  const res = await fetch(getListOrganizationsUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listOrganizationsResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listOrganizationsResponse
 }
 
 

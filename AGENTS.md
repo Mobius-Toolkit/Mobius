@@ -53,6 +53,7 @@ cmd/mobius-session/    starts one Claude Code session with the Mobius MCP server
 internal/api/          the Gork routes and handlers, and the device login check of each route
 internal/auth/         the access password and the device logins
 internal/config/       reads config.toml
+internal/github/       the GitHub Apps: the App setup, the user tokens, the installation tokens and the repositories
 internal/mcp/          the Mobius MCP server and its tools
 internal/runner/       starts an agent session of a Harness through ACP
 internal/setup/        mobius init: asks for the values of a new config.toml and writes it
