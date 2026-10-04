@@ -439,3 +439,78 @@ test('the Mic button adds the spoken text to the message', async ({ page }) => {
   ).toBeVisible()
   await expect(mic).toBeVisible()
 })
+
+test('the note closes the Workstream when all tasks are closed', async ({
+  page,
+}) => {
+  const main = page.getByRole('main')
+  const note = main.getByText('All tasks are closed.')
+  const close = main.getByRole('button', { name: 'Close Workstream' })
+  for (const [size, workstream, task, closes] of [
+    [undefined, 50, 52, true],
+    [phone, 55, 57, false],
+  ] as const) {
+    if (size) {
+      await page.setViewportSize(size)
+    }
+    const agents = () =>
+      get<{ role: string; endedAt: string | null; endReason: string }[]>(
+        page,
+        `/api/workstreams/plants/garden/${workstream}/agents`,
+      )
+    // The side bar of a phone is hidden, and it has the link.
+    const link = page.locator(
+      `nav a[href="/workstreams/plants/garden/${workstream}"]`,
+    )
+    const done = link.getByText('done', { exact: true })
+    await page.goto(`/workstreams/plants/garden/${workstream}`)
+    await expect(link).toBeAttached()
+    await expect(note).toBeHidden()
+    await expect(done).not.toBeAttached()
+
+    // The Lead moves the last open task to another Workstream, and its session still runs.
+    await page
+      .getByLabel('Message to the Lead')
+      .fill(`Move #${task} to the Workstream #20.`)
+    await page.getByRole('button', { name: 'Send' }).click()
+    await expect(note).toBeVisible()
+    await expect(done).toBeAttached()
+    expect(
+      await page.evaluate(`(() => {
+        const button = [...document.querySelectorAll('main button')].find((button) => button.textContent === 'Close Workstream')
+        const box = button.getBoundingClientRect()
+        const note = button.parentElement
+        return box.left >= 0 && box.right <= window.innerWidth && note.scrollWidth <= note.clientWidth
+      })()`),
+    ).toBe(true)
+    expect(
+      (await agents()).some(
+        (agent) => agent.role === 'lead_chat' && agent.endedAt === null,
+      ),
+    ).toBe(true)
+
+    await close.click()
+    if (closes) {
+      await expect(page).toHaveURL('/workstreams')
+      await expect(link).not.toBeAttached()
+      await expect(note).not.toBeAttached()
+      // The close stops each agent session of the Workstream.
+      await expect
+        .poll(async () =>
+          (await agents()).every(
+            (agent) =>
+              agent.endedAt !== null &&
+              (agent.role !== 'lead_chat' || agent.endReason === 'stopped'),
+          ),
+        )
+        .toBe(true)
+    } else {
+      await expect(
+        note.locator('..').locator('.text-destructive'),
+      ).toBeVisible()
+      await expect(page).toHaveURL(`/workstreams/plants/garden/${workstream}`)
+      await expect(link).toBeAttached()
+      await expect(note).toBeVisible()
+    }
+  }
+})
