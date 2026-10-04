@@ -5,6 +5,110 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/checkup": {
+      "get": {
+        "description": "GetCheckup returns the status of the App permissions and of each Mobius label in each repository of the organization.",
+        "operationId": "GetCheckup",
+        "parameters": [
+          {
+            "description": "Organization is the owner of the repositories",
+            "in": "query",
+            "name": "organization",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Checkup"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "checkup"
+        ]
+      }
+    },
+    "/api/checkup/fix": {
+      "post": {
+        "description": "FixLabels creates the missing Mobius labels and sets the fixed color of each Mobius label with a different color, in each repository of the organization. The description of an existing label stays.",
+        "operationId": "FixLabels",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FixLabelsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "checkup"
+        ]
+      }
+    },
     "/api/devices": {
       "get": {
         "description": "ListDevices returns the device logins.",
@@ -497,6 +601,48 @@
         ],
         "description": "Activity is an entry of the activity feed of a Workstream."
       },
+      "Checkup": {
+        "type": "object",
+        "title": "Checkup",
+        "properties": {
+          "labelFix": {
+            "type": "string",
+            "description": "LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change",
+            "enum": [
+              "create",
+              "fix",
+              "none"
+            ]
+          },
+          "permissions": {
+            "type": "array",
+            "title": "[]PermissionCheck",
+            "description": "Permissions are the permissions of the App of the first repository. It is empty when the organization has no repository or the check failed",
+            "items": {
+              "$ref": "#/components/schemas/PermissionCheck"
+            }
+          },
+          "permissionsError": {
+            "type": "string",
+            "description": "PermissionsError is the error of the permission check, or empty"
+          },
+          "repositories": {
+            "type": "array",
+            "title": "[]RepositoryCheckup",
+            "description": "Repositories are the repositories of the organization, in name order",
+            "items": {
+              "$ref": "#/components/schemas/RepositoryCheckup"
+            }
+          }
+        },
+        "required": [
+          "repositories",
+          "permissions",
+          "permissionsError",
+          "labelFix"
+        ],
+        "description": "Checkup is the status of the App permissions and of the Mobius labels in an organization."
+      },
       "CreateManifestFormBody": {
         "type": "object",
         "title": "CreateManifestFormBody",
@@ -618,6 +764,19 @@
           "data"
         ]
       },
+      "Envelope_Checkup": {
+        "type": "object",
+        "title": "Envelope_Checkup",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Checkup",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
       "Envelope_Devices": {
         "type": "object",
         "title": "Envelope_Devices",
@@ -676,6 +835,19 @@
         ],
         "description": "Generic error response structure"
       },
+      "FixLabelsBody": {
+        "type": "object",
+        "title": "FixLabelsBody",
+        "properties": {
+          "organization": {
+            "type": "string",
+            "description": "Organization is the owner of the repositories"
+          }
+        },
+        "required": [
+          "organization"
+        ]
+      },
       "GitHubApp": {
         "type": "object",
         "title": "GitHubApp",
@@ -723,6 +895,41 @@
           "time"
         ],
         "description": "Health is the state of the server."
+      },
+      "LabelCheck": {
+        "type": "object",
+        "title": "LabelCheck",
+        "properties": {
+          "color": {
+            "type": "string",
+            "description": "Color is the fixed color of the Mobius label, as six hex digits with no \"#\""
+          },
+          "found": {
+            "type": "string",
+            "description": "Found is the color on GitHub for wrong-color, and the name on GitHub for wrong-case"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name is the name of the Mobius label"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status is wrong-color for a label with a different color, and wrong-case for a label with its name in a different case. Mobius does not rename labels, so the Owner fixes a wrong case",
+            "enum": [
+              "present",
+              "wrong-color",
+              "wrong-case",
+              "missing"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "color",
+          "status",
+          "found"
+        ],
+        "description": "LabelCheck is the status of a Mobius label in a repository."
       },
       "LiveEvents": {
         "title": "LiveEvents",
@@ -784,6 +991,63 @@
           "manifest"
         ],
         "description": "ManifestForm is the form that the browser posts to GitHub to create a Mobius App."
+      },
+      "PermissionCheck": {
+        "type": "object",
+        "title": "PermissionCheck",
+        "properties": {
+          "level": {
+            "type": "string",
+            "description": "Level is the required level"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name is the name of the permission"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status is not-accepted when the App has the permission and the installation does not",
+            "enum": [
+              "present",
+              "not-accepted",
+              "missing"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "description": "URL is the page of GitHub where the Owner accepts or adds the permission. It is empty for present"
+          }
+        },
+        "required": [
+          "name",
+          "level",
+          "status",
+          "url"
+        ],
+        "description": "PermissionCheck is the status of a permission that the Mobius App needs."
+      },
+      "RepositoryCheckup": {
+        "type": "object",
+        "title": "RepositoryCheckup",
+        "properties": {
+          "labels": {
+            "type": "array",
+            "title": "[]LabelCheck",
+            "description": "Labels are the Mobius labels",
+            "items": {
+              "$ref": "#/components/schemas/LabelCheck"
+            }
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository as \"owner/name\""
+          }
+        },
+        "required": [
+          "repository",
+          "labels"
+        ],
+        "description": "RepositoryCheckup is the status of each Mobius label in a repository."
       },
       "ValidationErrorResponse": {
         "type": "object",

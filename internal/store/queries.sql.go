@@ -105,6 +105,27 @@ func (q *Queries) GetGitHubApp(ctx context.Context, appID int64) (GithubApp, err
 	return i, err
 }
 
+const getSyncCursor = `-- name: GetSyncCursor :one
+SELECT since, etag FROM sync_cursors WHERE repository = ? AND endpoint = ?
+`
+
+type GetSyncCursorParams struct {
+	Repository string
+	Endpoint   string
+}
+
+type GetSyncCursorRow struct {
+	Since sql.NullString
+	Etag  sql.NullString
+}
+
+func (q *Queries) GetSyncCursor(ctx context.Context, arg GetSyncCursorParams) (GetSyncCursorRow, error) {
+	row := q.db.QueryRowContext(ctx, getSyncCursor, arg.Repository, arg.Endpoint)
+	var i GetSyncCursorRow
+	err := row.Scan(&i.Since, &i.Etag)
+	return i, err
+}
+
 const listDeviceLogins = `-- name: ListDeviceLogins :many
 SELECT id, user_agent, created_at FROM device_logins ORDER BY id DESC
 `
@@ -310,6 +331,28 @@ func (q *Queries) ListWorkstreams(ctx context.Context) ([]ListWorkstreamsRow, er
 		return nil, err
 	}
 	return items, nil
+}
+
+const setSyncCursor = `-- name: SetSyncCursor :exec
+INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES (?, ?, ?, ?)
+ON CONFLICT (repository, endpoint) DO UPDATE SET since = excluded.since, etag = excluded.etag
+`
+
+type SetSyncCursorParams struct {
+	Repository string
+	Endpoint   string
+	Since      sql.NullString
+	Etag       sql.NullString
+}
+
+func (q *Queries) SetSyncCursor(ctx context.Context, arg SetSyncCursorParams) error {
+	_, err := q.db.ExecContext(ctx, setSyncCursor,
+		arg.Repository,
+		arg.Endpoint,
+		arg.Since,
+		arg.Etag,
+	)
+	return err
 }
 
 const setUserTokens = `-- name: SetUserTokens :exec

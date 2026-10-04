@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,15 +32,21 @@ const stateLife = time.Hour
 // A user token that expires within this time gets a refresh before its use.
 const refreshMargin = 5 * time.Minute
 
-// The permission names with the levels that the Mobius App needs.
-var requiredPermissions = map[string]string{
-	"issues":        "write",
-	"pull_requests": "write",
-	"contents":      "write",
-	"checks":        "write",
-	"workflows":     "write",
-	"actions":       "read",
-	"metadata":      "read",
+// Permission is a permission name of a GitHub App with its level: read, write or admin.
+type Permission struct {
+	Name  string
+	Level string
+}
+
+// RequiredPermissions are the permissions that the Mobius App needs.
+var RequiredPermissions = []Permission{
+	{"issues", "write"},
+	{"pull_requests", "write"},
+	{"contents", "write"},
+	{"checks", "write"},
+	{"workflows", "write"},
+	{"actions", "read"},
+	{"metadata", "read"},
 }
 
 // GitHub holds the Apps of the github_apps table and the repositories of their installations.
@@ -111,6 +118,10 @@ func (g *GitHub) ManifestForm(ctx context.Context, account, name, origin string)
 	if err != nil {
 		return ManifestForm{}, false, err
 	}
+	permissions := map[string]string{}
+	for _, permission := range RequiredPermissions {
+		permissions[permission.Name] = permission.Level
+	}
 	manifest, err := json.Marshal(map[string]any{
 		"name":                     name,
 		"url":                      "https://github.com/Mobius-Toolkit/Mobius",
@@ -118,7 +129,7 @@ func (g *GitHub) ManifestForm(ctx context.Context, account, name, origin string)
 		"callback_urls":            []string{origin + "/api/github/user-callback"},
 		"request_oauth_on_install": true,
 		"public":                   false,
-		"default_permissions":      requiredPermissions,
+		"default_permissions":      permissions,
 	})
 	if err != nil {
 		return ManifestForm{}, false, err
@@ -305,20 +316,6 @@ func (g *GitHub) UserToken(ctx context.Context, appID int64) (string, error) {
 	return tokens.AccessToken, nil
 }
 
-// Run reads the repositories of the installations of each App now and then after each interval, until ctx ends.
-func (g *GitHub) Run(ctx context.Context, interval time.Duration) {
-	for {
-		if err := g.Refresh(ctx); err != nil {
-			log.Printf("read the repositories of the GitHub Apps: %v", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(interval):
-		}
-	}
-}
-
 // Refresh reads the repositories of the installations of each App. An App whose read
 // fails keeps the repositories of its last read.
 func (g *GitHub) Refresh(ctx context.Context) error {
@@ -341,13 +338,19 @@ func (g *GitHub) Refresh(ctx context.Context) error {
 	return nil
 }
 
-func (g *GitHub) appRepositories(ctx context.Context, app store.GithubApp) ([]Repository, error) {
+// appClient gives the client that signs each request with the key of the App.
+func (g *GitHub) appClient(app store.GithubApp) (*gh.Client, *ghinstallation.AppsTransport, error) {
 	appTransport, err := ghinstallation.NewAppsTransport(http.DefaultTransport, app.AppID, []byte(app.PrivateKey))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	appTransport.BaseURL = g.apiURL
-	appClient, err := g.client(gh.WithTransport(appTransport))
+	client, err := g.client(gh.WithTransport(appTransport))
+	return client, appTransport, err
+}
+
+func (g *GitHub) appRepositories(ctx context.Context, app store.GithubApp) ([]Repository, error) {
+	appClient, appTransport, err := g.appClient(app)
 	if err != nil {
 		return nil, err
 	}
@@ -402,4 +405,121 @@ func (g *GitHub) Organizations() []string {
 	}
 	slices.Sort(organizations)
 	return slices.Compact(organizations)
+}
+
+// AppAccess is the access of a Mobius App in an account.
+type AppAccess struct {
+	// AppPermissions and InstallationPermissions give the level of each permission name.
+	AppPermissions          map[string]string
+	InstallationPermissions map[string]string
+	// AppPermissionsURL is the page of the App where the Owner adds a permission.
+	AppPermissionsURL string
+	// InstallationURL is the page of the installation where the Owner accepts the new permissions.
+	InstallationURL string
+}
+
+// AppAccess gives the permissions of the App appID and of its installation in account.
+func (g *GitHub) AppAccess(ctx context.Context, appID int64, account string) (AppAccess, error) {
+	app, err := g.queries.GetGitHubApp(ctx, appID)
+	if err != nil {
+		return AppAccess{}, err
+	}
+	client, _, err := g.appClient(app)
+	if err != nil {
+		return AppAccess{}, err
+	}
+	var installation *gh.Installation
+	for found, err := range client.Apps.ListInstallationsIter(ctx, &gh.ListOptions{PerPage: 100}) {
+		if err != nil {
+			return AppAccess{}, err
+		}
+		if strings.EqualFold(found.GetAccount().GetLogin(), account) {
+			installation = found
+			break
+		}
+	}
+	if installation == nil {
+		return AppAccess{}, fmt.Errorf("the Mobius App has no installation in %s", account)
+	}
+	found, _, err := client.Apps.Get(ctx, "")
+	if err != nil {
+		return AppAccess{}, err
+	}
+	access := AppAccess{
+		AppPermissionsURL: g.webURL + "/settings/apps/" + url.PathEscape(app.Slug) + "/permissions",
+		InstallationURL:   g.webURL + "/settings/installations/" + strconv.FormatInt(installation.GetID(), 10),
+	}
+	if installation.GetAccount().GetType() == "Organization" {
+		organization := g.webURL + "/organizations/" + url.PathEscape(account)
+		access.AppPermissionsURL = organization + "/settings/apps/" + url.PathEscape(app.Slug) + "/permissions"
+		access.InstallationURL = organization + "/settings/installations/" + strconv.FormatInt(installation.GetID(), 10)
+	}
+	if access.AppPermissions, err = levels(found.GetPermissions()); err != nil {
+		return AppAccess{}, err
+	}
+	access.InstallationPermissions, err = levels(installation.GetPermissions())
+	return access, err
+}
+
+// levels gives the level of each permission name. The JSON names of the fields are the permission names.
+func levels(permissions *gh.InstallationPermissions) (map[string]string, error) {
+	text, err := json.Marshal(permissions)
+	if err != nil {
+		return nil, err
+	}
+	var found map[string]string
+	return found, json.Unmarshal(text, &found)
+}
+
+// Grants tells if permissions give the permission name at the level required or at a higher level.
+// The levels are read, write and admin, in this order.
+func Grants(permissions map[string]string, name, required string) bool {
+	rank := func(level string) int { return slices.Index([]string{"read", "write", "admin"}, level) }
+	level, ok := permissions[name]
+	return ok && rank(level) >= rank(required)
+}
+
+// IssuePage is a list of issues and pull requests.
+type IssuePage struct {
+	Issues []*gh.Issue
+	// ETag is empty when the list has more than one page: a 304 for page 1 says nothing about the other pages.
+	ETag string
+}
+
+// IssuesSince gives the issues and pull requests that changed at or after since, or all of them when
+// since is zero, in the order of their last change. It gives false when GitHub answers 304 Not Modified to etag.
+func (r Repository) IssuesSince(ctx context.Context, since time.Time, etag string) (IssuePage, bool, error) {
+	query := url.Values{"state": {"all"}, "sort": {"updated"}, "direction": {"asc"}, "per_page": {"100"}}
+	if !since.IsZero() {
+		query.Set("since", since.UTC().Format(time.RFC3339))
+	}
+	var result IssuePage
+	for page := 1; ; page++ {
+		query.Set("page", strconv.Itoa(page))
+		request, err := r.Client.NewRequest(ctx, http.MethodGet, "repos/"+r.FullName+"/issues?"+query.Encode(), nil)
+		if err != nil {
+			return IssuePage{}, false, err
+		}
+		if page == 1 && etag != "" {
+			request.Header.Set("If-None-Match", etag)
+		}
+		var issues []*gh.Issue
+		response, err := r.Client.Do(request, &issues)
+		if response != nil && response.StatusCode == http.StatusNotModified {
+			return IssuePage{}, false, nil
+		}
+		if err != nil {
+			return IssuePage{}, false, err
+		}
+		result.Issues = append(result.Issues, issues...)
+		if page == 1 {
+			result.ETag = response.Header.Get("ETag")
+		}
+		if response.NextPage == 0 {
+			if page > 1 {
+				result.ETag = ""
+			}
+			return result, true, nil
+		}
+	}
 }

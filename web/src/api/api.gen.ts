@@ -26,6 +26,95 @@ export interface Activity {
   workstream: number;
 }
 
+/**
+ * LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change
+ */
+export type CheckupLabelFix = typeof CheckupLabelFix[keyof typeof CheckupLabelFix];
+
+
+export const CheckupLabelFix = {
+  create: 'create',
+  fix: 'fix',
+  none: 'none',
+} as const;
+
+/**
+ * Status is not-accepted when the App has the permission and the installation does not
+ */
+export type PermissionCheckStatus = typeof PermissionCheckStatus[keyof typeof PermissionCheckStatus];
+
+
+export const PermissionCheckStatus = {
+  present: 'present',
+  'not-accepted': 'not-accepted',
+  missing: 'missing',
+} as const;
+
+/**
+ * PermissionCheck is the status of a permission that the Mobius App needs.
+ */
+export interface PermissionCheck {
+  /** Level is the required level */
+  level: string;
+  /** Name is the name of the permission */
+  name: string;
+  /** Status is not-accepted when the App has the permission and the installation does not */
+  status: PermissionCheckStatus;
+  /** URL is the page of GitHub where the Owner accepts or adds the permission. It is empty for present */
+  url: string;
+}
+
+/**
+ * Status is wrong-color for a label with a different color, and wrong-case for a label with its name in a different case. Mobius does not rename labels, so the Owner fixes a wrong case
+ */
+export type LabelCheckStatus = typeof LabelCheckStatus[keyof typeof LabelCheckStatus];
+
+
+export const LabelCheckStatus = {
+  present: 'present',
+  'wrong-color': 'wrong-color',
+  'wrong-case': 'wrong-case',
+  missing: 'missing',
+} as const;
+
+/**
+ * LabelCheck is the status of a Mobius label in a repository.
+ */
+export interface LabelCheck {
+  /** Color is the fixed color of the Mobius label, as six hex digits with no "#" */
+  color: string;
+  /** Found is the color on GitHub for wrong-color, and the name on GitHub for wrong-case */
+  found: string;
+  /** Name is the name of the Mobius label */
+  name: string;
+  /** Status is wrong-color for a label with a different color, and wrong-case for a label with its name in a different case. Mobius does not rename labels, so the Owner fixes a wrong case */
+  status: LabelCheckStatus;
+}
+
+/**
+ * RepositoryCheckup is the status of each Mobius label in a repository.
+ */
+export interface RepositoryCheckup {
+  /** Labels are the Mobius labels */
+  labels: LabelCheck[];
+  /** Repository is the repository as "owner/name" */
+  repository: string;
+}
+
+/**
+ * Checkup is the status of the App permissions and of the Mobius labels in an organization.
+ */
+export interface Checkup {
+  /** LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change */
+  labelFix: CheckupLabelFix;
+  /** Permissions are the permissions of the App of the first repository. It is empty when the organization has no repository or the check failed */
+  permissions: PermissionCheck[];
+  /** PermissionsError is the error of the permission check, or empty */
+  permissionsError: string;
+  /** Repositories are the repositories of the organization, in name order */
+  repositories: RepositoryCheckup[];
+}
+
 export interface CreateManifestFormBody {
   /** Account is the GitHub user or organization that owns the new App */
   account: string;
@@ -100,6 +189,11 @@ export interface EnvelopeArrayString {
   data: string[];
 }
 
+export interface EnvelopeCheckup {
+  /** Data is the payload of the response */
+  data: Checkup;
+}
+
 export interface EnvelopeDevices {
   /** Data is the payload of the response */
   data: Devices;
@@ -150,6 +244,11 @@ export interface ErrorResponse {
   error: string;
 }
 
+export interface FixLabelsBody {
+  /** Organization is the owner of the repositories */
+  organization: string;
+}
+
 /**
  * LiveEvents are the events of the live event stream.
  */
@@ -193,6 +292,150 @@ export type InternalServerErrorResponse = ErrorResponse;
  * Unprocessable Entity - Request body could not be parsed
  */
 export type UnprocessableEntityResponse = ErrorResponse;
+
+export type GetCheckupParams = {
+/**
+ * Organization is the owner of the repositories
+ */
+organization: string;
+};
+
+export type getCheckupResponse200 = {
+  data: EnvelopeCheckup
+  status: 200
+}
+
+export type getCheckupResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getCheckupResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getCheckupResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getCheckupResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getCheckupResponseSuccess = (getCheckupResponse200) & {
+  headers: Headers;
+};
+export type getCheckupResponseError = (getCheckupResponse400 | getCheckupResponse401 | getCheckupResponse422 | getCheckupResponse500) & {
+  headers: Headers;
+};
+
+export type getCheckupResponse = (getCheckupResponseSuccess | getCheckupResponseError)
+
+export const getGetCheckupUrl = (params: GetCheckupParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/checkup?${stringifiedParams}` : `/api/checkup`
+}
+
+/**
+ * GetCheckup returns the status of the App permissions and of each Mobius label in each repository of the organization.
+ */
+export const getCheckup = async (params: GetCheckupParams, ): Promise<getCheckupResponse> => {
+
+  const res = await fetch(getGetCheckupUrl(params),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getCheckupResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getCheckupResponse
+}
+
+
+
+export type fixLabelsResponse204 = {
+  data: void
+  status: 204
+}
+
+export type fixLabelsResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type fixLabelsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type fixLabelsResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type fixLabelsResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type fixLabelsResponseSuccess = (fixLabelsResponse204) & {
+  headers: Headers;
+};
+export type fixLabelsResponseError = (fixLabelsResponse400 | fixLabelsResponse401 | fixLabelsResponse422 | fixLabelsResponse500) & {
+  headers: Headers;
+};
+
+export type fixLabelsResponse = (fixLabelsResponseSuccess | fixLabelsResponseError)
+
+export const getFixLabelsUrl = () => {
+
+
+
+
+  return `/api/checkup/fix`
+}
+
+/**
+ * FixLabels creates the missing Mobius labels and sets the fixed color of each Mobius label with a different color, in each repository of the organization. The description of an existing label stays.
+ */
+export const fixLabels = async (fixLabelsBody: FixLabelsBody, ): Promise<fixLabelsResponse> => {
+
+  const res = await fetch(getFixLabelsUrl(),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fixLabelsBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: fixLabelsResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as fixLabelsResponse
+}
+
+
 
 export type listDevicesResponse200 = {
   data: EnvelopeDevices

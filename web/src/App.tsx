@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/card'
 import { onEvent } from '@/lib/events'
 import { LoginContext } from '@/lib/login'
+import { Checkup } from './Checkup'
 import { Devices } from './Devices'
 import { GitHub } from './GitHub'
 import { Login } from './Login'
@@ -131,6 +132,7 @@ const pages = [
   { path: '/', title: 'Workstreams' },
   { path: '/devices', title: 'Devices' },
   { path: '/github', title: 'GitHub' },
+  { path: '/settings/checkup', title: 'Checkup' },
 ]
 
 function savedOrganization() {
@@ -240,12 +242,17 @@ function App() {
         </nav>
         {path === '/devices' && <Devices />}
         {path === '/github' && <GitHub apps={apps} />}
-        {path !== '/devices' && path !== '/github' && (
-          <main className="grid items-start gap-6 md:grid-cols-2">
-            <Workstreams organization={organization} />
-            <LiveEvents />
-          </main>
+        {path === '/settings/checkup' && (
+          <Checkup organization={organization} />
         )}
+        {path !== '/devices' &&
+          path !== '/github' &&
+          path !== '/settings/checkup' && (
+            <main className="grid items-start gap-6 md:grid-cols-2">
+              <Workstreams organization={organization} />
+              <LiveEvents />
+            </main>
+          )}
       </div>
     </LoginContext>
   )

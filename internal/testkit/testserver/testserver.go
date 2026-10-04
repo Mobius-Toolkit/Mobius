@@ -15,6 +15,7 @@ import (
 
 	"github.com/Mobius-Toolkit/mobius-go/internal/api"
 	"github.com/Mobius-Toolkit/mobius-go/internal/auth"
+	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 	"github.com/Mobius-Toolkit/mobius-go/internal/github"
 	"github.com/Mobius-Toolkit/mobius-go/internal/store"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
@@ -35,7 +36,7 @@ type Server struct {
 }
 
 // Start starts a Mobius server with the database in dataDir and the GitHub at githubURL
-// (the API and the web pages), and logs in. The server reads the repositories of the
+// (the API and the web pages), and logs in. The server polls the repositories of the
 // GitHub Apps each 50 ms. The server stops at the end of the test.
 func Start(t testing.TB, dataDir, githubURL string) *Server {
 	t.Helper()
@@ -53,10 +54,11 @@ func Start(t testing.TB, dataDir, githubURL string) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
+	e := engine.New(queries, gh, []string{TrustedUser}, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
 	go func() {
-		gh.Run(ctx, 50*time.Millisecond)
+		e.Run(ctx, 50*time.Millisecond)
 		close(stopped)
 	}()
 	t.Cleanup(func() {
@@ -64,7 +66,7 @@ func Start(t testing.TB, dataDir, githubURL string) *Server {
 		<-stopped
 	})
 	mux := http.NewServeMux()
-	api.Routes(mux, queries, a, gh)
+	api.Routes(mux, queries, a, gh, e)
 	// The session cookie is Secure, and a cookie jar sends a Secure cookie only over HTTPS.
 	server := httptest.NewTLSServer(mux)
 	t.Cleanup(server.Close)

@@ -26,7 +26,7 @@ func newMux(t *testing.T) (*http.ServeMux, *sql.DB, *auth.Auth) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	Routes(mux, queries, a, nil)
+	Routes(mux, queries, a, nil, nil)
 	return mux, db, a
 }
 
