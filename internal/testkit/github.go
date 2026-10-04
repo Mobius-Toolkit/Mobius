@@ -68,6 +68,9 @@ var defaultPermissions = map[string]string{
 type FakeGitHub struct {
 	URL string
 	key *rsa.PublicKey
+	t   testing.TB
+	// remotes holds the bare git repository of each repository.
+	remotes string
 
 	mu sync.Mutex
 	// Each write is one second after the last, so a `since` filter compares exactly. The unit is seconds after the Unix epoch.
@@ -99,6 +102,7 @@ type FakeGitHub struct {
 	resolvedThreads map[int64]bool
 	latestRelease   *releaseJSON
 	comparedCommits []string
+	holds           map[issueKey]*hold
 }
 
 // A grant is a user code or a refresh token: the login of the user and the App index.
@@ -125,6 +129,8 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 	}
 	g := &FakeGitHub{
 		key:                     &key.PublicKey,
+		t:                       t,
+		remotes:                 t.TempDir(),
 		clock:                   time.Now().Unix(),
 		accountTypes:            map[string]string{},
 		manifestCodes:           map[string]bool{},
@@ -141,6 +147,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		resolvedThreads:         map[int64]bool{},
 		failedCloses:            map[issueKey]bool{},
 		failedSubIssues:         map[issueKey]bool{},
+		holds:                   map[issueKey]*hold{},
 	}
 	server := httptest.NewServer(g.routes())
 	t.Cleanup(server.Close)

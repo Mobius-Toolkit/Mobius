@@ -67,8 +67,10 @@ func (g *FakeGitHub) SetInstallationTokenLife(life time.Duration) {
 	g.installationTokenLife = life
 }
 
-// AddRepository adds the repository fullName, for example "owner/shop".
+// AddRepository adds the repository fullName, for example "owner/shop", with a git repository that has one commit
+// on main.
 func (g *FakeGitHub) AddRepository(fullName string) {
+	g.addRemote(fullName)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.repositories = append(g.repositories, fullName)
@@ -312,6 +314,7 @@ type repositoryJSON struct {
 	Name          string            `json:"name"`
 	Owner         map[string]string `json:"owner"`
 	DefaultBranch string            `json:"default_branch"`
+	CloneURL      string            `json:"clone_url"`
 }
 
 func (g *FakeGitHub) listInstallationRepositories(w http.ResponseWriter, r *http.Request) {
@@ -331,6 +334,7 @@ func (g *FakeGitHub) listInstallationRepositories(w http.ResponseWriter, r *http
 				Name:          name,
 				Owner:         map[string]string{"login": owner},
 				DefaultBranch: "main",
+				CloneURL:      "file://" + g.remote(repository),
 			})
 		}
 	}
