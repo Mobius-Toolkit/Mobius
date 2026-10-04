@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -122,6 +123,33 @@ func (g *FakeGitHub) getAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, accountJSON{Login: name, ID: 1, Type: accountType})
+}
+
+// InstallationTokensGiven gives the number of installation tokens that the fake created.
+func (g *FakeGitHub) InstallationTokensGiven() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.installationTokensGiven
+}
+
+// newApp is the web page that creates an App from the `manifest` form field. The fake creates
+// no form for the user: it adds a manifest code and sends the browser to the `redirect_url`
+// of the manifest with the code and the `state` of the page URL, as GitHub does after the form.
+func (g *FakeGitHub) newApp(w http.ResponseWriter, r *http.Request) {
+	var manifest struct {
+		RedirectURL string `json:"redirect_url"`
+	}
+	if err := json.Unmarshal([]byte(r.PostFormValue("manifest")), &manifest); err != nil {
+		message(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	g.mu.Lock()
+	g.manifestCodesGiven++
+	code := fmt.Sprintf("manifest-code-%d", g.manifestCodesGiven)
+	g.manifestCodes[code] = true
+	g.mu.Unlock()
+	query := url.Values{"code": {code}, "state": {r.URL.Query().Get("state")}}
+	http.Redirect(w, r, manifest.RedirectURL+"?"+query.Encode(), http.StatusFound)
 }
 
 func (g *FakeGitHub) convertManifest(w http.ResponseWriter, r *http.Request) {

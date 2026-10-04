@@ -4,6 +4,10 @@
 
 package store
 
+import (
+	"database/sql"
+)
+
 type Event struct {
 	ID         int64
 	Time       string
@@ -13,4 +17,15 @@ type Event struct {
 	Actor      string
 	Text       string
 	Link       string
+}
+
+type GithubApp struct {
+	AppID              int64
+	Slug               string
+	PrivateKey         string
+	ClientID           string
+	ClientSecret       string
+	UserToken          sql.NullString
+	RefreshToken       sql.NullString
+	UserTokenExpiresAt sql.NullString
 }

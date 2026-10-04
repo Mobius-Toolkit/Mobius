@@ -155,6 +155,106 @@
         ]
       }
     },
+    "/api/github/apps": {
+      "get": {
+        "description": "ListGitHubApps returns the Mobius Apps with the repositories of their installations.",
+        "operationId": "ListGitHubApps",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_GitHubApp"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/github/manifest": {
+      "post": {
+        "description": "CreateManifestForm returns the form that creates a Mobius App in a GitHub account. After the form, GitHub sends the browser to GET /api/github/manifest-callback.",
+        "operationId": "CreateManifestForm",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateManifestFormBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ManifestForm"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "github"
+        ]
+      }
+    },
     "/api/health": {
       "get": {
         "description": "GetHealth returns the state of the server.",
@@ -251,6 +351,51 @@
         },
         "tags": [
           "devices"
+        ]
+      }
+    },
+    "/api/organizations": {
+      "get": {
+        "description": "ListOrganizations returns the owners of the repositories of the Mobius Apps, sorted.",
+        "operationId": "ListOrganizations",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_string"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "github"
         ]
       }
     },
@@ -352,6 +497,28 @@
         ],
         "description": "Activity is an entry of the activity feed of a Workstream."
       },
+      "CreateManifestFormBody": {
+        "type": "object",
+        "title": "CreateManifestFormBody",
+        "properties": {
+          "account": {
+            "type": "string",
+            "description": "Account is the GitHub user or organization that owns the new App"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name is the name of the new App"
+          },
+          "origin": {
+            "type": "string",
+            "description": "Origin is the origin of the Mobius UI, for example https://mobius.example.ts.net"
+          }
+        },
+        "required": [
+          "account",
+          "origin"
+        ]
+      },
       "DeviceLogin": {
         "type": "object",
         "title": "DeviceLogin",
@@ -400,6 +567,23 @@
         ],
         "description": "Devices are the device logins."
       },
+      "Envelope_Array_GitHubApp": {
+        "type": "object",
+        "title": "Envelope_Array_GitHubApp",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]GitHubApp",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/GitHubApp"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
       "Envelope_Array_Workstream": {
         "type": "object",
         "title": "Envelope_Array_Workstream",
@@ -410,6 +594,23 @@
             "description": "Data is the payload of the response",
             "items": {
               "$ref": "#/components/schemas/Workstream"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "Envelope_Array_string": {
+        "type": "object",
+        "title": "Envelope_Array_string",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Data is the payload of the response",
+            "items": {
+              "type": "string"
             }
           }
         },
@@ -443,6 +644,19 @@
           "data"
         ]
       },
+      "Envelope_ManifestForm": {
+        "type": "object",
+        "title": "Envelope_ManifestForm",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ManifestForm",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
       "ErrorResponse": {
         "type": "object",
         "title": "ErrorResponse",
@@ -461,6 +675,34 @@
           "error"
         ],
         "description": "Generic error response structure"
+      },
+      "GitHubApp": {
+        "type": "object",
+        "title": "GitHubApp",
+        "properties": {
+          "installUrl": {
+            "type": "string",
+            "description": "InstallURL is the page of GitHub that installs the App on repositories"
+          },
+          "repositories": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Repositories are the repositories of the installations of the App, as \"owner/name\"",
+            "items": {
+              "type": "string"
+            }
+          },
+          "slug": {
+            "type": "string",
+            "description": "Slug is the name of the App in its GitHub URLs"
+          }
+        },
+        "required": [
+          "slug",
+          "installUrl",
+          "repositories"
+        ],
+        "description": "GitHubApp is a Mobius App on GitHub."
       },
       "Health": {
         "type": "object",
@@ -523,6 +765,25 @@
         "required": [
           "password"
         ]
+      },
+      "ManifestForm": {
+        "type": "object",
+        "title": "ManifestForm",
+        "properties": {
+          "manifest": {
+            "type": "string",
+            "description": "Manifest is the value of the form field \"manifest\""
+          },
+          "url": {
+            "type": "string",
+            "description": "URL is the action of the form"
+          }
+        },
+        "required": [
+          "url",
+          "manifest"
+        ],
+        "description": "ManifestForm is the form that the browser posts to GitHub to create a Mobius App."
       },
       "ValidationErrorResponse": {
         "type": "object",

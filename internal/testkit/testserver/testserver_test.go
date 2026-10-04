@@ -4,10 +4,12 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
 )
 
 func TestStartServesTheAPI(t *testing.T) {
-	server := Start(t, t.TempDir())
+	server := Start(t, t.TempDir(), testkit.NewFakeGitHub(t).URL)
 
 	response, err := server.Client.Get(server.URL + "/api/health")
 	if err != nil {
@@ -21,7 +23,7 @@ func TestStartServesTheAPI(t *testing.T) {
 }
 
 func TestWaitForFirstPollWaitsForTheSinceCursorOfTheIssues(t *testing.T) {
-	server := Start(t, t.TempDir())
+	server := Start(t, t.TempDir(), testkit.NewFakeGitHub(t).URL)
 	if _, err := server.DB.Exec(`INSERT INTO sync_cursors (repository, endpoint, since) VALUES ('owner/shop', 'pulls', '2026-10-04T10:00:00Z'), ('owner/shop', 'issues', NULL)`); err != nil {
 		t.Fatal(err)
 	}

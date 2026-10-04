@@ -5,6 +5,7 @@ go 1.27.0
 require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.19.0
 	github.com/coder/acp-go-sdk v0.13.5
+	github.com/google/go-github/v92 v92.0.0
 	github.com/gork-labs/gork v0.1.7
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pelletier/go-toml/v2 v2.4.3

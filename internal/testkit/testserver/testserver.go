@@ -2,6 +2,7 @@
 package testserver
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -10,15 +11,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/mobius-go/internal/api"
 	"github.com/Mobius-Toolkit/mobius-go/internal/auth"
+	"github.com/Mobius-Toolkit/mobius-go/internal/github"
 	"github.com/Mobius-Toolkit/mobius-go/internal/store"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
 )
 
 // Password is the access password of each server under test.
 const Password = "correct horse"
+
+// TrustedUser is the one trusted user of each server under test.
+const TrustedUser = "owner"
 
 // Server is a Mobius server under test.
 type Server struct {
@@ -28,9 +34,10 @@ type Server struct {
 	Client *http.Client
 }
 
-// Start starts a Mobius server with the database in dataDir, and logs in. The server
-// stops at the end of the test.
-func Start(t testing.TB, dataDir string) *Server {
+// Start starts a Mobius server with the database in dataDir and the GitHub at githubURL
+// (the API and the web pages), and logs in. The server reads the repositories of the
+// GitHub Apps each 50 ms. The server stops at the end of the test.
+func Start(t testing.TB, dataDir, githubURL string) *Server {
 	t.Helper()
 	db, err := store.Open(t.Context(), filepath.Join(dataDir, "mobius.db"))
 	if err != nil {
@@ -42,8 +49,22 @@ func Start(t testing.TB, dataDir string) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
+	gh, err := github.New(queries, githubURL, githubURL, []string{TrustedUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() {
+		gh.Run(ctx, 50*time.Millisecond)
+		close(stopped)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-stopped
+	})
 	mux := http.NewServeMux()
-	api.Routes(mux, queries, a)
+	api.Routes(mux, queries, a, gh)
 	// The session cookie is Secure, and a cookie jar sends a Secure cookie only over HTTPS.
 	server := httptest.NewTLSServer(mux)
 	t.Cleanup(server.Close)

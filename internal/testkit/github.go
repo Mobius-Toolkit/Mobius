@@ -74,6 +74,7 @@ type FakeGitHub struct {
 	clock                   int64
 	accountTypes            map[string]string
 	manifestCodes           map[string]bool
+	manifestCodesGiven      int
 	appsCreated             int
 	secondAppAccounts       map[string]bool
 	failedApps              map[int64]bool
@@ -141,6 +142,8 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 func (g *FakeGitHub) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /users/{name}", g.getAccount)
+	mux.HandleFunc("POST /settings/apps/new", g.newApp)
+	mux.HandleFunc("POST /organizations/{org}/settings/apps/new", g.newApp)
 	mux.HandleFunc("POST /app-manifests/{code}/conversions", g.convertManifest)
 	mux.HandleFunc("POST /login/oauth/access_token", g.exchangeCode)
 	mux.HandleFunc("GET /user", g.getUser)

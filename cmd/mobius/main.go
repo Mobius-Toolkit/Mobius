@@ -20,6 +20,7 @@ import (
 	"github.com/Mobius-Toolkit/mobius-go/internal/api"
 	"github.com/Mobius-Toolkit/mobius-go/internal/auth"
 	"github.com/Mobius-Toolkit/mobius-go/internal/config"
+	"github.com/Mobius-Toolkit/mobius-go/internal/github"
 	"github.com/Mobius-Toolkit/mobius-go/internal/runner"
 	"github.com/Mobius-Toolkit/mobius-go/internal/setup"
 	"github.com/Mobius-Toolkit/mobius-go/internal/store"
@@ -43,7 +44,7 @@ Environment:
 
 func main() {
 	if os.Getenv("GORK_EXPORT") == "1" {
-		router := api.Routes(http.NewServeMux(), nil, nil)
+		router := api.Routes(http.NewServeMux(), nil, nil, nil)
 		spec := gork.GenerateOpenAPI(router.GetRegistry(), gork.WithTitle("Mobius"), gork.WithVersion("0.1.0"))
 		if err := json.NewEncoder(os.Stdout).Encode(spec); err != nil {
 			log.Fatal(err)
@@ -136,8 +137,14 @@ func serve(configPath string) error {
 		return err
 	}
 
+	gh, err := github.New(queries, "https://api.github.com", "https://github.com", cfg.TrustedUsers)
+	if err != nil {
+		return err
+	}
+	go gh.Run(ctx, cfg.PollInterval)
+
 	mux := http.NewServeMux()
-	api.Routes(mux, queries, a)
+	api.Routes(mux, queries, a, gh)
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		return err
