@@ -59,7 +59,10 @@ type ReviewThread struct {
 	// ID is the GraphQL node id of the thread.
 	ID string
 	// Comment is the id of the first comment of the thread.
-	Comment int64
+	Comment  int64
+	Resolved bool
+	// Authors are the REST logins of the authors of the comments, in order. The login of a bot ends with "[bot]".
+	Authors []string
 }
 
 type graphqlError struct {
@@ -92,7 +95,7 @@ func (r Repository) ReviewThreads(ctx context.Context, number int64) ([]ReviewTh
 		repository(owner: $owner, name: $name) {
 			pullRequest(number: $number) {
 				reviewThreads(first: 100, after: $after) {
-					nodes { id comments(first: 1) { nodes { databaseId } } }
+					nodes { id isResolved comments(first: 100) { nodes { databaseId author { __typename login } } } }
 					pageInfo { hasNextPage endCursor }
 				}
 			}
@@ -106,10 +109,15 @@ func (r Repository) ReviewThreads(ctx context.Context, number int64) ([]ReviewTh
 				PullRequest *struct {
 					ReviewThreads struct {
 						Nodes []struct {
-							ID       string `json:"id"`
-							Comments struct {
+							ID         string `json:"id"`
+							IsResolved bool   `json:"isResolved"`
+							Comments   struct {
 								Nodes []struct {
 									DatabaseID int64 `json:"databaseId"`
+									Author     struct {
+										Typename string `json:"__typename"`
+										Login    string `json:"login"`
+									} `json:"author"`
 								} `json:"nodes"`
 							} `json:"comments"`
 						} `json:"nodes"`
@@ -133,7 +141,16 @@ func (r Repository) ReviewThreads(ctx context.Context, number int64) ([]ReviewTh
 			if len(node.Comments.Nodes) == 0 {
 				return nil, errors.New("GitHub gave a review thread with no comment")
 			}
-			threads = append(threads, ReviewThread{ID: node.ID, Comment: node.Comments.Nodes[0].DatabaseID})
+			thread := ReviewThread{ID: node.ID, Comment: node.Comments.Nodes[0].DatabaseID, Resolved: node.IsResolved}
+			for _, comment := range node.Comments.Nodes {
+				// GraphQL gives a bot login with no "[bot]".
+				login := comment.Author.Login
+				if comment.Author.Typename == "Bot" {
+					login += "[bot]"
+				}
+				thread.Authors = append(thread.Authors, login)
+			}
+			threads = append(threads, thread)
 		}
 		if !page.PageInfo.HasNextPage {
 			return threads, nil
