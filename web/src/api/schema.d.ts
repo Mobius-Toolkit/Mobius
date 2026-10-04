@@ -11,7 +11,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["StreamEvents-fm"];
+        /** @description StreamEvents sends the latest activities, and then each new activity. */
+        get: operations["StreamEvents"];
         put?: never;
         post?: never;
         delete?: never;
@@ -44,7 +45,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["ListWorkstreams-fm"];
+        /** @description ListWorkstreams returns the Workstreams of the database. */
+        get: operations["ListWorkstreams"];
         put?: never;
         post?: never;
         delete?: never;
@@ -88,7 +90,9 @@ export interface components {
          */
         ErrorResponse: {
             /** @description Additional error details */
-            details?: Record<string, never>;
+            details?: {
+                [key: string]: unknown;
+            };
             /** @description Error message */
             error: string;
         };
@@ -106,12 +110,23 @@ export interface components {
             time: string;
         };
         /**
+         * LiveEvents
+         * @description LiveEvents are the events of the live event stream.
+         */
+        LiveEvents: {
+            data: unknown;
+            /** @constant */
+            event: "activity";
+        };
+        /**
          * ValidationErrorResponse
          * @description Validation error response with field-level details
          */
         ValidationErrorResponse: {
             /** @description Field-level validation errors (maps field names to arrays of error messages) */
-            details?: Record<string, never>;
+            details?: {
+                [key: string]: string[];
+            };
             /** @description Error message */
             error: string;
         };
@@ -182,7 +197,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    "StreamEvents-fm": {
+    StreamEvents: {
         parameters: {
             query?: never;
             header?: never;
@@ -228,7 +243,7 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
-    "ListWorkstreams-fm": {
+    ListWorkstreams: {
         parameters: {
             query?: never;
             header?: never;
