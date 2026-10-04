@@ -14,6 +14,15 @@
 - Use Oxlint to lint the frontend (`pnpm lint`). Do not add ESLint.
 - Put the body of each success response in `Envelope[T]` (`{"data": …}`). Error responses keep the Gork format. Server-sent events have no envelope.
 
+## Gork
+
+Gork (`github.com/gork-labs/gork`, the repository gork-labs/gork) has the same owner as this repository. Do not work around Gork here.
+
+- If Gork has a defect, or does not have a feature that the task needs, stop the task.
+- Fix Gork first, in a pull request to gork-labs/gork.
+- Do not rename a field, move a route out of the spec, add a plain handler, or change a generated file because of Gork.
+- Each merge into the main branch of Gork gets a new patch tag. After the merge, update Gork in `go.mod` to that tag. Then continue the task.
+
 ## Generated files
 
 Do not edit these files by hand:
