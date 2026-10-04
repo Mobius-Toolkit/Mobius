@@ -37,6 +37,8 @@ type Server struct {
 	// Client has the cookie of a device login.
 	Client *http.Client
 	Engine *engine.Engine
+	// Mux has the API routes. The server serves it.
+	Mux *http.ServeMux
 }
 
 // Start starts a Mobius server with the database in dataDir and the GitHub at githubURL
@@ -103,7 +105,7 @@ func Start(t testing.TB, dataDir, githubURL string) *Server {
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("login: status %d", response.StatusCode)
 	}
-	return &Server{URL: server.URL, DB: db, Client: client, Engine: e}
+	return &Server{URL: server.URL, DB: db, Client: client, Engine: e, Mux: mux}
 }
 
 // WaitForFirstPoll waits for the end of the first poll of repository. The first poll

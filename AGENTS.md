@@ -50,6 +50,8 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 - A test package that installs a fake Harness (`testkit.InstallFakeHarness` or `testkit.InstallFakeAgent`) calls `testkit.Main(m)` from its `TestMain`.
 - The gh of the agent environment is a link to the test binary. Thus a test package whose agents run gh calls `runner.GH` from its `TestMain` when the program name is gh, as `internal/engine` does.
 - Wait for a condition with `testkit.WaitFor`. Do not sleep for a fixed time. Before a test changes an issue, wait for the first poll of its repository (`WaitForFirstPoll`).
+- The Playwright tests in `web/e2e` test the UI. Run them with `pnpm e2e` in `web`. The command builds the UI, and Playwright starts `TestServer` of `web/e2e` on port 6464 with a fake GitHub. The tests write a desktop and a phone screenshot of each screen to `web/screenshots`. The CI job `e2e` runs the tests and keeps the screenshots as the artifact `screenshots`. `.mobius/check` does not run them.
+- Before the first run of the Playwright tests, install the browser: `pnpm exec playwright install chromium`.
 
 ## Before a push
 
@@ -76,6 +78,8 @@ web/                   the React frontend (Vite, TypeScript, Tailwind CSS, shadc
 web/src/api/           the generated API client and types
 web/src/components/ui/ the shadcn/ui components
 web/src/lib/events.ts  the typed listener of server-sent events (onEvent)
+web/public/            the files of the PWA: the web app manifest, the service worker and the icons
+web/e2e/               the Playwright tests of the UI, and TestServer, the server that they test
 web/embed.go           embeds web/dist into the binary and serves it
 .mobius/check          the local check, also used in CI
 ```
