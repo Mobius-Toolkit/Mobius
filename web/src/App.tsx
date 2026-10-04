@@ -10,49 +10,118 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 
-type Health = components['schemas']['Health']
+type Workstream = components['schemas']['Workstream']
+type Activity = components['schemas']['Activity']
 
-function App() {
-  const [health, setHealth] = useState<Health>()
+const maxActivities = 50
+
+function Workstreams() {
+  const [workstreams, setWorkstreams] = useState<Workstream[]>()
   const [error, setError] = useState<string>()
 
   useEffect(() => {
     client
-      .GET('/api/health')
+      .GET('/api/workstreams')
       .then((res) => {
         if (res.error) {
           setError(res.error.error)
         } else {
-          setHealth(res.data)
+          setWorkstreams(res.data.workstreams)
         }
       })
       .catch((err: unknown) => setError(String(err)))
   }, [])
 
   return (
-    <main className="flex min-h-svh items-center justify-center p-6">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>Mobius</CardTitle>
-          <CardDescription>Server health</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {error && <Badge variant="destructive">{error}</Badge>}
-          {!error && !health && (
-            <p className="text-sm text-muted-foreground">Loading</p>
-          )}
-          {health && (
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Status</dt>
-              <dd>
-                <Badge>{health.status}</Badge>
-              </dd>
-              <dt className="text-muted-foreground">Time</dt>
-              <dd>{new Date(health.time).toLocaleString()}</dd>
-            </dl>
-          )}
-        </CardContent>
-      </Card>
+    <Card>
+      <CardHeader>
+        <CardTitle>Workstreams</CardTitle>
+        <CardDescription>The most recently active first</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {error && <Badge variant="destructive">{error}</Badge>}
+        {!error && !workstreams && (
+          <p className="text-muted-foreground">Loading</p>
+        )}
+        {workstreams?.length === 0 && (
+          <p className="text-muted-foreground">No Workstreams</p>
+        )}
+        <ul className="divide-y">
+          {workstreams?.map((ws) => (
+            <li
+              key={`${ws.repository}#${ws.number}`}
+              className="flex items-center justify-between gap-4 py-2"
+            >
+              <span>
+                {ws.repository} #{ws.number}
+              </span>
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <Badge variant="secondary">
+                  {ws.openTasks} open / {ws.tasks} tasks
+                </Badge>
+                {new Date(ws.lastActivity).toLocaleString()}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  )
+}
+
+function LiveEvents() {
+  const [activities, setActivities] = useState<Activity[]>([])
+  const [connected, setConnected] = useState(false)
+
+  useEffect(() => {
+    const source = new EventSource('/api/events')
+    // The server sends the latest activities again on each connection.
+    source.addEventListener('open', () => {
+      setConnected(true)
+      setActivities([])
+    })
+    source.addEventListener('error', () => setConnected(false))
+    source.addEventListener('activity', (e) => {
+      const activity = JSON.parse(e.data) as Activity
+      setActivities((prev) => [activity, ...prev].slice(0, maxActivities))
+    })
+    return () => source.close()
+  }, [])
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Live events</CardTitle>
+        <CardDescription>
+          <Badge variant={connected ? 'default' : 'destructive'}>
+            {connected ? 'Connected' : 'Not connected'}
+          </Badge>
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="divide-y">
+          {activities.map((a) => (
+            <li key={a.id} className="grid gap-1 py-2">
+              <a href={a.link} className="hover:underline">
+                {a.text}
+              </a>
+              <span className="text-muted-foreground">
+                {a.repository} #{a.workstream} · {a.actor} ·{' '}
+                {new Date(a.time).toLocaleString()}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  )
+}
+
+function App() {
+  return (
+    <main className="mx-auto grid max-w-5xl items-start gap-6 p-6 md:grid-cols-2">
+      <Workstreams />
+      <LiveEvents />
     </main>
   )
 }

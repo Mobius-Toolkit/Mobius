@@ -1,0 +1,1 @@
+ALTER TABLE tasks ADD COLUMN worker_restarts INTEGER NOT NULL DEFAULT 0;

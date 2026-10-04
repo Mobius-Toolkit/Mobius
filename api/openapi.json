@@ -1,10 +1,58 @@
 {
-  "openapi": "3.1.0",
+  "openapi": "3.2.0",
   "info": {
     "title": "Mobius",
     "version": "0.1.0"
   },
   "paths": {
+    "/api/events": {
+      "get": {
+        "operationId": "StreamEvents-fm",
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "data": {
+                          "contentMediaType": "application/json",
+                          "contentSchema": {
+                            "$ref": "#/components/schemas/Activity"
+                          }
+                        },
+                        "event": {
+                          "const": "activity"
+                        }
+                      },
+                      "required": [
+                        "event",
+                        "data"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Event stream"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "tags": [
+          "events"
+        ]
+      }
+    },
     "/api/health": {
       "get": {
         "description": "GetHealth returns the state of the server.",
@@ -34,10 +82,89 @@
           "health"
         ]
       }
+    },
+    "/api/workstreams": {
+      "get": {
+        "operationId": "ListWorkstreams-fm",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkstreamList"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "tags": [
+          "workstreams"
+        ]
+      }
     }
   },
   "components": {
     "schemas": {
+      "Activity": {
+        "type": "object",
+        "title": "Activity",
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "Actor is the GitHub login that did the activity"
+          },
+          "id": {
+            "type": "integer",
+            "description": "ID increases with each new activity"
+          },
+          "issue": {
+            "type": "integer",
+            "description": "Issue is the number of the issue of the activity"
+          },
+          "link": {
+            "type": "string",
+            "description": "Link is the GitHub URL of the activity"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository of the Workstream issue, as \"owner/name\""
+          },
+          "text": {
+            "type": "string",
+            "description": "Text tells what happened"
+          },
+          "time": {
+            "type": "string",
+            "description": "Time is the time of the activity",
+            "format": "date-time"
+          },
+          "workstream": {
+            "type": "integer",
+            "description": "Workstream is the number of the Workstream issue"
+          }
+        },
+        "required": [
+          "id",
+          "time",
+          "repository",
+          "workstream",
+          "issue",
+          "actor",
+          "text",
+          "link"
+        ],
+        "description": "Activity is an entry of the activity feed of a Workstream."
+      },
       "ErrorResponse": {
         "type": "object",
         "title": "ErrorResponse",
@@ -93,6 +220,59 @@
           "error"
         ],
         "description": "Validation error response with field-level details"
+      },
+      "Workstream": {
+        "type": "object",
+        "title": "Workstream",
+        "properties": {
+          "lastActivity": {
+            "type": "string",
+            "description": "LastActivity is the time of the latest row of the Workstream",
+            "format": "date-time"
+          },
+          "number": {
+            "type": "integer",
+            "description": "Number is the number of the Workstream issue"
+          },
+          "openTasks": {
+            "type": "integer",
+            "description": "OpenTasks is the number of tasks that are not ended or stopped"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository of the Workstream issue, as \"owner/name\""
+          },
+          "tasks": {
+            "type": "integer",
+            "description": "Tasks is the number of tasks of the Workstream"
+          }
+        },
+        "required": [
+          "repository",
+          "number",
+          "tasks",
+          "openTasks",
+          "lastActivity"
+        ],
+        "description": "Workstream is a Workstream that has rows in the database."
+      },
+      "WorkstreamList": {
+        "type": "object",
+        "title": "WorkstreamList",
+        "properties": {
+          "workstreams": {
+            "type": "array",
+            "title": "[]Workstream",
+            "description": "Array of Workstream",
+            "items": {
+              "$ref": "#/components/schemas/Workstream"
+            }
+          }
+        },
+        "required": [
+          "workstreams"
+        ],
+        "description": "WorkstreamList is the list of Workstreams, the most recently active first."
       }
     },
     "responses": {
