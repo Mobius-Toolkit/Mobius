@@ -5,6 +5,70 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/devices": {
+      "get": {
+        "description": "ListDevices returns the device logins.",
+        "operationId": "ListDevices",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Devices"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "tags": [
+          "devices"
+        ]
+      }
+    },
+    "/api/devices/{id}": {
+      "delete": {
+        "description": "Logout deletes a device login.",
+        "operationId": "Logout",
+        "parameters": [
+          {
+            "description": "ID is the id of the device login",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "tags": [
+          "devices"
+        ]
+      }
+    },
     "/api/events": {
       "get": {
         "description": "StreamEvents sends the latest activities, and then each new activity. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities.",
@@ -73,6 +137,50 @@
         },
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/login": {
+      "post": {
+        "description": "Login makes a device login when the password is the access password, and sets the token of the device login in a cookie.",
+        "operationId": "Login",
+        "parameters": [
+          {
+            "description": "UserAgent names the browser of the device",
+            "in": "header",
+            "name": "User-Agent",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "tags": [
+          "devices"
         ]
       }
     },
@@ -159,6 +267,54 @@
         ],
         "description": "Activity is an entry of the activity feed of a Workstream."
       },
+      "DeviceLogin": {
+        "type": "object",
+        "title": "DeviceLogin",
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "description": "CreatedAt is the time of the login",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "integer",
+            "description": "ID is the id of the device login"
+          },
+          "userAgent": {
+            "type": "string",
+            "description": "UserAgent names the browser of the device"
+          }
+        },
+        "required": [
+          "id",
+          "userAgent",
+          "createdAt"
+        ],
+        "description": "DeviceLogin is the login of a device with the access password."
+      },
+      "Devices": {
+        "type": "object",
+        "title": "Devices",
+        "properties": {
+          "logins": {
+            "type": "array",
+            "title": "[]DeviceLogin",
+            "description": "Logins are the device logins, the newest first",
+            "items": {
+              "$ref": "#/components/schemas/DeviceLogin"
+            }
+          },
+          "thisDevice": {
+            "type": "integer",
+            "description": "ThisDevice is the id of the device login of the request"
+          }
+        },
+        "required": [
+          "thisDevice",
+          "logins"
+        ],
+        "description": "Devices are the device logins."
+      },
       "Envelope_Array_Workstream": {
         "type": "object",
         "title": "Envelope_Array_Workstream",
@@ -170,6 +326,19 @@
             "items": {
               "$ref": "#/components/schemas/Workstream"
             }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "Envelope_Devices": {
+        "type": "object",
+        "title": "Envelope_Devices",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Devices",
+            "description": "Data is the payload of the response"
           }
         },
         "required": [
@@ -256,6 +425,19 @@
           }
         ],
         "description": "LiveEvents are the events of the live event stream."
+      },
+      "LoginBody": {
+        "type": "object",
+        "title": "LoginBody",
+        "properties": {
+          "password": {
+            "type": "string",
+            "description": "Password is the access password"
+          }
+        },
+        "required": [
+          "password"
+        ]
       },
       "ValidationErrorResponse": {
         "type": "object",

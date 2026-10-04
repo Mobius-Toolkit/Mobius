@@ -44,6 +44,9 @@ export default defineConfig({
       target: 'src/api/api.gen.ts',
       client: 'fetch',
       mode: 'single',
+      // With request options, the generated code has a helper that Oxlint
+      // refuses (unicorn/consistent-function-scoping).
+      override: { requestOptions: false },
     },
   },
 })

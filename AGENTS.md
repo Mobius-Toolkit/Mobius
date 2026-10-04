@@ -48,11 +48,14 @@ Run `.mobius/check` (or `make check`). It must pass.
 ## Layout
 
 ```
-cmd/mobius/            the server binary (flag -addr, default 127.0.0.1:6363; flag -db, default mobius.db)
+cmd/mobius/            the mobius command: serve (the default) and init
 cmd/mobius-session/    starts one Claude Code session with the Mobius MCP server (needs claude-agent-acp on PATH)
-internal/api/          the Gork routes and handlers
+internal/api/          the Gork routes and handlers, and the device login check of each route
+internal/auth/         the access password and the device logins
+internal/config/       reads config.toml
 internal/mcp/          the Mobius MCP server and its tools
-internal/runner/       starts a Claude Code session through ACP
+internal/runner/       starts an agent session of a Harness through ACP
+internal/setup/        mobius init: asks for the values of a new config.toml and writes it
 internal/store/        the SQLite database: goose migrations and sqlc queries
 internal/testkit/      the fake GitHub, the fake agent as a Harness command, and the waits of the tests
 internal/testkit/fakeagent/  the fake ACP agent that plays a TOML script (the format is in its package comment)
@@ -68,7 +71,9 @@ web/embed.go           embeds web/dist into the binary and serves it
 
 ## Commands
 
-- `make dev-api` starts the Go server.
+- `mobius init` writes a new config file. `mobius` or `mobius serve` starts the server.
+- `MOBIUS_CONFIG` gives the path of the config file (default `~/.mobius/config.toml`). `IP` (`127.0.0.1` or `0.0.0.0`) and `PORT` (default `6363`) give the address. The server uses `mobius.db` in the `data_dir` of the config (default `~/.mobius`).
+- `make dev-api` starts the Go server. Caution: with no `MOBIUS_CONFIG`, the server uses `~/.mobius`. For development, set `MOBIUS_CONFIG` to a config file with another `data_dir`.
 - `make dev-web` starts the Vite dev server. Vite sends `/api` to the Go server.
 - `make generate` writes the sqlc code, the spec and the TypeScript client.
 - `make build` builds the UI and then `bin/mobius`.
