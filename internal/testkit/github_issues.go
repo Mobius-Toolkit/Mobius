@@ -58,6 +58,20 @@ type commentJSON struct {
 	User      loginJSON `json:"user"`
 	Body      string    `json:"body"`
 	CreatedAt string    `json:"created_at"`
+	// PerformedViaGitHubApp is the App of a comment that a user wrote through that App, for example the Lead as the Owner.
+	PerformedViaGitHubApp *slugJSON `json:"performed_via_github_app,omitempty"`
+}
+
+type slugJSON struct {
+	Slug string `json:"slug"`
+}
+
+// hold makes a request for the events of an issue wait.
+type hold struct {
+	// reached closes when the request arrives.
+	reached chan struct{}
+	// release makes the request go on when it closes.
+	release chan struct{}
 }
 
 type issueJSON struct {
@@ -245,6 +259,17 @@ func (g *FakeGitHub) AddComment(repository string, number int64, author, body st
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.comment(issueKey{repository, number}, author, body).ID
+}
+
+// AddAppComment adds a comment with body of author to the issue number, written through the Mobius App, as the gh of
+// the Lead writes it.
+func (g *FakeGitHub) AddAppComment(repository string, number int64, author, body string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key := issueKey{repository, number}
+	g.comment(key, author, body)
+	comments := g.issues[key].comments
+	comments[len(comments)-1].PerformedViaGitHubApp = &slugJSON{AppSlug}
 }
 
 // AddLabel adds label to the issue as actor.
@@ -601,7 +626,27 @@ func (g *FakeGitHub) addBlockedBy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, g.issueJSON(blocker))
 }
 
+// HoldIssueEvents makes the next request for the events of the issue number wait until a call of release. The channel
+// closes when the request arrives.
+func (g *FakeGitHub) HoldIssueEvents(repository string, number int64) (<-chan struct{}, func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	g.holds[issueKey{repository, number}] = h
+	return h.reached, func() { close(h.release) }
+}
+
 func (g *FakeGitHub) issueEvents(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	number, _ := strconv.ParseInt(r.PathValue("number"), 10, 64)
+	key := issueKey{repository(r), number}
+	h := g.holds[key]
+	delete(g.holds, key)
+	g.mu.Unlock()
+	if h != nil {
+		close(h.reached)
+		<-h.release
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if key, ok := g.issue(w, r); ok {

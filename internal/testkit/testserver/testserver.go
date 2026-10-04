@@ -43,7 +43,7 @@ type Server struct {
 }
 
 // Config gives the config of a server under test with the data in dataDir: the access password Password, the
-// trusted user TrustedUser, a poll each 50 ms, and a binding for each Role.
+// trusted user TrustedUser, a poll each 50 ms, a Lead that closes after 300 ms with no work, and a binding for each Role.
 func Config(t testing.TB, dataDir string) *config.Config {
 	t.Helper()
 	cfg, err := config.Parse(fmt.Appendf(nil, `
@@ -51,6 +51,7 @@ access_password = %q
 trusted_users = [%q]
 data_dir = %q
 poll_interval = "50ms"
+lead_idle_timeout = "300ms"
 
 [roles]
 lead        = { harness = "claude-code", model = "opus",    effort = "high" }
@@ -77,7 +78,8 @@ func Start(t testing.TB, dataDir, githubURL string) *Server {
 // The server stops at the end of the test.
 //
 // The agents run with the Harness commands in the directory harnesses of the data directory and then on the PATH
-// of the test, and reach the Mobius MCP server over plain HTTP.
+// of the test with no directory that has a Harness command, so a test never starts a real agent. The agents reach
+// the Mobius MCP server over plain HTTP.
 func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 	t.Helper()
 	dataDir := cfg.DataDir
@@ -106,7 +108,7 @@ func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 	e := engine.New(db, gh, cfg, engine.Agents{
 		MCP:  mcpServer,
 		Addr: strings.TrimPrefix(agents.URL, "http://"),
-		Path: filepath.Join(dataDir, "harnesses") + string(filepath.ListSeparator) + os.Getenv("PATH"),
+		Path: filepath.Join(dataDir, "harnesses") + string(filepath.ListSeparator) + agentFreePath(),
 	})
 	if err := e.Recover(t.Context()); err != nil {
 		t.Fatal(err)
@@ -140,6 +142,21 @@ func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 		t.Fatalf("login: status %d", response.StatusCode)
 	}
 	return &Server{URL: server.URL, DB: db, Client: client, Engine: e, Mux: mux}
+}
+
+// agentFreePath gives the PATH of the test with no directory that has a Harness command.
+func agentFreePath() string {
+	var programs []string
+	for _, harness := range config.Harnesses {
+		programs = append(programs, runner.Program(harness))
+	}
+	var dirs []string
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if len(runner.Missing(dir, programs...)) == len(programs) {
+			dirs = append(dirs, dir)
+		}
+	}
+	return strings.Join(dirs, string(filepath.ListSeparator))
 }
 
 // WaitForFirstPoll waits for the end of the first poll of repository. The first poll
