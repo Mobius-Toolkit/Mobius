@@ -462,6 +462,47 @@ func TestAListPageHasTheLinkOfTheNextPage(t *testing.T) {
 	}
 }
 
+// GitHub takes the labels as an array of names or as the field labels of an object.
+func TestALabelAdditionTakesAnArrayOfNames(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+	var labels []nameJSON
+
+	send(t, http.MethodPost, github.URL+"/repos/owner/shop/issues/12/labels", installationToken(t, github), `["bug", "mobius:ready"]`, &labels)
+
+	if !reflect.DeepEqual(labels, []nameJSON{{"bug"}, {"mobius:ready"}}) {
+		t.Errorf("labels = %+v", labels)
+	}
+}
+
+func TestASubIssueMovesToItsNewParentAndTheSummaryCountsTheOpenBlockers(t *testing.T) {
+	github := NewFakeGitHub(t)
+	for number := range int64(4) {
+		github.AddIssue("owner/shop", number+1, "Issue")
+	}
+	github.AddSubIssue("owner/shop", 1, 3)
+	github.AddBlockedBy("owner/shop", 3, 4)
+	github.CloseIssue("owner/shop", 4)
+	token := installationToken(t, github)
+	issue := github.URL + "/repos/owner/shop/issues/"
+
+	added := send(t, http.MethodPost, issue+"2/sub_issues", token, `{"sub_issue_id": 100003, "replace_parent": true}`, nil)
+	send(t, http.MethodPost, issue+"3/dependencies/blocked_by", token, `{"issue_id": 100001}`, nil)
+
+	var parent, child issueJSON
+	send(t, http.MethodGet, issue+"3/parent", token, "", &parent)
+	send(t, http.MethodGet, issue+"3", token, "", &child)
+	if added.StatusCode != http.StatusCreated || parent.Number != 2 || len(github.SubIssueNumbers("owner/shop", 1)) != 0 {
+		t.Errorf("status = %d, parent = #%d", added.StatusCode, parent.Number)
+	}
+	if summary := child.IssueDependenciesSummary; summary == nil || summary.BlockedBy != 1 || summary.TotalBlockedBy != 2 {
+		t.Errorf("summary = %+v", summary)
+	}
+	if response := send(t, http.MethodGet, issue+"1/parent", token, "", nil); response.StatusCode != http.StatusNotFound {
+		t.Errorf("parent of #1: status %d", response.StatusCode)
+	}
+}
+
 func TestABodyWithAnUnknownFieldIsRefused(t *testing.T) {
 	github := NewFakeGitHub(t)
 	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")

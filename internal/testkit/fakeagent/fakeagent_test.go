@@ -258,6 +258,33 @@ list_tools = true
 	}
 }
 
+func TestTheAgentListsTheToolsAfterTheNewSession(t *testing.T) {
+	c := start(t, "")
+	listed := make(chan struct{}, 1)
+	server := sdk.NewServer(&sdk.Implementation{Name: "test", Version: "0.1.0"}, nil)
+	server.AddReceivingMiddleware(func(next sdk.MethodHandler) sdk.MethodHandler {
+		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
+			if method == "tools/list" {
+				listed <- struct{}{}
+			}
+			return next(ctx, method, req)
+		}
+	})
+	handler := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return server }, &sdk.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
+	listener := httptest.NewServer(handler)
+	t.Cleanup(listener.Close)
+
+	if err := c.newSession(t, listener.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-listed:
+	case <-time.After(time.Minute):
+		t.Error("the agent sent no tools/list")
+	}
+}
+
 func TestAnErrorEndsTheTurnWithTheScriptError(t *testing.T) {
 	c := start(t, `
 [[prompts]]

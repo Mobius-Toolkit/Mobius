@@ -93,6 +93,8 @@ type FakeGitHub struct {
 	repositoryLabels map[labelKey]Label
 	labelPatches     []labelKey
 	notModified      int
+	// The ids of the first comments of the resolved review threads.
+	resolvedThreads map[int64]bool
 }
 
 // A grant is a user code or a refresh token: the login of the user and the App index.
@@ -132,6 +134,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		installationTokenLife:   time.Hour,
 		issues:                  map[issueKey]*issue{},
 		repositoryLabels:        map[labelKey]Label{},
+		resolvedThreads:         map[int64]bool{},
 	}
 	server := httptest.NewServer(g.routes())
 	t.Cleanup(server.Close)
@@ -155,13 +158,22 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues", g.withToken(g.createIssue))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}", g.withToken(g.getIssue))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/sub_issues", g.withToken(g.subIssues))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/sub_issues", g.withToken(g.addSubIssue))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/parent", g.withToken(g.parent))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by", g.withToken(g.blockedBy))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/dependencies/blocked_by", g.withToken(g.addBlockedBy))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/events", g.withToken(g.issueEvents))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/comments", g.withToken(g.issueComments))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/comments", g.withToken(g.addComment))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/labels", g.withToken(g.addLabels))
 	mux.HandleFunc("DELETE /repos/{owner}/{repo}/issues/{number}/labels/{name}", g.withToken(g.removeLabel))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/labels", g.withToken(g.listRepositoryLabels))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/labels", g.withToken(g.createRepositoryLabel))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/labels/{name}", g.withToken(g.updateRepositoryLabel))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/reviews", g.withToken(g.reviews))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.reviewComments))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.replyToReviewComment))
+	mux.HandleFunc("POST /graphql", g.withToken(g.graphql))
 	return mux
 }
 
