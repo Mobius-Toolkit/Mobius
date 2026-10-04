@@ -166,7 +166,7 @@
           "data": {
             "type": "array",
             "title": "[]Workstream",
-            "description": "Array of Workstream",
+            "description": "Data is the payload of the response",
             "items": {
               "$ref": "#/components/schemas/Workstream"
             }
