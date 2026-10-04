@@ -1,0 +1,131 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Mobius",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "description": "GetHealth returns the state of the server.",
+        "operationId": "GetHealth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "title": "ErrorResponse",
+        "properties": {
+          "details": {
+            "type": "object",
+            "description": "Additional error details"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "description": "Generic error response structure"
+      },
+      "Health": {
+        "type": "object",
+        "title": "Health",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Status is \"ok\" when the server can serve requests"
+          },
+          "time": {
+            "type": "string",
+            "description": "Time is the current time of the server",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "status",
+          "time"
+        ],
+        "description": "Health is the state of the server."
+      },
+      "ValidationErrorResponse": {
+        "type": "object",
+        "title": "ValidationErrorResponse",
+        "properties": {
+          "details": {
+            "type": "object",
+            "description": "Field-level validation errors (maps field names to arrays of error messages)"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "description": "Validation error response with field-level details"
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Bad Request - Validation failed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ValidationErrorResponse"
+            }
+          }
+        }
+      },
+      "InternalServerError": {
+        "description": "Internal Server Error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "UnprocessableEntity": {
+        "description": "Unprocessable Entity - Request body could not be parsed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    }
+  }
+}
