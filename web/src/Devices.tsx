@@ -7,7 +7,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { LoginContext, unauthorized } from '@/lib/login'
+import { LoginContext } from '@/lib/login'
 
 export function Devices() {
   const showLogin = use(LoginContext)
@@ -17,7 +17,7 @@ export function Devices() {
   const load = useCallback(() => {
     listDevices()
       .then((res) => {
-        if (unauthorized(res)) {
+        if (res.status === 401) {
           showLogin()
         } else if (res.status === 200) {
           setDevices(res.data.data)
@@ -33,7 +33,7 @@ export function Devices() {
   const logOut = (id: number) => {
     logout(id)
       .then((res) => {
-        if (unauthorized(res)) {
+        if (res.status === 401) {
           showLogin()
         } else if (res.status === 204) {
           load()
