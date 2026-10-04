@@ -93,6 +93,8 @@ type FakeGitHub struct {
 	repositoryLabels map[labelKey]Label
 	labelPatches     []labelKey
 	notModified      int
+	failedCloses     map[issueKey]bool
+	failedSubIssues  map[issueKey]bool
 	// The ids of the first comments of the resolved review threads.
 	resolvedThreads map[int64]bool
 	latestRelease   *releaseJSON
@@ -136,6 +138,8 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		issues:                  map[issueKey]*issue{},
 		repositoryLabels:        map[labelKey]Label{},
 		resolvedThreads:         map[int64]bool{},
+		failedCloses:            map[issueKey]bool{},
+		failedSubIssues:         map[issueKey]bool{},
 	}
 	server := httptest.NewServer(g.routes())
 	t.Cleanup(server.Close)
@@ -158,6 +162,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues", g.withToken(g.listIssues))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues", g.withToken(g.createIssue))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}", g.withToken(g.getIssue))
+	mux.HandleFunc("PATCH /repos/{owner}/{repo}/issues/{number}", g.withToken(g.closeIssue))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/sub_issues", g.withToken(g.subIssues))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/sub_issues", g.withToken(g.addSubIssue))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/parent", g.withToken(g.parent))
@@ -171,12 +176,20 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/labels", g.withToken(g.listRepositoryLabels))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/labels", g.withToken(g.createRepositoryLabel))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/labels/{name}", g.withToken(g.updateRepositoryLabel))
+	mux.HandleFunc("PATCH /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.closeIssue))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/reviews", g.withToken(g.reviews))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.reviewComments))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.replyToReviewComment))
 	mux.HandleFunc("POST /graphql", g.withToken(g.graphql))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/releases/latest", g.getLatestRelease)
 	return mux
+}
+
+// Now gives the time of the last write.
+func (g *FakeGitHub) Now() time.Time {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return time.Unix(g.clock, 0)
 }
 
 // tick gives the time of a new write.
