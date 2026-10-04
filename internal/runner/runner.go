@@ -1,4 +1,5 @@
-// Package runner starts an agent session of a Harness through ACP, and fetches the bare clones of the repositories.
+// Package runner starts an agent session of a Harness through ACP, fetches the bare clones of the repositories with
+// their worktrees, and runs the local check of a worktree.
 package runner
 
 import (
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/coder/acp-go-sdk"
 
@@ -153,6 +155,9 @@ func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, p
 	if harness == config.Devin {
 		cmd.Args = append(cmd.Args, "acp")
 	}
+	// The agent leads its own process group, so the end of ctx also stops the processes of its tools.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	return cmd, nil
 }
 
