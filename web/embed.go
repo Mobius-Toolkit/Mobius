@@ -17,8 +17,9 @@ var Dist embed.FS
 // Handler serves the files of fsys. A path that is not a file gets index.html,
 // so that the UI router can handle it.
 //
-// index.html, the service worker and the web app manifest get
+// index.html, the service worker, the web app manifest and ui-version get
 // "Cache-Control: no-cache", so the browser always asks for the current version.
+// ui-version holds the build identifier of the UI. Vite writes it.
 func Handler(fsys fs.FS) http.Handler {
 	files := http.FileServerFS(fsys)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +30,7 @@ func Handler(fsys fs.FS) http.Handler {
 			return
 		}
 		switch name {
-		case "sw.js":
+		case "sw.js", "ui-version":
 			w.Header().Set("Cache-Control", "no-cache")
 		case "manifest.webmanifest":
 			w.Header().Set("Cache-Control", "no-cache")

@@ -70,6 +70,17 @@ func TestTheShellAndThePWAFilesComeWithCacheControlNoCache(t *testing.T) {
 	}
 }
 
+func TestTheUIVersionReportsTheBuildOfTheServer(t *testing.T) {
+	rec := get(t, Handler(fstest.MapFS{"index.html": {Data: []byte("index")}, "ui-version": {Data: []byte("build")}}), "/ui-version")
+
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q, want no-cache", got)
+	}
+	if got := rec.Body.String(); got != "build" {
+		t.Errorf("body = %q, want build", got)
+	}
+}
+
 // The web directory holds index.html and the public directory that Vite copies into dist.
 func TestTheShellLinksTheManifestAndRegistersTheServiceWorker(t *testing.T) {
 	html := get(t, Handler(os.DirFS(".")), "/").Body.String()
