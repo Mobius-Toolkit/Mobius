@@ -43,7 +43,7 @@ export interface Workstream {
 }
 
 export interface EnvelopeArrayWorkstream {
-  /** Array of Workstream */
+  /** Data is the payload of the response */
   data: Workstream[];
 }
 
