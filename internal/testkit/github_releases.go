@@ -1,6 +1,11 @@
 package testkit
 
-import "net/http"
+import (
+	"archive/tar"
+	"compress/gzip"
+	"net/http"
+	"slices"
+)
 
 type assetJSON struct {
 	Name string `json:"name"`
@@ -11,8 +16,9 @@ type releaseJSON struct {
 	Assets  []assetJSON `json:"assets"`
 }
 
-// SetLatestRelease makes tag with the files assets the latest release of Mobius-Toolkit/Mobius. With no
-// SetLatestRelease, Mobius-Toolkit/Mobius has no release.
+// SetLatestRelease makes tag with the files assets the latest release of Mobius-Toolkit/mobius-go. Each file is a
+// tar.gz archive with the program mobius, and the program is the text "<tag>/<file name>". With no SetLatestRelease,
+// Mobius-Toolkit/mobius-go has no release.
 func (g *FakeGitHub) SetLatestRelease(tag string, assets ...string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -26,11 +32,30 @@ func (g *FakeGitHub) SetLatestRelease(tag string, assets ...string) {
 func (g *FakeGitHub) getLatestRelease(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if repository(r) != "Mobius-Toolkit/Mobius" || g.latestRelease == nil {
+	if repository(r) != "Mobius-Toolkit/mobius-go" || g.latestRelease == nil {
 		notFound(w)
 		return
 	}
 	writeJSON(w, http.StatusOK, g.latestRelease)
+}
+
+// downloadReleaseFile needs no token, as on GitHub for a public repository.
+func (g *FakeGitHub) downloadReleaseFile(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	tag, name := r.PathValue("tag"), r.PathValue("name")
+	if repository(r) != "Mobius-Toolkit/mobius-go" || g.latestRelease == nil || g.latestRelease.TagName != tag ||
+		!slices.Contains(g.latestRelease.Assets, assetJSON{name}) {
+		notFound(w)
+		return
+	}
+	program := []byte(tag + "/" + name)
+	zipped := gzip.NewWriter(w)
+	archive := tar.NewWriter(zipped)
+	_ = archive.WriteHeader(&tar.Header{Name: "mobius", Mode: 0o755, Size: int64(len(program))})
+	_, _ = archive.Write(program)
+	_ = archive.Close()
+	_ = zipped.Close()
 }
 
 type commitJSON struct {
@@ -39,7 +64,7 @@ type commitJSON struct {
 	} `json:"commit"`
 }
 
-// SetComparedCommits makes each comparison of two commits of Mobius-Toolkit/Mobius give the commits with messages,
+// SetComparedCommits makes each comparison of two commits of Mobius-Toolkit/mobius-go give the commits with messages,
 // the oldest first.
 func (g *FakeGitHub) SetComparedCommits(messages ...string) {
 	g.mu.Lock()
@@ -51,7 +76,7 @@ func (g *FakeGitHub) SetComparedCommits(messages ...string) {
 func (g *FakeGitHub) compare(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if repository(r) != "Mobius-Toolkit/Mobius" {
+	if repository(r) != "Mobius-Toolkit/mobius-go" {
 		notFound(w)
 		return
 	}

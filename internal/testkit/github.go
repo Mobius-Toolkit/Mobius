@@ -191,6 +191,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("POST /graphql", g.withToken(g.graphql))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/releases/latest", g.getLatestRelease)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/compare/{basehead}", g.compare)
+	mux.HandleFunc("GET /{owner}/{repo}/releases/download/{tag}/{name}", g.downloadReleaseFile)
 	return mux
 }
 
