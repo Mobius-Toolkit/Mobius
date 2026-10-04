@@ -30,7 +30,8 @@ func TestMain(m *testing.M) {
 // script is the fake agent of each Harness. The options have the models and the efforts of the Role bindings of
 // testserver.Config. The first rule whose text is in the prompt answers the prompt, so a rule of a chat message comes
 // before the rule of each earlier event or message that the first prompt of a new session also holds. The Implementer
-// of #41 works until the server stops.
+// of #41 works until the server stops. The Lead turn of each move_task does not end, so its session runs until the
+// close of its Workstream.
 const script = `
 [options]
 model = ["sonnet", "opus", "haiku", "swe-1.5", "gemini-3-pro"]
@@ -44,6 +45,16 @@ reply = ["The Implementer works on #41. #42 and #45 wait for your decision."]
 [[prompts]]
 when = "Which roses sell best?"
 reply = ["Red roses sell best."]
+
+[[prompts]]
+when = "Move #52 to the Workstream #20."
+call = { tool = "move_task", arguments = { n = 52, workstream = 20 } }
+hang = true
+
+[[prompts]]
+when = "Move #57 to the Workstream #20."
+call = { tool = "move_task", arguments = { n = 57, workstream = 20 } }
+hang = true
 
 [[prompts]]
 when = "Move #8 to the Workstream."
@@ -103,7 +114,8 @@ const question = "What is the state of the plans? The full report is at " +
 //
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
 // unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
-// Workstreams plants/garden#20 and #30 with tasks that need a human, and the user code "user-code" of the second App.
+// Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, and
+// the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -132,6 +144,8 @@ func TestServer(t *testing.T) {
 		{"plants/garden", 20, "Plant tulips"},
 		{"plants/garden", 25, "Read the comments"},
 		{"plants/garden", 30, "Plant lilies"},
+		{"plants/garden", 50, "Plant daisies"},
+		{"plants/garden", 55, "Plant asters"},
 	} {
 		github.AddIssue(workstream.repository, workstream.number, workstream.title)
 		github.AddLabel(workstream.repository, workstream.number, "mobius:workstream", "owner")
@@ -158,6 +172,13 @@ func TestServer(t *testing.T) {
 		github.AddLabel("plants/garden", number, "mobius:needs-human", "owner")
 	}
 	github.AddUserCode(testkit.SecondAppID, "user-code", "owner")
+	github.AddSubIssueOf("plants/garden", 50, 51, "Buy daisy seeds")
+	github.CloseIssue("plants/garden", 51)
+	github.AddSubIssueOf("plants/garden", 50, 52, "Sow the daisies")
+	github.AddSubIssueOf("plants/garden", 55, 56, "Buy aster seeds")
+	github.CloseIssue("plants/garden", 56)
+	github.AddSubIssueOf("plants/garden", 55, 57, "Sow the asters")
+	github.FailClose("plants/garden", 55)
 	engine.Release = "v0.1.0"
 	github.SetLatestRelease("v0.1.4")
 	github.SetComparedCommits(
