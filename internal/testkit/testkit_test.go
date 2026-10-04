@@ -11,6 +11,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
+	"github.com/Mobius-Toolkit/mobius-go/internal/config"
 	"github.com/Mobius-Toolkit/mobius-go/internal/runner"
 )
 
@@ -34,7 +35,7 @@ shell = "pwd"
 	harnesses := filepath.Join(dataDir, "harnesses")
 	var mu sync.Mutex
 	var reply strings.Builder
-	session, err := runner.Start(context.Background(), work, dataDir, harnesses+":"+os.Getenv("PATH"), "http://127.0.0.1:1/mcp/key", func(notification acp.SessionNotification) {
+	session, err := runner.Start(context.Background(), config.ClaudeCode, work, dataDir, harnesses+":"+os.Getenv("PATH"), "http://127.0.0.1:1/mcp/key", func(notification acp.SessionNotification) {
 		mu.Lock()
 		defer mu.Unlock()
 		if chunk := notification.Update.AgentMessageChunk; chunk != nil {

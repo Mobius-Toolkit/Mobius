@@ -9,7 +9,7 @@ import (
 func TestStartServesTheAPI(t *testing.T) {
 	server := Start(t, t.TempDir())
 
-	response, err := http.Get(server.URL + "/api/health")
+	response, err := server.Client.Get(server.URL + "/api/health")
 	if err != nil {
 		t.Fatal(err)
 	}
