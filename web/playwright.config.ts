@@ -4,6 +4,11 @@ const addr = '127.0.0.1:6464'
 
 export default defineConfig({
   testDir: 'e2e',
+  projects: [
+    { name: 'screenshots', testMatch: 'screenshots.spec.ts' },
+    // The chat tests need the Apps of the screenshots test, and they change the data of the screenshots.
+    { name: 'chat', testMatch: 'chat.spec.ts', dependencies: ['screenshots'] },
+  ],
   use: {
     baseURL: `http://${addr}`,
     userAgent: 'Mobius screenshots',
