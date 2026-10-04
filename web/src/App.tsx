@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { use, useEffect, useState } from 'react'
 import {
   listWorkstreams,
   type Activity,
@@ -14,24 +14,30 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { onEvent } from '@/lib/events'
+import { LoginContext, unauthorized } from '@/lib/login'
+import { Devices } from './Devices'
+import { Login } from './Login'
 
 const maxActivities = 50
 
 function Workstreams() {
+  const showLogin = use(LoginContext)
   const [workstreams, setWorkstreams] = useState<Workstream[]>()
   const [error, setError] = useState<string>()
 
   useEffect(() => {
     listWorkstreams()
       .then((res) => {
-        if (res.status === 200) {
+        if (unauthorized(res)) {
+          showLogin()
+        } else if (res.status === 200) {
           setWorkstreams(res.data.data)
         } else {
           setError(res.data.error)
         }
       })
       .catch((err: unknown) => setError(String(err)))
-  }, [])
+  }, [showLogin])
 
   return (
     <Card>
@@ -113,12 +119,46 @@ function LiveEvents() {
   )
 }
 
+const pages = [
+  { path: '/', title: 'Workstreams' },
+  { path: '/devices', title: 'Devices' },
+]
+
 function App() {
+  const [loginShown, setLoginShown] = useState(false)
+
+  if (loginShown) {
+    return <Login onLogin={() => setLoginShown(false)} />
+  }
+  const path = window.location.pathname
   return (
-    <main className="mx-auto grid max-w-5xl items-start gap-6 p-6 md:grid-cols-2">
-      <Workstreams />
-      <LiveEvents />
-    </main>
+    <LoginContext value={() => setLoginShown(true)}>
+      <div className="mx-auto grid max-w-5xl gap-6 p-6">
+        <nav className="flex gap-4">
+          {pages.map((page) => (
+            <a
+              key={page.path}
+              href={page.path}
+              className={
+                page.path === path
+                  ? 'font-medium'
+                  : 'text-muted-foreground hover:underline'
+              }
+            >
+              {page.title}
+            </a>
+          ))}
+        </nav>
+        {path === '/devices' ? (
+          <Devices />
+        ) : (
+          <main className="grid items-start gap-6 md:grid-cols-2">
+            <Workstreams />
+            <LiveEvents />
+          </main>
+        )}
+      </div>
+    </LoginContext>
   )
 }
 

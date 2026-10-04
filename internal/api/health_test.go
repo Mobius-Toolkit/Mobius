@@ -9,8 +9,7 @@ import (
 )
 
 func TestGetHealth(t *testing.T) {
-	mux := http.NewServeMux()
-	Routes(mux, nil)
+	mux, _ := testMux(t)
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/health", nil))

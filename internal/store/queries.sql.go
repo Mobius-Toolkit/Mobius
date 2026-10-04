@@ -9,6 +9,90 @@ import (
 	"context"
 )
 
+const addDeviceLogin = `-- name: AddDeviceLogin :exec
+INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)
+VALUES (?, ?, ?, ?)
+`
+
+type AddDeviceLoginParams struct {
+	TokenHash           []byte
+	PasswordFingerprint []byte
+	UserAgent           string
+	CreatedAt           string
+}
+
+func (q *Queries) AddDeviceLogin(ctx context.Context, arg AddDeviceLoginParams) error {
+	_, err := q.db.ExecContext(ctx, addDeviceLogin,
+		arg.TokenHash,
+		arg.PasswordFingerprint,
+		arg.UserAgent,
+		arg.CreatedAt,
+	)
+	return err
+}
+
+const deleteDeviceLogin = `-- name: DeleteDeviceLogin :exec
+DELETE FROM device_logins WHERE id = ?
+`
+
+func (q *Queries) DeleteDeviceLogin(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteDeviceLogin, id)
+	return err
+}
+
+const deleteOtherPasswordLogins = `-- name: DeleteOtherPasswordLogins :exec
+DELETE FROM device_logins WHERE password_fingerprint != ?
+`
+
+func (q *Queries) DeleteOtherPasswordLogins(ctx context.Context, passwordFingerprint []byte) error {
+	_, err := q.db.ExecContext(ctx, deleteOtherPasswordLogins, passwordFingerprint)
+	return err
+}
+
+const findDeviceLogin = `-- name: FindDeviceLogin :one
+SELECT id FROM device_logins WHERE token_hash = ?
+`
+
+func (q *Queries) FindDeviceLogin(ctx context.Context, tokenHash []byte) (int64, error) {
+	row := q.db.QueryRowContext(ctx, findDeviceLogin, tokenHash)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const listDeviceLogins = `-- name: ListDeviceLogins :many
+SELECT id, user_agent, created_at FROM device_logins ORDER BY id DESC
+`
+
+type ListDeviceLoginsRow struct {
+	ID        int64
+	UserAgent string
+	CreatedAt string
+}
+
+func (q *Queries) ListDeviceLogins(ctx context.Context) ([]ListDeviceLoginsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDeviceLogins)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDeviceLoginsRow
+	for rows.Next() {
+		var i ListDeviceLoginsRow
+		if err := rows.Scan(&i.ID, &i.UserAgent, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEventsAfter = `-- name: ListEventsAfter :many
 SELECT id, time, repository, workstream, issue, actor, text, link FROM events WHERE id > ? ORDER BY id
 `

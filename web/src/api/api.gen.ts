@@ -27,6 +27,28 @@ export interface Activity {
 }
 
 /**
+ * DeviceLogin is the login of a device with the access password.
+ */
+export interface DeviceLogin {
+  /** CreatedAt is the time of the login */
+  createdAt: string;
+  /** ID is the id of the device login */
+  id: number;
+  /** UserAgent names the browser of the device */
+  userAgent: string;
+}
+
+/**
+ * Devices are the device logins.
+ */
+export interface Devices {
+  /** Logins are the device logins, the newest first */
+  logins: DeviceLogin[];
+  /** ThisDevice is the id of the device login of the request */
+  thisDevice: number;
+}
+
+/**
  * Workstream is a Workstream that has rows in the database.
  */
 export interface Workstream {
@@ -45,6 +67,11 @@ export interface Workstream {
 export interface EnvelopeArrayWorkstream {
   /** Data is the payload of the response */
   data: Workstream[];
+}
+
+export interface EnvelopeDevices {
+  /** Data is the payload of the response */
+  data: Devices;
 }
 
 /**
@@ -86,6 +113,11 @@ export type LiveEvents = {
   id?: string;
 };
 
+export interface LoginBody {
+  /** Password is the access password */
+  password: string;
+}
+
 /**
  * Field-level validation errors (maps field names to arrays of error messages)
  */
@@ -115,6 +147,126 @@ export type InternalServerErrorResponse = ErrorResponse;
  * Unprocessable Entity - Request body could not be parsed
  */
 export type UnprocessableEntityResponse = ErrorResponse;
+
+export type listDevicesResponse200 = {
+  data: EnvelopeDevices
+  status: 200
+}
+
+export type listDevicesResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listDevicesResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listDevicesResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listDevicesResponseSuccess = (listDevicesResponse200) & {
+  headers: Headers;
+};
+export type listDevicesResponseError = (listDevicesResponse400 | listDevicesResponse422 | listDevicesResponse500) & {
+  headers: Headers;
+};
+
+export type listDevicesResponse = (listDevicesResponseSuccess | listDevicesResponseError)
+
+export const getListDevicesUrl = () => {
+
+
+
+
+  return `/api/devices`
+}
+
+/**
+ * ListDevices returns the device logins.
+ */
+export const listDevices = async ( ): Promise<listDevicesResponse> => {
+
+  const res = await fetch(getListDevicesUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listDevicesResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listDevicesResponse
+}
+
+
+
+export type logoutResponse204 = {
+  data: void
+  status: 204
+}
+
+export type logoutResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type logoutResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type logoutResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type logoutResponseSuccess = (logoutResponse204) & {
+  headers: Headers;
+};
+export type logoutResponseError = (logoutResponse400 | logoutResponse422 | logoutResponse500) & {
+  headers: Headers;
+};
+
+export type logoutResponse = (logoutResponseSuccess | logoutResponseError)
+
+export const getLogoutUrl = (id: number,) => {
+
+
+
+
+  return `/api/devices/${id}`
+}
+
+/**
+ * Logout deletes a device login.
+ */
+export const logout = async (id: number, ): Promise<logoutResponse> => {
+
+  const res = await fetch(getLogoutUrl(id),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: logoutResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as logoutResponse
+}
+
+
 
 export type getHealthResponse200 = {
   data: EnvelopeHealth
@@ -156,11 +308,11 @@ export const getGetHealthUrl = () => {
 /**
  * GetHealth returns the state of the server.
  */
-export const getHealth = async ( options?: RequestInit): Promise<getHealthResponse> => {
+export const getHealth = async ( ): Promise<getHealthResponse> => {
 
   const res = await fetch(getGetHealthUrl(),
   {
-    ...options,
+
     method: 'GET'
 
 
@@ -172,6 +324,66 @@ export const getHealth = async ( options?: RequestInit): Promise<getHealthRespon
 
   const data: getHealthResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getHealthResponse
+}
+
+
+
+export type loginResponse204 = {
+  data: void
+  status: 204
+}
+
+export type loginResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type loginResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type loginResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type loginResponseSuccess = (loginResponse204) & {
+  headers: Headers;
+};
+export type loginResponseError = (loginResponse400 | loginResponse422 | loginResponse500) & {
+  headers: Headers;
+};
+
+export type loginResponse = (loginResponseSuccess | loginResponseError)
+
+export const getLoginUrl = () => {
+
+
+
+
+  return `/api/login`
+}
+
+/**
+ * Login makes a device login when the password is the access password, and sets the token of the device login in a cookie.
+ */
+export const login = async (loginBody: LoginBody, ): Promise<loginResponse> => {
+
+  const res = await fetch(getLoginUrl(),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(loginBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: loginResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as loginResponse
 }
 
 
@@ -216,11 +428,11 @@ export const getListWorkstreamsUrl = () => {
 /**
  * ListWorkstreams returns the Workstreams of the database, the most recently active first.
  */
-export const listWorkstreams = async ( options?: RequestInit): Promise<listWorkstreamsResponse> => {
+export const listWorkstreams = async ( ): Promise<listWorkstreamsResponse> => {
 
   const res = await fetch(getListWorkstreamsUrl(),
   {
-    ...options,
+
     method: 'GET'
 
 

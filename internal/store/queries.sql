@@ -31,3 +31,19 @@ SELECT * FROM events ORDER BY id DESC LIMIT ?;
 
 -- name: ListEventsAfter :many
 SELECT * FROM events WHERE id > ? ORDER BY id;
+
+-- name: AddDeviceLogin :exec
+INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)
+VALUES (?, ?, ?, ?);
+
+-- name: FindDeviceLogin :one
+SELECT id FROM device_logins WHERE token_hash = ?;
+
+-- name: ListDeviceLogins :many
+SELECT id, user_agent, created_at FROM device_logins ORDER BY id DESC;
+
+-- name: DeleteDeviceLogin :exec
+DELETE FROM device_logins WHERE id = ?;
+
+-- name: DeleteOtherPasswordLogins :exec
+DELETE FROM device_logins WHERE password_fingerprint != ?;
