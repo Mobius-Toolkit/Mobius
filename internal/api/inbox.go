@@ -12,9 +12,8 @@ type InboxItem struct {
 	// ID increases with each new item
 	ID int64 `gork:"id"`
 	// Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the
-	// Lead to the Owner, ready for review, stale pull request, usage limit for a pause of a Harness, Lead failed for a
-	// message or an event that the Lead did not take, stopped for a task that stopped, or full disk
-	Kind string `gork:"kind"`
+	// Lead to the Owner, and Lead failed for a message or an event that the Lead did not take
+	Kind string `gork:"kind" validate:"oneof=question Lead 'ready for review' 'stale pull request' 'usage limit' 'Lead failed' stopped 'full disk'"`
 	// Organization is the owner of the repository
 	Organization string `gork:"organization"`
 	// Repository is the repository as "owner/name"

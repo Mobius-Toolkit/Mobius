@@ -382,6 +382,23 @@ export interface EnvelopeArrayGitHubApp {
 }
 
 /**
+ * Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, and Lead failed for a message or an event that the Lead did not take
+ */
+export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
+
+
+export const InboxItemKind = {
+  question: 'question',
+  Lead: 'Lead',
+  ready_for_review: 'ready for review',
+  stale_pull_request: 'stale pull request',
+  usage_limit: 'usage limit',
+  Lead_failed: 'Lead failed',
+  stopped: 'stopped',
+  full_disk: 'full disk',
+} as const;
+
+/**
  * InboxItem is an item of the Inbox of the Owner.
  */
 export interface InboxItem {
@@ -394,8 +411,8 @@ export interface InboxItem {
   id: number;
   /** Issue is the number of the issue of the item */
   issue: number;
-  /** Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, ready for review, stale pull request, usage limit for a pause of a Harness, Lead failed for a message or an event that the Lead did not take, stopped for a task that stopped, or full disk */
-  kind: string;
+  /** Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, and Lead failed for a message or an event that the Lead did not take */
+  kind: InboxItemKind;
   /** Link is the GitHub URL of the item, or empty */
   link: string;
   /** Organization is the owner of the repository */
