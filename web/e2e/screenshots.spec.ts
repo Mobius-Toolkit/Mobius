@@ -10,14 +10,16 @@ async function screenshot(
   page: Page,
   name: string,
   path: string,
-  ready: () => Locator,
+  ready: () => Locator | Locator[],
   open?: () => Promise<void>,
 ) {
   for (const [device, size] of Object.entries(viewports)) {
     await page.setViewportSize(size)
     await page.goto(path)
     await open?.()
-    await expect(ready()).toBeVisible()
+    for (const locator of [ready()].flat()) {
+      await expect(locator).toBeVisible()
+    }
     await page.screenshot({
       path: `screenshots/${name}-${device}.png`,
       animations: 'disabled',
@@ -57,7 +59,50 @@ test('screenshots', async ({ page }) => {
   }).toPass()
 
   await page.goto('/')
-  await expect(page).toHaveURL('/settings')
+  await expect(page).toHaveURL('/workstreams')
+  // The side bar and the header of the phone have the same controls, and only one of them shows.
+  const shown = (name: string) =>
+    page.getByRole('button', { name }).filter({ visible: true })
+  const drain = page
+    .getByText('Upgrade waits for 2 agents')
+    .filter({ visible: true })
+  await screenshot(page, 'workstreams', '/workstreams', () => [
+    drain,
+    main.getByText('Seasonal prices'),
+    main.getByText('done'),
+  ])
+  await screenshot(page, 'agents', '/agents', () => [
+    drain,
+    main.getByText('Mobius prepares an upgrade'),
+  ])
+  await screenshot(
+    page,
+    'transcript',
+    '/agents',
+    () => [drain, main.getByText('The plan prices are in cents now.')],
+    () =>
+      main.getByRole('button', { name: /Ticket #41 Add plan model/ }).click(),
+  )
+
+  await shown('Cancel upgrade').click()
+  await screenshot(
+    page,
+    'upgrade',
+    '/workstreams',
+    () =>
+      page.getByText(
+        'Show the release changes in a modal before the upgrade (#320)',
+      ),
+    () => shown('Upgrade v0.1.4').click(),
+  )
+  await page.route('/ui-version', (route) =>
+    route.fulfill({ body: 'a new build' }),
+  )
+  await screenshot(page, 'new-version', '/workstreams', () =>
+    shown('New version'),
+  )
+  await page.unroute('/ui-version')
+
   await screenshot(page, 'settings', '/settings', () =>
     main.getByRole('link', { name: 'Devices' }),
   )
