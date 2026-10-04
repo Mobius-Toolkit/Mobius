@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -12,10 +13,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Mobius-Toolkit/mobius-go/internal/api"
 	"github.com/Mobius-Toolkit/mobius-go/internal/auth"
+	"github.com/Mobius-Toolkit/mobius-go/internal/config"
 	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 	"github.com/Mobius-Toolkit/mobius-go/internal/github"
 	"github.com/Mobius-Toolkit/mobius-go/internal/mcp"
@@ -39,14 +40,45 @@ type Server struct {
 	Engine *engine.Engine
 }
 
-// Start starts a Mobius server with the database in dataDir and the GitHub at githubURL
-// (the API and the web pages), and logs in. The server polls the repositories of the
-// GitHub Apps each 50 ms. The server stops at the end of the test.
-//
-// The agents run with the Harness commands in dataDir/harnesses and then on the PATH of the test,
-// and reach the Mobius MCP server over plain HTTP.
+// Config gives the config of a server under test with the data in dataDir: the access password Password, the
+// trusted user TrustedUser, a poll each 50 ms, and a binding for each Role.
+func Config(t testing.TB, dataDir string) *config.Config {
+	t.Helper()
+	cfg, err := config.Parse(fmt.Appendf(nil, `
+access_password = %q
+trusted_users = [%q]
+data_dir = %q
+poll_interval = "50ms"
+
+[roles]
+lead        = { harness = "claude-code", model = "opus",    effort = "high" }
+triager     = { harness = "claude-code", model = "sonnet",  effort = "medium" }
+implementer = { harness = "devin",       model = "swe-1.5", effort = "high" }
+researcher  = { harness = "antigravity", model = "gemini-3-pro" }
+reviewer    = { harness = "claude-code", model = "opus",    effort = "high" }
+judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
+`, Password, TrustedUser, dataDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+// Start starts a Mobius server with the config of Config, the GitHub at githubURL (the API and the web pages), and logs in.
+// The server stops at the end of the test.
 func Start(t testing.TB, dataDir, githubURL string) *Server {
 	t.Helper()
+	return StartWith(t, Config(t, dataDir), githubURL)
+}
+
+// StartWith starts a Mobius server with cfg and the GitHub at githubURL (the API and the web pages), and logs in.
+// The server stops at the end of the test.
+//
+// The agents run with the Harness commands in the directory harnesses of the data directory and then on the PATH
+// of the test, and reach the Mobius MCP server over plain HTTP.
+func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
+	t.Helper()
+	dataDir := cfg.DataDir
 	db, err := store.Open(t.Context(), filepath.Join(dataDir, "mobius.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -69,16 +101,18 @@ func Start(t testing.TB, dataDir, githubURL string) *Server {
 	mcpServer.Register(mcpMux)
 	agents := httptest.NewServer(mcpMux)
 	t.Cleanup(agents.Close)
-	e := engine.New(queries, gh, []string{TrustedUser}, nil, engine.Agents{
-		MCP:     mcpServer,
-		Addr:    strings.TrimPrefix(agents.URL, "http://"),
-		DataDir: dataDir,
-		Path:    filepath.Join(dataDir, "harnesses") + string(filepath.ListSeparator) + os.Getenv("PATH"),
+	e := engine.New(queries, gh, cfg, engine.Agents{
+		MCP:  mcpServer,
+		Addr: strings.TrimPrefix(agents.URL, "http://"),
+		Path: filepath.Join(dataDir, "harnesses") + string(filepath.ListSeparator) + os.Getenv("PATH"),
 	})
+	if err := e.Recover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
 	go func() {
-		e.Run(ctx, 50*time.Millisecond)
+		e.Run(ctx)
 		close(stopped)
 	}()
 	t.Cleanup(func() {
@@ -107,8 +141,8 @@ func Start(t testing.TB, dataDir, githubURL string) *Server {
 }
 
 // WaitForFirstPoll waits for the end of the first poll of repository. The first poll
-// stores the `since` cursor of the issues endpoint at its end. A test that changes an
-// issue before this end races with the first poll.
+// hands the lost tasks to a human, and stores the `since` cursor of the issues endpoint at its end.
+// A test that changes an issue before this end races with the first poll.
 func (s *Server) WaitForFirstPoll(t testing.TB, repository string) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool {

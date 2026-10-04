@@ -14,7 +14,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
 	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
@@ -92,12 +91,11 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nlist_tools = true\n")
-	triager := engine.Spec{Role: engine.TriagerRole, Binding: lead, Organization: "owner", Dir: t.TempDir()}
+	triager := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()}
 	reviewer := leadSpec(t)
-	reviewer.Role = "reviewer"
+	reviewer.Role = engine.ReviewerRole
 	implementer := leadSpec(t)
-	implementer.Role = "implementer"
-	implementer.Binding = config.RoleBinding{Harness: config.Devin, Model: "sonnet", Effort: "low"}
+	implementer.Role = engine.ImplementerRole
 
 	for _, c := range []struct {
 		spec engine.Spec
@@ -160,7 +158,7 @@ func TestListTasksShowsTheQueuedStateAndTheOpenBlockers(t *testing.T) {
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddSubIssue(shop, 12, 30)
 	fake.AddSubIssue(shop, 30, 31)
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 41, 12, 'queued', '2026-10-04T10:00:00Z')`); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, queued_at) VALUES ('owner/shop', 41, 12, 'queued', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -421,7 +419,7 @@ func TestReplyThreadRepliesInAReviewThreadAndResolvesIt(t *testing.T) {
 func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
-	triagerChat := engine.Spec{Role: engine.TriagerRole, Binding: lead, Organization: "owner", Dir: t.TempDir()}
+	triagerChat := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()}
 	triagerOfIssue := triagerChat
 	triagerOfIssue.Repository = shop
 
@@ -483,7 +481,7 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndMakesItReady(t *testing.T) {
 	server, _ := connect(t, fake, call("move_issue", "{ n = 50, workstream = 12 }")+call("move_issue", "{ n = 50, workstream = 12 }"))
 	fake.AddIssue(shop, 50, "Add invoices")
 	fake.AddLabel(shop, 50, "mobius:no-workstream", "mobius-test[bot]")
-	spec := engine.Spec{Role: engine.TriagerRole, Binding: lead, Organization: "owner", Repository: shop, Issue: sql.NullInt64{Int64: 50, Valid: true}, Dir: t.TempDir()}
+	spec := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Repository: shop, Issue: sql.NullInt64{Int64: 50, Valid: true}, Dir: t.TempDir()}
 
 	session := run(t, server, spec, "1. ", "2. ")
 

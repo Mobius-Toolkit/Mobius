@@ -1,0 +1,185 @@
+package engine_test
+
+import (
+	"database/sql"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Mobius-Toolkit/mobius-go/internal/config"
+	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
+	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
+	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
+)
+
+// dies is the script of a Harness that dies in its turn.
+const dies = "[[prompts]]\nshell = \"kill -9 $PPID\"\n"
+
+// liveTask gives the live task of the issue number.
+func liveTask(t *testing.T, server *testserver.Server, number int64) store.Task {
+	t.Helper()
+	task, err := store.New(server.DB).GetLiveTask(t.Context(), store.GetLiveTaskParams{Repository: shop, Issue: number})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return task
+}
+
+// dieOnce runs a Worker session of spec whose Harness dies in its first turn, and gives the error of the turn.
+func dieOnce(t *testing.T, server *testserver.Server, spec engine.Spec) error {
+	t.Helper()
+	agent := start(t, server, spec)
+	err := agent.Prompt(t.Context(), "Store plans in cents.")
+	if err == nil {
+		t.Fatal("the turn did not fail")
+	}
+	return agent.Fail(t.Context(), err)
+}
+
+func TestAWorkerThatDiesStartsAgainAfterAGrowingWait(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, dies)
+	spec := implementerSpec(t, server, 41)
+	failure := dieOnce(t, server, spec)
+
+	var waits []time.Duration
+	for range 2 {
+		began := time.Now()
+		restart, err := server.Engine.RestartWorker(t.Context(), liveTask(t, server, 41), "Add plan model", failure)
+		if err != nil || !restart {
+			t.Fatalf("restart = %v: %v", restart, err)
+		}
+		waits = append(waits, time.Since(began))
+	}
+
+	if waits[0] < 100*time.Millisecond || waits[1] < 200*time.Millisecond {
+		t.Errorf("waits = %v", waits)
+	}
+	lines := transcript(t, server, tree(t, server)[0].Session.ID)
+	last := lines[len(lines)-1]
+	// The Transcript shows the real error of the Harness.
+	if last.Kind != "error" || !strings.Contains(last.Text, "peer disconnected") || tree(t, server)[0].Session.EndReason.String != "failed" {
+		t.Errorf("last line = %+v", last)
+	}
+}
+
+func TestAWorkerThatDiesAfterMaxWorkerRestartsGoesToAHuman(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, dies, func(cfg *config.Config) {
+		cfg.MaxWorkerRestarts = 1
+		fake.AddIssue(shop, 41, "Add plan model")
+		fake.AddSubIssue(shop, 12, 41)
+	})
+	fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
+	spec := implementerSpec(t, server, 41)
+
+	var restarts []bool
+	for {
+		failure := dieOnce(t, server, spec)
+		restart, err := server.Engine.RestartWorker(t.Context(), liveTask(t, server, 41), "Add plan model", failure)
+		if err != nil {
+			t.Fatal(err)
+		}
+		restarts = append(restarts, restart)
+		if !restart {
+			break
+		}
+		if _, err := server.DB.Exec("UPDATE tasks SET state = 'queued' WHERE id = ?", spec.Task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if !reflect.DeepEqual(restarts, []bool{true, false}) {
+		t.Errorf("restarts = %v", restarts)
+	}
+	if state := liveTask(t, server, 41).State; state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+	if labels := fake.Labels(shop, 41); !reflect.DeepEqual(labels, []string{"mobius:needs-human"}) {
+		t.Errorf("labels = %q", labels)
+	}
+	var kind, payload string
+	var issue, message sql.NullInt64
+	if err := server.DB.QueryRow("SELECT kind, payload, issue, chat_message FROM lead_events WHERE workstream = 12").Scan(&kind, &payload, &issue, &message); err != nil {
+		t.Fatal(err)
+	}
+	want := " stop of #41 \"Add plan model\": the Worker failed after 1 restarts. Mobius added mobius:needs-human. The last error ends with these lines:\n\n```\n{\"code\":-32603"
+	if kind != "stop" || !strings.Contains(payload, want) || issue.Int64 != 41 {
+		t.Errorf("event = %s %q #%d", kind, payload, issue.Int64)
+	}
+	var author, text string
+	if err := server.DB.QueryRow("SELECT author, text FROM chat_messages WHERE id = ?", message.Int64).Scan(&author, &text); err != nil || author != "Event" || text != payload {
+		t.Errorf("chat message = %s %q: %v", author, text, err)
+	}
+}
+
+// A Claude Code session with no Mobius tools must not run (Mobius#254).
+func TestAClaudeCodeSessionWithNoToolsListStartsAgain(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	testkit.InstallFakeAgent(t, dataDir, "skip_tools_list = 1\n"+options+"[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
+
+	session, _ := leadReply(t, server)
+
+	var lines []string
+	for _, line := range transcript(t, server, session) {
+		if line.Kind != "update" {
+			lines = append(lines, line.Kind+": "+line.Text)
+		}
+	}
+	want := []string{"error: The session sent no tools/list, so it has no Mobius tools. Mobius starts the session again.", "prompt: Read the work", "mcp_call: mobius · list_tasks"}
+	if !reflect.DeepEqual(lines, want) {
+		t.Errorf("lines = %q", lines)
+	}
+}
+
+func TestAClaudeCodeSessionWithNoToolsListAfterEachRestartFails(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	testkit.InstallFakeAgent(t, dataDir, "skip_tools_list = 2\n"+options)
+
+	_, err := server.Engine.Start(t.Context(), leadSpec(t))
+
+	if err == nil || !strings.Contains(err.Error(), "the session sent no tools/list") {
+		t.Fatalf("error = %v", err)
+	}
+	if got := tree(t, server)[0].Session.EndReason.String; got != "failed" {
+		t.Errorf("end reason = %s", got)
+	}
+}
+
+func TestTheHousekeeperRemovesTheDirectoriesThatNothingOwns(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	var stale, owned []string
+	connectWith(t, fake, "", func(cfg *config.Config) {
+		seed(t, cfg.DataDir, `INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z')`)
+		worktrees := filepath.Join(cfg.DataDir, "worktrees", "owner", "shop")
+		stale = []string{filepath.Join(worktrees, "task-99"), filepath.Join(worktrees, "review-12345"), filepath.Join(cfg.DataDir, "scratch", "777")}
+		owned = []string{filepath.Join(worktrees, "task-41"), filepath.Join(cfg.DataDir, "leads", "owner", "shop", "12")}
+		for _, dir := range append(stale, owned...) {
+			if err := os.MkdirAll(dir, 0o750); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+
+	testkit.WaitFor(t, func() bool {
+		for _, dir := range stale {
+			if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+				return false
+			}
+		}
+		return true
+	})
+
+	for _, dir := range owned {
+		if _, err := os.Stat(dir); err != nil {
+			t.Error(err)
+		}
+	}
+}

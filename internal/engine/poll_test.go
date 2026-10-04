@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Mobius-Toolkit/mobius-go/internal/config"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
 )
@@ -14,8 +15,14 @@ import (
 // the App that is installed on owner/shop. The first poll comes after the App.
 func startServer(t *testing.T, fake *testkit.FakeGitHub, dataDir, before string) *testserver.Server {
 	t.Helper()
+	return startServerWith(t, fake, testserver.Config(t, dataDir), before)
+}
+
+// startServerWith is startServer with the config cfg.
+func startServerWith(t *testing.T, fake *testkit.FakeGitHub, cfg *config.Config, before string) *testserver.Server {
+	t.Helper()
 	fake.AddRepository(shop)
-	server := testserver.Start(t, dataDir, fake.URL)
+	server := testserver.StartWith(t, cfg, fake.URL)
 	if before != "" {
 		if _, err := server.DB.Exec(before); err != nil {
 			t.Fatal(err)

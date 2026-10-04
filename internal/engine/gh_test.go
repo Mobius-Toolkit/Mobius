@@ -77,7 +77,7 @@ func TestTheGHTokenRouteServesOnlyALiveLeadSession(t *testing.T) {
 		t.Errorf("reply = %q", text)
 	}
 	ended := ghTokenURL(mcpURL(t, dataDir))
-	triager := start(t, server, engine.Spec{Role: engine.TriagerRole, Binding: lead, Organization: "owner", Repository: shop, Dir: t.TempDir()})
+	triager := start(t, server, engine.Spec{Role: engine.TriagerRole, Organization: "owner", Repository: shop, Dir: t.TempDir()})
 	defer func() { _ = triager.End(t.Context(), "done") }()
 	for _, url := range []string{ended, ghTokenURL(mcpURL(t, dataDir)), ended[:strings.LastIndex(ended, "/")] + "/0123"} {
 		if status := get(t, url); status != http.StatusNotFound {

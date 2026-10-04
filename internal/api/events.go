@@ -52,11 +52,16 @@ type LiveEvents struct {
 	Agent *Agent `gork:"agent"`
 	// Transcript is a new row of a Transcript, or a row that got more text
 	Transcript *TranscriptLine `gork:"transcript"`
+	// Drain is the state of the drain at each change
+	Drain *Drain `gork:"drain"`
+	// Upgrade is the state of the last upgrade at its start and at its failure
+	Upgrade *Upgrade `gork:"upgrade"`
 }
 
-// StreamEvents sends the latest activities, and then each new activity, each start and end of a session,
-// and each new or changed Transcript row. When the request has Last-Event-ID, it sends the activities
-// after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.
+// StreamEvents sends the latest activities, and then each new activity, each change of a session,
+// each new or changed Transcript row, each change of the drain, and each start and failure of an upgrade.
+// When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities.
+// When the client does not read the session changes fast enough, the stream ends.
 func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, stream *api.Stream[LiveEvents]) error {
 	changes, stop := h.engine.Listen()
 	defer stop()
@@ -103,8 +108,13 @@ func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, st
 }
 
 func sendChange(stream *api.Stream[LiveEvents], change engine.Change) error {
-	if change.Line != nil {
+	switch {
+	case change.Line != nil:
 		return stream.Send(LiveEvents{Transcript: new(transcriptLineOf(*change.Line))})
+	case change.Drain != nil:
+		return stream.Send(LiveEvents{Drain: new(drainOf(*change.Drain))})
+	case change.Upgrade != nil:
+		return stream.Send(LiveEvents{Upgrade: &Upgrade{Failure: *change.Upgrade}})
 	}
 	agent, err := agentOf(*change.Node)
 	if err != nil {

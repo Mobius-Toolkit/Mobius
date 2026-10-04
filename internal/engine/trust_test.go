@@ -3,11 +3,12 @@ package engine_test
 import (
 	"testing"
 
+	"github.com/Mobius-Toolkit/mobius-go/internal/config"
 	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 )
 
 func TestTrustedAuthor(t *testing.T) {
-	e := engine.New(nil, nil, []string{"owner"}, []string{"coderabbitai[bot]"}, engine.Agents{})
+	e := engine.New(nil, nil, &config.Config{TrustedUsers: []string{"owner"}, TrustedBots: []string{"coderabbitai[bot]"}}, engine.Agents{})
 	cases := []struct {
 		login string
 		want  bool

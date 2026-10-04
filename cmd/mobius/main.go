@@ -154,13 +154,15 @@ func serve(configPath string) error {
 		return err
 	}
 	mcpServer := mcp.New()
-	e := engine.New(queries, gh, cfg.TrustedUsers, cfg.TrustedBots, engine.Agents{
-		MCP:     mcpServer,
-		Addr:    net.JoinHostPort("127.0.0.1", strconv.FormatUint(port, 10)),
-		DataDir: cfg.DataDir,
-		Path:    path,
+	e := engine.New(queries, gh, cfg, engine.Agents{
+		MCP:  mcpServer,
+		Addr: net.JoinHostPort("127.0.0.1", strconv.FormatUint(port, 10)),
+		Path: path,
 	})
-	go e.Run(ctx, cfg.PollInterval)
+	if err := e.Recover(ctx); err != nil {
+		return err
+	}
+	go e.Run(ctx)
 
 	mux := http.NewServeMux()
 	api.Routes(mux, queries, a, gh, e)
