@@ -11,7 +11,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description StreamEvents sends the latest activities, and then each new activity. */
+        /** @description StreamEvents sends the latest activities, and then each new activity. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. */
         get: operations["StreamEvents"];
         put?: never;
         post?: never;
@@ -189,7 +189,10 @@ export interface operations {
     StreamEvents: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description LastEventID is the id of the last activity that the client got */
+                "Last-Event-ID"?: number;
+            };
             path?: never;
             cookie?: never;
         };

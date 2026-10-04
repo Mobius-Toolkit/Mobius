@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/gork-labs/gork/pkg/api"
@@ -16,7 +17,12 @@ const (
 )
 
 // StreamEventsRequest is the request of StreamEvents.
-type StreamEventsRequest struct{}
+type StreamEventsRequest struct {
+	Headers struct {
+		// LastEventID is the id of the last activity that the client got
+		LastEventID *int64 `gork:"Last-Event-ID"`
+	}
+}
 
 // Activity is an entry of the activity feed of a Workstream.
 type Activity struct {
@@ -44,15 +50,24 @@ type LiveEvents struct {
 }
 
 // StreamEvents sends the latest activities, and then each new activity.
-func (h *handlers) StreamEvents(ctx context.Context, _ StreamEventsRequest, stream *api.Stream[LiveEvents]) error {
-	events, err := h.queries.ListLatestEvents(ctx, backlog)
+// When the request has Last-Event-ID, it sends the activities after that id
+// in place of the latest activities.
+func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, stream *api.Stream[LiveEvents]) error {
+	var events []store.Event
+	var err error
+	var last int64
+	if req.Headers.LastEventID != nil {
+		last = *req.Headers.LastEventID
+		events, err = h.queries.ListEventsAfter(ctx, last)
+	} else {
+		events, err = h.queries.ListLatestEvents(ctx, backlog)
+		slices.Reverse(events)
+	}
 	if err != nil {
 		return err
 	}
-	slices.Reverse(events)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
-	var last int64
 	for {
 		for _, e := range events {
 			if err := sendActivity(stream, e); err != nil {
@@ -77,7 +92,7 @@ func sendActivity(stream *api.Stream[LiveEvents], e store.Event) error {
 	if err != nil {
 		return err
 	}
-	return stream.Send(LiveEvents{Activity: &Activity{
+	return stream.SendWithID(strconv.FormatInt(e.ID, 10), LiveEvents{Activity: &Activity{
 		ID:         e.ID,
 		Time:       t,
 		Repository: e.Repository,

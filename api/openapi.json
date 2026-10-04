@@ -7,8 +7,19 @@
   "paths": {
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends the latest activities, and then each new activity.",
+        "description": "StreamEvents sends the latest activities, and then each new activity. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities.",
         "operationId": "StreamEvents",
+        "parameters": [
+          {
+            "description": "LastEventID is the id of the last activity that the client got",
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
