@@ -584,6 +584,149 @@
         ]
       }
     },
+    "/api/github/manifest-callback": {
+      "get": {
+        "description": "ManifestCallback is the page where GitHub sends the browser after it creates the App of a manifest form.",
+        "operationId": "ManifestCallback",
+        "parameters": [
+          {
+            "description": "Code is the code that converts the manifest into an App",
+            "in": "query",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "State is the state of the manifest form",
+            "in": "query",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "See Other",
+            "headers": {
+              "Location": {
+                "description": "Response header",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/github/user-callback": {
+      "get": {
+        "description": "UserCallback is the page where GitHub sends the browser after the Owner authorizes a Mobius App. GitHub sends no state after an installation, so the check of the user login protects this page.",
+        "operationId": "UserCallback",
+        "parameters": [
+          {
+            "description": "Code is the code that GitHub exchanges for a user token",
+            "in": "query",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "See Other",
+            "headers": {
+              "Location": {
+                "description": "Response header",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "github"
+        ]
+      }
+    },
     "/api/health": {
       "get": {
         "description": "GetHealth returns the state of the server.",

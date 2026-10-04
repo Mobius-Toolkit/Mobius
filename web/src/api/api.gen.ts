@@ -516,6 +516,24 @@ export type GetCheckupParams = {
 organization: string;
 };
 
+export type ManifestCallbackParams = {
+/**
+ * Code is the code that converts the manifest into an App
+ */
+code: string;
+/**
+ * State is the state of the manifest form
+ */
+state: string;
+};
+
+export type UserCallbackParams = {
+/**
+ * Code is the code that GitHub exchanges for a user token
+ */
+code: string;
+};
+
 export type listActiveAgentsResponse200 = {
   data: EnvelopeActiveAgents
   status: 200
@@ -1234,6 +1252,156 @@ export const createManifestForm = async (createManifestFormBody: CreateManifestF
 
   const data: createManifestFormResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as createManifestFormResponse
+}
+
+
+
+export type manifestCallbackResponse303 = {
+  data: void
+  status: 303
+}
+
+export type manifestCallbackResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type manifestCallbackResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type manifestCallbackResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type manifestCallbackResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type manifestCallbackResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+;
+export type manifestCallbackResponseError = (manifestCallbackResponse303 | manifestCallbackResponse400 | manifestCallbackResponse401 | manifestCallbackResponse403 | manifestCallbackResponse422 | manifestCallbackResponse500) & {
+  headers: Headers;
+};
+
+export type manifestCallbackResponse = (manifestCallbackResponseError)
+
+export const getManifestCallbackUrl = (params: ManifestCallbackParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/github/manifest-callback?${stringifiedParams}` : `/api/github/manifest-callback`
+}
+
+/**
+ * ManifestCallback is the page where GitHub sends the browser after it creates the App of a manifest form.
+ */
+export const manifestCallback = async (params: ManifestCallbackParams, ): Promise<manifestCallbackResponse> => {
+
+  const res = await fetch(getManifestCallbackUrl(params),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: manifestCallbackResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as manifestCallbackResponse
+}
+
+
+
+export type userCallbackResponse303 = {
+  data: void
+  status: 303
+}
+
+export type userCallbackResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type userCallbackResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type userCallbackResponse403 = {
+  data: ErrorResponse
+  status: 403
+}
+
+export type userCallbackResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type userCallbackResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+;
+export type userCallbackResponseError = (userCallbackResponse303 | userCallbackResponse400 | userCallbackResponse401 | userCallbackResponse403 | userCallbackResponse422 | userCallbackResponse500) & {
+  headers: Headers;
+};
+
+export type userCallbackResponse = (userCallbackResponseError)
+
+export const getUserCallbackUrl = (params: UserCallbackParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/github/user-callback?${stringifiedParams}` : `/api/github/user-callback`
+}
+
+/**
+ * UserCallback is the page where GitHub sends the browser after the Owner authorizes a Mobius App. GitHub sends no state after an installation, so the check of the user login protects this page.
+ */
+export const userCallback = async (params: UserCallbackParams, ): Promise<userCallbackResponse> => {
+
+  const res = await fetch(getUserCallbackUrl(params),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: userCallbackResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as userCallbackResponse
 }
 
 

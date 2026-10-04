@@ -39,11 +39,16 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Get("/api/organizations", h.ListOrganizations, loggedIn("github")...)
 	r.Get("/api/checkup", h.GetCheckup, loggedIn("checkup")...)
 	r.Post("/api/checkup/fix", h.FixLabels, loggedIn("checkup")...)
-	// GitHub sends the browser to these pages. Gork cannot give a redirect, so they are plain handlers outside the spec.
-	routes.HandleFunc("GET /api/github/manifest-callback", h.manifestCallback)
-	routes.HandleFunc("GET /api/github/user-callback", h.userCallback)
+	r.Get("/api/github/manifest-callback", h.ManifestCallback, redirect("github")...)
+	r.Get("/api/github/user-callback", h.UserCallback, redirect("github")...)
 	mux.Handle("/api/", h.guard(routes))
 	return r
+}
+
+// redirect gives the options of a page where GitHub sends the browser. The page needs the cookie
+// of a device login and sends the browser on with 303 See Other.
+func redirect(tag string) []api.Option {
+	return append(loggedIn(tag), api.WithStatus(http.StatusSeeOther), api.WithErrorResponses(http.StatusForbidden))
 }
 
 // loggedIn gives the options of a route that needs the cookie of a device login.
