@@ -330,25 +330,27 @@ func (g *GitHub) UserToken(ctx context.Context, appID int64) (string, error) {
 }
 
 // Refresh reads the repositories of the installations of each App. An App whose read
-// fails keeps the repositories of its last read.
-func (g *GitHub) Refresh(ctx context.Context) error {
+// fails keeps the repositories of its last read, and then Refresh gives false.
+func (g *GitHub) Refresh(ctx context.Context) (bool, error) {
 	apps, err := g.queries.ListGitHubApps(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	var repositories []Repository
+	complete := true
 	for _, app := range apps {
 		found, err := g.appRepositories(ctx, app)
 		if err != nil {
 			log.Printf("read the repositories of the GitHub App %s: %v", app.Slug, err)
 			found = slices.DeleteFunc(g.Repositories(), func(r Repository) bool { return r.AppID != app.AppID })
+			complete = false
 		}
 		repositories = append(repositories, found...)
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.repositories = repositories
-	return nil
+	return complete, nil
 }
 
 // appClient gives the client that signs each request with the key of the App.
@@ -400,6 +402,16 @@ func (g *GitHub) installationTransport(appTransport *ghinstallation.AppsTranspor
 		g.transports[id] = transport
 	}
 	return transport
+}
+
+// AsOwner gives repository with a client that uses the user token of the Owner in place of the installation token.
+func (g *GitHub) AsOwner(ctx context.Context, repository Repository) (Repository, error) {
+	token, err := g.UserToken(ctx, repository.AppID)
+	if err != nil {
+		return Repository{}, err
+	}
+	repository.Client, err = g.client(gh.WithAuthToken(token))
+	return repository, err
 }
 
 // Repositories gives the repositories of the last read.

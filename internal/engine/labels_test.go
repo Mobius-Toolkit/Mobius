@@ -37,7 +37,7 @@ func repository(t *testing.T, fake *testkit.FakeGitHub) github.Repository {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := gh.Refresh(t.Context()); err != nil {
+	if _, err := gh.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	return gh.Repositories()[0]

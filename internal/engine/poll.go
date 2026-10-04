@@ -18,7 +18,7 @@ const issuesEndpoint = "issues"
 // this run of the server, hands the lost tasks to a human until that step works one time, and reads the changed
 // issues. The work of a repository starts again at its first poll, because the work needs GitHub.
 func (e *Engine) poll(ctx context.Context) {
-	if err := e.github.Refresh(ctx); err != nil {
+	if _, err := e.github.Refresh(ctx); err != nil {
 		log.Printf("read the repositories of the GitHub Apps: %v", err)
 		return
 	}
