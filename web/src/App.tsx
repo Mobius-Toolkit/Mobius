@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
-import { listWorkstreams, type Activity, type Workstream } from '@/api/api.gen'
-import { onLiveEvent } from '@/api/events'
+import {
+  listWorkstreams,
+  type Activity,
+  type LiveEvents as LiveEvent,
+  type Workstream,
+} from '@/api/api.gen'
 import { Badge } from '@/components/ui/badge'
 import {
   Card,
@@ -9,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { onEvent } from '@/lib/events'
 
 const maxActivities = 50
 
@@ -73,7 +78,7 @@ function LiveEvents() {
     const source = new EventSource('/api/events')
     source.addEventListener('open', () => setConnected(true))
     source.addEventListener('error', () => setConnected(false))
-    onLiveEvent(source, 'activity', (activity) =>
+    onEvent<LiveEvent, 'activity'>(source, 'activity', (activity) =>
       setActivities((prev) => [activity, ...prev].slice(0, maxActivities)),
     )
     return () => source.close()
