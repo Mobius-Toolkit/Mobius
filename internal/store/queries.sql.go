@@ -13,7 +13,7 @@ import (
 const addChatMessage = `-- name: AddChatMessage :one
 INSERT INTO chat_messages (organization, repository, workstream, author, time, text)
 VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id
+RETURNING id, repository, workstream, author, time, text, organization
 `
 
 type AddChatMessageParams struct {
@@ -25,7 +25,7 @@ type AddChatMessageParams struct {
 	Text         string
 }
 
-func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) (int64, error) {
+func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) (ChatMessage, error) {
 	row := q.db.QueryRowContext(ctx, addChatMessage,
 		arg.Organization,
 		arg.Repository,
@@ -34,9 +34,17 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		arg.Time,
 		arg.Text,
 	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+	)
+	return i, err
 }
 
 const addCopiedBlocker = `-- name: AddCopiedBlocker :exec
@@ -343,6 +351,48 @@ func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session
 	return i, err
 }
 
+const addTask = `-- name: AddTask :one
+INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES (?, ?, ?, 'dispatched', ?)
+RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head
+`
+
+type AddTaskParams struct {
+	Repository   string
+	Issue        int64
+	Workstream   int64
+	DispatchedAt string
+}
+
+func (q *Queries) AddTask(ctx context.Context, arg AddTaskParams) (Task, error) {
+	row := q.db.QueryRowContext(ctx, addTask,
+		arg.Repository,
+		arg.Issue,
+		arg.Workstream,
+		arg.DispatchedAt,
+	)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Issue,
+		&i.Workstream,
+		&i.State,
+		&i.DispatchedAt,
+		&i.Branch,
+		&i.QueuedAt,
+		&i.FixRounds,
+		&i.PullRequest,
+		&i.JudgedAt,
+		&i.WorkerRestarts,
+		&i.Worker,
+		&i.WorkerInput,
+		&i.ReviewRounds,
+		&i.ReviewComment,
+		&i.CheckHead,
+	)
+	return i, err
+}
+
 const addTranscriptRow = `-- name: AddTranscriptRow :one
 INSERT INTO transcript (session, time, kind, json) VALUES (?, ?, ?, ?)
 RETURNING id, session, time, kind, json
@@ -390,6 +440,31 @@ func (q *Queries) AddWorkerRestart(ctx context.Context, arg AddWorkerRestartPara
 	return worker_restarts, err
 }
 
+const appendChatMessage = `-- name: AppendChatMessage :one
+UPDATE chat_messages SET text = text || ?1 WHERE id = ?2
+RETURNING id, repository, workstream, author, time, text, organization
+`
+
+type AppendChatMessageParams struct {
+	Text string
+	ID   int64
+}
+
+func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessageParams) (ChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, appendChatMessage, arg.Text, arg.ID)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+	)
+	return i, err
+}
+
 const clearQueueReason = `-- name: ClearQueueReason :one
 UPDATE sessions SET queue_reason = NULL WHERE id = ?
 RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent
@@ -415,6 +490,38 @@ func (q *Queries) ClearQueueReason(ctx context.Context, id int64) (Session, erro
 		&i.Parent,
 	)
 	return i, err
+}
+
+const countActiveTasks = `-- name: CountActiveTasks :one
+SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working')
+`
+
+func (q *Queries) CountActiveTasks(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countActiveTasks)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countUnread = `-- name: CountUnread :one
+SELECT count(*) FROM chat_messages m
+WHERE m.organization = ?1 AND m.repository = ?2 AND m.workstream = ?3
+  AND m.author NOT IN ('Owner', 'Researcher', 'Event')
+  AND m.id > coalesce((SELECT s.message FROM chat_seen s
+                       WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0)
+`
+
+type CountUnreadParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+}
+
+func (q *Queries) CountUnread(ctx context.Context, arg CountUnreadParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUnread, arg.Organization, arg.Repository, arg.Workstream)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const deleteCopiedBlocker = `-- name: DeleteCopiedBlocker :execrows
@@ -568,6 +675,20 @@ func (q *Queries) DeleteOtherPasswordLogins(ctx context.Context, passwordFingerp
 	return err
 }
 
+const deliverLeadEvent = `-- name: DeliverLeadEvent :exec
+UPDATE lead_events SET delivered_at = ? WHERE id = ?
+`
+
+type DeliverLeadEventParams struct {
+	DeliveredAt sql.NullString
+	ID          int64
+}
+
+func (q *Queries) DeliverLeadEvent(ctx context.Context, arg DeliverLeadEventParams) error {
+	_, err := q.db.ExecContext(ctx, deliverLeadEvent, arg.DeliveredAt, arg.ID)
+	return err
+}
+
 const deliverLeadEvents = `-- name: DeliverLeadEvents :exec
 UPDATE lead_events SET delivered_at = ? WHERE repository = ? AND workstream = ? AND delivered_at IS NULL
 `
@@ -583,8 +704,9 @@ func (q *Queries) DeliverLeadEvents(ctx context.Context, arg DeliverLeadEventsPa
 	return err
 }
 
-const dismissInboxItem = `-- name: DismissInboxItem :exec
+const dismissInboxItem = `-- name: DismissInboxItem :one
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization
 `
 
 type DismissInboxItemParams struct {
@@ -592,9 +714,22 @@ type DismissInboxItemParams struct {
 	ID          int64
 }
 
-func (q *Queries) DismissInboxItem(ctx context.Context, arg DismissInboxItemParams) error {
-	_, err := q.db.ExecContext(ctx, dismissInboxItem, arg.DismissedAt, arg.ID)
-	return err
+func (q *Queries) DismissInboxItem(ctx context.Context, arg DismissInboxItemParams) (InboxItem, error) {
+	row := q.db.QueryRowContext(ctx, dismissInboxItem, arg.DismissedAt, arg.ID)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Text,
+		&i.Link,
+		&i.Time,
+		&i.DismissedAt,
+		&i.Organization,
+	)
+	return i, err
 }
 
 const endSession = `-- name: EndSession :one
@@ -648,6 +783,50 @@ func (q *Queries) FindDeviceLogin(ctx context.Context, tokenHash []byte) (int64,
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const freeLeadEvents = `-- name: FreeLeadEvents :many
+UPDATE lead_events SET held = 0 WHERE repository = ? AND workstream = ? AND held = 1
+RETURNING id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held
+`
+
+type FreeLeadEventsParams struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) FreeLeadEvents(ctx context.Context, arg FreeLeadEventsParams) ([]LeadEvent, error) {
+	rows, err := q.db.QueryContext(ctx, freeLeadEvents, arg.Repository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LeadEvent
+	for rows.Next() {
+		var i LeadEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Kind,
+			&i.Payload,
+			&i.Time,
+			&i.DeliveredAt,
+			&i.ChatMessage,
+			&i.Issue,
+			&i.Held,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getCopiedIssueWorkstream = `-- name: GetCopiedIssueWorkstream :one
@@ -804,6 +983,127 @@ func (q *Queries) HasCopiedWorkstream(ctx context.Context, arg HasCopiedWorkstre
 	return exists, err
 }
 
+const hasTask = `-- name: HasTask :one
+SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?)
+`
+
+type HasTaskParams struct {
+	Repository string
+	Issue      int64
+}
+
+// An ended task counts too.
+func (q *Queries) HasTask(ctx context.Context, arg HasTaskParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasTask, arg.Repository, arg.Issue)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const holdLeadEvent = `-- name: HoldLeadEvent :exec
+UPDATE lead_events SET held = 1 WHERE id = ?
+`
+
+func (q *Queries) HoldLeadEvent(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, holdLeadEvent, id)
+	return err
+}
+
+const listChatMessages = `-- name: ListChatMessages :many
+SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
+WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Researcher'
+ORDER BY id
+`
+
+type ListChatMessagesParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+}
+
+// The chat shows no Researcher message.
+func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesParams) ([]ChatMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listChatMessages, arg.Organization, arg.Repository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChatMessage
+	for rows.Next() {
+		var i ChatMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Author,
+			&i.Time,
+			&i.Text,
+			&i.Organization,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
+SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
+WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
+ORDER BY id DESC LIMIT ?
+`
+
+type ListChatMessagesBeforeParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+	ID           int64
+	Limit        int64
+}
+
+func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessagesBeforeParams) ([]ChatMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listChatMessagesBefore,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.ID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChatMessage
+	for rows.Next() {
+		var i ChatMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Author,
+			&i.Time,
+			&i.Text,
+			&i.Organization,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCopiedIssueLabels = `-- name: ListCopiedIssueLabels :many
 SELECT name FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND position = ? ORDER BY name
 `
@@ -875,6 +1175,58 @@ func (q *Queries) ListCopiedIssueRows(ctx context.Context, arg ListCopiedIssueRo
 	return items, nil
 }
 
+const listCopiedIssuesWithLabel = `-- name: ListCopiedIssuesWithLabel :many
+SELECT i.repository, i.workstream, i.number, i.title, i.state, i.author, i.html_url, i.repository_url FROM copied_issues i
+WHERE EXISTS (
+    SELECT 1 FROM copied_issue_labels l
+    WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = ?1
+)
+ORDER BY i.repository, i.workstream, i.number
+`
+
+type ListCopiedIssuesWithLabelRow struct {
+	Repository    string
+	Workstream    int64
+	Number        int64
+	Title         string
+	State         string
+	Author        string
+	HtmlUrl       string
+	RepositoryUrl string
+}
+
+func (q *Queries) ListCopiedIssuesWithLabel(ctx context.Context, name string) ([]ListCopiedIssuesWithLabelRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCopiedIssuesWithLabel, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCopiedIssuesWithLabelRow
+	for rows.Next() {
+		var i ListCopiedIssuesWithLabelRow
+		if err := rows.Scan(
+			&i.Repository,
+			&i.Workstream,
+			&i.Number,
+			&i.Title,
+			&i.State,
+			&i.Author,
+			&i.HtmlUrl,
+			&i.RepositoryUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCopiedRepositories = `-- name: ListCopiedRepositories :many
 SELECT DISTINCT repository FROM copied_workstreams
 `
@@ -892,6 +1244,141 @@ func (q *Queries) ListCopiedRepositories(ctx context.Context) ([]string, error) 
 			return nil, err
 		}
 		items = append(items, repository)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCopiedTree = `-- name: ListCopiedTree :many
+SELECT position, number, parent, title, state, author, html_url, repository_url FROM copied_issues
+WHERE repository = ? AND workstream = ? ORDER BY position
+`
+
+type ListCopiedTreeParams struct {
+	Repository string
+	Workstream int64
+}
+
+type ListCopiedTreeRow struct {
+	Position      int64
+	Number        int64
+	Parent        int64
+	Title         string
+	State         string
+	Author        string
+	HtmlUrl       string
+	RepositoryUrl string
+}
+
+func (q *Queries) ListCopiedTree(ctx context.Context, arg ListCopiedTreeParams) ([]ListCopiedTreeRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCopiedTree, arg.Repository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCopiedTreeRow
+	for rows.Next() {
+		var i ListCopiedTreeRow
+		if err := rows.Scan(
+			&i.Position,
+			&i.Number,
+			&i.Parent,
+			&i.Title,
+			&i.State,
+			&i.Author,
+			&i.HtmlUrl,
+			&i.RepositoryUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCopiedTreeBlockers = `-- name: ListCopiedTreeBlockers :many
+SELECT position, number, blocker_workstream, blocker_workstream_title FROM copied_blockers
+WHERE repository = ? AND workstream = ? ORDER BY position, number
+`
+
+type ListCopiedTreeBlockersParams struct {
+	Repository string
+	Workstream int64
+}
+
+type ListCopiedTreeBlockersRow struct {
+	Position               int64
+	Number                 int64
+	BlockerWorkstream      sql.NullInt64
+	BlockerWorkstreamTitle sql.NullString
+}
+
+func (q *Queries) ListCopiedTreeBlockers(ctx context.Context, arg ListCopiedTreeBlockersParams) ([]ListCopiedTreeBlockersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCopiedTreeBlockers, arg.Repository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCopiedTreeBlockersRow
+	for rows.Next() {
+		var i ListCopiedTreeBlockersRow
+		if err := rows.Scan(
+			&i.Position,
+			&i.Number,
+			&i.BlockerWorkstream,
+			&i.BlockerWorkstreamTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCopiedTreeLabels = `-- name: ListCopiedTreeLabels :many
+SELECT position, name FROM copied_issue_labels WHERE repository = ? AND workstream = ? ORDER BY position, name
+`
+
+type ListCopiedTreeLabelsParams struct {
+	Repository string
+	Workstream int64
+}
+
+type ListCopiedTreeLabelsRow struct {
+	Position int64
+	Name     string
+}
+
+func (q *Queries) ListCopiedTreeLabels(ctx context.Context, arg ListCopiedTreeLabelsParams) ([]ListCopiedTreeLabelsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCopiedTreeLabels, arg.Repository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCopiedTreeLabelsRow
+	for rows.Next() {
+		var i ListCopiedTreeLabelsRow
+		if err := rows.Scan(&i.Position, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1275,6 +1762,44 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 	return items, nil
 }
 
+const listOpenInboxItems = `-- name: ListOpenInboxItems :many
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id
+`
+
+func (q *Queries) ListOpenInboxItems(ctx context.Context) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenInboxItems)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InboxItem
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Repository,
+			&i.Workstream,
+			&i.Issue,
+			&i.Text,
+			&i.Link,
+			&i.Time,
+			&i.DismissedAt,
+			&i.Organization,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenSessionIDs = `-- name: ListOpenSessionIDs :many
 SELECT id FROM sessions WHERE ended_at IS NULL ORDER BY id
 `
@@ -1381,6 +1906,57 @@ func (q *Queries) ListQueuedTasks(ctx context.Context) ([]ListQueuedTasksRow, er
 	for rows.Next() {
 		var i ListQueuedTasksRow
 		if err := rows.Scan(&i.ID, &i.QueuedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReadyLeadEvents = `-- name: ListReadyLeadEvents :many
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held FROM lead_events AS event
+WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NULL AND event.held = 0
+  AND NOT EXISTS (
+      SELECT 1 FROM lead_events AS earlier
+      WHERE earlier.repository = event.repository AND earlier.workstream = event.workstream AND earlier.issue = event.issue
+        AND earlier.id < event.id AND earlier.delivered_at IS NULL AND earlier.held = 1
+  )
+ORDER BY event.id
+`
+
+type ListReadyLeadEventsParams struct {
+	Repository string
+	Workstream int64
+}
+
+// A held event holds each later event of its task issue.
+func (q *Queries) ListReadyLeadEvents(ctx context.Context, arg ListReadyLeadEventsParams) ([]LeadEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listReadyLeadEvents, arg.Repository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LeadEvent
+	for rows.Next() {
+		var i LeadEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Kind,
+			&i.Payload,
+			&i.Time,
+			&i.DeliveredAt,
+			&i.ChatMessage,
+			&i.Issue,
+			&i.Held,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1507,6 +2083,135 @@ func (q *Queries) ListTranscript(ctx context.Context, session int64) ([]Transcri
 	return items, nil
 }
 
+const listUndeliveredLeadEvents = `-- name: ListUndeliveredLeadEvents :many
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id
+`
+
+type ListUndeliveredLeadEventsParams struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) ListUndeliveredLeadEvents(ctx context.Context, arg ListUndeliveredLeadEventsParams) ([]LeadEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listUndeliveredLeadEvents, arg.Repository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LeadEvent
+	for rows.Next() {
+		var i LeadEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Kind,
+			&i.Payload,
+			&i.Time,
+			&i.DeliveredAt,
+			&i.ChatMessage,
+			&i.Issue,
+			&i.Held,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnread = `-- name: ListUnread :many
+SELECT m.organization, m.repository, m.workstream, count(*) AS count
+FROM chat_messages m
+LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Event') AND m.id > coalesce(s.message, 0)
+GROUP BY m.organization, m.repository, m.workstream
+ORDER BY m.organization, m.repository, m.workstream
+`
+
+type ListUnreadRow struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+	Count        int64
+}
+
+// The messages of the Owner, of a Researcher and of an event are never unread.
+func (q *Queries) ListUnread(ctx context.Context) ([]ListUnreadRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUnread)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnreadRow
+	for rows.Next() {
+		var i ListUnreadRow
+		if err := rows.Scan(
+			&i.Organization,
+			&i.Repository,
+			&i.Workstream,
+			&i.Count,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWaitingLeadWorkstreams = `-- name: ListWaitingLeadWorkstreams :many
+SELECT DISTINCT repository, workstream FROM lead_events WHERE delivered_at IS NULL ORDER BY repository, workstream
+`
+
+type ListWaitingLeadWorkstreamsRow struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) ListWaitingLeadWorkstreams(ctx context.Context) ([]ListWaitingLeadWorkstreamsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listWaitingLeadWorkstreams)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListWaitingLeadWorkstreamsRow
+	for rows.Next() {
+		var i ListWaitingLeadWorkstreamsRow
+		if err := rows.Scan(&i.Repository, &i.Workstream); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const resetTaskCounters = `-- name: ResetTaskCounters :exec
+UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0 WHERE id = ?
+`
+
+func (q *Queries) ResetTaskCounters(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, resetTaskCounters, id)
+	return err
+}
+
 const setACPSessionID = `-- name: SetACPSessionID :exec
 UPDATE sessions SET acp_session_id = ? WHERE id = ?
 `
@@ -1518,6 +2223,28 @@ type SetACPSessionIDParams struct {
 
 func (q *Queries) SetACPSessionID(ctx context.Context, arg SetACPSessionIDParams) error {
 	_, err := q.db.ExecContext(ctx, setACPSessionID, arg.AcpSessionID, arg.ID)
+	return err
+}
+
+const setChatSeen = `-- name: SetChatSeen :exec
+INSERT INTO chat_seen (organization, repository, workstream, message) VALUES (?, ?, ?, ?)
+ON CONFLICT (organization, repository, workstream) DO UPDATE SET message = max(message, excluded.message)
+`
+
+type SetChatSeenParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+	Message      int64
+}
+
+func (q *Queries) SetChatSeen(ctx context.Context, arg SetChatSeenParams) error {
+	_, err := q.db.ExecContext(ctx, setChatSeen,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.Message,
+	)
 	return err
 }
 

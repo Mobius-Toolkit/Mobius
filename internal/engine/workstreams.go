@@ -114,8 +114,10 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 	return nil
 }
 
-// stopWorkstream ends the live tasks of the Workstream. The queued events of the Lead go to no later Lead.
+// stopWorkstream stops the Lead and ends the live tasks of the Workstream. The queued events of the Lead go to no
+// later Lead.
 func (e *Engine) stopWorkstream(ctx context.Context, repository github.Repository, workstream int64) error {
+	e.stopLead(repository.FullName, workstream)
 	err := e.queries.DeliverLeadEvents(ctx, store.DeliverLeadEventsParams{
 		DeliveredAt: sql.NullString{String: now(), Valid: true},
 		Repository:  repository.FullName,
@@ -152,8 +154,11 @@ func (e *Engine) endTask(ctx context.Context, repository github.Repository, task
 	return repository.RemoveLabel(ctx, task.Issue, needsHumanLabel)
 }
 
-// hasWork tells if the Workstream has live tasks. An issue that lost mobius:workstream can still have them.
+// hasWork tells if the Workstream has a Lead or live tasks. An issue that lost mobius:workstream can still have them.
 func (e *Engine) hasWork(ctx context.Context, repository string, workstream int64) (bool, error) {
+	if e.hasLead(repository, workstream) {
+		return true, nil
+	}
 	tasks, err := e.queries.ListLiveTasks(ctx, repository)
 	return slices.ContainsFunc(tasks, func(task store.Task) bool { return task.Workstream == workstream }), err
 }
@@ -188,6 +193,15 @@ func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number
 	return nil
 }
 
+// workstreamAutopilot tells if a trusted user turned Autopilot on for the Workstream number.
+func (e *Engine) workstreamAutopilot(ctx context.Context, repository github.Repository, number int64) (bool, error) {
+	issue, err := repository.Issue(ctx, number)
+	if err != nil || issue == nil {
+		return false, err
+	}
+	return e.issueAutopilot(ctx, repository, issue)
+}
+
 // issueAutopilot tells if a trusted user turned Autopilot on for the Workstream issue.
 func (e *Engine) issueAutopilot(ctx context.Context, repository github.Repository, issue *gh.Issue) (bool, error) {
 	if !hasLabel(issue, autopilotLabel) {
@@ -212,7 +226,7 @@ func (e *Engine) addedByTrustedUser(events []*gh.IssueEvent) bool {
 }
 
 // eventText gives the text of a Lead event about the issue, for example "creation of Workstream", with the
-// quoted body of the issue.
-func eventText(t time.Time, what string, issue *gh.Issue, actor string) string {
-	return fmt.Sprintf("%s %s #%d \"%s\" by @%s:\n\n%s", t.UTC().Format(timeFormat), what, issue.GetNumber(), issue.GetTitle(), actor, quote(issue.GetBody()))
+// quoted body, for example the body of the issue or of a comment.
+func eventText(t time.Time, what string, issue *gh.Issue, actor, body string) string {
+	return fmt.Sprintf("%s %s #%d \"%s\" by @%s:\n\n%s", t.UTC().Format(timeFormat), what, issue.GetNumber(), issue.GetTitle(), actor, quote(body))
 }

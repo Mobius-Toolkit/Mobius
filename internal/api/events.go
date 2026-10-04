@@ -56,13 +56,47 @@ type LiveEvents struct {
 	Drain *Drain `gork:"drain"`
 	// Upgrade is the state of the last upgrade at its start and at its failure
 	Upgrade *Upgrade `gork:"upgrade"`
-	// Workstreams is a change of the Workstream list. It has no data, so the client reads the list again
+	// Workstreams is a change of the Workstream list or of the tasks of a Workstream. It has no data, so the client
+	// reads the lists again
 	Workstreams *struct{} `gork:"workstreams"`
+	// Message is a new chat message, or a message of the Lead or of the Triager that got more text
+	Message *ChatMessage `gork:"message"`
+	// Unread is the new number of unread messages of a chat
+	Unread *Unread `gork:"unread"`
+	// Chat is the state of a chat at the start and at the end of the work of its agent
+	Chat *ChatState `gork:"chat"`
+	// Inbox is a new or dismissed Inbox item
+	Inbox *InboxItem `gork:"inbox"`
+	// WorkstreamCreated is a Workstream that the Triager chat created, so the client can open it
+	WorkstreamCreated *WorkstreamRef `gork:"workstreamCreated"`
+}
+
+// ChatState is the state of a chat.
+type ChatState struct {
+	// Organization is the owner of the repository, or the organization of the Triager chat
+	Organization string `gork:"organization"`
+	// Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat
+	Repository string `gork:"repository"`
+	// Workstream is the number of the Workstream issue. It is 0 for the Triager chat
+	Workstream int64 `gork:"workstream"`
+	// Writing is true while the agent has a turn that runs or an item that waits
+	Writing bool `gork:"writing"`
+	// Error is the error that ended the last session of the agent, or empty
+	Error string `gork:"error"`
+}
+
+// WorkstreamRef names a Workstream.
+type WorkstreamRef struct {
+	// Repository is the repository of the Workstream issue, as "owner/name"
+	Repository string `gork:"repository"`
+	// Number is the number of the Workstream issue
+	Number int64 `gork:"number"`
 }
 
 // StreamEvents sends the latest activities, and then each new activity, each change of a session,
 // each new or changed Transcript row, each change of the drain, each start and failure of an upgrade,
-// and each change of the Workstream list.
+// each change of the Workstream list, each new or longer chat message, each new unread count, each change of the
+// state of a chat, each new or dismissed Inbox item, and each Workstream that the Triager chat created.
 // When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities.
 // When the client does not read the session changes fast enough, the stream ends.
 func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, stream *api.Stream[LiveEvents]) error {
@@ -120,6 +154,31 @@ func sendChange(stream *api.Stream[LiveEvents], change engine.Change) error {
 		return stream.Send(LiveEvents{Upgrade: &Upgrade{Failure: *change.Upgrade}})
 	case change.Workstreams:
 		return stream.Send(LiveEvents{Workstreams: &struct{}{}})
+	case change.Message != nil:
+		message, err := chatMessageOf(*change.Message)
+		if err != nil {
+			return err
+		}
+		return stream.Send(LiveEvents{Message: &message})
+	case change.Unread != nil:
+		return stream.Send(LiveEvents{Unread: new(unreadOf(*change.Unread))})
+	case change.Chat != nil:
+		key := change.Chat.Key
+		return stream.Send(LiveEvents{Chat: &ChatState{
+			Organization: key.Organization,
+			Repository:   key.Repository,
+			Workstream:   key.Workstream,
+			Writing:      change.Chat.Writing,
+			Error:        change.Chat.Error,
+		}})
+	case change.Inbox != nil:
+		item, err := inboxItemOf(*change.Inbox)
+		if err != nil {
+			return err
+		}
+		return stream.Send(LiveEvents{Inbox: &item})
+	case change.Created != nil:
+		return stream.Send(LiveEvents{WorkstreamCreated: &WorkstreamRef{Repository: change.Created.Repository, Number: change.Created.Number}})
 	}
 	agent, err := agentOf(*change.Node)
 	if err != nil {

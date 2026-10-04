@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"net/http"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,4 +163,82 @@ func TestACancelEndsTheWaitOfTheDrain(t *testing.T) {
 	if got := <-ends; got != "cancelled" {
 		t.Errorf("drain end = %s", got)
 	}
+}
+
+func TestTheDrainClosesTheLeadAndHoldsTheEventsAndTheTriagersUntilACancel(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, `
+[[prompts]]
+when = "Plan the loyalty API"
+reply = ["Hello"]
+
+[[prompts]]
+when = "You are the Triager"
+reply = ["A proposal."]
+`, keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
+	sendChat(t, server, leadChat, "Plan the loyalty API")
+	waitForChat(t, server, leadChat, "Lead", "Hello")
+
+	if end := <-startDrain(t, server); end != "drained" {
+		t.Fatalf("end = %s", end)
+	}
+
+	if !slices.Contains(leadPrompts(t, server), "Save in the Workstream memory what the next session needs.") {
+		t.Errorf("prompts = %q", leadPrompts(t, server))
+	}
+	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+	if len(sessions) != 1 || !sessions[0].EndedAt.Valid {
+		t.Fatalf("sessions = %+v", sessions)
+	}
+	// A comment on the task stays an undelivered event, and the Triager does not start: the issue keeps mobius:ready.
+	fake.AddComment(shop, 41, "owner", "One more thing.")
+	fake.AddIssue(shop, 50, "Change request")
+	fake.AddLabel(shop, 50, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 1 })
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 1 {
+		t.Errorf("sessions = %+v", got)
+	}
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 || !slices.Equal(fake.Labels(shop, 50), []string{"mobius:ready"}) {
+		t.Errorf("Triagers = %+v, labels = %v", got, fake.Labels(shop, 50))
+	}
+
+	cancelDrain(t, server)
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "One more thing.") })
+	})
+	testkit.WaitFor(t, func() bool { return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) > 0 })
+}
+
+func TestATriagerThatTheDrainHeldDuringAPollStartsInThePollAfterACancel(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"You are the Triager\"\nreply = [\"A proposal.\"]\n")
+	fake.AddIssue(shop, 50, "Change request")
+	reached, release := fake.HoldIssueEvents(shop, 50)
+	fake.AddLabel(shop, 50, "mobius:ready", "owner")
+
+	// The poll read the ready list and waits for the events of the issue.
+	select {
+	case <-reached:
+	case <-time.After(time.Minute):
+		t.Fatal("the poll did not read the events after one minute")
+	}
+	ends := startDrain(t, server)
+	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
+	release()
+
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 || !slices.Equal(fake.Labels(shop, 50), []string{"mobius:ready"}) {
+		t.Errorf("Triagers = %+v, labels = %v", got, fake.Labels(shop, 50))
+	}
+	if end := <-ends; end != "drained" {
+		t.Fatalf("end = %s", end)
+	}
+
+	cancelDrain(t, server)
+
+	testkit.WaitFor(t, func() bool { return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) > 0 })
 }

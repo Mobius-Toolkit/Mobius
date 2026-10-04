@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/mobius-go/internal/config"
+	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 	"github.com/Mobius-Toolkit/mobius-go/internal/store"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
@@ -72,6 +73,7 @@ func dismissed(t *testing.T, server *testserver.Server, item int64) bool {
 func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimit)
+	changes := listen(t, server)
 	agent := start(t, server, implementerSpec(t, server, 41))
 	defer end(t, agent, "done")
 	before := time.Now()
@@ -100,6 +102,11 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	if err := server.DB.QueryRow("SELECT text FROM chat_messages WHERE author = 'Mobius' AND workstream = 12").Scan(&message); err != nil || message != item.text {
 		t.Errorf("chat message = %q: %v", message, err)
 	}
+	if got := inbox(t, server); len(got) != 1 || got[0].ID != item.id {
+		t.Errorf("inbox = %+v", got)
+	}
+	waitForChange(t, changes, func(change engine.Change) bool { return change.Inbox != nil && change.Inbox.ID == item.id })
+	waitForChange(t, changes, func(change engine.Change) bool { return change.Message != nil && change.Message.Author == "Mobius" })
 	reason := "paused until " + until.UTC().Format("2006-01-02 15:04 UTC")
 	testkit.WaitFor(t, func() bool { return session(t, server, agent.ID()).QueueReason.String == reason })
 	// The pause also holds a Worker of the paused Harness in the queue.

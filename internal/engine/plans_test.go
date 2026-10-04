@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
 )
@@ -109,5 +110,83 @@ func TestSetAutopilotNeedsAnAuthorizedOwner(t *testing.T) {
 	}
 	if slices.Contains(fake.Labels(shop, 20), "mobius:autopilot") {
 		t.Errorf("labels = %v", fake.Labels(shop, 20))
+	}
+}
+
+// leadReplies gives the reply text of the sessions of the Workstream number.
+func leadReplies(t *testing.T, server *testserver.Server, number int64) string {
+	t.Helper()
+	var replies strings.Builder
+	for _, session := range chatSessions(t, server, engine.ChatKey{Organization: "owner", Repository: shop, Workstream: number}, engine.LeadRole) {
+		replies.WriteString(reply(t, server, session.ID))
+	}
+	return replies.String()
+}
+
+// startWithLeadPlans starts a server with the Workstream #20 and its task #88, and a Lead that plans the new
+// Workstreams #12 and #13 at their creation.
+func startWithLeadPlans(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+	t.Helper()
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 88, "Invoice totals")
+	fake.AddSubIssue(shop, 20, 88)
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+`
+[[prompts]]
+when = "creation of Workstream #12"
+call = { tool = "create_issue", arguments = { title = "Add plan model", body = "Plans have a price.", parent = 12, blocked_by = [88] } }
+
+[[prompts]]
+when = "creation of Workstream #13"
+call = { tool = "mark_ready", arguments = { n = 30 } }
+`)
+	server := startServer(t, fake, dataDir, "")
+	server.WaitForFirstPoll(t, shop)
+	return server
+}
+
+func TestTheLeadCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithLeadPlans(t, fake)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+
+	testkit.WaitFor(t, func() bool { return leadReplies(t, server, 12) == "Created #89." })
+	if got := fake.SubIssueNumbers(shop, 12); !slices.Equal(got, []int64{89}) {
+		t.Errorf("sub-issues = %v", got)
+	}
+	if title, body := fake.Issue(shop, 89); title != "Add plan model" || body != "Plans have a price." {
+		t.Errorf("issue = %s, %s", title, body)
+	}
+	if got := fake.BlockerNumbers(shop, 89); !slices.Equal(got, []int64{88}) {
+		t.Errorf("blockers = %v", got)
+	}
+	if got := fake.Labels(shop, 89); len(got) != 0 {
+		t.Errorf("labels = %v", got)
+	}
+	billing := "Billing"
+	task := line(89, "Add plan model", "open", 0)
+	task.BlockedBy = []taskBlocker{{Number: 88, WorkstreamTitle: &billing}}
+	waitForTasks(t, server, []taskLine{task})
+}
+
+func TestMarkReadyAddsTheReadyLabelWhenTheWorkstreamHasNoAutopilot(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithLeadPlans(t, fake)
+	fake.AddIssue(shop, 13, "Plan prices")
+	fake.AddIssue(shop, 30, "Add plan price")
+	fake.AddSubIssue(shop, 13, 30)
+
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+
+	testkit.WaitFor(t, func() bool { return leadReplies(t, server, 13) == "Marked #30 ready." })
+	if !slices.Contains(fake.Labels(shop, 30), "mobius:ready") {
+		t.Errorf("labels = %v", fake.Labels(shop, 30))
+	}
+	waitForPolls(t, fake)
+	if hasLiveTask(t, server, 30) || slices.Contains(fake.Labels(shop, 13), "mobius:autopilot") {
+		t.Error("the task started")
 	}
 }

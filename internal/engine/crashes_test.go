@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -70,11 +71,12 @@ func TestAWorkerThatDiesStartsAgainAfterAGrowingWait(t *testing.T) {
 
 func TestAWorkerThatDiesAfterMaxWorkerRestartsGoesToAHuman(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, dies, func(cfg *config.Config) {
+	server, dataDir := connectWith(t, fake, dies, func(cfg *config.Config) {
 		cfg.MaxWorkerRestarts = 1
 		fake.AddIssue(shop, 41, "Add plan model")
 		fake.AddSubIssue(shop, 12, 41)
 	})
+	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options+"[[prompts]]\nreply = [\"Seen\"]\n")
 	fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
 	spec := implementerSpec(t, server, 41)
 
@@ -116,6 +118,12 @@ func TestAWorkerThatDiesAfterMaxWorkerRestartsGoesToAHuman(t *testing.T) {
 	if err := server.DB.QueryRow("SELECT author, text FROM chat_messages WHERE id = ?", message.Int64).Scan(&author, &text); err != nil || author != "Event" || text != payload {
 		t.Errorf("chat message = %s %q: %v", author, text, err)
 	}
+	// The Lead gets the stop event.
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool {
+			return strings.Contains(prompt, "# Event\n\n") && strings.Contains(prompt, want)
+		})
+	})
 }
 
 // A Claude Code session with no Mobius tools must not run (Mobius#254).
@@ -181,5 +189,47 @@ func TestTheHousekeeperRemovesTheDirectoriesThatNothingOwns(t *testing.T) {
 		if _, err := os.Stat(dir); err != nil {
 			t.Error(err)
 		}
+	}
+}
+
+func TestALeadThatCrashesGetsTheSameEventInANewSession(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	flag := filepath.Join(t.TempDir(), "died")
+	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"if [ -e '"+flag+"' ]; then true; else touch '"+flag+"'; kill -9 $PPID; fi\"\n")
+
+	dispatchTask(fake, 41, "Add plan model")
+
+	sessions := testkit.WaitForValue(t, func() ([]store.Session, bool) {
+		sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+		return sessions, len(sessions) == 2 && len(promptTexts(t, server, sessions[1].ID)) > 0
+	})
+	if sessions[0].EndReason.String != "failed" || !strings.Contains(promptTexts(t, server, sessions[1].ID)[0], "dispatch of #41") {
+		t.Errorf("sessions = %+v", sessions)
+	}
+	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 0 })
+}
+
+func TestALeadThatAlwaysCrashesSendsTheEventToTheInbox(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"kill -9 $PPID\"\n")
+
+	dispatchTask(fake, 41, "Add plan model")
+
+	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range inbox(t, server) {
+			if item.Kind == "Lead failed" {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+	if !strings.Contains(item.Text, ` dispatch of #41 "Add plan model" by @owner:`) {
+		t.Errorf("item = %+v", item)
+	}
+	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 4 {
+		t.Errorf("sessions = %d", len(got))
+	}
+	if got := undelivered(t, server); len(got) != 0 {
+		t.Errorf("undelivered = %+v", got)
 	}
 }

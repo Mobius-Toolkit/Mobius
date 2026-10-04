@@ -188,14 +188,13 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	}
 	text := fmt.Sprintf("%s reached a usage limit. Mobius sends the prompt again at %s.", a.harness, until.UTC().Format(timeFormat))
 	spec := a.spec
-	item, err := e.queries.AddInboxItem(ctx, store.AddInboxItemParams{
+	item, err := e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         usageLimitKind,
 		Organization: spec.Organization,
 		Repository:   spec.Repository,
 		Workstream:   spec.Workstream,
 		Issue:        spec.Workstream,
 		Text:         text,
-		Time:         now(),
 	})
 	if err != nil {
 		return err
@@ -204,14 +203,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
 		return err
 	}
-	if _, err := e.queries.AddChatMessage(ctx, store.AddChatMessageParams{
-		Organization: spec.Organization,
-		Repository:   spec.Repository,
-		Workstream:   spec.Workstream,
-		Author:       "Mobius",
-		Time:         now(),
-		Text:         text,
-	}); err != nil {
+	if _, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, mobiusAuthor, text); err != nil {
 		return err
 	}
 	return e.timer(pause)
@@ -257,7 +249,7 @@ func (e *Engine) endPause(ctx context.Context, pause store.HarnessPause) error {
 	if err := e.queries.DeleteHarnessPause(ctx, pause.Harness); err != nil {
 		return err
 	}
-	if err := e.queries.DismissInboxItem(ctx, store.DismissInboxItemParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: pause.InboxItem}); err != nil {
+	if err := e.Dismiss(ctx, pause.InboxItem); err != nil {
 		return err
 	}
 	e.pausesChanged.notify()

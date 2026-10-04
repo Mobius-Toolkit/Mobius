@@ -22,7 +22,12 @@ func hasLabel(issue *gh.Issue, name string) bool {
 // inOtherRepository tells if the issue is in another repository than repository. After a transfer,
 // GitHub gives the issue with the URL of its new repository.
 func inOtherRepository(issue *gh.Issue, repository string) bool {
-	return !strings.HasSuffix(strings.ToLower(issue.GetRepositoryURL()), "/repos/"+strings.ToLower(repository))
+	return otherRepository(issue.GetRepositoryURL(), repository)
+}
+
+// otherRepository tells if repositoryURL, the API URL of a repository, names another repository than repository.
+func otherRepository(repositoryURL, repository string) bool {
+	return !strings.HasSuffix(strings.ToLower(repositoryURL), "/repos/"+strings.ToLower(repository))
 }
 
 // readIssue gives the text of the issue or the pull request number. An issue, a review thread, a review or

@@ -79,7 +79,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"comment_pull_request", "create_issue", "create_workstream", "list_tasks", "mark_ready", "move_task", "read_issue", "reply_thread"}
+	want := []string{"ask", "comment_pull_request", "create_issue", "create_workstream", "hold_event", "list_tasks", "mark_ready", "move_task", "read_issue", "reply_thread", "tell_owner"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}

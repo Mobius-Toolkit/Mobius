@@ -1,7 +1,8 @@
 // Package engine holds the work of Mobius on the managed repositories: the poll, the Mobius labels, the checkup,
-// the trust rules, the Workstreams with their local copy, the Autopilot switch and the close, the agent sessions with
-// their Mobius tools and Transcripts, the Worker slots, the usage-limit pauses, the Housekeeper, the recovery after a
-// restart, the drain and the upgrade.
+// the trust rules, the Workstreams with their local copy, the Autopilot switch and the close, the dispatch, the Lead
+// chat with the Lead events, the Triager, the Inbox, the Tasks tab, the agent sessions with their Mobius tools and
+// Transcripts, the Worker slots, the usage-limit pauses, the Housekeeper, the recovery after a restart, the drain and
+// the upgrade.
 package engine
 
 import (
@@ -39,6 +40,18 @@ type Engine struct {
 	pausesChanged signal
 	upgrading     atomic.Bool
 
+	// chatOrder makes a chat message and its item take the same place in the chat and in the queue of the agent.
+	chatOrder sync.Mutex
+	// chatsMu guards chats and the fields of each chat.
+	chatsMu sync.Mutex
+	chats   map[ChatKey]*chat
+	// triages holds the Triager of each issue.
+	triagesMu sync.Mutex
+	triages   map[triageKey]triage
+	// gitMu makes the git commands of the bare clones run one after the other. Two git commands that write the refs of
+	// a clone at the same time can fail on a ref lock.
+	gitMu sync.Mutex
+
 	mu        sync.Mutex
 	listeners map[chan Change]bool
 	// upgradeFailure is the error of the last upgrade, or "".
@@ -66,6 +79,8 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		recovered:   map[string]bool{},
 		copied:      map[string]bool{},
 		workers:     newWorkers(),
+		chats:       map[ChatKey]*chat{},
+		triages:     map[triageKey]triage{},
 		listeners:   map[chan Change]bool{},
 	}
 }
@@ -94,12 +109,14 @@ func (e *Engine) Recover(ctx context.Context) error {
 	return nil
 }
 
-// Run polls each poll_interval and runs the Housekeeper each housekeeper_interval, until ctx ends.
+// Run polls each poll_interval and runs the Housekeeper each housekeeper_interval, until ctx ends. Then it ends each
+// chat and each Triager, and waits for their ends.
 func (e *Engine) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Go(func() { every(ctx, e.config.HousekeeperInterval, e.keepHouse) })
 	every(ctx, e.config.PollInterval, e.poll)
 	wg.Wait()
+	e.stopAgents()
 }
 
 // inTx runs work in one transaction.

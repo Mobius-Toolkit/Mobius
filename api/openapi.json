@@ -106,6 +106,234 @@
         ]
       }
     },
+    "/api/chat": {
+      "get": {
+        "description": "GetChat returns the Lead chat of a Workstream, or the Triager chat of an organization.",
+        "operationId": "GetChat",
+        "parameters": [
+          {
+            "description": "Organization is the owner of the repository, or the organization of the Triager chat",
+            "in": "query",
+            "name": "organization",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat",
+            "in": "query",
+            "name": "repository",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat",
+            "in": "query",
+            "name": "workstream",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Chat"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/messages": {
+      "post": {
+        "description": "SendChat adds a message of the Owner to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.",
+        "operationId": "SendChat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendChatBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/seen": {
+      "post": {
+        "description": "SeeChat records that the Owner saw the messages of the chat up to a message. An earlier message than the last seen message changes nothing.",
+        "operationId": "SeeChat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeeChatBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/stop": {
+      "post": {
+        "description": "StopChat stops the turn of the agent that answers a message of the Owner. A turn for a Lead event goes on. When the agent waits for its slot, its first message of the Owner gets no turn.",
+        "operationId": "StopChat",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StopChatBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "chat"
+        ]
+      }
+    },
     "/api/checkup": {
       "get": {
         "description": "GetCheckup returns the status of the App permissions and of each Mobius label in each repository of the organization.",
@@ -430,7 +658,7 @@
     },
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each new or changed Transcript row, each change of the drain, each start and failure of an upgrade, and each change of the Workstream list. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
+        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each new or changed Transcript row, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, and each Workstream that the Triager chat created. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
         "operationId": "StreamEvents",
         "parameters": [
           {
@@ -772,6 +1000,100 @@
         ]
       }
     },
+    "/api/inbox": {
+      "get": {
+        "description": "ListInbox returns the Inbox items that the Owner did not dismiss, the oldest first.",
+        "operationId": "ListInbox",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_InboxItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "inbox"
+        ]
+      }
+    },
+    "/api/inbox/{id}/dismiss": {
+      "post": {
+        "description": "Dismiss removes an item from the Inbox.",
+        "operationId": "Dismiss",
+        "parameters": [
+          {
+            "description": "ID is the id of the Inbox item",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "inbox"
+        ]
+      }
+    },
     "/api/inbox/{id}/resume": {
       "post": {
         "description": "Resume ends the pause of a Harness now, so the sessions that wait for it send their prompts again. It also closes the Inbox item.",
@@ -872,6 +1194,51 @@
         },
         "tags": [
           "devices"
+        ]
+      }
+    },
+    "/api/needs-human": {
+      "get": {
+        "description": "ListNeedsHuman returns the open issues of trusted authors with mobius:needs-human in the trees of all Workstreams, from the local copy of GitHub, by repository, Workstream and number.",
+        "operationId": "ListNeedsHuman",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_NeedsHuman"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "tasks"
         ]
       }
     },
@@ -1017,6 +1384,128 @@
         ],
         "tags": [
           "upgrade"
+        ]
+      }
+    },
+    "/api/repositories/{owner}/{name}/issues/{number}/resume": {
+      "post": {
+        "description": "ResumeIssue replaces mobius:needs-human of an issue with mobius:ready, so Mobius continues the task. Mobius changes the labels with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.",
+        "operationId": "ResumeIssue",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/unread": {
+      "get": {
+        "description": "ListUnread returns each chat with unread messages.",
+        "operationId": "ListUnread",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_Unread"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "chat"
         ]
       }
     },
@@ -1400,6 +1889,90 @@
           "workstreams"
         ]
       }
+    },
+    "/api/workstreams/{owner}/{name}/{number}/tasks": {
+      "get": {
+        "description": "ListTasks returns the open tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.",
+        "operationId": "ListTasks",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the Workstream issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_TaskLine"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "tasks"
+        ]
+      }
     }
   },
   "components": {
@@ -1648,6 +2221,143 @@
         ],
         "description": "AgentGroup is the open sessions of one Role."
       },
+      "Blocker": {
+        "type": "object",
+        "title": "Blocker",
+        "properties": {
+          "number": {
+            "type": "integer",
+            "description": "Number is the number of the blocker issue"
+          },
+          "workstreamTitle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "WorkstreamTitle is the title of the Workstream of a blocker in another Workstream, or null"
+          }
+        },
+        "required": [
+          "number",
+          "workstreamTitle"
+        ],
+        "description": "Blocker is an open blocker of a task."
+      },
+      "Chat": {
+        "type": "object",
+        "title": "Chat",
+        "properties": {
+          "harness": {
+            "type": "string",
+            "description": "Harness is the Harness of the agent of the chat, for example claude-code"
+          },
+          "messages": {
+            "type": "array",
+            "title": "[]ChatMessage",
+            "description": "Messages are the messages, the oldest first",
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            }
+          },
+          "writing": {
+            "type": "boolean",
+            "description": "Writing is true while the agent has a turn that runs or a message that waits"
+          }
+        },
+        "required": [
+          "messages",
+          "writing",
+          "harness"
+        ],
+        "description": "Chat is a Lead chat or the Triager chat with its messages."
+      },
+      "ChatMessage": {
+        "type": "object",
+        "title": "ChatMessage",
+        "properties": {
+          "author": {
+            "type": "string",
+            "description": "Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner with an Inbox item, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry",
+            "enum": [
+              "Owner",
+              "Lead",
+              "tell_owner",
+              "Triager",
+              "Mobius",
+              "Event"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "description": "ID increases with each new message of all chats"
+          },
+          "organization": {
+            "type": "string",
+            "description": "Organization is the owner of the repository, or the organization of the Triager chat"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text is the text of the message"
+          },
+          "time": {
+            "type": "string",
+            "description": "Time is the time of the message",
+            "format": "date-time"
+          },
+          "workstream": {
+            "type": "integer",
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat"
+          }
+        },
+        "required": [
+          "id",
+          "organization",
+          "repository",
+          "workstream",
+          "author",
+          "time",
+          "text"
+        ],
+        "description": "ChatMessage is a message of a Lead chat or of the Triager chat."
+      },
+      "ChatState": {
+        "type": "object",
+        "title": "ChatState",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error is the error that ended the last session of the agent, or empty"
+          },
+          "organization": {
+            "type": "string",
+            "description": "Organization is the owner of the repository, or the organization of the Triager chat"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
+          },
+          "workstream": {
+            "type": "integer",
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat"
+          },
+          "writing": {
+            "type": "boolean",
+            "description": "Writing is true while the agent has a turn that runs or an item that waits"
+          }
+        },
+        "required": [
+          "organization",
+          "repository",
+          "workstream",
+          "writing",
+          "error"
+        ],
+        "description": "ChatState is the state of a chat."
+      },
       "Checkup": {
         "type": "object",
         "title": "Checkup",
@@ -1847,6 +2557,60 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Array_InboxItem": {
+        "type": "object",
+        "title": "Envelope_Array_InboxItem",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]InboxItem",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/InboxItem"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_Array_NeedsHuman": {
+        "type": "object",
+        "title": "Envelope_Array_NeedsHuman",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]NeedsHuman",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/NeedsHuman"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_Array_TaskLine": {
+        "type": "object",
+        "title": "Envelope_Array_TaskLine",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]TaskLine",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/TaskLine"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Array_TranscriptLine": {
         "type": "object",
         "title": "Envelope_Array_TranscriptLine",
@@ -1857,6 +2621,24 @@
             "description": "Data is the payload of the response",
             "items": {
               "$ref": "#/components/schemas/TranscriptLine"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_Array_Unread": {
+        "type": "object",
+        "title": "Envelope_Array_Unread",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]Unread",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/Unread"
             }
           }
         },
@@ -1894,6 +2676,20 @@
             "items": {
               "type": "string"
             }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_Chat": {
+        "type": "object",
+        "title": "Envelope_Chat",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Chat",
+            "description": "Data is the payload of the response"
           }
         },
         "required": [
@@ -2093,6 +2889,70 @@
         ],
         "description": "Health is the state of the server."
       },
+      "InboxItem": {
+        "type": "object",
+        "title": "InboxItem",
+        "properties": {
+          "dismissedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "DismissedAt is the time when the Owner dismissed the item, or null",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "integer",
+            "description": "ID increases with each new item"
+          },
+          "issue": {
+            "type": "integer",
+            "description": "Issue is the number of the issue of the item"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, ready for review, stale pull request, usage limit for a pause of a Harness, Lead failed for a message or an event that the Lead did not take, stopped for a task that stopped, or full disk"
+          },
+          "link": {
+            "type": "string",
+            "description": "Link is the GitHub URL of the item, or empty"
+          },
+          "organization": {
+            "type": "string",
+            "description": "Organization is the owner of the repository"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository as \"owner/name\""
+          },
+          "text": {
+            "type": "string",
+            "description": "Text is the text of the item"
+          },
+          "time": {
+            "type": "string",
+            "description": "Time is the time of the item",
+            "format": "date-time"
+          },
+          "workstream": {
+            "type": "integer",
+            "description": "Workstream is the number of the Workstream issue, or 0 for an issue with no Workstream"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "organization",
+          "repository",
+          "workstream",
+          "issue",
+          "text",
+          "link",
+          "time",
+          "dismissedAt"
+        ],
+        "description": "InboxItem is an item of the Inbox of the Owner."
+      },
       "LabelCheck": {
         "type": "object",
         "title": "LabelCheck",
@@ -2268,6 +3128,121 @@
               "event",
               "data"
             ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "$ref": "#/components/schemas/ChatMessage"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "message"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "$ref": "#/components/schemas/Unread"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "unread"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "$ref": "#/components/schemas/ChatState"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "chat"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "$ref": "#/components/schemas/InboxItem"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "inbox"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "$ref": "#/components/schemas/WorkstreamRef"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "workstreamCreated"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
           }
         ],
         "description": "LiveEvents are the events of the live event stream. Only an activity has an event id."
@@ -2303,6 +3278,56 @@
           "manifest"
         ],
         "description": "ManifestForm is the form that the browser posts to GitHub to create a Mobius App."
+      },
+      "NeedsHuman": {
+        "type": "object",
+        "title": "NeedsHuman",
+        "properties": {
+          "number": {
+            "type": "integer",
+            "description": "Number is the number of the issue"
+          },
+          "pullRequest": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "PullRequest is the pull request of the live task of the issue, or null"
+          },
+          "pullRequestUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PullRequestURL is the GitHub URL of the pull request, or null"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository as \"owner/name\""
+          },
+          "title": {
+            "type": "string",
+            "description": "Title is the title of the issue"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL is the GitHub URL of the issue"
+          },
+          "workstream": {
+            "type": "integer",
+            "description": "Workstream is the number of the Workstream issue"
+          }
+        },
+        "required": [
+          "repository",
+          "workstream",
+          "number",
+          "title",
+          "url",
+          "pullRequest",
+          "pullRequestUrl"
+        ],
+        "description": "NeedsHuman is an open task issue with mobius:needs-human."
       },
       "PermissionCheck": {
         "type": "object",
@@ -2375,6 +3400,53 @@
         ],
         "description": "RepositoryCheckup is the status of each Mobius label in a repository."
       },
+      "SeeChatBody": {
+        "type": "object",
+        "title": "SeeChatBody",
+        "properties": {
+          "message": {
+            "type": "integer",
+            "description": "Message is the id of the last message that the Owner saw"
+          },
+          "organization": {
+            "type": "string",
+            "description": "Organization is the owner of the repository, or the organization of the Triager chat"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
+          },
+          "workstream": {
+            "type": "integer",
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat"
+          }
+        }
+      },
+      "SendChatBody": {
+        "type": "object",
+        "title": "SendChatBody",
+        "properties": {
+          "organization": {
+            "type": "string",
+            "description": "Organization is the owner of the repository, or the organization of the Triager chat"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text is the message of the Owner"
+          },
+          "workstream": {
+            "type": "integer",
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
       "SetAutopilotBody": {
         "type": "object",
         "title": "SetAutopilotBody",
@@ -2384,6 +3456,67 @@
             "description": "On turns Autopilot on when true, and off when false"
           }
         }
+      },
+      "StopChatBody": {
+        "type": "object",
+        "title": "StopChatBody",
+        "properties": {
+          "organization": {
+            "type": "string",
+            "description": "Organization is the owner of the repository, or the organization of the Triager chat"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
+          },
+          "workstream": {
+            "type": "integer",
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat"
+          }
+        }
+      },
+      "TaskLine": {
+        "type": "object",
+        "title": "TaskLine",
+        "properties": {
+          "blockedBy": {
+            "type": "array",
+            "title": "[]Blocker",
+            "description": "BlockedBy are the open blockers of the task",
+            "items": {
+              "$ref": "#/components/schemas/Blocker"
+            }
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below"
+          },
+          "number": {
+            "type": "integer",
+            "description": "Number is the number of the task issue"
+          },
+          "state": {
+            "type": "string",
+            "description": "State is the Mobius label of the issue with no \"mobius:\", queued for a task that waits for a slot, or open"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title is the title of the task issue"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL is the GitHub URL of the task issue"
+          }
+        },
+        "required": [
+          "number",
+          "title",
+          "state",
+          "url",
+          "depth",
+          "blockedBy"
+        ],
+        "description": "TaskLine is a task of a Workstream."
       },
       "TranscriptLine": {
         "type": "object",
@@ -2450,6 +3583,35 @@
           "raw"
         ],
         "description": "TranscriptLine is a row of the Transcript of a session."
+      },
+      "Unread": {
+        "type": "object",
+        "title": "Unread",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "description": "Count is the number of unread messages"
+          },
+          "organization": {
+            "type": "string",
+            "description": "Organization is the owner of the repository, or the organization of the Triager chat"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
+          },
+          "workstream": {
+            "type": "integer",
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat"
+          }
+        },
+        "required": [
+          "organization",
+          "repository",
+          "workstream",
+          "count"
+        ],
+        "description": "Unread is the number of unread messages of a chat. The messages of the Owner and the Lead events are never unread."
       },
       "Upgrade": {
         "type": "object",
@@ -2527,6 +3689,25 @@
           "allTasksClosed"
         ],
         "description": "Workstream is an open Workstream of a managed repository."
+      },
+      "WorkstreamRef": {
+        "type": "object",
+        "title": "WorkstreamRef",
+        "properties": {
+          "number": {
+            "type": "integer",
+            "description": "Number is the number of the Workstream issue"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the repository of the Workstream issue, as \"owner/name\""
+          }
+        },
+        "required": [
+          "repository",
+          "number"
+        ],
+        "description": "WorkstreamRef names a Workstream."
       }
     },
     "securitySchemes": {
