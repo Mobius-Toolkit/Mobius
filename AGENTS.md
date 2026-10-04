@@ -35,7 +35,10 @@ Run `.mobius/check` (or `make check`). It must pass.
 
 ```
 cmd/mobius/            the server binary (flag -addr, default 127.0.0.1:6363; flag -db, default mobius.db)
+cmd/mobius-session/    starts one Claude Code session with the Mobius MCP server (needs claude-agent-acp on PATH)
 internal/api/          the Gork routes and handlers
+internal/mcp/          the Mobius MCP server and its tools
+internal/runner/       starts a Claude Code session through ACP
 internal/store/        the SQLite database: goose migrations and sqlc queries
 api/openapi.json       the generated OpenAPI spec
 web/                   the React frontend (Vite, TypeScript, Tailwind CSS, shadcn/ui)
