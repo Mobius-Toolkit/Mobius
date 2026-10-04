@@ -26,7 +26,7 @@ function Workstreams() {
         if (res.error) {
           setError(res.error.error)
         } else {
-          setWorkstreams(res.data.workstreams)
+          setWorkstreams(res.data)
         }
       })
       .catch((err: unknown) => setError(String(err)))

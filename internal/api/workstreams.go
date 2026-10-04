@@ -22,17 +22,12 @@ type Workstream struct {
 	LastActivity time.Time `gork:"lastActivity"`
 }
 
-// WorkstreamList is the list of Workstreams, the most recently active first.
-type WorkstreamList struct {
-	Workstreams []Workstream `gork:"workstreams"`
-}
-
 // ListWorkstreamsResponse is the response of ListWorkstreams.
 type ListWorkstreamsResponse struct {
-	Body WorkstreamList
+	Body []Workstream
 }
 
-// ListWorkstreams returns the Workstreams of the database.
+// ListWorkstreams returns the Workstreams of the database, the most recently active first.
 func (h *handlers) ListWorkstreams(ctx context.Context, _ ListWorkstreamsRequest) (*ListWorkstreamsResponse, error) {
 	rows, err := h.queries.ListWorkstreams(ctx)
 	if err != nil {
@@ -52,5 +47,5 @@ func (h *handlers) ListWorkstreams(ctx context.Context, _ ListWorkstreamsRequest
 			LastActivity: lastActivity,
 		})
 	}
-	return &ListWorkstreamsResponse{Body: WorkstreamList{Workstreams: workstreams}}, nil
+	return &ListWorkstreamsResponse{Body: workstreams}, nil
 }
