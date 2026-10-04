@@ -4,6 +4,7 @@ package setup
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +16,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/coder/acp-go-sdk"
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/Mobius-Toolkit/mobius-go/internal/config"
@@ -193,7 +193,7 @@ func offers(ctx context.Context, t terminal, path string) ([]offer, error) {
 			}
 		}
 		startCtx, cancel := context.WithTimeout(ctx, startTimeout)
-		session, err := runner.Start(startCtx, harness, dir, dir, path, noMCPURL, func(acp.SessionNotification) {})
+		session, err := runner.Start(startCtx, harness, dir, dir, path, noMCPURL, "", func(json.RawMessage) {})
 		timedOut := startCtx.Err() != nil
 		cancel()
 		switch {

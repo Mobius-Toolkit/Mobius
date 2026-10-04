@@ -17,6 +17,9 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if filepath.Base(os.Args[0]) == "gh" {
+		os.Exit(GH(os.Args[1:], os.Getenv))
+	}
 	if os.Getenv("MOBIUS_FAKE_AGENT") == "1" {
 		runFakeAgent()
 		return
@@ -51,9 +54,10 @@ func TestFindGivesTheFileOfAnExecutableProgram(t *testing.T) {
 func TestCommandHasTheAgentEnvironmentAndNoGitHubToken(t *testing.T) {
 	t.Setenv("GH_TOKEN", "ghs_secret")
 	t.Setenv("GITHUB_TOKEN", "ghs_secret")
+	t.Setenv("MOBIUS_GH_TOKEN_URL", "http://127.0.0.1:1/gh-token/parent")
 	dataDir := t.TempDir()
 
-	cmd := command(context.Background(), "/bin/agent", "/work", dataDir, "/usr/bin:/bin")
+	cmd := command(context.Background(), "/bin/agent", "/work", dataDir, "/usr/bin:/bin", "")
 
 	if cmd.Dir != "/work" {
 		t.Errorf("dir = %q", cmd.Dir)
@@ -62,16 +66,24 @@ func TestCommandHasTheAgentEnvironmentAndNoGitHubToken(t *testing.T) {
 		"GH_CONFIG_DIR=" + filepath.Join(dataDir, "agent-env", "gh-config"),
 		"GIT_CONFIG_GLOBAL=" + filepath.Join(dataDir, "agent-env", "gitconfig"),
 		"GIT_TERMINAL_PROMPT=0",
-		"PATH=/usr/bin:/bin",
+		"PATH=" + filepath.Join(dataDir, "agent-env", "bin") + ":/usr/bin:/bin",
 	} {
 		if !slices.Contains(cmd.Env, entry) {
 			t.Errorf("env has no %s", entry)
 		}
 	}
 	for _, entry := range cmd.Env {
-		if strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") {
+		if strings.HasPrefix(entry, "GH_TOKEN=") || strings.HasPrefix(entry, "GITHUB_TOKEN=") || strings.HasPrefix(entry, "MOBIUS_GH_TOKEN_URL=") {
 			t.Errorf("env has %s", entry)
 		}
+	}
+}
+
+func TestACommandWithAGHTokenURLHasTheURL(t *testing.T) {
+	cmd := command(context.Background(), "/bin/agent", "/work", t.TempDir(), "/usr/bin:/bin", "http://127.0.0.1:6363/gh-token/key")
+
+	if !slices.Contains(cmd.Env, "MOBIUS_GH_TOKEN_URL=http://127.0.0.1:6363/gh-token/key") {
+		t.Errorf("env = %v", cmd.Env)
 	}
 }
 
@@ -95,7 +107,7 @@ func TestPermissionWithNoAllowOptionIsCancelled(t *testing.T) {
 	}
 }
 
-func startFakeAgent(t *testing.T, updates func(acp.SessionNotification)) *Session {
+func startFakeAgent(t *testing.T, updates func(json.RawMessage)) *Session {
 	t.Setenv("MOBIUS_FAKE_AGENT", "1")
 	dir := t.TempDir()
 	exe, err := os.Executable()
@@ -105,7 +117,7 @@ func startFakeAgent(t *testing.T, updates func(acp.SessionNotification)) *Sessio
 	if err := os.Symlink(exe, filepath.Join(dir, Program(config.ClaudeCode))); err != nil {
 		t.Fatal(err)
 	}
-	session, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", updates)
+	session, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", updates)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,9 +127,20 @@ func startFakeAgent(t *testing.T, updates func(acp.SessionNotification)) *Sessio
 
 func TestSessionGivesTheMCPServerSetsTheOptionsAndAllowsTools(t *testing.T) {
 	var message strings.Builder
-	session := startFakeAgent(t, func(notification acp.SessionNotification) {
-		if chunk := notification.Update.AgentMessageChunk; chunk != nil {
-			message.WriteString(chunk.Content.Text.Text)
+	session := startFakeAgent(t, func(params json.RawMessage) {
+		var notification struct {
+			Update struct {
+				SessionUpdate string `json:"sessionUpdate"`
+				Content       struct {
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"update"`
+		}
+		if err := json.Unmarshal(params, &notification); err != nil {
+			t.Error(err)
+		}
+		if notification.Update.SessionUpdate == "agent_message_chunk" {
+			message.WriteString(notification.Update.Content.Text)
 		}
 	})
 	ctx := context.Background()
@@ -140,7 +163,7 @@ func TestSessionGivesTheMCPServerSetsTheOptionsAndAllowsTools(t *testing.T) {
 }
 
 func TestConfigureRefusesAnUnknownModel(t *testing.T) {
-	session := startFakeAgent(t, func(acp.SessionNotification) {})
+	session := startFakeAgent(t, func(json.RawMessage) {})
 
 	err := session.Configure(context.Background(), "opus", "")
 
