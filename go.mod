@@ -6,7 +6,7 @@ require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.19.0
 	github.com/coder/acp-go-sdk v0.13.5
 	github.com/google/go-github/v92 v92.0.0
-	github.com/gork-labs/gork v0.1.9
+	github.com/gork-labs/gork v0.1.10
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pressly/goose/v3 v3.28.0
