@@ -30,7 +30,11 @@ func TestGetHealth(t *testing.T) {
 	if body.Data.Status != "ok" {
 		t.Errorf("status = %q, want %q", body.Data.Status, "ok")
 	}
-	if _, err := time.Parse(time.RFC3339, body.Data.Time); err != nil {
+	parsed, err := time.Parse(time.RFC3339, body.Data.Time)
+	if err != nil {
 		t.Errorf("time %q is not RFC3339: %v", body.Data.Time, err)
+	}
+	if _, offset := parsed.Zone(); offset != 0 {
+		t.Errorf("time %q is not UTC", body.Data.Time)
 	}
 }
