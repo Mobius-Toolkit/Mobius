@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/Mobius-Toolkit/mobius-go/internal/github"
+	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
 )
 
 func TestANewerReleaseTagCountsEachNumber(t *testing.T) {
@@ -78,6 +81,31 @@ func TestAFailedSwapRestoresTheOldProgram(t *testing.T) {
 	}
 
 	if got := content(t, exe); got != "old" {
+		t.Errorf("program = %q", got)
+	}
+}
+
+func TestTheDownloadAndTheSwapInstallTheReleaseFileOfMobiusGo(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	fake.SetLatestRelease("v0.3.0", "mobius-x86_64-unknown-linux-gnu.tar.gz")
+	gh, err := github.New(nil, fake.URL, fake.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(t.TempDir(), "mobius")
+	if err := os.WriteFile(exe, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	staging, err := download(t.Context(), gh.ReleaseURL("v0.3.0", "mobius-x86_64-unknown-linux-gnu.tar.gz"), exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := swap(staging, exe); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := content(t, exe); got != "v0.3.0/mobius-x86_64-unknown-linux-gnu.tar.gz" {
 		t.Errorf("program = %q", got)
 	}
 }

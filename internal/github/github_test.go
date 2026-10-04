@@ -101,7 +101,7 @@ func TestManifestFormPostsTheManifestToTheSettingsOfAnOrganization(t *testing.T)
 	var want any
 	_ = json.Unmarshal([]byte(`{
 		"name": "Mobius acme",
-		"url": "https://github.com/Mobius-Toolkit/Mobius",
+		"url": "https://github.com/Mobius-Toolkit/mobius-go",
 		"redirect_url": "https://mobius.example.ts.net/api/github/manifest-callback",
 		"callback_urls": ["https://mobius.example.ts.net/api/github/user-callback"],
 		"request_oauth_on_install": true,

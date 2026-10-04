@@ -540,7 +540,7 @@ func TestTheNewAppPageSendsTheBrowserToTheRedirectURLWithANewCodeAndTheState(t *
 
 func TestTheLatestReleaseOfMobiusNeedsNoToken(t *testing.T) {
 	github := NewFakeGitHub(t)
-	url := github.URL + "/repos/Mobius-Toolkit/Mobius/releases/latest"
+	url := github.URL + "/repos/Mobius-Toolkit/mobius-go/releases/latest"
 	if got := send(t, http.MethodGet, url, "", "", nil); got.StatusCode != http.StatusNotFound {
 		t.Errorf("status with no release = %d", got.StatusCode)
 	}
