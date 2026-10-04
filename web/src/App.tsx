@@ -14,7 +14,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { onEvent } from '@/lib/events'
-import { LoginContext, unauthorized } from '@/lib/login'
+import { LoginContext } from '@/lib/login'
 import { Devices } from './Devices'
 import { Login } from './Login'
 
@@ -28,7 +28,7 @@ function Workstreams() {
   useEffect(() => {
     listWorkstreams()
       .then((res) => {
-        if (unauthorized(res)) {
+        if (res.status === 401) {
           showLogin()
         } else if (res.status === 200) {
           setWorkstreams(res.data.data)
