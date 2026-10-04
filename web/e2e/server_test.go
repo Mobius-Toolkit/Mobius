@@ -4,12 +4,14 @@ package e2e
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -27,8 +29,8 @@ func TestMain(m *testing.M) {
 
 // script is the fake agent of each Harness. The options have the models and the efforts of the Role bindings of
 // testserver.Config. The first rule whose text is in the prompt answers the prompt, so a rule of a chat message comes
-// before the rule of an earlier event that the first prompt of a new Lead session also holds. The Implementer of #41
-// works until the server stops.
+// before the rule of each earlier event or message that the first prompt of a new session also holds. The Implementer
+// of #41 works until the server stops.
 const script = `
 [options]
 model = ["sonnet", "opus", "haiku", "swe-1.5", "gemini-3-pro"]
@@ -42,6 +44,22 @@ reply = ["The Implementer works on #41. #42 and #45 wait for your decision."]
 [[prompts]]
 when = "Which roses sell best?"
 reply = ["Red roses sell best."]
+
+[[prompts]]
+when = "Move #8 to the Workstream."
+call = { tool = "move_issue", arguments = { n = 8, workstream = 12 } }
+
+[[prompts]]
+when = "Create the phone Workstream."
+call = { tool = "create_workstream", arguments = { title = "Phone plans", brief = "Plans for the phone." } }
+
+[[prompts]]
+when = "Move #7 to the Workstream."
+call = { tool = "move_issue", arguments = { n = 7, workstream = 12 } }
+
+[[prompts]]
+when = "Create the desktop Workstream."
+call = { tool = "create_workstream", arguments = { title = "Desktop plans", brief = "Plans for the desktop." } }
 
 [[prompts]]
 when = "Start a Workstream for gift cards."
@@ -82,6 +100,10 @@ const question = "What is the state of the plans? The full report is at " +
 // the next step. Then an Implementer and a Lead run, a drain waits for them, and the drain holds a second
 // Implementer. The parent of the first Implementer is a Lead session that ended. Release v0.1.4 of Mobius is newer
 // than this server.
+//
+// The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
+// unread Lead messages, the Workstreams plants/garden#20 and #30 with tasks that need a human, and the user code
+// "user-code" of the second App.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -101,6 +123,12 @@ func TestServer(t *testing.T) {
 		{"owner/shop", 12, "Integrate loyalty plans"},
 		{"owner/shop", 13, "Seasonal prices"},
 		{"plants/garden", 12, "Plant roses"},
+		{"plants/garden", 14, "Water the roses"},
+		{"plants/garden", 15, "Feed the roses"},
+		{"plants/garden", 16, "Cut the roses"},
+		{"plants/garden", 17, "Sell the roses"},
+		{"plants/garden", 20, "Plant tulips"},
+		{"plants/garden", 30, "Plant lilies"},
 	} {
 		github.AddIssue(workstream.repository, workstream.number, workstream.title)
 		github.AddLabel(workstream.repository, workstream.number, "mobius:workstream", "owner")
@@ -115,6 +143,16 @@ func TestServer(t *testing.T) {
 	github.SetBody("owner/shop", 45, "Each plan has a limit of seats.")
 	github.AddLabel("owner/shop", 41, "mobius:needs-human", "owner")
 	github.AddLabel("owner/shop", 42, "mobius:needs-human", "owner")
+	github.AddIssue("owner/shop", 7, "Add plan prices")
+	github.AddIssue("owner/shop", 8, "Add plan names")
+	github.AddSubIssueOf("plants/garden", 20, 21, "Dig the tulip beds")
+	github.AddSubIssueOf("plants/garden", 20, 22, "Buy tulip bulbs")
+	github.AddSubIssueOf("plants/garden", 30, 31, "Dig the lily beds along the north fence and along the south fence")
+	github.AddSubIssueOf("plants/garden", 30, 32, "Buy lily bulbs")
+	for _, number := range []int64{21, 22, 31, 32} {
+		github.AddLabel("plants/garden", number, "mobius:needs-human", "owner")
+	}
+	github.AddUserCode(testkit.SecondAppID, "user-code", "owner")
 	engine.Release = "v0.1.0"
 	github.SetLatestRelease("v0.1.4")
 	github.SetComparedCommits(
@@ -171,6 +209,31 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := server.Engine.SeeChat(ctx, key, view.Messages[len(view.Messages)-1].ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The chats of plants/garden#14 to #17 have 12 Lead messages each, and the Owner saw the first 5.
+	queries := store.New(server.DB)
+	for number := int64(14); number <= 17; number++ {
+		key := engine.ChatKey{Organization: "plants", Repository: "plants/garden", Workstream: number}
+		var seen int64
+		for n := 1; n <= 12; n++ {
+			message, err := queries.AddChatMessage(ctx, store.AddChatMessageParams{
+				Organization: key.Organization,
+				Repository:   key.Repository,
+				Workstream:   key.Workstream,
+				Author:       "Lead",
+				Time:         time.Now().UTC().Format(time.RFC3339Nano),
+				Text:         fmt.Sprintf("Note %d of #%d. %s", n, number, strings.Repeat("word ", 100)),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n == 5 {
+				seen = message.ID
+			}
+		}
+		if err := server.Engine.SeeChat(ctx, key, seen); err != nil {
 			t.Fatal(err)
 		}
 	}

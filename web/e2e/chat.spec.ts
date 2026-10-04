@@ -1,0 +1,347 @@
+import { expect, test, type Page, type Route } from '@playwright/test'
+
+const phone = { width: 390, height: 844 }
+const shop = '/workstreams/owner/shop/12'
+
+async function logIn(page: Page) {
+  await page.goto('/github')
+  await page.getByLabel('Access password').fill('correct horse')
+  await page.getByRole('button', { name: 'Log in' }).click()
+  await expect(page.getByLabel('Access password')).toBeHidden()
+}
+
+test.beforeEach(({ page }) => logIn(page))
+
+// The session cookie is Secure. The browser sends it to 127.0.0.1 over HTTP, but the API requests of Playwright do
+// not.
+async function get<T>(page: Page, path: string) {
+  const body = (await page.evaluate(
+    `fetch(${JSON.stringify(path)}).then((response) => response.json())`,
+  )) as { data: T }
+  return body.data
+}
+
+// The texts of the Owner messages that the server has in the Lead chat of owner/shop#12.
+async function sent(page: Page) {
+  const chat = await get<{ messages: { author: string; text: string }[] }>(
+    page,
+    '/api/chat?organization=owner&repository=owner/shop&workstream=12',
+  )
+  return chat.messages
+    .filter((message) => message.author === 'Owner')
+    .map((message) => message.text)
+}
+
+async function unread(page: Page, workstream: number) {
+  const chats = await get<
+    { repository: string; workstream: number; count: number }[]
+  >(page, '/api/unread')
+  return (
+    chats.find(
+      (chat) =>
+        chat.repository === 'plants/garden' && chat.workstream === workstream,
+    )?.count ?? 0
+  )
+}
+
+// The tests have no DOM types, so the check is a script. It tells if the chat scrolls and shows the message with text
+// at its top, or shows its end.
+const shows = (text: string, place: 'top' | 'end') => `(() => {
+  const message = [...document.querySelectorAll('[data-message]')].find((element) => element.textContent.includes(${JSON.stringify(text)}))
+  const list = message?.parentElement
+  if (!list || list.scrollHeight <= list.clientHeight) {
+    return false
+  }
+  return ${
+    place === 'top'
+      ? 'Math.abs(message.getBoundingClientRect().top - list.getBoundingClientRect().top) < 5'
+      : 'list.scrollHeight - list.scrollTop - list.clientHeight < 5'
+  }
+})()`
+
+test('Enter sends, and Shift+Enter adds a line on a desktop', async ({
+  page,
+}) => {
+  await page.goto(shop)
+  const input = page.getByLabel('Message to the Lead')
+  await input.pressSequentially('one')
+  await input.press('Shift+Enter')
+  await input.pressSequentially('two')
+  await input.press('Enter')
+  await expect.poll(() => sent(page)).toContain('one\ntwo')
+  await expect(input).toHaveValue('')
+})
+
+test.describe('on a touch screen', () => {
+  test.use({ viewport: phone, isMobile: true, hasTouch: true })
+
+  test('Enter adds a line, and only Send sends', async ({ page }) => {
+    await page.goto(shop)
+    const input = page.getByLabel('Message to the Lead')
+    await input.pressSequentially('three')
+    await input.press('Enter')
+    await input.pressSequentially('four')
+    await expect(input).toHaveValue('three\nfour')
+    await page.getByRole('button', { name: 'Send' }).tap()
+    await expect.poll(() => sent(page)).toContain('three\nfour')
+    expect(await sent(page)).not.toContain('three')
+  })
+
+  test('two taps on Send in one turn send one message, and the buttons are easy to tap', async ({
+    page,
+  }) => {
+    await page.goto(shop)
+    const input = page.getByLabel('Message to the Lead')
+    const send = page.getByRole('button', { name: 'Send' })
+    await input.pressSequentially('double')
+    await page.evaluate(
+      "for (let n = 0; n < 2; n++) document.querySelector('main form button[type=submit]').click()",
+    )
+    await expect.poll(() => sent(page)).toContain('double')
+    await input.pressSequentially('after')
+    await send.tap()
+    await expect.poll(() => sent(page)).toContain('after')
+    expect((await sent(page)).filter((text) => text === 'double')).toHaveLength(
+      1,
+    )
+    expect(
+      await page.evaluate(`(() => {
+        const field = document.querySelector('main form textarea').getBoundingClientRect()
+        const buttons = [...document.querySelectorAll('main form button')]
+        return buttons.length > 0 && buttons.every((button) => {
+          const box = button.getBoundingClientRect()
+          return box.height >= 40 && (box.left >= field.right || box.right <= field.left)
+        })
+      })()`),
+    ).toBe(true)
+
+    // The text that the Owner writes while a message goes to the server stays in the input.
+    const held: Route[] = []
+    await page.route('/api/chat/messages', (route) => {
+      held.push(route)
+    })
+    await input.pressSequentially('hello')
+    await send.tap()
+    await expect(input).toHaveValue('')
+    await input.pressSequentially('more')
+    await expect.poll(() => held.length).toBe(1)
+    await held[0].continue()
+    await expect.poll(() => sent(page)).toContain('hello')
+    await expect(input).toHaveValue('more')
+    await send.tap()
+    await expect.poll(() => held.length).toBe(2)
+    await held[1].continue()
+    await expect.poll(() => sent(page)).toContain('more')
+
+    // When the server refuses the message, the input gets the message back before the new text.
+    await input.pressSequentially('lost')
+    await send.tap()
+    await expect(input).toHaveValue('')
+    await input.pressSequentially('!')
+    await expect.poll(() => held.length).toBe(3)
+    await held[2].fulfill({ status: 500, json: { error: 'The send failed.' } })
+    await expect(input).toHaveValue('lost!')
+    expect(await sent(page)).not.toContain('lost')
+  })
+
+  test('one tap on Send sends while the input has the focus', async ({
+    page,
+  }) => {
+    await page.goto(shop)
+    const input = page.getByLabel('Message to the Lead')
+    await input.tap()
+    await page.keyboard.type('one tap')
+    await expect(input).toBeFocused()
+    await page.getByRole('button', { name: 'Send' }).tap()
+    await expect.poll(() => sent(page)).toContain('one tap')
+    expect(
+      (await sent(page)).filter((text) => text === 'one tap'),
+    ).toHaveLength(1)
+    await expect(input).toBeFocused()
+  })
+})
+
+test('a switch to a chat shows its first unread message', async ({ page }) => {
+  for (const [size, first, second] of [
+    [undefined, [14, 'Water the roses'], [15, 'Feed the roses']],
+    [phone, [16, 'Cut the roses'], [17, 'Sell the roses']],
+  ] as const) {
+    if (size) {
+      await page.setViewportSize(size)
+    }
+    // A phone has the links to the chats on the Workstreams tab.
+    const switchTo = async (title: string) => {
+      if (size) {
+        await page
+          .getByRole('link', { name: 'Workstreams', exact: true })
+          .filter({ visible: true })
+          .click()
+      }
+      await page
+        .getByRole('link', { name: title })
+        .filter({ visible: true })
+        .click()
+    }
+    const expectShown = (text: string, place: 'top' | 'end') =>
+      expect.poll(() => page.evaluate(shows(text, place))).toBe(true)
+
+    await page.goto(`/workstreams/plants/garden/${first[0]}`)
+    await expectShown(`Note 6 of #${first[0]}.`, 'top')
+    // The page marks the messages as seen, and the position stays.
+    await expect.poll(() => unread(page, first[0])).toBe(0)
+    await expectShown(`Note 6 of #${first[0]}.`, 'top')
+    await switchTo(second[1])
+    await expectShown(`Note 6 of #${second[0]}.`, 'top')
+    await expect.poll(() => unread(page, second[0])).toBe(0)
+    await expectShown(`Note 6 of #${second[0]}.`, 'top')
+    await switchTo(first[1])
+    await expectShown(`Note 12 of #${first[0]}.`, 'end')
+    await switchTo(second[1])
+    await expectShown(`Note 12 of #${second[0]}.`, 'end')
+  }
+})
+
+test('the Triager chat stays open after its actions', async ({ page }) => {
+  const input = page.getByLabel('Message to the Triager')
+  const send = page.getByRole('button', { name: 'Send' })
+  for (const [size, create, move, title, issue] of [
+    [
+      undefined,
+      'Create the desktop Workstream.',
+      'Move #7 to the Workstream.',
+      'Desktop plans',
+      7,
+    ],
+    [
+      phone,
+      'Create the phone Workstream.',
+      'Move #8 to the Workstream.',
+      'Phone plans',
+      8,
+    ],
+  ] as const) {
+    if (size) {
+      await page.setViewportSize(size)
+    }
+    await page.goto('/workstreams/new')
+    await input.fill(create)
+    await send.click()
+    // The side bar of a phone is hidden, and it has the link.
+    const link = page.locator('nav a', { hasText: title })
+    await expect(link).toBeAttached()
+    await input.fill(move)
+    await send.click()
+    await expect(
+      page.getByText(`Moved #${issue} to the Workstream #12.`),
+    ).toBeVisible()
+    await expect(page).toHaveURL('/workstreams/new')
+    await expect(link).toBeAttached()
+  }
+})
+
+test('the open chat shows the messages that arrived while the live connection was down', async ({
+  page,
+  browser,
+}) => {
+  await page.setViewportSize(phone)
+  await page.goto('/workstreams/plants/garden/12')
+  await expect(page.getByText('Red roses sell best.')).toBeVisible()
+  await page.evaluate('window.sameDocument = true')
+  // The page connects again when the browser is online again. The new live connection fails until the route goes
+  // away.
+  let refused = 0
+  await page.route('/api/events', (route) => {
+    refused++
+    return route.abort()
+  })
+  await page.evaluate("window.dispatchEvent(new Event('online'))")
+  await expect.poll(() => refused).toBeGreaterThan(0)
+
+  const other = await browser.newPage()
+  await logIn(other)
+  await other.goto('/workstreams/plants/garden/12')
+  await other
+    .getByLabel('Message to the Lead')
+    .fill('Water the roses at night.')
+  await other.getByRole('button', { name: 'Send' }).click()
+  await expect(other.getByText('Water the roses at night.')).toBeVisible()
+  await other.context().close()
+  await expect(page.getByText('Water the roses at night.')).toBeHidden()
+
+  await page.unroute('/api/events')
+  await page.evaluate("window.dispatchEvent(new Event('online'))")
+  await expect(page.getByText('Water the roses at night.')).toBeVisible()
+  expect(await page.evaluate('window.sameDocument')).toBe(true)
+})
+
+test('Resume takes the issue off the list, and the hint goes away', async ({
+  page,
+}) => {
+  // GitHub sends the browser to this page after the Owner authorizes the App.
+  await page.goto('/api/github/user-callback?code=user-code')
+  const main = page.getByRole('main')
+  for (const [size, workstream, issues] of [
+    [undefined, 20, ['#21 Dig the tulip beds', '#22 Buy tulip bulbs']],
+    [phone, 30, ['#31 Dig the lily beds', '#32 Buy lily bulbs']],
+  ] as const) {
+    if (size) {
+      await page.setViewportSize(size)
+    }
+    await page.goto(`/workstreams/plants/garden/${workstream}`)
+    const resume = main.getByRole('button', { name: 'Resume' })
+    await expect(resume).toHaveCount(2)
+    // The list is above the input and fits the screen.
+    expect(
+      await page.evaluate(`(() => {
+        const field = document.querySelector('main form textarea').getBoundingClientRect()
+        const buttons = [...document.querySelectorAll('main button')].filter((button) => button.textContent === 'Resume')
+        return buttons.every((button) => {
+          const box = button.getBoundingClientRect()
+          return box.left >= 0 && box.right <= window.innerWidth && box.bottom <= field.top
+        }) && document.documentElement.scrollWidth <= window.innerWidth
+      })()`),
+    ).toBe(true)
+    // The side bar of a phone is hidden, and it has the hint.
+    const hint = page
+      .locator(`nav a[href="/workstreams/plants/garden/${workstream}"]`)
+      .getByText('needs you')
+    await expect(hint).toBeAttached()
+
+    await resume.first().click()
+    await expect(main.getByText(issues[0])).toBeHidden()
+    await expect(main.getByText(issues[1])).toBeVisible()
+    await expect(hint).toBeAttached()
+    await resume.click()
+    await expect(main.getByText(issues[1])).toBeHidden()
+    await expect(hint).not.toBeAttached()
+  }
+})
+
+test('the Mic button adds the spoken text to the message', async ({ page }) => {
+  // The fake recognition gives the events that the test sends.
+  await page.addInitScript(`window.SpeechRecognition = class extends EventTarget {
+    start() { window.recognition = this }
+    stop() { this.dispatchEvent(new Event('end')) }
+  }`)
+  await page.goto('/workstreams/new')
+  const main = page.getByRole('main')
+  const input = page.getByLabel('Message to the Triager')
+  const mic = main.getByRole('button', { name: 'Mic', exact: true })
+  await input.fill('Plant')
+  await mic.click()
+  await page.evaluate(
+    "recognition.dispatchEvent(Object.assign(new Event('result'), { results: [[{ transcript: ' red roses ' }]] }))",
+  )
+  await expect(input).toHaveValue('Plant red roses')
+  await main.getByRole('button', { name: 'Stop mic' }).click()
+  await expect(mic).toBeVisible()
+
+  await mic.click()
+  await page.evaluate(
+    "recognition.dispatchEvent(Object.assign(new Event('error'), { error: 'not-allowed' })); recognition.dispatchEvent(new Event('end'))",
+  )
+  await expect(
+    main.getByText('The browser blocks the microphone.'),
+  ).toBeVisible()
+  await expect(mic).toBeVisible()
+})
