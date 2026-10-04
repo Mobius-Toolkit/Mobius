@@ -374,12 +374,26 @@ test('Resume takes the issue off the list, and the hint goes away', async ({
   // GitHub sends the browser to this page after the Owner authorizes the App.
   await page.goto('/api/github/user-callback?code=user-code')
   const main = page.getByRole('main')
-  for (const [size, workstream, issues] of [
-    [undefined, 20, ['#21 Dig the tulip beds', '#22 Buy tulip bulbs']],
-    [phone, 30, ['#31 Dig the lily beds', '#32 Buy lily bulbs']],
+  for (const [size, workstream, numbers, issues] of [
+    [
+      undefined,
+      20,
+      [21, 22],
+      ['#21 Dig the tulip beds', '#22 Buy tulip bulbs'],
+    ],
+    [phone, 30, [31, 32], ['#31 Dig the lily beds', '#32 Buy lily bulbs']],
   ] as const) {
     if (size) {
       await page.setViewportSize(size)
+    }
+    // A live task waits for a slot, or its agent works.
+    const live = async (number: number) => {
+      const tasks = await get<{ number: number; state: string }[]>(
+        page,
+        `/api/workstreams/plants/garden/${workstream}/tasks`,
+      )
+      const state = tasks.find((task) => task.number === number)?.state
+      return state === 'queued' || state === 'working'
     }
     await page.goto(`/workstreams/plants/garden/${workstream}`)
     const resume = main.getByRole('button', { name: 'Resume' })
@@ -405,9 +419,11 @@ test('Resume takes the issue off the list, and the hint goes away', async ({
     await expect(main.getByText(issues[0])).toBeHidden()
     await expect(main.getByText(issues[1])).toBeVisible()
     await expect(hint).toBeAttached()
+    await expect.poll(() => live(numbers[0])).toBe(true)
     await resume.click()
     await expect(main.getByText(issues[1])).toBeHidden()
     await expect(hint).not.toBeAttached()
+    await expect.poll(() => live(numbers[1])).toBe(true)
   }
 })
 
