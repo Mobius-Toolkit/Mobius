@@ -1,4 +1,4 @@
-// Package runner starts an agent session of a Harness through ACP.
+// Package runner starts an agent session of a Harness through ACP, and fetches the bare clones of the repositories.
 package runner
 
 import (
@@ -367,6 +367,11 @@ func values(option *acp.SessionConfigOptionSelect) []string {
 func (s *Session) Prompt(ctx context.Context, text string) (acp.StopReason, error) {
 	response, err := acp.SendRequest[acp.PromptResponse](s.conn, ctx, acp.AgentMethodSessionPrompt, acp.PromptRequest{SessionId: s.id, Prompt: []acp.ContentBlock{acp.TextBlock(text)}})
 	return response.StopReason, err
+}
+
+// Cancel asks the agent to end the turn of the session that runs.
+func (s *Session) Cancel(ctx context.Context) error {
+	return s.conn.SendNotification(ctx, acp.AgentMethodSessionCancel, acp.CancelNotification{SessionId: s.id})
 }
 
 // Close ends the agent process.
