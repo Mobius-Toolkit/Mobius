@@ -102,8 +102,8 @@ const question = "What is the state of the plans? The full report is at " +
 // than this server.
 //
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
-// unread Lead messages, the Workstreams plants/garden#20 and #30 with tasks that need a human, and the user code
-// "user-code" of the second App.
+// unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
+// Workstreams plants/garden#20 and #30 with tasks that need a human, and the user code "user-code" of the second App.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -127,7 +127,10 @@ func TestServer(t *testing.T) {
 		{"plants/garden", 15, "Feed the roses"},
 		{"plants/garden", 16, "Cut the roses"},
 		{"plants/garden", 17, "Sell the roses"},
+		{"plants/garden", 18, "Prune the roses"},
+		{"plants/garden", 19, "Mulch the beds"},
 		{"plants/garden", 20, "Plant tulips"},
+		{"plants/garden", 25, "Read the comments"},
 		{"plants/garden", 30, "Plant lilies"},
 	} {
 		github.AddIssue(workstream.repository, workstream.number, workstream.title)
@@ -141,6 +144,8 @@ func TestServer(t *testing.T) {
 	github.SetBody("owner/shop", 12, "Reward repeat customers.\n\n- Points on every order\n- One **free** plan for staff")
 	github.SetBody("owner/shop", 13, "Change the prices for each season.")
 	github.SetBody("owner/shop", 45, "Each plan has a limit of seats.")
+	github.SetBody("plants/garden", 18, "Cut the **old** canes in March.")
+	github.SetBody("plants/garden", 19, "Put **bark** on the beds.")
 	github.AddLabel("owner/shop", 41, "mobius:needs-human", "owner")
 	github.AddLabel("owner/shop", 42, "mobius:needs-human", "owner")
 	github.AddIssue("owner/shop", 7, "Add plan prices")
@@ -234,6 +239,23 @@ func TestServer(t *testing.T) {
 			}
 		}
 		if err := server.Engine.SeeChat(ctx, key, seen); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The first event has a word that is wider than a phone.
+	for _, text := range []string{
+		"A comment arrived: " + strings.Repeat("word", 60) + "\n\nThe rest of the comment.",
+		"A label changed.",
+	} {
+		_, err := queries.AddChatMessage(ctx, store.AddChatMessageParams{
+			Organization: "plants",
+			Repository:   "plants/garden",
+			Workstream:   25,
+			Author:       "Event",
+			Time:         time.Now().UTC().Format(time.RFC3339Nano),
+			Text:         text,
+		})
+		if err != nil {
 			t.Fatal(err)
 		}
 	}

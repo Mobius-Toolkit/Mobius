@@ -161,6 +161,100 @@ test.describe('on a touch screen', () => {
   })
 })
 
+test('a new message scrolls the chat to its end', async ({ page }) => {
+  for (const [device, size] of [
+    ['desktop', undefined],
+    ['phone', phone],
+  ] as const) {
+    if (size) {
+      await page.setViewportSize(size)
+    }
+    await page.goto(shop)
+    // The chat shows its messages after the live connection opens.
+    await expect(
+      page.getByText('What is the state of the plans?').first(),
+    ).toBeVisible()
+    await page.evaluate(`(async () => {
+      for (let n = 0; n < 20; n++) {
+        await fetch('/api/chat/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ organization: 'owner', repository: 'owner/shop', workstream: 12, text: 'spam ${device} ' + n + ' ' + 'word '.repeat(40) }),
+        })
+      }
+    })()`)
+    await expect
+      .poll(() => page.evaluate(shows(`spam ${device} 19 `, 'end')))
+      .toBe(true)
+  }
+})
+
+test('an event shows folded and muted in the chat, and wraps on a phone', async ({
+  page,
+}) => {
+  const main = page.getByRole('main')
+  // The tests have no DOM types, so the checks are scripts.
+  const muted = `(() => {
+    const event = [...document.querySelectorAll('[data-message]')].find((element) => element.textContent.includes('A comment arrived'))
+    const probe = document.createElement('span')
+    probe.style.color = 'var(--muted-foreground)'
+    document.body.append(probe)
+    const color = getComputedStyle(probe).color
+    probe.remove()
+    return getComputedStyle(event).color === color
+  })()`
+  const narrow = `(() => {
+    const list = document.querySelector('[data-message]').parentElement
+    return list.scrollWidth <= list.clientWidth
+  })()`
+  for (const size of [undefined, phone]) {
+    if (size) {
+      await page.setViewportSize(size)
+    }
+    await page.goto('/workstreams/plants/garden/25')
+    const folded = main.locator('[data-message]', {
+      hasText: 'A comment arrived',
+    })
+    const single = main.locator('[data-message]', {
+      hasText: 'A label changed.',
+    })
+    const summary = folded.getByRole('button')
+    const rest = main.getByText('The rest of the comment.')
+    await expect(folded).toBeVisible()
+    expect(await page.evaluate(muted)).toBe(true)
+    expect(await page.evaluate(narrow)).toBe(true)
+    await expect(summary).toHaveAttribute('aria-expanded', 'false')
+    await expect(summary).toHaveText(/^A comment arrived: word/)
+    await expect(rest).toBeHidden()
+    await expect(single).toBeVisible()
+    await expect(single.getByRole('button')).toHaveCount(0)
+
+    await summary.click()
+    await expect(summary).toHaveAttribute('aria-expanded', 'true')
+    await expect(rest).toBeVisible()
+    expect(await page.evaluate(narrow)).toBe(true)
+  }
+})
+
+test('an empty chat opens with the Brief, and a click on its head folds it', async ({
+  page,
+}) => {
+  const main = page.getByRole('main')
+  await page.goto('/workstreams/plants/garden/18')
+  const brief = main.getByText('Cut the old canes in March.')
+  await expect(brief).toBeVisible()
+  await expect(brief.locator('strong')).toHaveText('old')
+  const head = main.getByRole('button', { name: 'Prune the roses' })
+  await head.click()
+  await expect(brief).toBeHidden()
+  await expect(head).toBeVisible()
+  // The chat of the next Workstream opens with its own Brief.
+  await page.getByRole('link', { name: 'Mulch the beds' }).click()
+  const next = main.getByText('Put bark on the beds.')
+  await expect(next).toBeVisible()
+  await expect(next.locator('strong')).toHaveText('bark')
+})
+
 test('a switch to a chat shows its first unread message', async ({ page }) => {
   for (const [size, first, second] of [
     [undefined, [14, 'Water the roses'], [15, 'Feed the roses']],
