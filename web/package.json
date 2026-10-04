@@ -8,14 +8,13 @@
     "build": "tsc -b && vite build && touch dist/.gitkeep",
     "lint": "oxlint --deny-warnings",
     "typecheck": "tsc -b",
-    "gen:api": "openapi-typescript ../api/openapi.json -o src/api/schema.d.ts"
+    "gen:api": "orval"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
-    "openapi-fetch": "^0.17.0",
     "radix-ui": "^1.6.7",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -28,7 +27,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
-    "openapi-typescript": "^7.13.0",
+    "orval": "8.39.0",
     "oxlint": "^1.86.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
