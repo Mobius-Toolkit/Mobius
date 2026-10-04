@@ -106,35 +106,68 @@ func (h *handlers) ListOrganizations(_ context.Context, _ ListOrganizationsReque
 	return &ListOrganizationsResponse{Body: Envelope[[]string]{Data: h.github.Organizations()}}, nil
 }
 
-// manifestCallback is the page where GitHub sends the browser after it creates the App of
-// a manifest. The state must be the state of a form from CreateManifestForm.
-func (h *handlers) manifestCallback(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	ok, err := h.github.ConvertManifest(r.Context(), query.Get("code"), query.Get("state"))
-	if err != nil {
-		log.Printf("convert the App manifest: %v", err)
-		writeError(w, http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
-		return
+// ManifestCallbackRequest is the request of ManifestCallback.
+type ManifestCallbackRequest struct {
+	Query struct {
+		// Code is the code that converts the manifest into an App
+		Code string `gork:"code" validate:"required"`
+		// State is the state of the manifest form
+		State string `gork:"state" validate:"required"`
 	}
-	if !ok {
-		writeError(w, http.StatusForbidden, "The App setup is not valid or is older than one hour. Start the setup again on the GitHub page of Mobius.")
-		return
-	}
-	http.Redirect(w, r, "/github", http.StatusSeeOther)
 }
 
-// userCallback is the page where GitHub sends the browser after the Owner authorizes a Mobius App.
-// GitHub sends no state after an installation, so the check of the user login protects this page.
-func (h *handlers) userCallback(w http.ResponseWriter, r *http.Request) {
-	ok, err := h.github.AuthorizeUser(r.Context(), r.URL.Query().Get("code"))
+// ManifestCallbackResponse is the response of ManifestCallback.
+type ManifestCallbackResponse struct {
+	Headers struct {
+		// Location is the page that the browser opens next
+		Location string `gork:"Location"`
+	}
+}
+
+// ManifestCallback is the page where GitHub sends the browser after it creates the App of
+// a manifest form.
+func (h *handlers) ManifestCallback(ctx context.Context, req ManifestCallbackRequest) (*ManifestCallbackResponse, error) {
+	ok, err := h.github.ConvertManifest(ctx, req.Query.Code, req.Query.State)
 	if err != nil {
-		log.Printf("authorize the GitHub user: %v", err)
-		writeError(w, http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError))
-		return
+		log.Printf("convert the App manifest: %v", err)
+		return nil, err
 	}
 	if !ok {
-		writeError(w, http.StatusForbidden, "The GitHub login is not a trusted user.")
-		return
+		return nil, api.NewHTTPError(http.StatusForbidden, "The App setup is not valid or is older than one hour. Start the setup again on the GitHub page of Mobius.")
 	}
-	http.Redirect(w, r, "/github", http.StatusSeeOther)
+	resp := &ManifestCallbackResponse{}
+	resp.Headers.Location = "/github"
+	return resp, nil
+}
+
+// UserCallbackRequest is the request of UserCallback.
+type UserCallbackRequest struct {
+	Query struct {
+		// Code is the code that GitHub exchanges for a user token
+		Code string `gork:"code" validate:"required"`
+	}
+}
+
+// UserCallbackResponse is the response of UserCallback.
+type UserCallbackResponse struct {
+	Headers struct {
+		// Location is the page that the browser opens next
+		Location string `gork:"Location"`
+	}
+}
+
+// UserCallback is the page where GitHub sends the browser after the Owner authorizes a Mobius App.
+// GitHub sends no state after an installation, so the check of the user login protects this page.
+func (h *handlers) UserCallback(ctx context.Context, req UserCallbackRequest) (*UserCallbackResponse, error) {
+	ok, err := h.github.AuthorizeUser(ctx, req.Query.Code)
+	if err != nil {
+		log.Printf("authorize the GitHub user: %v", err)
+		return nil, err
+	}
+	if !ok {
+		return nil, api.NewHTTPError(http.StatusForbidden, "The GitHub login is not a trusted user.")
+	}
+	resp := &UserCallbackResponse{}
+	resp.Headers.Location = "/github"
+	return resp, nil
 }
