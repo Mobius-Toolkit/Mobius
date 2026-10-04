@@ -68,7 +68,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 					continue
 				}
 			}
-			if err := e.resume(ctx, repository, issue, task, actor, nil); err != nil {
+			if err := e.resume(ctx, repository, issue, task, actor); err != nil {
 				return err
 			}
 			continue
@@ -230,9 +230,7 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 }
 
 // pullRequestComments acts on the new comments of the pull request of a live task: a new comment or review comment of
-// a trusted user resets the counters of the task, a new comment that is an event continues a stopped task with the
-// comment as an item (Mobius#225, Mobius#253), and each new comment that is an event goes to the Lead with the state
-// of the task after that.
+// a trusted user resets the counters of the task, and each new comment that is an event goes to the Lead.
 func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repository, pullRequest *gh.Issue, since time.Time) error {
 	number := int64(pullRequest.GetNumber())
 	task, err := e.queries.GetLiveTaskByPullRequest(ctx, store.GetLiveTaskByPullRequestParams{
@@ -264,18 +262,6 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 	replies, _, err := e.newComments(ctx, repository, task, comments, since)
 	if err != nil {
 		return err
-	}
-	if task.State == "stopped" && len(replies) > 0 {
-		issue, err := existingIssue(ctx, repository, task.Issue)
-		if err != nil {
-			return err
-		}
-		if err := e.resume(ctx, repository, issue, task, replies[len(replies)-1].GetUser().GetLogin(), replies); err != nil {
-			return err
-		}
-		if task, err = e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue}); err != nil {
-			return err
-		}
 	}
 	return e.commentEventsOf(ctx, task, pullRequest, replies)
 }
@@ -449,9 +435,9 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 
 // resume continues the task of the issue that waits for a human, or the stopped task with a pull request, for the
 // actor: a pull request with a merge conflict gets a conflict round, another pull request gets a fix round with its
-// open review threads and the new comments, and a task with no pull request gets the Implementer on the same branch.
+// open review threads, and a task with no pull request gets the Implementer on the same branch.
 // mobius:ready goes away last, so a failure before the round starts leaves the issue in the ready list.
-func (e *Engine) resume(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string, comments []*gh.IssueComment) error {
+func (e *Engine) resume(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string) error {
 	number := int64(issue.GetNumber())
 	if err := repository.AddLabel(ctx, number, workingLabel); err != nil {
 		return err
@@ -483,7 +469,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	}
 	items := ""
 	if pullRequest != nil && !conflict {
-		if items, err = e.continueItems(ctx, repository, int64(pullRequest.GetNumber()), comments); err != nil {
+		if items, err = e.continueItems(ctx, repository, int64(pullRequest.GetNumber())); err != nil {
 			return err
 		}
 	}
@@ -510,9 +496,9 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	return e.addActivity(ctx, repository.FullName, task.Workstream, issue, actor, fmt.Sprintf("Continued \"%s\"", issue.GetTitle()))
 }
 
-// continueItems gives the items of a fix round that continues the pull request number: each open review thread and
-// each comment, with the action fix. With no item, it tells the Implementer to finish the issue.
-func (e *Engine) continueItems(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment) (string, error) {
+// continueItems gives the items of a fix round that continues the pull request number: each open review thread, with
+// the action fix. With no open thread, it tells the Implementer to finish the issue.
+func (e *Engine) continueItems(ctx context.Context, repository github.Repository, number int64) (string, error) {
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
 	threads, err := repository.ReviewThreads(ctx, number)
 	if err != nil {
@@ -533,9 +519,6 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 		if slices.Contains(open, root.GetID()) {
 			items.WriteString(thread(reviewComments, root, trusted) + "\nAction: fix\n")
 		}
-	}
-	for _, comment := range comments {
-		fmt.Fprintf(&items, "\nComment %d:\n%s\nAction: fix\n", comment.GetID(), entry(comment.GetUser().GetLogin(), comment.GetCreatedAt().Time, "", comment.GetBody()))
 	}
 	if items.Len() == 0 {
 		return "\nThe human continued the task. Finish the issue and make `.mobius/check` pass.\n", nil

@@ -1,7 +1,6 @@
 package engine_test
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -300,31 +299,30 @@ func startWithStoppedTask(t *testing.T, fake *testkit.FakeGitHub) *testserver.Se
 	return server
 }
 
-// A comment on the pull request of a stopped task continues the task (Mobius#225, Mobius#253).
-func TestACommentOnThePullRequestOfAStoppedTaskContinuesTheTaskAndGoesToTheLead(t *testing.T) {
+// A comment on the pull request of a stopped task goes to the Lead with the state of the task, so the Lead can tell
+// the Owner the next step. Only mobius:ready continues the task (Mobius#253, Mobius#274).
+func TestACommentOnThePullRequestOfAStoppedTaskGoesToTheLeadAndStartsNoRound(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 
-	comment := fake.AddComment(shop, 42, "owner", "Address the review comments.")
+	fake.AddComment(shop, 42, "owner", "Halo")
 
 	prompt := testkit.WaitForValue(t, func() (string, bool) {
 		prompts := leadPrompts(t, server)
 		return strings.Join(prompts, "\n"), len(prompts) > 0
 	})
-	if !strings.Contains(prompt, ` comment on #42 "Add plan model" by @owner:`+"\n\n> Address the review comments.\n\nThe state of the task of #41 is ") ||
-		strings.Contains(prompt, "The state of the task of #41 is stopped.") {
+	if !strings.Contains(prompt, ` comment on #42 "Add plan model" by @owner:`+"\n\n> Halo\n\nThe state of the task of #41 is stopped.") {
 		t.Errorf("prompt = %s", prompt)
 	}
-	session := endedImplementers(t, server, 1)[0]
-	if round := promptTexts(t, server, session.ID)[0]; !strings.Contains(round, fmt.Sprintf("# Open items\n\nComment %d:\n\n@owner, ", comment)) ||
-		!strings.Contains(round, "Address the review comments.\n\nAction: fix\n") {
-		t.Errorf("round = %s", round)
-	}
-	if task := liveTaskOf(t, server, 41); task.FixRounds != 1 || task.PullRequest.Int64 != 42 {
+	waitForPolls(t, fake)
+	if task := liveTaskOf(t, server, 41); task.State != "stopped" || task.FixRounds != 0 {
 		t.Errorf("task = %+v", task)
 	}
-	if !slices.Contains(feedTexts(t, server), `Continued "Add plan model"`) {
-		t.Errorf("feed = %q", feedTexts(t, server))
+	if sessions := roleSessions(t, server, engine.ImplementerRole); len(sessions) != 0 {
+		t.Errorf("Implementers = %+v", sessions)
+	}
+	if hasLabel(fake, "mobius:working") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 }
 
