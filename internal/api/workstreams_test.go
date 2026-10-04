@@ -38,7 +38,7 @@ func TestListWorkstreams(t *testing.T) {
 		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
 	}
 	want := []workstream{
-		{Repository: "o/b", Number: 5, Tasks: 0, OpenTasks: 0, LastActivity: "2026-10-02T10:00:00Z"},
+		{Repository: "o/b", Number: 5, Tasks: 0, OpenTasks: 0, LastActivity: "2026-10-02T10:00:00.25Z"},
 		{Repository: "o/a", Number: 1, Tasks: 2, OpenTasks: 1, LastActivity: "2026-10-01T11:00:00Z"},
 	}
 	if !slices.Equal(body.Workstreams, want) {
