@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/pressly/goose/v3"
 )
@@ -163,5 +164,34 @@ func TestListWorkstreams(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("workstreams = %+v, want %+v", got, want)
+	}
+}
+
+func TestAWriteWaitsForTheWriteOfAnotherConnection(t *testing.T) {
+	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	tx, err := db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec("INSERT INTO sync_cursors (repository, endpoint) VALUES ('owner/shop', 'issues')"); err != nil {
+		t.Fatal(err)
+	}
+	written := make(chan error)
+	go func() {
+		_, err := db.Exec("INSERT INTO sync_cursors (repository, endpoint) VALUES ('owner/shop', 'pulls')")
+		written <- err
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := <-written; err != nil {
+		t.Errorf("write = %v", err)
 	}
 }
