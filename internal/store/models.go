@@ -30,6 +30,25 @@ type GithubApp struct {
 	UserTokenExpiresAt sql.NullString
 }
 
+type HarnessPause struct {
+	Harness     string
+	PausedUntil string
+	InboxItem   int64
+}
+
+type InboxItem struct {
+	ID           int64
+	Kind         string
+	Repository   string
+	Workstream   int64
+	Issue        int64
+	Text         string
+	Link         string
+	Time         string
+	DismissedAt  sql.NullString
+	Organization string
+}
+
 type Session struct {
 	ID           int64
 	Role         string

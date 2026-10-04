@@ -103,3 +103,69 @@ SELECT * FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id;
 
 -- name: GetLiveTaskByPullRequest :one
 SELECT * FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended';
+
+-- name: SetQueueReason :one
+UPDATE sessions SET queue_reason = ? WHERE id = ?
+RETURNING *;
+
+-- name: ClearQueueReason :one
+UPDATE sessions SET queue_reason = NULL WHERE id = ?
+RETURNING *;
+
+-- name: StartSession :one
+UPDATE sessions SET started_at = ?, queue_reason = NULL WHERE id = ?
+RETURNING *;
+
+-- name: ListOpenSessionIDs :many
+SELECT id FROM sessions WHERE ended_at IS NULL ORDER BY id;
+
+-- name: ListOpenSessions :many
+SELECT sqlc.embed(sessions), w.title AS workstream_title, i.title AS issue_title,
+       (SELECT t.pull_request FROM tasks t
+        WHERE t.repository = sessions.repository AND t.issue = sessions.issue
+        ORDER BY t.id DESC LIMIT 1) AS pull_request
+FROM sessions
+LEFT JOIN copied_workstreams w ON w.repository = sessions.repository AND w.number = sessions.workstream
+LEFT JOIN copied_issues i
+  ON i.repository = sessions.repository AND i.workstream = sessions.workstream AND i.number = sessions.issue
+WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
+
+-- name: ListQueuedTasks :many
+SELECT id, queued_at FROM tasks WHERE state = 'queued' ORDER BY queued_at, id;
+
+-- name: SetTaskState :execrows
+UPDATE tasks SET state = sqlc.arg(state) WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
+
+-- name: AddWorkerRestart :one
+UPDATE tasks SET worker_restarts = worker_restarts + 1 WHERE id = sqlc.arg(id) AND worker_restarts < sqlc.arg(max)
+RETURNING worker_restarts;
+
+-- name: GetHarnessPause :one
+SELECT * FROM harness_pauses WHERE harness = ?;
+
+-- name: ListHarnessPauses :many
+SELECT * FROM harness_pauses ORDER BY harness;
+
+-- name: SetHarnessPause :exec
+INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES (?, ?, ?)
+ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until, inbox_item = excluded.inbox_item;
+
+-- name: DeleteHarnessPause :exec
+DELETE FROM harness_pauses WHERE harness = ?;
+
+-- name: AddInboxItem :one
+INSERT INTO inbox_items (kind, organization, repository, workstream, issue, text, link, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: DismissInboxItem :exec
+UPDATE inbox_items SET dismissed_at = ? WHERE id = ?;
+
+-- name: AddChatMessage :one
+INSERT INTO chat_messages (organization, repository, workstream, author, time, text)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id;
+
+-- name: AddLeadEvent :exec
+INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message)
+VALUES (?, ?, ?, ?, ?, ?, ?);

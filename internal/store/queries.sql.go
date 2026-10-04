@@ -10,6 +10,35 @@ import (
 	"database/sql"
 )
 
+const addChatMessage = `-- name: AddChatMessage :one
+INSERT INTO chat_messages (organization, repository, workstream, author, time, text)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id
+`
+
+type AddChatMessageParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+	Author       string
+	Time         string
+	Text         string
+}
+
+func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, addChatMessage,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.Author,
+		arg.Time,
+		arg.Text,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const addDeviceLogin = `-- name: AddDeviceLogin :exec
 INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)
 VALUES (?, ?, ?, ?)
@@ -52,6 +81,78 @@ func (q *Queries) AddGitHubApp(ctx context.Context, arg AddGitHubAppParams) erro
 		arg.PrivateKey,
 		arg.ClientID,
 		arg.ClientSecret,
+	)
+	return err
+}
+
+const addInboxItem = `-- name: AddInboxItem :one
+INSERT INTO inbox_items (kind, organization, repository, workstream, issue, text, link, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization
+`
+
+type AddInboxItemParams struct {
+	Kind         string
+	Organization string
+	Repository   string
+	Workstream   int64
+	Issue        int64
+	Text         string
+	Link         string
+	Time         string
+}
+
+func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (InboxItem, error) {
+	row := q.db.QueryRowContext(ctx, addInboxItem,
+		arg.Kind,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.Issue,
+		arg.Text,
+		arg.Link,
+		arg.Time,
+	)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Text,
+		&i.Link,
+		&i.Time,
+		&i.DismissedAt,
+		&i.Organization,
+	)
+	return i, err
+}
+
+const addLeadEvent = `-- name: AddLeadEvent :exec
+INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddLeadEventParams struct {
+	Repository  string
+	Workstream  int64
+	Issue       sql.NullInt64
+	Kind        string
+	Payload     string
+	Time        string
+	ChatMessage sql.NullInt64
+}
+
+func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) error {
+	_, err := q.db.ExecContext(ctx, addLeadEvent,
+		arg.Repository,
+		arg.Workstream,
+		arg.Issue,
+		arg.Kind,
+		arg.Payload,
+		arg.Time,
+		arg.ChatMessage,
 	)
 	return err
 }
@@ -136,6 +237,50 @@ func (q *Queries) AddTranscriptRow(ctx context.Context, arg AddTranscriptRowPara
 	return i, err
 }
 
+const addWorkerRestart = `-- name: AddWorkerRestart :one
+UPDATE tasks SET worker_restarts = worker_restarts + 1 WHERE id = ?1 AND worker_restarts < ?2
+RETURNING worker_restarts
+`
+
+type AddWorkerRestartParams struct {
+	ID  int64
+	Max int64
+}
+
+func (q *Queries) AddWorkerRestart(ctx context.Context, arg AddWorkerRestartParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, addWorkerRestart, arg.ID, arg.Max)
+	var worker_restarts int64
+	err := row.Scan(&worker_restarts)
+	return worker_restarts, err
+}
+
+const clearQueueReason = `-- name: ClearQueueReason :one
+UPDATE sessions SET queue_reason = NULL WHERE id = ?
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent
+`
+
+func (q *Queries) ClearQueueReason(ctx context.Context, id int64) (Session, error) {
+	row := q.db.QueryRowContext(ctx, clearQueueReason, id)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.Role,
+		&i.Harness,
+		&i.Model,
+		&i.Repository,
+		&i.Workstream,
+		&i.AcpSessionID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.EndReason,
+		&i.QueueReason,
+		&i.Organization,
+		&i.Issue,
+		&i.Parent,
+	)
+	return i, err
+}
+
 const deleteDeviceLogin = `-- name: DeleteDeviceLogin :exec
 DELETE FROM device_logins WHERE id = ?
 `
@@ -145,12 +290,35 @@ func (q *Queries) DeleteDeviceLogin(ctx context.Context, id int64) error {
 	return err
 }
 
+const deleteHarnessPause = `-- name: DeleteHarnessPause :exec
+DELETE FROM harness_pauses WHERE harness = ?
+`
+
+func (q *Queries) DeleteHarnessPause(ctx context.Context, harness string) error {
+	_, err := q.db.ExecContext(ctx, deleteHarnessPause, harness)
+	return err
+}
+
 const deleteOtherPasswordLogins = `-- name: DeleteOtherPasswordLogins :exec
 DELETE FROM device_logins WHERE password_fingerprint != ?
 `
 
 func (q *Queries) DeleteOtherPasswordLogins(ctx context.Context, passwordFingerprint []byte) error {
 	_, err := q.db.ExecContext(ctx, deleteOtherPasswordLogins, passwordFingerprint)
+	return err
+}
+
+const dismissInboxItem = `-- name: DismissInboxItem :exec
+UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
+`
+
+type DismissInboxItemParams struct {
+	DismissedAt sql.NullString
+	ID          int64
+}
+
+func (q *Queries) DismissInboxItem(ctx context.Context, arg DismissInboxItemParams) error {
+	_, err := q.db.ExecContext(ctx, dismissInboxItem, arg.DismissedAt, arg.ID)
 	return err
 }
 
@@ -215,6 +383,17 @@ func (q *Queries) GetGitHubApp(ctx context.Context, appID int64) (GithubApp, err
 		&i.RefreshToken,
 		&i.UserTokenExpiresAt,
 	)
+	return i, err
+}
+
+const getHarnessPause = `-- name: GetHarnessPause :one
+SELECT harness, paused_until, inbox_item FROM harness_pauses WHERE harness = ?
+`
+
+func (q *Queries) GetHarnessPause(ctx context.Context, harness string) (HarnessPause, error) {
+	row := q.db.QueryRowContext(ctx, getHarnessPause, harness)
+	var i HarnessPause
+	err := row.Scan(&i.Harness, &i.PausedUntil, &i.InboxItem)
 	return i, err
 }
 
@@ -412,6 +591,33 @@ func (q *Queries) ListGitHubApps(ctx context.Context) ([]GithubApp, error) {
 	return items, nil
 }
 
+const listHarnessPauses = `-- name: ListHarnessPauses :many
+SELECT harness, paused_until, inbox_item FROM harness_pauses ORDER BY harness
+`
+
+func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error) {
+	rows, err := q.db.QueryContext(ctx, listHarnessPauses)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []HarnessPause
+	for rows.Next() {
+		var i HarnessPause
+		if err := rows.Scan(&i.Harness, &i.PausedUntil, &i.InboxItem); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLatestEvents = `-- name: ListLatestEvents :many
 SELECT id, time, repository, workstream, issue, actor, text, link FROM events ORDER BY id DESC LIMIT ?
 `
@@ -480,6 +686,125 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 			&i.ReviewComment,
 			&i.CheckHead,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenSessionIDs = `-- name: ListOpenSessionIDs :many
+SELECT id FROM sessions WHERE ended_at IS NULL ORDER BY id
+`
+
+func (q *Queries) ListOpenSessionIDs(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenSessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenSessions = `-- name: ListOpenSessions :many
+SELECT sessions.id, sessions.role, sessions.harness, sessions.model, sessions.repository, sessions.workstream, sessions.acp_session_id, sessions.started_at, sessions.ended_at, sessions.end_reason, sessions.queue_reason, sessions.organization, sessions.issue, sessions.parent, w.title AS workstream_title, i.title AS issue_title,
+       (SELECT t.pull_request FROM tasks t
+        WHERE t.repository = sessions.repository AND t.issue = sessions.issue
+        ORDER BY t.id DESC LIMIT 1) AS pull_request
+FROM sessions
+LEFT JOIN copied_workstreams w ON w.repository = sessions.repository AND w.number = sessions.workstream
+LEFT JOIN copied_issues i
+  ON i.repository = sessions.repository AND i.workstream = sessions.workstream AND i.number = sessions.issue
+WHERE sessions.ended_at IS NULL ORDER BY sessions.id
+`
+
+type ListOpenSessionsRow struct {
+	Session         Session
+	WorkstreamTitle sql.NullString
+	IssueTitle      sql.NullString
+	PullRequest     sql.NullInt64
+}
+
+func (q *Queries) ListOpenSessions(ctx context.Context) ([]ListOpenSessionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOpenSessionsRow
+	for rows.Next() {
+		var i ListOpenSessionsRow
+		if err := rows.Scan(
+			&i.Session.ID,
+			&i.Session.Role,
+			&i.Session.Harness,
+			&i.Session.Model,
+			&i.Session.Repository,
+			&i.Session.Workstream,
+			&i.Session.AcpSessionID,
+			&i.Session.StartedAt,
+			&i.Session.EndedAt,
+			&i.Session.EndReason,
+			&i.Session.QueueReason,
+			&i.Session.Organization,
+			&i.Session.Issue,
+			&i.Session.Parent,
+			&i.WorkstreamTitle,
+			&i.IssueTitle,
+			&i.PullRequest,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listQueuedTasks = `-- name: ListQueuedTasks :many
+SELECT id, queued_at FROM tasks WHERE state = 'queued' ORDER BY queued_at, id
+`
+
+type ListQueuedTasksRow struct {
+	ID       int64
+	QueuedAt sql.NullString
+}
+
+func (q *Queries) ListQueuedTasks(ctx context.Context) ([]ListQueuedTasksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listQueuedTasks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListQueuedTasksRow
+	for rows.Next() {
+		var i ListQueuedTasksRow
+		if err := rows.Scan(&i.ID, &i.QueuedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -654,6 +979,54 @@ func (q *Queries) SetACPSessionID(ctx context.Context, arg SetACPSessionIDParams
 	return err
 }
 
+const setHarnessPause = `-- name: SetHarnessPause :exec
+INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES (?, ?, ?)
+ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until, inbox_item = excluded.inbox_item
+`
+
+type SetHarnessPauseParams struct {
+	Harness     string
+	PausedUntil string
+	InboxItem   int64
+}
+
+func (q *Queries) SetHarnessPause(ctx context.Context, arg SetHarnessPauseParams) error {
+	_, err := q.db.ExecContext(ctx, setHarnessPause, arg.Harness, arg.PausedUntil, arg.InboxItem)
+	return err
+}
+
+const setQueueReason = `-- name: SetQueueReason :one
+UPDATE sessions SET queue_reason = ? WHERE id = ?
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent
+`
+
+type SetQueueReasonParams struct {
+	QueueReason sql.NullString
+	ID          int64
+}
+
+func (q *Queries) SetQueueReason(ctx context.Context, arg SetQueueReasonParams) (Session, error) {
+	row := q.db.QueryRowContext(ctx, setQueueReason, arg.QueueReason, arg.ID)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.Role,
+		&i.Harness,
+		&i.Model,
+		&i.Repository,
+		&i.Workstream,
+		&i.AcpSessionID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.EndReason,
+		&i.QueueReason,
+		&i.Organization,
+		&i.Issue,
+		&i.Parent,
+	)
+	return i, err
+}
+
 const setSyncCursor = `-- name: SetSyncCursor :exec
 INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES (?, ?, ?, ?)
 ON CONFLICT (repository, endpoint) DO UPDATE SET since = excluded.since, etag = excluded.etag
@@ -674,6 +1047,24 @@ func (q *Queries) SetSyncCursor(ctx context.Context, arg SetSyncCursorParams) er
 		arg.Etag,
 	)
 	return err
+}
+
+const setTaskState = `-- name: SetTaskState :execrows
+UPDATE tasks SET state = ?1 WHERE id = ?2 AND state = ?3
+`
+
+type SetTaskStateParams struct {
+	State     string
+	ID        int64
+	FromState string
+}
+
+func (q *Queries) SetTaskState(ctx context.Context, arg SetTaskStateParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setTaskState, arg.State, arg.ID, arg.FromState)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setTranscriptJSON = `-- name: SetTranscriptJSON :one
@@ -719,4 +1110,36 @@ func (q *Queries) SetUserTokens(ctx context.Context, arg SetUserTokensParams) er
 		arg.AppID,
 	)
 	return err
+}
+
+const startSession = `-- name: StartSession :one
+UPDATE sessions SET started_at = ?, queue_reason = NULL WHERE id = ?
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent
+`
+
+type StartSessionParams struct {
+	StartedAt string
+	ID        int64
+}
+
+func (q *Queries) StartSession(ctx context.Context, arg StartSessionParams) (Session, error) {
+	row := q.db.QueryRowContext(ctx, startSession, arg.StartedAt, arg.ID)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.Role,
+		&i.Harness,
+		&i.Model,
+		&i.Repository,
+		&i.Workstream,
+		&i.AcpSessionID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.EndReason,
+		&i.QueueReason,
+		&i.Organization,
+		&i.Issue,
+		&i.Parent,
+	)
+	return i, err
 }
