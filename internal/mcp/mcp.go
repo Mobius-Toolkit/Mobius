@@ -1,20 +1,37 @@
-// Package mcp serves the Mobius MCP server to the agent sessions.
+// Package mcp serves the Mobius MCP server and the gh token to the agent sessions.
 package mcp
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
-	"fmt"
+	"log"
+	"maps"
 	"net/http"
-	"strings"
+	"slices"
 	"sync"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Server serves the Mobius MCP server at /mcp/{key}, with one key for each session.
+// Tool is a Mobius tool.
+type Tool struct {
+	Name        string
+	Description string
+	// Properties gives the JSON schema of each argument. Each argument is required.
+	Properties map[string]any
+	// Run gives the text of the result, or the error that goes back to the agent. The arguments are a JSON object.
+	Run func(ctx context.Context, arguments json.RawMessage) (string, error)
+}
+
+// Caller is a session that calls the Mobius MCP server with its key.
+type Caller struct {
+	Tools []Tool
+	// GHToken gives the GitHub token of the gh of the session. A caller with no GHToken gets no token.
+	GHToken func(ctx context.Context) (string, error)
+}
+
+// Server serves the Mobius MCP server at /mcp/{key} and the gh token at /gh-token/{key}, with one key for each session.
 type Server struct {
 	mu      sync.Mutex
 	callers map[string]*caller
@@ -22,6 +39,7 @@ type Server struct {
 }
 
 type caller struct {
+	Caller
 	// listed gets the protocol version of the first tools/list of the key.
 	listed chan string
 	sent   bool
@@ -35,17 +53,18 @@ func New() *Server {
 	return s
 }
 
-// Register adds the route /mcp/{key} to mux.
+// Register adds the routes /mcp/{key} and /gh-token/{key} to mux.
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/mcp/{key}", s.serve)
+	mux.HandleFunc("GET /gh-token/{key}", s.ghToken)
 }
 
-// Open gives a new key. The key is valid until Close.
-func (s *Server) Open() string {
+// Open gives a new key of c. The key is valid until Close.
+func (s *Server) Open(c Caller) string {
 	key := rand.Text()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.callers[key] = &caller{listed: make(chan string, 1)}
+	s.callers[key] = &caller{Caller: c, listed: make(chan string, 1)}
 	return key
 }
 
@@ -63,20 +82,45 @@ func (s *Server) Listed(key string) <-chan string {
 	return s.callers[key].listed
 }
 
-// URL gives the URL of the key on the listener at addr.
+// URL gives the URL of the MCP server of the key on the listener at addr.
 func URL(addr, key string) string {
 	return "http://" + addr + "/mcp/" + key
 }
 
-func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
+// GHTokenURL gives the URL of the gh token of the key on the listener at addr.
+func GHTokenURL(addr, key string) string {
+	return "http://" + addr + "/gh-token/" + key
+}
+
+func (s *Server) caller(key string) (*caller, bool) {
 	s.mu.Lock()
-	_, ok := s.callers[r.PathValue("key")]
-	s.mu.Unlock()
-	if !ok {
+	defer s.mu.Unlock()
+	found, ok := s.callers[key]
+	return found, ok
+}
+
+func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.caller(r.PathValue("key")); !ok {
 		http.NotFound(w, r)
 		return
 	}
 	s.http.ServeHTTP(w, r)
+}
+
+func (s *Server) ghToken(w http.ResponseWriter, r *http.Request) {
+	found, ok := s.caller(r.PathValue("key"))
+	if !ok || found.GHToken == nil {
+		http.NotFound(w, r)
+		return
+	}
+	token, err := found.GHToken(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := w.Write([]byte(token)); err != nil {
+		log.Printf("send the gh token: %v", err)
+	}
 }
 
 func (s *Server) server(r *http.Request) *sdk.Server {
@@ -96,8 +140,39 @@ func (s *Server) server(r *http.Request) *sdk.Server {
 			return next(ctx, method, req)
 		}
 	})
-	server.AddTool(listTasksTool, listTasks)
+	// The key can close between serve and this call. The server then has no tools.
+	found, ok := s.caller(key)
+	if !ok {
+		return server
+	}
+	for _, tool := range found.Tools {
+		server.AddTool(&sdk.Tool{
+			Name:        tool.Name,
+			Description: tool.Description,
+			InputSchema: map[string]any{
+				"type":                 "object",
+				"properties":           tool.Properties,
+				"required":             append([]string{}, slices.Sorted(maps.Keys(tool.Properties))...),
+				"additionalProperties": false,
+			},
+			Meta: sdk.Meta{"anthropic/alwaysLoad": true},
+		}, handler(tool))
+	}
 	return server
+}
+
+func handler(tool Tool) sdk.ToolHandler {
+	return func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		arguments := req.Params.Arguments
+		if len(arguments) == 0 || string(arguments) == "null" {
+			arguments = json.RawMessage("{}")
+		}
+		text, err := tool.Run(ctx, arguments)
+		if err != nil {
+			return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: err.Error()}}, IsError: true}, nil
+		}
+		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: text}}}, nil
+	}
 }
 
 func (s *Server) listed(key, version string) {
@@ -109,74 +184,4 @@ func (s *Server) listed(key, version string) {
 	}
 	caller.listed <- version
 	caller.sent = true
-}
-
-var listTasksTool = &sdk.Tool{
-	Name:        "list_tasks",
-	Description: "Give the task list of the Workstream: one line for each open issue.",
-	InputSchema: map[string]any{
-		"type":                 "object",
-		"properties":           map[string]any{},
-		"required":             []string{},
-		"additionalProperties": false,
-	},
-	Meta: sdk.Meta{"anthropic/alwaysLoad": true},
-}
-
-type taskLine struct {
-	number    int64
-	title     string
-	state     string
-	blockedBy []blocker
-}
-
-type blocker struct {
-	number int64
-	// Empty for a blocker in the same Workstream.
-	workstreamTitle string
-}
-
-// spikeTasks stands in for the task list of the engine and GitHub.
-var spikeTasks = []taskLine{
-	{number: 2, title: "Spike: Open a copy of mobius.db and serve the Workstream list", state: "dispatched"},
-	{number: 3, title: "Spike: Start one Claude Code session through ACP", state: "dispatched", blockedBy: []blocker{{number: 2}}},
-	{number: 4, title: "Spike: Measure the build, the tests and the disk use", state: "open", blockedBy: []blocker{{number: 3}, {number: 40, workstreamTitle: "Release"}}},
-}
-
-func listTasks(_ context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
-	arguments := req.Params.Arguments
-	if len(arguments) == 0 {
-		arguments = json.RawMessage("{}")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(arguments))
-	decoder.DisallowUnknownFields()
-	var input struct{}
-	if err := decoder.Decode(&input); err != nil {
-		return toolError(fmt.Sprintf("Invalid arguments for list_tasks: %v.", err)), nil
-	}
-	return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: text(spikeTasks)}}}, nil
-}
-
-func toolError(text string) *sdk.CallToolResult {
-	return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: text}}, IsError: true}
-}
-
-func text(lines []taskLine) string {
-	var b strings.Builder
-	for _, line := range lines {
-		var blockers []string
-		for _, blocker := range line.blockedBy {
-			if blocker.workstreamTitle == "" {
-				blockers = append(blockers, fmt.Sprintf("#%d", blocker.number))
-			} else {
-				blockers = append(blockers, fmt.Sprintf("#%d (Workstream \"%s\")", blocker.number, blocker.workstreamTitle))
-			}
-		}
-		blockedBy := ""
-		if len(blockers) > 0 {
-			blockedBy = ", blocked by " + strings.Join(blockers, ", ")
-		}
-		fmt.Fprintf(&b, "#%d %s: %s%s\n", line.number, line.title, line.state, blockedBy)
-	}
-	return b.String()
 }
