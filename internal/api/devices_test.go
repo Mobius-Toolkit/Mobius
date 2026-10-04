@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gork-labs/gork/pkg/api"
 )
 
 // login gives the request cookie of a new device login.
@@ -95,6 +98,29 @@ func TestLoginSetsTheSessionCookieThatOpensTheAPI(t *testing.T) {
 	}
 }
 
+func TestLoginWithAWrongPasswordGives401AndTheMessage(t *testing.T) {
+	mux, _, _ := newMux(t)
+	started := time.Now()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"password":"wrong horse"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d", rec.Code)
+	}
+	if got, want := rec.Body.String(), `{"error":"`+wrongPassword+`"}`+"\n"; got != want {
+		t.Errorf("body = %q, want %q", got, want)
+	}
+	if cookie := rec.Header().Get("Set-Cookie"); cookie != "" {
+		t.Errorf("Set-Cookie = %q", cookie)
+	}
+	if elapsed := time.Since(started); elapsed < time.Second {
+		t.Errorf("the wrong password took %v, want at least one second", elapsed)
+	}
+}
+
 func TestDevicesListsTheNewestLoginFirst(t *testing.T) {
 	mux, _, _ := newMux(t)
 	login(t, mux, "Firefox")
@@ -147,9 +173,34 @@ func TestEachAPIRouteButLoginNeedsTheSessionCookie(t *testing.T) {
 			if rec.Code != http.StatusUnauthorized {
 				t.Errorf("%s %s with cookie %q: status = %d", route.Method, path, cookie, rec.Code)
 			}
-			if got, want := rec.Body.String(), `{"error":"The request has no device login."}`+"\n"; got != want {
+			if got, want := rec.Body.String(), `{"error":"`+noDeviceLogin+`"}`+"\n"; got != want {
 				t.Errorf("%s %s: body = %q, want %q", route.Method, path, got, want)
 			}
+		}
+	}
+}
+
+func TestSpecGivesTheSessionCookieAnd401ToEachRouteButLogin(t *testing.T) {
+	router := Routes(http.NewServeMux(), nil, nil)
+	spec := api.GenerateOpenAPI(router.GetRegistry())
+
+	want := &api.SecurityScheme{Type: "apiKey", In: "cookie", Name: sessionCookie}
+	if got := spec.Components.SecuritySchemes[sessionCookie]; !reflect.DeepEqual(got, want) {
+		t.Errorf("security scheme = %+v, want %+v", got, want)
+	}
+	for _, route := range router.GetRegistry().GetRoutes() {
+		item := spec.Paths[route.Path]
+		operation := map[string]*api.Operation{http.MethodGet: item.Get, http.MethodPost: item.Post, http.MethodDelete: item.Delete}[route.Method]
+		unauthorized := operation.Responses["401"]
+		if unauthorized == nil || unauthorized.Content["application/json"].Schema.Ref != "#/components/schemas/ErrorResponse" {
+			t.Errorf("%s %s: 401 response = %+v", route.Method, route.Path, unauthorized)
+		}
+		var wantSecurity []map[string][]string
+		if route.Method != http.MethodPost || route.Path != "/api/login" {
+			wantSecurity = []map[string][]string{{sessionCookie: {}}}
+		}
+		if !reflect.DeepEqual(operation.Security, wantSecurity) {
+			t.Errorf("%s %s: security = %v, want %v", route.Method, route.Path, operation.Security, wantSecurity)
 		}
 	}
 }

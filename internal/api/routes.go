@@ -17,14 +17,19 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth) *stdlib.Ro
 	h := &handlers{queries: queries, auth: a}
 	routes := http.NewServeMux()
 	r := stdlib.NewRouter(routes)
-	r.Post("/api/login", h.Login, api.WithTags("devices"))
-	r.Get("/api/devices", h.ListDevices, api.WithTags("devices"))
-	r.Delete("/api/devices/{id}", h.Logout, api.WithTags("devices"))
-	r.Get("/api/health", GetHealth, api.WithTags("health"))
-	r.Get("/api/workstreams", h.ListWorkstreams, api.WithTags("workstreams"))
-	r.Get("/api/events", h.StreamEvents, api.WithTags("events"))
+	r.Post("/api/login", h.Login, api.WithTags("devices"), api.WithErrorResponses(http.StatusUnauthorized))
+	r.Get("/api/devices", h.ListDevices, loggedIn("devices")...)
+	r.Delete("/api/devices/{id}", h.Logout, loggedIn("devices")...)
+	r.Get("/api/health", GetHealth, loggedIn("health")...)
+	r.Get("/api/workstreams", h.ListWorkstreams, loggedIn("workstreams")...)
+	r.Get("/api/events", h.StreamEvents, loggedIn("events")...)
 	mux.Handle("/api/", h.guard(routes))
 	return r
+}
+
+// loggedIn gives the options of a route that needs the cookie of a device login.
+func loggedIn(tag string) []api.Option {
+	return []api.Option{api.WithTags(tag), api.WithCookieAuth(sessionCookie), api.WithErrorResponses(http.StatusUnauthorized)}
 }
 
 type handlers struct {

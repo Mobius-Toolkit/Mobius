@@ -3,16 +3,20 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/gork-labs/gork/pkg/api"
 )
 
 const (
 	sessionCookie = "mobius_session"
 	// sessionMaxAge is 400 days in seconds, the longest cookie life that browsers keep.
 	sessionMaxAge = 400 * 24 * 60 * 60
+
+	noDeviceLogin = "The request has no device login."
+	wrongPassword = "The access password is wrong."
 )
 
 type deviceKey struct{}
@@ -25,7 +29,7 @@ func (h *handlers) guard(next http.Handler) http.Handler {
 		}
 		cookie, err := r.Cookie(sessionCookie)
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, "The request has no device login.")
+			writeError(w, http.StatusUnauthorized, noDeviceLogin)
 			return
 		}
 		device, ok, err := h.auth.Check(r.Context(), cookie.Value)
@@ -35,7 +39,7 @@ func (h *handlers) guard(next http.Handler) http.Handler {
 			return
 		}
 		if !ok {
-			writeError(w, http.StatusUnauthorized, "The request has no device login.")
+			writeError(w, http.StatusUnauthorized, noDeviceLogin)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), deviceKey{}, device)))
@@ -46,7 +50,7 @@ func (h *handlers) guard(next http.Handler) http.Handler {
 func writeError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+	_ = json.NewEncoder(w).Encode(api.ErrorResponse{Error: message})
 }
 
 // LoginRequest is the request of Login.
@@ -69,8 +73,6 @@ type LoginResponse struct {
 	}
 }
 
-var errWrongPassword = errors.New("the access password is wrong")
-
 // Login makes a device login when the password is the access password,
 // and sets the token of the device login in a cookie.
 func (h *handlers) Login(ctx context.Context, req LoginRequest) (*LoginResponse, error) {
@@ -79,7 +81,7 @@ func (h *handlers) Login(ctx context.Context, req LoginRequest) (*LoginResponse,
 		return nil, err
 	}
 	if !ok {
-		return nil, errWrongPassword
+		return nil, api.NewHTTPError(http.StatusUnauthorized, wrongPassword)
 	}
 	resp := &LoginResponse{}
 	resp.Cookies.Session = &http.Cookie{

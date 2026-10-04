@@ -158,6 +158,11 @@ export type listDevicesResponse400 = {
   status: 400
 }
 
+export type listDevicesResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
 export type listDevicesResponse422 = {
   data: UnprocessableEntityResponse
   status: 422
@@ -171,7 +176,7 @@ export type listDevicesResponse500 = {
 export type listDevicesResponseSuccess = (listDevicesResponse200) & {
   headers: Headers;
 };
-export type listDevicesResponseError = (listDevicesResponse400 | listDevicesResponse422 | listDevicesResponse500) & {
+export type listDevicesResponseError = (listDevicesResponse400 | listDevicesResponse401 | listDevicesResponse422 | listDevicesResponse500) & {
   headers: Headers;
 };
 
@@ -218,6 +223,11 @@ export type logoutResponse400 = {
   status: 400
 }
 
+export type logoutResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
 export type logoutResponse422 = {
   data: UnprocessableEntityResponse
   status: 422
@@ -231,7 +241,7 @@ export type logoutResponse500 = {
 export type logoutResponseSuccess = (logoutResponse204) & {
   headers: Headers;
 };
-export type logoutResponseError = (logoutResponse400 | logoutResponse422 | logoutResponse500) & {
+export type logoutResponseError = (logoutResponse400 | logoutResponse401 | logoutResponse422 | logoutResponse500) & {
   headers: Headers;
 };
 
@@ -278,6 +288,11 @@ export type getHealthResponse400 = {
   status: 400
 }
 
+export type getHealthResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
 export type getHealthResponse422 = {
   data: UnprocessableEntityResponse
   status: 422
@@ -291,7 +306,7 @@ export type getHealthResponse500 = {
 export type getHealthResponseSuccess = (getHealthResponse200) & {
   headers: Headers;
 };
-export type getHealthResponseError = (getHealthResponse400 | getHealthResponse422 | getHealthResponse500) & {
+export type getHealthResponseError = (getHealthResponse400 | getHealthResponse401 | getHealthResponse422 | getHealthResponse500) & {
   headers: Headers;
 };
 
@@ -338,6 +353,11 @@ export type loginResponse400 = {
   status: 400
 }
 
+export type loginResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
 export type loginResponse422 = {
   data: UnprocessableEntityResponse
   status: 422
@@ -351,7 +371,7 @@ export type loginResponse500 = {
 export type loginResponseSuccess = (loginResponse204) & {
   headers: Headers;
 };
-export type loginResponseError = (loginResponse400 | loginResponse422 | loginResponse500) & {
+export type loginResponseError = (loginResponse400 | loginResponse401 | loginResponse422 | loginResponse500) & {
   headers: Headers;
 };
 
@@ -398,6 +418,11 @@ export type listWorkstreamsResponse400 = {
   status: 400
 }
 
+export type listWorkstreamsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
 export type listWorkstreamsResponse422 = {
   data: UnprocessableEntityResponse
   status: 422
@@ -411,7 +436,7 @@ export type listWorkstreamsResponse500 = {
 export type listWorkstreamsResponseSuccess = (listWorkstreamsResponse200) & {
   headers: Headers;
 };
-export type listWorkstreamsResponseError = (listWorkstreamsResponse400 | listWorkstreamsResponse422 | listWorkstreamsResponse500) & {
+export type listWorkstreamsResponseError = (listWorkstreamsResponse400 | listWorkstreamsResponse401 | listWorkstreamsResponse422 | listWorkstreamsResponse500) & {
   headers: Headers;
 };
 

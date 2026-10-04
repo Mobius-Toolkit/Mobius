@@ -23,6 +23,16 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
           },
@@ -30,6 +40,11 @@
             "$ref": "#/components/responses/InternalServerError"
           }
         },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
         "tags": [
           "devices"
         ]
@@ -57,6 +72,16 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
           },
@@ -64,6 +89,11 @@
             "$ref": "#/components/responses/InternalServerError"
           }
         },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
         "tags": [
           "devices"
         ]
@@ -98,6 +128,16 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
           },
@@ -105,6 +145,11 @@
             "$ref": "#/components/responses/InternalServerError"
           }
         },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
         "tags": [
           "events"
         ]
@@ -128,6 +173,16 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
           },
@@ -135,6 +190,11 @@
             "$ref": "#/components/responses/InternalServerError"
           }
         },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
         "tags": [
           "health"
         ]
@@ -172,6 +232,16 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
           },
@@ -202,6 +272,16 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
           },
@@ -209,6 +289,11 @@
             "$ref": "#/components/responses/InternalServerError"
           }
         },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
         "tags": [
           "workstreams"
         ]
@@ -497,6 +582,13 @@
           "lastActivity"
         ],
         "description": "Workstream is a Workstream that has rows in the database."
+      }
+    },
+    "securitySchemes": {
+      "mobius_session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "mobius_session"
       }
     },
     "responses": {
