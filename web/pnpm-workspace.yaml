@@ -1,0 +1,3 @@
+# esbuild (a dependency of orval) gets its binary from its platform package. It does not need its install script.
+allowBuilds:
+  esbuild: false

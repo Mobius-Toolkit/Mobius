@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { client } from '@/api/client'
+import { listWorkstreams, type Activity, type Workstream } from '@/api/api.gen'
 import { onLiveEvent } from '@/api/events'
-import type { components } from '@/api/schema'
 import { Badge } from '@/components/ui/badge'
 import {
   Card,
@@ -11,9 +10,6 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 
-type Workstream = components['schemas']['Workstream']
-type Activity = components['schemas']['Activity']
-
 const maxActivities = 50
 
 function Workstreams() {
@@ -21,13 +17,12 @@ function Workstreams() {
   const [error, setError] = useState<string>()
 
   useEffect(() => {
-    client
-      .GET('/api/workstreams')
+    listWorkstreams()
       .then((res) => {
-        if (res.error) {
-          setError(res.error.error)
-        } else {
+        if (res.status === 200) {
           setWorkstreams(res.data)
+        } else {
+          setError(res.data.error)
         }
       })
       .catch((err: unknown) => setError(String(err)))

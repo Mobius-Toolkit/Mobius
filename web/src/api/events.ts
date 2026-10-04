@@ -1,13 +1,9 @@
-import type { components } from './schema'
+import type { Activity, LiveEvents } from './api.gen'
 
-type Schemas = components['schemas']
+type LiveEventName = LiveEvents['event']
 
-type LiveEventName = Schemas['LiveEvents']['event']
-
-// openapi-typescript does not read contentSchema, so it gives `data: unknown`
-// in LiveEvents. This map gives the data type of each event name.
 type LiveEventData = {
-  activity: Schemas['Activity']
+  activity: Activity
 }
 
 export function onLiveEvent<E extends LiveEventName>(
