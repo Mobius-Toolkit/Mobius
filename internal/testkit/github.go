@@ -103,6 +103,15 @@ type FakeGitHub struct {
 	latestRelease   *releaseJSON
 	comparedCommits []string
 	holds           map[issueKey]*hold
+	pullRequests    []pullRequest
+	// createdAt holds the creation time of each pull request, in seconds after the Unix epoch.
+	createdAt map[issueKey]int64
+	behind    map[issueKey]bool
+	// The id of a check run is its index plus 1.
+	checkRuns    []checkRun
+	annotations  map[int64][]annotationJSON
+	checkRunApps map[int64]string
+	jobLogs      map[int64]string
 }
 
 // A grant is a user code or a refresh token: the login of the user and the App index.
@@ -148,6 +157,11 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedCloses:            map[issueKey]bool{},
 		failedSubIssues:         map[issueKey]bool{},
 		holds:                   map[issueKey]*hold{},
+		createdAt:               map[issueKey]int64{},
+		behind:                  map[issueKey]bool{},
+		annotations:             map[int64][]annotationJSON{},
+		checkRunApps:            map[int64]string{},
+		jobLogs:                 map[int64]string{},
 	}
 	server := httptest.NewServer(g.routes())
 	t.Cleanup(server.Close)
@@ -184,11 +198,19 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/labels", g.withToken(g.listRepositoryLabels))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/labels", g.withToken(g.createRepositoryLabel))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/labels/{name}", g.withToken(g.updateRepositoryLabel))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls", g.withToken(g.createPullRequest))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.getPullRequest))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.closeIssue))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/reviews", g.withToken(g.reviews))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.reviewComments))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.replyToReviewComment))
 	mux.HandleFunc("POST /graphql", g.withToken(g.graphql))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/check-runs", g.withToken(g.createCheckRun))
+	mux.HandleFunc("PATCH /repos/{owner}/{repo}/check-runs/{id}", g.withToken(g.updateCheckRun))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/check-runs/{id}/annotations", g.withToken(g.checkRunAnnotations))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/commits/{sha}/check-runs", g.withToken(g.commitCheckRuns))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/jobs/{id}/logs", g.withToken(g.jobLogLink))
+	mux.HandleFunc("GET /job-logs/{id}", g.jobLog)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/releases/latest", g.getLatestRelease)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/compare/{basehead}", g.compare)
 	mux.HandleFunc("GET /{owner}/{repo}/releases/download/{tag}/{name}", g.downloadReleaseFile)

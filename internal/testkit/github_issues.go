@@ -26,6 +26,7 @@ type issue struct {
 	// stateReason is the reason of the last close, or "".
 	stateReason string
 	pullRequest bool
+	merged      bool
 	labels      []string
 	updatedAt   int64
 	// A sub-issue can live in another repository than its parent.
@@ -111,6 +112,14 @@ func (g *FakeGitHub) AddIssue(repository string, number int64, title string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.insertIssue(issueKey{repository, number}, title, "", "owner")
+}
+
+// HasIssue tells if the repository has the issue or the pull request number.
+func (g *FakeGitHub) HasIssue(repository string, number int64) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	_, ok := g.issues[issueKey{repository, number}]
+	return ok
 }
 
 // AddPullRequest adds the open pull request number with title and the author "owner".
