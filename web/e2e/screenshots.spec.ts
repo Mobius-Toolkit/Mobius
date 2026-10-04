@@ -11,12 +11,12 @@ async function screenshot(
   name: string,
   path: string,
   ready: () => Locator | Locator[],
-  open?: () => Promise<void>,
+  open?: (device: string) => Promise<void>,
 ) {
   for (const [device, size] of Object.entries(viewports)) {
     await page.setViewportSize(size)
     await page.goto(path)
-    await open?.()
+    await open?.(device)
     for (const locator of [ready()].flat()) {
       await expect(locator).toBeVisible()
     }
@@ -26,6 +26,10 @@ async function screenshot(
     })
   }
 }
+
+// The tests have no DOM types, so the check is a script.
+const wide = (selector: string) =>
+  `(document.querySelector('${selector}')?.scrollWidth ?? 0) > (document.querySelector('${selector}')?.clientWidth ?? 0)`
 
 test('screenshots', async ({ page }) => {
   const main = page.getByRole('main')
@@ -66,11 +70,73 @@ test('screenshots', async ({ page }) => {
   const drain = page
     .getByText('Upgrade waits for 2 agents')
     .filter({ visible: true })
+  // The server starts the drain after the chats of the fake agents end.
+  await expect(drain).toBeVisible({ timeout: 60_000 })
   await screenshot(page, 'workstreams', '/workstreams', () => [
     drain,
     main.getByText('Seasonal prices'),
     main.getByText('done'),
+    main.getByText('needs you'),
   ])
+  await screenshot(page, 'chat', '/workstreams/owner/shop/12', () => [
+    main.getByText('#42 and #45 wait for your decision.'),
+    main.getByRole('link', { name: 'PR #44' }),
+  ])
+  await screenshot(
+    page,
+    'chat-tasks',
+    '/workstreams/owner/shop/12',
+    () => page.getByText('#45 Pick the plan limits').filter({ visible: true }),
+    async (device) => {
+      if (device === 'phone') {
+        await main.getByRole('button', { name: 'Agents' }).click()
+      }
+      await page
+        .getByRole('tab', { name: 'Tasks' })
+        .filter({ visible: true })
+        .click()
+    },
+  )
+  await screenshot(
+    page,
+    'chat-all-tasks-closed',
+    '/workstreams/owner/shop/13',
+    () => [
+      main.getByText('All tasks are closed.'),
+      main.getByText('Change the prices for each season.'),
+    ],
+  )
+  await screenshot(page, 'new-workstream', '/workstreams/new', () =>
+    main.getByText('Sell gift cards in the shop.'),
+  )
+  await screenshot(page, 'inbox', '/inbox', () =>
+    main.getByText('#45 needs a decision'),
+  )
+  await screenshot(page, 'activity', '/activity', () =>
+    main.getByText('Dispatched "Pick the plan limits"'),
+  )
+
+  // The chat shows its last message, and the tree hides a stopped agent unless an agent below it runs.
+  await page.setViewportSize(viewports.desktop)
+  await page.goto('/workstreams/owner/shop/12')
+  await expect(
+    main.getByText('#42 and #45 wait for your decision.'),
+  ).toBeInViewport()
+  const tree = page.getByRole('complementary')
+  const stopped = tree.getByText('stopped', { exact: true })
+  await expect(stopped).toHaveCount(1)
+  await tree.getByRole('switch', { name: 'Show stopped agents' }).click()
+  await expect(stopped).toHaveCount(2)
+
+  // A wide message scrolls inside the message. The page does not scroll to the side.
+  await page.setViewportSize({ width: 375, height: 667 })
+  await page.goto('/workstreams/owner/shop/12')
+  await expect(main.getByText('What is the state of the plans?')).toBeVisible()
+  expect(
+    await page.evaluate(
+      `${wide('main pre')} && ${wide('main table')} && document.documentElement.scrollWidth <= window.innerWidth`,
+    ),
+  ).toBe(true)
   await screenshot(page, 'agents', '/agents', () => [
     drain,
     main.getByText('Mobius prepares an upgrade'),
@@ -122,4 +188,11 @@ test('screenshots', async ({ page }) => {
   await screenshot(page, 'checkup', '/settings/checkup', () =>
     main.getByText('wrong color: #ededed'),
   )
+
+  // The note closes a Workstream whose tasks are all closed.
+  await page.setViewportSize(viewports.desktop)
+  await page.goto('/workstreams/owner/shop/13')
+  await main.getByRole('button', { name: 'Close Workstream' }).click()
+  await expect(page).toHaveURL('/workstreams')
+  await expect(main.getByText('Seasonal prices')).toBeHidden()
 })
