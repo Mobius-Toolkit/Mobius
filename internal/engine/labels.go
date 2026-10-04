@@ -21,6 +21,7 @@ type Label struct {
 // The names of the Mobius labels that the Mobius tools use.
 const (
 	workstreamLabel   = "mobius:workstream"
+	autopilotLabel    = "mobius:autopilot"
 	readyLabel        = "mobius:ready"
 	noWorkstreamLabel = "mobius:no-workstream"
 )

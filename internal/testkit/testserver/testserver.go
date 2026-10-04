@@ -103,7 +103,7 @@ func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 	mcpServer.Register(mcpMux)
 	agents := httptest.NewServer(mcpMux)
 	t.Cleanup(agents.Close)
-	e := engine.New(queries, gh, cfg, engine.Agents{
+	e := engine.New(db, gh, cfg, engine.Agents{
 		MCP:  mcpServer,
 		Addr: strings.TrimPrefix(agents.URL, "http://"),
 		Path: filepath.Join(dataDir, "harnesses") + string(filepath.ListSeparator) + os.Getenv("PATH"),

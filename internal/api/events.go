@@ -56,10 +56,13 @@ type LiveEvents struct {
 	Drain *Drain `gork:"drain"`
 	// Upgrade is the state of the last upgrade at its start and at its failure
 	Upgrade *Upgrade `gork:"upgrade"`
+	// Workstreams is a change of the Workstream list. It has no data, so the client reads the list again
+	Workstreams *struct{} `gork:"workstreams"`
 }
 
 // StreamEvents sends the latest activities, and then each new activity, each change of a session,
-// each new or changed Transcript row, each change of the drain, and each start and failure of an upgrade.
+// each new or changed Transcript row, each change of the drain, each start and failure of an upgrade,
+// and each change of the Workstream list.
 // When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities.
 // When the client does not read the session changes fast enough, the stream ends.
 func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, stream *api.Stream[LiveEvents]) error {
@@ -115,6 +118,8 @@ func sendChange(stream *api.Stream[LiveEvents], change engine.Change) error {
 		return stream.Send(LiveEvents{Drain: new(drainOf(*change.Drain))})
 	case change.Upgrade != nil:
 		return stream.Send(LiveEvents{Upgrade: &Upgrade{Failure: *change.Upgrade}})
+	case change.Workstreams:
+		return stream.Send(LiveEvents{Workstreams: &struct{}{}})
 	}
 	agent, err := agentOf(*change.Node)
 	if err != nil {

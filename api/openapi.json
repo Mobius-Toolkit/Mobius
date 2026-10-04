@@ -430,7 +430,7 @@
     },
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each new or changed Transcript row, each change of the drain, and each start and failure of an upgrade. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
+        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each new or changed Transcript row, each change of the drain, each start and failure of an upgrade, and each change of the Workstream list. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
         "operationId": "StreamEvents",
         "parameters": [
           {
@@ -1020,7 +1020,7 @@
     },
     "/api/workstreams": {
       "get": {
-        "description": "ListWorkstreams returns the Workstreams of the database, the most recently active first.",
+        "description": "ListWorkstreams returns the open Workstreams from the local copy of GitHub, by repository and the newest first. The copy can be one poll interval old.",
         "operationId": "ListWorkstreams",
         "responses": {
           "200": {
@@ -1134,6 +1134,170 @@
         ],
         "tags": [
           "agents"
+        ]
+      }
+    },
+    "/api/workstreams/{owner}/{name}/{number}/autopilot": {
+      "put": {
+        "description": "SetAutopilot turns Autopilot of the Workstream on or off. Mobius changes mobius:autopilot with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.",
+        "operationId": "SetAutopilot",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the Workstream issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAutopilotBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      }
+    },
+    "/api/workstreams/{owner}/{name}/{number}/complete": {
+      "post": {
+        "description": "CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open Workstream, or when the Workstream has no task or an open task.",
+        "operationId": "CompleteWorkstream",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the Workstream issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
         ]
       }
     }
@@ -1967,6 +2131,29 @@
               "event",
               "data"
             ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "type": "object"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "workstreams"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
           }
         ],
         "description": "LiveEvents are the events of the live event stream. Only an activity has an event id."
@@ -2059,6 +2246,16 @@
           "labels"
         ],
         "description": "RepositoryCheckup is the status of each Mobius label in a repository."
+      },
+      "SetAutopilotBody": {
+        "type": "object",
+        "title": "SetAutopilotBody",
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "description": "On turns Autopilot on when true, and off when false"
+          }
+        }
       },
       "TranscriptLine": {
         "type": "object",
@@ -2168,36 +2365,40 @@
         "type": "object",
         "title": "Workstream",
         "properties": {
-          "lastActivity": {
+          "allTasksClosed": {
+            "type": "boolean",
+            "description": "AllTasksClosed is true when the Workstream issue has sub-issues and each one is closed"
+          },
+          "autopilot": {
+            "type": "boolean",
+            "description": "Autopilot is true when a trusted user added mobius:autopilot last"
+          },
+          "brief": {
             "type": "string",
-            "description": "LastActivity is the time of the latest row of the Workstream",
-            "format": "date-time"
+            "description": "Brief is the body of the Workstream issue: the goal, the scope and the limits of the Workstream"
           },
           "number": {
             "type": "integer",
             "description": "Number is the number of the Workstream issue"
           },
-          "openTasks": {
-            "type": "integer",
-            "description": "OpenTasks is the number of tasks that are not ended or stopped"
-          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository of the Workstream issue, as \"owner/name\""
           },
-          "tasks": {
-            "type": "integer",
-            "description": "Tasks is the number of tasks of the Workstream"
+          "title": {
+            "type": "string",
+            "description": "Title is the title of the Workstream issue"
           }
         },
         "required": [
           "repository",
           "number",
-          "tasks",
-          "openTasks",
-          "lastActivity"
+          "title",
+          "brief",
+          "autopilot",
+          "allTasksClosed"
         ],
-        "description": "Workstream is a Workstream that has rows in the database."
+        "description": "Workstream is an open Workstream of a managed repository."
       }
     },
     "securitySchemes": {

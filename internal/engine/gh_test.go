@@ -27,6 +27,13 @@ func connectGH(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, stri
 	if err := os.Symlink(printenv, filepath.Join(dataDir, "harnesses", "gh")); err != nil {
 		t.Fatal(err)
 	}
+	authorize(t, server)
+	return server, dataDir
+}
+
+// authorize gives the user tokens of the code "user-code" to the server, as GitHub does after the Owner authorizes the App.
+func authorize(t *testing.T, server *testserver.Server) {
+	t.Helper()
 	client := *server.Client
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	response, err := client.Get(server.URL + "/api/github/user-callback?code=user-code")
@@ -37,7 +44,6 @@ func connectGH(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, stri
 	if response.StatusCode != http.StatusSeeOther {
 		t.Fatalf("user callback: status %d", response.StatusCode)
 	}
-	return server, dataDir
 }
 
 func expireUserToken(t *testing.T, server *testserver.Server, refreshToken string) {

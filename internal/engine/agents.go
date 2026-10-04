@@ -77,13 +77,15 @@ type Node struct {
 }
 
 // Change is a change for the live event stream: a new, changed or ended session, a new or changed Transcript line,
-// a change of the drain, or a change of the error of the last upgrade. It has a Node, a Line, a Drain or an Upgrade.
+// a change of the drain, a change of the error of the last upgrade, or a change of the Workstream list. It has a Node,
+// a Line, a Drain or an Upgrade, or Workstreams is true.
 type Change struct {
 	Node  *Node
 	Line  *Line
 	Drain *DrainState
 	// Upgrade is the error of the last upgrade, or "" when the last upgrade has no error.
-	Upgrade *string
+	Upgrade     *string
+	Workstreams bool
 }
 
 func now() string {

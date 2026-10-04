@@ -1,0 +1,180 @@
+package engine_test
+
+import (
+	"database/sql"
+	"net/http"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
+	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
+)
+
+const closed = "Workstream closed"
+
+var closedComment = testkit.Comment{Author: "mobius-test[bot]", Body: closed}
+
+type leadEvent struct {
+	Workstream int64
+	Kind       string
+	Payload    string
+	Delivered  bool
+}
+
+func leadEvents(t *testing.T, server *testserver.Server) []leadEvent {
+	t.Helper()
+	return query(t, server, func(rows *sql.Rows, e *leadEvent) error {
+		return rows.Scan(&e.Workstream, &e.Kind, &e.Payload, &e.Delivered)
+	}, "SELECT workstream, kind, payload, delivered_at IS NOT NULL FROM lead_events WHERE repository = ? ORDER BY id", shop)
+}
+
+// live tells if the task of #41 is live.
+func live(t *testing.T, server *testserver.Server) bool {
+	t.Helper()
+	var count int
+	if err := server.DB.QueryRow("SELECT count(*) FROM tasks WHERE repository = ? AND issue = 41 AND state <> 'ended'", shop).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count > 0
+}
+
+func noMobiusLabels(t *testing.T, fake *testkit.FakeGitHub, number int64) {
+	t.Helper()
+	labels := fake.Labels(shop, number)
+	if slices.ContainsFunc(labels, func(label string) bool { return strings.HasPrefix(label, "mobius:") }) {
+		t.Errorf("labels of #%d = %v", number, labels)
+	}
+}
+
+// addLiveTask adds the Workstream #12 with the task #41, the label mobius:working of #41, and the open pull request #45.
+func addLiveTask(fake *testkit.FakeGitHub) {
+	addWorkstream(fake)
+	fake.AddLabel(shop, 41, "mobius:working", "mobius-test[bot]")
+	fake.AddPullRequest(shop, 45, "Add plan model")
+}
+
+// startWithLiveTask starts a server with the live task of #41 and its pull request #45.
+func startWithLiveTask(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+	t.Helper()
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request)
+		VALUES ('owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', 45)`)
+	server.WaitForFirstPoll(t, shop)
+	return server
+}
+
+func TestACloseEndsTheTasksAndClosesThePullRequestsAndIssuesBelow(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	addLiveTask(fake)
+	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	fake.AddIssue(shop, 43, "Add plan price")
+	fake.AddSubIssue(shop, 12, 43)
+	fake.AddIssue(shop, 44, "Price table")
+	fake.AddBlockedBy(shop, 43, 44)
+	fake.AddLabel(shop, 43, "mobius:ready", "owner")
+	server := startWithLiveTask(t, fake)
+	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, kind, payload, time) VALUES ('owner/shop', 12, 'stop', 'An old event', '2026-10-04T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+
+	fake.CloseIssue(shop, 12)
+
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 43); return state == "closed" })
+	for _, number := range []int64{41, 43} {
+		if state, reason := fake.State(shop, number); state != "closed" || reason != "not_planned" {
+			t.Errorf("state of #%d = %s, %s", number, state, reason)
+		}
+		if !slices.Contains(fake.Comments(shop, number), closedComment) {
+			t.Errorf("comments of #%d = %v", number, fake.Comments(shop, number))
+		}
+		noMobiusLabels(t, fake, number)
+	}
+	if state, _ := fake.State(shop, 45); state != "closed" || !slices.Contains(fake.Comments(shop, 45), closedComment) {
+		t.Errorf("pull request = %s, %v", state, fake.Comments(shop, 45))
+	}
+	if state, _ := fake.State(shop, 44); state != "open" {
+		t.Errorf("state of #44 = %s", state)
+	}
+	if labels := fake.Labels(shop, 12); !slices.Equal(labels, []string{"mobius:workstream"}) {
+		t.Errorf("labels of #12 = %v", labels)
+	}
+	if live(t, server) {
+		t.Error("the task of #41 is live")
+	}
+	if events := leadEvents(t, server); len(events) != 1 || !events[0].Delivered {
+		t.Errorf("Lead events = %+v", events)
+	}
+}
+
+func TestACompletionClosesTheWorkstreamAndEndsTheLiveTask(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	addLiveTask(fake)
+	server := startWithLiveTask(t, fake)
+	if workstreams(t, server)[0].AllTasksClosed {
+		t.Fatal("all tasks closed")
+	}
+
+	fake.CloseIssue(shop, 41)
+
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
+	if !live(t, server) {
+		t.Fatal("the task of #41 is not live")
+	}
+	if status, body := complete(t, server, 12); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	if state, reason := fake.State(shop, 12); state != "closed" || reason != "completed" {
+		t.Errorf("state = %s, %s", state, reason)
+	}
+	if live(t, server) {
+		t.Error("the task of #41 is live")
+	}
+	if state, _ := fake.State(shop, 45); state != "closed" {
+		t.Errorf("state of the pull request = %s", state)
+	}
+}
+
+func TestARemovalOfTheWorkstreamLabelEndsTheTasksAndClosesNothing(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	addLiveTask(fake)
+	server := startWithLiveTask(t, fake)
+
+	fake.RemoveLabel(shop, 12, "mobius:workstream", "mallory")
+
+	testkit.WaitFor(t, func() bool { return !live(t, server) })
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:working") })
+	for _, number := range []int64{12, 41, 45} {
+		if state, reason := fake.State(shop, number); state != "open" || reason != "" {
+			t.Errorf("state of #%d = %s, %s", number, state, reason)
+		}
+	}
+}
+
+func TestAReopenAddsAnEventForTheLeadAndReopensNoIssue(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+	fake.CloseIssue(shop, 12)
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 41); return state == "closed" })
+
+	fake.ReopenIssue(shop, 12)
+
+	event := testkit.WaitForValue(t, func() (leadEvent, bool) {
+		for _, event := range leadEvents(t, server) {
+			if event.Kind == "reopen" {
+				return event, true
+			}
+		}
+		return leadEvent{}, false
+	})
+	if event.Workstream != 12 || !strings.Contains(event.Payload, ` reopen of Workstream #12 "Integrate loyalty plans" by @owner:`) {
+		t.Errorf("event = %+v", event)
+	}
+	var message string
+	if err := server.DB.QueryRow("SELECT text FROM chat_messages WHERE repository = ? AND workstream = 12 AND author = 'Event'", shop).Scan(&message); err != nil || message != event.Payload {
+		t.Errorf("chat message = %q: %v", message, err)
+	}
+	if state, reason := fake.State(shop, 41); state != "closed" || reason != "not_planned" {
+		t.Errorf("state of #41 = %s, %s", state, reason)
+	}
+}

@@ -108,15 +108,14 @@ func TestTheAgentsPageCountsTheOpenSessionsOfEachRoleAgainstItsLimit(t *testing.
 func TestEachRowShowsTheWorkstreamTheTicketAndThePullRequestWhenTheyExist(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
+	fake.AddSubIssueOf(shop, 12, 41, "Add plan model")
+	testkit.WaitFor(t, func() bool { return len(copiedIssues(t, server)) == 1 })
 	for _, statement := range []string{
 		`INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, started_at)
 		 VALUES ('implementer', 'devin', 'model', 'owner', 'owner/shop', 12, 41, '2026-10-04T10:00:00Z'),
 		        ('researcher', 'antigravity', 'model', 'owner', 'owner/shop', 12, NULL, '2026-10-04T10:00:00Z'),
 		        ('triager', 'claude-code', 'model', 'owner', '', 0, NULL, '2026-10-04T10:00:00Z')`,
 		`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request) VALUES ('owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', 42)`,
-		`INSERT INTO copied_workstreams (repository, number, title, body, autopilot) VALUES ('owner/shop', 12, 'Integrate loyalty plans', '', 0)`,
-		`INSERT INTO copied_issues (repository, workstream, position, number, parent, title, body, state, author, html_url, repository_url)
-		 VALUES ('owner/shop', 12, 0, 41, 12, 'Add plan model', '', 'open', 'owner', '', '')`,
 	} {
 		if _, err := server.DB.Exec(statement); err != nil {
 			t.Fatal(err)
