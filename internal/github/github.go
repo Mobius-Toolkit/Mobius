@@ -70,11 +70,19 @@ type GitHub struct {
 // Repository is a repository of an installation of a Mobius App.
 type Repository struct {
 	// FullName is "owner/name".
-	FullName string
-	AppID    int64
-	AppSlug  string
+	FullName      string
+	DefaultBranch string
+	CloneURL      string
+	AppID         int64
+	AppSlug       string
 	// Client uses the installation token, and gets a new token before the token expires.
-	Client *gh.Client
+	Client       *gh.Client
+	installation *ghinstallation.Transport
+}
+
+// Token gives an installation token of the repository that is valid for one more minute or longer.
+func (r Repository) Token(ctx context.Context) (string, error) {
+	return r.installation.Token(ctx)
 }
 
 // New gives the GitHub of apiURL (for example https://api.github.com) and webURL (for example https://github.com).
@@ -388,7 +396,8 @@ func (g *GitHub) appRepositories(ctx context.Context, app store.GithubApp) ([]Re
 		if err != nil {
 			return nil, err
 		}
-		client, err := g.client(gh.WithTransport(g.installationTransport(appTransport, installation.GetID())))
+		transport := g.installationTransport(appTransport, installation.GetID())
+		client, err := g.client(gh.WithTransport(transport))
 		if err != nil {
 			return nil, err
 		}
@@ -397,10 +406,13 @@ func (g *GitHub) appRepositories(ctx context.Context, app store.GithubApp) ([]Re
 				return nil, err
 			}
 			repositories = append(repositories, Repository{
-				FullName: repository.GetFullName(),
-				AppID:    app.AppID,
-				AppSlug:  app.Slug,
-				Client:   client,
+				FullName:      repository.GetFullName(),
+				DefaultBranch: repository.GetDefaultBranch(),
+				CloneURL:      repository.GetCloneURL(),
+				AppID:         app.AppID,
+				AppSlug:       app.Slug,
+				Client:        client,
+				installation:  transport,
 			})
 		}
 	}
@@ -528,10 +540,21 @@ type IssuePage struct {
 // IssuesSince gives the issues and pull requests that changed at or after since, or all of them when
 // since is zero, in the order of their last change. It gives false when GitHub answers 304 Not Modified to etag.
 func (r Repository) IssuesSince(ctx context.Context, since time.Time, etag string) (IssuePage, bool, error) {
-	query := url.Values{"state": {"all"}, "sort": {"updated"}, "direction": {"asc"}, "per_page": {"100"}}
+	query := url.Values{"state": {"all"}, "sort": {"updated"}, "direction": {"asc"}}
 	if !since.IsZero() {
 		query.Set("since", since.UTC().Format(time.RFC3339))
 	}
+	return r.issuePage(ctx, query, etag)
+}
+
+// OpenIssuesWithLabelPage gives the open issues and pull requests with label, the oldest first. It gives false when
+// GitHub answers 304 Not Modified to etag.
+func (r Repository) OpenIssuesWithLabelPage(ctx context.Context, label, etag string) (IssuePage, bool, error) {
+	return r.issuePage(ctx, url.Values{"state": {"open"}, "labels": {label}, "sort": {"created"}, "direction": {"asc"}}, etag)
+}
+
+func (r Repository) issuePage(ctx context.Context, query url.Values, etag string) (IssuePage, bool, error) {
+	query.Set("per_page", "100")
 	var result IssuePage
 	for page := 1; ; page++ {
 		query.Set("page", strconv.Itoa(page))
