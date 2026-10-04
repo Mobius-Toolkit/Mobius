@@ -23,7 +23,7 @@ import { LoginContext } from '@/lib/login'
 import { cn } from '@/lib/utils'
 
 // The queue reason of a session that waits for the end of a usage-limit pause starts with this text.
-const paused = 'paused until '
+export const paused = 'paused until '
 
 function numbered(number: number, title?: string | null) {
   return title ? `#${number} ${title}` : `#${number}`
@@ -143,7 +143,13 @@ function TranscriptEntry({ line }: { line: TranscriptLine }) {
   )
 }
 
-function Transcript({ agent, onClose }: { agent: Agent; onClose: () => void }) {
+export function Transcript({
+  agent,
+  onClose,
+}: {
+  agent: Agent
+  onClose: () => void
+}) {
   const showLogin = use(LoginContext)
   const [lines, setLines] = useState<TranscriptLine[]>()
   const [error, setError] = useState<string>()
