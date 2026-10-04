@@ -25,7 +25,7 @@ function Workstreams() {
     listWorkstreams()
       .then((res) => {
         if (res.status === 200) {
-          setWorkstreams(res.data)
+          setWorkstreams(res.data.data)
         } else {
           setError(res.data.error)
         }

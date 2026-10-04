@@ -27,6 +27,42 @@ export interface Activity {
 }
 
 /**
+ * Workstream is a Workstream that has rows in the database.
+ */
+export interface Workstream {
+  /** LastActivity is the time of the latest row of the Workstream */
+  lastActivity: string;
+  /** Number is the number of the Workstream issue */
+  number: number;
+  /** OpenTasks is the number of tasks that are not ended or stopped */
+  openTasks: number;
+  /** Repository is the repository of the Workstream issue, as "owner/name" */
+  repository: string;
+  /** Tasks is the number of tasks of the Workstream */
+  tasks: number;
+}
+
+export interface EnvelopeArrayWorkstream {
+  /** Array of Workstream */
+  data: Workstream[];
+}
+
+/**
+ * Health is the state of the server.
+ */
+export interface Health {
+  /** Status is "ok" when the server can serve requests */
+  status: string;
+  /** Time is the current time of the server */
+  time: string;
+}
+
+export interface EnvelopeHealth {
+  /** Data is the payload of the response */
+  data: Health;
+}
+
+/**
  * Additional error details
  */
 export type ErrorResponseDetails = {[key: string]: unknown};
@@ -39,16 +75,6 @@ export interface ErrorResponse {
   details?: ErrorResponseDetails;
   /** Error message */
   error: string;
-}
-
-/**
- * Health is the state of the server.
- */
-export interface Health {
-  /** Status is "ok" when the server can serve requests */
-  status: string;
-  /** Time is the current time of the server */
-  time: string;
 }
 
 /**
@@ -76,22 +102,6 @@ export interface ValidationErrorResponse {
 }
 
 /**
- * Workstream is a Workstream that has rows in the database.
- */
-export interface Workstream {
-  /** LastActivity is the time of the latest row of the Workstream */
-  lastActivity: string;
-  /** Number is the number of the Workstream issue */
-  number: number;
-  /** OpenTasks is the number of tasks that are not ended or stopped */
-  openTasks: number;
-  /** Repository is the repository of the Workstream issue, as "owner/name" */
-  repository: string;
-  /** Tasks is the number of tasks of the Workstream */
-  tasks: number;
-}
-
-/**
  * Bad Request - Validation failed
  */
 export type BadRequestResponse = ValidationErrorResponse;
@@ -107,7 +117,7 @@ export type InternalServerErrorResponse = ErrorResponse;
 export type UnprocessableEntityResponse = ErrorResponse;
 
 export type getHealthResponse200 = {
-  data: Health
+  data: EnvelopeHealth
   status: 200
 }
 
@@ -167,7 +177,7 @@ export const getHealth = async ( options?: RequestInit): Promise<getHealthRespon
 
 
 export type listWorkstreamsResponse200 = {
-  data: Workstream[]
+  data: EnvelopeArrayWorkstream
   status: 200
 }
 

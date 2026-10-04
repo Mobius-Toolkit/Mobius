@@ -19,16 +19,18 @@ func TestGetHealth(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 	var body struct {
-		Status string `json:"status"`
-		Time   string `json:"time"`
+		Data struct {
+			Status string `json:"status"`
+			Time   string `json:"time"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
 	}
-	if body.Status != "ok" {
-		t.Errorf("status = %q, want %q", body.Status, "ok")
+	if body.Data.Status != "ok" {
+		t.Errorf("status = %q, want %q", body.Data.Status, "ok")
 	}
-	if _, err := time.Parse(time.RFC3339, body.Time); err != nil {
-		t.Errorf("time %q is not RFC3339: %v", body.Time, err)
+	if _, err := time.Parse(time.RFC3339, body.Data.Time); err != nil {
+		t.Errorf("time %q is not RFC3339: %v", body.Data.Time, err)
 	}
 }

@@ -55,7 +55,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Health"
+                  "$ref": "#/components/schemas/Envelope_Health"
                 }
               }
             },
@@ -85,12 +85,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "description": "Array of Workstream",
-                  "items": {
-                    "$ref": "#/components/schemas/Workstream"
-                  },
-                  "title": "[]Workstream",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Envelope_Array_Workstream"
                 }
               }
             },
@@ -163,6 +158,36 @@
           "link"
         ],
         "description": "Activity is an entry of the activity feed of a Workstream."
+      },
+      "Envelope_Array_Workstream": {
+        "type": "object",
+        "title": "Envelope_Array_Workstream",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]Workstream",
+            "description": "Array of Workstream",
+            "items": {
+              "$ref": "#/components/schemas/Workstream"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "Envelope_Health": {
+        "type": "object",
+        "title": "Envelope_Health",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Health",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ]
       },
       "ErrorResponse": {
         "type": "object",

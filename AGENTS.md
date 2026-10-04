@@ -12,6 +12,7 @@
 - Do not suppress a linter. Do not use `//nolint`, `oxlint-disable`, `eslint-disable`, `@ts-ignore` or `@ts-expect-error`. Fix the finding.
 - Use pnpm for the frontend. Do not use npm or yarn.
 - Use Oxlint to lint the frontend (`pnpm lint`). Do not add ESLint.
+- Put the body of each success response in `Envelope[T]` (`{"data": …}`). Error responses keep the Gork format. Server-sent events have no envelope.
 
 ## Generated files
 
