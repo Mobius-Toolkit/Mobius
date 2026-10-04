@@ -95,6 +95,7 @@ type FakeGitHub struct {
 	notModified      int
 	// The ids of the first comments of the resolved review threads.
 	resolvedThreads map[int64]bool
+	latestRelease   *releaseJSON
 }
 
 // A grant is a user code or a refresh token: the login of the user and the App index.
@@ -174,6 +175,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.reviewComments))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.replyToReviewComment))
 	mux.HandleFunc("POST /graphql", g.withToken(g.graphql))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/releases/latest", g.getLatestRelease)
 	return mux
 }
 

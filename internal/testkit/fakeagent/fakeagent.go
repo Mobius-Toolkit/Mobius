@@ -4,6 +4,8 @@
 //
 //	login_required = true   # session/new fails until an authenticate request logs in
 //	login_works = true      # authenticate logs in; with no login_works it fails
+//	skip_tools_list = 1     # the first 1 agent processes of the script do not list the tools after session/new;
+//	                        # the file "starts" next to the script counts the processes
 //
 //	[options]               # one select option for each id, in id order; the first value is current
 //	model = ["sonnet", "opus"]
@@ -32,11 +34,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -48,6 +52,7 @@ import (
 type script struct {
 	LoginRequired bool                `toml:"login_required"`
 	LoginWorks    bool                `toml:"login_works"`
+	SkipToolsList int                 `toml:"skip_tools_list"`
 	Options       map[string][]string `toml:"options"`
 	Prompts       []prompt            `toml:"prompts"`
 }
@@ -218,10 +223,30 @@ func (a *agent) newSession(params json.RawMessage) (any, *acp.RequestError) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), "mcp_url"), []byte(a.mcpURL), 0o600); err != nil {
 		return nil, acp.NewInternalError(err.Error())
 	}
-	if a.mcpURL != "" {
+	skip, err := a.skipToolsList()
+	if err != nil {
+		return nil, acp.NewInternalError(err.Error())
+	}
+	if a.mcpURL != "" && !skip {
 		go listTools(a.mcpURL)
 	}
 	return map[string]any{"sessionId": "fake-session", "configOptions": a.options}, nil
+}
+
+// skipToolsList counts this agent process in the file "starts" next to the script, and tells if the process is one
+// of the first skip_tools_list processes.
+func (a *agent) skipToolsList() (bool, error) {
+	if a.script.SkipToolsList == 0 {
+		return false, nil
+	}
+	path := filepath.Join(filepath.Dir(a.path), "starts")
+	text, err := os.ReadFile(filepath.Clean(path))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+	starts, _ := strconv.Atoi(string(text))
+	starts++
+	return starts <= a.script.SkipToolsList, os.WriteFile(path, []byte(strconv.Itoa(starts)), 0o600)
 }
 
 // listTools lists the tools of the MCP server at url. As in Claude Code, a failed list only leaves the session with no tools.
