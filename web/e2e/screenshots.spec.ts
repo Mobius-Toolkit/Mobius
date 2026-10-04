@@ -43,10 +43,7 @@ test('screenshots', async ({ page }) => {
     page.getByLabel('App name'),
   )
 
-  for (const [account, slug] of [
-    ['owner', 'mobius-test'],
-    ['plants', 'mobius-second'],
-  ]) {
+  const createApp = async (account: string, slug: string) => {
     await page.getByLabel('Account or organization').fill(account)
     await page.getByLabel('App name').fill(`Mobius ${account}`)
     await page.getByRole('button', { name: 'Create the App' }).click()
@@ -54,6 +51,16 @@ test('screenshots', async ({ page }) => {
       page.getByText(`Install ${slug} on your repositories`),
     ).toBeVisible()
   }
+  await createApp('owner', 'mobius-test')
+  // The server adds the repositories after the second App, so Mobius knows no organization.
+  await screenshot(
+    page,
+    'new-workstream-no-organization',
+    '/workstreams/new',
+    () => main.getByText('Mobius reads the repositories from GitHub.'),
+  )
+  await page.goto('/github')
+  await createApp('plants', 'mobius-second')
   // The organization switch shows when the poll has the repositories of both Apps.
   await expect(async () => {
     await page.reload()

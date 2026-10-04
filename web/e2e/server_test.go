@@ -74,7 +74,8 @@ const question = "What is the state of the plans? The full report is at " +
 
 // TestServer serves the built UI and the API at the address in MOBIUS_E2E_ADDR until
 // SIGINT or SIGTERM. The server has a new database and a fake GitHub with the
-// accounts "owner" and "plants". The Playwright tests create the Apps on the GitHub page.
+// accounts "owner" and "plants". The Playwright tests create the Apps on the GitHub page. The repositories come after
+// the second App, so the tests see the first App with no organization.
 //
 // After the first poll of both repositories, a dispatch of #45 gives an Inbox item, and the Owner writes to the
 // Lead chats of owner/shop#12 and plants/garden#12 and to the Triager chat of owner. Each chat session ends before
@@ -92,8 +93,6 @@ func TestServer(t *testing.T) {
 	github.AddAccount("owner", "User")
 	github.AddAccount("plants", "Organization")
 	github.InstallSecondApp("plants")
-	github.AddRepository("owner/shop")
-	github.AddRepository("plants/garden")
 	for _, workstream := range []struct {
 		repository string
 		number     int64
@@ -139,6 +138,16 @@ func TestServer(t *testing.T) {
 	}
 	srv := &http.Server{Handler: server.Mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(listener) }()
+
+	testkit.WaitFor(t, func() bool {
+		var apps int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM github_apps").Scan(&apps); err != nil {
+			t.Fatal(err)
+		}
+		return apps == 2
+	})
+	github.AddRepository("owner/shop")
+	github.AddRepository("plants/garden")
 
 	// The first poll of owner/shop after the Playwright tests create the App creates the
 	// Mobius labels. Then, for the Checkup screen, one label is missing again and one label
