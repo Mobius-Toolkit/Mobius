@@ -210,13 +210,18 @@
             "type": "object",
             "properties": {
               "data": {
+                "type": "string",
                 "contentMediaType": "application/json",
                 "contentSchema": {
                   "$ref": "#/components/schemas/Activity"
                 }
               },
               "event": {
+                "type": "string",
                 "const": "activity"
+              },
+              "id": {
+                "type": "string"
               }
             },
             "required": [

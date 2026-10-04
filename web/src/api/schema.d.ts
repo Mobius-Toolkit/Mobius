@@ -114,9 +114,10 @@ export interface components {
          * @description LiveEvents are the events of the live event stream.
          */
         LiveEvents: {
-            data: unknown;
+            data: string;
             /** @constant */
             event: "activity";
+            id?: string;
         };
         /**
          * ValidationErrorResponse
