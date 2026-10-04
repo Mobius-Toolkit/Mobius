@@ -75,11 +75,7 @@ function LiveEvents() {
 
   useEffect(() => {
     const source = new EventSource('/api/events')
-    // The server sends the latest activities again on each connection.
-    source.addEventListener('open', () => {
-      setConnected(true)
-      setActivities([])
-    })
+    source.addEventListener('open', () => setConnected(true))
     source.addEventListener('error', () => setConnected(false))
     source.addEventListener('activity', (e) => {
       const activity = JSON.parse(e.data) as Activity
