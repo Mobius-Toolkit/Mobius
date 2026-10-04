@@ -21,21 +21,21 @@ type StreamEventsRequest struct{}
 // Activity is an entry of the activity feed of a Workstream.
 type Activity struct {
 	// ID increases with each new activity
-	ID int64 `gork:"id" validate:"required"`
+	ID int64 `gork:"id"`
 	// Time is the time of the activity
-	Time time.Time `gork:"time" validate:"required"`
+	Time time.Time `gork:"time"`
 	// Repository is the repository of the Workstream issue, as "owner/name"
-	Repository string `gork:"repository" validate:"required"`
+	Repository string `gork:"repository"`
 	// Workstream is the number of the Workstream issue
-	Workstream int64 `gork:"workstream" validate:"required"`
+	Workstream int64 `gork:"workstream"`
 	// Issue is the number of the issue of the activity
-	Issue int64 `gork:"issue" validate:"required"`
+	Issue int64 `gork:"issue"`
 	// Actor is the GitHub login that did the activity
-	Actor string `gork:"actor" validate:"required"`
+	Actor string `gork:"actor"`
 	// Text tells what happened
-	Text string `gork:"text" validate:"required"`
+	Text string `gork:"text"`
 	// Link is the GitHub URL of the activity
-	Link string `gork:"link" validate:"required"`
+	Link string `gork:"link"`
 }
 
 // LiveEvents are the events of the live event stream.
