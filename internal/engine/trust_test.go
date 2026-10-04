@@ -7,7 +7,7 @@ import (
 )
 
 func TestTrustedAuthor(t *testing.T) {
-	e := engine.New(nil, nil, []string{"owner"}, []string{"coderabbitai[bot]"})
+	e := engine.New(nil, nil, []string{"owner"}, []string{"coderabbitai[bot]"}, engine.Agents{})
 	cases := []struct {
 		login string
 		want  bool

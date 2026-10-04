@@ -25,6 +25,8 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Get("/api/health", GetHealth, loggedIn("health")...)
 	r.Get("/api/workstreams", h.ListWorkstreams, loggedIn("workstreams")...)
 	r.Get("/api/events", h.StreamEvents, loggedIn("events")...)
+	r.Get("/api/workstreams/{owner}/{name}/{number}/agents", h.ListAgents, loggedIn("agents")...)
+	r.Get("/api/agents/{id}/transcript", h.GetTranscript, loggedIn("agents")...)
 	r.Get("/api/github/apps", h.ListGitHubApps, loggedIn("github")...)
 	r.Post("/api/github/manifest", h.CreateManifestForm, loggedIn("github")...)
 	r.Get("/api/organizations", h.ListOrganizations, loggedIn("github")...)

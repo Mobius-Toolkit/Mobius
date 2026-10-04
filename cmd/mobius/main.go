@@ -22,6 +22,7 @@ import (
 	"github.com/Mobius-Toolkit/mobius-go/internal/config"
 	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 	"github.com/Mobius-Toolkit/mobius-go/internal/github"
+	"github.com/Mobius-Toolkit/mobius-go/internal/mcp"
 	"github.com/Mobius-Toolkit/mobius-go/internal/runner"
 	"github.com/Mobius-Toolkit/mobius-go/internal/setup"
 	"github.com/Mobius-Toolkit/mobius-go/internal/store"
@@ -44,6 +45,9 @@ Environment:
 `
 
 func main() {
+	if filepath.Base(os.Args[0]) == "gh" {
+		os.Exit(runner.GH(os.Args[1:], os.Getenv))
+	}
 	if os.Getenv("GORK_EXPORT") == "1" {
 		router := api.Routes(http.NewServeMux(), nil, nil, nil, nil)
 		spec := gork.GenerateOpenAPI(router.GetRegistry(), gork.WithTitle("Mobius"), gork.WithVersion("0.1.0"))
@@ -92,12 +96,16 @@ func serve(configPath string) error {
 		return err
 	}
 
-	programs := []string{"gh", "curl", "tar"}
+	path := os.Getenv("PATH")
+	programs := []string{"curl", "tar"}
 	for _, b := range cfg.Roles.Bindings() {
 		programs = append(programs, runner.Program(b.Binding.Harness))
 	}
 	slices.Sort(programs)
-	missing := runner.Missing(os.Getenv("PATH"), slices.Compact(programs)...)
+	missing := runner.Missing(path, slices.Compact(programs)...)
+	if runner.FindGH(path) == "" {
+		missing = append(missing, "gh")
+	}
 	for _, program := range missing {
 		fmt.Fprintf(os.Stderr, "mobius: `%s` is not on PATH\n", program)
 	}
@@ -142,11 +150,21 @@ func serve(configPath string) error {
 	if err != nil {
 		return err
 	}
-	e := engine.New(queries, gh, cfg.TrustedUsers, cfg.TrustedBots)
+	if err := runner.Prepare(cfg.DataDir); err != nil {
+		return err
+	}
+	mcpServer := mcp.New()
+	e := engine.New(queries, gh, cfg.TrustedUsers, cfg.TrustedBots, engine.Agents{
+		MCP:     mcpServer,
+		Addr:    net.JoinHostPort("127.0.0.1", strconv.FormatUint(port, 10)),
+		DataDir: cfg.DataDir,
+		Path:    path,
+	})
 	go e.Run(ctx, cfg.PollInterval)
 
 	mux := http.NewServeMux()
 	api.Routes(mux, queries, a, gh, e)
+	mcpServer.Register(mux)
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		return err

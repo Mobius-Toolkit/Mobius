@@ -18,6 +18,13 @@ type Label struct {
 	Description string
 }
 
+// The names of the Mobius labels that the Mobius tools use.
+const (
+	workstreamLabel   = "mobius:workstream"
+	readyLabel        = "mobius:ready"
+	noWorkstreamLabel = "mobius:no-workstream"
+)
+
 // Labels are the Mobius labels.
 var Labels = []Label{
 	{"mobius:workstream", "5319E7", "Mobius Workstream: a parent issue for a group of tasks"},

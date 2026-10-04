@@ -10,12 +10,12 @@ import (
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
 )
 
-// startServer starts a server, runs the SQL statement before when it is not empty, and then adds
+// startServer starts a server with the data in dataDir, runs the SQL statement before when it is not empty, and then adds
 // the App that is installed on owner/shop. The first poll comes after the App.
-func startServer(t *testing.T, fake *testkit.FakeGitHub, before string) *testserver.Server {
+func startServer(t *testing.T, fake *testkit.FakeGitHub, dataDir, before string) *testserver.Server {
 	t.Helper()
 	fake.AddRepository(shop)
-	server := testserver.Start(t, t.TempDir(), fake.URL)
+	server := testserver.Start(t, dataDir, fake.URL)
 	if before != "" {
 		if _, err := server.DB.Exec(before); err != nil {
 			t.Fatal(err)
@@ -43,7 +43,7 @@ func TestAPollFixesTheLabelsOfAManagedRepositoryOneTime(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddRepositoryLabel(shop, "mobius:working", "ededed", "Custom description")
 	fake.AddRepositoryLabel(shop, "bug", "d73a4a", "Something is wrong")
-	startServer(t, fake, "")
+	startServer(t, fake, t.TempDir(), "")
 
 	labels := testkit.WaitForValue(t, func() ([]testkit.Label, bool) {
 		labels := fake.RepositoryLabels(shop)
@@ -82,7 +82,7 @@ func TestThePollMovesTheCursorToTheLastChangeAndSendsTheETag(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 1, "First")
 	fake.AddIssue(shop, 2, "Second")
-	server := startServer(t, fake, "")
+	server := startServer(t, fake, t.TempDir(), "")
 
 	server.WaitForFirstPoll(t, shop)
 
@@ -111,7 +111,7 @@ func TestThePollMovesTheCursorToTheLastChangeAndSendsTheETag(t *testing.T) {
 func TestThePollContinuesFromTheCursorOfTheDatabase(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 1, "First")
-	server := startServer(t, fake, `INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES ('owner/shop', 'issues', '2999-01-01T00:00:00Z', '"old"')`)
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES ('owner/shop', 'issues', '2999-01-01T00:00:00Z', '"old"')`)
 
 	testkit.WaitFor(t, func() bool {
 		_, etag := cursor(t, server)
@@ -130,7 +130,7 @@ func TestAnIssueListOfMoreThanOnePageGivesNoETag(t *testing.T) {
 	for number := range int64(101) {
 		fake.AddIssue(shop, number+1, "Issue")
 	}
-	server := startServer(t, fake, "")
+	server := startServer(t, fake, t.TempDir(), "")
 
 	server.WaitForFirstPoll(t, shop)
 

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,6 +18,8 @@ import (
 	"github.com/Mobius-Toolkit/mobius-go/internal/auth"
 	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 	"github.com/Mobius-Toolkit/mobius-go/internal/github"
+	"github.com/Mobius-Toolkit/mobius-go/internal/mcp"
+	"github.com/Mobius-Toolkit/mobius-go/internal/runner"
 	"github.com/Mobius-Toolkit/mobius-go/internal/store"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
 )
@@ -33,11 +36,15 @@ type Server struct {
 	DB  *sql.DB
 	// Client has the cookie of a device login.
 	Client *http.Client
+	Engine *engine.Engine
 }
 
 // Start starts a Mobius server with the database in dataDir and the GitHub at githubURL
 // (the API and the web pages), and logs in. The server polls the repositories of the
 // GitHub Apps each 50 ms. The server stops at the end of the test.
+//
+// The agents run with the Harness commands in dataDir/harnesses and then on the PATH of the test,
+// and reach the Mobius MCP server over plain HTTP.
 func Start(t testing.TB, dataDir, githubURL string) *Server {
 	t.Helper()
 	db, err := store.Open(t.Context(), filepath.Join(dataDir, "mobius.db"))
@@ -54,7 +61,20 @@ func Start(t testing.TB, dataDir, githubURL string) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := engine.New(queries, gh, []string{TrustedUser}, nil)
+	if err := runner.Prepare(dataDir); err != nil {
+		t.Fatal(err)
+	}
+	mcpServer := mcp.New()
+	mcpMux := http.NewServeMux()
+	mcpServer.Register(mcpMux)
+	agents := httptest.NewServer(mcpMux)
+	t.Cleanup(agents.Close)
+	e := engine.New(queries, gh, []string{TrustedUser}, nil, engine.Agents{
+		MCP:     mcpServer,
+		Addr:    strings.TrimPrefix(agents.URL, "http://"),
+		DataDir: dataDir,
+		Path:    filepath.Join(dataDir, "harnesses") + string(filepath.ListSeparator) + os.Getenv("PATH"),
+	})
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
 	go func() {
@@ -83,7 +103,7 @@ func Start(t testing.TB, dataDir, githubURL string) *Server {
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("login: status %d", response.StatusCode)
 	}
-	return &Server{URL: server.URL, DB: db, Client: client}
+	return &Server{URL: server.URL, DB: db, Client: client, Engine: e}
 }
 
 // WaitForFirstPoll waits for the end of the first poll of repository. The first poll

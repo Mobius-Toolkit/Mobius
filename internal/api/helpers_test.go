@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Mobius-Toolkit/mobius-go/internal/auth"
+	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 	"github.com/Mobius-Toolkit/mobius-go/internal/store"
 )
 
@@ -26,7 +27,7 @@ func newMux(t *testing.T) (*http.ServeMux, *sql.DB, *auth.Auth) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	Routes(mux, queries, a, nil, nil)
+	Routes(mux, queries, a, nil, engine.New(queries, nil, nil, nil, engine.Agents{}))
 	return mux, db, a
 }
 

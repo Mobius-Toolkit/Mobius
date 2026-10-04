@@ -8,6 +8,7 @@ import (
 
 	"github.com/gork-labs/gork/pkg/api"
 
+	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 	"github.com/Mobius-Toolkit/mobius-go/internal/store"
 )
 
@@ -44,15 +45,21 @@ type Activity struct {
 	Link string `gork:"link"`
 }
 
-// LiveEvents are the events of the live event stream.
+// LiveEvents are the events of the live event stream. Only an activity has an event id.
 type LiveEvents struct {
 	Activity *Activity `gork:"activity"`
+	// Agent is a session at its start and at its end
+	Agent *Agent `gork:"agent"`
+	// Transcript is a new row of a Transcript, or a row that got more text
+	Transcript *TranscriptLine `gork:"transcript"`
 }
 
-// StreamEvents sends the latest activities, and then each new activity.
-// When the request has Last-Event-ID, it sends the activities after that id
-// in place of the latest activities.
+// StreamEvents sends the latest activities, and then each new activity, each start and end of a session,
+// and each new or changed Transcript row. When the request has Last-Event-ID, it sends the activities
+// after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.
 func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, stream *api.Stream[LiveEvents]) error {
+	changes, stop := h.engine.Listen()
+	defer stop()
 	var events []store.Event
 	var err error
 	var last int64
@@ -75,16 +82,35 @@ func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, st
 			}
 			last = e.ID
 		}
+		events = nil
 		select {
 		case <-ctx.Done():
 			return nil
+		case change, ok := <-changes:
+			if !ok {
+				return nil
+			}
+			if err := sendChange(stream, change); err != nil {
+				return err
+			}
 		case <-ticker.C:
-		}
-		events, err = h.queries.ListEventsAfter(ctx, last)
-		if err != nil {
-			return err
+			events, err = h.queries.ListEventsAfter(ctx, last)
+			if err != nil {
+				return err
+			}
 		}
 	}
+}
+
+func sendChange(stream *api.Stream[LiveEvents], change engine.Change) error {
+	if change.Line != nil {
+		return stream.Send(LiveEvents{Transcript: new(transcriptLineOf(*change.Line))})
+	}
+	agent, err := agentOf(*change.Node)
+	if err != nil {
+		return err
+	}
+	return stream.Send(LiveEvents{Agent: &agent})
 }
 
 func sendActivity(stream *api.Stream[LiveEvents], e store.Event) error {
