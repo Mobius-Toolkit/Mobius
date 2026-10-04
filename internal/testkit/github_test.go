@@ -537,3 +537,20 @@ func TestTheNewAppPageSendsTheBrowserToTheRedirectURLWithANewCodeAndTheState(t *
 		t.Errorf("app = %+v", app)
 	}
 }
+
+func TestTheLatestReleaseOfMobiusNeedsNoToken(t *testing.T) {
+	github := NewFakeGitHub(t)
+	url := github.URL + "/repos/Mobius-Toolkit/Mobius/releases/latest"
+	if got := send(t, http.MethodGet, url, "", "", nil); got.StatusCode != http.StatusNotFound {
+		t.Errorf("status with no release = %d", got.StatusCode)
+	}
+	github.SetLatestRelease("v0.3.0", "mobius-x86_64-unknown-linux-gnu.tar.gz")
+
+	var release releaseJSON
+	got := send(t, http.MethodGet, url, "", "", &release)
+
+	want := releaseJSON{TagName: "v0.3.0", Assets: []assetJSON{{"mobius-x86_64-unknown-linux-gnu.tar.gz"}}}
+	if got.StatusCode != http.StatusOK || !reflect.DeepEqual(release, want) {
+		t.Errorf("release = %d %+v", got.StatusCode, release)
+	}
+}
