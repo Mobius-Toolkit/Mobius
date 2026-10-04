@@ -45,7 +45,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description ListWorkstreams returns the Workstreams of the database. */
+        /** @description ListWorkstreams returns the Workstreams of the database, the most recently active first. */
         get: operations["ListWorkstreams"];
         put?: never;
         post?: never;
@@ -149,17 +149,6 @@ export interface components {
             /** @description Tasks is the number of tasks of the Workstream */
             tasks: number;
         };
-        /**
-         * WorkstreamList
-         * @description WorkstreamList is the list of Workstreams, the most recently active first.
-         */
-        WorkstreamList: {
-            /**
-             * []Workstream
-             * @description Array of Workstream
-             */
-            workstreams: components["schemas"]["Workstream"][];
-        };
     };
     responses: {
         /** @description Bad Request - Validation failed */
@@ -258,7 +247,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["WorkstreamList"];
+                    "application/json": components["schemas"]["Workstream"][];
                 };
             };
             400: components["responses"]["BadRequest"];

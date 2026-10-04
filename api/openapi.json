@@ -67,14 +67,19 @@
     },
     "/api/workstreams": {
       "get": {
-        "description": "ListWorkstreams returns the Workstreams of the database.",
+        "description": "ListWorkstreams returns the Workstreams of the database, the most recently active first.",
         "operationId": "ListWorkstreams",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/WorkstreamList"
+                  "description": "Array of Workstream",
+                  "items": {
+                    "$ref": "#/components/schemas/Workstream"
+                  },
+                  "title": "[]Workstream",
+                  "type": "array"
                 }
               }
             },
@@ -269,24 +274,6 @@
           "lastActivity"
         ],
         "description": "Workstream is a Workstream that has rows in the database."
-      },
-      "WorkstreamList": {
-        "type": "object",
-        "title": "WorkstreamList",
-        "properties": {
-          "workstreams": {
-            "type": "array",
-            "title": "[]Workstream",
-            "description": "Array of Workstream",
-            "items": {
-              "$ref": "#/components/schemas/Workstream"
-            }
-          }
-        },
-        "required": [
-          "workstreams"
-        ],
-        "description": "WorkstreamList is the list of Workstreams, the most recently active first."
       }
     },
     "responses": {
