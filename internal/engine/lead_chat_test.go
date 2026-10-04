@@ -155,10 +155,16 @@ func undelivered(t *testing.T, server *testserver.Server) []store.LeadEvent {
 	return events
 }
 
-// eventDelivered tells if the chat has an event and the Lead took each event.
+// eventDelivered tells if the Workstream #12 has a Lead event and the Lead took each event. One query reads both
+// counts, so a new event cannot come between them.
 func eventDelivered(t *testing.T, server *testserver.Server) bool {
 	t.Helper()
-	return slices.ContainsFunc(chatLines(t, server, leadChat), func(line chatLine) bool { return line.Author == "Event" }) && len(undelivered(t, server)) == 0
+	var events, open int
+	err := server.DB.QueryRow("SELECT count(*), coalesce(sum(delivered_at IS NULL), 0) FROM lead_events WHERE repository = ? AND workstream = 12", shop).Scan(&events, &open)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return events > 0 && open == 0
 }
 
 func TestAnOwnerMessageGetsTheLeadReplyInTheChat(t *testing.T) {
@@ -670,14 +676,18 @@ func onlySession(t *testing.T, server *testserver.Server) []string {
 	return promptTexts(t, server, sessions[0].ID)
 }
 
-// held tells if the Workstream #12 has events undelivered events, and none of them is ready.
+// held tells if the Workstream #12 has events undelivered events, and none of them is ready. The read of the ready
+// events comes after the read of the undelivered events, so a new event between the two reads gives false.
 func held(t *testing.T, server *testserver.Server, events int) bool {
 	t.Helper()
+	if len(undelivered(t, server)) != events {
+		return false
+	}
 	ready, err := store.New(server.DB).ListReadyLeadEvents(t.Context(), store.ListReadyLeadEventsParams{Repository: shop, Workstream: 12})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return len(undelivered(t, server)) == events && len(ready) == 0
+	return len(ready) == 0
 }
 
 const holdEvent = "call = { tool = \"hold_event\", arguments = {} }"
