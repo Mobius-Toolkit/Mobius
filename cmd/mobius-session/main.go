@@ -18,6 +18,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
+	"github.com/Mobius-Toolkit/mobius-go/internal/config"
 	"github.com/Mobius-Toolkit/mobius-go/internal/mcp"
 	"github.com/Mobius-Toolkit/mobius-go/internal/runner"
 )
@@ -73,7 +74,7 @@ func run(dataDir, model, effort string) error {
 	ctx := context.Background()
 	var message strings.Builder
 	start := time.Now()
-	session, err := runner.Start(ctx, cwd, dataDir, os.Getenv("PATH"), url, func(notification acp.SessionNotification) {
+	session, err := runner.Start(ctx, config.ClaudeCode, cwd, dataDir, os.Getenv("PATH"), url, func(notification acp.SessionNotification) {
 		update := notification.Update
 		switch {
 		case update.AgentMessageChunk != nil && update.AgentMessageChunk.Content.Text != nil:

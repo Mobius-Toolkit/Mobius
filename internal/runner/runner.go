@@ -1,8 +1,9 @@
-// Package runner starts a Claude Code session through ACP.
+// Package runner starts an agent session of a Harness through ACP.
 package runner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,12 +13,29 @@ import (
 	"strings"
 
 	"github.com/coder/acp-go-sdk"
+
+	"github.com/Mobius-Toolkit/mobius-go/internal/config"
 )
 
-const program = "claude-agent-acp"
+// Program gives the ACP program of harness.
+func Program(harness config.Harness) string {
+	switch harness {
+	case config.Antigravity:
+		return "agy_acp_server"
+	case config.Devin:
+		return "devin"
+	}
+	return "claude-agent-acp"
+}
 
-// The mode of Claude Code that runs each tool with no permission request.
-const fullAutoMode = "bypassPermissions"
+// The modes that run each tool with no permission request. Devin has no mode option.
+var fullAutoModes = map[config.Harness]string{
+	config.ClaudeCode:  "bypassPermissions",
+	config.Antigravity: "yolo",
+}
+
+// The ACP error code of session/new when the agent needs a login.
+const authRequired = -32000
 
 func agentEnv(dataDir string) string {
 	return filepath.Join(dataDir, "agent-env")
@@ -31,6 +49,17 @@ func Prepare(dataDir string) error {
 	}
 	// An empty helper clears the credential helpers of the system git config.
 	return os.WriteFile(filepath.Join(agentEnv, "gitconfig"), []byte("[credential]\n\thelper =\n"), 0o600)
+}
+
+// Missing gives each of programs that is not on path.
+func Missing(path string, programs ...string) []string {
+	var missing []string
+	for _, program := range programs {
+		if find(program, path) == "" {
+			missing = append(missing, program)
+		}
+	}
+	return missing
 }
 
 func find(program, path string) string {
@@ -60,8 +89,9 @@ func command(ctx context.Context, file, cwd, dataDir, path string) *exec.Cmd {
 	return cmd
 }
 
-// Session is one ACP session of Claude Code.
+// Session is one ACP session of a Harness.
 type Session struct {
+	harness config.Harness
 	conn    *acp.ClientSideConnection
 	id      acp.SessionId
 	options []acp.SessionConfigOption
@@ -69,15 +99,29 @@ type Session struct {
 	stop    context.CancelFunc
 }
 
-// Start starts the agent in cwd with the Mobius MCP server at mcpURL, and opens a session.
-// It gives each session/update notification of the session to updates.
-func Start(ctx context.Context, cwd, dataDir, path, mcpURL string, updates func(acp.SessionNotification)) (*Session, error) {
+func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, path string) (*exec.Cmd, error) {
+	program := Program(harness)
 	file := find(program, path)
 	if file == "" {
 		return nil, fmt.Errorf("%s is not on PATH", program)
 	}
+	cmd := command(ctx, file, cwd, dataDir, path)
+	if harness == config.Devin {
+		cmd.Args = append(cmd.Args, "acp")
+	}
+	return cmd, nil
+}
+
+// Start starts the agent of harness in cwd with the Mobius MCP server at mcpURL, and opens a session.
+// It gives each session/update notification of the session to updates.
+func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpURL string, updates func(acp.SessionNotification)) (*Session, error) {
+	program := Program(harness)
 	processCtx, stop := context.WithCancel(context.Background())
-	cmd := command(processCtx, file, cwd, dataDir, path)
+	cmd, err := harnessCommand(processCtx, harness, cwd, dataDir, path)
+	if err != nil {
+		stop()
+		return nil, err
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		stop()
@@ -93,15 +137,75 @@ func Start(ctx context.Context, cwd, dataDir, path, mcpURL string, updates func(
 		return nil, fmt.Errorf("%s: %w", program, err)
 	}
 	session := &Session{
-		conn: acp.NewClientSideConnection(client{updates: updates}, stdin, stdout),
-		cmd:  cmd,
-		stop: stop,
+		harness: harness,
+		conn:    acp.NewClientSideConnection(client{updates: updates}, stdin, stdout),
+		cmd:     cmd,
+		stop:    stop,
 	}
 	if err := session.open(ctx, cwd, mcpURL); err != nil {
 		session.Close()
-		return nil, fmt.Errorf("%s: %w", program, err)
+		return nil, fmt.Errorf("%s: %w", program, describe(err))
 	}
 	return session, nil
+}
+
+// LogInAntigravity starts the Google login of Antigravity when Antigravity is not logged in.
+// Antigravity has no login command. Its login is the ACP method authenticate, which writes
+// a Google link to stderr and waits 300 s for the browser. LogInAntigravity gives false
+// when Antigravity is already logged in.
+func LogInAntigravity(ctx context.Context, cwd, dataDir, path string) (bool, error) {
+	processCtx, stop := context.WithCancel(context.Background())
+	defer stop()
+	cmd, err := harnessCommand(processCtx, config.Antigravity, cwd, dataDir, path)
+	if err != nil {
+		return false, err
+	}
+	cmd.Stderr = os.Stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return false, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return false, err
+	}
+	if err := cmd.Start(); err != nil {
+		return false, err
+	}
+	defer func() {
+		stop()
+		// The kill ends the agent, so Wait gives an error that tells nothing new.
+		_ = cmd.Wait()
+	}()
+	conn := acp.NewClientSideConnection(client{updates: func(acp.SessionNotification) {}}, stdin, stdout)
+	if _, err := conn.Initialize(ctx, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber}); err != nil {
+		return false, describe(err)
+	}
+	_, err = conn.NewSession(ctx, acp.NewSessionRequest{Cwd: cwd, McpServers: []acp.McpServer{}})
+	var requestErr *acp.RequestError
+	if !errors.As(err, &requestErr) || requestErr.Code != authRequired {
+		return false, describe(err)
+	}
+	if _, err := conn.Authenticate(ctx, acp.AuthenticateRequest{MethodId: "oauth-personal"}); err != nil {
+		return false, describe(err)
+	}
+	return true, nil
+}
+
+// describe gives the message and the data of an ACP error.
+func describe(err error) error {
+	var requestErr *acp.RequestError
+	if !errors.As(err, &requestErr) {
+		return err
+	}
+	if requestErr.Data == nil {
+		return errors.New(requestErr.Message)
+	}
+	data, marshalErr := json.Marshal(requestErr.Data)
+	if marshalErr != nil {
+		return err
+	}
+	return fmt.Errorf("%s %s", requestErr.Message, data)
 }
 
 func (s *Session) open(ctx context.Context, cwd, mcpURL string) error {
@@ -129,6 +233,30 @@ func (s *Session) ID() string {
 	return string(s.id)
 }
 
+// Choices are the values of a session option and its current value.
+type Choices struct {
+	Values  []string
+	Current string
+}
+
+// Models gives the model choices. They have no values when the session has no model option.
+func (s *Session) Models() Choices {
+	return s.choices(acp.SessionConfigOptionCategoryModel)
+}
+
+// Efforts gives the effort choices. They have no values when the session has no thought_level option.
+func (s *Session) Efforts() Choices {
+	return s.choices(acp.SessionConfigOptionCategoryThoughtLevel)
+}
+
+func (s *Session) choices(category acp.SessionConfigOptionCategory) Choices {
+	option := s.option(category)
+	if option == nil {
+		return Choices{}
+	}
+	return Choices{Values: values(option), Current: string(option.CurrentValue)}
+}
+
 // Configure sets the model, the effort when it is not empty, and the full auto mode.
 func (s *Session) Configure(ctx context.Context, model, effort string) error {
 	if err := s.set(ctx, acp.SessionConfigOptionCategoryModel, "model", model); err != nil {
@@ -139,17 +267,25 @@ func (s *Session) Configure(ctx context.Context, model, effort string) error {
 			return err
 		}
 	}
-	return s.set(ctx, acp.SessionConfigOptionCategoryMode, "mode", fullAutoMode)
+	mode, ok := fullAutoModes[s.harness]
+	if !ok {
+		return nil
+	}
+	return s.set(ctx, acp.SessionConfigOptionCategoryMode, "mode", mode)
+}
+
+func (s *Session) option(category acp.SessionConfigOptionCategory) *acp.SessionConfigOptionSelect {
+	for _, candidate := range s.options {
+		if candidate.Select != nil && candidate.Select.Category != nil && *candidate.Select.Category == category {
+			return candidate.Select
+		}
+	}
+	return nil
 }
 
 func (s *Session) set(ctx context.Context, category acp.SessionConfigOptionCategory, name, value string) error {
-	var option *acp.SessionConfigOptionSelect
-	for _, candidate := range s.options {
-		if candidate.Select != nil && candidate.Select.Category != nil && *candidate.Select.Category == category {
-			option = candidate.Select
-			break
-		}
-	}
+	program := Program(s.harness)
+	option := s.option(category)
 	if option == nil {
 		return fmt.Errorf("%s has no %s option", program, name)
 	}

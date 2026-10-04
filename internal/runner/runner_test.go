@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/coder/acp-go-sdk"
+
+	"github.com/Mobius-Toolkit/mobius-go/internal/config"
 )
 
 func TestMain(m *testing.M) {
@@ -100,10 +102,10 @@ func startFakeAgent(t *testing.T, updates func(acp.SessionNotification)) *Sessio
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(exe, filepath.Join(dir, program)); err != nil {
+	if err := os.Symlink(exe, filepath.Join(dir, Program(config.ClaudeCode))); err != nil {
 		t.Fatal(err)
 	}
-	session, err := Start(context.Background(), dir, dir, dir, "http://127.0.0.1:1/mcp/key", updates)
+	session, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", updates)
 	if err != nil {
 		t.Fatal(err)
 	}
