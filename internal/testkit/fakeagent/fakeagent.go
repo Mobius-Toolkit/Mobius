@@ -21,6 +21,8 @@
 //	hang = true             # the turn ends only at session/cancel
 //
 // The reply has the texts of reply, then the text of call or list_tools, then the text of shell.
+//
+// After session/new, the agent lists the tools of the Mobius MCP server in the background, as Claude Code does.
 package fakeagent
 
 import (
@@ -216,7 +218,21 @@ func (a *agent) newSession(params json.RawMessage) (any, *acp.RequestError) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), "mcp_url"), []byte(a.mcpURL), 0o600); err != nil {
 		return nil, acp.NewInternalError(err.Error())
 	}
+	if a.mcpURL != "" {
+		go listTools(a.mcpURL)
+	}
 	return map[string]any{"sessionId": "fake-session", "configOptions": a.options}, nil
+}
+
+// listTools lists the tools of the MCP server at url. As in Claude Code, a failed list only leaves the session with no tools.
+func listTools(url string) {
+	client := sdk.NewClient(&sdk.Implementation{Name: "fake-agent", Version: "0.1.0"}, nil)
+	session, err := client.Connect(context.Background(), &sdk.StreamableClientTransport{Endpoint: url}, nil)
+	if err != nil {
+		return
+	}
+	defer func() { _ = session.Close() }()
+	_, _ = session.ListTools(context.Background(), nil)
 }
 
 func (a *agent) send(ctx context.Context, sessionID string, update any) error {
