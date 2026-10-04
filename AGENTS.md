@@ -28,6 +28,8 @@ orval does not read `contentSchema` and `itemSchema` of OpenAPI 3.2. Thus `web/o
 - It replaces each schema that has `contentMediaType: application/json` with its `contentSchema`. Thus the generated event types have the decoded data type.
 - It removes each operation that has only `text/event-stream` success responses, because the generated function waits for the full body. The components stay, so the event types stay.
 
+To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` with the generated event type, for example `onEvent<LiveEvents, 'activity'>(source, 'activity', listener)`. A wrong event name or a wrong data field gives a type error.
+
 ## Migrations
 
 `internal/store/migrations/` holds copies of the migration files of the Rust version (`crates/mobius-store/migrations` in Mobius-Toolkit/Mobius). Do not change these files. Add a new migration only as a copy of a new Rust migration.
@@ -49,6 +51,7 @@ api/openapi.json       the generated OpenAPI spec
 web/                   the React frontend (Vite, TypeScript, Tailwind CSS, shadcn/ui)
 web/src/api/           the generated API client and types
 web/src/components/ui/ the shadcn/ui components
+web/src/lib/events.ts  the typed listener of server-sent events (onEvent)
 web/embed.go           embeds web/dist into the binary and serves it
 .mobius/check          the local check, also used in CI
 ```
