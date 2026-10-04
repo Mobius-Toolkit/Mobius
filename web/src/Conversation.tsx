@@ -69,7 +69,7 @@ function Message({ message }: { message: ChatMessage }) {
       </div>
       {event && body ? (
         <Collapsible>
-          <CollapsibleTrigger className="group flex min-w-0 items-start gap-1 text-left break-words">
+          <CollapsibleTrigger className="group flex w-full min-w-0 items-start gap-1 text-left break-words">
             <ChevronRightIcon className="mt-0.5 size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
             <span className="min-w-0">{summary}</span>
           </CollapsibleTrigger>
