@@ -59,8 +59,8 @@ type TranscriptLine struct {
 	Body string `gork:"body"`
 	// Folded is true for the first prompt of the session, which starts with the Role prompt
 	Folded bool `gork:"folded"`
-	// Failed is true for an error row and for a Mobius tool call that failed
-	Failed bool `gork:"failed"`
+	// Error is true for an error row and for a Mobius tool call that failed
+	Error bool `gork:"error"`
 	// Raw is the JSON text of the row, for example the full ACP update
 	Raw string `gork:"raw"`
 }
@@ -243,7 +243,7 @@ func transcriptLineOf(line engine.Line) TranscriptLine {
 		HarnessToolName: line.HarnessToolName,
 		Body:            line.Body,
 		Folded:          line.Folded,
-		Failed:          line.Error,
+		Error:           line.Error,
 		Raw:             line.Raw,
 	}
 }

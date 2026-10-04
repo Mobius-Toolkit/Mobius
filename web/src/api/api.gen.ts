@@ -269,11 +269,17 @@ export interface DrainEnd {
   end: DrainEndEnd;
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeActiveAgents {
   /** Data is the payload of the response */
   data: ActiveAgents;
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeArrayAgent {
   /** Data is the payload of the response */
   data: Agent[];
@@ -291,6 +297,9 @@ export interface GitHubApp {
   slug: string;
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeArrayGitHubApp {
   /** Data is the payload of the response */
   data: GitHubApp[];
@@ -315,8 +324,8 @@ export const TranscriptLineKind = {
 export interface TranscriptLine {
   /** Body is the text below Text. It can be empty */
   body: string;
-  /** Failed is true for an error row and for a Mobius tool call that failed */
-  failed: boolean;
+  /** Error is true for an error row and for a Mobius tool call that failed */
+  error: boolean;
   /** Folded is true for the first prompt of the session, which starts with the Role prompt */
   folded: boolean;
   /** HarnessToolName is the name of a Mobius tool in the Harness, for example mcp__mobius__list_tasks. It is empty for each other row */
@@ -335,6 +344,9 @@ export interface TranscriptLine {
   time: string;
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeArrayTranscriptLine {
   /** Data is the payload of the response */
   data: TranscriptLine[];
@@ -356,31 +368,49 @@ export interface Workstream {
   tasks: number;
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeArrayWorkstream {
   /** Data is the payload of the response */
   data: Workstream[];
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeArrayString {
   /** Data is the payload of the response */
   data: string[];
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeCheckup {
   /** Data is the payload of the response */
   data: Checkup;
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeDevices {
   /** Data is the payload of the response */
   data: Devices;
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeDrain {
   /** Data is the payload of the response */
   data: Drain;
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeDrainEnd {
   /** Data is the payload of the response */
   data: DrainEnd;
@@ -396,6 +426,9 @@ export interface Health {
   time: string;
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeHealth {
   /** Data is the payload of the response */
   data: Health;
@@ -411,6 +444,9 @@ export interface ManifestForm {
   url: string;
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeManifestForm {
   /** Data is the payload of the response */
   data: ManifestForm;
@@ -424,6 +460,9 @@ export interface Upgrade {
   failure: string;
 }
 
+/**
+ * Envelope is the body of each success response.
+ */
 export interface EnvelopeUpgrade {
   /** Data is the payload of the response */
   data: Upgrade;
