@@ -7,6 +7,7 @@ dev-web:
 	cd web && pnpm dev
 
 generate:
+	go tool sqlc generate
 	go tool gork openapi generate --build ./cmd/mobius --source ./internal/api --output api/openapi.json
 	cd web && pnpm gen:api
 

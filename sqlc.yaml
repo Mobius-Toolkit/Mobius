@@ -1,0 +1,10 @@
+version: "2"
+sql:
+  - engine: sqlite
+    schema: internal/store/migrations
+    queries: internal/store/queries.sql
+    gen:
+      go:
+        package: store
+        out: internal/store
+        omit_unused_structs: true

@@ -10,7 +10,7 @@ import (
 
 func TestGetHealth(t *testing.T) {
 	mux := http.NewServeMux()
-	Routes(mux)
+	Routes(mux, nil)
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/health", nil))

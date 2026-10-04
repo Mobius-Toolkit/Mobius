@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/api/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["StreamEvents-fm"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -21,10 +37,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workstreams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["ListWorkstreams-fm"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * Activity
+         * @description Activity is an entry of the activity feed of a Workstream.
+         */
+        Activity: {
+            /** @description Actor is the GitHub login that did the activity */
+            actor: string;
+            /** @description ID increases with each new activity */
+            id: number;
+            /** @description Issue is the number of the issue of the activity */
+            issue: number;
+            /** @description Link is the GitHub URL of the activity */
+            link: string;
+            /** @description Repository is the repository of the Workstream issue, as "owner/name" */
+            repository: string;
+            /** @description Text tells what happened */
+            text: string;
+            /**
+             * Format: date-time
+             * @description Time is the time of the activity
+             */
+            time: string;
+            /** @description Workstream is the number of the Workstream issue */
+            workstream: number;
+        };
         /**
          * ErrorResponse
          * @description Generic error response structure
@@ -57,6 +114,36 @@ export interface components {
             details?: Record<string, never>;
             /** @description Error message */
             error: string;
+        };
+        /**
+         * Workstream
+         * @description Workstream is a Workstream that has rows in the database.
+         */
+        Workstream: {
+            /**
+             * Format: date-time
+             * @description LastActivity is the time of the latest row of the Workstream
+             */
+            lastActivity: string;
+            /** @description Number is the number of the Workstream issue */
+            number: number;
+            /** @description OpenTasks is the number of tasks that are not ended or stopped */
+            openTasks: number;
+            /** @description Repository is the repository of the Workstream issue, as "owner/name" */
+            repository: string;
+            /** @description Tasks is the number of tasks of the Workstream */
+            tasks: number;
+        };
+        /**
+         * WorkstreamList
+         * @description WorkstreamList is the list of Workstreams, the most recently active first.
+         */
+        WorkstreamList: {
+            /**
+             * []Workstream
+             * @description Array of Workstream
+             */
+            workstreams: components["schemas"]["Workstream"][];
         };
     };
     responses: {
@@ -95,6 +182,29 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    "StreamEvents-fm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Event stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     GetHealth: {
         parameters: {
             query?: never;
@@ -111,6 +221,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            422: components["responses"]["UnprocessableEntity"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    "ListWorkstreams-fm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkstreamList"];
                 };
             };
             400: components["responses"]["BadRequest"];
