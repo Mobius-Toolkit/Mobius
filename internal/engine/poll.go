@@ -14,8 +14,9 @@ import (
 // issuesEndpoint is the endpoint of the issue list in the sync_cursors table.
 const issuesEndpoint = "issues"
 
-// poll reads the repositories of the Apps. Then, for each repository, it fixes the labels
-// at the first sight in this run of the server, and reads the changed issues.
+// poll reads the repositories of the Apps. Then, for each repository, it fixes the labels at the first sight in
+// this run of the server, hands the lost tasks to a human until that step works one time, and reads the changed
+// issues. The work of a repository starts again at its first poll, because the work needs GitHub.
 func (e *Engine) poll(ctx context.Context) {
 	if err := e.github.Refresh(ctx); err != nil {
 		log.Printf("read the repositories of the GitHub Apps: %v", err)
@@ -27,6 +28,13 @@ func (e *Engine) poll(ctx context.Context) {
 			if err := FixLabels(ctx, repository); err != nil {
 				log.Printf("fix the labels of %s: %v", repository.FullName, err)
 			}
+		}
+		if !e.recovered[repository.FullName] {
+			if err := e.handLostTasks(ctx, repository); err != nil {
+				log.Printf("hand the lost tasks of %s to a human: %v", repository.FullName, err)
+				continue
+			}
+			e.recovered[repository.FullName] = true
 		}
 		if err := e.changedIssues(ctx, repository); err != nil {
 			log.Printf("poll the issues of %s: %v", repository.FullName, err)

@@ -37,6 +37,8 @@ type Agent struct {
 	EndedAt *time.Time `gork:"endedAt"`
 	// EndReason tells why the session ended, for example done or failed. It is empty while the session is live
 	EndReason string `gork:"endReason"`
+	// QueueReason tells why the session waits, for example for a slot or for the end of a usage limit. It is empty while the session does not wait
+	QueueReason string `gork:"queueReason"`
 }
 
 // TranscriptLine is a row of the Transcript of a session.
@@ -97,6 +99,79 @@ func (h *handlers) ListAgents(ctx context.Context, req ListAgentsRequest) (*List
 	return &ListAgentsResponse{Body: Envelope[[]Agent]{Data: agents}}, nil
 }
 
+// ActiveAgent is an open session on the agents page.
+type ActiveAgent struct {
+	// Agent is the session
+	Agent Agent `gork:"agent"`
+	// WorkstreamTitle is the title of the Workstream of the session, or null when the store has no copy of it
+	WorkstreamTitle *string `gork:"workstreamTitle"`
+	// IssueTitle is the title of the issue of the session, or null when the store has no copy of it
+	IssueTitle *string `gork:"issueTitle"`
+	// PullRequest is the pull request of the newest task of the issue of the session, or null
+	PullRequest *int64 `gork:"pullRequest"`
+}
+
+// AgentGroup is the open sessions of one Role.
+type AgentGroup struct {
+	// Name is the name of the Role, for example Implementer
+	Name string `gork:"name"`
+	// Count is the number of sessions of the Role that hold a slot. A queued session holds no slot
+	Count int64 `gork:"count"`
+	// Max is the max number of sessions of the Role
+	Max int64 `gork:"max"`
+	// Agents are the open sessions of the Role, the oldest first
+	Agents []ActiveAgent `gork:"agents"`
+}
+
+// ActiveAgents are the open sessions of all organizations.
+type ActiveAgents struct {
+	// Count is the number of sessions that hold a slot and count in max_agents
+	Count int64 `gork:"count"`
+	// Max is max_agents
+	Max int64 `gork:"max"`
+	// Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge
+	Groups []AgentGroup `gork:"groups"`
+}
+
+// ListActiveAgentsRequest is the request of ListActiveAgents.
+type ListActiveAgentsRequest struct{}
+
+// ListActiveAgentsResponse is the response of ListActiveAgents.
+type ListActiveAgentsResponse struct {
+	Body Envelope[ActiveAgents]
+}
+
+// ListActiveAgents returns the open sessions of all organizations in one group for each Role, with the slot counts and the limits of the config.
+func (h *handlers) ListActiveAgents(ctx context.Context, _ ListActiveAgentsRequest) (*ListActiveAgentsResponse, error) {
+	found, err := h.engine.ActiveAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	active := ActiveAgents{Count: int64(found.Count), Max: int64(found.Max), Groups: make([]AgentGroup, 0, len(found.Groups))}
+	for _, group := range found.Groups {
+		agents := make([]ActiveAgent, 0, len(group.Agents))
+		for _, found := range group.Agents {
+			agent, err := agentOf(found.Node)
+			if err != nil {
+				return nil, err
+			}
+			row := ActiveAgent{Agent: agent}
+			if found.WorkstreamTitle.Valid {
+				row.WorkstreamTitle = &found.WorkstreamTitle.String
+			}
+			if found.IssueTitle.Valid {
+				row.IssueTitle = &found.IssueTitle.String
+			}
+			if found.PullRequest.Valid {
+				row.PullRequest = &found.PullRequest.Int64
+			}
+			agents = append(agents, row)
+		}
+		active.Groups = append(active.Groups, AgentGroup{Name: group.Title, Count: int64(group.Count), Max: int64(group.Max), Agents: agents})
+	}
+	return &ListActiveAgentsResponse{Body: Envelope[ActiveAgents]{Data: active}}, nil
+}
+
 // GetTranscriptRequest is the request of GetTranscript.
 type GetTranscriptRequest struct {
 	Path struct {
@@ -136,6 +211,7 @@ func agentOf(node engine.Node) (Agent, error) {
 		Repository:   session.Repository,
 		Workstream:   session.Workstream,
 		EndReason:    session.EndReason.String,
+		QueueReason:  session.QueueReason.String,
 	}
 	if session.Issue.Valid {
 		agent.Issue = &session.Issue.Int64

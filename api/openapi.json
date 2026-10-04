@@ -5,6 +5,51 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/agents": {
+      "get": {
+        "description": "ListActiveAgents returns the open sessions of all organizations in one group for each Role, with the slot counts and the limits of the config.",
+        "operationId": "ListActiveAgents",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_ActiveAgents"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "agents"
+        ]
+      }
+    },
     "/api/agents/{id}/transcript": {
       "get": {
         "description": "GetTranscript returns the Transcript of a session, the oldest row first.",
@@ -259,9 +304,133 @@
         ]
       }
     },
+    "/api/drain": {
+      "get": {
+        "description": "GetDrain returns the state of the drain.",
+        "operationId": "GetDrain",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Drain"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "upgrade"
+        ]
+      },
+      "post": {
+        "description": "StartDrain holds each new Worker in the queue, and returns when no agent runs or when the Owner cancels the drain.",
+        "operationId": "StartDrain",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_DrainEnd"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "upgrade"
+        ]
+      },
+      "delete": {
+        "description": "CancelDrain ends the drain, so the held Workers start. It does nothing while the upgrade replaces the program.",
+        "operationId": "CancelDrain",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "upgrade"
+        ]
+      }
+    },
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends the latest activities, and then each new activity, each start and end of a session, and each new or changed Transcript row. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
+        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each new or changed Transcript row, each change of the drain, and each start and failure of an upgrade. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
         "operationId": "StreamEvents",
         "parameters": [
           {
@@ -460,6 +629,55 @@
         ]
       }
     },
+    "/api/inbox/{id}/resume": {
+      "post": {
+        "description": "Resume ends the pause of a Harness now, so the sessions that wait for it send their prompts again. It also closes the Inbox item.",
+        "operationId": "Resume",
+        "parameters": [
+          {
+            "description": "ID is the id of the usage-limit Inbox item of the pause",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "inbox"
+        ]
+      }
+    },
     "/api/login": {
       "post": {
         "description": "Login makes a device login when the password is the access password, and sets the token of the device login in a cookie.",
@@ -556,6 +774,104 @@
         ],
         "tags": [
           "github"
+        ]
+      }
+    },
+    "/api/upgrade": {
+      "get": {
+        "description": "GetUpgrade returns the error of the last upgrade.",
+        "operationId": "GetUpgrade",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Upgrade"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "upgrade"
+        ]
+      },
+      "post": {
+        "description": "StartUpgrade downloads the newest release, drains the agents, and restarts Mobius with the new release. It returns drained when the new release starts, and cancelled when the Owner cancels the drain. The upgrade goes on when the client closes the request.",
+        "operationId": "StartUpgrade",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_DrainEnd"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "upgrade"
         ]
       }
     },
@@ -681,6 +997,72 @@
   },
   "components": {
     "schemas": {
+      "ActiveAgent": {
+        "type": "object",
+        "title": "ActiveAgent",
+        "properties": {
+          "agent": {
+            "$ref": "#/components/schemas/Agent",
+            "description": "Agent is the session"
+          },
+          "issueTitle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "IssueTitle is the title of the issue of the session, or null when the store has no copy of it"
+          },
+          "pullRequest": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "PullRequest is the pull request of the newest task of the issue of the session, or null"
+          },
+          "workstreamTitle": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "WorkstreamTitle is the title of the Workstream of the session, or null when the store has no copy of it"
+          }
+        },
+        "required": [
+          "agent",
+          "workstreamTitle",
+          "issueTitle",
+          "pullRequest"
+        ],
+        "description": "ActiveAgent is an open session on the agents page."
+      },
+      "ActiveAgents": {
+        "type": "object",
+        "title": "ActiveAgents",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "description": "Count is the number of sessions that hold a slot and count in max_agents"
+          },
+          "groups": {
+            "type": "array",
+            "title": "[]AgentGroup",
+            "description": "Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge",
+            "items": {
+              "$ref": "#/components/schemas/AgentGroup"
+            }
+          },
+          "max": {
+            "type": "integer",
+            "description": "Max is max_agents"
+          }
+        },
+        "required": [
+          "count",
+          "max",
+          "groups"
+        ],
+        "description": "ActiveAgents are the open sessions of all organizations."
+      },
       "Activity": {
         "type": "object",
         "title": "Activity",
@@ -781,6 +1163,10 @@
             ],
             "description": "Parent is the id of the session of the agent that started this session, or null"
           },
+          "queueReason": {
+            "type": "string",
+            "description": "QueueReason tells why the session waits, for example for a slot or for the end of a usage limit. It is empty while the session does not wait"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository as \"owner/name\". It is empty for the Triager chat"
@@ -817,9 +1203,43 @@
           "parent",
           "startedAt",
           "endedAt",
-          "endReason"
+          "endReason",
+          "queueReason"
         ],
         "description": "Agent is the session of an agent."
+      },
+      "AgentGroup": {
+        "type": "object",
+        "title": "AgentGroup",
+        "properties": {
+          "agents": {
+            "type": "array",
+            "title": "[]ActiveAgent",
+            "description": "Agents are the open sessions of the Role, the oldest first",
+            "items": {
+              "$ref": "#/components/schemas/ActiveAgent"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "description": "Count is the number of sessions of the Role that hold a slot. A queued session holds no slot"
+          },
+          "max": {
+            "type": "integer",
+            "description": "Max is the max number of sessions of the Role"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name is the name of the Role, for example Implementer"
+          }
+        },
+        "required": [
+          "name",
+          "count",
+          "max",
+          "agents"
+        ],
+        "description": "AgentGroup is the open sessions of one Role."
       },
       "Checkup": {
         "type": "object",
@@ -933,6 +1353,56 @@
         ],
         "description": "Devices are the device logins."
       },
+      "Drain": {
+        "type": "object",
+        "title": "Drain",
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "description": "On is true while the drain holds the new Workers. A completed drain stays on until a cancel or the restart"
+          },
+          "waiting": {
+            "type": "integer",
+            "description": "Waiting is the number of agents that the drain waits for"
+          }
+        },
+        "required": [
+          "on",
+          "waiting"
+        ],
+        "description": "Drain is the state of the drain before an upgrade."
+      },
+      "DrainEnd": {
+        "type": "object",
+        "title": "DrainEnd",
+        "properties": {
+          "end": {
+            "type": "string",
+            "description": "End is drained when no agent of Mobius runs, and cancelled when the Owner cancelled the drain",
+            "enum": [
+              "drained",
+              "cancelled"
+            ]
+          }
+        },
+        "required": [
+          "end"
+        ],
+        "description": "DrainEnd tells how a drain ended."
+      },
+      "Envelope_ActiveAgents": {
+        "type": "object",
+        "title": "Envelope_ActiveAgents",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ActiveAgents",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
       "Envelope_Array_Agent": {
         "type": "object",
         "title": "Envelope_Array_Agent",
@@ -1044,6 +1514,32 @@
           "data"
         ]
       },
+      "Envelope_Drain": {
+        "type": "object",
+        "title": "Envelope_Drain",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Drain",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "Envelope_DrainEnd": {
+        "type": "object",
+        "title": "Envelope_DrainEnd",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DrainEnd",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
       "Envelope_Health": {
         "type": "object",
         "title": "Envelope_Health",
@@ -1063,6 +1559,19 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/ManifestForm",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "Envelope_Upgrade": {
+        "type": "object",
+        "title": "Envelope_Upgrade",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Upgrade",
             "description": "Data is the payload of the response"
           }
         },
@@ -1256,6 +1765,52 @@
               "event",
               "data"
             ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "$ref": "#/components/schemas/Drain"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "drain"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "$ref": "#/components/schemas/Upgrade"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "upgrade"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
           }
         ],
         "description": "LiveEvents are the events of the live event stream. Only an activity has an event id."
@@ -1414,6 +1969,20 @@
           "raw"
         ],
         "description": "TranscriptLine is a row of the Transcript of a session."
+      },
+      "Upgrade": {
+        "type": "object",
+        "title": "Upgrade",
+        "properties": {
+          "failure": {
+            "type": "string",
+            "description": "Failure is the error of the last upgrade. It is empty when the last upgrade has no error"
+          }
+        },
+        "required": [
+          "failure"
+        ],
+        "description": "Upgrade is the state of the last upgrade."
       },
       "ValidationErrorResponse": {
         "type": "object",

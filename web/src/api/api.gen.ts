@@ -5,28 +5,6 @@
  * OpenAPI spec version: 0.1.0
  */
 /**
- * Activity is an entry of the activity feed of a Workstream.
- */
-export interface Activity {
-  /** Actor is the GitHub login that did the activity */
-  actor: string;
-  /** ID increases with each new activity */
-  id: number;
-  /** Issue is the number of the issue of the activity */
-  issue: number;
-  /** Link is the GitHub URL of the activity */
-  link: string;
-  /** Repository is the repository of the Workstream issue, as "owner/name" */
-  repository: string;
-  /** Text tells what happened */
-  text: string;
-  /** Time is the time of the activity */
-  time: string;
-  /** Workstream is the number of the Workstream issue */
-  workstream: number;
-}
-
-/**
  * Agent is the session of an agent.
  */
 export interface Agent {
@@ -57,6 +35,8 @@ export interface Agent {
      * @nullable
      */
   parent: number | null;
+  /** QueueReason tells why the session waits, for example for a slot or for the end of a usage limit. It is empty while the session does not wait */
+  queueReason: string;
   /** Repository is the repository as "owner/name". It is empty for the Triager chat */
   repository: string;
   /** Role is the Role as the sessions table names it, for example lead_chat */
@@ -66,6 +46,77 @@ export interface Agent {
   /** Title tells what the session works on, for example "chat session". It can be empty */
   title: string;
   /** Workstream is the number of the Workstream issue. It is 0 for the Triager */
+  workstream: number;
+}
+
+/**
+ * ActiveAgent is an open session on the agents page.
+ */
+export interface ActiveAgent {
+  /** Agent is the session */
+  agent: Agent;
+  /**
+     * IssueTitle is the title of the issue of the session, or null when the store has no copy of it
+     * @nullable
+     */
+  issueTitle: string | null;
+  /**
+     * PullRequest is the pull request of the newest task of the issue of the session, or null
+     * @nullable
+     */
+  pullRequest: number | null;
+  /**
+     * WorkstreamTitle is the title of the Workstream of the session, or null when the store has no copy of it
+     * @nullable
+     */
+  workstreamTitle: string | null;
+}
+
+/**
+ * AgentGroup is the open sessions of one Role.
+ */
+export interface AgentGroup {
+  /** Agents are the open sessions of the Role, the oldest first */
+  agents: ActiveAgent[];
+  /** Count is the number of sessions of the Role that hold a slot. A queued session holds no slot */
+  count: number;
+  /** Max is the max number of sessions of the Role */
+  max: number;
+  /** Name is the name of the Role, for example Implementer */
+  name: string;
+}
+
+/**
+ * ActiveAgents are the open sessions of all organizations.
+ */
+export interface ActiveAgents {
+  /** Count is the number of sessions that hold a slot and count in max_agents */
+  count: number;
+  /** Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge */
+  groups: AgentGroup[];
+  /** Max is max_agents */
+  max: number;
+}
+
+/**
+ * Activity is an entry of the activity feed of a Workstream.
+ */
+export interface Activity {
+  /** Actor is the GitHub login that did the activity */
+  actor: string;
+  /** ID increases with each new activity */
+  id: number;
+  /** Issue is the number of the issue of the activity */
+  issue: number;
+  /** Link is the GitHub URL of the activity */
+  link: string;
+  /** Repository is the repository of the Workstream issue, as "owner/name" */
+  repository: string;
+  /** Text tells what happened */
+  text: string;
+  /** Time is the time of the activity */
+  time: string;
+  /** Workstream is the number of the Workstream issue */
   workstream: number;
 }
 
@@ -189,6 +240,40 @@ export interface Devices {
   thisDevice: number;
 }
 
+/**
+ * Drain is the state of the drain before an upgrade.
+ */
+export interface Drain {
+  /** On is true while the drain holds the new Workers. A completed drain stays on until a cancel or the restart */
+  on: boolean;
+  /** Waiting is the number of agents that the drain waits for */
+  waiting: number;
+}
+
+/**
+ * End is drained when no agent of Mobius runs, and cancelled when the Owner cancelled the drain
+ */
+export type DrainEndEnd = typeof DrainEndEnd[keyof typeof DrainEndEnd];
+
+
+export const DrainEndEnd = {
+  drained: 'drained',
+  cancelled: 'cancelled',
+} as const;
+
+/**
+ * DrainEnd tells how a drain ended.
+ */
+export interface DrainEnd {
+  /** End is drained when no agent of Mobius runs, and cancelled when the Owner cancelled the drain */
+  end: DrainEndEnd;
+}
+
+export interface EnvelopeActiveAgents {
+  /** Data is the payload of the response */
+  data: ActiveAgents;
+}
+
 export interface EnvelopeArrayAgent {
   /** Data is the payload of the response */
   data: Agent[];
@@ -291,6 +376,16 @@ export interface EnvelopeDevices {
   data: Devices;
 }
 
+export interface EnvelopeDrain {
+  /** Data is the payload of the response */
+  data: Drain;
+}
+
+export interface EnvelopeDrainEnd {
+  /** Data is the payload of the response */
+  data: DrainEnd;
+}
+
 /**
  * Health is the state of the server.
  */
@@ -319,6 +414,19 @@ export interface ManifestForm {
 export interface EnvelopeManifestForm {
   /** Data is the payload of the response */
   data: ManifestForm;
+}
+
+/**
+ * Upgrade is the state of the last upgrade.
+ */
+export interface Upgrade {
+  /** Failure is the error of the last upgrade. It is empty when the last upgrade has no error */
+  failure: string;
+}
+
+export interface EnvelopeUpgrade {
+  /** Data is the payload of the response */
+  data: Upgrade;
 }
 
 /**
@@ -355,6 +463,14 @@ export type LiveEvents = {
 } | {
   data: TranscriptLine;
   event: 'transcript';
+  id?: string;
+} | {
+  data: Drain;
+  event: 'drain';
+  id?: string;
+} | {
+  data: Upgrade;
+  event: 'upgrade';
   id?: string;
 };
 
@@ -399,6 +515,71 @@ export type GetCheckupParams = {
  */
 organization: string;
 };
+
+export type listActiveAgentsResponse200 = {
+  data: EnvelopeActiveAgents
+  status: 200
+}
+
+export type listActiveAgentsResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listActiveAgentsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listActiveAgentsResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listActiveAgentsResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listActiveAgentsResponseSuccess = (listActiveAgentsResponse200) & {
+  headers: Headers;
+};
+export type listActiveAgentsResponseError = (listActiveAgentsResponse400 | listActiveAgentsResponse401 | listActiveAgentsResponse422 | listActiveAgentsResponse500) & {
+  headers: Headers;
+};
+
+export type listActiveAgentsResponse = (listActiveAgentsResponseSuccess | listActiveAgentsResponseError)
+
+export const getListActiveAgentsUrl = () => {
+
+
+
+
+  return `/api/agents`
+}
+
+/**
+ * ListActiveAgents returns the open sessions of all organizations in one group for each Role, with the slot counts and the limits of the config.
+ */
+export const listActiveAgents = async ( ): Promise<listActiveAgentsResponse> => {
+
+  const res = await fetch(getListActiveAgentsUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listActiveAgentsResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listActiveAgentsResponse
+}
+
+
 
 export type getTranscriptResponse200 = {
   data: EnvelopeArrayTranscriptLine
@@ -732,6 +913,201 @@ export const logout = async (id: number, ): Promise<logoutResponse> => {
 
 
 
+export type getDrainResponse200 = {
+  data: EnvelopeDrain
+  status: 200
+}
+
+export type getDrainResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getDrainResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getDrainResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getDrainResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getDrainResponseSuccess = (getDrainResponse200) & {
+  headers: Headers;
+};
+export type getDrainResponseError = (getDrainResponse400 | getDrainResponse401 | getDrainResponse422 | getDrainResponse500) & {
+  headers: Headers;
+};
+
+export type getDrainResponse = (getDrainResponseSuccess | getDrainResponseError)
+
+export const getGetDrainUrl = () => {
+
+
+
+
+  return `/api/drain`
+}
+
+/**
+ * GetDrain returns the state of the drain.
+ */
+export const getDrain = async ( ): Promise<getDrainResponse> => {
+
+  const res = await fetch(getGetDrainUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getDrainResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getDrainResponse
+}
+
+
+
+export type startDrainResponse200 = {
+  data: EnvelopeDrainEnd
+  status: 200
+}
+
+export type startDrainResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type startDrainResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type startDrainResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type startDrainResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type startDrainResponseSuccess = (startDrainResponse200) & {
+  headers: Headers;
+};
+export type startDrainResponseError = (startDrainResponse400 | startDrainResponse401 | startDrainResponse422 | startDrainResponse500) & {
+  headers: Headers;
+};
+
+export type startDrainResponse = (startDrainResponseSuccess | startDrainResponseError)
+
+export const getStartDrainUrl = () => {
+
+
+
+
+  return `/api/drain`
+}
+
+/**
+ * StartDrain holds each new Worker in the queue, and returns when no agent runs or when the Owner cancels the drain.
+ */
+export const startDrain = async ( ): Promise<startDrainResponse> => {
+
+  const res = await fetch(getStartDrainUrl(),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: startDrainResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as startDrainResponse
+}
+
+
+
+export type cancelDrainResponse204 = {
+  data: void
+  status: 204
+}
+
+export type cancelDrainResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type cancelDrainResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type cancelDrainResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type cancelDrainResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type cancelDrainResponseSuccess = (cancelDrainResponse204) & {
+  headers: Headers;
+};
+export type cancelDrainResponseError = (cancelDrainResponse400 | cancelDrainResponse401 | cancelDrainResponse422 | cancelDrainResponse500) & {
+  headers: Headers;
+};
+
+export type cancelDrainResponse = (cancelDrainResponseSuccess | cancelDrainResponseError)
+
+export const getCancelDrainUrl = () => {
+
+
+
+
+  return `/api/drain`
+}
+
+/**
+ * CancelDrain ends the drain, so the held Workers start. It does nothing while the upgrade replaces the program.
+ */
+export const cancelDrain = async ( ): Promise<cancelDrainResponse> => {
+
+  const res = await fetch(getCancelDrainUrl(),
+  {
+
+    method: 'DELETE'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: cancelDrainResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as cancelDrainResponse
+}
+
+
+
 export type listGitHubAppsResponse200 = {
   data: EnvelopeArrayGitHubApp
   status: 200
@@ -927,6 +1303,71 @@ export const getHealth = async ( ): Promise<getHealthResponse> => {
 
 
 
+export type resumeResponse204 = {
+  data: void
+  status: 204
+}
+
+export type resumeResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type resumeResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type resumeResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type resumeResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type resumeResponseSuccess = (resumeResponse204) & {
+  headers: Headers;
+};
+export type resumeResponseError = (resumeResponse400 | resumeResponse401 | resumeResponse422 | resumeResponse500) & {
+  headers: Headers;
+};
+
+export type resumeResponse = (resumeResponseSuccess | resumeResponseError)
+
+export const getResumeUrl = (id: number,) => {
+
+
+
+
+  return `/api/inbox/${id}/resume`
+}
+
+/**
+ * Resume ends the pause of a Harness now, so the sessions that wait for it send their prompts again. It also closes the Inbox item.
+ */
+export const resume = async (id: number, ): Promise<resumeResponse> => {
+
+  const res = await fetch(getResumeUrl(id),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: resumeResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as resumeResponse
+}
+
+
+
 export type loginResponse204 = {
   data: void
   status: 204
@@ -1053,6 +1494,141 @@ export const listOrganizations = async ( ): Promise<listOrganizationsResponse> =
 
   const data: listOrganizationsResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listOrganizationsResponse
+}
+
+
+
+export type getUpgradeResponse200 = {
+  data: EnvelopeUpgrade
+  status: 200
+}
+
+export type getUpgradeResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getUpgradeResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getUpgradeResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getUpgradeResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getUpgradeResponseSuccess = (getUpgradeResponse200) & {
+  headers: Headers;
+};
+export type getUpgradeResponseError = (getUpgradeResponse400 | getUpgradeResponse401 | getUpgradeResponse422 | getUpgradeResponse500) & {
+  headers: Headers;
+};
+
+export type getUpgradeResponse = (getUpgradeResponseSuccess | getUpgradeResponseError)
+
+export const getGetUpgradeUrl = () => {
+
+
+
+
+  return `/api/upgrade`
+}
+
+/**
+ * GetUpgrade returns the error of the last upgrade.
+ */
+export const getUpgrade = async ( ): Promise<getUpgradeResponse> => {
+
+  const res = await fetch(getGetUpgradeUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getUpgradeResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getUpgradeResponse
+}
+
+
+
+export type startUpgradeResponse200 = {
+  data: EnvelopeDrainEnd
+  status: 200
+}
+
+export type startUpgradeResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type startUpgradeResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type startUpgradeResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type startUpgradeResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type startUpgradeResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type startUpgradeResponseSuccess = (startUpgradeResponse200) & {
+  headers: Headers;
+};
+export type startUpgradeResponseError = (startUpgradeResponse400 | startUpgradeResponse401 | startUpgradeResponse409 | startUpgradeResponse422 | startUpgradeResponse500) & {
+  headers: Headers;
+};
+
+export type startUpgradeResponse = (startUpgradeResponseSuccess | startUpgradeResponseError)
+
+export const getStartUpgradeUrl = () => {
+
+
+
+
+  return `/api/upgrade`
+}
+
+/**
+ * StartUpgrade downloads the newest release, drains the agents, and restarts Mobius with the new release. It returns drained when the new release starts, and cancelled when the Owner cancels the drain. The upgrade goes on when the client closes the request.
+ */
+export const startUpgrade = async ( ): Promise<startUpgradeResponse> => {
+
+  const res = await fetch(getStartUpgradeUrl(),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: startUpgradeResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as startUpgradeResponse
 }
 
 

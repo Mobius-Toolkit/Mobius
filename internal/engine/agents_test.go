@@ -24,35 +24,43 @@ func TestMain(m *testing.M) {
 	if filepath.Base(os.Args[0]) == "gh" {
 		os.Exit(runner.GH(os.Args[1:], os.Getenv))
 	}
+	*engine.ToolsTimeout = 3 * time.Second
+	*engine.RestartDelays = []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 300 * time.Millisecond}
 	testkit.Main(m)
 }
 
-// options are the options of each fake Harness.
+// options are the options of each fake Harness. They have the models and the efforts of the Role bindings of testserver.Config.
 const options = `
 [options]
-model = ["sonnet", "opus"]
-thought_level = ["low", "high"]
-mode = ["default", "bypassPermissions"]
+model = ["sonnet", "opus", "haiku", "swe-1.5", "gemini-3-pro"]
+thought_level = ["low", "medium", "high"]
+mode = ["default", "bypassPermissions", "yolo"]
 `
-
-var lead = config.RoleBinding{Harness: config.ClaudeCode, Model: "opus", Effort: "high"}
 
 // connect starts a server with the Workstream #12 in owner/shop. Each Harness plays the fake agent with prompts.
 // connect waits for the first poll, so the engine has the repository.
 func connect(t *testing.T, fake *testkit.FakeGitHub, prompts string) (*testserver.Server, string) {
 	t.Helper()
+	return connectWith(t, fake, prompts, func(*config.Config) {})
+}
+
+// connectWith is connect with the config of testserver.Config after adjust.
+func connectWith(t *testing.T, fake *testkit.FakeGitHub, prompts string, adjust func(*config.Config)) (*testserver.Server, string) {
+	t.Helper()
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	dataDir := t.TempDir()
 	testkit.InstallFakeAgent(t, dataDir, options+prompts)
-	server := startServer(t, fake, dataDir, "")
+	cfg := testserver.Config(t, dataDir)
+	adjust(cfg)
+	server := startServerWith(t, fake, cfg, "")
 	server.WaitForFirstPoll(t, shop)
 	return server, dataDir
 }
 
 func leadSpec(t *testing.T) engine.Spec {
 	t.Helper()
-	return engine.Spec{Role: engine.LeadRole, Binding: lead, Organization: "owner", Repository: shop, Workstream: 12, Dir: t.TempDir()}
+	return engine.Spec{Role: engine.LeadRole, Organization: "owner", Repository: shop, Workstream: 12, Dir: t.TempDir()}
 }
 
 func start(t *testing.T, server *testserver.Server, spec engine.Spec) *engine.Agent {
@@ -165,15 +173,24 @@ func TestALeadSessionIsALeadNodeThatIsLiveUntilItEnds(t *testing.T) {
 // readEvent gives the event name and the data of the next event of the server-sent event stream r.
 func readEvent(t *testing.T, r *bufio.Reader) (string, string) {
 	t.Helper()
+	name, data, err := nextEvent(r)
+	if err != nil {
+		t.Fatalf("read event: %v", err)
+	}
+	return name, data
+}
+
+// nextEvent gives the event name and the data of the next event of the server-sent event stream r.
+func nextEvent(r *bufio.Reader) (string, string, error) {
 	var name, data string
 	for {
 		line, err := r.ReadString('\n')
 		if err != nil {
-			t.Fatalf("read event: %v", err)
+			return "", "", err
 		}
 		switch {
 		case line == "\n":
-			return name, data
+			return name, data, nil
 		case strings.HasPrefix(line, "event: "):
 			name = strings.TrimSuffix(strings.TrimPrefix(line, "event: "), "\n")
 		case strings.HasPrefix(line, "data: "):
@@ -215,7 +232,7 @@ func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndEachTranscriptLine(t *
 
 	var agents []agentEvent
 	var lines []lineEvent
-	for len(agents) < 2 {
+	for len(agents) == 0 || agents[len(agents)-1].EndedAt == nil {
 		name, data := readEvent(t, events)
 		switch name {
 		case "agent":
@@ -232,11 +249,17 @@ func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndEachTranscriptLine(t *
 			lines = append(lines, line)
 		}
 	}
-	if agents[0].ID != session || agents[0].Name != "Lead" || agents[0].EndedAt != nil {
-		t.Errorf("start = %+v", agents[0])
+	// The session comes at its addition, at its slot and at its end.
+	if len(agents) != 3 {
+		t.Fatalf("agents = %+v", agents)
 	}
-	if agents[1].ID != session || agents[1].EndedAt == nil || agents[1].EndReason != "done" {
-		t.Errorf("end = %+v", agents[1])
+	for _, start := range agents[:2] {
+		if start.ID != session || start.Name != "Lead" || start.EndedAt != nil {
+			t.Errorf("start = %+v", start)
+		}
+	}
+	if agents[2].ID != session || agents[2].EndReason != "done" {
+		t.Errorf("end = %+v", agents[2])
 	}
 	var message []string
 	for _, line := range lines {
@@ -466,13 +489,11 @@ reply = ["Done."]
 
 func TestAFailedStartEndsTheSessionWithTheError(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "")
-	spec := leadSpec(t)
-	spec.Binding.Model = "gpt-5"
+	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.Roles.Lead.Model = "gpt-5" })
 
-	_, err := server.Engine.Start(t.Context(), spec)
+	_, err := server.Engine.Start(t.Context(), leadSpec(t))
 
-	want := `claude-agent-acp refuses model "gpt-5", it has: sonnet, opus`
+	want := `claude-agent-acp refuses model "gpt-5", it has: sonnet, opus, haiku, swe-1.5, gemini-3-pro`
 	if err == nil || err.Error() != want {
 		t.Fatalf("error = %v", err)
 	}
@@ -492,8 +513,7 @@ func TestTheAgentsOfAWorkstreamComeWithTheirParents(t *testing.T) {
 	server, _ := connect(t, fake, "")
 	leadID := run(t, server, leadSpec(t))
 	implementer := leadSpec(t)
-	implementer.Role = "implementer"
-	implementer.Binding = config.RoleBinding{Harness: config.Devin, Model: "sonnet", Effort: "low"}
+	implementer.Role = engine.ImplementerRole
 	implementer.Issue = sql.NullInt64{Int64: 41, Valid: true}
 	implementer.Parent = sql.NullInt64{Int64: leadID, Valid: true}
 	child := run(t, server, implementer)

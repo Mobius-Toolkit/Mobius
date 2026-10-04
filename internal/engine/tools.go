@@ -27,7 +27,7 @@ type caller struct {
 	workstream int64
 }
 
-// refusal is a refused tool call. Its text goes back to the agent as a sentence.
+// refusal is a refused request, for example a tool call. Its text goes back to the agent or the Owner as a sentence.
 type refusal string
 
 func (r refusal) Error() string {
@@ -36,6 +36,12 @@ func (r refusal) Error() string {
 
 func refuse(format string, args ...any) error {
 	return refusal(fmt.Sprintf(format, args...))
+}
+
+// Refused tells if err is a refused request, whose text is a sentence for the Owner.
+func Refused(err error) bool {
+	var r refusal
+	return errors.As(err, &r)
 }
 
 // tools gives the Mobius tools of the Role of c. Each Role gets only its own tools.

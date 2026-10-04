@@ -64,7 +64,7 @@ cmd/mobius/            the mobius command: serve (the default) and init. With th
 internal/api/          the Gork routes and handlers, and the device login check of each route
 internal/auth/         the access password and the device logins
 internal/config/       reads config.toml
-internal/engine/       the poll of the repositories, the Mobius labels, the checkup, the trust rules, and the agent sessions with their Mobius tools and Transcripts
+internal/engine/       the poll of the repositories, the Mobius labels, the checkup, the trust rules, the agent sessions with their Mobius tools and Transcripts, the Worker slots and the queue, the usage-limit pauses, the Worker restarts, the Housekeeper, the recovery after a restart, the drain and the upgrade
 internal/github/       the GitHub Apps: the App setup, the user tokens, the installation tokens and the repositories
 internal/mcp/          the Mobius MCP server and the gh token of each session key
 internal/runner/       starts an agent session of a Harness through ACP, and holds the gh of the agent environment

@@ -1,0 +1,164 @@
+package engine_test
+
+import (
+	"bufio"
+	"encoding/json"
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/Mobius-Toolkit/mobius-go/internal/config"
+	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
+	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
+	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
+)
+
+const drainReason = "Mobius prepares an upgrade"
+
+type drainState struct {
+	On      bool  `json:"on"`
+	Waiting int64 `json:"waiting"`
+}
+
+// drainEvents gives the data of each drain event of the live event stream.
+func drainEvents(t *testing.T, server *testserver.Server) <-chan drainState {
+	t.Helper()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = response.Body.Close() })
+	states := make(chan drainState, 100)
+	go func() {
+		events := bufio.NewReader(response.Body)
+		for {
+			name, data, err := nextEvent(events)
+			if err != nil {
+				return
+			}
+			var state drainState
+			if name == "drain" && json.Unmarshal([]byte(data), &state) == nil {
+				states <- state
+			}
+		}
+	}()
+	return states
+}
+
+// startDrain starts the drain through the API, and gives the end of the drain when it comes.
+func startDrain(t *testing.T, server *testserver.Server) <-chan string {
+	t.Helper()
+	ends := make(chan string, 1)
+	go func() {
+		response, err := server.Client.Post(server.URL+"/api/drain", "application/json", nil)
+		if err != nil {
+			ends <- err.Error()
+			return
+		}
+		defer func() { _ = response.Body.Close() }()
+		var body struct {
+			Data struct {
+				End string `json:"end"`
+			} `json:"data"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+			ends <- err.Error()
+			return
+		}
+		ends <- body.Data.End
+	}()
+	return ends
+}
+
+func cancelDrain(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodDelete, server.URL+"/api/drain", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("cancel: status %d", response.StatusCode)
+	}
+}
+
+// waitForDrain waits for a drain event with state. The test fails after one minute.
+func waitForDrain(t *testing.T, states <-chan drainState, state drainState) {
+	t.Helper()
+	var seen []drainState
+	deadline := time.After(time.Minute)
+	for {
+		select {
+		case got := <-states:
+			if got == state {
+				return
+			}
+			seen = append(seen, got)
+		case <-deadline:
+			t.Fatalf("no drain event %+v after one minute, only %+v", state, seen)
+		}
+	}
+}
+
+func TestTheDrainHoldsNewWorkersWaitsForTheRunningSessionsAndACancelReleasesThem(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "[[prompts]]\nhang = true\n", func(cfg *config.Config) { cfg.MaxAgents = 1 })
+	states := drainEvents(t, server)
+	implementer := start(t, server, implementerSpec(t, server, 41))
+	go func() { _ = implementer.Prompt(t.Context(), "Store plans in cents.") }()
+	held := startLater(t.Context(), server, implementerSpec(t, server, 43))
+	waiting := queued(t, server, engine.ImplementerRole)
+	lead := start(t, server, leadSpec(t))
+
+	ends := startDrain(t, server)
+
+	waitForDrain(t, states, drainState{true, 2})
+	testkit.WaitFor(t, func() bool { return session(t, server, waiting.ID).QueueReason.String == drainReason })
+	end(t, implementer, "stopped")
+	waitForDrain(t, states, drainState{true, 1})
+	// The free slot does not go to the held Worker.
+	if got := session(t, server, waiting.ID); got.QueueReason.String != drainReason || got.AcpSessionID.Valid {
+		t.Errorf("held Worker = %+v", got)
+	}
+	end(t, lead, "idle")
+	if got := <-ends; got != "drained" {
+		t.Fatalf("drain end = %s", got)
+	}
+	waitForDrain(t, states, drainState{true, 0})
+	if got := server.Engine.Draining(); got != (engine.DrainState{On: true}) {
+		t.Errorf("drain = %+v", got)
+	}
+
+	cancelDrain(t, server)
+
+	waitForDrain(t, states, drainState{false, 0})
+	agent := await(t, held)
+	defer end(t, agent, "done")
+	if got := session(t, server, agent.ID()); got.QueueReason.Valid {
+		t.Errorf("released Worker = %+v", got)
+	}
+}
+
+func TestACancelEndsTheWaitOfTheDrain(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	states := drainEvents(t, server)
+	lead := start(t, server, leadSpec(t))
+	defer end(t, lead, "idle")
+	ends := startDrain(t, server)
+	waitForDrain(t, states, drainState{true, 1})
+
+	cancelDrain(t, server)
+
+	if got := <-ends; got != "cancelled" {
+		t.Errorf("drain end = %s", got)
+	}
+}
