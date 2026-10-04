@@ -100,6 +100,23 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue."},
 				},
 				e.moveTask),
+			tool(e, c, "ask",
+				"Ask the people on a task issue a question. Mobius posts the question as a comment, adds mobius:needs-human, and adds an Inbox item for the Owner. The reply arrives later as an event.",
+				map[string]any{
+					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"text": map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue."},
+				},
+				e.ask),
+			tool(e, c, "hold_event",
+				"Hold the event of this turn until the Owner decides. Mobius sends the event again after the end of your next reply to the Owner. A later event of the same task issue waits behind it. Call it only in a turn for an event.",
+				map[string]any{},
+				e.holdEvent),
+			tool(e, c, "tell_owner",
+				"Tell the Owner something. Mobius adds the text to the Lead chat and adds an Inbox item.",
+				map[string]any{
+					"text": map[string]any{"type": "string", "minLength": 1, "description": "The text for the Owner."},
+				},
+				e.tellOwner),
 		}
 	case TriagerRole:
 		return []mcp.Tool{
@@ -208,6 +225,10 @@ type numberInput struct {
 
 type textInput struct {
 	N    int64  `json:"n"`
+	Text string `json:"text"`
+}
+
+type tellInput struct {
 	Text string `json:"text"`
 }
 
@@ -384,6 +405,9 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 		log.Printf("copy the new Workstream %s#%d: %v", repository.FullName, issue.GetNumber(), err)
 	}
 	e.publish(Change{Workstreams: true})
+	if c.role == TriagerRole {
+		e.publish(Change{Created: &Created{repository.FullName, int64(issue.GetNumber())}})
+	}
 	return fmt.Sprintf("Created the Workstream #%d.", issue.GetNumber()), nil
 }
 

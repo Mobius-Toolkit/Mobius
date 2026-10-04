@@ -143,13 +143,52 @@ INSERT INTO inbox_items (kind, organization, repository, workstream, issue, text
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
--- name: DismissInboxItem :exec
-UPDATE inbox_items SET dismissed_at = ? WHERE id = ?;
+-- name: DismissInboxItem :one
+UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
+RETURNING *;
+
+-- name: ListOpenInboxItems :many
+SELECT * FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id;
 
 -- name: AddChatMessage :one
 INSERT INTO chat_messages (organization, repository, workstream, author, time, text)
 VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id;
+RETURNING *;
+
+-- name: AppendChatMessage :one
+UPDATE chat_messages SET text = text || sqlc.arg(text) WHERE id = sqlc.arg(id)
+RETURNING *;
+
+-- The chat shows no Researcher message.
+-- name: ListChatMessages :many
+SELECT * FROM chat_messages
+WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Researcher'
+ORDER BY id;
+
+-- name: ListChatMessagesBefore :many
+SELECT * FROM chat_messages
+WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
+ORDER BY id DESC LIMIT ?;
+
+-- name: SetChatSeen :exec
+INSERT INTO chat_seen (organization, repository, workstream, message) VALUES (?, ?, ?, ?)
+ON CONFLICT (organization, repository, workstream) DO UPDATE SET message = max(message, excluded.message);
+
+-- The messages of the Owner, of a Researcher and of an event are never unread.
+-- name: ListUnread :many
+SELECT m.organization, m.repository, m.workstream, count(*) AS count
+FROM chat_messages m
+LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Event') AND m.id > coalesce(s.message, 0)
+GROUP BY m.organization, m.repository, m.workstream
+ORDER BY m.organization, m.repository, m.workstream;
+
+-- name: CountUnread :one
+SELECT count(*) FROM chat_messages m
+WHERE m.organization = sqlc.arg(organization) AND m.repository = sqlc.arg(repository) AND m.workstream = sqlc.arg(workstream)
+  AND m.author NOT IN ('Owner', 'Researcher', 'Event')
+  AND m.id > coalesce((SELECT s.message FROM chat_seen s
+                       WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0);
 
 -- name: AddLeadEvent :exec
 INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message)
@@ -157,6 +196,47 @@ VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: DeliverLeadEvents :exec
 UPDATE lead_events SET delivered_at = ? WHERE repository = ? AND workstream = ? AND delivered_at IS NULL;
+
+-- name: DeliverLeadEvent :exec
+UPDATE lead_events SET delivered_at = ? WHERE id = ?;
+
+-- name: ListUndeliveredLeadEvents :many
+SELECT * FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id;
+
+-- A held event holds each later event of its task issue.
+-- name: ListReadyLeadEvents :many
+SELECT * FROM lead_events AS event
+WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NULL AND event.held = 0
+  AND NOT EXISTS (
+      SELECT 1 FROM lead_events AS earlier
+      WHERE earlier.repository = event.repository AND earlier.workstream = event.workstream AND earlier.issue = event.issue
+        AND earlier.id < event.id AND earlier.delivered_at IS NULL AND earlier.held = 1
+  )
+ORDER BY event.id;
+
+-- name: HoldLeadEvent :exec
+UPDATE lead_events SET held = 1 WHERE id = ?;
+
+-- name: FreeLeadEvents :many
+UPDATE lead_events SET held = 0 WHERE repository = ? AND workstream = ? AND held = 1
+RETURNING *;
+
+-- name: ListWaitingLeadWorkstreams :many
+SELECT DISTINCT repository, workstream FROM lead_events WHERE delivered_at IS NULL ORDER BY repository, workstream;
+
+-- name: AddTask :one
+INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES (?, ?, ?, 'dispatched', ?)
+RETURNING *;
+
+-- An ended task counts too.
+-- name: HasTask :one
+SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?);
+
+-- name: CountActiveTasks :one
+SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
+
+-- name: ResetTaskCounters :exec
+UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0 WHERE id = ?;
 
 -- name: EndTask :exec
 UPDATE tasks SET state = 'ended' WHERE id = ?;
@@ -260,3 +340,22 @@ SELECT name FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND
 
 -- name: DeleteCopiedIssueLabelsAt :exec
 DELETE FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND position = ?;
+
+-- name: ListCopiedTree :many
+SELECT position, number, parent, title, state, author, html_url, repository_url FROM copied_issues
+WHERE repository = ? AND workstream = ? ORDER BY position;
+
+-- name: ListCopiedTreeLabels :many
+SELECT position, name FROM copied_issue_labels WHERE repository = ? AND workstream = ? ORDER BY position, name;
+
+-- name: ListCopiedTreeBlockers :many
+SELECT position, number, blocker_workstream, blocker_workstream_title FROM copied_blockers
+WHERE repository = ? AND workstream = ? ORDER BY position, number;
+
+-- name: ListCopiedIssuesWithLabel :many
+SELECT i.repository, i.workstream, i.number, i.title, i.state, i.author, i.html_url, i.repository_url FROM copied_issues i
+WHERE EXISTS (
+    SELECT 1 FROM copied_issue_labels l
+    WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(name)
+)
+ORDER BY i.repository, i.workstream, i.number;

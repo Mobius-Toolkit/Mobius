@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"log"
 	"sync"
 )
 
@@ -42,6 +43,14 @@ func (e *Engine) draining() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.on
+}
+
+// sealed tells if the drain is sealed for the restart.
+func (e *Engine) sealed() bool {
+	d := &e.drain
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.sealed
 }
 
 // trackWorker counts a Worker that takes a slot. It gives false while the drain is on, so the Worker stays in the queue.
@@ -93,8 +102,8 @@ func (e *Engine) Draining() DrainState {
 	return DrainState{d.on, d.running}
 }
 
-// Drain holds each new Worker in the queue and waits until no session runs. A cancel ends the wait. A completed
-// drain stays on, so a cancel still releases the held Workers when the restart does not come.
+// Drain holds each new Worker in the queue, asks each chat to close, and waits until no session runs. A cancel ends
+// the wait. A completed drain stays on, so a cancel still releases the held Workers when the restart does not come.
 func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 	d := &e.drain
 	d.mu.Lock()
@@ -103,6 +112,7 @@ func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 	d.mu.Unlock()
 	// The Workers that wait for a slot show the drain reason.
 	e.workers.changed.notify()
+	e.closeChats()
 	e.publish(Change{Drain: &state})
 	for {
 		changed := d.changed.wait()
@@ -121,7 +131,8 @@ func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 	}
 }
 
-// CancelDrain ends the drain, and the held Workers take their slots. It does nothing to a sealed drain.
+// CancelDrain ends the drain: the held Workers take their slots, and the waiting events go to the Leads. It does
+// nothing to a sealed drain.
 func (e *Engine) CancelDrain() {
 	d := &e.drain
 	d.mu.Lock()
@@ -169,4 +180,7 @@ func (e *Engine) releaseDrain() {
 	d.changed.notify()
 	e.publish(Change{Drain: &DrainState{}})
 	e.workers.changed.notify()
+	if err := e.wakeAllEvents(context.Background()); err != nil {
+		log.Printf("give the waiting events to the Leads after the drain: %v", err)
+	}
 }

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/mobius-go/internal/config"
@@ -67,4 +69,19 @@ func TestAStartWithAnEmptyStoreHandsAWorkingIssueToAHuman(t *testing.T) {
 	if labels := fake.Labels(shop, 41); !reflect.DeepEqual(labels, []string{"mobius:needs-human"}) {
 		t.Errorf("labels = %q", labels)
 	}
+}
+
+func TestARestartGivesTheWaitingEventToTheLead(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	seed(t, dataDir, `INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, 'comment', 'A comment before the restart.', '2026-10-04T10:00:00Z')`)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nreply = [\"Seen\"]\n")
+
+	server := startServer(t, fake, dataDir, "")
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "A comment before the restart.") })
+	})
 }

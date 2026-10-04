@@ -38,7 +38,7 @@ func (e *Engine) handLostTasks(ctx context.Context, repository github.Repository
 		if err != nil {
 			return err
 		}
-		if _, err := e.queries.AddInboxItem(ctx, store.AddInboxItemParams{
+		if _, err := e.addInboxItem(ctx, store.AddInboxItemParams{
 			Kind:         stoppedKind,
 			Organization: repository.Owner(),
 			Repository:   repository.FullName,
@@ -46,7 +46,6 @@ func (e *Engine) handLostTasks(ctx context.Context, repository github.Repository
 			Issue:        number,
 			Text:         lostText,
 			Link:         issue.GetHTMLURL(),
-			Time:         now(),
 		}); err != nil {
 			return err
 		}

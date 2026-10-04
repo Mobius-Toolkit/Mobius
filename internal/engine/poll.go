@@ -19,8 +19,10 @@ const issuesEndpoint = "issues"
 
 // poll reads the repositories of the Apps. When it read all Apps, it removes the copy of each repository that it did
 // not find. Then, for each repository, it fixes the labels at the first sight in this run of the server, copies the
-// open Workstreams until that step works one time, hands the lost tasks to a human until that step works one time,
-// and reads the changed issues. The work of a repository starts again at its first poll, because the work needs GitHub.
+// open Workstreams until that step works one time, hands the lost tasks to a human and gives the waiting events to
+// the Leads until that step works one time, reads the changed issues, dispatches the ready issues, and starts the
+// tasks of the Workstreams with Autopilot. The work of a repository starts again at its first poll, because the work
+// needs GitHub.
 func (e *Engine) poll(ctx context.Context) {
 	complete, err := e.github.Refresh(ctx)
 	if err != nil {
@@ -48,21 +50,53 @@ func (e *Engine) poll(ctx context.Context) {
 			}
 		}
 		if !e.recovered[repository.FullName] {
-			if err := e.handLostTasks(ctx, repository); err != nil {
-				log.Printf("hand the lost tasks of %s to a human: %v", repository.FullName, err)
+			if err := e.recover(ctx, repository); err != nil {
+				log.Printf("recover the work of %s: %v", repository.FullName, err)
 				continue
 			}
 			e.recovered[repository.FullName] = true
 		}
-		if err := e.changedIssues(ctx, repository); err != nil {
-			log.Printf("poll the issues of %s: %v", repository.FullName, err)
+		if err := e.pollRepository(ctx, repository); err != nil {
+			log.Printf("poll %s: %v", repository.FullName, err)
 		}
 	}
 }
 
-// changedIssues reads the issues that changed at or after the `since` cursor, updates the copy, acts on the new
-// events of the Workstreams, and moves the cursor to the last change. The first poll of a repository has no cursor,
-// so it reads all issues, and it cannot see which event is new.
+// recover hands the lost tasks of repository to a human, and gives the events that wait from the earlier run of the
+// server to the Leads.
+func (e *Engine) recover(ctx context.Context, repository github.Repository) error {
+	if err := e.handLostTasks(ctx, repository); err != nil {
+		return err
+	}
+	waiting, err := e.queries.ListWaitingLeadWorkstreams(ctx)
+	if err != nil {
+		return err
+	}
+	for _, workstream := range waiting {
+		if workstream.Repository != repository.FullName {
+			continue
+		}
+		if err := e.wakeEvents(ctx, workstream.Repository, workstream.Workstream); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *Engine) pollRepository(ctx context.Context, repository github.Repository) error {
+	if err := e.changedIssues(ctx, repository); err != nil {
+		return err
+	}
+	if err := e.dispatchReady(ctx, repository); err != nil {
+		return err
+	}
+	return e.startAutopilot(ctx, repository)
+}
+
+// changedIssues reads the issues and pull requests that changed at or after the `since` cursor, acts on their new
+// comments, stops a Triager, updates the copy, acts on the new events of the Workstreams, and moves the cursor to the
+// last change. The first poll of a repository has no cursor, so it reads all issues, and it cannot see which event or
+// comment is new.
 func (e *Engine) changedIssues(ctx context.Context, repository github.Repository) error {
 	cursor, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: issuesEndpoint})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -82,7 +116,18 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	listChanged := false
 	for _, issue := range page.Issues {
 		if issue.IsPullRequest() {
+			if err := e.pullRequestComments(ctx, repository, issue, since); err != nil {
+				return err
+			}
 			continue
+		}
+		if err := e.commentEvents(ctx, repository, issue, since); err != nil {
+			return err
+		}
+		if !hasLabel(issue, noWorkstreamLabel) {
+			if err := e.stopTriager(ctx, repository, int64(issue.GetNumber())); err != nil {
+				return err
+			}
 		}
 		labeled := hasLabel(issue, workstreamLabel)
 		work, err := e.hasWork(ctx, repository.FullName, int64(issue.GetNumber()))
@@ -130,29 +175,25 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	})
 }
 
-// workstreamEvent acts on a new event of the issue. A Workstream label of a trusted actor adds an activity, and
-// after the first poll also a creation event for the Lead. After the first poll, a removal of the Workstream label
-// stops the work, and a close or a reopen of a trusted actor closes or reopens the Workstream.
+// workstreamEvent acts on a new event of the issue. A change of mobius:autopilot makes the next poll read the ready
+// list in full, because a mobius:ready of the Mobius App can dispatch with Autopilot. A Workstream label of a trusted
+// actor adds an activity, and after the first poll also a creation event for the Lead. After the first poll, a
+// removal of the Workstream label stops the work, and a close or a reopen of a trusted actor closes or reopens the
+// Workstream.
 func (e *Engine) workstreamEvent(ctx context.Context, repository github.Repository, issue *gh.Issue, event *gh.IssueEvent, firstPoll bool) error {
 	number := int64(issue.GetNumber())
 	actor := event.GetActor().GetLogin()
 	trusted := e.TrustedAuthor(repository.AppSlug, actor)
 	workstreamChange := event.GetLabel().GetName() == workstreamLabel
 	switch {
+	case event.GetLabel().GetName() == autopilotLabel:
+		return e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository.FullName, Endpoint: readyEndpoint})
 	case event.GetEvent() == "labeled" && workstreamChange && trusted:
-		err := e.queries.AddEvent(ctx, store.AddEventParams{
-			Time:       now(),
-			Repository: repository.FullName,
-			Workstream: number,
-			Issue:      number,
-			Actor:      actor,
-			Text:       fmt.Sprintf("New Workstream \"%s\"", issue.GetTitle()),
-			Link:       issue.GetHTMLURL(),
-		})
+		err := e.addActivity(ctx, repository.FullName, number, issue, actor, fmt.Sprintf("New Workstream \"%s\"", issue.GetTitle()))
 		if err != nil || firstPoll {
 			return err
 		}
-		return e.addLeadEvent(ctx, repository.FullName, number, sql.NullInt64{}, "creation", eventText(time.Now(), "creation of Workstream", issue, actor))
+		return e.addLeadEvent(ctx, repository.FullName, number, sql.NullInt64{}, "creation", eventText(time.Now(), "creation of Workstream", issue, actor, issue.GetBody()))
 	case firstPoll:
 		return nil
 	// A removal from any actor counts, because it only stops work.
@@ -162,7 +203,7 @@ func (e *Engine) workstreamEvent(ctx context.Context, repository github.Reposito
 	case event.GetEvent() == "closed" && trusted:
 		return e.closeWorkstream(ctx, repository, number)
 	case event.GetEvent() == "reopened" && trusted && hasLabel(issue, workstreamLabel):
-		return e.addLeadEvent(ctx, repository.FullName, number, sql.NullInt64{}, "reopen", eventText(time.Now(), "reopen of Workstream", issue, actor))
+		return e.addLeadEvent(ctx, repository.FullName, number, sql.NullInt64{}, "reopen", eventText(time.Now(), "reopen of Workstream", issue, actor, issue.GetBody()))
 	}
 	return nil
 }

@@ -121,6 +121,82 @@ export interface Activity {
 }
 
 /**
+ * Blocker is an open blocker of a task.
+ */
+export interface Blocker {
+  /** Number is the number of the blocker issue */
+  number: number;
+  /**
+     * WorkstreamTitle is the title of the Workstream of a blocker in another Workstream, or null
+     * @nullable
+     */
+  workstreamTitle: string | null;
+}
+
+/**
+ * Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner with an Inbox item, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry
+ */
+export type ChatMessageAuthor = typeof ChatMessageAuthor[keyof typeof ChatMessageAuthor];
+
+
+export const ChatMessageAuthor = {
+  Owner: 'Owner',
+  Lead: 'Lead',
+  tell_owner: 'tell_owner',
+  Triager: 'Triager',
+  Mobius: 'Mobius',
+  Event: 'Event',
+} as const;
+
+/**
+ * ChatMessage is a message of a Lead chat or of the Triager chat.
+ */
+export interface ChatMessage {
+  /** Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner with an Inbox item, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry */
+  author: ChatMessageAuthor;
+  /** ID increases with each new message of all chats */
+  id: number;
+  /** Organization is the owner of the repository, or the organization of the Triager chat */
+  organization: string;
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
+  repository: string;
+  /** Text is the text of the message */
+  text: string;
+  /** Time is the time of the message */
+  time: string;
+  /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
+  workstream: number;
+}
+
+/**
+ * Chat is a Lead chat or the Triager chat with its messages.
+ */
+export interface Chat {
+  /** Harness is the Harness of the agent of the chat, for example claude-code */
+  harness: string;
+  /** Messages are the messages, the oldest first */
+  messages: ChatMessage[];
+  /** Writing is true while the agent has a turn that runs or a message that waits */
+  writing: boolean;
+}
+
+/**
+ * ChatState is the state of a chat.
+ */
+export interface ChatState {
+  /** Error is the error that ended the last session of the agent, or empty */
+  error: string;
+  /** Organization is the owner of the repository, or the organization of the Triager chat */
+  organization: string;
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
+  repository: string;
+  /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
+  workstream: number;
+  /** Writing is true while the agent has a turn that runs or an item that waits */
+  writing: boolean;
+}
+
+/**
  * LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change
  */
 export type CheckupLabelFix = typeof CheckupLabelFix[keyof typeof CheckupLabelFix];
@@ -306,6 +382,103 @@ export interface EnvelopeArrayGitHubApp {
 }
 
 /**
+ * InboxItem is an item of the Inbox of the Owner.
+ */
+export interface InboxItem {
+  /**
+     * DismissedAt is the time when the Owner dismissed the item, or null
+     * @nullable
+     */
+  dismissedAt: string | null;
+  /** ID increases with each new item */
+  id: number;
+  /** Issue is the number of the issue of the item */
+  issue: number;
+  /** Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, ready for review, stale pull request, usage limit for a pause of a Harness, Lead failed for a message or an event that the Lead did not take, stopped for a task that stopped, or full disk */
+  kind: string;
+  /** Link is the GitHub URL of the item, or empty */
+  link: string;
+  /** Organization is the owner of the repository */
+  organization: string;
+  /** Repository is the repository as "owner/name" */
+  repository: string;
+  /** Text is the text of the item */
+  text: string;
+  /** Time is the time of the item */
+  time: string;
+  /** Workstream is the number of the Workstream issue, or 0 for an issue with no Workstream */
+  workstream: number;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayInboxItem {
+  /** Data is the payload of the response */
+  data: InboxItem[];
+}
+
+/**
+ * NeedsHuman is an open task issue with mobius:needs-human.
+ */
+export interface NeedsHuman {
+  /** Number is the number of the issue */
+  number: number;
+  /**
+     * PullRequest is the pull request of the live task of the issue, or null
+     * @nullable
+     */
+  pullRequest: number | null;
+  /**
+     * PullRequestURL is the GitHub URL of the pull request, or null
+     * @nullable
+     */
+  pullRequestUrl: string | null;
+  /** Repository is the repository as "owner/name" */
+  repository: string;
+  /** Title is the title of the issue */
+  title: string;
+  /** URL is the GitHub URL of the issue */
+  url: string;
+  /** Workstream is the number of the Workstream issue */
+  workstream: number;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayNeedsHuman {
+  /** Data is the payload of the response */
+  data: NeedsHuman[];
+}
+
+/**
+ * TaskLine is a task of a Workstream.
+ */
+export interface TaskLine {
+  /** BlockedBy are the open blockers of the task */
+  blockedBy: Blocker[];
+  /** Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below */
+  depth: number;
+  /** Number is the number of the task issue */
+  number: number;
+  /** State is the Mobius label of the issue with no "mobius:", queued for a task that waits for a slot, or open */
+  state: string;
+  /** Title is the title of the task issue */
+  title: string;
+  /** URL is the GitHub URL of the task issue */
+  url: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayTaskLine {
+  /** Data is the payload of the response */
+  data: TaskLine[];
+}
+
+/**
  * Kind is prompt, update, mcp_call or error
  */
 export type TranscriptLineKind = typeof TranscriptLineKind[keyof typeof TranscriptLineKind];
@@ -353,6 +526,28 @@ export interface EnvelopeArrayTranscriptLine {
 }
 
 /**
+ * Unread is the number of unread messages of a chat. The messages of the Owner and the Lead events are never unread.
+ */
+export interface Unread {
+  /** Count is the number of unread messages */
+  count: number;
+  /** Organization is the owner of the repository, or the organization of the Triager chat */
+  organization: string;
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
+  repository: string;
+  /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
+  workstream: number;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayUnread {
+  /** Data is the payload of the response */
+  data: Unread[];
+}
+
+/**
  * Workstream is an open Workstream of a managed repository.
  */
 export interface Workstream {
@@ -384,6 +579,14 @@ export interface EnvelopeArrayWorkstream {
 export interface EnvelopeArrayString {
   /** Data is the payload of the response */
   data: string[];
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeChat {
+  /** Data is the payload of the response */
+  data: Chat;
 }
 
 /**
@@ -507,6 +710,16 @@ export interface FixLabelsBody {
 }
 
 /**
+ * WorkstreamRef names a Workstream.
+ */
+export interface WorkstreamRef {
+  /** Number is the number of the Workstream issue */
+  number: number;
+  /** Repository is the repository of the Workstream issue, as "owner/name" */
+  repository: string;
+}
+
+/**
  * LiveEvents are the events of the live event stream. Only an activity has an event id.
  */
 export type LiveEvents = {
@@ -533,6 +746,26 @@ export type LiveEvents = {
   data: { [key: string]: unknown };
   event: 'workstreams';
   id?: string;
+} | {
+  data: ChatMessage;
+  event: 'message';
+  id?: string;
+} | {
+  data: Unread;
+  event: 'unread';
+  id?: string;
+} | {
+  data: ChatState;
+  event: 'chat';
+  id?: string;
+} | {
+  data: InboxItem;
+  event: 'inbox';
+  id?: string;
+} | {
+  data: WorkstreamRef;
+  event: 'workstreamCreated';
+  id?: string;
 };
 
 export interface LoginBody {
@@ -540,9 +773,40 @@ export interface LoginBody {
   password: string;
 }
 
+export interface SeeChatBody {
+  /** Message is the id of the last message that the Owner saw */
+  message?: number;
+  /** Organization is the owner of the repository, or the organization of the Triager chat */
+  organization?: string;
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
+  repository?: string;
+  /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
+  workstream?: number;
+}
+
+export interface SendChatBody {
+  /** Organization is the owner of the repository, or the organization of the Triager chat */
+  organization?: string;
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
+  repository?: string;
+  /** Text is the message of the Owner */
+  text: string;
+  /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
+  workstream?: number;
+}
+
 export interface SetAutopilotBody {
   /** On turns Autopilot on when true, and off when false */
   on?: boolean;
+}
+
+export interface StopChatBody {
+  /** Organization is the owner of the repository, or the organization of the Triager chat */
+  organization?: string;
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
+  repository?: string;
+  /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
+  workstream?: number;
 }
 
 /**
@@ -574,6 +838,21 @@ export type InternalServerErrorResponse = ErrorResponse;
  * Unprocessable Entity - Request body could not be parsed
  */
 export type UnprocessableEntityResponse = ErrorResponse;
+
+export type GetChatParams = {
+/**
+ * Organization is the owner of the repository, or the organization of the Triager chat
+ */
+organization?: string;
+/**
+ * Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat
+ */
+repository?: string;
+/**
+ * Workstream is the number of the Workstream issue. It is 0 for the Triager chat
+ */
+workstream?: number;
+};
 
 export type GetCheckupParams = {
 /**
@@ -726,6 +1005,278 @@ export const getTranscript = async (id: number, ): Promise<getTranscriptResponse
 
   const data: getTranscriptResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getTranscriptResponse
+}
+
+
+
+export type getChatResponse200 = {
+  data: EnvelopeChat
+  status: 200
+}
+
+export type getChatResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getChatResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getChatResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getChatResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getChatResponseSuccess = (getChatResponse200) & {
+  headers: Headers;
+};
+export type getChatResponseError = (getChatResponse400 | getChatResponse401 | getChatResponse422 | getChatResponse500) & {
+  headers: Headers;
+};
+
+export type getChatResponse = (getChatResponseSuccess | getChatResponseError)
+
+export const getGetChatUrl = (params?: GetChatParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/chat?${stringifiedParams}` : `/api/chat`
+}
+
+/**
+ * GetChat returns the Lead chat of a Workstream, or the Triager chat of an organization.
+ */
+export const getChat = async (params?: GetChatParams, ): Promise<getChatResponse> => {
+
+  const res = await fetch(getGetChatUrl(params),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getChatResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getChatResponse
+}
+
+
+
+export type sendChatResponse204 = {
+  data: void
+  status: 204
+}
+
+export type sendChatResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type sendChatResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type sendChatResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type sendChatResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type sendChatResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type sendChatResponseSuccess = (sendChatResponse204) & {
+  headers: Headers;
+};
+export type sendChatResponseError = (sendChatResponse400 | sendChatResponse401 | sendChatResponse409 | sendChatResponse422 | sendChatResponse500) & {
+  headers: Headers;
+};
+
+export type sendChatResponse = (sendChatResponseSuccess | sendChatResponseError)
+
+export const getSendChatUrl = () => {
+
+
+
+
+  return `/api/chat/messages`
+}
+
+/**
+ * SendChat adds a message of the Owner to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
+ */
+export const sendChat = async (sendChatBody: SendChatBody, ): Promise<sendChatResponse> => {
+
+  const res = await fetch(getSendChatUrl(),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sendChatBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: sendChatResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as sendChatResponse
+}
+
+
+
+export type seeChatResponse204 = {
+  data: void
+  status: 204
+}
+
+export type seeChatResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type seeChatResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type seeChatResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type seeChatResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type seeChatResponseSuccess = (seeChatResponse204) & {
+  headers: Headers;
+};
+export type seeChatResponseError = (seeChatResponse400 | seeChatResponse401 | seeChatResponse422 | seeChatResponse500) & {
+  headers: Headers;
+};
+
+export type seeChatResponse = (seeChatResponseSuccess | seeChatResponseError)
+
+export const getSeeChatUrl = () => {
+
+
+
+
+  return `/api/chat/seen`
+}
+
+/**
+ * SeeChat records that the Owner saw the messages of the chat up to a message. An earlier message than the last seen message changes nothing.
+ */
+export const seeChat = async (seeChatBody: SeeChatBody, ): Promise<seeChatResponse> => {
+
+  const res = await fetch(getSeeChatUrl(),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(seeChatBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: seeChatResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as seeChatResponse
+}
+
+
+
+export type stopChatResponse204 = {
+  data: void
+  status: 204
+}
+
+export type stopChatResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type stopChatResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type stopChatResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type stopChatResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type stopChatResponseSuccess = (stopChatResponse204) & {
+  headers: Headers;
+};
+export type stopChatResponseError = (stopChatResponse400 | stopChatResponse401 | stopChatResponse422 | stopChatResponse500) & {
+  headers: Headers;
+};
+
+export type stopChatResponse = (stopChatResponseSuccess | stopChatResponseError)
+
+export const getStopChatUrl = () => {
+
+
+
+
+  return `/api/chat/stop`
+}
+
+/**
+ * StopChat stops the turn of the agent that answers a message of the Owner. A turn for a Lead event goes on. When the agent waits for its slot, its first message of the Owner gets no turn.
+ */
+export const stopChat = async (stopChatBody: StopChatBody, ): Promise<stopChatResponse> => {
+
+  const res = await fetch(getStopChatUrl(),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(stopChatBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: stopChatResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as stopChatResponse
 }
 
 
@@ -1537,6 +2088,136 @@ export const getHealth = async ( ): Promise<getHealthResponse> => {
 
 
 
+export type listInboxResponse200 = {
+  data: EnvelopeArrayInboxItem
+  status: 200
+}
+
+export type listInboxResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listInboxResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listInboxResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listInboxResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listInboxResponseSuccess = (listInboxResponse200) & {
+  headers: Headers;
+};
+export type listInboxResponseError = (listInboxResponse400 | listInboxResponse401 | listInboxResponse422 | listInboxResponse500) & {
+  headers: Headers;
+};
+
+export type listInboxResponse = (listInboxResponseSuccess | listInboxResponseError)
+
+export const getListInboxUrl = () => {
+
+
+
+
+  return `/api/inbox`
+}
+
+/**
+ * ListInbox returns the Inbox items that the Owner did not dismiss, the oldest first.
+ */
+export const listInbox = async ( ): Promise<listInboxResponse> => {
+
+  const res = await fetch(getListInboxUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listInboxResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listInboxResponse
+}
+
+
+
+export type dismissResponse204 = {
+  data: void
+  status: 204
+}
+
+export type dismissResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type dismissResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type dismissResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type dismissResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type dismissResponseSuccess = (dismissResponse204) & {
+  headers: Headers;
+};
+export type dismissResponseError = (dismissResponse400 | dismissResponse401 | dismissResponse422 | dismissResponse500) & {
+  headers: Headers;
+};
+
+export type dismissResponse = (dismissResponseSuccess | dismissResponseError)
+
+export const getDismissUrl = (id: number,) => {
+
+
+
+
+  return `/api/inbox/${id}/dismiss`
+}
+
+/**
+ * Dismiss removes an item from the Inbox.
+ */
+export const dismiss = async (id: number, ): Promise<dismissResponse> => {
+
+  const res = await fetch(getDismissUrl(id),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: dismissResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as dismissResponse
+}
+
+
+
 export type resumeResponse204 = {
   data: void
   status: 204
@@ -1663,6 +2344,71 @@ export const login = async (loginBody: LoginBody, ): Promise<loginResponse> => {
 
   const data: loginResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as loginResponse
+}
+
+
+
+export type listNeedsHumanResponse200 = {
+  data: EnvelopeArrayNeedsHuman
+  status: 200
+}
+
+export type listNeedsHumanResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listNeedsHumanResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listNeedsHumanResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listNeedsHumanResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listNeedsHumanResponseSuccess = (listNeedsHumanResponse200) & {
+  headers: Headers;
+};
+export type listNeedsHumanResponseError = (listNeedsHumanResponse400 | listNeedsHumanResponse401 | listNeedsHumanResponse422 | listNeedsHumanResponse500) & {
+  headers: Headers;
+};
+
+export type listNeedsHumanResponse = (listNeedsHumanResponseSuccess | listNeedsHumanResponseError)
+
+export const getListNeedsHumanUrl = () => {
+
+
+
+
+  return `/api/needs-human`
+}
+
+/**
+ * ListNeedsHuman returns the open issues of trusted authors with mobius:needs-human in the trees of all Workstreams, from the local copy of GitHub, by repository, Workstream and number.
+ */
+export const listNeedsHuman = async ( ): Promise<listNeedsHumanResponse> => {
+
+  const res = await fetch(getListNeedsHumanUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listNeedsHumanResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listNeedsHumanResponse
 }
 
 
@@ -1863,6 +2609,145 @@ export const listReleaseChanges = async ( ): Promise<listReleaseChangesResponse>
 
   const data: listReleaseChangesResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listReleaseChangesResponse
+}
+
+
+
+export type resumeIssueResponse204 = {
+  data: void
+  status: 204
+}
+
+export type resumeIssueResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type resumeIssueResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type resumeIssueResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type resumeIssueResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type resumeIssueResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type resumeIssueResponseSuccess = (resumeIssueResponse204) & {
+  headers: Headers;
+};
+export type resumeIssueResponseError = (resumeIssueResponse400 | resumeIssueResponse401 | resumeIssueResponse409 | resumeIssueResponse422 | resumeIssueResponse500) & {
+  headers: Headers;
+};
+
+export type resumeIssueResponse = (resumeIssueResponseSuccess | resumeIssueResponseError)
+
+export const getResumeIssueUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/repositories/${owner}/${name}/issues/${number}/resume`
+}
+
+/**
+ * ResumeIssue replaces mobius:needs-human of an issue with mobius:ready, so Mobius continues the task. Mobius changes the labels with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+ */
+export const resumeIssue = async (owner: string,
+    name: string,
+    number: number, ): Promise<resumeIssueResponse> => {
+
+  const res = await fetch(getResumeIssueUrl(owner,name,number),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: resumeIssueResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as resumeIssueResponse
+}
+
+
+
+export type listUnreadResponse200 = {
+  data: EnvelopeArrayUnread
+  status: 200
+}
+
+export type listUnreadResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listUnreadResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listUnreadResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listUnreadResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listUnreadResponseSuccess = (listUnreadResponse200) & {
+  headers: Headers;
+};
+export type listUnreadResponseError = (listUnreadResponse400 | listUnreadResponse401 | listUnreadResponse422 | listUnreadResponse500) & {
+  headers: Headers;
+};
+
+export type listUnreadResponse = (listUnreadResponseSuccess | listUnreadResponseError)
+
+export const getListUnreadUrl = () => {
+
+
+
+
+  return `/api/unread`
+}
+
+/**
+ * ListUnread returns each chat with unread messages.
+ */
+export const listUnread = async ( ): Promise<listUnreadResponse> => {
+
+  const res = await fetch(getListUnreadUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listUnreadResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listUnreadResponse
 }
 
 
@@ -2281,4 +3166,78 @@ export const completeWorkstream = async (owner: string,
 
   const data: completeWorkstreamResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as completeWorkstreamResponse
+}
+
+
+
+export type listTasksResponse200 = {
+  data: EnvelopeArrayTaskLine
+  status: 200
+}
+
+export type listTasksResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listTasksResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listTasksResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type listTasksResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listTasksResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listTasksResponseSuccess = (listTasksResponse200) & {
+  headers: Headers;
+};
+export type listTasksResponseError = (listTasksResponse400 | listTasksResponse401 | listTasksResponse404 | listTasksResponse422 | listTasksResponse500) & {
+  headers: Headers;
+};
+
+export type listTasksResponse = (listTasksResponseSuccess | listTasksResponseError)
+
+export const getListTasksUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/tasks`
+}
+
+/**
+ * ListTasks returns the open tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.
+ */
+export const listTasks = async (owner: string,
+    name: string,
+    number: number, ): Promise<listTasksResponse> => {
+
+  const res = await fetch(getListTasksUrl(owner,name,number),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listTasksResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listTasksResponse
 }

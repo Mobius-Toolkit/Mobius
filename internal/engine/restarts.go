@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -93,29 +92,4 @@ func (e *Engine) handToHuman(ctx context.Context, task store.Task) (bool, error)
 		return false, err
 	}
 	return true, repository.AddLabel(ctx, task.Issue, needsHumanLabel)
-}
-
-// addLeadEvent adds an event of kind about the issue for the Lead of the Workstream, with its entry in the chat.
-func (e *Engine) addLeadEvent(ctx context.Context, repository string, workstream int64, issue sql.NullInt64, kind, text string) error {
-	organization, _, _ := strings.Cut(repository, "/")
-	message, err := e.queries.AddChatMessage(ctx, store.AddChatMessageParams{
-		Organization: organization,
-		Repository:   repository,
-		Workstream:   workstream,
-		Author:       "Event",
-		Time:         now(),
-		Text:         text,
-	})
-	if err != nil {
-		return err
-	}
-	return e.queries.AddLeadEvent(ctx, store.AddLeadEventParams{
-		Repository:  repository,
-		Workstream:  workstream,
-		Issue:       issue,
-		Kind:        kind,
-		Payload:     text,
-		Time:        now(),
-		ChatMessage: sql.NullInt64{Int64: message, Valid: true},
-	})
 }

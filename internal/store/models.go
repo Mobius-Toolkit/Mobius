@@ -8,6 +8,16 @@ import (
 	"database/sql"
 )
 
+type ChatMessage struct {
+	ID           int64
+	Repository   string
+	Workstream   int64
+	Author       string
+	Time         string
+	Text         string
+	Organization string
+}
+
 type Event struct {
 	ID         int64
 	Time       string
@@ -47,6 +57,19 @@ type InboxItem struct {
 	Time         string
 	DismissedAt  sql.NullString
 	Organization string
+}
+
+type LeadEvent struct {
+	ID          int64
+	Repository  string
+	Workstream  int64
+	Kind        string
+	Payload     string
+	Time        string
+	DeliveredAt sql.NullString
+	ChatMessage sql.NullInt64
+	Issue       sql.NullInt64
+	Held        int64
 }
 
 type Session struct {

@@ -7,6 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,7 +44,8 @@ type Spec struct {
 	Parent sql.NullInt64
 	// Task is the id of the queued task of the session, or 0. The session waits for its slot at the place of the task in the queue.
 	Task int64
-	// Dir is the working directory of the agent.
+	// Dir is the working directory of the agent. With an empty Dir, the agent works in scratch/<session id> below the
+	// data directory, and the end of the session removes that directory.
 	Dir string
 }
 
@@ -58,6 +62,9 @@ type Agent struct {
 	// tracked tells that the drain counts the session.
 	tracked bool
 
+	// scratch is the directory of the session below scratch/, or "".
+	scratch string
+
 	mu       sync.Mutex
 	prompted bool
 	// chunk is the JSON of the last Transcript row while that row is a message chunk or a thought chunk, and chunkID is its id.
@@ -65,6 +72,13 @@ type Agent struct {
 	chunkID int64
 	// resetHint is the last _claude/rateLimit.resetsAt of a usage update of the session, or zero.
 	resetHint time.Time
+	// author is the author of the chat messages that the reply text adds to the chat of the session, or "" when the
+	// reply text goes only to the Transcript.
+	author string
+	// message is the id of the chat message that the reply text grows until the next prompt or tool call, or 0.
+	message int64
+	// reply is the reply text of the turn after its last tool call.
+	reply strings.Builder
 }
 
 // Node is a session in the agent tree of a Workstream.
@@ -77,8 +91,9 @@ type Node struct {
 }
 
 // Change is a change for the live event stream: a new, changed or ended session, a new or changed Transcript line,
-// a change of the drain, a change of the error of the last upgrade, or a change of the Workstream list. It has a Node,
-// a Line, a Drain or an Upgrade, or Workstreams is true.
+// a change of the drain, a change of the error of the last upgrade, a change of the Workstream list, a new or longer
+// chat message, a new unread count of a chat, a new state of a chat, a new or dismissed Inbox item, or a Workstream
+// that the Triager chat created. It has one field that is not empty.
 type Change struct {
 	Node  *Node
 	Line  *Line
@@ -86,6 +101,17 @@ type Change struct {
 	// Upgrade is the error of the last upgrade, or "" when the last upgrade has no error.
 	Upgrade     *string
 	Workstreams bool
+	Message     *store.ChatMessage
+	Unread      *Unread
+	Chat        *ChatState
+	Inbox       *store.InboxItem
+	Created     *Created
+}
+
+// Created is a Workstream that the Triager chat created.
+type Created struct {
+	Repository string
+	Number     int64
 }
 
 func now() string {
@@ -104,8 +130,8 @@ func endParams(id int64, reason string) store.EndSessionParams {
 // and configures the agent. The Lead gets a gh with the user token of the Owner.
 //
 // When the task of the session leaves the queue, the session ends with the reason "declined" and Start gives
-// ErrLeftQueue. When ctx ends before the slot, the session ends with the reason "stopped". When the start fails,
-// the session ends with the reason "failed" and the error in its Transcript.
+// ErrLeftQueue. When ctx ends before the agent starts, the session ends with the reason "stopped". When the start
+// fails, the session ends with the reason "failed" and the error in its Transcript.
 func (e *Engine) Start(ctx context.Context, spec Spec) (*Agent, error) {
 	binding, ok := roleBinding(e.config, spec.Role)
 	if !ok {
@@ -136,6 +162,13 @@ func (e *Engine) Start(ctx context.Context, spec Spec) (*Agent, error) {
 	a := &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker}
 	// The end of a session must also work after the end of ctx.
 	ended := context.WithoutCancel(ctx)
+	if spec.Dir == "" {
+		a.scratch = filepath.Join(e.config.DataDir, "scratch", strconv.FormatInt(a.id, 10))
+		a.spec.Dir = a.scratch
+		if err := os.MkdirAll(a.scratch, 0o750); err != nil {
+			return nil, a.Fail(ended, err)
+		}
+	}
 	if err := e.takeSlot(ctx, a); err != nil {
 		switch {
 		case errors.Is(err, ErrLeftQueue):
@@ -151,6 +184,9 @@ func (e *Engine) Start(ctx context.Context, spec Spec) (*Agent, error) {
 	}
 	e.publish(Change{Node: new(node(started))})
 	if err := a.open(ctx, binding); err != nil {
+		if ctx.Err() != nil {
+			return nil, errors.Join(err, a.End(ended, "stopped"))
+		}
 		return nil, a.Fail(ended, err)
 	}
 	return a, nil
@@ -245,6 +281,8 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 		err = a.engine.addRow(ctx, a.id, "prompt", row, !a.prompted)
 		a.prompted = true
 		a.chunk = nil
+		a.message = 0
+		a.reply.Reset()
 		a.mu.Unlock()
 		if err != nil {
 			return err
@@ -263,10 +301,34 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 	}
 }
 
+// cancel asks the agent to end the turn that runs.
+func (a *Agent) cancel(ctx context.Context) error {
+	return a.session.Cancel(ctx)
+}
+
+// replyText gives the reply text of the last turn after its last tool call.
+func (a *Agent) replyText() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.reply.String()
+}
+
+// setAuthor sets the author of the chat messages of the reply text, or "" for no chat message.
+func (a *Agent) setAuthor(author string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.author = author
+}
+
 // End ends the agent and the session with reason, for example "done". Then the session frees its slot.
 func (a *Agent) End(ctx context.Context, reason string) error {
 	a.closeHarness()
 	defer a.release()
+	if a.scratch != "" {
+		if err := os.RemoveAll(a.scratch); err != nil {
+			return err
+		}
+	}
 	session, err := a.engine.queries.EndSession(ctx, endParams(a.id, reason))
 	if err != nil {
 		return err
@@ -334,7 +396,10 @@ func (a *Agent) record(params json.RawMessage) error {
 		if err != nil {
 			return err
 		}
-		return a.engine.publishRow(row, false)
+		if err := a.engine.publishRow(row, false); err != nil {
+			return err
+		}
+		return a.addReply(ctx, kind, content)
 	}
 	row, err := a.engine.queries.AddTranscriptRow(ctx, store.AddTranscriptRowParams{Session: a.id, Time: now(), Kind: "update", Json: string(params)})
 	if err != nil {
@@ -344,7 +409,41 @@ func (a *Agent) record(params json.RawMessage) error {
 	if isChunk {
 		a.chunk, a.chunkID = notification, row.ID
 	}
-	return a.engine.publishRow(row, false)
+	if err := a.engine.publishRow(row, false); err != nil {
+		return err
+	}
+	return a.addReply(ctx, kind, content)
+}
+
+// addReply adds content of an agent message chunk to the reply text, and to the chat when the session has an author.
+// A tool call starts a new reply text and a new chat message. The caller holds a.mu.
+func (a *Agent) addReply(ctx context.Context, kind, content string) error {
+	switch kind {
+	case "tool_call":
+		a.message = 0
+		a.reply.Reset()
+	case "tool_call_update":
+		a.reply.Reset()
+	}
+	if kind != "agent_message_chunk" {
+		return nil
+	}
+	a.reply.WriteString(content)
+	if a.author == "" {
+		return nil
+	}
+	if a.message != 0 {
+		message, err := a.engine.queries.AppendChatMessage(ctx, store.AppendChatMessageParams{Text: content, ID: a.message})
+		if err != nil {
+			return err
+		}
+		a.engine.publish(Change{Message: &message})
+		return nil
+	}
+	spec := a.spec
+	message, err := a.engine.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, a.author, content)
+	a.message = message.ID
+	return err
 }
 
 // addRow adds a Transcript row of the session and sends its line to the listeners. folded tells that the row is the

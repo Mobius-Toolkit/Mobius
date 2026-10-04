@@ -3,10 +3,14 @@ package engine_test
 import (
 	"database/sql"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
+	"github.com/Mobius-Toolkit/mobius-go/internal/store"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
 	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
 )
@@ -174,6 +178,87 @@ func TestAReopenAddsAnEventForTheLeadAndReopensNoIssue(t *testing.T) {
 	if err := server.DB.QueryRow("SELECT text FROM chat_messages WHERE repository = ? AND workstream = 12 AND author = 'Event'", shop).Scan(&message); err != nil || message != event.Payload {
 		t.Errorf("chat message = %q: %v", message, err)
 	}
+	if state, reason := fake.State(shop, 41); state != "closed" || reason != "not_planned" {
+		t.Errorf("state of #41 = %s, %s", state, reason)
+	}
+}
+
+// startWithLead starts a server with the Workstream #12 and its task #41, and a Lead that never ends its turn for a
+// message of the Owner. It sends a message to the Lead and waits for the start of the Lead.
+func startWithLead(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, string) {
+	t.Helper()
+	server, dataDir := connect(t, fake, "[[prompts]]\nwhen = \"# Owner message\"\nhang = true\n")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	sendChat(t, server, leadChat, "Plan the next step.")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool { return session.AcpSessionID.Valid })
+	return server, dataDir
+}
+
+func stoppedLead(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool { return session.EndReason.String == "stopped" })
+}
+
+func TestACloseStopsTheLeadAndKeepsItsDirectory(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := startWithLead(t, fake)
+
+	fake.CloseIssue(shop, 12)
+
+	stoppedLead(t, server)
+	if _, err := os.Stat(filepath.Join(dataDir, "leads", "owner", "shop", "12")); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestACompletionStopsTheLead(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := startWithLead(t, fake)
+	fake.CloseIssue(shop, 41)
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
+
+	if status, body := complete(t, server, 12); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	stoppedLead(t, server)
+}
+
+func TestAFailedCompletionKeepsTheLeadRunning(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := startWithLead(t, fake)
+	fake.CloseIssue(shop, 41)
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
+	fake.FailClose(shop, 12)
+
+	if status, body := complete(t, server, 12); status == http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	for _, session := range chatSessions(t, server, leadChat, engine.LeadRole) {
+		if session.EndedAt.Valid {
+			t.Errorf("session = %+v", session)
+		}
+	}
+}
+
+func TestAReopenStartsALeadWithTheEvent(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	waitForPoll(t, server, fake)
+	fake.CloseIssue(shop, 12)
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 41); return state == "closed" })
+
+	fake.ReopenIssue(shop, 12)
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool {
+			return strings.Contains(prompt, "# Event\n\n") && strings.Contains(prompt, ` reopen of Workstream #12 "Integrate loyalty plans" by @owner:`)
+		})
+	})
 	if state, reason := fake.State(shop, 41); state != "closed" || reason != "not_planned" {
 		t.Errorf("state of #41 = %s, %s", state, reason)
 	}
