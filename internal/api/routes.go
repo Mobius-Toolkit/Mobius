@@ -36,6 +36,8 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Delete("/api/drain", h.CancelDrain, loggedIn("upgrade")...)
 	r.Get("/api/upgrade", h.GetUpgrade, loggedIn("upgrade")...)
 	r.Post("/api/upgrade", h.StartUpgrade, append(loggedIn("upgrade"), api.WithErrorResponses(http.StatusConflict))...)
+	r.Get("/api/release", h.GetRelease, loggedIn("upgrade")...)
+	r.Get("/api/release/changes", h.ListReleaseChanges, append(loggedIn("upgrade"), api.WithErrorResponses(http.StatusConflict))...)
 	r.Get("/api/github/apps", h.ListGitHubApps, loggedIn("github")...)
 	r.Post("/api/github/manifest", h.CreateManifestForm, loggedIn("github")...)
 	r.Get("/api/organizations", h.ListOrganizations, loggedIn("github")...)

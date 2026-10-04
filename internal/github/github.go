@@ -201,6 +201,20 @@ func (g *GitHub) LatestRelease(ctx context.Context) (*gh.RepositoryRelease, erro
 	return release, err
 }
 
+// CommitMessages gives the message of each commit of Mobius after the commit base up to the commit head, the oldest
+// first. GitHub gives at most 250 commits. The call has no token, as in LatestRelease.
+func (g *GitHub) CommitMessages(ctx context.Context, base, head string) ([]string, error) {
+	comparison, _, err := g.api.Repositories.CompareCommits(ctx, "Mobius-Toolkit", "Mobius", base, head, nil)
+	if err != nil {
+		return nil, err
+	}
+	messages := make([]string, 0, len(comparison.Commits))
+	for _, commit := range comparison.Commits {
+		messages = append(messages, commit.GetCommit().GetMessage())
+	}
+	return messages, nil
+}
+
 // ReleaseURL gives the download URL of the file asset of the release of Mobius with tag.
 func (g *GitHub) ReleaseURL(tag, asset string) string {
 	return g.webURL + "/Mobius-Toolkit/Mobius/releases/download/" + url.PathEscape(tag) + "/" + url.PathEscape(asset)

@@ -920,6 +920,106 @@
         ]
       }
     },
+    "/api/release": {
+      "get": {
+        "description": "GetRelease returns the newest release of Mobius when it is newer than this program.",
+        "operationId": "GetRelease",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Release"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "upgrade"
+        ]
+      }
+    },
+    "/api/release/changes": {
+      "get": {
+        "description": "ListReleaseChanges returns the first line of the message of each commit after this release up to the newest release of Mobius, the newest first.",
+        "operationId": "ListReleaseChanges",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_string"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "upgrade"
+        ]
+      }
+    },
     "/api/upgrade": {
       "get": {
         "description": "GetUpgrade returns the error of the last upgrade.",
@@ -1885,6 +1985,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Release": {
+        "type": "object",
+        "title": "Envelope_Release",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Release",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Upgrade": {
         "type": "object",
         "title": "Envelope_Upgrade",
@@ -2223,6 +2337,20 @@
           "url"
         ],
         "description": "PermissionCheck is the status of a permission that the Mobius App needs."
+      },
+      "Release": {
+        "type": "object",
+        "title": "Release",
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "Version is the tag of the newest release when it is newer than this program, for example v0.2.0. It is empty when no newer release exists, and for a local build"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "description": "Release is the newest release of Mobius."
       },
       "RepositoryCheckup": {
         "type": "object",

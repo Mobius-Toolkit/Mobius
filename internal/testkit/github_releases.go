@@ -32,3 +32,32 @@ func (g *FakeGitHub) getLatestRelease(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, g.latestRelease)
 }
+
+type commitJSON struct {
+	Commit struct {
+		Message string `json:"message"`
+	} `json:"commit"`
+}
+
+// SetComparedCommits makes each comparison of two commits of Mobius-Toolkit/Mobius give the commits with messages,
+// the oldest first.
+func (g *FakeGitHub) SetComparedCommits(messages ...string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.comparedCommits = messages
+}
+
+// compare needs no token, as on GitHub for a public repository.
+func (g *FakeGitHub) compare(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if repository(r) != "Mobius-Toolkit/Mobius" {
+		notFound(w)
+		return
+	}
+	commits := make([]commitJSON, len(g.comparedCommits))
+	for i, message := range g.comparedCommits {
+		commits[i].Commit.Message = message
+	}
+	writeJSON(w, http.StatusOK, map[string][]commitJSON{"commits": commits})
+}

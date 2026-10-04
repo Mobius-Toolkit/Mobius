@@ -55,6 +55,44 @@ func (e *Engine) Upgrade(ctx context.Context) (DrainEnd, error) {
 	}
 }
 
+// NewRelease gives the tag of the newest release of Mobius when it is newer than this program. It gives "" when no
+// newer release exists, and for a local build.
+func (e *Engine) NewRelease(ctx context.Context) (string, error) {
+	if Release == "" {
+		return "", nil
+	}
+	release, err := e.github.LatestRelease(ctx)
+	if err != nil {
+		return "", err
+	}
+	if !newerRelease(Release, release.GetTagName()) {
+		return "", nil
+	}
+	return release.GetTagName(), nil
+}
+
+// ReleaseChanges gives the first line of the message of each commit after this release up to the newest release of
+// Mobius, the newest first.
+func (e *Engine) ReleaseChanges(ctx context.Context) ([]string, error) {
+	if Release == "" {
+		return nil, refuse("This Mobius build is not a release.")
+	}
+	release, err := e.github.LatestRelease(ctx)
+	if err != nil {
+		return nil, err
+	}
+	messages, err := e.github.CommitMessages(ctx, Release, release.GetTagName())
+	if err != nil {
+		return nil, err
+	}
+	changes := make([]string, 0, len(messages))
+	for _, message := range slices.Backward(messages) {
+		title, _, _ := strings.Cut(message, "\n")
+		changes = append(changes, title)
+	}
+	return changes, nil
+}
+
 // UpgradeFailure gives the error of the last upgrade, or "" when the last upgrade has no error.
 func (e *Engine) UpgradeFailure() string {
 	e.mu.Lock()
