@@ -56,6 +56,86 @@ func (q *Queries) AddGitHubApp(ctx context.Context, arg AddGitHubAppParams) erro
 	return err
 }
 
+const addSession = `-- name: AddSession :one
+INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, parent, started_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent
+`
+
+type AddSessionParams struct {
+	Role         string
+	Harness      string
+	Model        string
+	Organization string
+	Repository   string
+	Workstream   int64
+	Issue        sql.NullInt64
+	Parent       sql.NullInt64
+	StartedAt    string
+}
+
+func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session, error) {
+	row := q.db.QueryRowContext(ctx, addSession,
+		arg.Role,
+		arg.Harness,
+		arg.Model,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.Issue,
+		arg.Parent,
+		arg.StartedAt,
+	)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.Role,
+		&i.Harness,
+		&i.Model,
+		&i.Repository,
+		&i.Workstream,
+		&i.AcpSessionID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.EndReason,
+		&i.QueueReason,
+		&i.Organization,
+		&i.Issue,
+		&i.Parent,
+	)
+	return i, err
+}
+
+const addTranscriptRow = `-- name: AddTranscriptRow :one
+INSERT INTO transcript (session, time, kind, json) VALUES (?, ?, ?, ?)
+RETURNING id, session, time, kind, json
+`
+
+type AddTranscriptRowParams struct {
+	Session int64
+	Time    string
+	Kind    string
+	Json    string
+}
+
+func (q *Queries) AddTranscriptRow(ctx context.Context, arg AddTranscriptRowParams) (Transcript, error) {
+	row := q.db.QueryRowContext(ctx, addTranscriptRow,
+		arg.Session,
+		arg.Time,
+		arg.Kind,
+		arg.Json,
+	)
+	var i Transcript
+	err := row.Scan(
+		&i.ID,
+		&i.Session,
+		&i.Time,
+		&i.Kind,
+		&i.Json,
+	)
+	return i, err
+}
+
 const deleteDeviceLogin = `-- name: DeleteDeviceLogin :exec
 DELETE FROM device_logins WHERE id = ?
 `
@@ -72,6 +152,39 @@ DELETE FROM device_logins WHERE password_fingerprint != ?
 func (q *Queries) DeleteOtherPasswordLogins(ctx context.Context, passwordFingerprint []byte) error {
 	_, err := q.db.ExecContext(ctx, deleteOtherPasswordLogins, passwordFingerprint)
 	return err
+}
+
+const endSession = `-- name: EndSession :one
+UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
+RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent
+`
+
+type EndSessionParams struct {
+	EndedAt   sql.NullString
+	EndReason sql.NullString
+	ID        int64
+}
+
+func (q *Queries) EndSession(ctx context.Context, arg EndSessionParams) (Session, error) {
+	row := q.db.QueryRowContext(ctx, endSession, arg.EndedAt, arg.EndReason, arg.ID)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.Role,
+		&i.Harness,
+		&i.Model,
+		&i.Repository,
+		&i.Workstream,
+		&i.AcpSessionID,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.EndReason,
+		&i.QueueReason,
+		&i.Organization,
+		&i.Issue,
+		&i.Parent,
+	)
+	return i, err
 }
 
 const findDeviceLogin = `-- name: FindDeviceLogin :one
@@ -101,6 +214,74 @@ func (q *Queries) GetGitHubApp(ctx context.Context, appID int64) (GithubApp, err
 		&i.UserToken,
 		&i.RefreshToken,
 		&i.UserTokenExpiresAt,
+	)
+	return i, err
+}
+
+const getLiveTask = `-- name: GetLiveTask :one
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
+`
+
+type GetLiveTaskParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) GetLiveTask(ctx context.Context, arg GetLiveTaskParams) (Task, error) {
+	row := q.db.QueryRowContext(ctx, getLiveTask, arg.Repository, arg.Issue)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Issue,
+		&i.Workstream,
+		&i.State,
+		&i.DispatchedAt,
+		&i.Branch,
+		&i.QueuedAt,
+		&i.FixRounds,
+		&i.PullRequest,
+		&i.JudgedAt,
+		&i.WorkerRestarts,
+		&i.Worker,
+		&i.WorkerInput,
+		&i.ReviewRounds,
+		&i.ReviewComment,
+		&i.CheckHead,
+	)
+	return i, err
+}
+
+const getLiveTaskByPullRequest = `-- name: GetLiveTaskByPullRequest :one
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
+`
+
+type GetLiveTaskByPullRequestParams struct {
+	Repository  string
+	PullRequest sql.NullInt64
+}
+
+func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskByPullRequestParams) (Task, error) {
+	row := q.db.QueryRowContext(ctx, getLiveTaskByPullRequest, arg.Repository, arg.PullRequest)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Issue,
+		&i.Workstream,
+		&i.State,
+		&i.DispatchedAt,
+		&i.Branch,
+		&i.QueuedAt,
+		&i.FixRounds,
+		&i.PullRequest,
+		&i.JudgedAt,
+		&i.WorkerRestarts,
+		&i.Worker,
+		&i.WorkerInput,
+		&i.ReviewRounds,
+		&i.ReviewComment,
+		&i.CheckHead,
 	)
 	return i, err
 }
@@ -267,6 +448,132 @@ func (q *Queries) ListLatestEvents(ctx context.Context, limit int64) ([]Event, e
 	return items, nil
 }
 
+const listLiveTasks = `-- name: ListLiveTasks :many
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
+`
+
+func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task, error) {
+	rows, err := q.db.QueryContext(ctx, listLiveTasks, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Task
+	for rows.Next() {
+		var i Task
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Issue,
+			&i.Workstream,
+			&i.State,
+			&i.DispatchedAt,
+			&i.Branch,
+			&i.QueuedAt,
+			&i.FixRounds,
+			&i.PullRequest,
+			&i.JudgedAt,
+			&i.WorkerRestarts,
+			&i.Worker,
+			&i.WorkerInput,
+			&i.ReviewRounds,
+			&i.ReviewComment,
+			&i.CheckHead,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSessions = `-- name: ListSessions :many
+SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent FROM sessions WHERE organization = ? AND repository = ? AND workstream = ? ORDER BY id
+`
+
+type ListSessionsParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+}
+
+func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]Session, error) {
+	rows, err := q.db.QueryContext(ctx, listSessions, arg.Organization, arg.Repository, arg.Workstream)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Session
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.ID,
+			&i.Role,
+			&i.Harness,
+			&i.Model,
+			&i.Repository,
+			&i.Workstream,
+			&i.AcpSessionID,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.EndReason,
+			&i.QueueReason,
+			&i.Organization,
+			&i.Issue,
+			&i.Parent,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTranscript = `-- name: ListTranscript :many
+SELECT id, session, time, kind, json FROM transcript WHERE session = ? ORDER BY id
+`
+
+func (q *Queries) ListTranscript(ctx context.Context, session int64) ([]Transcript, error) {
+	rows, err := q.db.QueryContext(ctx, listTranscript, session)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Transcript
+	for rows.Next() {
+		var i Transcript
+		if err := rows.Scan(
+			&i.ID,
+			&i.Session,
+			&i.Time,
+			&i.Kind,
+			&i.Json,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkstreams = `-- name: ListWorkstreams :many
 WITH activity AS (
     SELECT repository, workstream, dispatched_at AS time FROM tasks
@@ -333,6 +640,20 @@ func (q *Queries) ListWorkstreams(ctx context.Context) ([]ListWorkstreamsRow, er
 	return items, nil
 }
 
+const setACPSessionID = `-- name: SetACPSessionID :exec
+UPDATE sessions SET acp_session_id = ? WHERE id = ?
+`
+
+type SetACPSessionIDParams struct {
+	AcpSessionID sql.NullString
+	ID           int64
+}
+
+func (q *Queries) SetACPSessionID(ctx context.Context, arg SetACPSessionIDParams) error {
+	_, err := q.db.ExecContext(ctx, setACPSessionID, arg.AcpSessionID, arg.ID)
+	return err
+}
+
 const setSyncCursor = `-- name: SetSyncCursor :exec
 INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES (?, ?, ?, ?)
 ON CONFLICT (repository, endpoint) DO UPDATE SET since = excluded.since, etag = excluded.etag
@@ -353,6 +674,29 @@ func (q *Queries) SetSyncCursor(ctx context.Context, arg SetSyncCursorParams) er
 		arg.Etag,
 	)
 	return err
+}
+
+const setTranscriptJSON = `-- name: SetTranscriptJSON :one
+UPDATE transcript SET json = ? WHERE id = ?
+RETURNING id, session, time, kind, json
+`
+
+type SetTranscriptJSONParams struct {
+	Json string
+	ID   int64
+}
+
+func (q *Queries) SetTranscriptJSON(ctx context.Context, arg SetTranscriptJSONParams) (Transcript, error) {
+	row := q.db.QueryRowContext(ctx, setTranscriptJSON, arg.Json, arg.ID)
+	var i Transcript
+	err := row.Scan(
+		&i.ID,
+		&i.Session,
+		&i.Time,
+		&i.Kind,
+		&i.Json,
+	)
+	return i, err
 }
 
 const setUserTokens = `-- name: SetUserTokens :exec

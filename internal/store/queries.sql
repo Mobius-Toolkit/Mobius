@@ -68,3 +68,38 @@ SELECT since, etag FROM sync_cursors WHERE repository = ? AND endpoint = ?;
 -- name: SetSyncCursor :exec
 INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES (?, ?, ?, ?)
 ON CONFLICT (repository, endpoint) DO UPDATE SET since = excluded.since, etag = excluded.etag;
+
+-- name: AddSession :one
+INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, parent, started_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: SetACPSessionID :exec
+UPDATE sessions SET acp_session_id = ? WHERE id = ?;
+
+-- name: EndSession :one
+UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
+RETURNING *;
+
+-- name: ListSessions :many
+SELECT * FROM sessions WHERE organization = ? AND repository = ? AND workstream = ? ORDER BY id;
+
+-- name: AddTranscriptRow :one
+INSERT INTO transcript (session, time, kind, json) VALUES (?, ?, ?, ?)
+RETURNING *;
+
+-- name: SetTranscriptJSON :one
+UPDATE transcript SET json = ? WHERE id = ?
+RETURNING *;
+
+-- name: ListTranscript :many
+SELECT * FROM transcript WHERE session = ? ORDER BY id;
+
+-- name: GetLiveTask :one
+SELECT * FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended';
+
+-- name: ListLiveTasks :many
+SELECT * FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id;
+
+-- name: GetLiveTaskByPullRequest :one
+SELECT * FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended';

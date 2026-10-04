@@ -21,8 +21,9 @@ import (
 var migrations embed.FS
 
 // Open opens the database at path and applies the pending migrations.
+// A write waits up to 5 s (busy_timeout is in milliseconds) while another connection writes.
 func Open(ctx context.Context, path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, err
 	}

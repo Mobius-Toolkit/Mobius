@@ -29,3 +29,48 @@ type GithubApp struct {
 	RefreshToken       sql.NullString
 	UserTokenExpiresAt sql.NullString
 }
+
+type Session struct {
+	ID           int64
+	Role         string
+	Harness      string
+	Model        string
+	Repository   string
+	Workstream   int64
+	AcpSessionID sql.NullString
+	StartedAt    string
+	EndedAt      sql.NullString
+	EndReason    sql.NullString
+	QueueReason  sql.NullString
+	Organization string
+	Issue        sql.NullInt64
+	Parent       sql.NullInt64
+}
+
+type Task struct {
+	ID             int64
+	Repository     string
+	Issue          int64
+	Workstream     int64
+	State          string
+	DispatchedAt   string
+	Branch         sql.NullString
+	QueuedAt       sql.NullString
+	FixRounds      int64
+	PullRequest    sql.NullInt64
+	JudgedAt       sql.NullString
+	WorkerRestarts int64
+	Worker         sql.NullString
+	WorkerInput    sql.NullString
+	ReviewRounds   int64
+	ReviewComment  sql.NullInt64
+	CheckHead      sql.NullString
+}
+
+type Transcript struct {
+	ID      int64
+	Session int64
+	Time    string
+	Kind    string
+	Json    string
+}
