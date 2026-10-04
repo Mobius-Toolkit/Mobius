@@ -24,7 +24,7 @@ type Workstream struct {
 
 // ListWorkstreamsResponse is the response of ListWorkstreams.
 type ListWorkstreamsResponse struct {
-	Body []Workstream
+	Body Envelope[[]Workstream]
 }
 
 // ListWorkstreams returns the Workstreams of the database, the most recently active first.
@@ -47,5 +47,5 @@ func (h *handlers) ListWorkstreams(ctx context.Context, _ ListWorkstreamsRequest
 			LastActivity: lastActivity,
 		})
 	}
-	return &ListWorkstreamsResponse{Body: workstreams}, nil
+	return &ListWorkstreamsResponse{Body: Envelope[[]Workstream]{Data: workstreams}}, nil
 }

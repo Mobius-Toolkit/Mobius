@@ -31,7 +31,9 @@ func TestListWorkstreams(t *testing.T) {
 		OpenTasks    int64  `json:"openTasks"`
 		LastActivity string `json:"lastActivity"`
 	}
-	var body []workstream
+	var body struct {
+		Data []workstream `json:"data"`
+	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
 	}
@@ -39,8 +41,8 @@ func TestListWorkstreams(t *testing.T) {
 		{Repository: "o/b", Number: 5, Tasks: 0, OpenTasks: 0, LastActivity: "2026-10-02T10:00:00.25Z"},
 		{Repository: "o/a", Number: 1, Tasks: 2, OpenTasks: 1, LastActivity: "2026-10-01T11:00:00Z"},
 	}
-	if !slices.Equal(body, want) {
-		t.Errorf("workstreams = %+v, want %+v", body, want)
+	if !slices.Equal(body.Data, want) {
+		t.Errorf("workstreams = %+v, want %+v", body.Data, want)
 	}
 }
 
@@ -50,7 +52,7 @@ func TestListWorkstreamsEmpty(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workstreams", nil))
 
-	if got, want := rec.Body.String(), `[]`; got != want {
+	if got, want := rec.Body.String(), `{"data":[]}`; got != want {
 		t.Errorf("body = %s, want %s", got, want)
 	}
 }
