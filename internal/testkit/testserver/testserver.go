@@ -87,9 +87,8 @@ func Start(t testing.TB, dataDir, githubURL string) *Server {
 }
 
 // WaitForFirstPoll waits for the end of the first poll of repository. The first poll
-// runs the lost-task recovery and treats each earlier issue event as old, so a test
-// that changes an issue before this end races with the first poll. The first poll
-// stores the `since` cursor of the issues endpoint at its end.
+// stores the `since` cursor of the issues endpoint at its end. A test that changes an
+// issue before this end races with the first poll.
 func (s *Server) WaitForFirstPoll(t testing.TB, repository string) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
