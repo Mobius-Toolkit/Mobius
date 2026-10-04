@@ -30,6 +30,7 @@ import { LoginContext } from '@/lib/login'
 import { clock } from '@/lib/time'
 import { sameChat } from '@/lib/unread'
 import { cn } from '@/lib/utils'
+import { useVoice } from '@/lib/voice'
 import { Markdown } from './Markdown'
 
 function upsert(list: ChatMessage[], message: ChatMessage) {
@@ -128,6 +129,15 @@ export function Conversation({
   const pinned = useRef(true)
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined)
+  const voice = useVoice(
+    (spoken) =>
+      setText((current) =>
+        current === '' || current.endsWith(' ')
+          ? current + spoken
+          : `${current} ${spoken}`,
+      ),
+    setSendError,
+  )
 
   const load = useCallback(() => {
     getChat({ organization, repository, workstream })
@@ -372,6 +382,18 @@ export function Conversation({
             Stop
           </Button>
         )}
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(
+            voice.listening &&
+              'animate-pulse border-destructive text-destructive',
+          )}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={voice.toggle}
+        >
+          {voice.listening ? 'Stop mic' : 'Mic'}
+        </Button>
         <Button
           type="submit"
           disabled={sending}
