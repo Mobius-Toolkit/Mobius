@@ -83,22 +83,34 @@ function App() {
     if (!live) {
       return
     }
-    const events = new EventSource('/api/events')
-    events.addEventListener('open', () => setSource(events), { once: true })
-    // The server sends the latest activities when the connection opens, before the pages can listen. When the browser
-    // connects again, the server sends only the activities after the last event id.
-    const remove = onEvent<LiveEvents, 'activity'>(
-      events,
-      'activity',
-      (activity) =>
+    const connect = () => {
+      const events = new EventSource('/api/events')
+      events.addEventListener('open', () => setSource(events), { once: true })
+      // The server sends the latest activities when the connection opens, before the pages can listen. When the
+      // browser connects again, the server sends only the activities after the last event id.
+      onEvent<LiveEvents, 'activity'>(events, 'activity', (activity) =>
         setActivities((list) =>
           list.some((other) => other.id === activity.id)
             ? list
             : [...list, activity],
         ),
-    )
+      )
+      return events
+    }
+    let events = connect()
+    // A phone that stops the page in the background can leave a live connection open with no error. Thus the page
+    // connects again when it is visible again or when the browser is online again.
+    const wake = () => {
+      if (!document.hidden) {
+        events.close()
+        events = connect()
+      }
+    }
+    window.addEventListener('online', wake)
+    document.addEventListener('visibilitychange', wake)
     return () => {
-      remove()
+      window.removeEventListener('online', wake)
+      document.removeEventListener('visibilitychange', wake)
       events.close()
     }
   }, [live])
