@@ -1544,7 +1544,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_Array_Agent": {
         "type": "object",
@@ -1561,7 +1562,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_Array_GitHubApp": {
         "type": "object",
@@ -1578,7 +1580,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_Array_TranscriptLine": {
         "type": "object",
@@ -1595,7 +1598,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_Array_Workstream": {
         "type": "object",
@@ -1612,7 +1616,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_Array_string": {
         "type": "object",
@@ -1629,7 +1634,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_Checkup": {
         "type": "object",
@@ -1642,7 +1648,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_Devices": {
         "type": "object",
@@ -1655,7 +1662,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_Drain": {
         "type": "object",
@@ -1668,7 +1676,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_DrainEnd": {
         "type": "object",
@@ -1681,7 +1690,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_Health": {
         "type": "object",
@@ -1694,7 +1704,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_ManifestForm": {
         "type": "object",
@@ -1707,7 +1718,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "Envelope_Upgrade": {
         "type": "object",
@@ -1720,7 +1732,8 @@
         },
         "required": [
           "data"
-        ]
+        ],
+        "description": "Envelope is the body of each success response."
       },
       "ErrorResponse": {
         "type": "object",
@@ -2055,9 +2068,9 @@
             "type": "string",
             "description": "Body is the text below Text. It can be empty"
           },
-          "failed": {
+          "error": {
             "type": "boolean",
-            "description": "Failed is true for an error row and for a Mobius tool call that failed"
+            "description": "Error is true for an error row and for a Mobius tool call that failed"
           },
           "folded": {
             "type": "boolean",
@@ -2108,7 +2121,7 @@
           "harnessToolName",
           "body",
           "folded",
-          "failed",
+          "error",
           "raw"
         ],
         "description": "TranscriptLine is a row of the Transcript of a session."
