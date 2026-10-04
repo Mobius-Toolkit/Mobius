@@ -95,11 +95,13 @@ func checkRuns(t *testing.T, fake *testkit.FakeGitHub) []testkit.CheckRun {
 	})
 }
 
-// readyCheckRuns waits until the task of #41 is ready for review, and gives the check runs. With no review, the
-// head that the Implementer pushed is ready for review at once.
+// readyCheckRuns waits until the pull request of #41 is ready for review, and gives the check runs. With no review,
+// the head that the Implementer pushed is ready for review at once. Mobius adds the Inbox item after the check run.
 func readyCheckRuns(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) []testkit.CheckRun {
 	t.Helper()
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(inbox(t, server), func(item inboxItem) bool { return item.Kind == "ready for review" })
+	})
 	return fake.CheckRuns(shop)
 }
 
