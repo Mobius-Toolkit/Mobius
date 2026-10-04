@@ -54,7 +54,7 @@ internal/auth/         the access password and the device logins
 internal/config/       reads config.toml
 internal/engine/       the poll of the repositories, the Mobius labels, the checkup and the trust rules
 internal/github/       the GitHub Apps: the App setup, the user tokens, the installation tokens and the repositories
-internal/mcp/          the Mobius MCP server and its tools
+internal/mcp/          the Mobius MCP server and the gh token of each session key
 internal/runner/       starts an agent session of a Harness through ACP, and holds the gh of the agent environment
 internal/setup/        mobius init: asks for the values of a new config.toml and writes it
 internal/store/        the SQLite database: goose migrations and sqlc queries

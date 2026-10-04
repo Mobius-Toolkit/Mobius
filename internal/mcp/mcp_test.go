@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,10 +15,37 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const wantTasks = `#2 Spike: Open a copy of mobius.db and serve the Workstream list: dispatched
-#3 Spike: Start one Claude Code session through ACP: dispatched, blocked by #2
-#4 Spike: Measure the build, the tests and the disk use: open, blocked by #3, #40 (Workstream "Release")
-`
+// echo gives its text argument, or the text as the error when fail is true.
+var echo = Tool{
+	Name:        "echo",
+	Description: "Give the text.",
+	Properties: map[string]any{
+		"text": map[string]any{"type": "string"},
+		"fail": map[string]any{"type": "boolean"},
+	},
+	Run: func(_ context.Context, arguments json.RawMessage) (string, error) {
+		var input struct {
+			Text string `json:"text"`
+			Fail bool   `json:"fail"`
+		}
+		if err := json.Unmarshal(arguments, &input); err != nil {
+			return "", err
+		}
+		if input.Fail {
+			return "", errors.New(input.Text)
+		}
+		return input.Text, nil
+	},
+}
+
+var none = Tool{
+	Name:        "none",
+	Description: "Take no arguments.",
+	Properties:  map[string]any{},
+	Run: func(_ context.Context, arguments json.RawMessage) (string, error) {
+		return string(arguments), nil
+	},
+}
 
 func start(t *testing.T) (*Server, string) {
 	t.Helper()
@@ -39,9 +68,10 @@ func connect(t *testing.T, url string) *sdk.ClientSession {
 	return session
 }
 
-func TestToolListHasListTasksAndTellsTheProtocolVersion(t *testing.T) {
+func TestTheToolListHasTheToolsOfTheKeyAndTellsTheProtocolVersion(t *testing.T) {
 	server, addr := start(t)
-	key := server.Open()
+	key := server.Open(Caller{Tools: []Tool{echo, none}})
+	server.Open(Caller{Tools: []Tool{none}})
 	session := connect(t, URL(addr, key))
 
 	result, err := session.ListTools(context.Background(), nil)
@@ -49,16 +79,25 @@ func TestToolListHasListTasksAndTellsTheProtocolVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(result.Tools) != 1 {
+	if len(result.Tools) != 2 {
 		t.Fatalf("tools = %d", len(result.Tools))
 	}
 	tool := result.Tools[0]
-	if tool.Name != "list_tasks" || tool.Description != "Give the task list of the Workstream: one line for each open issue." {
+	if tool.Name != "echo" || tool.Description != "Give the text." {
 		t.Errorf("tool = %s: %s", tool.Name, tool.Description)
 	}
-	wantSchema := map[string]any{"type": "object", "properties": map[string]any{}, "required": []any{}, "additionalProperties": false}
+	wantSchema := map[string]any{
+		"type":                 "object",
+		"properties":           map[string]any{"fail": map[string]any{"type": "boolean"}, "text": map[string]any{"type": "string"}},
+		"required":             []any{"fail", "text"},
+		"additionalProperties": false,
+	}
 	if !reflect.DeepEqual(tool.InputSchema, wantSchema) {
 		t.Errorf("schema = %v", tool.InputSchema)
+	}
+	wantSchema = map[string]any{"type": "object", "properties": map[string]any{}, "required": []any{}, "additionalProperties": false}
+	if !reflect.DeepEqual(result.Tools[1].InputSchema, wantSchema) {
+		t.Errorf("schema = %v", result.Tools[1].InputSchema)
 	}
 	if tool.Meta["anthropic/alwaysLoad"] != true {
 		t.Errorf("meta = %v", tool.Meta)
@@ -71,38 +110,37 @@ func TestToolListHasListTasksAndTellsTheProtocolVersion(t *testing.T) {
 	}
 }
 
-func TestListTasksGivesTheTaskLines(t *testing.T) {
-	server, addr := start(t)
-	session := connect(t, URL(addr, server.Open()))
-
-	result, err := session.CallTool(context.Background(), &sdk.CallToolParams{Name: "list_tasks", Arguments: map[string]any{}})
+func call(t *testing.T, session *sdk.ClientSession, name string, arguments any) *sdk.CallToolResult {
+	t.Helper()
+	result, err := session.CallTool(context.Background(), &sdk.CallToolParams{Name: name, Arguments: arguments})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if result.IsError || len(result.Content) != 1 || result.Content[0].(*sdk.TextContent).Text != wantTasks {
-		t.Errorf("result = %+v", result)
-	}
+	return result
 }
 
-func TestListTasksRefusesAnUnknownArgument(t *testing.T) {
+func TestACallGivesTheTextOrTheErrorOfTheTool(t *testing.T) {
 	server, addr := start(t)
-	session := connect(t, URL(addr, server.Open()))
+	session := connect(t, URL(addr, server.Open(Caller{Tools: []Tool{echo, none}})))
 
-	result, err := session.CallTool(context.Background(), &sdk.CallToolParams{Name: "list_tasks", Arguments: map[string]any{"n": 1}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	result := call(t, session, "echo", map[string]any{"text": "Hello."})
+	failed := call(t, session, "echo", map[string]any{"text": "No such issue.", "fail": true})
+	empty := call(t, session, "none", nil)
 
-	want := `Invalid arguments for list_tasks: json: unknown field "n".`
-	if !result.IsError || result.Content[0].(*sdk.TextContent).Text != want {
+	if result.IsError || result.Content[0].(*sdk.TextContent).Text != "Hello." {
 		t.Errorf("result = %+v", result.Content[0])
 	}
+	if !failed.IsError || failed.Content[0].(*sdk.TextContent).Text != "No such issue." {
+		t.Errorf("result = %+v", failed.Content[0])
+	}
+	if empty.IsError || empty.Content[0].(*sdk.TextContent).Text != "{}" {
+		t.Errorf("result = %+v", empty.Content[0])
+	}
 }
 
-func post(t *testing.T, url, version, body string) (int, []byte) {
+func send(t *testing.T, method, url, version, body string) (int, []byte) {
 	t.Helper()
-	request, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	request, err := http.NewRequest(method, url, strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,9 +161,9 @@ func post(t *testing.T, url, version, body string) (int, []byte) {
 
 func TestAnOlderClientGetsTheCacheFieldsOfTheToolList(t *testing.T) {
 	server, addr := start(t)
-	key := server.Open()
+	key := server.Open(Caller{Tools: []Tool{none}})
 
-	_, text := post(t, URL(addr, key), "2025-11-25", `{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}`)
+	_, text := send(t, http.MethodPost, URL(addr, key), "2025-11-25", `{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}`)
 
 	var body struct {
 		Result map[string]json.RawMessage `json:"result"`
@@ -143,13 +181,37 @@ func TestAnOlderClientGetsTheCacheFieldsOfTheToolList(t *testing.T) {
 
 func TestAnUnknownOrClosedKeyIsNotFound(t *testing.T) {
 	server, addr := start(t)
-	key := server.Open()
+	key := server.Open(Caller{Tools: []Tool{none}, GHToken: func(context.Context) (string, error) { return "ghu_1", nil }})
 	server.Close(key)
 
 	for _, url := range []string{URL(addr, "unknown"), URL(addr, key)} {
-		status, text := post(t, url, "2026-07-28", `{}`)
+		status, text := send(t, http.MethodPost, url, "2026-07-28", `{}`)
 		if status != http.StatusNotFound {
 			t.Errorf("%s: %d %s", url, status, text)
+		}
+	}
+	for _, url := range []string{GHTokenURL(addr, "unknown"), GHTokenURL(addr, key)} {
+		status, text := send(t, http.MethodGet, url, "", "")
+		if status != http.StatusNotFound {
+			t.Errorf("%s: %d %s", url, status, text)
+		}
+	}
+}
+
+func TestTheGHTokenRouteGivesTheTokenOfACallerWithAGHToken(t *testing.T) {
+	server, addr := start(t)
+	lead := server.Open(Caller{GHToken: func(context.Context) (string, error) { return "ghu_1", nil }})
+	failing := server.Open(Caller{GHToken: func(context.Context) (string, error) { return "", errors.New("authorize the App") }})
+	other := server.Open(Caller{})
+
+	for url, want := range map[string]string{
+		GHTokenURL(addr, lead):    "200 ghu_1",
+		GHTokenURL(addr, failing): "500 authorize the App\n",
+		GHTokenURL(addr, other):   "404 404 page not found\n",
+	} {
+		status, text := send(t, http.MethodGet, url, "", "")
+		if got := fmt.Sprintf("%d %s", status, text); got != want {
+			t.Errorf("%s: %q, want %q", url, got, want)
 		}
 	}
 }
