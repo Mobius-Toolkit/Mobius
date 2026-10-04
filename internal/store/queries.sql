@@ -61,3 +61,10 @@ SELECT * FROM github_apps WHERE app_id = ?;
 -- name: SetUserTokens :exec
 UPDATE github_apps SET user_token = ?, refresh_token = ?, user_token_expires_at = ?
 WHERE app_id = ?;
+
+-- name: GetSyncCursor :one
+SELECT since, etag FROM sync_cursors WHERE repository = ? AND endpoint = ?;
+
+-- name: SetSyncCursor :exec
+INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES (?, ?, ?, ?)
+ON CONFLICT (repository, endpoint) DO UPDATE SET since = excluded.since, etag = excluded.etag;

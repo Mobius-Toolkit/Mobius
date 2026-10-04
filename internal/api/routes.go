@@ -8,14 +8,15 @@ import (
 	"github.com/gork-labs/gork/pkg/api"
 
 	"github.com/Mobius-Toolkit/mobius-go/internal/auth"
+	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
 	"github.com/Mobius-Toolkit/mobius-go/internal/github"
 	"github.com/Mobius-Toolkit/mobius-go/internal/store"
 )
 
 // Routes registers the API routes below /api/ on mux.
 // Each route but POST /api/login needs the cookie of a device login.
-func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github.GitHub) *stdlib.Router {
-	h := &handlers{queries: queries, auth: a, github: gh}
+func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github.GitHub, e *engine.Engine) *stdlib.Router {
+	h := &handlers{queries: queries, auth: a, github: gh, engine: e}
 	routes := http.NewServeMux()
 	r := stdlib.NewRouter(routes)
 	r.Post("/api/login", h.Login, api.WithTags("devices"), api.WithErrorResponses(http.StatusUnauthorized))
@@ -27,6 +28,8 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Get("/api/github/apps", h.ListGitHubApps, loggedIn("github")...)
 	r.Post("/api/github/manifest", h.CreateManifestForm, loggedIn("github")...)
 	r.Get("/api/organizations", h.ListOrganizations, loggedIn("github")...)
+	r.Get("/api/checkup", h.GetCheckup, loggedIn("checkup")...)
+	r.Post("/api/checkup/fix", h.FixLabels, loggedIn("checkup")...)
 	// GitHub sends the browser to these pages. Gork cannot give a redirect, so they are plain handlers outside the spec.
 	routes.HandleFunc("GET /api/github/manifest-callback", h.manifestCallback)
 	routes.HandleFunc("GET /api/github/user-callback", h.userCallback)
@@ -43,4 +46,5 @@ type handlers struct {
 	queries *store.Queries
 	auth    *auth.Auth
 	github  *github.GitHub
+	engine  *engine.Engine
 }
