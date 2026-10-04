@@ -19,10 +19,12 @@ type issueKey struct {
 }
 
 type issue struct {
-	title       string
-	body        string
-	author      string
-	state       string
+	title  string
+	body   string
+	author string
+	state  string
+	// stateReason is the reason of the last close, or "".
+	stateReason string
 	pullRequest bool
 	labels      []string
 	updatedAt   int64
@@ -106,12 +108,28 @@ func (g *FakeGitHub) AddPullRequest(repository string, number int64, title strin
 	g.issues[key].pullRequest = true
 }
 
-// AddSubIssue makes child a sub-issue of parent. Both issues are in repository.
+// AddSubIssue makes child a sub-issue of parent. Both issues are in repository. The change of the link
+// changes the update time of no issue.
 func (g *FakeGitHub) AddSubIssue(repository string, parent, child int64) {
+	g.AddForeignSubIssue(repository, parent, repository, child)
+}
+
+// AddForeignSubIssue makes the issue child of childRepository a sub-issue of parent in repository.
+func (g *FakeGitHub) AddForeignSubIssue(repository string, parent int64, childRepository string, child int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	found := g.issues[issueKey{repository, parent}]
-	found.subIssues = append(found.subIssues, issueKey{repository, child})
+	found.subIssues = append(found.subIssues, issueKey{childRepository, child})
+}
+
+// AddSubIssueOf adds the open issue number with title below parent in one step, so a poll sees both.
+func (g *FakeGitHub) AddSubIssueOf(repository string, parent, number int64, title string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key := issueKey{repository, number}
+	g.insertIssue(key, title, "", "owner")
+	found := g.issues[issueKey{repository, parent}]
+	found.subIssues = append(found.subIssues, key)
 }
 
 // AddBlockedBy makes blocker a blocker of the issue number. Both issues are in repository.
@@ -140,13 +158,49 @@ func (g *FakeGitHub) SetBody(repository string, number int64, body string) {
 	found.updatedAt = g.tick()
 }
 
-// CloseIssue closes the issue.
-func (g *FakeGitHub) CloseIssue(repository string, number int64) {
+// SetTitle sets the title of the issue.
+func (g *FakeGitHub) SetTitle(repository string, number int64, title string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	found := g.issues[issueKey{repository, number}]
-	found.state = "closed"
+	found.title = title
 	found.updatedAt = g.tick()
+}
+
+// CloseIssue closes the issue as the owner, with no reason.
+func (g *FakeGitHub) CloseIssue(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.setState(issueKey{repository, number}, "closed", "", "owner")
+}
+
+// ReopenIssue opens the closed issue again as the owner.
+func (g *FakeGitHub) ReopenIssue(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.setState(issueKey{repository, number}, "open", "", "owner")
+}
+
+// State gives the state of the issue and the reason of its last close.
+func (g *FakeGitHub) State(repository string, number int64) (string, string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	found := g.issues[issueKey{repository, number}]
+	return found.state, found.stateReason
+}
+
+// FailClose makes each close of the issue fail.
+func (g *FakeGitHub) FailClose(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedCloses[issueKey{repository, number}] = true
+}
+
+// FailSubIssues makes each read of the sub-issues of the issue fail, or work again when fail is false.
+func (g *FakeGitHub) FailSubIssues(repository string, number int64, fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedSubIssues[issueKey{repository, number}] = fail
 }
 
 // Issue gives the title and the body of the issue.
@@ -200,6 +254,28 @@ func (g *FakeGitHub) AddLabel(repository string, number int64, label, actor stri
 	g.label(issueKey{repository, number}, label, actor)
 }
 
+// RemoveLabel removes label from the issue as actor. The issue must have the label.
+func (g *FakeGitHub) RemoveLabel(repository string, number int64, label, actor string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.unlabel(issueKey{repository, number}, label, actor) {
+		panic(fmt.Sprintf("%s#%d has no label %s", repository, number, label))
+	}
+}
+
+// LabelActor gives the actor of the last labeled or unlabeled event of label, or "".
+func (g *FakeGitHub) LabelActor(repository string, number int64, label string) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	events := g.issues[issueKey{repository, number}].events
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Label.Name == label {
+			return events[i].Actor.Login
+		}
+	}
+	return ""
+}
+
 // Labels gives the labels of the issue, in the order of their addition.
 func (g *FakeGitHub) Labels(repository string, number int64) []string {
 	g.mu.Lock()
@@ -233,6 +309,19 @@ func (g *FakeGitHub) unlabel(key issueKey, label, actor string) bool {
 	found.updatedAt = now
 	found.events = append(found.events, eventJSON{Event: "unlabeled", Actor: loginJSON{actor}, Label: nameJSON{label}, CreatedAt: timestamp(now)})
 	return true
+}
+
+func (g *FakeGitHub) setState(key issueKey, state, reason, actor string) {
+	now := g.tick()
+	found := g.issues[key]
+	found.state = state
+	found.stateReason = reason
+	found.updatedAt = now
+	event := "closed"
+	if state == "open" {
+		event = "reopened"
+	}
+	found.events = append(found.events, eventJSON{Event: event, Actor: loginJSON{actor}, CreatedAt: timestamp(now)})
 }
 
 func (g *FakeGitHub) issueJSON(key issueKey) issueJSON {
@@ -367,6 +456,35 @@ func (g *FakeGitHub) createIssue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, g.issueJSON(key))
 }
 
+// closeIssue closes the issue or the pull request of the path as the token owner, with the reason of the body.
+// It takes no other change.
+func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		State       string `json:"state"`
+		StateReason string `json:"state_reason"`
+	}
+	if !decode(w, r, &request) {
+		return
+	}
+	caller, _ := g.validToken(r)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key, ok := g.issue(w, r)
+	if !ok {
+		return
+	}
+	if request.State != "closed" {
+		message(w, http.StatusUnprocessableEntity, "The fake GitHub only closes.")
+		return
+	}
+	if g.failedCloses[key] {
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
+	g.setState(key, "closed", request.StateReason, caller.login)
+	writeJSON(w, http.StatusOK, g.issueJSON(key))
+}
+
 func (g *FakeGitHub) getIssue(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -380,6 +498,10 @@ func (g *FakeGitHub) subIssues(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	key, ok := g.issue(w, r)
 	if !ok {
+		return
+	}
+	if g.failedSubIssues[key] {
+		message(w, http.StatusInternalServerError, "Server Error")
 		return
 	}
 	children := []issueJSON{}
