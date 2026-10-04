@@ -343,7 +343,7 @@ func connect(t *testing.T, fake *testkit.FakeGitHub) *github.GitHub {
 	gh, _ := start(t, fake)
 	convert(t, gh, fake, "first-code")
 	convert(t, gh, fake, "second-code")
-	if err := gh.Refresh(t.Context()); err != nil {
+	if _, err := gh.Refresh(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	return gh
@@ -375,8 +375,8 @@ func TestAFailedAppKeepsItsRepositoriesAndTheOtherAppContinues(t *testing.T) {
 
 	fake.FailInstallations(testkit.SecondAppID)
 	fake.AddRepository("owner/cafe")
-	if err := gh.Refresh(t.Context()); err != nil {
-		t.Fatal(err)
+	if complete, err := gh.Refresh(t.Context()); err != nil || complete {
+		t.Fatalf("complete = %v, err = %v", complete, err)
 	}
 
 	want := []string{"other/garden mobius-second", "owner/cafe mobius-test", "owner/shop mobius-test"}
@@ -409,7 +409,7 @@ func TestAnInstallationKeepsItsTokenUntilTheTokenExpires(t *testing.T) {
 	gh := connect(t, fake)
 
 	for range 3 {
-		if err := gh.Refresh(t.Context()); err != nil {
+		if _, err := gh.Refresh(t.Context()); err != nil {
 			t.Fatal(err)
 		}
 	}

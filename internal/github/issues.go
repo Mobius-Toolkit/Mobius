@@ -196,6 +196,29 @@ func (r Repository) OpenIssuesWithLabel(ctx context.Context, label string) ([]*g
 	return slices.DeleteFunc(issues, (*gh.Issue).IsPullRequest), err
 }
 
+// IssueEvents gives the events of the issue number, the oldest first.
+func (r Repository) IssueEvents(ctx context.Context, number int64) ([]*gh.IssueEvent, error) {
+	return all(r.Client.Issues.ListIssueEventsIter(ctx, r.Owner(), r.Name(), int(number), &gh.ListOptions{PerPage: 100}))
+}
+
+// AddComment adds a comment with body to the issue or the pull request number.
+func (r Repository) AddComment(ctx context.Context, number int64, body string) error {
+	_, _, err := r.Client.Issues.CreateComment(ctx, r.Owner(), r.Name(), int(number), gh.IssueCommentRequest{Body: body})
+	return err
+}
+
+// CloseIssue closes the issue number with reason, completed or not_planned, and gives the closed issue.
+func (r Repository) CloseIssue(ctx context.Context, number int64, reason string) (*gh.Issue, error) {
+	issue, _, err := r.Client.Issues.Update(ctx, r.Owner(), r.Name(), int(number), gh.UpdateIssueRequest{State: new("closed"), StateReason: &reason})
+	return issue, err
+}
+
+// ClosePullRequest closes the pull request number with no merge.
+func (r Repository) ClosePullRequest(ctx context.Context, number int64) error {
+	_, _, err := r.Client.PullRequests.Edit(ctx, r.Owner(), r.Name(), int(number), &gh.PullRequest{State: new("closed")})
+	return err
+}
+
 // AddLabel adds label to the issue number.
 func (r Repository) AddLabel(ctx context.Context, number int64, label string) error {
 	_, _, err := r.Client.Issues.AddLabelsToIssue(ctx, r.Owner(), r.Name(), int(number), []string{label})
