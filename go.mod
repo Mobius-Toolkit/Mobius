@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/coder/acp-go-sdk v0.13.5
-	github.com/gork-labs/gork v0.1.4
+	github.com/gork-labs/gork v0.1.5
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/pressly/goose/v3 v3.28.0
 	modernc.org/sqlite v1.60.1
