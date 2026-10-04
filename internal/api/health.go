@@ -11,9 +11,9 @@ type HealthRequest struct{}
 // Health is the state of the server.
 type Health struct {
 	// Status is "ok" when the server can serve requests
-	Status string `gork:"status" validate:"required"`
+	Status string `gork:"status"`
 	// Time is the current time of the server
-	Time time.Time `gork:"time" validate:"required"`
+	Time time.Time `gork:"time"`
 }
 
 // HealthResponse is the response of GetHealth.

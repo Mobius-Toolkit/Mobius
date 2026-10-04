@@ -11,20 +11,20 @@ type ListWorkstreamsRequest struct{}
 // Workstream is a Workstream that has rows in the database.
 type Workstream struct {
 	// Repository is the repository of the Workstream issue, as "owner/name"
-	Repository string `gork:"repository" validate:"required"`
+	Repository string `gork:"repository"`
 	// Number is the number of the Workstream issue
-	Number int64 `gork:"number" validate:"required"`
+	Number int64 `gork:"number"`
 	// Tasks is the number of tasks of the Workstream
-	Tasks int64 `gork:"tasks" validate:"required"`
+	Tasks int64 `gork:"tasks"`
 	// OpenTasks is the number of tasks that are not ended or stopped
-	OpenTasks int64 `gork:"openTasks" validate:"required"`
+	OpenTasks int64 `gork:"openTasks"`
 	// LastActivity is the time of the latest row of the Workstream
-	LastActivity time.Time `gork:"lastActivity" validate:"required"`
+	LastActivity time.Time `gork:"lastActivity"`
 }
 
 // WorkstreamList is the list of Workstreams, the most recently active first.
 type WorkstreamList struct {
-	Workstreams []Workstream `gork:"workstreams" validate:"required"`
+	Workstreams []Workstream `gork:"workstreams"`
 }
 
 // ListWorkstreamsResponse is the response of ListWorkstreams.
