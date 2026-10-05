@@ -58,3 +58,9 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
 
       - run: pnpm e2e
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: screenshots
+          path: web/screenshots
+          if-no-files-found: error
