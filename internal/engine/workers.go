@@ -130,7 +130,7 @@ func (e *Engine) addWork(task int64, work Work) {
 	w.changed.notify()
 }
 
-// currentWork gives the pull requests with work for an agent of the last ReplaceWork, by the id of their task.
+// currentWork gives the pull requests with work for an agent, by the id of their task.
 func (e *Engine) currentWork() map[int64]Work {
 	w := &e.workers
 	w.mu.Lock()
