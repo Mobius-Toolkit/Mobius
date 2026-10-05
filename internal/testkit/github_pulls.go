@@ -26,6 +26,21 @@ type reviewCommentJSON struct {
 	InReplyToID int64 `json:"in_reply_to_id,omitempty"`
 }
 
+// SubmittedReview is a review that a client posted with its inline comments.
+type SubmittedReview struct {
+	CommitID string          `json:"commit_id"`
+	Body     string          `json:"body"`
+	Event    string          `json:"event"`
+	Comments []InlineComment `json:"comments"`
+}
+
+// InlineComment is a comment of a submitted review on a line of a file.
+type InlineComment struct {
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Body string `json:"body"`
+}
+
 // Thread is a review thread of a pull request.
 type Thread struct {
 	Resolved bool
@@ -45,7 +60,21 @@ func (g *FakeGitHub) AddReview(repository string, number int64, author, state, b
 func (g *FakeGitHub) AddReviewComment(repository string, number, inReplyTo int64, author, body string) int64 {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.reviewComment(issueKey{repository, number}, inReplyTo, author, body).ID
+	return g.reviewComment(issueKey{repository, number}, inReplyTo, author, InlineComment{"src/plan.rs", 12, body}).ID
+}
+
+// UnresolveReviewThread marks the review thread that starts with the comment root as not resolved.
+func (g *FakeGitHub) UnresolveReviewThread(root int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.resolvedThreads, root)
+}
+
+// SubmittedReviews gives the reviews that clients posted on the pull request, the oldest first.
+func (g *FakeGitHub) SubmittedReviews(repository string, number int64) []SubmittedReview {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]SubmittedReview{}, g.issues[issueKey{repository, number}].submittedReviews...)
 }
 
 // ReviewThread gives the review thread of the pull request that starts with the comment root.
@@ -62,17 +91,17 @@ func (g *FakeGitHub) ReviewThread(repository string, number, root int64) Thread 
 }
 
 // reviewComment adds a review comment. The comment ids of all issues are different. The caller must hold the lock.
-func (g *FakeGitHub) reviewComment(key issueKey, inReplyTo int64, author, body string) reviewCommentJSON {
+func (g *FakeGitHub) reviewComment(key issueKey, inReplyTo int64, author string, inline InlineComment) reviewCommentJSON {
 	now := g.tick()
 	found := g.issues[key]
 	g.lastCommentID++
 	comment := reviewCommentJSON{
 		ID:          g.lastCommentID,
 		User:        loginJSON{author},
-		Body:        body,
+		Body:        inline.Body,
 		CreatedAt:   timestamp(now),
-		Path:        "src/plan.rs",
-		Line:        12,
+		Path:        inline.Path,
+		Line:        inline.Line,
 		InReplyToID: inReplyTo,
 	}
 	found.reviewComments = append(found.reviewComments, comment)
@@ -114,11 +143,33 @@ func (g *FakeGitHub) replyToReviewComment(w http.ResponseWriter, r *http.Request
 	}
 	for _, comment := range g.issues[key].reviewComments {
 		if comment.ID == request.InReplyTo && comment.InReplyToID == 0 {
-			writeJSON(w, http.StatusCreated, g.reviewComment(key, request.InReplyTo, caller.login, request.Body))
+			writeJSON(w, http.StatusCreated, g.reviewComment(key, request.InReplyTo, caller.login, InlineComment{comment.Path, comment.Line, request.Body}))
 			return
 		}
 	}
 	notFound(w)
+}
+
+// submitReview adds the review and its inline comments as the token owner.
+func (g *FakeGitHub) submitReview(w http.ResponseWriter, r *http.Request) {
+	var review SubmittedReview
+	if !decode(w, r, &review) {
+		return
+	}
+	caller, _ := g.validToken(r)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key, ok := g.issue(w, r)
+	if !ok {
+		return
+	}
+	found := g.issues[key]
+	found.reviews = append(found.reviews, reviewJSON{User: loginJSON{caller.login}, Body: review.Body, State: "COMMENTED", SubmittedAt: timestamp(g.tick())})
+	for _, comment := range review.Comments {
+		g.reviewComment(key, 0, caller.login, comment)
+	}
+	found.submittedReviews = append(found.submittedReviews, review)
+	writeJSON(w, http.StatusOK, map[string]any{"id": len(found.submittedReviews)})
 }
 
 type graphqlThread struct {

@@ -32,11 +32,12 @@ type issue struct {
 	// A sub-issue can live in another repository than its parent.
 	subIssues []issueKey
 	// The numbers of the blockers. Each blocker is in the repository of the issue.
-	blockedBy      []int64
-	events         []eventJSON
-	comments       []commentJSON
-	reviews        []reviewJSON
-	reviewComments []reviewCommentJSON
+	blockedBy        []int64
+	events           []eventJSON
+	comments         []commentJSON
+	reviews          []reviewJSON
+	reviewComments   []reviewCommentJSON
+	submittedReviews []SubmittedReview
 }
 
 type loginJSON struct {
@@ -687,6 +688,33 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, g.comment(key, caller.login, request.Body))
+}
+
+// updateComment replaces the body of the comment of an issue of the repository.
+func (g *FakeGitHub) updateComment(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Body string `json:"body"`
+	}
+	if !decode(w, r, &request) {
+		return
+	}
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for key, found := range g.issues {
+		if key.repository != repository(r) {
+			continue
+		}
+		for i := range found.comments {
+			if found.comments[i].ID == id {
+				found.comments[i].Body = request.Body
+				found.updatedAt = g.tick()
+				writeJSON(w, http.StatusOK, found.comments[i])
+				return
+			}
+		}
+	}
+	notFound(w)
 }
 
 // comment adds a comment of author to the issue. The caller must hold the lock.
