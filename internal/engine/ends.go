@@ -79,7 +79,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest)
 	switch {
 	case task.State == "queued" || task.State == "working":
-		return work, slices.Contains([]string{ImplementerRole, conflictRoundWorker, JudgeRole}, task.Worker.String), nil
+		return work, slices.Contains([]string{checkRoundWorker, conflictRoundWorker}, task.Worker.String), nil
 	case !slices.Contains([]string{"ready_for_review", "reviewed", "needs_human"}, task.State):
 		return Work{}, false, nil
 	case task.State == "ready_for_review" && conflict:
