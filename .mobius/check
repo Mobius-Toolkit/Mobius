@@ -27,3 +27,9 @@ go build ./...
 
 make generate
 git diff --exit-code -- api/ web/src/api/ internal/store/
+untracked=$(git ls-files --others --exclude-standard -- api/ web/src/api/ internal/store/)
+if [ -n "$untracked" ]; then
+  echo "make generate: these new files are not committed:" >&2
+  echo "$untracked" >&2
+  exit 1
+fi
