@@ -188,6 +188,16 @@ type graphqlComment struct {
 	} `json:"author"`
 }
 
+// HoldReviewThreads makes the next request for the review threads of the pull request wait. The channel closes when
+// the request arrives, and the function lets the request go on.
+func (g *FakeGitHub) HoldReviewThreads(repository string, number int64) (<-chan struct{}, func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	g.threadHolds[issueKey{repository, number}] = h
+	return h.reached, func() { close(h.release) }
+}
+
 // graphql answers the review threads query and the mutations resolveReviewThread and markPullRequestReadyForReview,
 // each in one page.
 // The node id of a thread is "RT_" and the id of its first comment.
@@ -206,6 +216,15 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	variables := request.Variables
+	key := issueKey{variables.Owner + "/" + variables.Name, variables.Number}
+	g.mu.Lock()
+	h := g.threadHolds[key]
+	delete(g.threadHolds, key)
+	g.mu.Unlock()
+	if h != nil {
+		close(h.reached)
+		<-h.release
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if strings.Contains(request.Query, "markPullRequestReadyForReview") {
@@ -222,7 +241,7 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"resolveReviewThread": map[string]any{"clientMutationId": nil}}})
 		return
 	}
-	found, ok := g.issues[issueKey{variables.Owner + "/" + variables.Name, variables.Number}]
+	found, ok := g.issues[key]
 	if !ok {
 		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": nil}}})
 		return
