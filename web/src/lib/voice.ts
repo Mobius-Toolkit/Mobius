@@ -60,14 +60,19 @@ export function useVoice(
       return
     }
     const live = new Speech()
-    live.lang = 'en-US'
-    live.addEventListener('result', (event) =>
-      onText(
-        Array.from(event.results, (result) => result[0].transcript)
-          .join(' ')
-          .trim(),
-      ),
-    )
+    live.lang = navigator.language
+    let added = 0
+    live.addEventListener('result', (event) => {
+      const spoken: string[] = []
+      while (added < event.results.length && event.results[added].isFinal) {
+        spoken.push(event.results[added][0].transcript)
+        added++
+      }
+      const text = spoken.join(' ').trim()
+      if (text) {
+        onText(text)
+      }
+    })
     live.addEventListener('error', (event) => {
       if (recognition.current !== live) {
         return
