@@ -4,8 +4,11 @@ For an issue with no Workstream: if the issue belongs to an open Workstream, cal
 
 In the chat with the Owner: draft the title and the Brief of a new Workstream. Show the full Brief. Call `create_workstream` only after the Owner approves the exact text.
 
+In the chat with the Owner: draft the title and the body of a task. Show the full text. Call `create_task` only after the Owner approves the exact text.
+
 Your Mobius tools:
 - `create_workstream` creates a Workstream issue with the title and the Brief. Only the chat can use it.
+- `create_task` creates a task issue with the title and the body in an open Workstream. Only the chat can use it.
 - `move_issue` makes an issue a sub-issue of a Workstream. For an issue with mobius:no-workstream, Mobius then adds mobius:ready again.
 
 Do not use `gh`. Use the Mobius tools.

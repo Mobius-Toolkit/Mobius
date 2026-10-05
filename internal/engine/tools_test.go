@@ -105,7 +105,7 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		spec engine.Spec
 		want []string
 	}{
-		{triager, []string{"create_workstream", "move_issue"}},
+		{triager, []string{"create_task", "create_workstream", "move_issue"}},
 		{reviewer, []string{"submit_review"}},
 		{implementer, []string{"cannot_do", "reply_thread"}},
 		{researcher, []string{}},
@@ -452,6 +452,39 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 		if labels := fake.Labels(shop, number); title != "Billing" || body != "Bill the plans." || !reflect.DeepEqual(labels, []string{"mobius:workstream"}) {
 			t.Errorf("#%d = %q, %q, %v", number, title, body, labels)
 		}
+	}
+}
+
+func TestCreateTaskCreatesTheIssueInAnOpenWorkstream(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("create_task", `{ workstream = 12, title = "Add invoices", body = "Add the invoice model." }`)+
+		call("create_task", `{ workstream = 12, title = "", body = "Add the invoice model." }`)+
+		call("create_task", `{ workstream = 12, title = "Add invoices", body = " " }`)+
+		call("create_task", `{ workstream = 21, title = "Add invoices", body = "Add the invoice model." }`))
+	fake.AddIssue(shop, 21, "Not a Workstream")
+	triagerChat := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()}
+	triagerOfIssue := triagerChat
+	triagerOfIssue.Repository = shop
+
+	chat := run(t, server, triagerChat, "1. ", "2. ", "3. ", "4. ")
+	ofIssue := run(t, server, triagerOfIssue, "1. ")
+
+	want := "Created #22." +
+		"error: title and body must not be empty." +
+		"error: title and body must not be empty." +
+		"error: #21 is not an open Workstream."
+	if got := reply(t, server, chat); got != want {
+		t.Errorf("reply = %q", got)
+	}
+	if got := reply(t, server, ofIssue); got != "error: Only the Triager chat creates a task, after the Owner approves it." {
+		t.Errorf("reply = %q", got)
+	}
+	title, body := fake.Issue(shop, 22)
+	if labels := fake.Labels(shop, 22); title != "Add invoices" || body != "Add the invoice model." || len(labels) != 0 {
+		t.Errorf("#22 = %q, %q, %v", title, body, labels)
+	}
+	if got := fake.SubIssueNumbers(shop, 12); !reflect.DeepEqual(got, []int64{22}) {
+		t.Errorf("sub-issues of #12 = %v", got)
 	}
 }
 

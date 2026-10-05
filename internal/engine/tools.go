@@ -230,6 +230,14 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue."},
 				},
 				e.moveIssue),
+			tool(e, c, "create_task",
+				"Create a task issue in an open Workstream. In the chat, call it only after the Owner approves the exact title and body.",
+				map[string]any{
+					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue."},
+					"title":      map[string]any{"type": "string", "minLength": 1, "description": "The title of the task."},
+					"body":       map[string]any{"type": "string", "minLength": 1, "description": "The body of the task: the goal, the limits, and what \"done\" means."},
+				},
+				e.createTask),
 		}
 	}
 	return nil
@@ -346,6 +354,12 @@ type issueInput struct {
 type workstreamInput struct {
 	Title string `json:"title"`
 	Brief string `json:"brief"`
+}
+
+type taskInput struct {
+	Workstream int64  `json:"workstream"`
+	Title      string `json:"title"`
+	Body       string `json:"body"`
 }
 
 type moveInput struct {
@@ -637,4 +651,31 @@ func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repo
 		log.Printf("copy the tree of %s#%d: %v", repository.FullName, input.Workstream, err)
 	}
 	return fmt.Sprintf("Moved #%d to the Workstream #%d.", input.N, input.Workstream), nil
+}
+
+func (e *Engine) createTask(ctx context.Context, c caller, repository github.Repository, input taskInput) (string, error) {
+	if c.repository != "" {
+		return "", refuse("Only the Triager chat creates a task, after the Owner approves it.")
+	}
+	if input.Workstream < 1 {
+		return "", refuse("workstream must be 1 or more.")
+	}
+	if empty(input.Title) || empty(input.Body) {
+		return "", refuse("title and body must not be empty.")
+	}
+	if err := openWorkstream(ctx, repository, input.Workstream); err != nil {
+		return "", err
+	}
+	owner, name := repository.Owner(), repository.Name()
+	issue, _, err := repository.Client.Issues.Create(ctx, owner, name, gh.CreateIssueRequest{Title: input.Title, Body: &input.Body})
+	if err != nil {
+		return "", err
+	}
+	if _, _, err := repository.Client.SubIssue.Add(ctx, owner, name, input.Workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
+		return "", err
+	}
+	if err := e.recopyTrees(ctx, repository, input.Workstream); err != nil {
+		log.Printf("copy the tree of %s#%d: %v", repository.FullName, input.Workstream, err)
+	}
+	return fmt.Sprintf("Created #%d.", issue.GetNumber()), nil
 }
