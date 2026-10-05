@@ -58,11 +58,12 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
         working-directory: web
 
-      - run: pnpm e2e
+      # The tests write only the screens that exist, so the job deletes the old files first.
+      - run: rm -f screenshots/*.png && pnpm e2e
         working-directory: web
 
       - run: |
-          git add web/screenshots
+          git add -A web/screenshots
           if git diff --cached --quiet; then
             exit 0
           fi
