@@ -23,8 +23,6 @@ go test ./...
   pnpm build
 )
 
-go build ./...
-
 make generate
 git diff --exit-code -- api/ web/src/api/ internal/store/
 untracked=$(git ls-files --others --exclude-standard -- api/ web/src/api/ internal/store/)
