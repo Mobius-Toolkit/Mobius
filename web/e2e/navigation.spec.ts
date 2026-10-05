@@ -106,6 +106,31 @@ test("a click on another chat shows no state of the previous chat", async ({ pag
   await expect(input).toHaveValue("");
 });
 
+test("a long list of release changes scrolls inside the upgrade dialog on a phone", async ({
+  page,
+}) => {
+  const changes = Array.from({ length: 60 }, (_, index) => `Change number ${index + 1}`);
+  await page.route("/api/release/changes", (route) => route.fulfill({ json: { data: changes } }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/workstreams");
+  await page.getByRole("button", { name: "Upgrade v0.1.4" }).filter({ visible: true }).click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Change number 1", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Upgrade" })).toBeInViewport({ ratio: 1 });
+  await expect(dialog.getByRole("button", { name: "Close" })).toBeInViewport({ ratio: 1 });
+  await expect(dialog.getByText("Change number 60", { exact: true })).not.toBeInViewport();
+
+  await dialog.getByText("Change number 60", { exact: true }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByText("Change number 60", { exact: true })).toBeInViewport({
+    ratio: 1,
+  });
+  await expect(dialog.getByRole("button", { name: "Upgrade" })).toBeInViewport({ ratio: 1 });
+
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(dialog).toBeHidden();
+});
+
 test("a new page starts at the top", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 200 });
   await page.goto("/workstreams");

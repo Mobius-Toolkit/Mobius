@@ -95,14 +95,16 @@ function ReleaseChanges() {
 export function UpgradeDialog({ upgrade }: { upgrade: Upgrade }) {
   return (
     <Dialog open={upgrade.changesShown} onOpenChange={upgrade.setChangesShown}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="flex max-h-[calc(100svh-2rem)] flex-col sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Upgrade to {upgrade.version}</DialogTitle>
           <DialogDescription>
             Mobius waits until no agent runs, and then starts the new release.
           </DialogDescription>
         </DialogHeader>
-        <ReleaseChanges />
+        <div className="min-h-0 overflow-y-auto">
+          <ReleaseChanges />
+        </div>
         <DialogFooter>
           <Button disabled={upgrade.upgrading} onClick={upgrade.start}>
             Upgrade
