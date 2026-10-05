@@ -3,7 +3,9 @@ package engine_test
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -241,4 +243,45 @@ func TestATriagerThatTheDrainHeldDuringAPollStartsInThePollAfterACancel(t *testi
 	cancelDrain(t, server)
 
 	testkit.WaitFor(t, func() bool { return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) > 0 })
+}
+
+func TestTheDrainHoldsTheReviewerAndTheJudgeUntilACancel(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	goFile := filepath.Join(dataDir, "go")
+	server, _ := connectTaskIn(t, fake, dataDir, "[[prompts]]\nwhen = \"You are the Judge\"\nreply = [\"Judged.\"]\n\n"+leadStarts, commits, func(cfg *config.Config) {
+		cfg.ReviewQuietPeriod = 50 * time.Millisecond
+	})
+	fake.SetCheck(shop, fmt.Sprintf("while [ ! -e '%s' ]; do sleep 0.05; done", goFile))
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool {
+		implementers := roleSessions(t, server, engine.ImplementerRole)
+		return len(implementers) == 1 && implementers[0].QueueReason.String == "runs .mobius/check"
+	})
+
+	ends := startDrain(t, server)
+
+	// The running Implementer ends its work, and the Reviewer waits.
+	touch(t, goFile)
+	testkit.WaitFor(t, func() bool {
+		reviewers := roleSessions(t, server, engine.ReviewerRole)
+		return len(reviewers) == 1 && reviewers[0].QueueReason.String == drainReason
+	})
+	if end := <-ends; end != "drained" {
+		t.Fatalf("drain end = %s", end)
+	}
+	// A new comment on the pull request of a reviewed task does not start the Judge.
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'reviewed' WHERE issue = 41 AND state = 'queued'"); err != nil {
+		t.Fatal(err)
+	}
+	fake.AddComment(shop, 42, "owner", "Rename the field.")
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if judges := roleSessions(t, server, engine.JudgeRole); len(judges) != 0 {
+		t.Errorf("Judges = %+v", judges)
+	}
+
+	cancelDrain(t, server)
+
+	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.JudgeRole)) > 0 })
 }

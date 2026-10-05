@@ -45,7 +45,8 @@ type Spec struct {
 	Parent sql.NullInt64
 	// Task is the id of the queued task of the session, or 0. The session waits for its slot at the place of the task in the queue.
 	Task int64
-	// PullRequest is the pull request that the Implementer of a fix round or a conflict round works on, or 0.
+	// PullRequest is the pull request that the Implementer of a fix round or a conflict round, or the Reviewer, works
+	// on, or 0.
 	PullRequest int64
 	// Dir is the working directory of the agent. With an empty Dir, Start makes scratch/<session id> below the data
 	// directory, the agent works there, and the end of the session removes that directory.
@@ -86,6 +87,12 @@ type Agent struct {
 	cannotDo string
 	// replies are the replies of the reply_thread calls of the Implementer that wait for the push.
 	replies []heldReply
+	// head is the head commit that the Reviewer reviews.
+	head string
+	// items are the items of the batch of the Judge.
+	items []judgeItem
+	// verdicts are the verdicts of the last valid submit_verdicts call of the Judge, or nil.
+	verdicts []itemVerdicts
 }
 
 // Node is a session in the agent tree of a Workstream.

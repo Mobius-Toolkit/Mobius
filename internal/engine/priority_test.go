@@ -24,11 +24,14 @@ call = { tool = "start_implementer", arguments = { n = 45, instructions = "Add a
 
 ` + leadStartsTwo
 
-// connectThree starts a server with the tasks #41, #43 and #45 of the Workstream #12, one agent slot, and the
-// Implementer.
+// connectThree starts a server with the tasks #41, #43 and #45 of the Workstream #12, one agent slot, a short
+// review_quiet_period, and the Implementer.
 func connectThree(t *testing.T, fake *testkit.FakeGitHub, implementer string) (*testserver.Server, string) {
 	t.Helper()
-	server, dataDir := connectTask(t, fake, leadStartsThree, implementer, func(cfg *config.Config) { cfg.MaxAgents = 1 })
+	server, dataDir := connectTask(t, fake, leadStartsThree, implementer, func(cfg *config.Config) {
+		cfg.MaxAgents = 1
+		cfg.ReviewQuietPeriod = 200 * time.Millisecond
+	})
 	for _, number := range []int64{43, 45} {
 		fake.AddSubIssueOf(shop, 12, number, fmt.Sprintf("Task %d", number))
 	}
@@ -170,5 +173,59 @@ func TestAFailedCheckOnAHeadThatGotItsFixRoundDoesNotStopANewTicket(t *testing.T
 	waitForState(t, server, 43, "ready_for_review")
 	if count := len(issueImplementers(t, server, 41)); count != 2 {
 		t.Errorf("Implementers of #41 = %d", count)
+	}
+}
+
+// The Judge of a task in needs_human holds its slot, so a new ticket waits (Mobius#385).
+func TestAJudgeThatRunsFromNeedsHumanHoldsANewTicket(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectThree(t, fake, fixes)
+	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options+"[[prompts]]\nwhen = \"You are the Judge\"\nhang = true\n\n"+leadStartsThree)
+	_, pullRequest := readyPullRequest(t, server, fake)
+	fake.SetCreatedAt(shop, pullRequest, 0)
+	fake.SetBehind(shop, pullRequest)
+	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
+	waitForState(t, server, 41, "needs_human")
+	fake.AddComment(shop, pullRequest, "owner", "Continue.")
+	waitForState(t, server, 41, "working")
+
+	fake.AddLabel(shop, 43, "mobius:ready", "owner")
+
+	ticket := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := issueImplementers(t, server, 43)
+		if len(sessions) == 0 {
+			return store.Session{}, false
+		}
+		return sessions[0], sessions[0].QueueReason.Valid
+	})
+	if ticket.QueueReason.String != "no free agent slot (1/1)" {
+		t.Errorf("queue reason = %s", ticket.QueueReason.String)
+	}
+}
+
+func TestAReviewedPullRequestWithAnOpenThreadDoesNotStopANewTicket(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectThree(t, fake, fixes)
+	_, pullRequest := readyPullRequest(t, server, fake)
+	fake.SetCreatedAt(shop, pullRequest, 0)
+	task := liveTask(t, server, 41)
+	if _, err := server.DB.Exec("UPDATE tasks SET judged_at = ? WHERE id = ?", time.Now().Add(24*time.Hour).UTC().Format(time.RFC3339Nano), task.ID); err != nil {
+		t.Fatal(err)
+	}
+	fake.AddReviewComment(shop, pullRequest, 0, "owner", "Use cents.")
+	if result, err := server.DB.Exec("UPDATE tasks SET state = 'reviewed' WHERE id = ? AND state = 'ready_for_review'", task.ID); err != nil {
+		t.Fatal(err)
+	} else if rows, _ := result.RowsAffected(); rows != 1 {
+		t.Fatalf("the task of #41 is %s", taskState(t, server))
+	}
+	fake.SetBehind(shop, pullRequest)
+	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
+	waitForPolls(t, fake)
+
+	fake.AddLabel(shop, 43, "mobius:ready", "owner")
+
+	waitForState(t, server, 43, "ready_for_review")
+	if state := liveTaskState(t, server, 41); state != "reviewed" {
+		t.Errorf("state of #41 = %s", state)
 	}
 }

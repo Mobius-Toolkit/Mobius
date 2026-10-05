@@ -162,6 +162,61 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.holdReply),
 		}
+	case ReviewerRole:
+		return []mcp.Tool{
+			tool(e, c, "submit_review",
+				"Post your review on the pull request as one GitHub review with inline comments. Call it one time. With no findings, do not call it.",
+				map[string]any{
+					"body": map[string]any{"type": "string", "minLength": 1, "description": "The summary of the review."},
+					"comments": map[string]any{
+						"type":        "array",
+						"description": "One inline comment for each finding.",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"path": map[string]any{"type": "string", "minLength": 1, "description": "The file path, relative to the repository root."},
+								"line": map[string]any{"type": "integer", "minimum": 1, "description": "The line in the new version of the file. It must be in the diff."},
+								"body": map[string]any{"type": "string", "minLength": 1, "description": "The finding."},
+							},
+							"required":             []string{"path", "line", "body"},
+							"additionalProperties": false,
+						},
+					},
+				},
+				e.submitReview),
+		}
+	case JudgeRole:
+		return []mcp.Tool{
+			tool(e, c, "submit_verdicts",
+				"Give the actions for each item of the batch, one entry for each item. Items of trusted users take fix, question, and follow-up. Items of trusted bots take fix and reject. A later valid call replaces an earlier one.",
+				map[string]any{
+					"items": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"item": map[string]any{"type": "integer", "description": "The number of the thread or the comment in the prompt."},
+								"actions": map[string]any{
+									"type":     "array",
+									"minItems": 1,
+									"items": map[string]any{
+										"type": "object",
+										"properties": map[string]any{
+											"verdict": map[string]any{"type": "string", "enum": []string{fixVerdict, questionVerdict, followUpVerdict, rejectVerdict}},
+											"text":    map[string]any{"type": "string", "minLength": 1, "description": "For fix and question, the work for the Implementer. For follow-up, the goal of the new issue. For reject, the reason for the author."},
+										},
+										"required":             []string{"verdict", "text"},
+										"additionalProperties": false,
+									},
+								},
+							},
+							"required":             []string{"item", "actions"},
+							"additionalProperties": false,
+						},
+					},
+				},
+				e.submitVerdicts),
+		}
 	case TriagerRole:
 		return []mcp.Tool{
 			tool(e, c, "create_workstream",
@@ -319,6 +374,15 @@ type declineInput struct {
 
 type reasonInput struct {
 	Reason string `json:"reason"`
+}
+
+type reviewInput struct {
+	Body     string                 `json:"body"`
+	Comments []github.InlineComment `json:"comments"`
+}
+
+type verdictsInput struct {
+	Items []itemVerdicts `json:"items"`
 }
 
 func empty(text string) bool {

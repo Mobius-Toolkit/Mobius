@@ -315,7 +315,8 @@ func TestACommentOnThePullRequestOfAStoppedTaskGoesToTheLeadAndStartsNoRound(t *
 		t.Errorf("prompt = %s", prompt)
 	}
 	waitForPolls(t, fake)
-	if task := liveTaskOf(t, server, 41); task.State != "stopped" || task.FixRounds != 0 {
+	// The comment is the last item of the Judge, so a Judge after a later mobius:ready does not take it.
+	if task := liveTaskOf(t, server, 41); task.State != "stopped" || task.FixRounds != 0 || !task.JudgedAt.Valid {
 		t.Errorf("task = %+v", task)
 	}
 	if sessions := roleSessions(t, server, engine.ImplementerRole); len(sessions) != 0 {
