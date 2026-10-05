@@ -322,6 +322,31 @@ func TestUserTokenRefreshesATokenThatExpiresWithinFiveMinutesAndStoresTheNewToke
 	}
 }
 
+// The Rust version writes the expiry in RFC 3339 of the time crate, with the fraction of a second only when it is not
+// zero, and with no trailing zero.
+func TestUserTokenReadsTheExpiryThatTheRustVersionWrote(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	gh, queries := start(t, fake)
+	convert(t, gh, fake, "manifest-code")
+	authorize(t, gh, "user-code")
+	err := queries.SetUserTokens(t.Context(), store.SetUserTokensParams{
+		UserToken:          sql.NullString{String: "ghu_1", Valid: true},
+		RefreshToken:       sql.NullString{String: "ghr_1", Valid: true},
+		UserTokenExpiresAt: sql.NullString{String: "2099-01-01T00:00:00.5Z", Valid: true},
+		AppID:              testkit.AppID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	token, err := gh.UserToken(t.Context(), testkit.AppID)
+
+	if token != "ghu_1" || err != nil {
+		t.Errorf("token = %q, %v", token, err)
+	}
+}
+
 func TestUserTokenTellsTheOwnerToAuthorizeTheAppWhenThereIsNoToken(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	gh, _ := start(t, fake)
