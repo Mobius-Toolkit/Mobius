@@ -1,0 +1,72 @@
+name: Screenshots
+
+on:
+  pull_request:
+
+concurrency:
+  group: screenshots-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ui: ${{ steps.ui.outputs.ui }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: ui
+        run: |
+          ui=$(git diff --name-only "$BASE...$HEAD" | .github/scripts/ui-changed.sh)
+          echo "ui=$ui" >> "$GITHUB_OUTPUT"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+
+  screenshots:
+    needs: changes
+    # The token of a pull request from a fork cannot push to its branch.
+    if: needs.changes.outputs.ui == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # The job pushes to the pull request branch, so it checks out that branch and not the merge commit.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: web/package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+        working-directory: web
+
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: web
+
+      # The tests write only the screens that exist, so the job deletes the old files first.
+      - run: rm -f screenshots/*.png && pnpm e2e
+        working-directory: web
+
+      - run: |
+          git add -A web/screenshots
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "test: update the UI screenshots [skip ci]"
+          git push

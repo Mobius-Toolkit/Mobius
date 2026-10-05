@@ -10,14 +10,14 @@ async function screenshot(
   page: Page,
   name: string,
   path: string,
-  ready: () => Locator | Locator[],
+  ready: (device: string) => Locator | Locator[],
   open?: (device: string) => Promise<void>,
 ) {
   for (const [device, size] of Object.entries(viewports)) {
     await page.setViewportSize(size)
     await page.goto(path)
     await open?.(device)
-    for (const locator of [ready()].flat()) {
+    for (const locator of [ready(device)].flat()) {
       await expect(locator).toBeVisible()
     }
     await page.screenshot({
@@ -52,12 +52,16 @@ test('screenshots', async ({ page }) => {
     ).toBeVisible()
   }
   await createApp('owner', 'mobius-test')
+  const release = page.getByText('v0.1.4').filter({ visible: true }).first()
   // The server adds the repositories after the second App, so Mobius knows no organization.
   await screenshot(
     page,
     'new-workstream-no-organization',
     '/workstreams/new',
-    () => main.getByText('Mobius reads the repositories from GitHub.'),
+    () => [
+      release,
+      main.getByText('Mobius reads the repositories from GitHub.'),
+    ],
   )
   await page.goto('/github')
   await createApp('plants', 'mobius-second')
@@ -79,21 +83,45 @@ test('screenshots', async ({ page }) => {
     .filter({ visible: true })
   // The server starts the drain after the chats of the fake agents end.
   await expect(drain).toBeVisible({ timeout: 60_000 })
-  await screenshot(page, 'workstreams', '/workstreams', () => [
-    drain,
+  // The frame shows its data after the live connection opens. Only the side bar of a desktop shows the Workstreams.
+  const frame = (device: string, upgrade: Locator) => [
+    upgrade,
+    page.getByLabel('Work in another organization').filter({ visible: true }),
+    page
+      .locator('a[href="/inbox"]')
+      .filter({ visible: true })
+      .getByText('1', { exact: true }),
+    ...(device === 'desktop'
+      ? [page.locator('nav').first().getByText('needs you')]
+      : []),
+  ]
+  await screenshot(page, 'workstreams', '/workstreams', (device) => [
+    ...frame(device, drain),
     main.getByText('Seasonal prices'),
     main.getByText('done'),
     main.getByText('needs you'),
   ])
-  await screenshot(page, 'chat', '/workstreams/owner/shop/12', () => [
+  await screenshot(page, 'chat', '/workstreams/owner/shop/12', (device) => [
+    ...frame(device, drain),
     main.getByText('#42 and #45 wait for your decision.'),
     main.getByRole('link', { name: 'PR #44' }),
+    ...(device === 'desktop'
+      ? [
+          page
+            .getByRole('complementary')
+            .getByText('Lead chat session')
+            .first(),
+        ]
+      : []),
   ])
   await screenshot(
     page,
     'chat-tasks',
     '/workstreams/owner/shop/12',
-    () => page.getByText('#45 Pick the plan limits').filter({ visible: true }),
+    (device) => [
+      ...frame(device, drain),
+      page.getByText('#45 Pick the plan limits').filter({ visible: true }),
+    ],
     async (device) => {
       if (device === 'phone') {
         await main.getByRole('button', { name: 'Agents' }).click()
@@ -108,20 +136,26 @@ test('screenshots', async ({ page }) => {
     page,
     'chat-all-tasks-closed',
     '/workstreams/owner/shop/13',
-    () => [
+    (device) => [
+      ...frame(device, drain),
       main.getByText('All tasks are closed.'),
       main.getByText('Change the prices for each season.'),
     ],
   )
-  await screenshot(page, 'new-workstream', '/workstreams/new', () =>
+  await screenshot(page, 'new-workstream', '/workstreams/new', (device) => [
+    ...frame(device, drain),
     main.getByText('Sell gift cards in the shop.'),
-  )
-  await screenshot(page, 'inbox', '/inbox', () =>
+  ])
+  await screenshot(page, 'inbox', '/inbox', (device) => [
+    ...frame(device, drain),
     main.getByText('#45 needs a decision'),
-  )
-  await screenshot(page, 'activity', '/activity', () =>
+    main.getByText('Integrate loyalty plans ·'),
+  ])
+  await screenshot(page, 'activity', '/activity', (device) => [
+    ...frame(device, drain),
     main.getByText('Dispatched "Pick the plan limits"'),
-  )
+    main.getByRole('button', { name: 'Integrate loyalty plans' }),
+  ])
 
   // The chat shows its last message, and the tree hides a stopped agent unless an agent below it runs.
   await page.setViewportSize(viewports.desktop)
@@ -144,15 +178,18 @@ test('screenshots', async ({ page }) => {
       `${wide('main pre')} && ${wide('main table')} && document.documentElement.scrollWidth <= window.innerWidth`,
     ),
   ).toBe(true)
-  await screenshot(page, 'agents', '/agents', () => [
-    drain,
+  await screenshot(page, 'agents', '/agents', (device) => [
+    ...frame(device, drain),
     main.getByText('Mobius prepares an upgrade'),
   ])
   await screenshot(
     page,
     'transcript',
     '/agents',
-    () => [drain, main.getByText('The plan prices are in cents now.')],
+    (device) => [
+      ...frame(device, drain),
+      main.getByText('The plan prices are in cents now.'),
+    ],
     () =>
       main.getByRole('button', { name: /Ticket #41 Add plan model/ }).click(),
   )
@@ -162,39 +199,49 @@ test('screenshots', async ({ page }) => {
     page,
     'upgrade',
     '/workstreams',
-    () =>
+    (device) => [
+      ...frame(device, release),
       page.getByText(
         'Show the release changes in a modal before the upgrade (#320)',
       ),
+    ],
     () => shown('Upgrade v0.1.4').click(),
   )
   await page.route('/ui-version', (route) =>
     route.fulfill({ body: 'a new build' }),
   )
-  await screenshot(page, 'new-version', '/workstreams', () =>
+  await screenshot(page, 'new-version', '/workstreams', (device) => [
+    ...frame(device, release),
     shown('New version'),
-  )
+  ])
   await page.unroute('/ui-version')
 
-  await screenshot(page, 'settings', '/settings', () =>
+  await screenshot(page, 'settings', '/settings', (device) => [
+    ...frame(device, release),
     main.getByRole('link', { name: 'Devices' }),
-  )
+  ])
   await screenshot(
     page,
     'organizations',
     '/settings',
-    () => page.getByRole('menuitemradio', { name: 'plants' }),
+    (device) => [
+      ...frame(device, release),
+      page.getByRole('menuitemradio', { name: 'plants' }),
+    ],
     () => page.getByRole('button', { name: 'owner' }).click(),
   )
-  await screenshot(page, 'github', '/github', () =>
+  await screenshot(page, 'github', '/github', (device) => [
+    ...frame(device, release),
     main.getByText('plants/garden'),
-  )
-  await screenshot(page, 'devices', '/devices', () =>
+  ])
+  await screenshot(page, 'devices', '/devices', (device) => [
+    ...frame(device, release),
     main.getByText('This device'),
-  )
-  await screenshot(page, 'checkup', '/settings/checkup', () =>
+  ])
+  await screenshot(page, 'checkup', '/settings/checkup', (device) => [
+    ...frame(device, release),
     main.getByText('wrong color: #ededed'),
-  )
+  ])
 
   // The note closes a Workstream whose tasks are all closed.
   await page.setViewportSize(viewports.desktop)
