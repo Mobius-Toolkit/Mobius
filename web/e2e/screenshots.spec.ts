@@ -92,7 +92,7 @@ test('screenshots', async ({ page }) => {
       .filter({ visible: true })
       .getByText('1', { exact: true }),
     ...(device === 'desktop'
-      ? [page.locator('nav').first().getByText('Integrate loyalty plans')]
+      ? [page.locator('nav').first().getByText('needs you')]
       : []),
   ]
   await screenshot(page, 'workstreams', '/workstreams', (device) => [
@@ -149,10 +149,12 @@ test('screenshots', async ({ page }) => {
   await screenshot(page, 'inbox', '/inbox', (device) => [
     ...frame(device, drain),
     main.getByText('#45 needs a decision'),
+    main.getByText('Integrate loyalty plans ·'),
   ])
   await screenshot(page, 'activity', '/activity', (device) => [
     ...frame(device, drain),
     main.getByText('Dispatched "Pick the plan limits"'),
+    main.getByRole('button', { name: 'Integrate loyalty plans' }),
   ])
 
   // The chat shows its last message, and the tree hides a stopped agent unless an agent below it runs.
