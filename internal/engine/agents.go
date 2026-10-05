@@ -27,7 +27,7 @@ var toolsTimeout = 30 * time.Second
 // listenerBuffer is the number of changes that the channel of a listener holds.
 const listenerBuffer = 256
 
-// errNoTools is the error of a Claude Code session that gets no tools/list (Mobius#254).
+// errNoTools is the error of a Claude Code session that gets no tools/list (Mobius-rust#254).
 var errNoTools = errors.New("the session sent no tools/list, so it has no Mobius tools")
 
 // Spec is the session of an agent.
@@ -220,7 +220,7 @@ func (e *Engine) addAgent(ctx context.Context, spec Spec) (*Agent, error) {
 }
 
 // open starts the Harness in the directory of the session and configures the session. A Claude Code session with no
-// tools/list in toolsTimeout has no Mobius tools (Mobius#254), so open starts its Harness again, at most
+// tools/list in toolsTimeout has no Mobius tools (Mobius-rust#254), so open starts its Harness again, at most
 // max_worker_restarts times.
 func (a *Agent) open(ctx context.Context) error {
 	binding, _ := roleBinding(a.engine.config, a.spec.Role)

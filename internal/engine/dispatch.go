@@ -20,8 +20,9 @@ const readyEndpoint = "ready"
 
 // dispatchReady acts on the open issues with mobius:ready of a trusted actor:
 //   - An issue with no Workstream goes to the Triager, also when it has open blockers.
-//   - A task that waits for a human, and a stopped task with a pull request, continues (Mobius#225, Mobius#253). A
-//     mobius:ready of the Mobius App needs Autopilot for that. Each other issue with a live task loses mobius:ready.
+//   - A task that waits for a human, and a stopped task with a pull request, continues (Mobius-rust#225,
+//     Mobius-rust#253). A mobius:ready of the Mobius App needs Autopilot for that. Each other issue with a live task
+//     loses mobius:ready.
 //   - An issue with an open blocker waits. A mobius:ready of the Mobius App needs Autopilot.
 //   - Each other issue gets a new task. A stopped task with no pull request ends first.
 //
@@ -231,9 +232,9 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 
 // pullRequestComments acts on the new comments of the pull request of a live task: a new comment or review comment of
 // a trusted user resets the counters of the task. A comment goes to the Lead or to the Judge, never to both
-// (Mobius#274). The Judge takes the new comments when the task is in ready_for_review, reviewed or needs_human, also
-// the comments from a round before that state. A stopped or dispatched task waits for a human or the Lead, so each
-// new comment that is an event goes to the Lead and becomes the last item of the Judge.
+// (Mobius-rust#274). The Judge takes the new comments when the task is in ready_for_review, reviewed or needs_human,
+// also the comments from a round before that state. A stopped or dispatched task waits for a human or the Lead, so
+// each new comment that is an event goes to the Lead and becomes the last item of the Judge.
 func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repository, pullRequest *gh.Issue, since time.Time) error {
 	number := int64(pullRequest.GetNumber())
 	task, err := e.queries.GetLiveTaskByPullRequest(ctx, store.GetLiveTaskByPullRequestParams{

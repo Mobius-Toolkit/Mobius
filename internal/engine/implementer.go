@@ -267,7 +267,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 }
 
 // conflictRound starts a conflict round of the Implementer on the pull request of the task in ready_for_review. The
-// prompt has the issue body, and the round makes no change other than the merge of the base branch (Mobius#227).
+// prompt has the issue body, and the round makes no change other than the merge of the base branch (Mobius-rust#227).
 func (e *Engine) conflictRound(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
 	brief, err := brief(ctx, repository, task.Workstream)
 	if err != nil {
@@ -521,7 +521,7 @@ func (e *Engine) implement(ctx context.Context, a *Agent, j *job) (result, error
 		return result{}, err
 	}
 	// All worktrees share the refs of the bare clone, so a fetch of another task can move the base during the round
-	// (Mobius#228).
+	// (Mobius-rust#228).
 	baseCommit, err := runner.RevParse(ctx, dataDir, worktree, "origin/"+repository.DefaultBranch)
 	if err != nil {
 		return result{}, err
@@ -621,8 +621,8 @@ func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result,
 }
 
 // check runs the local check of the worktree of a in a check slot, and gives its output and true when it passes. A
-// check on a full disk waits for free space and runs again, with no new attempt (Mobius#231). The session shows each
-// phase of the check in its queue reason and in its Transcript (Mobius#401).
+// check on a full disk waits for free space and runs again, with no new attempt (Mobius-rust#231). The session shows
+// each phase of the check in its queue reason and in its Transcript (Mobius-rust#401).
 func (e *Engine) check(ctx context.Context, a *Agent, j *job) (string, bool, error) {
 	for {
 		select {
@@ -691,8 +691,8 @@ func (a *Agent) checkPhase(ctx context.Context, phase, text string) error {
 }
 
 // deliver pushes the work and records it on the pull request. After a passed check, a failed try repeats only these
-// steps, with no new session, after the wait of RestartWorker (Mobius#402). A push that GitHub rejects does not repeat
-// (Mobius#400).
+// steps, with no new session, after the wait of RestartWorker (Mobius-rust#402). A push that GitHub rejects does not
+// repeat (Mobius-rust#400).
 func (e *Engine) deliver(ctx context.Context, a *Agent, j *job, failedLog string, merged bool) (result, error) {
 	for {
 		r, err := e.push(ctx, a, j, failedLog, merged)
@@ -706,9 +706,9 @@ func (e *Engine) deliver(ctx context.Context, a *Agent, j *job, failedLog string
 	}
 }
 
-// push merges the commits that others pushed to the branch (Mobius#229), runs the local check again when the merge
+// push merges the commits that others pushed to the branch (Mobius-rust#229), runs the local check again when the merge
 // brought new commits, pushes, opens the draft pull request of a new ticket, posts the held replies, and adds the
-// Mobius check run of the head. Each try uses the installation token of the last poll (Mobius#398).
+// Mobius check run of the head. Each try uses the installation token of the last poll (Mobius-rust#398).
 func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, merged bool) (result, error) {
 	dataDir, worktree := e.config.DataDir, a.spec.Dir
 	repository, err := e.repository(j.task.Repository)

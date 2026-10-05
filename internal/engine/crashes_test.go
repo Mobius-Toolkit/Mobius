@@ -127,7 +127,7 @@ func TestAWorkerThatDiesAfterMaxWorkerRestartsGoesToAHuman(t *testing.T) {
 	})
 }
 
-// A Claude Code session with no Mobius tools must not run (Mobius#254).
+// A Claude Code session with no Mobius tools must not run (Mobius-rust#254).
 func TestAClaudeCodeSessionWithNoToolsListStartsAgain(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })

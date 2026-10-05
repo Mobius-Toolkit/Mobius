@@ -187,7 +187,7 @@ func TestAReadyLabelAfterAStopContinuesThePullRequestOnTheSameBranch(t *testing.
 	}
 }
 
-// A thread of the Reviewer stays open after a stop, so the next round gets it (Mobius#253).
+// A thread of the Reviewer stays open after a stop, so the next round gets it (Mobius-rust#253).
 func TestAReadyLabelOnATaskInNeedsHumanSendsTheOpenThreadOfTheMobiusAppToAFixRound(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, fixes, noChange)

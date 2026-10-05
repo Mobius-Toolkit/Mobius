@@ -42,7 +42,7 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 // checkTask acts on the state of the issue and the pull request of the task, and gives the pull request when the task
 // has work for an agent: the round that the task queues or runs, or the round that the check starts.
 //   - A task whose issue is gone, or whose issue closed with no pull request, ends.
-//   - A merged or closed pull request ends the task, and a merge closes the open issue (Mobius#226).
+//   - A merged or closed pull request ends the task, and a merge closes the open issue (Mobius-rust#226).
 //   - A removal of mobius:working by a person stops the task. A Judge that runs from needs_human has no
 //     mobius:working.
 //   - A pull request of a task in ready_for_review with a merge conflict, or behind its base, gets a conflict round. A
@@ -216,7 +216,7 @@ func (e *Engine) stopWorkersOf(ctx context.Context, task store.Task) error {
 }
 
 // decline ends the task of the issue with the reason as a comment. An open pull request of the task gets a failed
-// Mobius check and the reason as a comment, and then it closes (Mobius#255). The branch stays.
+// Mobius check and the reason as a comment, and then it closes (Mobius-rust#255). The branch stays.
 func (e *Engine) decline(ctx context.Context, c caller, repository github.Repository, input declineInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
