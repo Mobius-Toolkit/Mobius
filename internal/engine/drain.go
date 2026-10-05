@@ -65,6 +65,19 @@ func (e *Engine) trackWorker() bool {
 	return true
 }
 
+// tryTrack counts a session that is not a Worker. It gives false while the drain is on, so the drain holds the
+// session.
+func (e *Engine) tryTrack() bool {
+	d := &e.drain
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.on {
+		return false
+	}
+	d.running++
+	return true
+}
+
 // track counts a session that is not a Worker, also while the drain is on. It gives false after seal.
 func (e *Engine) track() bool {
 	d := &e.drain

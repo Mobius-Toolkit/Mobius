@@ -2635,6 +2635,31 @@ func (q *Queries) StartSession(ctx context.Context, arg StartSessionParams) (Ses
 	return i, err
 }
 
+const startTaskWorker = `-- name: StartTaskWorker :execrows
+UPDATE tasks SET state = 'working', worker = ?1, worker_input = ?2
+WHERE id = ?3 AND state = ?4
+`
+
+type StartTaskWorkerParams struct {
+	Worker      sql.NullString
+	WorkerInput sql.NullString
+	ID          int64
+	FromState   string
+}
+
+func (q *Queries) StartTaskWorker(ctx context.Context, arg StartTaskWorkerParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, startTaskWorker,
+		arg.Worker,
+		arg.WorkerInput,
+		arg.ID,
+		arg.FromState,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const stopTask = `-- name: StopTask :execrows
 UPDATE tasks SET state = 'stopped' WHERE id = ? AND state NOT IN ('stopped', 'ended')
 `

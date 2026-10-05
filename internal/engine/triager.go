@@ -27,13 +27,15 @@ type triage struct {
 // triage starts the Triager of the issue number, which has no Workstream: the issue goes from mobius:ready to
 // mobius:no-workstream. It gives false while the drain is on, and then the issue keeps mobius:ready.
 func (e *Engine) triage(ctx context.Context, repository github.Repository, number int64) (bool, error) {
-	if e.draining() {
+	if !e.tryTrack() {
 		return false, nil
 	}
-	if err := repository.AddLabel(ctx, number, noWorkstreamLabel); err != nil {
-		return false, err
+	err := repository.AddLabel(ctx, number, noWorkstreamLabel)
+	if err == nil {
+		err = repository.RemoveLabel(ctx, number, readyLabel)
 	}
-	if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
+	if err != nil {
+		e.untrack()
 		return false, err
 	}
 	triageCtx, stop := context.WithCancel(context.Background())
@@ -63,6 +65,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		Organization: repository.Owner(),
 		Repository:   repository.FullName,
 		Issue:        sql.NullInt64{Int64: number, Valid: true},
+		Tracked:      true,
 	})
 	if err != nil {
 		if ctx.Err() != nil {

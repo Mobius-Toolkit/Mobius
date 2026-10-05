@@ -254,6 +254,10 @@ UPDATE tasks SET state = 'queued' WHERE id = ? AND state IN ('queued', 'working'
 -- name: SetTaskWorker :exec
 UPDATE tasks SET worker = ?, worker_input = ? WHERE id = ?;
 
+-- name: StartTaskWorker :execrows
+UPDATE tasks SET state = 'working', worker = sqlc.arg(worker), worker_input = sqlc.arg(worker_input)
+WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
+
 -- name: SetTaskBranch :exec
 UPDATE tasks SET branch = ? WHERE id = ?;
 
