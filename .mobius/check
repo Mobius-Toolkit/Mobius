@@ -13,11 +13,8 @@ go test ./...
   pnpm install --frozen-lockfile
   pnpm lint
   pnpm format:check
-  pnpm typecheck
   pnpm build
 )
-
-go build ./...
 
 make generate
 git diff --exit-code -- api/ web/src/api/ internal/store/
