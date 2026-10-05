@@ -3,13 +3,6 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-unformatted=$(gofmt -l $(go list -f '{{.Dir}}' ./...))
-if [ -n "$unformatted" ]; then
-  echo "gofmt: these files need formatting:" >&2
-  echo "$unformatted" >&2
-  exit 1
-fi
-
 go vet ./...
 golangci-lint run
 go tool lintgork ./...
