@@ -54,9 +54,8 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 - A test server runs only fake agents: it takes no directory with a Harness command from the PATH of the test. To check that something does not happen, wait for more polls (`waitForPolls` in `internal/engine`).
 - The Playwright tests in `web/e2e` test the UI. Run them with `pnpm e2e` in `web`. The command builds the UI, and Playwright starts `TestServer` of `web/e2e` on port 6464 with a fake GitHub. The tests write a desktop and a phone screenshot of each screen to `web/screenshots`. `.mobius/check` does not run them.
 - Before the first run of the Playwright tests, install the browser: `pnpm exec playwright install chromium`.
-- `web/screenshots` is in the repository, so the review of a pull request shows the screenshots. Do not commit the screenshots from your computer. The workflow `screenshots` makes them on Linux for each pull request that changes a path of `.github/scripts/ui-changed.sh`, and commits the changes in `web/screenshots` to the pull request branch as `github-actions[bot]`. A removed screen also loses its old file.
-- After the workflow `screenshots` commits to your pull request branch, merge that commit before your next push (`git pull`).
-- Each run must give the same screenshots, so a pull request with no UI change gets no new screenshots. `TestServer` gives a fixed time to each time that the UI shows (`fixTimes`). Before each screenshot, `web/e2e/screenshots.spec.ts` waits for the data that the page loads (`frame` and `ready`). When the UI shows a new time or new data, add it there.
+- `web/screenshots` is not in the repository (`.gitignore`). The job `e2e` of `ci.yml` uploads it as the artifact `screenshots`. The workflow `screenshots` puts the files on the branch `screenshots` and shows them in one comment of the pull request, with the image of `main` next to the new image. No workflow pushes to the branch of a pull request.
+- Each run must give the same screenshots, so a pull request with no UI change shows no changed screen. `TestServer` gives a fixed time to each time that the UI shows (`fixTimes`). Before each screenshot, `web/e2e/screenshots.spec.ts` waits for the data that the page loads (`frame` and `ready`). When the UI shows a new time or new data, add it there.
 
 ## Before a push
 
@@ -92,12 +91,11 @@ web/src/components/ui/ the shadcn/ui components
 web/src/lib/events.ts  the typed listener of server-sent events (onEvent)
 web/public/            the files of the PWA: the web app manifest, the service worker and the icons
 web/e2e/               the Playwright tests of the UI, and TestServer, the server that they test
-web/screenshots/       the screenshots of the Playwright tests
+web/screenshots/       the screenshots of the Playwright tests (not in the repository)
 web/embed.go           embeds web/dist into the binary and serves it
 .mobius/check          the local check, also used in CI
 docs/install.md        the install guide
-.github/workflows/     ci.yml checks each pull request. release.yml checks each push to main and releases it with the next patch tag. screenshots.yml commits the screenshots of each pull request that changes the UI
-.github/scripts/       ui-changed.sh finds out if the changed files can change the screenshots
+.github/workflows/     ci.yml checks each pull request. release.yml checks each push to main and releases it with the next patch tag. screenshots.yml shows the screenshots of each pull request in one comment
 ```
 
 ## Commands
