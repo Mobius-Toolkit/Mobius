@@ -18,7 +18,6 @@ type Shell = {
   activities: Activity[]
 }
 
-// ShellContext gives the pages the data that App loads.
 export const ShellContext = createContext<Shell | undefined>(undefined)
 
 export function useShell() {
