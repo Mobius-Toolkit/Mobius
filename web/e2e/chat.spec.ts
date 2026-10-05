@@ -469,8 +469,7 @@ const fakeRecognition = `window.recognitions = []
     abort() { window.calls.push('abort') }
   }`
 
-// result sends a result event with the given results to the first recognition. A transcript that ends in ... is
-// not final.
+// A transcript that ends in ... is not final.
 const result = (page: Page, ...transcripts: string[]) =>
   page.evaluate(
     `recognitions[0].dispatchEvent(Object.assign(new Event('result'), {
