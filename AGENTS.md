@@ -59,7 +59,7 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 
 ## Before a push
 
-Before the first run of the check, install golangci-lint. Use the version of `golangci-lint-action` in `.github/workflows/ci.yml`:
+Before the first run of the check, install golangci-lint. Use the golangci-lint version of the `version` input of `golangci-lint-action` in `.github/workflows/ci.yml`:
 
 ```
 curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.14.0
