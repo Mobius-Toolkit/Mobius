@@ -456,6 +456,64 @@ test('the Mic button adds the spoken text to the message', async ({ page }) => {
   await expect(mic).toBeVisible()
 })
 
+// The fake recognition keeps each instance in recognitions and the calls in calls. It sends no event by itself.
+const fakeRecognition = `window.recognitions = []
+  window.calls = []
+  window.SpeechRecognition = class extends EventTarget {
+    start() {
+      if (window.startError) throw new Error(window.startError)
+      window.recognitions.push(this)
+      window.calls.push('start')
+    }
+    stop() { window.calls.push('stop') }
+    abort() { window.calls.push('abort') }
+  }`
+
+test('Send stops the voice input', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.goto('/workstreams/owner/shop/12')
+  const main = page.getByRole('main')
+  await main.getByRole('button', { name: 'Mic', exact: true }).click()
+  await main.getByLabel('Message to the Lead').fill('Add a plan')
+  await main.getByRole('button', { name: 'Send' }).click()
+  await expect(
+    main.getByRole('button', { name: 'Mic', exact: true }),
+  ).toBeVisible()
+  expect(await page.evaluate('calls')).toEqual(['start', 'abort'])
+})
+
+test('Stop mic lets a new voice input start at once', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.goto('/workstreams/owner/shop/12')
+  const main = page.getByRole('main')
+  const mic = main.getByRole('button', { name: 'Mic', exact: true })
+  await mic.click()
+  await main.getByRole('button', { name: 'Stop mic' }).click()
+  await expect(mic).toBeVisible()
+  await mic.click()
+  await expect(main.getByRole('button', { name: 'Stop mic' })).toBeVisible()
+  expect(await page.evaluate('calls')).toEqual(['start', 'stop', 'start'])
+
+  // The end of the old session does not stop the new session.
+  await page.evaluate("recognitions[0].dispatchEvent(new Event('end'))")
+  await expect(main.getByRole('button', { name: 'Stop mic' })).toBeVisible()
+  await page.evaluate("recognitions[1].dispatchEvent(new Event('end'))")
+  await expect(mic).toBeVisible()
+})
+
+test('the voice input shows a message when it does not start', async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition)
+  await page.addInitScript("window.startError = 'InvalidStateError'")
+  await page.goto('/workstreams/owner/shop/12')
+  const main = page.getByRole('main')
+  const mic = main.getByRole('button', { name: 'Mic', exact: true })
+  await mic.click()
+  await expect(main.getByText('The voice input did not start.')).toBeVisible()
+  await expect(mic).toBeVisible()
+})
+
 test('the note closes the Workstream when all tasks are closed', async ({
   page,
 }) => {
