@@ -1,51 +1,32 @@
-import { useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
-import {
-  completeWorkstream,
-  resumeIssue,
-  setAutopilot,
-  type NeedsHuman,
-} from '@/api/api.gen'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet'
-import { Switch } from '@/components/ui/switch'
-import type { Workstreams } from '@/lib/workstreams'
-import { AgentPanel } from './AgentPanel'
-import { BackButton } from './BackButton'
-import { Conversation } from './Conversation'
+import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { completeWorkstream, resumeIssue, setAutopilot, type NeedsHuman } from "@/api/api.gen";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
+import type { Workstreams } from "@/lib/workstreams";
+import { AgentPanel } from "./AgentPanel";
+import { BackButton } from "./BackButton";
+import { Conversation } from "./Conversation";
 
-function NeedsHumanList({
-  issues,
-  onChange,
-}: {
-  issues: NeedsHuman[]
-  onChange: () => void
-}) {
-  const [error, setError] = useState('')
+function NeedsHumanList({ issues, onChange }: { issues: NeedsHuman[]; onChange: () => void }) {
+  const [error, setError] = useState("");
   if (issues.length === 0) {
-    return null
+    return null;
   }
   const resume = (issue: NeedsHuman) => {
-    const [owner, name] = issue.repository.split('/')
+    const [owner, name] = issue.repository.split("/");
     resumeIssue(owner, name, issue.number)
-      .then((res) => setError(res.status === 204 ? '' : res.data.error))
+      .then((res) => setError(res.status === 204 ? "" : res.data.error))
       .catch((err: unknown) => setError(String(err)))
-      .finally(onChange)
-  }
+      .finally(onChange);
+  };
   return (
     <div className="grid gap-1 border-t px-4 py-2">
       {error && (
-        <Badge
-          variant="destructive"
-          className="h-auto w-full justify-start whitespace-normal"
-        >
+        <Badge variant="destructive" className="h-auto w-full justify-start whitespace-normal">
           {error}
         </Badge>
       )}
@@ -75,7 +56,7 @@ function NeedsHumanList({
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 export function Chat({
@@ -86,57 +67,53 @@ export function Chat({
   unread,
   source,
 }: {
-  owner: string
-  name: string
-  number: number
-  workstreams: Workstreams
-  unread?: number
-  source?: EventSource
+  owner: string;
+  name: string;
+  number: number;
+  workstreams: Workstreams;
+  unread?: number;
+  source?: EventSource;
 }) {
-  const repository = `${owner}/${name}`
+  const repository = `${owner}/${name}`;
   const workstream = workstreams.list?.find(
     (other) => other.repository === repository && other.number === number,
-  )
-  const [autopilotBusy, setAutopilotBusy] = useState(false)
-  const [autopilotError, setAutopilotError] = useState('')
-  const [closeBusy, setCloseBusy] = useState(false)
-  const [closeError, setCloseError] = useState('')
-  const navigate = useNavigate()
+  );
+  const [autopilotBusy, setAutopilotBusy] = useState(false);
+  const [autopilotError, setAutopilotError] = useState("");
+  const [closeBusy, setCloseBusy] = useState(false);
+  const [closeError, setCloseError] = useState("");
+  const navigate = useNavigate();
 
   const switchAutopilot = (on: boolean) => {
-    setAutopilotBusy(true)
+    setAutopilotBusy(true);
     setAutopilot(owner, name, number, { on })
-      .then((res) =>
-        setAutopilotError(res.status === 204 ? '' : res.data.error),
-      )
+      .then((res) => setAutopilotError(res.status === 204 ? "" : res.data.error))
       .catch((err: unknown) => setAutopilotError(String(err)))
       .finally(() => {
-        setAutopilotBusy(false)
-        workstreams.load()
-      })
-  }
+        setAutopilotBusy(false);
+        workstreams.load();
+      });
+  };
 
   const close = () => {
-    setCloseBusy(true)
-    setCloseError('')
+    setCloseBusy(true);
+    setCloseError("");
     completeWorkstream(owner, name, number)
       .then((res) => {
         if (res.status === 204) {
-          void navigate({ to: '/workstreams' })
+          void navigate({ to: "/workstreams" });
         } else {
-          setCloseError(res.data.error)
-          setCloseBusy(false)
+          setCloseError(res.data.error);
+          setCloseBusy(false);
         }
       })
       .catch((err: unknown) => {
-        setCloseError(String(err))
-        setCloseBusy(false)
-      })
-  }
+        setCloseError(String(err));
+        setCloseBusy(false);
+      });
+  };
 
-  const panel = (
-    <AgentPanel owner={owner} name={name} number={number} source={source} />
-  )
+  const panel = <AgentPanel owner={owner} name={name} number={number} source={source} />;
   return (
     <div className="flex min-h-0 min-w-0 grow">
       <Conversation
@@ -150,9 +127,7 @@ export function Chat({
         head={
           <>
             <BackButton parent="/workstreams" />
-            <h2 className="min-w-0 truncate font-semibold">
-              {workstream?.title}
-            </h2>
+            <h2 className="min-w-0 truncate font-semibold">{workstream?.title}</h2>
             <span className="text-sm text-muted-foreground">#{number}</span>
             <Switch
               id="autopilot"
@@ -183,9 +158,7 @@ export function Chat({
         note={
           <>
             {autopilotError && (
-              <p className="border-b px-4 py-2 text-sm text-destructive">
-                {autopilotError}
-              </p>
+              <p className="border-b px-4 py-2 text-sm text-destructive">{autopilotError}</p>
             )}
             {workstream?.allTasksClosed && (
               <div className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
@@ -193,9 +166,7 @@ export function Chat({
                 <Button size="sm" disabled={closeBusy} onClick={close}>
                   Close Workstream
                 </Button>
-                {closeError && (
-                  <span className="text-sm text-destructive">{closeError}</span>
-                )}
+                {closeError && <span className="text-sm text-destructive">{closeError}</span>}
               </div>
             )}
           </>
@@ -203,16 +174,13 @@ export function Chat({
         footer={
           <NeedsHumanList
             issues={workstreams.needsHuman.filter(
-              (issue) =>
-                issue.repository === repository && issue.workstream === number,
+              (issue) => issue.repository === repository && issue.workstream === number,
             )}
             onChange={workstreams.load}
           />
         }
       />
-      <aside className="hidden w-80 shrink-0 flex-col border-l pt-2 md:flex">
-        {panel}
-      </aside>
+      <aside className="hidden w-80 shrink-0 flex-col border-l pt-2 md:flex">{panel}</aside>
     </div>
-  )
+  );
 }

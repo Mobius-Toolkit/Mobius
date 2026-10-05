@@ -1,7 +1,7 @@
-import MarkdownToJSX from 'markdown-to-jsx/react'
-import { Fragment, type ComponentProps } from 'react'
+import MarkdownToJSX from "markdown-to-jsx/react";
+import { Fragment, type ComponentProps } from "react";
 
-function Link(props: ComponentProps<'a'>) {
+function Link(props: ComponentProps<"a">) {
   return (
     <a
       {...props}
@@ -9,15 +9,15 @@ function Link(props: ComponentProps<'a'>) {
       rel="noopener noreferrer"
       className="break-words text-primary underline underline-offset-2"
     />
-  )
+  );
 }
 
 // A message does not load images, so an image shows as a link.
-function Image({ src, alt }: ComponentProps<'img'>) {
+function Image({ src, alt }: ComponentProps<"img">) {
   if (!src) {
-    return alt
+    return alt;
   }
-  return <Link href={src}>{alt || src}</Link>
+  return <Link href={src}>{alt || src}</Link>;
 }
 
 // Raw HTML in the text shows as text, and the sanitizer of the library removes unsafe URLs, for example javascript:.
@@ -35,5 +35,5 @@ export function Markdown({ text }: { text: string }) {
         {text}
       </MarkdownToJSX>
     </div>
-  )
+  );
 }

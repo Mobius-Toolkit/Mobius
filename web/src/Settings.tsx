@@ -1,14 +1,8 @@
-import { Link } from '@tanstack/react-router'
-import { ChevronRightIcon } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemGroup,
-  ItemTitle,
-} from '@/components/ui/item'
-import { settingsPages } from '@/lib/settings'
+import { Link } from "@tanstack/react-router";
+import { ChevronRightIcon } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
+import { settingsPages } from "@/lib/settings";
 
 export function Settings() {
   return (
@@ -33,5 +27,5 @@ export function Settings() {
         </ItemGroup>
       </CardContent>
     </Card>
-  )
+  );
 }

@@ -1,53 +1,43 @@
-import { Link } from '@tanstack/react-router'
-import { PlusIcon } from 'lucide-react'
-import type { Unread, Workstream } from '@/api/api.gen'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import { unreadCount } from '@/lib/unread'
+import { Link } from "@tanstack/react-router";
+import { PlusIcon } from "lucide-react";
+import type { Unread, Workstream } from "@/api/api.gen";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { unreadCount } from "@/lib/unread";
 import {
   chatParams,
   organizationWorkstreams,
   type Workstreams as WorkstreamLists,
-} from '@/lib/workstreams'
+} from "@/lib/workstreams";
 
 export function WorkstreamBadges({
   workstream,
   workstreams,
   unread,
 }: {
-  workstream: Workstream
-  workstreams: WorkstreamLists
-  unread: Unread[]
+  workstream: Workstream;
+  workstreams: WorkstreamLists;
+  unread: Unread[];
 }) {
   const needsHuman = workstreams.needsHuman.some(
-    (issue) =>
-      issue.repository === workstream.repository &&
-      issue.workstream === workstream.number,
-  )
+    (issue) => issue.repository === workstream.repository && issue.workstream === workstream.number,
+  );
   const count = unreadCount(unread, {
-    organization: workstream.repository.split('/')[0],
+    organization: workstream.repository.split("/")[0],
     repository: workstream.repository,
     workstream: workstream.number,
-  })
+  });
   return (
     <span className="flex shrink-0 items-center gap-1.5">
       <span className="text-muted-foreground">#{workstream.number}</span>
       {workstream.allTasksClosed && <Badge variant="secondary">done</Badge>}
       {needsHuman && (
-        <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400">
-          needs you
-        </Badge>
+        <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400">needs you</Badge>
       )}
       {count > 0 && <Badge>{count}</Badge>}
     </span>
-  )
+  );
 }
 
 export function Workstreams({
@@ -55,11 +45,11 @@ export function Workstreams({
   workstreams,
   unread,
 }: {
-  organization: string
-  workstreams: WorkstreamLists
-  unread: Unread[]
+  organization: string;
+  workstreams: WorkstreamLists;
+  unread: Unread[];
 }) {
-  const shown = organizationWorkstreams(workstreams, organization)
+  const shown = organizationWorkstreams(workstreams, organization);
   return (
     <Card>
       <CardHeader>
@@ -74,13 +64,9 @@ export function Workstreams({
         </CardAction>
       </CardHeader>
       <CardContent>
-        {workstreams.error && (
-          <Badge variant="destructive">{workstreams.error}</Badge>
-        )}
+        {workstreams.error && <Badge variant="destructive">{workstreams.error}</Badge>}
         {shown?.length === 0 && (
-          <p className="text-muted-foreground">
-            This organization has no open Workstream.
-          </p>
+          <p className="text-muted-foreground">This organization has no open Workstream.</p>
         )}
         <ul className="divide-y">
           {shown?.map((workstream) => (
@@ -102,5 +88,5 @@ export function Workstreams({
         </ul>
       </CardContent>
     </Card>
-  )
+  );
 }
