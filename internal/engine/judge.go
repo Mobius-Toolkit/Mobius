@@ -89,8 +89,8 @@ type quietItem struct {
 // trusted user. With no new item, a reviewed task with no open thread is ready for review.
 //
 // It gives true when the task has work for the Judge and does not wait for a human. With no new item, it gives
-// otherWork when the task leaves the state reviewed. The drain holds each new Judge, and the next poll after a cancel
-// starts it.
+// otherWork when the task leaves the state reviewed. The drain holds each new Judge, also a Judge whose Worker starts
+// after the start of the drain, and the next poll after a cancel starts it.
 func (e *Engine) judge(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, otherWork bool) (bool, error) {
 	if e.draining() {
 		return false, nil
@@ -124,18 +124,6 @@ func (e *Engine) judge(ctx context.Context, repository github.Repository, task s
 	issue, err := existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return false, err
-	}
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
-	if err != nil || moved == 0 {
-		return work, err
-	}
-	err = e.queries.SetTaskWorker(ctx, store.SetTaskWorkerParams{
-		Worker:      sql.NullString{String: JudgeRole, Valid: true},
-		WorkerInput: sql.NullString{String: task.State, Valid: true},
-		ID:          task.ID,
-	})
-	if err != nil {
-		return work, err
 	}
 	j := judgeJob{task: task, title: issue.GetTitle(), body: issue.GetBody(), from: task.State, pullRequest: pullRequest, items: items}
 	e.startWorker(task.ID, func(ctx context.Context) { e.runJudge(ctx, j) })
@@ -238,10 +226,27 @@ func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, t
 	return true, e.readyForReview(ctx, task, issue.GetTitle(), pushed{pullRequest, head, checkRun}, "reviewed")
 }
 
-// runJudge runs the Judge of the job until the task stops. A failed Judge still marks its items as judged, so the same
-// items start no new Judge, and it hands the task to a human.
+// runJudge moves the task to working and runs the Judge of the job until the task stops. The Worker of the task exists
+// before the state change, so each stop after the state change stops the Judge. A failed Judge still marks its items
+// as judged, so the same items start no new Judge, and it hands the task to a human.
 func (e *Engine) runJudge(ctx context.Context, j judgeJob) {
-	err := e.judgeSession(ctx, j)
+	if !e.tryTrack() {
+		return
+	}
+	moved, err := e.queries.StartTaskWorker(ctx, store.StartTaskWorkerParams{
+		Worker:      sql.NullString{String: JudgeRole, Valid: true},
+		WorkerInput: sql.NullString{String: j.from, Valid: true},
+		ID:          j.task.ID,
+		FromState:   j.from,
+	})
+	if err != nil || moved == 0 {
+		e.untrack()
+		if err != nil {
+			log.Printf("Judge of %s#%d: %v", j.task.Repository, j.task.Issue, err)
+		}
+		return
+	}
+	err = e.judgeSession(ctx, j)
 	if err == nil {
 		return
 	}
@@ -264,10 +269,12 @@ func (e *Engine) markJudged(ctx context.Context, j judgeJob) error {
 }
 
 // judgeSession runs one Judge session of the job in a worktree detached at the head of the pull request, and then
-// routes the actions of the Judge. The end of ctx stops the session.
+// routes the actions of the Judge. The drain counts the session from a tryTrack of the caller. The end of ctx stops
+// the session.
 func (e *Engine) judgeSession(ctx context.Context, j judgeJob) error {
 	parent, err := e.judgeParent(ctx, j.task)
 	if err != nil {
+		e.untrack()
 		return err
 	}
 	a, err := e.addAgent(ctx, Spec{
@@ -277,6 +284,7 @@ func (e *Engine) judgeSession(ctx context.Context, j judgeJob) error {
 		Workstream:   j.task.Workstream,
 		Issue:        sql.NullInt64{Int64: j.task.Issue, Valid: true},
 		Parent:       parent,
+		Tracked:      true,
 	})
 	if err != nil {
 		if ctx.Err() != nil {

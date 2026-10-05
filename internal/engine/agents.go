@@ -48,6 +48,8 @@ type Spec struct {
 	// PullRequest is the pull request that the Implementer of a fix round or a conflict round, or the Reviewer, works
 	// on, or 0.
 	PullRequest int64
+	// Tracked tells that the drain counts the session from a tryTrack of the caller.
+	Tracked bool
 	// Dir is the working directory of the agent. With an empty Dir, Start makes scratch/<session id> below the data
 	// directory, the agent works there, and the end of the session removes that directory.
 	Dir string
@@ -177,7 +179,7 @@ func (e *Engine) addAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, fmt.Errorf("the Role %s has no Role binding", spec.Role)
 	}
 	worker := workerRoles[spec.Role]
-	if !worker && !e.track() {
+	if !worker && !spec.Tracked && !e.track() {
 		return nil, refuse("Mobius restarts for an upgrade.")
 	}
 	session, err := e.queries.AddSession(ctx, store.AddSessionParams{

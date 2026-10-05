@@ -285,3 +285,34 @@ func TestTheDrainHoldsTheReviewerAndTheJudgeUntilACancel(t *testing.T) {
 
 	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.JudgeRole)) > 0 })
 }
+
+// A Judge whose Worker starts after the start of the drain stays held, and does not fail.
+func TestTheDrainHoldsAJudgeThatAPollStartedBeforeTheDrain(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.ReviewQuietPeriod = 0 })
+	readyWithItem(t, server, fake)
+	reached, release := fake.HoldReviewThreads(shop, 42)
+	// The poll reads the items of the Judge and waits for the review threads.
+	select {
+	case <-reached:
+	case <-time.After(time.Minute):
+		t.Fatal("the poll did not read the review threads after one minute")
+	}
+	fake.AddComment(shop, 42, "owner", "Why cents?")
+	startDrain(t, server)
+	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
+
+	release()
+
+	waitForPolls(t, fake)
+	if judges := roleSessions(t, server, engine.JudgeRole); len(judges) != 0 {
+		t.Errorf("Judges = %+v", judges)
+	}
+	if state := taskState(t, server); state != "ready_for_review" {
+		t.Errorf("state = %s", state)
+	}
+
+	cancelDrain(t, server)
+
+	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.JudgeRole)) > 0 })
+}

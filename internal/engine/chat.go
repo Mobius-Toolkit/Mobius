@@ -105,6 +105,8 @@ type chat struct {
 	halt context.CancelFunc
 	// done closes when the chat ends.
 	done chan struct{}
+	// tracked tells that the drain counts the first session of the chat from a tryTrack.
+	tracked bool
 	// wake gets a value after each new item and each request to close.
 	wake chan struct{}
 
@@ -183,21 +185,25 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, text string)
 	if err != nil {
 		return err
 	}
-	e.give(key, item{message: &message})
+	e.give(key, false, item{message: &message})
 	return nil
 }
 
-// give gives the items to the chat of key, and starts the chat when none runs. The caller holds e.chatOrder.
-func (e *Engine) give(key ChatKey, items ...item) {
+// give gives the items to the chat of key, and starts the chat when none runs. tracked tells that the drain counts the
+// first session of a new chat from a tryTrack of the caller. The caller holds e.chatOrder.
+func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	e.chatsMu.Lock()
 	c, ok := e.chats[key]
 	if ok {
 		c.queue = append(c.queue, items...)
 		c.writing = true
 		c.notify()
+		if tracked {
+			e.untrack()
+		}
 	} else {
 		ctx, halt := context.WithCancel(context.Background())
-		c = &chat{key: key, ctx: ctx, halt: halt, wake: make(chan struct{}, 1), done: make(chan struct{}), first: items[0], queue: items[1:], writing: true}
+		c = &chat{key: key, ctx: ctx, halt: halt, wake: make(chan struct{}, 1), done: make(chan struct{}), first: items[0], queue: items[1:], writing: true, tracked: tracked}
 		c.wait, c.stopWait = context.WithCancel(ctx)
 		e.chats[key] = c
 		go e.runChat(c)
@@ -263,14 +269,14 @@ func (e *Engine) sendEvents(ctx context.Context, repository string, workstream i
 	e.chatsMu.Lock()
 	_, running := e.chats[key]
 	e.chatsMu.Unlock()
-	if !running && e.draining() {
+	if !running && !e.tryTrack() {
 		return nil
 	}
 	items := make([]item, 0, len(events))
 	for _, event := range events {
 		items = append(items, item{event: &event})
 	}
-	e.give(key, items...)
+	e.give(key, !running, items...)
 	return nil
 }
 
@@ -395,7 +401,11 @@ func (e *Engine) runChat(c *chat) {
 	background := context.Background()
 	crashes := 0
 	spec, err := e.chatSpec(c.key)
+	spec.Tracked = c.tracked
 	if err != nil {
+		if c.tracked {
+			e.untrack()
+		}
 		e.finishChat(c, err.Error())
 		return
 	}
@@ -404,6 +414,7 @@ func (e *Engine) runChat(c *chat) {
 		wait := c.wait
 		e.chatsMu.Unlock()
 		a, err := e.Start(wait, spec)
+		spec.Tracked = false
 		e.chatsMu.Lock()
 		stopWait := c.stopWait
 		c.stopWait = nil
