@@ -440,7 +440,7 @@ test('the Mic button adds the spoken text to the message', async ({ page }) => {
   await input.fill('Plant')
   await mic.click()
   await page.evaluate(
-    "recognition.dispatchEvent(Object.assign(new Event('result'), { results: [[{ transcript: ' red roses ' }]] }))",
+    "recognition.dispatchEvent(Object.assign(new Event('result'), { results: [Object.assign([{ transcript: ' red roses ' }], { isFinal: true })] }))",
   )
   await expect(input).toHaveValue('Plant red roses')
   await main.getByRole('button', { name: 'Stop mic' }).click()
@@ -468,6 +468,88 @@ const fakeRecognition = `window.recognitions = []
     stop() { window.calls.push('stop') }
     abort() { window.calls.push('abort') }
   }`
+
+// A transcript that ends in ... is not final.
+const result = (page: Page, ...transcripts: string[]) =>
+  page.evaluate(
+    `recognitions[0].dispatchEvent(Object.assign(new Event('result'), {
+      results: ${JSON.stringify(transcripts)}.map((transcript) =>
+        Object.assign([{ transcript }], {
+          isFinal: !transcript.endsWith('...'),
+        }),
+      ),
+    }))`,
+  )
+
+const select = (page: Page, start: number, end: number) =>
+  page.evaluate(
+    `document.querySelector('textarea').setSelectionRange(${start}, ${end})`,
+  )
+
+const selection = (page: Page) =>
+  page.evaluate(
+    "[document.querySelector('textarea').selectionStart, document.querySelector('textarea').selectionEnd]",
+  )
+
+test('two result events add the spoken text once', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.goto('/workstreams/new')
+  const main = page.getByRole('main')
+  const input = page.getByLabel('Message to the Triager')
+  await main.getByRole('button', { name: 'Mic', exact: true }).click()
+  await result(page, 'red')
+  await expect(input).toHaveValue('red')
+  await result(page, 'red')
+  await result(page, 'red', 'roses...')
+  await expect(input).toHaveValue('red')
+  await result(page, 'red', 'roses')
+  await expect(input).toHaveValue('red roses')
+})
+
+test('the spoken text goes in at the cursor', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.goto('/workstreams/new')
+  const main = page.getByRole('main')
+  const input = page.getByLabel('Message to the Triager')
+  await input.fill('Plant roses')
+  await select(page, 5, 5)
+  await main.getByRole('button', { name: 'Mic', exact: true }).click()
+  await result(page, ' red ')
+  await expect(input).toHaveValue('Plant red roses')
+  expect(await selection(page)).toEqual([9, 9])
+
+  await select(page, 0, 0)
+  await result(page, 'red', 'Now')
+  await expect(input).toHaveValue('Now Plant red roses')
+  expect(await selection(page)).toEqual([3, 3])
+})
+
+test('the spoken text replaces the selection', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.goto('/workstreams/new')
+  const main = page.getByRole('main')
+  const input = page.getByLabel('Message to the Triager')
+  await input.fill('Plant red roses.')
+  await select(page, 6, 9)
+  await main.getByRole('button', { name: 'Mic', exact: true }).click()
+  await result(page, 'white')
+  await expect(input).toHaveValue('Plant white roses.')
+  expect(await selection(page)).toEqual([11, 11])
+})
+
+test.describe('with a German browser', () => {
+  test.use({ locale: 'de-DE' })
+
+  test('the voice input gets the language of the browser', async ({ page }) => {
+    await page.addInitScript(fakeRecognition)
+    await page.goto('/workstreams/new')
+    await page
+      .getByRole('main')
+      .getByRole('button', { name: 'Mic', exact: true })
+      .click()
+    expect(await page.evaluate('recognitions[0].lang')).toBe('de-DE')
+  })
+})
 
 test('Send stops the voice input', async ({ page }) => {
   await page.addInitScript(fakeRecognition)
