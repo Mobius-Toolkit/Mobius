@@ -30,14 +30,18 @@ export function useVoice(
   setError: (error: string) => void,
 ) {
   const recognition = useRef<Recognition>(undefined)
+  // The sessions that can still send a result. A session that "Stop mic" stopped stays here until its end event.
+  const sessions = useRef(new Set<Recognition>())
   const [listening, setListening] = useState(false)
 
-  // abort drops the phrase that the session still holds.
+  // abort drops the phrase that each session still holds.
   const abort = useCallback(() => {
-    const live = recognition.current
     recognition.current = undefined
     setListening(false)
-    live?.abort()
+    for (const live of sessions.current) {
+      live.abort()
+    }
+    sessions.current.clear()
   }, [])
 
   useEffect(() => abort, [abort])
@@ -80,6 +84,7 @@ export function useVoice(
       }
     })
     live.addEventListener('end', () => {
+      sessions.current.delete(live)
       if (recognition.current === live) {
         recognition.current = undefined
         setListening(false)
@@ -92,6 +97,7 @@ export function useVoice(
       return
     }
     recognition.current = live
+    sessions.current.add(live)
     setError('')
     setListening(true)
   }

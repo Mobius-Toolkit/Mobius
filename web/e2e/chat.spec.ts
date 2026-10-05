@@ -482,6 +482,18 @@ test('Send stops the voice input', async ({ page }) => {
   expect(await page.evaluate('calls')).toEqual(['start', 'abort'])
 })
 
+test('Send stops a voice input that Stop mic stopped', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.goto('/workstreams/owner/shop/12')
+  const main = page.getByRole('main')
+  await main.getByRole('button', { name: 'Mic', exact: true }).click()
+  await main.getByRole('button', { name: 'Stop mic' }).click()
+  await main.getByLabel('Message to the Lead').fill('Add a plan')
+  await main.getByRole('button', { name: 'Send' }).click()
+  await expect(main.getByLabel('Message to the Lead')).toHaveValue('')
+  expect(await page.evaluate('calls')).toEqual(['start', 'stop', 'abort'])
+})
+
 test('Stop mic lets a new voice input start at once', async ({ page }) => {
   await page.addInitScript(fakeRecognition)
   await page.goto('/workstreams/owner/shop/12')
