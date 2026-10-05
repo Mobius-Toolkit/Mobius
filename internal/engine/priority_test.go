@@ -111,7 +111,7 @@ func TestAFreeSlotGoesToTheFixRoundOfAnOldPullRequestBeforeANewTicket(t *testing
 	}
 }
 
-// A pull request with work for an agent does not hold a new ticket while a slot is free (Mobius#385).
+// A pull request with work for an agent does not hold a new ticket while a slot is free (Mobius-rust#385).
 func TestWithTwoFreeSlotsAFixAndANewTicketBothStart(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
@@ -176,7 +176,7 @@ func TestAFailedCheckOnAHeadThatGotItsFixRoundDoesNotStopANewTicket(t *testing.T
 	}
 }
 
-// The Judge of a task in needs_human holds its slot, so a new ticket waits (Mobius#385).
+// The Judge of a task in needs_human holds its slot, so a new ticket waits (Mobius-rust#385).
 func TestAJudgeThatRunsFromNeedsHumanHoldsANewTicket(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectThree(t, fake, fixes)

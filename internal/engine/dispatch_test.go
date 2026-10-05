@@ -300,7 +300,7 @@ func startWithStoppedTask(t *testing.T, fake *testkit.FakeGitHub) *testserver.Se
 }
 
 // A comment on the pull request of a stopped task goes to the Lead with the state of the task, so the Lead can tell
-// the Owner the next step. Only mobius:ready continues the task (Mobius#253, Mobius#274).
+// the Owner the next step. Only mobius:ready continues the task (Mobius-rust#253, Mobius-rust#274).
 func TestACommentOnThePullRequestOfAStoppedTaskGoesToTheLeadAndStartsNoRound(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
@@ -401,7 +401,7 @@ func TestTheLeadDeclinesADispatchedTask(t *testing.T) {
 	}
 }
 
-// A decline of a task with an open pull request closes the pull request and fails its Mobius check (Mobius#255).
+// A decline of a task with an open pull request closes the pull request and fails its Mobius check (Mobius-rust#255).
 func TestADeclineClosesTheOpenPullRequestOfTheTask(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	// The first prompt of a new session has the earlier events in its history, so the rule of the newest event comes first.

@@ -257,7 +257,7 @@ func TestARemovalOfTheWorkingLabelStopsATaskWhileTheJudgeRunsFromAStateOtherThan
 	})
 }
 
-// A comment on the pull request of a task in ready_for_review goes to the Judge, and not to the Lead (Mobius#274).
+// A comment on the pull request of a task in ready_for_review goes to the Judge, and not to the Lead (Mobius-rust#274).
 func TestACommentOnThePullRequestOfATaskInReadyForReviewGoesOnlyToTheJudge(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
