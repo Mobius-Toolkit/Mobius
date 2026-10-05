@@ -19,6 +19,7 @@ go test ./...
   cd web
   pnpm install --frozen-lockfile
   pnpm lint
+  pnpm format:check
   pnpm typecheck
   pnpm build
 )

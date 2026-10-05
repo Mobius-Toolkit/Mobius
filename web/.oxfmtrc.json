@@ -1,0 +1,3 @@
+{
+  "ignorePatterns": ["src/api/api.gen.ts", "dist", "screenshots", "test-results", "playwright-report"]
+}
