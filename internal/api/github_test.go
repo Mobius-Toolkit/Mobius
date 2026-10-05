@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 type result struct {

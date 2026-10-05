@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 )
 
 func limits(t *testing.T) *config.Config {

@@ -18,8 +18,8 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
-	"github.com/Mobius-Toolkit/mobius-go/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 )
 
 const (

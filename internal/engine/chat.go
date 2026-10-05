@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 var (

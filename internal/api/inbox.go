@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // InboxItem is an item of the Inbox of the Owner.

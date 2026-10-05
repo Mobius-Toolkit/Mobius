@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
 func TestANewerReleaseTagCountsEachNumber(t *testing.T) {

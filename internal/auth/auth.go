@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // Auth checks the access password and the device tokens. Each row of

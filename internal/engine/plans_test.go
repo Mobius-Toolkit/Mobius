@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 // startWithBilling starts a server with the Workstream #20 and its task #88.

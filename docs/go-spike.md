@@ -146,8 +146,8 @@ Run these commands in `$M/go`:
 | `pnpm build` | `cd web && pnpm build` |
 | `.mobius/check`, cold and warm | `.mobius/check` |
 | UI tests | `cd web && pnpm e2e` |
-| Release build, cold | `cd web && pnpm install --frozen-lockfile && pnpm build && cd .. && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags '-X github.com/Mobius-Toolkit/mobius-go/internal/engine.Release=v0.0.0-measure' -o aarch64-apple-darwin/mobius ./cmd/mobius` |
-| Release binary for Linux, warm | `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '-X github.com/Mobius-Toolkit/mobius-go/internal/engine.Release=v0.0.0-measure' -o x86_64-unknown-linux-gnu/mobius ./cmd/mobius` |
+| Release build, cold | `cd web && pnpm install --frozen-lockfile && pnpm build && cd .. && CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags '-X github.com/Mobius-Toolkit/Mobius/internal/engine.Release=v0.0.0-measure' -o aarch64-apple-darwin/mobius ./cmd/mobius` |
+| Release binary for Linux, warm | `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '-X github.com/Mobius-Toolkit/Mobius/internal/engine.Release=v0.0.0-measure' -o x86_64-unknown-linux-gnu/mobius ./cmd/mobius` |
 
 The cold build has no UI in `web/dist`, only `web/dist/.gitkeep`. The release command is the command of `.github/workflows/release.yml`: the UI first, then the binary with `CGO_ENABLED=0` and the ldflags.
 

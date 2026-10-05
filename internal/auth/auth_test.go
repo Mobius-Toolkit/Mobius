@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 func start(t *testing.T, path, password string) *Auth {

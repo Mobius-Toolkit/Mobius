@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 // upgrade starts an upgrade through the API, and gives the status and the error text of the response.

@@ -10,7 +10,7 @@ import (
 
 	gh "github.com/google/go-github/v92/github"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // errorTail is the number of characters of the end of an error in a stop event.

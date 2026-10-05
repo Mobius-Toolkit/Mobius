@@ -14,9 +14,9 @@ import (
 
 	gh "github.com/google/go-github/v92/github"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
-	"github.com/Mobius-Toolkit/mobius-go/internal/runner"
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // checkTasks checks each live task of the repository, and adds the pull request of each task with work for an agent

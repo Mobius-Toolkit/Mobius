@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
-	"github.com/Mobius-Toolkit/mobius-go/internal/mcp"
-	"github.com/Mobius-Toolkit/mobius-go/internal/runner"
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // toolsTimeout is the time that a Claude Code session has for its first tools/list.

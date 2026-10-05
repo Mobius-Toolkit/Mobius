@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
-	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 // dies is the script of a Harness that dies in its turn.

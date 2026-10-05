@@ -3,8 +3,8 @@ package engine_test
 import (
 	"testing"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
-	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 )
 
 func TestTrustedAuthor(t *testing.T) {

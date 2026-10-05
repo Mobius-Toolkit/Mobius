@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
 )
 
 // triageKey names the Triager session of one issue.

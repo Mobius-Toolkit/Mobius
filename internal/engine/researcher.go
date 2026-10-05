@@ -10,8 +10,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
-	"github.com/Mobius-Toolkit/mobius-go/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 )
 
 //go:embed prompts/researcher.md

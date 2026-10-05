@@ -17,7 +17,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 )
 
 // Program gives the ACP program of harness.

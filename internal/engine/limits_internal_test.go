@@ -6,7 +6,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 )
 
 var limitNow = time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)

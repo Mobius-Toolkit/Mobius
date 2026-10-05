@@ -11,8 +11,8 @@ import (
 
 	gh "github.com/google/go-github/v92/github"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // readyEndpoint is the endpoint of the list of the issues with mobius:ready in the sync_cursors table.

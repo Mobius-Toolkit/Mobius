@@ -8,8 +8,8 @@ import (
 
 	gh "github.com/google/go-github/v92/github"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // The local copy holds the open Workstreams of each managed repository with their trees. The Workstream list reads

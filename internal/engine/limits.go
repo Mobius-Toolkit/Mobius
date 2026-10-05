@@ -14,8 +14,8 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 const (

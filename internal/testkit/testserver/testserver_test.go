@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
 func TestStartServesTheAPI(t *testing.T) {

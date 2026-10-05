@@ -7,10 +7,10 @@ import (
 	"github.com/gork-labs/gork/pkg/adapters/stdlib"
 	"github.com/gork-labs/gork/pkg/api"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/auth"
-	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/auth"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // Routes registers the API routes below /api/ on mux.

@@ -11,8 +11,8 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
-	"github.com/Mobius-Toolkit/mobius-go/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 )
 
 // The test binary plays a fake Harness when it runs with this variable.

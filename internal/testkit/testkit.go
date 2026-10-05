@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/fakeagent"
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/fakedf"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/fakeagent"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/fakedf"
 )
 
 // Main runs the tests of the package. When the test binary runs as a Harness command
