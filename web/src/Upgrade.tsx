@@ -1,7 +1,7 @@
-import { use, useEffect, useState } from 'react'
-import { listReleaseChanges } from '@/api/api.gen'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { use, useEffect, useState } from "react";
+import { listReleaseChanges } from "@/api/api.gen";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -9,24 +9,18 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
-import { LoginContext } from '@/lib/login'
-import type { Upgrade } from '@/lib/upgrade'
+} from "@/components/ui/dialog";
+import { LoginContext } from "@/lib/login";
+import type { Upgrade } from "@/lib/upgrade";
 
 function DrainText({ waiting }: { waiting: number }) {
   if (waiting === 0) {
-    return 'Upgrade is ready to restart'
+    return "Upgrade is ready to restart";
   }
-  return `Upgrade waits for ${waiting} ${waiting === 1 ? 'agent' : 'agents'}`
+  return `Upgrade waits for ${waiting} ${waiting === 1 ? "agent" : "agents"}`;
 }
 
-export function UpgradeControls({
-  upgrade,
-  newBuild,
-}: {
-  upgrade: Upgrade
-  newBuild: boolean
-}) {
+export function UpgradeControls({ upgrade, newBuild }: { upgrade: Upgrade; newBuild: boolean }) {
   return (
     <>
       {upgrade.drain?.on && (
@@ -46,16 +40,12 @@ export function UpgradeControls({
             disabled={upgrade.upgrading}
             onClick={() => upgrade.setChangesShown(true)}
           >
-            Upgrade{' '}
-            <span className="text-muted-foreground">{upgrade.version}</span>
+            Upgrade <span className="text-muted-foreground">{upgrade.version}</span>
           </Button>
         )
       )}
       {upgrade.failure && (
-        <Badge
-          variant="destructive"
-          className="h-auto w-full whitespace-normal"
-        >
+        <Badge variant="destructive" className="h-auto w-full whitespace-normal">
           {upgrade.failure}
         </Badge>
       )}
@@ -65,33 +55,33 @@ export function UpgradeControls({
         </Button>
       )}
     </>
-  )
+  );
 }
 
 function ReleaseChanges() {
-  const showLogin = use(LoginContext)
-  const [changes, setChanges] = useState<string[]>()
-  const [error, setError] = useState<string>()
+  const showLogin = use(LoginContext);
+  const [changes, setChanges] = useState<string[]>();
+  const [error, setError] = useState<string>();
 
   useEffect(() => {
     listReleaseChanges()
       .then((res) => {
         if (res.status === 401) {
-          showLogin()
+          showLogin();
         } else if (res.status === 200) {
-          setChanges(res.data.data)
+          setChanges(res.data.data);
         } else {
-          setError(res.data.error)
+          setError(res.data.error);
         }
       })
-      .catch((err: unknown) => setError(String(err)))
-  }, [showLogin])
+      .catch((err: unknown) => setError(String(err)));
+  }, [showLogin]);
 
   if (error) {
-    return <Badge variant="destructive">{error}</Badge>
+    return <Badge variant="destructive">{error}</Badge>;
   }
   if (!changes) {
-    return <p className="text-muted-foreground">Mobius reads the changes.</p>
+    return <p className="text-muted-foreground">Mobius reads the changes.</p>;
   }
   return (
     <ul className="grid list-disc gap-1 pl-5">
@@ -99,7 +89,7 @@ function ReleaseChanges() {
         <li key={index}>{title}</li>
       ))}
     </ul>
-  )
+  );
 }
 
 export function UpgradeDialog({ upgrade }: { upgrade: Upgrade }) {
@@ -120,5 +110,5 @@ export function UpgradeDialog({ upgrade }: { upgrade: Upgrade }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

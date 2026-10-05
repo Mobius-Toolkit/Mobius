@@ -1,27 +1,21 @@
-import { type LinkProps, useRouter } from '@tanstack/react-router'
-import { ArrowLeftIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { type LinkProps, useRouter } from "@tanstack/react-router";
+import { ArrowLeftIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
-export function BackButton({ parent }: { parent: LinkProps['to'] }) {
-  const router = useRouter()
+export function BackButton({ parent }: { parent: LinkProps["to"] }) {
+  const router = useRouter();
 
   function back() {
     if (router.history.canGoBack()) {
-      router.history.back()
+      router.history.back();
     } else {
-      void router.navigate({ to: parent, replace: true })
+      void router.navigate({ to: parent, replace: true });
     }
   }
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      aria-label="Back"
-      className="md:hidden"
-      onClick={back}
-    >
+    <Button variant="ghost" size="icon" aria-label="Back" className="md:hidden" onClick={back}>
       <ArrowLeftIcon />
     </Button>
-  )
+  );
 }

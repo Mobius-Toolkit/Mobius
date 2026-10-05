@@ -1,75 +1,63 @@
-import { use, useCallback, useEffect, useState } from 'react'
-import {
-  listAgents,
-  listTasks,
-  type Agent,
-  type LiveEvents,
-  type TaskLine,
-} from '@/api/api.gen'
-import { Badge } from '@/components/ui/badge'
-import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { onEvent } from '@/lib/events'
-import { LoginContext } from '@/lib/login'
-import { clock, dayClock } from '@/lib/time'
-import { cn } from '@/lib/utils'
-import { paused, Transcript } from './Agents'
+import { use, useCallback, useEffect, useState } from "react";
+import { listAgents, listTasks, type Agent, type LiveEvents, type TaskLine } from "@/api/api.gen";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { onEvent } from "@/lib/events";
+import { LoginContext } from "@/lib/login";
+import { clock, dayClock } from "@/lib/time";
+import { cn } from "@/lib/utils";
+import { paused, Transcript } from "./Agents";
 
-type Row = { agent: Agent; depth: number }
+type Row = { agent: Agent; depth: number };
 
 function compareTreePaths(a: number[], b: number[]) {
   for (let i = 0; i < Math.min(a.length, b.length); i++) {
     if (a[i] !== b[i]) {
-      return b[i] - a[i]
+      return b[i] - a[i];
     }
   }
-  return a.length - b.length
+  return a.length - b.length;
 }
 
 // Gives the agents in tree order with their depth: each agent follows its parent, and the newest agent comes first
 // among its siblings. An agent whose parent is not in the list has depth 0.
 function treeRows(agents: Agent[]): Row[] {
-  const byId = new Map(agents.map((agent) => [agent.id, agent]))
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
   const treePath = (agent: Agent): number[] => {
-    const parent = agent.parent === null ? undefined : byId.get(agent.parent)
-    return parent ? [...treePath(parent), agent.id] : [agent.id]
-  }
+    const parent = agent.parent === null ? undefined : byId.get(agent.parent);
+    return parent ? [...treePath(parent), agent.id] : [agent.id];
+  };
   return agents
     .map((agent) => ({ agent, path: treePath(agent) }))
     .toSorted((a, b) => compareTreePaths(a.path, b.path))
-    .map(({ agent, path }) => ({ agent, depth: path.length - 1 }))
+    .map(({ agent, path }) => ({ agent, depth: path.length - 1 }));
 }
 
 // With no stopped agents shown, a stopped agent stays only when an agent below it on any level is live, so that each
 // live agent keeps its place below its parent.
 function shownAgents(agents: Agent[], showStopped: boolean) {
   if (showStopped) {
-    return agents
+    return agents;
   }
-  const byId = new Map(agents.map((agent) => [agent.id, agent]))
-  const kept = new Set<number>()
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
+  const kept = new Set<number>();
   for (const live of agents.filter((agent) => agent.endedAt === null)) {
-    let next: Agent | undefined = live
+    let next: Agent | undefined = live;
     while (next && !kept.has(next.id)) {
-      kept.add(next.id)
-      next = next.parent === null ? undefined : byId.get(next.parent)
+      kept.add(next.id);
+      next = next.parent === null ? undefined : byId.get(next.parent);
     }
   }
-  return agents.filter((agent) => kept.has(agent.id))
+  return agents.filter((agent) => kept.has(agent.id));
 }
 
-function AgentEntry({
-  row,
-  onOpen,
-}: {
-  row: Row
-  onOpen: (agent: Agent) => void
-}) {
-  const agent = row.agent
+function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void }) {
+  const agent = row.agent;
   const detail =
     agent.queueReason ||
-    `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ''}`
+    `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ""}`;
   return (
     <li>
       <button
@@ -80,12 +68,12 @@ function AgentEntry({
       >
         <span
           className={cn(
-            'size-2 shrink-0 rounded-full',
+            "size-2 shrink-0 rounded-full",
             agent.queueReason
-              ? 'bg-amber-500'
+              ? "bg-amber-500"
               : agent.endedAt
-                ? 'border border-muted-foreground'
-                : 'bg-green-600',
+                ? "border border-muted-foreground"
+                : "bg-green-600",
           )}
         />
         <span className="grid min-w-0 grow gap-0.5">
@@ -99,12 +87,12 @@ function AgentEntry({
         {agent.endedAt && <Badge variant="secondary">stopped</Badge>}
         {agent.queueReason && (
           <Badge variant="outline">
-            {agent.queueReason.startsWith(paused) ? 'paused' : 'queued'}
+            {agent.queueReason.startsWith(paused) ? "paused" : "queued"}
           </Badge>
         )}
       </button>
     </li>
-  )
+  );
 }
 
 function AgentTree({
@@ -113,67 +101,58 @@ function AgentTree({
   number,
   source,
 }: {
-  owner: string
-  name: string
-  number: number
-  source?: EventSource
+  owner: string;
+  name: string;
+  number: number;
+  source?: EventSource;
 }) {
-  const showLogin = use(LoginContext)
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [error, setError] = useState<string>()
-  const [showStopped, setShowStopped] = useState(false)
-  const [selected, setSelected] = useState<Agent>()
+  const showLogin = use(LoginContext);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [error, setError] = useState<string>();
+  const [showStopped, setShowStopped] = useState(false);
+  const [selected, setSelected] = useState<Agent>();
 
   const load = useCallback(() => {
     listAgents(owner, name, number)
       .then((res) => {
         if (res.status === 401) {
-          showLogin()
+          showLogin();
         } else if (res.status === 200) {
-          setAgents(res.data.data)
+          setAgents(res.data.data);
         } else {
-          setError(res.data.error)
+          setError(res.data.error);
         }
       })
-      .catch((err: unknown) => setError(String(err)))
-  }, [owner, name, number, showLogin])
+      .catch((err: unknown) => setError(String(err)));
+  }, [owner, name, number, showLogin]);
 
-  useEffect(load, [load])
+  useEffect(load, [load]);
 
   // An agent event that comes while the connection is down is lost, so each connection reads the tree.
   useEffect(() => {
     if (!source) {
-      return
+      return;
     }
-    source.addEventListener('open', load)
-    const remove = onEvent<LiveEvents, 'agent'>(source, 'agent', (agent) => {
-      if (
-        agent.repository === `${owner}/${name}` &&
-        agent.workstream === number
-      ) {
-        load()
+    source.addEventListener("open", load);
+    const remove = onEvent<LiveEvents, "agent">(source, "agent", (agent) => {
+      if (agent.repository === `${owner}/${name}` && agent.workstream === number) {
+        load();
       }
-    })
+    });
     return () => {
-      source.removeEventListener('open', load)
-      remove()
-    }
-  }, [source, load, owner, name, number])
+      source.removeEventListener("open", load);
+      remove();
+    };
+  }, [source, load, owner, name, number]);
 
   if (selected) {
-    return (
-      <Transcript agent={selected} onClose={() => setSelected(undefined)} />
-    )
+    return <Transcript agent={selected} onClose={() => setSelected(undefined)} />;
   }
   return (
     <div className="grid gap-2">
       {error && <Badge variant="destructive">{error}</Badge>}
       <div className="flex items-center gap-2 px-2">
-        <Switch
-          id="stopped-agents"
-          checked={showStopped}
-          onCheckedChange={setShowStopped}
-        />
+        <Switch id="stopped-agents" checked={showStopped} onCheckedChange={setShowStopped} />
         <Label htmlFor="stopped-agents">Show stopped agents</Label>
       </div>
       <ul>
@@ -182,7 +161,7 @@ function AgentTree({
         ))}
       </ul>
     </div>
-  )
+  );
 }
 
 function TaskEntry({ line }: { line: TaskLine }) {
@@ -201,16 +180,13 @@ function TaskEntry({ line }: { line: TaskLine }) {
         {line.blockedBy.map((blocker) => (
           <span key={blocker.number} className="text-sm text-muted-foreground">
             blocked by #{blocker.number}
-            {blocker.workstreamTitle &&
-              ` (Workstream "${blocker.workstreamTitle}")`}
+            {blocker.workstreamTitle && ` (Workstream "${blocker.workstreamTitle}")`}
           </span>
         ))}
-        <Badge variant={line.state === 'open' ? 'outline' : 'secondary'}>
-          {line.state}
-        </Badge>
+        <Badge variant={line.state === "open" ? "outline" : "secondary"}>{line.state}</Badge>
       </a>
     </li>
-  )
+  );
 }
 
 function Tasks({
@@ -219,61 +195,55 @@ function Tasks({
   number,
   source,
 }: {
-  owner: string
-  name: string
-  number: number
-  source?: EventSource
+  owner: string;
+  name: string;
+  number: number;
+  source?: EventSource;
 }) {
-  const showLogin = use(LoginContext)
-  const [lines, setLines] = useState<TaskLine[]>()
-  const [error, setError] = useState<string>()
+  const showLogin = use(LoginContext);
+  const [lines, setLines] = useState<TaskLine[]>();
+  const [error, setError] = useState<string>();
 
   const load = useCallback(() => {
     listTasks(owner, name, number)
       .then((res) => {
         if (res.status === 401) {
-          showLogin()
+          showLogin();
         } else if (res.status === 200) {
-          setLines(res.data.data)
+          setLines(res.data.data);
         } else {
-          setError(res.data.error)
+          setError(res.data.error);
         }
       })
-      .catch((err: unknown) => setError(String(err)))
-  }, [owner, name, number, showLogin])
+      .catch((err: unknown) => setError(String(err)));
+  }, [owner, name, number, showLogin]);
 
-  useEffect(load, [load])
+  useEffect(load, [load]);
 
   // The workstreams event also tells of a change of the tasks.
   useEffect(() => {
     if (!source) {
-      return
+      return;
     }
-    source.addEventListener('open', load)
-    const remove = onEvent<LiveEvents, 'workstreams'>(
-      source,
-      'workstreams',
-      load,
-    )
+    source.addEventListener("open", load);
+    const remove = onEvent<LiveEvents, "workstreams">(source, "workstreams", load);
     return () => {
-      source.removeEventListener('open', load)
-      remove()
-    }
-  }, [source, load])
+      source.removeEventListener("open", load);
+      remove();
+    };
+  }, [source, load]);
 
   return (
     <div className="grid gap-2">
       {error && <Badge variant="destructive">{error}</Badge>}
-      {lines?.length === 0 && (
-        <p className="px-2 text-sm text-muted-foreground">No tasks.</p>
-      )}
+      {lines?.length === 0 && <p className="px-2 text-sm text-muted-foreground">No tasks.</p>}
       <ul>
         {lines?.map((line) => (
           <TaskEntry key={line.url} line={line} />
         ))}
       </ul>
     </div>
-  )
+  );
 }
 
 // The Tasks tab reads the tasks each time it opens.
@@ -283,10 +253,10 @@ export function AgentPanel({
   number,
   source,
 }: {
-  owner: string
-  name: string
-  number: number
-  source?: EventSource
+  owner: string;
+  name: string;
+  number: number;
+  source?: EventSource;
 }) {
   return (
     <Tabs defaultValue="agents" className="min-h-0 grow">
@@ -301,5 +271,5 @@ export function AgentPanel({
         <Tasks owner={owner} name={name} number={number} source={source} />
       </TabsContent>
     </Tabs>
-  )
+  );
 }

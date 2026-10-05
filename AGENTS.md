@@ -12,6 +12,7 @@
 - Do not suppress a linter. Do not use `//nolint`, `oxlint-disable`, `eslint-disable`, `@ts-ignore` or `@ts-expect-error`. Fix the finding.
 - Use pnpm for the frontend. Do not use npm or yarn.
 - Use Oxlint to lint the frontend (`pnpm lint`). Do not add ESLint.
+- Use oxfmt to format the frontend (`pnpm format`). Do not add Prettier or Biome.
 - Put the body of each success response in `Envelope[T]` (`{"data": …}`). Error responses keep the Gork format. Server-sent events have no envelope.
 
 ## Gork
@@ -99,6 +100,7 @@ docs/install.md        the install guide
 - `MOBIUS_CONFIG` gives the path of the config file (default `~/.mobius/config.toml`). `IP` (`127.0.0.1` or `0.0.0.0`) and `PORT` (default `6363`) give the address. The server uses `mobius.db` in the `data_dir` of the config (default `~/.mobius`).
 - `make dev-api` starts the Go server. Caution: with no `MOBIUS_CONFIG`, the server uses `~/.mobius`. For development, set `MOBIUS_CONFIG` to a config file with another `data_dir`.
 - `make dev-web` starts the Vite dev server. Vite sends `/api` to the Go server.
+- `pnpm format` in `web` formats the frontend files with oxfmt. `pnpm format:check` fails on an unformatted file.
 - `make generate` writes the sqlc code, the spec and the TypeScript client.
 - `make build` builds the UI and then `bin/mobius`.
 - `make check` runs `.mobius/check`.

@@ -1,6 +1,6 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { BackButton } from './BackButton'
-import { Conversation } from './Conversation'
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BackButton } from "./BackButton";
+import { Conversation } from "./Conversation";
 
 export function NewWorkstream({
   organizations,
@@ -8,10 +8,10 @@ export function NewWorkstream({
   unread,
   source,
 }: {
-  organizations: string[]
-  organization: string
-  unread?: number
-  source?: EventSource
+  organizations: string[];
+  organization: string;
+  unread?: number;
+  source?: EventSource;
 }) {
   if (!organizations.includes(organization)) {
     return (
@@ -20,11 +20,10 @@ export function NewWorkstream({
           <CardTitle>New Workstream</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground">
-          Mobius reads the repositories from GitHub. The Triager chat opens
-          after this step.
+          Mobius reads the repositories from GitHub. The Triager chat opens after this step.
         </CardContent>
       </Card>
-    )
+    );
   }
   return (
     <Conversation
@@ -42,5 +41,5 @@ export function NewWorkstream({
         </>
       }
     />
-  )
+  );
 }

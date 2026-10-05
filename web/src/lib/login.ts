@@ -1,4 +1,4 @@
-import { createContext } from 'react'
+import { createContext } from "react";
 
 // LoginContext gives the function that shows the login page.
-export const LoginContext = createContext<() => void>(() => {})
+export const LoginContext = createContext<() => void>(() => {});
