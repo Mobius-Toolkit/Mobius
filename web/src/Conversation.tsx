@@ -1,4 +1,4 @@
-import { ChevronRightIcon } from 'lucide-react'
+import { ChevronRightIcon } from "lucide-react";
 import {
   use,
   useCallback,
@@ -7,8 +7,8 @@ import {
   useRef,
   useState,
   type ReactNode,
-} from 'react'
-import { flushSync } from 'react-dom'
+} from "react";
+import { flushSync } from "react-dom";
 import {
   getChat,
   seeChat,
@@ -17,55 +17,51 @@ import {
   type ChatMessage,
   type LiveEvents,
   type Workstream,
-} from '@/api/api.gen'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
-import { Textarea } from '@/components/ui/textarea'
-import { onEvent } from '@/lib/events'
-import { LoginContext } from '@/lib/login'
-import { clock } from '@/lib/time'
-import { sameChat } from '@/lib/unread'
-import { cn } from '@/lib/utils'
-import { useVoice } from '@/lib/voice'
-import { Markdown } from './Markdown'
+} from "@/api/api.gen";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Textarea } from "@/components/ui/textarea";
+import { onEvent } from "@/lib/events";
+import { LoginContext } from "@/lib/login";
+import { clock } from "@/lib/time";
+import { sameChat } from "@/lib/unread";
+import { cn } from "@/lib/utils";
+import { useVoice } from "@/lib/voice";
+import { Markdown } from "./Markdown";
 
 function upsert(list: ChatMessage[], message: ChatMessage) {
-  const known = list.find((other) => other.id === message.id)
+  const known = list.find((other) => other.id === message.id);
   // The agent only adds text to a message, so the longer text is the newer text.
   if (known && known.text.length >= message.text.length) {
-    return list
+    return list;
   }
   return [...list.filter((other) => other.id !== message.id), message].toSorted(
     (a, b) => a.id - b.id,
-  )
+  );
 }
 
 function atEnd(list: HTMLElement) {
-  return list.scrollHeight - list.scrollTop - list.clientHeight < 40
+  return list.scrollHeight - list.scrollTop - list.clientHeight < 40;
 }
 
 function Message({ message }: { message: ChatMessage }) {
-  const event = message.author === 'Event'
-  const [summary, ...rest] = message.text.split('\n')
-  const body = rest.join('\n').trim()
+  const event = message.author === "Event";
+  const [summary, ...rest] = message.text.split("\n");
+  const body = rest.join("\n").trim();
   return (
     <div
       data-message={message.id}
       className={cn(
-        'grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 rounded-xl border px-3 py-2',
-        message.author === 'Owner'
-          ? 'justify-self-end border-transparent bg-secondary'
-          : 'justify-self-start bg-card',
-        event && 'border-dashed bg-transparent text-muted-foreground',
+        "grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 rounded-xl border px-3 py-2",
+        message.author === "Owner"
+          ? "justify-self-end border-transparent bg-secondary"
+          : "justify-self-start bg-card",
+        event && "border-dashed bg-transparent text-muted-foreground",
       )}
     >
       <div className="flex gap-2 text-xs text-muted-foreground">
-        <span>{message.author === 'tell_owner' ? 'Lead' : message.author}</span>
+        <span>{message.author === "tell_owner" ? "Lead" : message.author}</span>
         <span>{clock(message.time)}</span>
       </div>
       {event && body ? (
@@ -82,7 +78,7 @@ function Message({ message }: { message: ChatMessage }) {
         <Markdown text={message.text} />
       )}
     </div>
-  )
+  );
 }
 
 // The chat of the agent: a Lead chat, or the Triager chat with the empty repository and the Workstream 0. unread is
@@ -100,102 +96,96 @@ export function Conversation({
   note,
   footer,
 }: {
-  organization: string
-  repository: string
-  workstream: number
-  agent: string
-  source?: EventSource
-  unread?: number
-  head: ReactNode
-  tail?: ReactNode
-  brief?: Workstream
-  note?: ReactNode
-  footer?: ReactNode
+  organization: string;
+  repository: string;
+  workstream: number;
+  agent: string;
+  source?: EventSource;
+  unread?: number;
+  head: ReactNode;
+  tail?: ReactNode;
+  brief?: Workstream;
+  note?: ReactNode;
+  footer?: ReactNode;
 }) {
-  const showLogin = use(LoginContext)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [loaded, setLoaded] = useState(false)
-  const [harness, setHarness] = useState('')
-  const [writing, setWriting] = useState(false)
-  const [failure, setFailure] = useState('')
-  const [error, setError] = useState<string>()
-  const [text, setText] = useState('')
-  const [sendError, setSendError] = useState('')
-  const [sending, setSending] = useState(false)
+  const showLogin = use(LoginContext);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [harness, setHarness] = useState("");
+  const [writing, setWriting] = useState(false);
+  const [failure, setFailure] = useState("");
+  const [error, setError] = useState<string>();
+  const [text, setText] = useState("");
+  const [sendError, setSendError] = useState("");
+  const [sending, setSending] = useState(false);
   // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
   // message.
-  const inFlight = useRef(false)
-  const [briefOpen, setBriefOpen] = useState<boolean>()
-  const listRef = useRef<HTMLDivElement>(null)
-  const input = useRef<HTMLTextAreaElement>(null)
-  const pinned = useRef(true)
+  const inFlight = useRef(false);
+  const [briefOpen, setBriefOpen] = useState<boolean>();
+  const listRef = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const pinned = useRef(true);
   // The number of messages at the last scroll, or undefined before the first scroll.
-  const scrolledCount = useRef<number>(undefined)
+  const scrolledCount = useRef<number>(undefined);
   const voice = useVoice((spoken) => {
-    const field = input.current
+    const field = input.current;
     if (!field) {
-      return
+      return;
     }
-    const before = field.value.slice(0, field.selectionStart)
-    const after = field.value.slice(field.selectionEnd)
-    const lead = before === '' || /\s$/.test(before) ? before : `${before} `
-    const trail = after === '' || /^\s/.test(after) ? after : ` ${after}`
-    flushSync(() => setText(lead + spoken + trail))
-    const cursor = lead.length + spoken.length
-    field.setSelectionRange(cursor, cursor)
-  }, setSendError)
+    const before = field.value.slice(0, field.selectionStart);
+    const after = field.value.slice(field.selectionEnd);
+    const lead = before === "" || /\s$/.test(before) ? before : `${before} `;
+    const trail = after === "" || /^\s/.test(after) ? after : ` ${after}`;
+    flushSync(() => setText(lead + spoken + trail));
+    const cursor = lead.length + spoken.length;
+    field.setSelectionRange(cursor, cursor);
+  }, setSendError);
 
   const load = useCallback(() => {
     getChat({ organization, repository, workstream })
       .then((res) => {
         if (res.status === 401) {
-          showLogin()
+          showLogin();
         } else if (res.status === 200) {
-          const chat = res.data.data
-          setMessages((list) => chat.messages.reduce(upsert, list))
-          setHarness(chat.harness)
-          setWriting(chat.writing)
-          setLoaded(true)
+          const chat = res.data.data;
+          setMessages((list) => chat.messages.reduce(upsert, list));
+          setHarness(chat.harness);
+          setWriting(chat.writing);
+          setLoaded(true);
         } else {
-          setError(res.data.error)
+          setError(res.data.error);
         }
       })
-      .catch((err: unknown) => setError(String(err)))
-  }, [organization, repository, workstream, showLogin])
+      .catch((err: unknown) => setError(String(err)));
+  }, [organization, repository, workstream, showLogin]);
 
   // A message that comes while the connection is down is lost, so each connection reads the chat.
   useEffect(() => {
     if (!source) {
-      return
+      return;
     }
-    const key = { organization, repository, workstream }
-    load()
-    source.addEventListener('open', load)
-    const removeMessage = onEvent<LiveEvents, 'message'>(
-      source,
-      'message',
-      (message) => {
-        if (sameChat(message, key)) {
-          setMessages((list) => upsert(list, message))
-        }
-      },
-    )
-    const removeState = onEvent<LiveEvents, 'chat'>(source, 'chat', (state) => {
-      if (sameChat(state, key)) {
-        setWriting(state.writing)
-        setFailure(state.error)
+    const key = { organization, repository, workstream };
+    load();
+    source.addEventListener("open", load);
+    const removeMessage = onEvent<LiveEvents, "message">(source, "message", (message) => {
+      if (sameChat(message, key)) {
+        setMessages((list) => upsert(list, message));
       }
-    })
+    });
+    const removeState = onEvent<LiveEvents, "chat">(source, "chat", (state) => {
+      if (sameChat(state, key)) {
+        setWriting(state.writing);
+        setFailure(state.error);
+      }
+    });
     return () => {
-      source.removeEventListener('open', load)
-      removeMessage()
-      removeState()
-    }
-  }, [source, load, organization, repository, workstream])
+      source.removeEventListener("open", load);
+      removeMessage();
+      removeState();
+    };
+  }, [source, load, organization, repository, workstream]);
 
-  const lastAgentMessage = messages.findLast(
-    (message) => message.author !== 'Owner',
-  )?.id
+  const lastAgentMessage = messages.findLast((message) => message.author !== "Owner")?.id;
   useEffect(() => {
     if (unread && lastAgentMessage !== undefined) {
       // A failed call keeps the count, and the next message of the agent calls again.
@@ -204,87 +194,83 @@ export function Conversation({
         repository,
         workstream,
         message: lastAgentMessage,
-      }).catch(() => {})
+      }).catch(() => {});
     }
-  }, [unread, lastAgentMessage, organization, repository, workstream])
+  }, [unread, lastAgentMessage, organization, repository, workstream]);
 
   // The first scroll shows the first unread message, or the end. Then a new message scrolls to the end, and a longer
   // last message scrolls only while the Owner is at the end.
   useLayoutEffect(() => {
-    const list = listRef.current
+    const list = listRef.current;
     if (!list || !loaded || unread === undefined) {
-      return
+      return;
     }
     if (scrolledCount.current === undefined) {
-      scrolledCount.current = messages.length
+      scrolledCount.current = messages.length;
       const unreadMessages = messages.filter(
-        (message) => message.author !== 'Owner' && message.author !== 'Event',
-      )
-      const first =
-        unread > 0 &&
-        unreadMessages[Math.max(0, unreadMessages.length - unread)]
-      const element =
-        first && list.querySelector(`[data-message="${first.id}"]`)
+        (message) => message.author !== "Owner" && message.author !== "Event",
+      );
+      const first = unread > 0 && unreadMessages[Math.max(0, unreadMessages.length - unread)];
+      const element = first && list.querySelector(`[data-message="${first.id}"]`);
       if (element) {
-        list.scrollTop +=
-          element.getBoundingClientRect().top - list.getBoundingClientRect().top
+        list.scrollTop += element.getBoundingClientRect().top - list.getBoundingClientRect().top;
         // The scroll event can come after the next render, and that render must not scroll to the end.
-        pinned.current = atEnd(list)
-        return
+        pinned.current = atEnd(list);
+        return;
       }
-      list.scrollTop = list.scrollHeight
-      return
+      list.scrollTop = list.scrollHeight;
+      return;
     }
     if (messages.length > scrolledCount.current) {
-      pinned.current = true
+      pinned.current = true;
     }
-    scrolledCount.current = messages.length
+    scrolledCount.current = messages.length;
     if (pinned.current) {
-      list.scrollTop = list.scrollHeight
+      list.scrollTop = list.scrollHeight;
     }
-  })
+  });
 
   const send = () => {
     if (inFlight.current || !text.trim()) {
-      return
+      return;
     }
-    const sent = text
-    voice.abort()
-    inFlight.current = true
-    setSending(true)
-    setText('')
+    const sent = text;
+    voice.abort();
+    inFlight.current = true;
+    setSending(true);
+    setText("");
     sendChat({ organization, repository, workstream, text: sent })
       .then((res) => {
         if (res.status === 204) {
-          setSendError('')
-          return
+          setSendError("");
+          return;
         }
-        setText((current) => sent + current)
+        setText((current) => sent + current);
         if (res.status === 401) {
-          showLogin()
+          showLogin();
         } else {
-          setSendError(res.data.error)
+          setSendError(res.data.error);
         }
       })
       .catch((err: unknown) => {
-        setText((current) => sent + current)
-        setSendError(String(err))
+        setText((current) => sent + current);
+        setSendError(String(err));
       })
       .finally(() => {
-        inFlight.current = false
-        setSending(false)
-      })
-  }
+        inFlight.current = false;
+        setSending(false);
+      });
+  };
 
   const stop = () => {
     stopChat({ organization, repository, workstream })
       .then((res) => {
         if (res.status !== 204) {
-          setSendError(res.data.error)
+          setSendError(res.data.error);
         }
       })
-      .catch((err: unknown) => setSendError(String(err)))
-  }
+      .catch((err: unknown) => setSendError(String(err)));
+  };
 
   return (
     <section className="flex min-h-0 min-w-0 grow flex-col">
@@ -317,7 +303,7 @@ export function Conversation({
       <div
         ref={listRef}
         onScroll={(event) => {
-          pinned.current = atEnd(event.currentTarget)
+          pinned.current = atEnd(event.currentTarget);
         }}
         className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto bg-muted/40 p-4"
       >
@@ -337,10 +323,7 @@ export function Conversation({
           </p>
         )}
         {failure && (
-          <Badge
-            variant="destructive"
-            className="h-auto w-full justify-start whitespace-normal"
-          >
+          <Badge variant="destructive" className="h-auto w-full justify-start whitespace-normal">
             The chat session failed: {failure}
           </Badge>
         )}
@@ -349,8 +332,8 @@ export function Conversation({
       <form
         className="flex items-end gap-2 border-t p-3 max-md:[&>button]:h-11"
         onSubmit={(event) => {
-          event.preventDefault()
-          send()
+          event.preventDefault();
+          send();
         }}
       >
         <div className="grid grow gap-1">
@@ -365,14 +348,14 @@ export function Conversation({
               // On a touch screen, Enter adds a line and only the Send button sends. Safari gives the Enter that
               // ends an IME composition with isComposing false and keyCode 229.
               if (
-                event.key === 'Enter' &&
+                event.key === "Enter" &&
                 !event.shiftKey &&
                 !event.nativeEvent.isComposing &&
                 event.keyCode !== 229 &&
-                !window.matchMedia('(pointer: coarse)').matches
+                !window.matchMedia("(pointer: coarse)").matches
               ) {
-                event.preventDefault()
-                send()
+                event.preventDefault();
+                send();
               }
             }}
             className="max-h-40 min-h-9 resize-none"
@@ -393,23 +376,16 @@ export function Conversation({
         <Button
           type="button"
           variant="outline"
-          className={cn(
-            voice.listening &&
-              'animate-pulse border-destructive text-destructive',
-          )}
+          className={cn(voice.listening && "animate-pulse border-destructive text-destructive")}
           onMouseDown={(event) => event.preventDefault()}
           onClick={voice.toggle}
         >
-          {voice.listening ? 'Stop mic' : 'Mic'}
+          {voice.listening ? "Stop mic" : "Mic"}
         </Button>
-        <Button
-          type="submit"
-          disabled={sending}
-          onMouseDown={(event) => event.preventDefault()}
-        >
+        <Button type="submit" disabled={sending} onMouseDown={(event) => event.preventDefault()}>
           Send
         </Button>
       </form>
     </section>
-  )
+  );
 }

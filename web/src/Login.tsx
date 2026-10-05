@@ -1,40 +1,29 @@
-import { useState, type FormEvent } from 'react'
-import { login } from '@/api/api.gen'
-import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
-import {
-  Field,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+import { useState, type FormEvent } from "react";
+import { login } from "@/api/api.gen";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 
 export function Login({ onLogin }: { onLogin: () => void }) {
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState<string>()
-  const [busy, setBusy] = useState(false)
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
 
   const submit = (event: FormEvent) => {
-    event.preventDefault()
-    setBusy(true)
+    event.preventDefault();
+    setBusy(true);
     login({ password })
       .then((res) => {
         if (res.status === 204) {
-          onLogin()
+          onLogin();
         } else {
-          setError(res.data.error)
+          setError(res.data.error);
         }
       })
       .catch((err: unknown) => setError(String(err)))
-      .finally(() => setBusy(false))
-  }
+      .finally(() => setBusy(false));
+  };
 
   return (
     <main className="flex min-h-svh items-center justify-center p-6">
@@ -68,5 +57,5 @@ export function Login({ onLogin }: { onLogin: () => void }) {
         </CardContent>
       </Card>
     </main>
-  )
+  );
 }
