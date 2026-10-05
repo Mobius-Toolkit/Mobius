@@ -20,8 +20,8 @@ import {
 } from '@/components/ui/card'
 import { onEvent } from '@/lib/events'
 import { LoginContext } from '@/lib/login'
-import { BackButton } from './BackButton'
 import { cn } from '@/lib/utils'
+import { BackButton } from './BackButton'
 
 // The queue reason of a session that waits for the end of a usage-limit pause starts with this text.
 export const paused = 'paused until '
