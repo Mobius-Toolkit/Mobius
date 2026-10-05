@@ -17,6 +17,7 @@ export default defineConfig({
   ],
   use: {
     baseURL: `http://${addr}`,
+    trace: "retain-on-failure",
     userAgent: "Mobius screenshots",
     // page.route does not see the requests that pass through a service worker.
     serviceWorkers: "block",

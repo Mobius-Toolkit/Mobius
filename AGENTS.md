@@ -55,6 +55,7 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 - The Playwright tests in `web/e2e` test the UI. Run them with `pnpm e2e` in `web`. The command builds the UI, and Playwright starts `TestServer` of `web/e2e` on port 6464 with a fake GitHub. The tests write a desktop and a phone screenshot of each screen to `web/screenshots`. `.mobius/check` does not run them.
 - Before the first run of the Playwright tests, install the browser: `pnpm exec playwright install chromium`.
 - `web/screenshots` is not in the repository (`.gitignore`). The job `e2e` of `ci.yml` uploads it as the artifact `screenshots`. The workflow `screenshots` puts the files on the branch `screenshots` and shows them in one comment of the pull request, with the image of `main` next to the new image. No workflow pushes to the branch of a pull request.
+- When the job `e2e` fails, CI uploads `web/test-results` as the artifact `test-results`. It has a `trace.zip` file for each failed test. To open the file, run `pnpm exec playwright show-trace <file>`.
 - Each run must give the same screenshots, so a pull request with no UI change shows no changed screen. `TestServer` gives a fixed time to each time that the UI shows (`fixTimes`). Before each screenshot, `web/e2e/screenshots.spec.ts` waits for the data that the page loads (`frame` and `ready`). When the UI shows a new time or new data, add it there.
 
 ## Before a push
