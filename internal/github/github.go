@@ -132,7 +132,7 @@ func (g *GitHub) ManifestForm(ctx context.Context, account, name, origin string)
 	}
 	manifest, err := json.Marshal(map[string]any{
 		"name":                     name,
-		"url":                      "https://github.com/Mobius-Toolkit/mobius-go",
+		"url":                      "https://github.com/Mobius-Toolkit/Mobius",
 		"redirect_url":             origin + "/api/github/manifest-callback",
 		"callback_urls":            []string{origin + "/api/github/user-callback"},
 		"request_oauth_on_install": true,
@@ -205,14 +205,14 @@ func (g *GitHub) InstallURL(slug string) string {
 //
 // The call has no token: the releases of Mobius are public, so a server with no App can also upgrade.
 func (g *GitHub) LatestRelease(ctx context.Context) (*gh.RepositoryRelease, error) {
-	release, _, err := g.api.Repositories.GetLatestRelease(ctx, "Mobius-Toolkit", "mobius-go")
+	release, _, err := g.api.Repositories.GetLatestRelease(ctx, "Mobius-Toolkit", "Mobius")
 	return release, err
 }
 
 // CommitMessages gives the message of each commit of Mobius after the commit base up to the commit head, the oldest
 // first. GitHub gives at most 250 commits. The call has no token, as in LatestRelease.
 func (g *GitHub) CommitMessages(ctx context.Context, base, head string) ([]string, error) {
-	comparison, _, err := g.api.Repositories.CompareCommits(ctx, "Mobius-Toolkit", "mobius-go", base, head, nil)
+	comparison, _, err := g.api.Repositories.CompareCommits(ctx, "Mobius-Toolkit", "Mobius", base, head, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func (g *GitHub) CommitMessages(ctx context.Context, base, head string) ([]strin
 
 // ReleaseURL gives the download URL of the file asset of the release of Mobius with tag.
 func (g *GitHub) ReleaseURL(tag, asset string) string {
-	return g.webURL + "/Mobius-Toolkit/mobius-go/releases/download/" + url.PathEscape(tag) + "/" + url.PathEscape(asset)
+	return g.webURL + "/Mobius-Toolkit/Mobius/releases/download/" + url.PathEscape(tag) + "/" + url.PathEscape(asset)
 }
 
 type userTokens struct {
