@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { LoginContext } from '@/lib/login'
+import { BackButton } from './BackButton'
 
 function postToGitHub(form: ManifestForm) {
   const element = document.createElement('form')
@@ -35,7 +36,13 @@ function postToGitHub(form: ManifestForm) {
   element.submit()
 }
 
-export function GitHub({ apps }: { apps: GitHubApp[] }) {
+export function GitHub({
+  apps,
+  back,
+}: {
+  apps: GitHubApp[]
+  back?: boolean
+}) {
   const showLogin = use(LoginContext)
   const [account, setAccount] = useState('')
   const [name, setName] = useState('')
@@ -62,7 +69,10 @@ export function GitHub({ apps }: { apps: GitHubApp[] }) {
   return (
     <Card className="w-full max-w-lg">
       <CardHeader>
-        <CardTitle>Connect GitHub</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          {back && <BackButton parent="/settings" />}
+          Connect GitHub
+        </CardTitle>
         {apps.length > 0 && (
           <CardDescription>
             Install each App on the repositories of its organization.
