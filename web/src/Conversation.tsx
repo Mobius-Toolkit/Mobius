@@ -129,14 +129,12 @@ export function Conversation({
   const pinned = useRef(true)
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined)
-  const voice = useVoice(
-    (spoken) =>
-      setText((current) =>
-        current === '' || current.endsWith(' ')
-          ? current + spoken
-          : `${current} ${spoken}`,
-      ),
-    setSendError,
+  const voice = useVoice((spoken) =>
+    setText((current) =>
+      current === '' || current.endsWith(' ')
+        ? current + spoken
+        : `${current} ${spoken}`,
+    ),
   )
 
   const load = useCallback(() => {
@@ -370,7 +368,16 @@ export function Conversation({
             }}
             className="max-h-40 min-h-9 resize-none"
           />
-          {sendError && <p className="text-sm text-destructive">{sendError}</p>}
+          {voice.error && (
+            <p role="alert" className="text-sm text-destructive">
+              {voice.error}
+            </p>
+          )}
+          {sendError && (
+            <p role="alert" className="text-sm text-destructive">
+              {sendError}
+            </p>
+          )}
         </div>
         {/* A button that takes the focus closes the keyboard of a phone, and the button moves before the click. */}
         {writing && (
