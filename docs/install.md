@@ -2,7 +2,7 @@
 
 This document takes you from a clean host to a Mobius server that is connected to GitHub. Mobius runs on an Apple silicon Mac, or on a Linux x86_64 server. Mobius is one program, and the web UI is in the program.
 
-If the Rust version of Mobius (Mobius-Toolkit/Mobius) runs on the host now, read [step 10](#10-switch-from-the-rust-version) first.
+If the Rust version of Mobius (Mobius-Toolkit/Mobius-rust) runs on the host now, read [step 10](#10-switch-from-the-rust-version) first.
 
 ## 1. Prerequisites
 
@@ -22,7 +22,7 @@ Install these programs:
 
    ```sh
    rm -rf ~/.mobius/app && mkdir -p ~/.mobius/app
-   curl -fsSL https://github.com/Mobius-Toolkit/mobius-go/releases/latest/download/mobius-aarch64-apple-darwin.tar.gz \
+   curl -fsSL https://github.com/Mobius-Toolkit/Mobius/releases/latest/download/mobius-aarch64-apple-darwin.tar.gz \
      | tar -xz -C ~/.mobius/app
    ```
 
@@ -30,7 +30,7 @@ Install these programs:
 
    ```sh
    rm -rf ~/.mobius/app && mkdir -p ~/.mobius/app
-   curl -fsSL https://github.com/Mobius-Toolkit/mobius-go/releases/latest/download/mobius-x86_64-unknown-linux-gnu.tar.gz \
+   curl -fsSL https://github.com/Mobius-Toolkit/Mobius/releases/latest/download/mobius-x86_64-unknown-linux-gnu.tar.gz \
      | tar -xz -C ~/.mobius/app
    ```
 

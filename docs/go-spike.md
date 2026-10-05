@@ -3,7 +3,7 @@
 This document gives the numbers of issue #4, with the scope of its last comment. It compares two versions on the same machine:
 
 - Go: main of this repository, commit `ab56481c28316a069950a5e95091c2e199089794`. This is the full port, with milestones 1 to 5 of #12.
-- Rust: main of Mobius-Toolkit/Mobius, commit `bdcc140f02ce7046bfb7efc653070f67c0120665`.
+- Rust: main of Mobius-Toolkit/Mobius-rust, commit `bdcc140f02ce7046bfb7efc653070f67c0120665`.
 
 The measurements ran on 2026-10-05 between 04:11 and 05:52 local time.
 
@@ -90,8 +90,8 @@ Each measurement ran in a fresh clone in a temporary folder:
 
 ```sh
 M=$TMPDIR/mobius-measure
-git clone https://github.com/Mobius-Toolkit/mobius-go $M/go
-git clone https://github.com/Mobius-Toolkit/Mobius $M/rust
+git clone https://github.com/Mobius-Toolkit/Mobius $M/go
+git clone https://github.com/Mobius-Toolkit/Mobius-rust $M/rust
 ```
 
 Each command ran with these environment variables. `C` is a new empty folder for each cold measurement. The warm runs after it use the same `C`.
