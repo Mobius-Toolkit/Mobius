@@ -173,6 +173,35 @@ func TestAFreeSlotGoesToTheFixRoundOfAnOldPullRequestBeforeANewTicket(t *testing
 	}
 }
 
+func TestAFixRoundOfReviewFindingsDoesNotGoBeforeAnEarlierNewTicket(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectThree(t, fake, fixes)
+	_, pullRequest := readyPullRequest(t, server, fake)
+	fake.SetCreatedAt(shop, pullRequest, 1000)
+	goFile := filepath.Join(dataDir, "go")
+	fake.SetCheck(shop, fmt.Sprintf("while [ ! -e '%s' ]; do sleep 0.05; done", goFile))
+	fake.AddLabel(shop, 43, "mobius:ready", "owner")
+	waitForState(t, server, 43, "working")
+	fake.AddLabel(shop, 45, "mobius:ready", "owner")
+	waitForState(t, server, 45, "queued")
+	fake.AddReviewComment(shop, pullRequest, 0, "mobius-test[bot]", "Store the unit.")
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
+		t.Fatal(err)
+	}
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForState(t, server, 41, "queued")
+	waitForPolls(t, fake)
+	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForState(t, server, 45, "ready_for_review")
+	testkit.WaitFor(t, func() bool { return len(issueImplementers(t, server, 41)) == 2 })
+	startsAfter(t, issueImplementers(t, server, 41)[1], issueImplementers(t, server, 45)[0])
+}
+
 // A pull request with work for an agent does not hold a new ticket while a slot is free (Mobius-rust#385).
 func TestWithTwoFreeSlotsAFixAndANewTicketBothStart(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)

@@ -96,7 +96,7 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	if err != nil || moved == 0 {
 		return true, err
 	}
-	if err := e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items.String(), parent: parent}); err != nil {
+	if err := e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items.String(), parent: parent, failedCheck: true}); err != nil {
 		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "working"})
 		return false, errors.Join(err, stateErr)
 	}

@@ -104,7 +104,7 @@ func (e *Engine) recover(ctx context.Context, repository github.Repository) erro
 		}
 		var err error
 		switch task.Worker.String {
-		case ImplementerRole, conflictRoundWorker:
+		case ImplementerRole, checkRoundWorker, conflictRoundWorker:
 			err = e.restartImplementer(ctx, repository, task)
 		case ReviewerRole:
 			err = e.restartReviewer(ctx, repository, task)

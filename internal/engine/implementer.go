@@ -27,6 +27,8 @@ const (
 	checkRunName = "Mobius"
 	// conflictRoundWorker is the Worker of a task in a conflict round, in the tasks table.
 	conflictRoundWorker = "conflict_round"
+	// checkRoundWorker is the Worker of a task in a fix round for a failed check run, in the tasks table.
+	checkRoundWorker = "check_round"
 	// logTail is the number of characters of the end of the output of a check in a prompt and in a check run.
 	// GitHub allows at most 65535 characters in the summary of a check run.
 	logTail = 60_000
@@ -88,6 +90,8 @@ type round struct {
 	items string
 	// parent is the session of the agent whose result started the round.
 	parent sql.NullInt64
+	// failedCheck tells that the round is for a failed check run. Only such a round goes before a new task in the queue.
+	failedCheck bool
 }
 
 // startImplementer starts an Implementer for the dispatched task of the issue number in the Workstream. The Implementer
@@ -259,10 +263,16 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 			implementerPrompt, sections, brief, r.task.Issue, issue.GetTitle(), issue.GetBody(), r.items),
 		parent: r.parent,
 	}
-	if err := e.setWorker(ctx, r.task.ID, ImplementerRole, j.prompt); err != nil {
+	worker := ImplementerRole
+	if r.failedCheck {
+		worker = checkRoundWorker
+	}
+	if err := e.setWorker(ctx, r.task.ID, worker, j.prompt); err != nil {
 		return err
 	}
-	e.addWork(r.task.ID, pullRequestWork(repository, r.pullRequest))
+	if r.failedCheck {
+		e.addWork(r.task.ID, pullRequestWork(repository, r.pullRequest))
+	}
 	e.runImplementer(j)
 	return nil
 }

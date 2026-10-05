@@ -69,7 +69,7 @@ func roleBinding(cfg *config.Config, role string) (config.RoleBinding, bool) {
 	return config.RoleBinding{}, false
 }
 
-// Work is a pull request with work for an agent.
+// Work is a pull request with a fix round for a failed check run or a conflict round.
 type Work struct {
 	Repository  string
 	PullRequest int64
@@ -145,8 +145,8 @@ func (e *Engine) WakeQueue() {
 }
 
 // rank is the place of a queued session: the lowest rank gets the next slot. A task of a pull request with work
-// comes first, by the creation time of the pull request. The others follow by their time in the queue, and at
-// the same time a task comes before a session with no task.
+// (a fix round for a failed check run or a conflict round) comes first, by the creation time of the pull request.
+// The others follow by their time in the queue, and at the same time a task comes before a session with no task.
 type rank struct {
 	// class is 0 for a task with work and 1 for the others.
 	class int
