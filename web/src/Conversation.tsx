@@ -1,4 +1,4 @@
-import { ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon, MicIcon, SquareIcon } from "lucide-react";
 import {
   use,
   useCallback,
@@ -336,7 +336,7 @@ export function Conversation({
           send();
         }}
       >
-        <div className="grid grow gap-1">
+        <div className="grid min-w-30 grow gap-1">
           <Textarea
             ref={input}
             rows={1}
@@ -382,15 +382,24 @@ export function Conversation({
             Stop
           </Button>
         )}
-        <Button
-          type="button"
-          variant="outline"
-          className={cn(voice.listening && "animate-pulse border-destructive text-destructive")}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={voice.toggle}
-        >
-          {voice.listening ? "Stop mic" : "Mic"}
-        </Button>
+        {voice.supported && (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label={voice.listening ? "Stop voice input" : "Start voice input"}
+            title={voice.listening ? "Stop voice input" : "Start voice input"}
+            aria-pressed={voice.listening}
+            className={cn(
+              "max-md:w-11",
+              voice.listening && "border-destructive text-destructive motion-safe:animate-pulse",
+            )}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={voice.toggle}
+          >
+            {voice.listening ? <SquareIcon /> : <MicIcon />}
+          </Button>
+        )}
         <Button type="submit" disabled={sending} onMouseDown={(event) => event.preventDefault()}>
           Send
         </Button>
