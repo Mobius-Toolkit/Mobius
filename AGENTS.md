@@ -13,6 +13,7 @@
 - Use pnpm for the frontend. Do not use npm or yarn.
 - Use Oxlint to lint the frontend (`pnpm lint`). Do not add ESLint.
 - Use oxfmt to format the frontend (`pnpm format`). Do not add Prettier or Biome.
+- Run `make fmt` before each commit. `.mobius/check` and CI only check the format. They never write it.
 - Put the body of each success response in `Envelope[T]` (`{"data": …}`). Error responses keep the Gork format. Server-sent events have no envelope.
 
 ## Gork
@@ -102,5 +103,6 @@ docs/install.md        the install guide
 - `make dev-web` starts the Vite dev server. Vite sends `/api` to the Go server.
 - `pnpm format` in `web` formats the frontend files with oxfmt. `pnpm format:check` fails on an unformatted file.
 - `make generate` writes the sqlc code, the spec and the TypeScript client.
+- `make fmt` formats the Go code with golangci-lint and the frontend files with oxfmt.
 - `make build` builds the UI and then `bin/mobius`.
 - `make check` runs `.mobius/check`.
