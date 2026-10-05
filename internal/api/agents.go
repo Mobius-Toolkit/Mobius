@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 )
 
 // Agent is the session of an agent.

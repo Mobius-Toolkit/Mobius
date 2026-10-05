@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit/testserver"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 // connectGH starts a server whose agent runs "gh GH_TOKEN", and authorizes the Owner. The real gh is printenv,

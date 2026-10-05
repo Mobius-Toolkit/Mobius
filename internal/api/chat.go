@@ -7,8 +7,8 @@ import (
 
 	"github.com/gork-labs/gork/pkg/api"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // ChatMessage is a message of a Lead chat or of the Triager chat.

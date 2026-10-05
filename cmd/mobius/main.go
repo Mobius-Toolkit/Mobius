@@ -17,16 +17,16 @@ import (
 
 	gork "github.com/gork-labs/gork/pkg/api"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/api"
-	"github.com/Mobius-Toolkit/mobius-go/internal/auth"
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
-	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
-	"github.com/Mobius-Toolkit/mobius-go/internal/mcp"
-	"github.com/Mobius-Toolkit/mobius-go/internal/runner"
-	"github.com/Mobius-Toolkit/mobius-go/internal/setup"
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
-	"github.com/Mobius-Toolkit/mobius-go/web"
+	"github.com/Mobius-Toolkit/Mobius/internal/api"
+	"github.com/Mobius-Toolkit/Mobius/internal/auth"
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/setup"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/web"
 )
 
 const help = `Usage: mobius [COMMAND]

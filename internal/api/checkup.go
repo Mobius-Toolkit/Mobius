@@ -4,7 +4,7 @@ import (
 	"context"
 	"slices"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 )
 
 // GetCheckupRequest is the request of GetCheckup.

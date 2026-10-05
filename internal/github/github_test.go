@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
-	"github.com/Mobius-Toolkit/mobius-go/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
 func start(t *testing.T, fake *testkit.FakeGitHub) (*github.GitHub, *store.Queries) {

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/config"
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // The Roles of the sessions table that take a slot.

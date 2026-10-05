@@ -6,7 +6,7 @@ import (
 
 	"github.com/gork-labs/gork/pkg/api"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 )
 
 // ListWorkstreamsRequest is the request of ListWorkstreams.

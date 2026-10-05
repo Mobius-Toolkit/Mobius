@@ -20,7 +20,7 @@ import (
 )
 
 // Release is the release tag of this program, for example v0.2.0. The release workflow sets it with
-// -ldflags "-X github.com/Mobius-Toolkit/mobius-go/internal/engine.Release=<tag>". A local build has no release tag.
+// -ldflags "-X github.com/Mobius-Toolkit/Mobius/internal/engine.Release=<tag>". A local build has no release tag.
 var Release string
 
 // execDelay gives the web UI the response of the upgrade call before the new program replaces this process.

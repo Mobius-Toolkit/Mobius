@@ -9,7 +9,7 @@ import (
 
 	gh "github.com/google/go-github/v92/github"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
 )
 
 // timeFormat is the format of the times in the text of an issue.

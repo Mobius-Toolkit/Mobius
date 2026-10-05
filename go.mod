@@ -1,4 +1,4 @@
-module github.com/Mobius-Toolkit/mobius-go
+module github.com/Mobius-Toolkit/Mobius
 
 go 1.27.0
 

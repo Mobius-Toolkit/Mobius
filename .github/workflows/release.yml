@@ -55,7 +55,7 @@ jobs:
       - run: |
           build() {
             mkdir "$1"
-            GOOS=$2 GOARCH=$3 go build -ldflags "-X github.com/Mobius-Toolkit/mobius-go/internal/engine.Release=$TAG" -o "$1/mobius" ./cmd/mobius
+            GOOS=$2 GOARCH=$3 go build -ldflags "-X github.com/Mobius-Toolkit/Mobius/internal/engine.Release=$TAG" -o "$1/mobius" ./cmd/mobius
             tar -czf "mobius-$1.tar.gz" -C "$1" mobius
           }
           build aarch64-apple-darwin darwin arm64

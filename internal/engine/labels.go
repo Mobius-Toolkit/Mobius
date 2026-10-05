@@ -7,7 +7,7 @@ import (
 
 	gh "github.com/google/go-github/v92/github"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
 )
 
 // Label is a Mobius label.

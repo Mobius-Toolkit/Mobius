@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 const (

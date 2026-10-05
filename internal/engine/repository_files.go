@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Mobius-Toolkit/mobius-go/internal/github"
-	"github.com/Mobius-Toolkit/mobius-go/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 )
 
 // repositorySections gives the facts file and the instruction file of role as prompt sections. Both come from the
