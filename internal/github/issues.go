@@ -218,9 +218,15 @@ func (r Repository) IssueEvents(ctx context.Context, number int64) ([]*gh.IssueE
 	return all(r.Client.Issues.ListIssueEventsIter(ctx, r.Owner(), r.Name(), int(number), &gh.ListOptions{PerPage: 100}))
 }
 
-// AddComment adds a comment with body to the issue or the pull request number.
-func (r Repository) AddComment(ctx context.Context, number int64, body string) error {
-	_, _, err := r.Client.Issues.CreateComment(ctx, r.Owner(), r.Name(), int(number), gh.IssueCommentRequest{Body: body})
+// AddComment adds a comment with body to the issue or the pull request number, and gives the id of the comment.
+func (r Repository) AddComment(ctx context.Context, number int64, body string) (int64, error) {
+	comment, _, err := r.Client.Issues.CreateComment(ctx, r.Owner(), r.Name(), int(number), gh.IssueCommentRequest{Body: body})
+	return comment.GetID(), err
+}
+
+// UpdateComment replaces the body of the comment id of an issue or a pull request.
+func (r Repository) UpdateComment(ctx context.Context, id int64, body string) error {
+	_, _, err := r.Client.Issues.UpdateComment(ctx, r.Owner(), r.Name(), id, gh.IssueCommentRequest{Body: body})
 	return err
 }
 

@@ -72,7 +72,7 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 		if pullRequest.GetState() != "open" {
 			continue
 		}
-		if err := repository.AddComment(ctx, number, closedText); err != nil {
+		if _, err := repository.AddComment(ctx, number, closedText); err != nil {
 			return err
 		}
 		if err := repository.ClosePullRequest(ctx, number); err != nil {
@@ -103,7 +103,7 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 			if issue.GetState() != "open" {
 				continue
 			}
-			if err := repository.AddComment(ctx, number, closedText); err != nil {
+			if _, err := repository.AddComment(ctx, number, closedText); err != nil {
 				return err
 			}
 			if _, err := repository.CloseIssue(ctx, number, "not_planned"); err != nil {

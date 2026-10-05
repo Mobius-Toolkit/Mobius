@@ -34,6 +34,31 @@ func (r Repository) MarkReadyForReview(ctx context.Context, id string) error {
 	return r.graphql(ctx, query, map[string]any{"id": id}, &data)
 }
 
+// InlineComment is a comment of a new review on a line of a file.
+type InlineComment struct {
+	// Path is relative to the root of the repository.
+	Path string `json:"path"`
+	// Line is a line of the new version of the file. It must be in the diff.
+	Line int    `json:"line"`
+	Body string `json:"body"`
+}
+
+// SubmitReview posts a review of the commit of the pull request number with body and the inline comments. The
+// review approves nothing and requests no change.
+func (r Repository) SubmitReview(ctx context.Context, number int64, commit, body string, comments []InlineComment) error {
+	drafts := make([]*gh.DraftReviewComment, 0, len(comments))
+	for _, comment := range comments {
+		drafts = append(drafts, &gh.DraftReviewComment{Path: &comment.Path, Line: &comment.Line, Body: &comment.Body})
+	}
+	_, _, err := r.Client.PullRequests.CreateReview(ctx, r.Owner(), r.Name(), int(number), &gh.PullRequestReviewRequest{
+		CommitID: &commit,
+		Body:     &body,
+		Event:    new("COMMENT"),
+		Comments: drafts,
+	})
+	return err
+}
+
 // CreateCheckRun adds the check run name with status to the commit sha, and gives its id.
 func (r Repository) CreateCheckRun(ctx context.Context, name, sha, status string) (int64, error) {
 	checkRun, _, err := r.Client.Checks.CreateCheckRun(ctx, r.Owner(), r.Name(), gh.CreateCheckRunOptions{Name: name, HeadSHA: sha, Status: &status})

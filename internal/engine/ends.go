@@ -215,7 +215,7 @@ func (e *Engine) decline(ctx context.Context, c caller, repository github.Reposi
 	if err != nil {
 		return "", err
 	}
-	if err := repository.AddComment(ctx, input.N, input.Reason); err != nil {
+	if _, err := repository.AddComment(ctx, input.N, input.Reason); err != nil {
 		return "", err
 	}
 	if task.PullRequest.Valid {
@@ -228,7 +228,7 @@ func (e *Engine) decline(ctx context.Context, c caller, repository github.Reposi
 			if err := repository.CreateFailedCheckRun(ctx, checkRunName, pullRequest.GetHead().GetSHA(), "Declined", input.Reason); err != nil {
 				return "", err
 			}
-			if err := repository.AddComment(ctx, number, input.Reason); err != nil {
+			if _, err := repository.AddComment(ctx, number, input.Reason); err != nil {
 				return "", err
 			}
 			if err := repository.ClosePullRequest(ctx, number); err != nil {
