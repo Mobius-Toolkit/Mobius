@@ -243,6 +243,7 @@ export function Conversation({
       return
     }
     const sent = text
+    voice.abort()
     inFlight.current = true
     setSending(true)
     setText('')

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 // The DOM types have the events of the Web Speech API, but not the recognition. Chrome and Safari have only
 // webkitSpeechRecognition.
@@ -6,6 +6,7 @@ type Recognition = {
   lang: string
   start(): void
   stop(): void
+  abort(): void
   addEventListener(
     type: 'result',
     listener: (event: SpeechRecognitionEvent) => void,
@@ -31,11 +32,22 @@ export function useVoice(
   const recognition = useRef<Recognition>(undefined)
   const [listening, setListening] = useState(false)
 
-  useEffect(() => () => recognition.current?.stop(), [])
+  // abort drops the phrase that the session still holds.
+  const abort = useCallback(() => {
+    const live = recognition.current
+    recognition.current = undefined
+    setListening(false)
+    live?.abort()
+  }, [])
+
+  useEffect(() => abort, [abort])
 
   const toggle = () => {
     if (recognition.current) {
-      recognition.current.stop()
+      const live = recognition.current
+      recognition.current = undefined
+      setListening(false)
+      live.stop()
       return
     }
     const Speech = speech.SpeechRecognition ?? speech.webkitSpeechRecognition
@@ -53,6 +65,9 @@ export function useVoice(
       ),
     )
     live.addEventListener('error', (event) => {
+      if (recognition.current !== live) {
+        return
+      }
       if (
         event.error === 'not-allowed' ||
         event.error === 'service-not-allowed'
@@ -65,14 +80,21 @@ export function useVoice(
       }
     })
     live.addEventListener('end', () => {
-      recognition.current = undefined
-      setListening(false)
+      if (recognition.current === live) {
+        recognition.current = undefined
+        setListening(false)
+      }
     })
-    live.start()
+    try {
+      live.start()
+    } catch {
+      setError('The voice input did not start.')
+      return
+    }
     recognition.current = live
     setError('')
     setListening(true)
   }
 
-  return { listening, toggle }
+  return { listening, toggle, abort }
 }
