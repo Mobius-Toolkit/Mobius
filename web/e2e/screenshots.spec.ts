@@ -39,6 +39,7 @@ test('screenshots', async ({ page }) => {
   )
   await page.getByLabel('Access password').fill('correct horse')
   await page.getByRole('button', { name: 'Log in' }).click()
+  await expect(page.getByLabel('Access password')).toBeHidden()
   await screenshot(page, 'github-connect', '/github', () =>
     page.getByLabel('App name'),
   )
