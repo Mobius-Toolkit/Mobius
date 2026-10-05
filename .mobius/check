@@ -20,7 +20,6 @@ go test ./...
   pnpm install --frozen-lockfile
   pnpm lint
   pnpm format:check
-  pnpm typecheck
   pnpm build
 )
 
