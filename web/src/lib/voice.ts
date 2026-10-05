@@ -17,6 +17,8 @@ const speech = window as Window & {
   webkitSpeechRecognition?: new () => Recognition;
 };
 
+const Speech = speech.SpeechRecognition ?? speech.webkitSpeechRecognition;
+
 const errorMessages: Record<string, string> = {
   "not-allowed": "The browser blocks the microphone. Allow the microphone in the browser settings.",
   "service-not-allowed":
@@ -31,7 +33,7 @@ const errorMessages: Record<string, string> = {
 // the voice input starts or abort runs.
 export function useVoice(onText: (text: string) => void) {
   const recognition = useRef<Recognition>(undefined);
-  // The sessions that can still send a result. A session that "Stop mic" stopped stays here until its end event.
+  // The sessions that can still send a result. A session that stop() stopped stays here until its end event.
   const sessions = useRef(new Set<Recognition>());
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
@@ -57,9 +59,7 @@ export function useVoice(onText: (text: string) => void) {
       live.stop();
       return;
     }
-    const Speech = speech.SpeechRecognition ?? speech.webkitSpeechRecognition;
     if (!Speech) {
-      setError("This browser has no voice input.");
       return;
     }
     const live = new Speech();
@@ -103,5 +103,5 @@ export function useVoice(onText: (text: string) => void) {
     setListening(true);
   };
 
-  return { listening, error, toggle, abort };
+  return { supported: Boolean(Speech), listening, error, toggle, abort };
 }

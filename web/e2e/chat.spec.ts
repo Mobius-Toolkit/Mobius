@@ -384,7 +384,7 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
   }
 });
 
-test("the Mic button adds the spoken text to the message", async ({ page }) => {
+test("the voice button adds the spoken text to the message", async ({ page }) => {
   // The fake recognition gives the events that the test sends.
   await page.addInitScript(`window.SpeechRecognition = class extends EventTarget {
     start() { window.recognition = this }
@@ -393,14 +393,14 @@ test("the Mic button adds the spoken text to the message", async ({ page }) => {
   await page.goto("/workstreams/new");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
-  const mic = main.getByRole("button", { name: "Mic", exact: true });
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
   await input.fill("Plant");
   await mic.click();
   await page.evaluate(
     "recognition.dispatchEvent(Object.assign(new Event('result'), { results: [Object.assign([{ transcript: ' red roses ' }], { isFinal: true })] }))",
   );
   await expect(input).toHaveValue("Plant red roses");
-  await main.getByRole("button", { name: "Stop mic" }).click();
+  await main.getByRole("button", { name: "Stop voice input" }).click();
   await expect(mic).toBeVisible();
 
   await mic.click();
@@ -449,7 +449,7 @@ test("two result events add the spoken text once", async ({ page }) => {
   await page.goto("/workstreams/new");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
-  await main.getByRole("button", { name: "Mic", exact: true }).click();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "red");
   await expect(input).toHaveValue("red");
   await result(page, "red");
@@ -466,7 +466,7 @@ test("the spoken text goes in at the cursor", async ({ page }) => {
   const input = page.getByLabel("Message to the Triager");
   await input.fill("Plant roses");
   await select(page, 5, 5);
-  await main.getByRole("button", { name: "Mic", exact: true }).click();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, " red ");
   await expect(input).toHaveValue("Plant red roses");
   expect(await selection(page)).toEqual([9, 9]);
@@ -484,7 +484,7 @@ test("the spoken text replaces the selection", async ({ page }) => {
   const input = page.getByLabel("Message to the Triager");
   await input.fill("Plant red roses.");
   await select(page, 6, 9);
-  await main.getByRole("button", { name: "Mic", exact: true }).click();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "white");
   await expect(input).toHaveValue("Plant white roses.");
   expect(await selection(page)).toEqual([11, 11]);
@@ -496,7 +496,10 @@ test.describe("with a German browser", () => {
   test("the voice input gets the language of the browser", async ({ page }) => {
     await page.addInitScript(fakeRecognition);
     await page.goto("/workstreams/new");
-    await page.getByRole("main").getByRole("button", { name: "Mic", exact: true }).click();
+    await page
+      .getByRole("main")
+      .getByRole("button", { name: "Start voice input", exact: true })
+      .click();
     expect(await page.evaluate("recognitions[0].lang")).toBe("de-DE");
   });
 });
@@ -505,40 +508,40 @@ test("Send stops the voice input", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/workstreams/owner/shop/12");
   const main = page.getByRole("main");
-  await main.getByRole("button", { name: "Mic", exact: true }).click();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await main.getByLabel("Message to the Lead").fill("Add a plan");
   await main.getByRole("button", { name: "Send" }).click();
-  await expect(main.getByRole("button", { name: "Mic", exact: true })).toBeVisible();
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
   expect(await page.evaluate("calls")).toEqual(["start", "abort"]);
 });
 
-test("Send stops a voice input that Stop mic stopped", async ({ page }) => {
+test("Send stops a voice input that the voice button stopped", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/workstreams/owner/shop/12");
   const main = page.getByRole("main");
-  await main.getByRole("button", { name: "Mic", exact: true }).click();
-  await main.getByRole("button", { name: "Stop mic" }).click();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await main.getByRole("button", { name: "Stop voice input" }).click();
   await main.getByLabel("Message to the Lead").fill("Add a plan");
   await main.getByRole("button", { name: "Send" }).click();
   await expect(main.getByLabel("Message to the Lead")).toHaveValue("");
   expect(await page.evaluate("calls")).toEqual(["start", "stop", "abort"]);
 });
 
-test("Stop mic lets a new voice input start at once", async ({ page }) => {
+test("the voice button lets a new voice input start at once", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/workstreams/owner/shop/12");
   const main = page.getByRole("main");
-  const mic = main.getByRole("button", { name: "Mic", exact: true });
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
   await mic.click();
-  await main.getByRole("button", { name: "Stop mic" }).click();
+  await main.getByRole("button", { name: "Stop voice input" }).click();
   await expect(mic).toBeVisible();
   await mic.click();
-  await expect(main.getByRole("button", { name: "Stop mic" })).toBeVisible();
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
   expect(await page.evaluate("calls")).toEqual(["start", "stop", "start"]);
 
   // The end of the old session does not stop the new session.
   await page.evaluate("recognitions[0].dispatchEvent(new Event('end'))");
-  await expect(main.getByRole("button", { name: "Stop mic" })).toBeVisible();
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
   await page.evaluate("recognitions[1].dispatchEvent(new Event('end'))");
   await expect(mic).toBeVisible();
 });
@@ -548,7 +551,7 @@ test("the voice input shows a message when it does not start", async ({ page }) 
   await page.addInitScript("window.startError = 'InvalidStateError'");
   await page.goto("/workstreams/owner/shop/12");
   const main = page.getByRole("main");
-  const mic = main.getByRole("button", { name: "Mic", exact: true });
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
   await mic.click();
   await expect(main.getByText("The voice input did not start.")).toBeVisible();
   await expect(mic).toBeVisible();
@@ -575,7 +578,7 @@ for (const [code, message] of voiceErrors) {
     await page.addInitScript(fakeRecognition);
     await page.goto("/workstreams/owner/shop/12");
     const main = page.getByRole("main");
-    await main.getByRole("button", { name: "Mic", exact: true }).click();
+    await main.getByRole("button", { name: "Start voice input", exact: true }).click();
     await page.evaluate(
       `recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: '${code}' }))`,
     );
@@ -587,7 +590,7 @@ test("the voice input shows no message for aborted", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/workstreams/owner/shop/12");
   const main = page.getByRole("main");
-  const mic = main.getByRole("button", { name: "Mic", exact: true });
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
   await mic.click();
   await page.evaluate(
     "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'aborted' })); recognitions[0].dispatchEvent(new Event('end'))",
@@ -603,7 +606,7 @@ test("a new voice input clears the voice error and keeps the send error", async 
   );
   await page.goto("/workstreams/owner/shop/12");
   const main = page.getByRole("main");
-  const mic = main.getByRole("button", { name: "Mic", exact: true });
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
   await main.getByLabel("Message to the Lead").fill("Add a plan");
   await main.getByRole("button", { name: "Send" }).click();
   await expect(main.getByRole("alert")).toHaveText("The send failed.");
@@ -626,7 +629,7 @@ test("a successful send removes the voice error", async ({ page }) => {
   await page.route("/api/chat/messages", (route) => route.fulfill({ status: 204 }));
   await page.goto("/workstreams/owner/shop/12");
   const main = page.getByRole("main");
-  await main.getByRole("button", { name: "Mic", exact: true }).click();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await page.evaluate(
     "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'no-speech' })); recognitions[0].dispatchEvent(new Event('end'))",
   );
@@ -704,4 +707,73 @@ test("the note closes the Workstream when all tasks are closed", async ({ page }
       await expect(note).toBeVisible();
     }
   }
+});
+
+test("the voice button is not there without SpeechRecognition", async ({ page }) => {
+  await page.addInitScript(
+    "delete window.SpeechRecognition; delete window.webkitSpeechRecognition",
+  );
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await expect(main.getByRole("button", { name: "Send" })).toBeVisible();
+  await expect(main.getByRole("button", { name: /voice input/ })).toHaveCount(0);
+});
+
+test("the voice input works with webkitSpeechRecognition only", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.addInitScript(
+    "window.webkitSpeechRecognition = window.SpeechRecognition; delete window.SpeechRecognition",
+  );
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses");
+  await expect(main.getByLabel("Message to the Lead")).toHaveValue("red roses");
+});
+
+test("the voice button shows an icon, a name and its state", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const start = main.getByRole("button", { name: "Start voice input", exact: true });
+  await expect(start).toHaveAttribute("aria-pressed", "false");
+  await expect(start).toHaveAttribute("title", "Start voice input");
+  await expect(start.locator("svg")).toHaveCount(1);
+  await expect(start).toHaveText("");
+
+  await start.click();
+  const stop = main.getByRole("button", { name: "Stop voice input", exact: true });
+  await expect(stop).toHaveAttribute("aria-pressed", "true");
+  await expect(stop).toHaveAttribute("title", "Stop voice input");
+  await expect(stop.locator("svg")).toHaveCount(1);
+  await expect(stop).toHaveText("");
+
+  await stop.click();
+  await expect(start).toHaveAttribute("aria-pressed", "false");
+});
+
+test.describe("on a phone", () => {
+  test.use({ viewport: phone });
+
+  test("the textarea stays wide with the Stop, voice and Send buttons", async ({ page }) => {
+    await page.addInitScript(fakeRecognition);
+    await page.route("**/api/chat?*", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { data: { writing: boolean } };
+      body.data.writing = true;
+      await route.fulfill({ response, json: body });
+    });
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    await expect(main.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+    await expect(main.getByRole("button", { name: "Start voice input" })).toBeVisible();
+    await expect(main.getByRole("button", { name: "Send" })).toBeVisible();
+    const width = await page.evaluate("document.querySelector('textarea').clientWidth");
+    expect(width).toBeGreaterThanOrEqual(120);
+    expect(
+      await page.evaluate(
+        "document.querySelector('form').scrollWidth <= document.querySelector('form').clientWidth",
+      ),
+    ).toBe(true);
+  });
 });

@@ -33,6 +33,11 @@ const wide = (selector: string) =>
 
 test("screenshots", async ({ page }) => {
   const main = page.getByRole("main");
+  await page.addInitScript(`window.SpeechRecognition = class extends EventTarget {
+    start() {}
+    stop() {}
+    abort() {}
+  }`);
 
   await screenshot(page, "login", "/github", () => page.getByLabel("Access password"));
   await page.getByLabel("Access password").fill("correct horse");
@@ -83,14 +88,22 @@ test("screenshots", async ({ page }) => {
     main.getByText("done"),
     main.getByText("needs you"),
   ]);
-  await screenshot(page, "chat", "/workstreams/owner/shop/12", (device) => [
+  const chatReady = (device: string) => [
     ...frame(device, drain),
     main.getByText("#42 and #45 wait for your decision."),
     main.getByRole("link", { name: "PR #44" }),
     ...(device === "desktop"
       ? [page.getByRole("complementary").getByText("Lead chat session").first()]
       : []),
-  ]);
+  ];
+  await screenshot(page, "chat", "/workstreams/owner/shop/12", chatReady);
+  await screenshot(
+    page,
+    "chat-listening",
+    "/workstreams/owner/shop/12",
+    (device) => [...chatReady(device), main.getByRole("button", { name: "Stop voice input" })],
+    () => main.getByRole("button", { name: "Start voice input" }).click(),
+  );
   await screenshot(
     page,
     "chat-tasks",
