@@ -8,6 +8,11 @@ export default defineConfig({
     { name: 'screenshots', testMatch: 'screenshots.spec.ts' },
     // The chat tests need the Apps of the screenshots test, and they change the data of the screenshots.
     { name: 'chat', testMatch: 'chat.spec.ts', dependencies: ['screenshots'] },
+    {
+      name: 'navigation',
+      testMatch: 'navigation.spec.ts',
+      dependencies: ['screenshots'],
+    },
   ],
   use: {
     baseURL: `http://${addr}`,
