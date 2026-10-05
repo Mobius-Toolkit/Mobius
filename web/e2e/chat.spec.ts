@@ -554,6 +554,91 @@ test("the voice input shows a message when it does not start", async ({ page }) 
   await expect(mic).toBeVisible();
 });
 
+const voiceErrors = [
+  [
+    "not-allowed",
+    "The browser blocks the microphone. Allow the microphone in the browser settings.",
+  ],
+  [
+    "service-not-allowed",
+    "The speech service of the browser or of the device is not available. Turn on Siri or Dictation, or use a different browser.",
+  ],
+  ["no-speech", "The microphone did not hear speech. Speak again."],
+  ["audio-capture", "The browser cannot find a microphone. Connect a microphone and try again."],
+  ["network", "The speech service has no network connection. Check the connection and try again."],
+  ["language-not-supported", "The speech service does not support this language."],
+  ["unknown-code", "The voice input failed: unknown-code"],
+];
+
+for (const [code, message] of voiceErrors) {
+  test(`the voice input shows a message for ${code}`, async ({ page }) => {
+    await page.addInitScript(fakeRecognition);
+    await page.goto("/workstreams/owner/shop/12");
+    const main = page.getByRole("main");
+    await main.getByRole("button", { name: "Mic", exact: true }).click();
+    await page.evaluate(
+      `recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: '${code}' }))`,
+    );
+    await expect(main.getByRole("alert")).toHaveText(message);
+  });
+}
+
+test("the voice input shows no message for aborted", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/owner/shop/12");
+  const main = page.getByRole("main");
+  const mic = main.getByRole("button", { name: "Mic", exact: true });
+  await mic.click();
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'aborted' })); recognitions[0].dispatchEvent(new Event('end'))",
+  );
+  await expect(mic).toBeVisible();
+  await expect(main.getByRole("alert")).toHaveCount(0);
+});
+
+test("a new voice input clears the voice error and keeps the send error", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.route("/api/chat/messages", (route) =>
+    route.fulfill({ status: 500, json: { error: "The send failed." } }),
+  );
+  await page.goto("/workstreams/owner/shop/12");
+  const main = page.getByRole("main");
+  const mic = main.getByRole("button", { name: "Mic", exact: true });
+  await main.getByLabel("Message to the Lead").fill("Add a plan");
+  await main.getByRole("button", { name: "Send" }).click();
+  await expect(main.getByRole("alert")).toHaveText("The send failed.");
+
+  await mic.click();
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'no-speech' })); recognitions[0].dispatchEvent(new Event('end'))",
+  );
+  await expect(main.getByRole("alert")).toHaveText([
+    "The microphone did not hear speech. Speak again.",
+    "The send failed.",
+  ]);
+
+  await mic.click();
+  await expect(main.getByRole("alert")).toHaveText("The send failed.");
+});
+
+test("a successful send removes the voice error", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.route("/api/chat/messages", (route) => route.fulfill({ status: 204 }));
+  await page.goto("/workstreams/owner/shop/12");
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Mic", exact: true }).click();
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'no-speech' })); recognitions[0].dispatchEvent(new Event('end'))",
+  );
+  await expect(main.getByRole("alert")).toHaveText(
+    "The microphone did not hear speech. Speak again.",
+  );
+
+  await main.getByLabel("Message to the Lead").fill("Add a plan");
+  await main.getByRole("button", { name: "Send" }).click();
+  await expect(main.getByRole("alert")).toHaveCount(0);
+});
+
 test("the note closes the Workstream when all tasks are closed", async ({ page }) => {
   const main = page.getByRole("main");
   const note = main.getByText("All tasks are closed.");

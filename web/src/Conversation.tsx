@@ -139,7 +139,7 @@ export function Conversation({
     flushSync(() => setText(lead + spoken + trail));
     const cursor = lead.length + spoken.length;
     field.setSelectionRange(cursor, cursor);
-  }, setSendError);
+  });
 
   const load = useCallback(() => {
     getChat({ organization, repository, workstream })
@@ -360,7 +360,16 @@ export function Conversation({
             }}
             className="max-h-40 min-h-9 resize-none"
           />
-          {sendError && <p className="text-sm text-destructive">{sendError}</p>}
+          {voice.error && (
+            <p role="alert" className="text-sm text-destructive">
+              {voice.error}
+            </p>
+          )}
+          {sendError && (
+            <p role="alert" className="text-sm text-destructive">
+              {sendError}
+            </p>
+          )}
         </div>
         {/* A button that takes the focus closes the keyboard of a phone, and the button moves before the click. */}
         {writing && (
