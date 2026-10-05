@@ -1,11 +1,6 @@
-import {
-  createRootRoute,
-  createRoute,
-  createRouter,
-  redirect,
-} from '@tanstack/react-router'
-import App from './App'
-import { Devices } from './Devices'
+import { createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
+import App from "./App";
+import { Devices } from "./Devices";
 import {
   ActivityPage,
   AgentsPage,
@@ -15,93 +10,93 @@ import {
   InboxPage,
   NewWorkstreamPage,
   WorkstreamsPage,
-} from './pages'
-import { Settings } from './Settings'
+} from "./pages";
+import { Settings } from "./Settings";
 
-const rootRoute = createRootRoute({ component: App })
+const rootRoute = createRootRoute({ component: App });
 
-const toWorkstreams = () => redirect({ to: '/workstreams', replace: true })
+const toWorkstreams = () => redirect({ to: "/workstreams", replace: true });
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/',
+  path: "/",
   beforeLoad: () => {
-    throw toWorkstreams()
+    throw toWorkstreams();
   },
-})
+});
 
 const unknownRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '$',
+  path: "$",
   beforeLoad: () => {
-    throw toWorkstreams()
+    throw toWorkstreams();
   },
-})
+});
 
 const workstreamsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/workstreams',
+  path: "/workstreams",
   component: WorkstreamsPage,
-})
+});
 
 const newWorkstreamRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/workstreams/new',
+  path: "/workstreams/new",
   component: NewWorkstreamPage,
-})
+});
 
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/workstreams/$owner/$name/$number',
+  path: "/workstreams/$owner/$name/$number",
   beforeLoad: ({ params }) => {
     if (!/^\d+$/.test(params.number)) {
-      throw toWorkstreams()
+      throw toWorkstreams();
     }
   },
   component: ChatPage,
-})
+});
 
 const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/inbox',
+  path: "/inbox",
   component: InboxPage,
-})
+});
 
 const activityRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/activity',
+  path: "/activity",
   component: ActivityPage,
-})
+});
 
 const agentsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/agents',
+  path: "/agents",
   component: AgentsPage,
-})
+});
 
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/settings',
+  path: "/settings",
   component: Settings,
-})
+});
 
 const checkupRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/settings/checkup',
+  path: "/settings/checkup",
   component: CheckupPage,
-})
+});
 
 const devicesRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/devices',
+  path: "/devices",
   component: Devices,
-})
+});
 
 const githubRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: '/github',
+  path: "/github",
   component: GitHubPage,
-})
+});
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
@@ -116,12 +111,12 @@ const routeTree = rootRoute.addChildren([
   checkupRoute,
   devicesRoute,
   githubRoute,
-])
+]);
 
-export const router = createRouter({ routeTree })
+export const router = createRouter({ routeTree });
 
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router
+    router: typeof router;
   }
 }

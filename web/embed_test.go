@@ -91,7 +91,7 @@ func TestTheShellLinksTheManifestAndRegistersTheServiceWorker(t *testing.T) {
 		`name="theme-color" content="#2d5f8b"`,
 		`name="apple-mobile-web-app-capable"`,
 		`name="apple-mobile-web-app-title" content="Mobius"`,
-		"navigator.serviceWorker?.register('/sw.js')",
+		`navigator.serviceWorker?.register("/sw.js")`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("index.html does not contain %s", want)

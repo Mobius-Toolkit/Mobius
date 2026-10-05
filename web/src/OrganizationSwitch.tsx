@@ -1,6 +1,6 @@
-import { ChevronDownIcon } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { ChevronDownIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,7 +8,7 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from "@/components/ui/dropdown-menu";
 
 // counts has the number of Inbox items and unread chat messages of each organization.
 export function OrganizationSwitch({
@@ -17,14 +17,14 @@ export function OrganizationSwitch({
   counts,
   onSelect,
 }: {
-  organizations: string[]
-  organization: string
-  counts: Map<string, number>
-  onSelect: (organization: string) => void
+  organizations: string[];
+  organization: string;
+  counts: Map<string, number>;
+  onSelect: (organization: string) => void;
 }) {
   const elsewhere = organizations.some(
     (name) => name !== organization && (counts.get(name) ?? 0) > 0,
-  )
+  );
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -53,5 +53,5 @@ export function OrganizationSwitch({
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }

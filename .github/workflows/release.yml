@@ -67,8 +67,8 @@ jobs:
       - run: |
           mkdir unpacked
           tar -xzf mobius-x86_64-unknown-linux-gnu.tar.gz -C unpacked
-          test ! -e ~/.mobius
           unpacked/mobius --help
+          test ! -e ~/.mobius
 
       - uses: actions/upload-artifact@v7
         with:
