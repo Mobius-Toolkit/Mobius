@@ -520,7 +520,27 @@ func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, g.issueJSON(key))
 }
 
+// HoldIssue makes the next request for the issue number wait until a call of release. The channel closes when the
+// request arrives.
+func (g *FakeGitHub) HoldIssue(repository string, number int64) (<-chan struct{}, func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	g.issueHolds[issueKey{repository, number}] = h
+	return h.reached, func() { close(h.release) }
+}
+
 func (g *FakeGitHub) getIssue(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	number, _ := strconv.ParseInt(r.PathValue("number"), 10, 64)
+	key := issueKey{repository(r), number}
+	h := g.issueHolds[key]
+	delete(g.issueHolds, key)
+	g.mu.Unlock()
+	if h != nil {
+		close(h.reached)
+		<-h.release
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if key, ok := g.issue(w, r); ok {

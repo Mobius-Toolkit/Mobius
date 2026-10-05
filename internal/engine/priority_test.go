@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -66,6 +67,67 @@ func readyPullRequest(t *testing.T, server *testserver.Server, fake *testkit.Fak
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForState(t, server, 41, "ready_for_review")
 	return head(t, fake, "mobius/41"), fake.PullRequests(shop)[0].Number
+}
+
+// fixesAndMerges is an Implementer that fixes the check in a fix round and merges the base branch in a conflict round.
+const fixesAndMerges = fixes + "\n" + conflictWhen + "shell = \"git merge -q origin/main\"\n"
+
+// waitForHeld waits until the poll reaches a held request.
+func waitForHeld(t *testing.T, reached <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-reached:
+	case <-time.After(time.Minute):
+		t.Fatal("the poll did not reach the held request after one minute")
+	}
+}
+
+// testARoundTakesTheFreeSlotBeforeANewTicket makes trigger give #41 a round while #43 holds the only slot and #45 waits
+// in the queue with an earlier queue time. The poll that starts the round waits at the issue #43, so no poll gives the
+// pull request its work before the slot frees.
+func testARoundTakesTheFreeSlotBeforeANewTicket(t *testing.T, trigger func(fake *testkit.FakeGitHub, sha string, pullRequest int64)) {
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectThree(t, fake, fixesAndMerges)
+	sha, pullRequest := readyPullRequest(t, server, fake)
+	goFile := filepath.Join(dataDir, "go")
+	fake.SetCheck(shop, fmt.Sprintf("while [ ! -e '%s' ]; do sleep 0.05; done", goFile))
+	fake.AddLabel(shop, 43, "mobius:ready", "owner")
+	waitForState(t, server, 43, "working")
+	fake.AddLabel(shop, 45, "mobius:ready", "owner")
+	waitForState(t, server, 45, "queued")
+	testkit.WaitFor(t, func() bool {
+		sessions := issueImplementers(t, server, 45)
+		return len(sessions) > 0 && sessions[0].QueueReason.Valid
+	})
+
+	reached, release := fake.HoldIssue(shop, 43)
+	waitForHeld(t, reached)
+	trigger(fake, sha, pullRequest)
+	roundReached, releaseRound := fake.HoldIssue(shop, 43)
+	t.Cleanup(sync.OnceFunc(releaseRound))
+	release()
+	waitForHeld(t, roundReached)
+	waitForState(t, server, 41, "queued")
+
+	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForState(t, server, 45, "ready_for_review")
+	startsAfter(t, issueImplementers(t, server, 45)[0], issueImplementers(t, server, 41)[1])
+}
+
+func TestAFixRoundTakesTheFreeSlotBeforeANewTicketWithNoPollBetween(t *testing.T) {
+	testARoundTakesTheFreeSlotBeforeANewTicket(t, func(fake *testkit.FakeGitHub, sha string, _ int64) {
+		fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+	})
+}
+
+func TestAConflictRoundTakesTheFreeSlotBeforeANewTicketWithNoPollBetween(t *testing.T) {
+	testARoundTakesTheFreeSlotBeforeANewTicket(t, func(fake *testkit.FakeGitHub, _ string, pullRequest int64) {
+		fake.SetBehind(shop, pullRequest)
+		fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
+	})
 }
 
 func TestAFreeSlotGoesToTheFixRoundOfAnOldPullRequestBeforeANewTicket(t *testing.T) {

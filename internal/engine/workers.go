@@ -11,7 +11,10 @@ import (
 	"sync"
 	"time"
 
+	gh "github.com/google/go-github/v92/github"
+
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -73,6 +76,10 @@ type Work struct {
 	CreatedAt   time.Time
 }
 
+func pullRequestWork(repository github.Repository, pullRequest *gh.PullRequest) Work {
+	return Work{Repository: repository.FullName, PullRequest: int64(pullRequest.GetNumber()), CreatedAt: pullRequest.GetCreatedAt().Time}
+}
+
 type workers struct {
 	mu sync.Mutex
 	// running counts the sessions that hold a slot, by Role.
@@ -109,6 +116,18 @@ func (e *Engine) ReplaceWork(work map[int64]Work) {
 	if !same {
 		w.changed.notify()
 	}
+}
+
+// addWork adds the pull request with work for an agent of the task, before the next ReplaceWork.
+func (e *Engine) addWork(task int64, work Work) {
+	w := &e.workers
+	w.mu.Lock()
+	if w.work == nil {
+		w.work = map[int64]Work{}
+	}
+	w.work[task] = work
+	w.mu.Unlock()
+	w.changed.notify()
 }
 
 // currentWork gives the pull requests with work for an agent of the last ReplaceWork, by the id of their task.
