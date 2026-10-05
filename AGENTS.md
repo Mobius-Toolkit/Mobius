@@ -89,7 +89,6 @@ web/embed.go           embeds web/dist into the binary and serves it
 .mobius/check          the local check, also used in CI
 docs/install.md        the install guide
 .github/workflows/     ci.yml checks each pull request. release.yml checks each push to main and releases it with the next patch tag. screenshots.yml shows the screenshots of each pull request in one comment
-.github/scripts/       screenshots.sh holds the steps of screenshots.yml
 ```
 
 ## Commands

@@ -16,20 +16,26 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
-      contents: read
       pull-requests: write
     concurrency:
       group: screenshots-pr-${{ github.event.pull_request.number }}
+    env:
+      PR: ${{ github.event.pull_request.number }}
+      SHA: ${{ github.event.pull_request.head.sha }}
     steps:
-      - uses: actions/checkout@v7
-        with:
-          sparse-checkout: .github/scripts
-          persist-credentials: false
-
-      - run: .github/scripts/screenshots.sh pending
-        env:
-          PR: ${{ github.event.pull_request.number }}
-          SHA: ${{ github.event.pull_request.head.sha }}
+      - run: |
+          marker='<!-- screenshots -->'
+          body="$marker"$'\n### UI screenshots\n\nThe screenshots are pending. See the [checks of the commit](https://github.com/'"$REPO/commit/$SHA"$'/checks).'
+          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | sed -n 1p)
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$REPO/issues/comments/$id" -f body="$body" --silent
+          else
+            gh api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" --silent
+          fi
+          if [ -n "$(gh api "repos/$REPO/issues/$PR/labels" --jq '.[] | select(.name == "screenshots") | .name')" ]; then
+            gh api --method DELETE "repos/$REPO/issues/$PR/labels/screenshots" --silent
+          fi
 
   publish:
     if: >-
@@ -50,27 +56,103 @@ jobs:
       SHA: ${{ github.event.workflow_run.head_sha }}
       RUN_ID: ${{ github.event.workflow_run.id }}
       RUN_URL: ${{ github.event.workflow_run.html_url }}
-      SHOTS: shots
+    # This job has a write token and has no checkout. It uses only the PNG files of the artifact.
     steps:
-      # A workflow_run job has a write token. Check out only the default branch, never the pull request.
-      - uses: actions/checkout@v7
-        with:
-          sparse-checkout: .github/scripts
-          persist-credentials: false
+      - run: |
+          shopt -s nullglob
+          marker='<!-- screenshots -->'
 
-      - id: gate
-        run: .github/scripts/screenshots.sh gate-pr
+          set_comment() {
+            local body="$marker"$'\n### UI screenshots\n\n'"$1" id
+            id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+              --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | sed -n 1p)
+            if [ -n "$id" ]; then
+              gh api --method PATCH "repos/$REPO/issues/comments/$id" -f body="$body" --silent
+            else
+              gh api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" --silent
+            fi
+          }
 
-      - if: steps.gate.outputs.proceed == 'true'
-        uses: actions/download-artifact@v8
-        with:
-          name: screenshots
-          path: shots
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ github.token }}
+          set_label() {
+            local present
+            present=$(gh api "repos/$REPO/issues/$PR/labels" --jq '.[] | select(.name == "screenshots") | .name')
+            if [ "$1" = on ] && [ -z "$present" ]; then
+              gh api --method POST "repos/$REPO/issues/$PR/labels" -f 'labels[]=screenshots' --silent
+            elif [ "$1" = off ] && [ -n "$present" ]; then
+              gh api --method DELETE "repos/$REPO/issues/$PR/labels/screenshots" --silent
+            fi
+          }
 
-      - if: steps.gate.outputs.proceed == 'true'
-        run: .github/scripts/screenshots.sh publish
+          if [ "$(gh api "repos/$REPO/pulls/$PR" --jq .head.sha)" != "$SHA" ]; then
+            exit 0
+          fi
+          if [ "$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq '[.artifacts[] | select(.name == "screenshots")] | length')" -eq 0 ]; then
+            set_comment "The screenshots failed. See the [run]($RUN_URL)."
+            set_label off
+            exit 0
+          fi
+          gh run download "$RUN_ID" --repo "$REPO" --name screenshots --dir shots
+
+          work=$(mktemp -d)
+          git -C "$work" init -q -b screenshots
+          git -C "$work" config user.name 'github-actions[bot]'
+          git -C "$work" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$work" remote add origin "https://x-access-token:$GH_TOKEN@github.com/$REPO.git"
+          for _ in 1 2 3 4 5; do
+            if git -C "$work" fetch -q origin screenshots; then
+              git -C "$work" reset -q --hard FETCH_HEAD
+            fi
+            rm -rf "${work:?}/pr-$PR"
+            mkdir "$work/pr-$PR"
+            for file in shots/*.png; do
+              name=${file##*/}
+              if [[ $name =~ ^[a-z0-9-]+\.png$ ]]; then
+                cp "$file" "$work/pr-$PR/$name"
+              fi
+            done
+            git -C "$work" add -A
+            if ! git -C "$work" diff --cached --quiet; then
+              git -C "$work" commit -q -m "chore: update the screenshots of pr-$PR"
+            fi
+            if git -C "$work" push -q origin screenshots; then
+              pushed=true
+              break
+            fi
+          done
+          if [ "${pushed:-}" != true ]; then
+            echo "Cannot push the branch screenshots" >&2
+            exit 1
+          fi
+
+          base="https://raw.githubusercontent.com/$REPO/$(git -C "$work" rev-parse HEAD)"
+          cell() {
+            if [ -e "$work/$1/$2" ]; then
+              echo "<img width=\"300\" src=\"$base/$1/$2\">"
+            else
+              echo "none"
+            fi
+          }
+          rows=
+          names=$(for file in "$work/main"/*.png "$work/pr-$PR"/*.png; do echo "${file##*/}"; done | sort -u)
+          for name in $names; do
+            if [ ! -e "$work/main/$name" ]; then
+              state=added
+            elif [ ! -e "$work/pr-$PR/$name" ]; then
+              state=removed
+            elif cmp -s "$work/main/$name" "$work/pr-$PR/$name"; then
+              continue
+            else
+              state=changed
+            fi
+            rows+="| \`${name%.png}\` | $state | $(cell main "$name") | $(cell "pr-$PR" "$name") |"$'\n'
+          done
+          if [ -z "$rows" ]; then
+            set_comment "No screen changed."
+            set_label off
+          else
+            set_comment $'| Screen | State | main | This pull request |\n|---|---|---|---|\n'"$rows"
+            set_label on
+          fi
 
   main:
     if: >-
@@ -85,24 +167,38 @@ jobs:
       group: screenshots-main
     env:
       RUN_ID: ${{ github.event.workflow_run.id }}
-      SHOTS: shots
     steps:
-      # A workflow_run job has a write token. Check out only the default branch.
-      - uses: actions/checkout@v7
-        with:
-          sparse-checkout: .github/scripts
-          persist-credentials: false
+      - run: |
+          shopt -s nullglob
+          if [ "$(gh api "repos/$REPO/actions/runs/$RUN_ID/artifacts" --jq '[.artifacts[] | select(.name == "screenshots")] | length')" -eq 0 ]; then
+            exit 0
+          fi
+          gh run download "$RUN_ID" --repo "$REPO" --name screenshots --dir shots
 
-      - id: gate
-        run: .github/scripts/screenshots.sh gate-main
-
-      - if: steps.gate.outputs.proceed == 'true'
-        uses: actions/download-artifact@v8
-        with:
-          name: screenshots
-          path: shots
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ github.token }}
-
-      - if: steps.gate.outputs.proceed == 'true'
-        run: .github/scripts/screenshots.sh main
+          work=$(mktemp -d)
+          git -C "$work" init -q -b screenshots
+          git -C "$work" config user.name 'github-actions[bot]'
+          git -C "$work" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$work" remote add origin "https://x-access-token:$GH_TOKEN@github.com/$REPO.git"
+          for _ in 1 2 3 4 5; do
+            if git -C "$work" fetch -q origin screenshots; then
+              git -C "$work" reset -q --hard FETCH_HEAD
+            fi
+            rm -rf "$work/main"
+            mkdir "$work/main"
+            for file in shots/*.png; do
+              name=${file##*/}
+              if [[ $name =~ ^[a-z0-9-]+\.png$ ]]; then
+                cp "$file" "$work/main/$name"
+              fi
+            done
+            git -C "$work" add -A
+            if ! git -C "$work" diff --cached --quiet; then
+              git -C "$work" commit -q -m "chore: update the screenshots of main"
+            fi
+            if git -C "$work" push -q origin screenshots; then
+              exit 0
+            fi
+          done
+          echo "Cannot push the branch screenshots" >&2
+          exit 1
