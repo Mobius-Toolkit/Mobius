@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, type Page, test } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/github')
@@ -127,4 +127,62 @@ test('a new page starts at the top', async ({ page }) => {
   await page.getByRole('link', { name: 'Inbox' }).filter({ visible: true }).click()
   await expect(page).toHaveURL('/inbox')
   expect(await page.evaluate('window.scrollY')).toBe(0)
+})
+
+const back = (page: Page) => page.getByRole('button', { name: 'Back' })
+
+test.describe('the back button of a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('goes back to the previous page of the app', async ({ page }) => {
+    await page.goto('/workstreams')
+    await page
+      .locator('a[href="/workstreams/owner/shop/46"]')
+      .filter({ visible: true })
+      .click()
+    await expect(page).toHaveURL('/workstreams/owner/shop/46')
+    await back(page).click()
+    await expect(page).toHaveURL('/workstreams')
+    await page.goForward()
+    await expect(page).toHaveURL('/workstreams/owner/shop/46')
+
+    await page.goto('/workstreams')
+    await page
+      .locator('a[href="/workstreams/new"]')
+      .filter({ visible: true })
+      .click()
+    await expect(page).toHaveURL('/workstreams/new')
+    await back(page).click()
+    await expect(page).toHaveURL('/workstreams')
+    await page.goForward()
+    await expect(page).toHaveURL('/workstreams/new')
+  })
+
+  test('opens the parent page after a direct open', async ({ page }) => {
+    const main = page.getByRole('main')
+
+    for (const path of ['/workstreams/owner/shop/46', '/workstreams/new']) {
+      await page.goto(path)
+      await expect(back(page)).toBeVisible()
+      await back(page).click()
+      await expect(page).toHaveURL('/workstreams')
+      await expect(main.getByText('Integrate loyalty plans')).toBeVisible()
+      await page.goBack()
+      await expect(page).not.toHaveURL(path)
+    }
+  })
+
+  test('is not on a tab page', async ({ page }) => {
+    for (const path of ['/workstreams', '/inbox', '/activity', '/settings']) {
+      await page.goto(path)
+      await expect(page.getByRole('navigation').last()).toBeVisible()
+      await expect(back(page)).toHaveCount(0)
+    }
+  })
+})
+
+test('the desktop layout has no back button', async ({ page }) => {
+  await page.goto('/workstreams/plants/garden/17')
+  await expect(page.getByRole('main').getByText('Note 12 of #17.')).toBeVisible()
+  await expect(back(page)).toBeHidden()
 })
