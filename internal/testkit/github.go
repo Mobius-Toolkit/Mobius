@@ -104,6 +104,7 @@ type FakeGitHub struct {
 	comparedCommits []string
 	holds           map[issueKey]*hold
 	threadHolds     map[issueKey]*hold
+	issueHolds      map[issueKey]*hold
 	pullRequests    []pullRequest
 	// createdAt holds the creation time of each pull request, in seconds after the Unix epoch.
 	createdAt map[issueKey]int64
@@ -159,6 +160,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedSubIssues:         map[issueKey]bool{},
 		holds:                   map[issueKey]*hold{},
 		threadHolds:             map[issueKey]*hold{},
+		issueHolds:              map[issueKey]*hold{},
 		createdAt:               map[issueKey]int64{},
 		behind:                  map[issueKey]bool{},
 		annotations:             map[int64][]annotationJSON{},
