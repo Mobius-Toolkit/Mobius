@@ -759,6 +759,8 @@ test('the note closes the Workstream when all tasks are closed', async ({
     if (closes) {
       await expect(page).toHaveURL('/workstreams')
       await expect(link).not.toBeAttached()
+      await expect(main.getByText('Water the roses')).toBeVisible()
+      await expect(main.getByText('Plant daisies')).not.toBeAttached()
       await expect(note).not.toBeAttached()
       // The close stops each agent session of the Workstream.
       await expect

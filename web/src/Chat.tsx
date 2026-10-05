@@ -1,3 +1,4 @@
+import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import {
   completeWorkstream,
@@ -17,6 +18,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import type { Workstreams } from '@/lib/workstreams'
 import { AgentPanel } from './AgentPanel'
+import { BackButton } from './BackButton'
 import { Conversation } from './Conversation'
 
 function NeedsHumanList({
@@ -99,6 +101,7 @@ export function Chat({
   const [autopilotError, setAutopilotError] = useState('')
   const [closeBusy, setCloseBusy] = useState(false)
   const [closeError, setCloseError] = useState('')
+  const navigate = useNavigate()
 
   const switchAutopilot = (on: boolean) => {
     setAutopilotBusy(true)
@@ -119,7 +122,7 @@ export function Chat({
     completeWorkstream(owner, name, number)
       .then((res) => {
         if (res.status === 204) {
-          window.location.assign('/workstreams')
+          void navigate({ to: '/workstreams' })
         } else {
           setCloseError(res.data.error)
           setCloseBusy(false)
@@ -146,6 +149,7 @@ export function Chat({
         brief={workstream}
         head={
           <>
+            <BackButton parent="/workstreams" />
             <h2 className="min-w-0 truncate font-semibold">
               {workstream?.title}
             </h2>

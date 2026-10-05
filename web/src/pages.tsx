@@ -43,6 +43,7 @@ export function ChatPage() {
   const { workstreams, unread, source } = useShell()
   return (
     <Chat
+      key={`${owner}/${name}#${number}`}
       owner={owner}
       name={name}
       number={Number(number)}
@@ -94,5 +95,5 @@ export function CheckupPage() {
 
 export function GitHubPage() {
   const { apps } = useShell()
-  return <GitHub apps={apps} />
+  return <GitHub apps={apps} back />
 }

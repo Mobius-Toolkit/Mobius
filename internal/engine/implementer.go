@@ -262,6 +262,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err := e.setWorker(ctx, r.task.ID, ImplementerRole, j.prompt); err != nil {
 		return err
 	}
+	e.addWork(r.task.ID, pullRequestWork(repository, r.pullRequest))
 	e.runImplementer(j)
 	return nil
 }
@@ -302,6 +303,7 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err := e.setWorker(ctx, task.ID, conflictRoundWorker, j.prompt); err != nil {
 		return err
 	}
+	e.addWork(task.ID, pullRequestWork(repository, pullRequest))
 	e.runImplementer(j)
 	return nil
 }

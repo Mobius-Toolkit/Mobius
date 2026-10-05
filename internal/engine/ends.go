@@ -75,7 +75,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	if pullRequest == nil {
 		return Work{}, false, nil
 	}
-	work := Work{Repository: repository.FullName, PullRequest: int64(pullRequest.GetNumber()), CreatedAt: pullRequest.GetCreatedAt().Time}
+	work := pullRequestWork(repository, pullRequest)
 	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest)
 	switch {
 	case task.State == "queued" || task.State == "working":

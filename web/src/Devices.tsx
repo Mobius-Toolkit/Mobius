@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { LoginContext } from '@/lib/login'
+import { BackButton } from './BackButton'
 
 export function Devices() {
   const showLogin = use(LoginContext)
@@ -47,7 +48,10 @@ export function Devices() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Devices</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <BackButton parent="/settings" />
+          Devices
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {error && <Badge variant="destructive">{error}</Badge>}
