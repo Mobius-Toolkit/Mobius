@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { BackButton } from './BackButton'
 import { Conversation } from './Conversation'
 
 export function NewWorkstream({
@@ -34,7 +35,12 @@ export function NewWorkstream({
       agent="Triager"
       source={source}
       unread={unread}
-      head={<h2 className="font-semibold">New Workstream</h2>}
+      head={
+        <>
+          <BackButton parent="/workstreams" />
+          <h2 className="font-semibold">New Workstream</h2>
+        </>
+      }
     />
   )
 }

@@ -18,6 +18,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import type { Workstreams } from '@/lib/workstreams'
 import { AgentPanel } from './AgentPanel'
+import { BackButton } from './BackButton'
 import { Conversation } from './Conversation'
 
 function NeedsHumanList({
@@ -148,6 +149,7 @@ export function Chat({
         brief={workstream}
         head={
           <>
+            <BackButton parent="/workstreams" />
             <h2 className="min-w-0 truncate font-semibold">
               {workstream?.title}
             </h2>
