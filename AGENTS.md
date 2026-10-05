@@ -55,7 +55,7 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 - Before the first run of the Playwright tests, install the browser: `pnpm exec playwright install chromium`.
 - `web/screenshots` is in the repository, so the review of a pull request shows the screenshots. Do not commit the screenshots from your computer. The workflow `screenshots` makes them on Linux for each pull request that changes a path of `.github/scripts/ui-changed.sh`, and commits the changed screenshots to the pull request branch as `github-actions[bot]`.
 - After the workflow `screenshots` commits to your pull request branch, merge that commit before your next push (`git pull`).
-- `TestServer` gives a fixed time to each time that the UI shows (`fixTimes`). If the UI shows a new time, add it to `fixTimes`, so a pull request with no UI change gets no new screenshots.
+- Each run must give the same screenshots, so a pull request with no UI change gets no new screenshots. `TestServer` gives a fixed time to each time that the UI shows (`fixTimes`). Before each screenshot, `web/e2e/screenshots.spec.ts` waits for the data that the page loads (`frame` and `ready`). When the UI shows a new time or new data, add it there.
 
 ## Before a push
 
