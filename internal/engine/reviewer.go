@@ -39,6 +39,20 @@ func (j *reviewJob) round(task store.Task, items string, parent sql.NullInt64) r
 	return round{task: task, title: j.title, pullRequest: j.pullRequest, checkRun: j.checkRun, counts: true, items: items, parent: parent}
 }
 
+// afterConflictRound tells that the task has the review of the head that a conflict round pushed. Such a review does
+// not count as a review round. The tasks table keeps the mark in worker_input, so a restart of the server keeps it.
+func afterConflictRound(task store.Task) bool {
+	return task.Worker.String == ReviewerRole && task.WorkerInput.String == conflictRoundWorker
+}
+
+// reviewRoundText gives the end of the title of the review comment of the task.
+func (e *Engine) reviewRoundText(task store.Task) string {
+	if afterConflictRound(task) {
+		return fmt.Sprintf(" after a conflict round. It does not count (%d of %d)", task.ReviewRounds, e.config.MaxFixRounds)
+	}
+	return fmt.Sprintf(", round %d of %d", task.ReviewRounds+1, e.config.MaxFixRounds)
+}
+
 // review queues the Reviewer of the head that the done Implementer session pushed. A task that is not working, for
 // example after a decline of the Lead during the Implementer session, gets no Reviewer.
 func (e *Engine) review(ctx context.Context, j *job, p pushed, session int64) error {
@@ -46,7 +60,11 @@ func (e *Engine) review(ctx context.Context, j *job, p pushed, session int64) er
 	if err != nil || queued == 0 {
 		return err
 	}
-	if err := e.queries.SetTaskWorker(ctx, store.SetTaskWorkerParams{Worker: sql.NullString{String: ReviewerRole, Valid: true}, ID: j.task.ID}); err != nil {
+	worker := store.SetTaskWorkerParams{Worker: sql.NullString{String: ReviewerRole, Valid: true}, ID: j.task.ID}
+	if j.conflictRound {
+		worker.WorkerInput = sql.NullString{String: conflictRoundWorker, Valid: true}
+	}
+	if err := e.queries.SetTaskWorker(ctx, worker); err != nil {
 		return err
 	}
 	e.runReviewer(reviewJob{task: j.task, title: j.title, pullRequest: p.pullRequest, head: p.head, checkRun: p.checkRun, parent: sql.NullInt64{Int64: session, Valid: true}})
@@ -94,7 +112,8 @@ func (e *Engine) runReviewer(j reviewJob) {
 }
 
 // reviewer runs one Reviewer session of the job, and acts on the open review threads after its turn. At
-// max_fix_rounds review rounds, the task goes to a human with no session. The end of ctx stops the session. An error
+// max_fix_rounds review rounds, the task goes to a human with no session. A review after a conflict round has no
+// limit, because it does not count. The end of ctx stops the session. An error
 // tells that the Worker must start again.
 func (e *Engine) reviewer(ctx context.Context, j *reviewJob) error {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: j.task.Repository, Issue: j.task.Issue})
@@ -109,7 +128,7 @@ func (e *Engine) reviewer(ctx context.Context, j *reviewJob) error {
 		return err
 	}
 	number := int64(j.pullRequest.GetNumber())
-	if limit := e.config.MaxFixRounds; task.ReviewRounds >= int64(limit) {
+	if limit := e.config.MaxFixRounds; !afterConflictRound(task) && task.ReviewRounds >= int64(limit) {
 		if err := e.stopAtLimit(ctx, repository, j.round(task, "", j.parent), "review"); err != nil {
 			return err
 		}
@@ -179,7 +198,7 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	}
 	number := int64(j.pullRequest.GetNumber())
 	// Each run gets a new comment, also a restart with the same round number.
-	comment, err := repository.AddComment(ctx, number, fmt.Sprintf("Review started, round %d of %d", task.ReviewRounds+1, e.config.MaxFixRounds))
+	comment, err := repository.AddComment(ctx, number, "Review started"+e.reviewRoundText(task))
 	if err != nil {
 		return err
 	}
@@ -260,9 +279,8 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 	}
 	open := slices.DeleteFunc(reviewThreads, func(thread github.ReviewThread) bool { return !openThread(thread, trusted, app) })
 	limit := int64(e.config.MaxFixRounds)
-	roundNumber := task.ReviewRounds + 1
 	if len(open) == 0 {
-		if err := e.endRound(ctx, repository, j, task.ID, roundNumber, comment, "Ready for review.", open); err != nil {
+		if err := e.endRound(ctx, repository, j, task, comment, "Ready for review.", open); err != nil {
 			return err
 		}
 		return e.readyForReview(ctx, task, j.title, pushed{j.pullRequest, j.head, j.checkRun}, "working")
@@ -275,13 +293,13 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 		}
 	}
 	if len(findings) == 0 {
-		if err := e.endRound(ctx, repository, j, task.ID, roundNumber, comment, "The Judge takes the open threads.", open); err != nil {
+		if err := e.endRound(ctx, repository, j, task, comment, "The Judge takes the open threads.", open); err != nil {
 			return err
 		}
 		_, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "reviewed", ID: task.ID, FromState: "working"})
 		return err
 	}
-	reviewLimit := roundNumber >= limit
+	reviewLimit := !afterConflictRound(task) && task.ReviewRounds+1 >= limit
 	atLimit := reviewLimit || task.FixRounds >= limit
 	items := ""
 	result := "A fix round started."
@@ -295,7 +313,7 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 			return err
 		}
 	}
-	if err := e.endRound(ctx, repository, j, task.ID, roundNumber, comment, result, open); err != nil {
+	if err := e.endRound(ctx, repository, j, task, comment, result, open); err != nil {
 		return err
 	}
 	r := j.round(task, items, sql.NullInt64{Int64: session, Valid: true})
@@ -308,21 +326,24 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 	return e.fixRound(ctx, repository, r)
 }
 
-// endRound writes the result of the review round number with the links of the open threads into the comment of the
-// round, and counts the round.
-func (e *Engine) endRound(ctx context.Context, repository github.Repository, j *reviewJob, task, number, comment int64, result string, open []github.ReviewThread) error {
+// endRound writes the result of the review round of the task with the links of the open threads into the comment of
+// the round, and counts the round. A review after a conflict round is not counted.
+func (e *Engine) endRound(ctx context.Context, repository github.Repository, j *reviewJob, task store.Task, comment int64, result string, open []github.ReviewThread) error {
 	var links strings.Builder
 	for _, thread := range open {
 		fmt.Fprintf(&links, "- %s#discussion_r%d\n", j.pullRequest.GetHTMLURL(), thread.Comment)
 	}
-	body := fmt.Sprintf("Review ended, round %d of %d\n\nResult: %s\nOpen findings: %d\n\n%s", number, e.config.MaxFixRounds, result, len(open), links.String())
+	body := fmt.Sprintf("Review ended%s\n\nResult: %s\nOpen findings: %d\n\n%s", e.reviewRoundText(task), result, len(open), links.String())
 	if err := repository.UpdateComment(ctx, comment, strings.TrimRight(body, "\n")); err != nil {
 		return err
 	}
-	if err := e.queries.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task}); err != nil {
+	if err := e.queries.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task.ID}); err != nil {
 		return err
 	}
-	return e.queries.AddReviewRound(ctx, task)
+	if afterConflictRound(task) {
+		return nil
+	}
+	return e.queries.AddReviewRound(ctx, task.ID)
 }
 
 // abandonRound writes the reason into the comment of the review run of the task that did not end. A task with no
@@ -332,7 +353,7 @@ func (e *Engine) abandonRound(ctx context.Context, repository github.Repository,
 	if err != nil || !comment.Valid {
 		return err
 	}
-	updateErr := repository.UpdateComment(ctx, comment.Int64, fmt.Sprintf("Review stopped, round %d of %d\n\n%s", task.ReviewRounds+1, e.config.MaxFixRounds, reason))
+	updateErr := repository.UpdateComment(ctx, comment.Int64, fmt.Sprintf("Review stopped%s\n\n%s", e.reviewRoundText(task), reason))
 	return errors.Join(e.queries.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task.ID}), updateErr)
 }
 

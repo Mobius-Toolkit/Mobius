@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -93,6 +94,35 @@ func TestAMergeConflictStartsAConflictRoundThatMergesTheBaseBranch(t *testing.T)
 		"You are the Implementer",
 		"# Brief\n\nShip loyalty plans to all shops.\n",
 		"# Issue\n\n#41 Add plan model\n\nPlans have a price.\n\n# Base branch\n\norigin/main\n\nMerge the base branch and remove the conflicts. Make no other change.")
+}
+
+func TestTheReviewAfterAConflictRoundDoesNotCountAsAReviewRound(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, mergesCents, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
+	if task := liveTask(t, server, 41); task.ReviewRounds != 1 {
+		t.Fatalf("review rounds = %d", task.ReviewRounds)
+	}
+
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
+
+	waitForReadyEvents(t, server, 2)
+	endedReviewers(t, server, 2)
+	if task := liveTask(t, server, 41); task.ReviewRounds != 1 || task.FixRounds != 0 {
+		t.Errorf("review rounds = %d, fix rounds = %d", task.ReviewRounds, task.FixRounds)
+	}
+	if hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+	comments := roundComments(fake)
+	want := []string{
+		"Review ended, round 1 of 1\n\nResult: Ready for review.\nOpen findings: 0",
+		"Review ended after a conflict round. It does not count (1 of 1)\n\nResult: Ready for review.\nOpen findings: 0",
+	}
+	if !reflect.DeepEqual(comments, want) {
+		t.Errorf("comments = %q", comments)
+	}
 }
 
 func TestAConflictRoundMergesWhenTheBaseBranchMovesDuringTheRound(t *testing.T) {
