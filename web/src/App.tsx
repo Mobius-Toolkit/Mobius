@@ -1,10 +1,5 @@
-import {
-  Outlet,
-  useLocation,
-  useMatch,
-  useRouter,
-} from '@tanstack/react-router'
-import { useCallback, useEffect, useState } from 'react'
+import { Outlet, useLocation, useMatch } from '@tanstack/react-router'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   listGitHubApps,
   listOrganizations,
@@ -22,12 +17,6 @@ import { useWorkstreams } from '@/lib/workstreams'
 import { Frame } from './Frame'
 import { GitHub } from './GitHub'
 import { Login } from './Login'
-
-function chatOwner(router: ReturnType<typeof useRouter>) {
-  return router.state.matches.find(
-    (match) => match.routeId === '/workstreams/$owner/$name/$number',
-  )?.params.owner
-}
 
 function savedOrganization() {
   try {
@@ -47,11 +36,11 @@ function saveOrganization(organization: string) {
 
 function App() {
   const { pathname } = useLocation()
-  const router = useRouter()
   const chat = useMatch({
     from: '/workstreams/$owner/$name/$number',
     shouldThrow: false,
   })
+  const chatOwner = useRef(chat?.params.owner)
   const [loginShown, setLoginShown] = useState(false)
   const [apps, setApps] = useState<GitHubApp[]>()
   const [organizations, setOrganizations] = useState<string[]>([])
@@ -64,6 +53,10 @@ function App() {
   const workstreams = useWorkstreams(showLogin, source)
   const unread = useUnread(source)
   const inbox = useInbox(source)
+
+  useEffect(() => {
+    chatOwner.current = chat?.params.owner
+  }, [chat?.params.owner])
 
   useEffect(() => {
     if (!live) {
@@ -120,7 +113,7 @@ function App() {
       .then((res) => {
         if (res.status === 200) {
           const list = res.data.data
-          const owner = chatOwner(router)
+          const owner = chatOwner.current
           if (owner !== undefined && list.includes(owner)) {
             saveOrganization(owner)
           }
@@ -130,7 +123,7 @@ function App() {
         }
       })
       .catch((err: unknown) => setError(String(err)))
-  }, [loginShown, router])
+  }, [loginShown])
 
   const selectOrganization = (name: string) => {
     saveOrganization(name)
