@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 import { ChevronRightIcon } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -19,14 +20,14 @@ export function Settings() {
         <ItemGroup className="gap-1">
           {settingsPages.map((page) => (
             <Item key={page.path} asChild>
-              <a href={page.path}>
+              <Link to={page.path}>
                 <ItemContent>
                   <ItemTitle>{page.title}</ItemTitle>
                 </ItemContent>
                 <ItemActions>
                   <ChevronRightIcon className="size-4" />
                 </ItemActions>
-              </a>
+              </Link>
             </Item>
           ))}
         </ItemGroup>

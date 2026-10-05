@@ -10,8 +10,12 @@ import { onEvent } from './events'
 
 export type Workstreams = ReturnType<typeof useWorkstreams>
 
-export function chatPath(workstream: { repository: string; number: number }) {
-  return `/workstreams/${workstream.repository}/${workstream.number}`
+export function chatParams(workstream: {
+  repository: string
+  number: number
+}) {
+  const [owner, name] = workstream.repository.split('/')
+  return { owner, name, number: String(workstream.number) }
 }
 
 export function organizationWorkstreams(

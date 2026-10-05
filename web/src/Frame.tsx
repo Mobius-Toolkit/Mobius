@@ -1,3 +1,4 @@
+import { Link, useMatchRoute, type LinkProps } from '@tanstack/react-router'
 import {
   InboxIcon,
   LayersIcon,
@@ -14,7 +15,7 @@ import { settingsPages } from '@/lib/settings'
 import { useUpgrade } from '@/lib/upgrade'
 import { cn } from '@/lib/utils'
 import {
-  chatPath,
+  chatParams,
   organizationWorkstreams,
   type Workstreams,
 } from '@/lib/workstreams'
@@ -30,25 +31,24 @@ const tabs = [
 ]
 
 function SideLink({
-  path,
-  current,
+  link,
   className,
   children,
 }: {
-  path: string
-  current: string
+  link: LinkProps
   className?: string
   children: ReactNode
 }) {
+  const matchRoute = useMatchRoute()
   return (
     <Button
       asChild
-      variant={path === current ? 'secondary' : 'ghost'}
+      variant={matchRoute(link) ? 'secondary' : 'ghost'}
       className={cn('justify-start', className)}
     >
-      <a href={path} aria-current={path === current ? 'page' : undefined}>
+      <Link {...link} activeOptions={{ exact: true }}>
         {children}
-      </a>
+      </Link>
     </Button>
   )
 }
@@ -110,22 +110,24 @@ export function Frame({
         <div className="px-2 py-1">
           {organizationSwitch || <span className="font-semibold">Mobius</span>}
         </div>
-        <SideLink path="/inbox" current={path}>
+        <SideLink link={{ to: '/inbox' }}>
           <span className="grow">Inbox</span>
           {inboxCount > 0 && <Badge>{inboxCount}</Badge>}
         </SideLink>
-        <SideLink path="/activity" current={path}>
+        <SideLink link={{ to: '/activity' }}>
           Activity
         </SideLink>
-        <SideLink path="/workstreams" current={path}>
+        <SideLink link={{ to: '/workstreams' }}>
           Workstreams
         </SideLink>
         {organizationWorkstreams(workstreams, organization)?.map(
           (workstream) => (
             <SideLink
               key={`${workstream.repository}#${workstream.number}`}
-              path={chatPath(workstream)}
-              current={path}
+              link={{
+                to: '/workstreams/$owner/$name/$number',
+                params: chatParams(workstream),
+              }}
               className="h-auto min-h-8 flex-wrap py-1.5 pl-5 whitespace-normal"
             >
               <span className="grow">{workstream.title}</span>
@@ -137,14 +139,14 @@ export function Frame({
             </SideLink>
           ),
         )}
-        <SideLink path="/workstreams/new" current={path} className="pl-5">
+        <SideLink link={{ to: '/workstreams/new' }} className="pl-5">
           <PlusIcon />
           New Workstream
         </SideLink>
         <div className="grow" />
         {upgradeControls}
         {settingsPages.map((page) => (
-          <SideLink key={page.path} path={page.path} current={path}>
+          <SideLink key={page.path} link={{ to: page.path }}>
             {page.title}
           </SideLink>
         ))}
@@ -166,9 +168,10 @@ export function Frame({
       </div>
       <nav className="fixed inset-x-0 bottom-0 flex border-t bg-sidebar pb-[env(safe-area-inset-bottom)] md:hidden">
         {tabs.map(({ path: tabPath, title, Icon }) => (
-          <a
+          <Link
             key={tabPath}
-            href={tabPath}
+            to={tabPath}
+            activeOptions={{ exact: true }}
             aria-current={currentTab === tabPath ? 'page' : undefined}
             className={cn(
               'flex flex-1 flex-col items-center gap-1 py-2 text-xs',
@@ -184,7 +187,7 @@ export function Frame({
                 <Badge>{inboxCount}</Badge>
               )}
             </span>
-          </a>
+          </Link>
         ))}
       </nav>
       <UpgradeDialog upgrade={upgrade} />
