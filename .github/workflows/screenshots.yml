@@ -10,6 +10,8 @@ concurrency:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       ui: ${{ steps.ui.outputs.ui }}
     steps:
