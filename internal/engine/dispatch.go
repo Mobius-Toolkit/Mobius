@@ -230,7 +230,10 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 }
 
 // pullRequestComments acts on the new comments of the pull request of a live task: a new comment or review comment of
-// a trusted user resets the counters of the task, and each new comment that is an event goes to the Lead.
+// a trusted user resets the counters of the task. A comment goes to the Lead or to the Judge, never to both
+// (Mobius#274). The Judge takes the new comments when the task is in ready_for_review, reviewed or needs_human, also
+// the comments from a round before that state. A stopped or dispatched task waits for a human or the Lead, so each
+// new comment that is an event goes to the Lead and becomes the last item of the Judge.
 func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repository, pullRequest *gh.Issue, since time.Time) error {
 	number := int64(pullRequest.GetNumber())
 	task, err := e.queries.GetLiveTaskByPullRequest(ctx, store.GetLiveTaskByPullRequestParams{
@@ -260,7 +263,13 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 		}
 	}
 	replies, _, err := e.newComments(ctx, repository, task, comments, since)
-	if err != nil {
+	if err != nil || task.State != "stopped" && task.State != "dispatched" || len(replies) == 0 {
+		return err
+	}
+	if err := e.queries.SetJudgedAt(ctx, store.SetJudgedAtParams{
+		JudgedAt: sql.NullString{String: replies[len(replies)-1].GetCreatedAt().UTC().Format(time.RFC3339Nano), Valid: true},
+		ID:       task.ID,
+	}); err != nil {
 		return err
 	}
 	return e.commentEventsOf(ctx, task, pullRequest, replies)
@@ -482,7 +491,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	case conflict:
 		err = e.conflictRound(ctx, repository, task, pullRequest)
 	case pullRequest != nil:
-		err = e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, items: items, parent: parent})
+		err = e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items, parent: parent})
 	default:
 		_, err = e.startImplementer(ctx, repository, task.Workstream, number, issue.GetBody(), parent)
 	}
@@ -510,20 +519,11 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 			open = append(open, thread.Comment)
 		}
 	}
-	reviewComments, err := repository.ReviewComments(ctx, number)
-	if err != nil {
-		return "", err
-	}
-	var items strings.Builder
-	for _, root := range reviewComments {
-		if slices.Contains(open, root.GetID()) {
-			items.WriteString(thread(reviewComments, root, trusted) + "\nAction: fix\n")
-		}
-	}
-	if items.Len() == 0 {
+	items, err := fixThreads(ctx, repository, number, open, trusted)
+	if items == "" && err == nil {
 		return "\nThe human continued the task. Finish the issue and make `.mobius/check` pass.\n", nil
 	}
-	return items.String(), nil
+	return items, err
 }
 
 // openThread tells if the review thread is open: it is not resolved, a trusted author started it, and its last trusted

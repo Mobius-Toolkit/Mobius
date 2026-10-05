@@ -80,6 +80,10 @@ type round struct {
 	task        store.Task
 	title       string
 	pullRequest *gh.PullRequest
+	// checkRun is the id of the Mobius check run of the head of the pull request, or 0 when Mobius has no id of it.
+	checkRun int64
+	// counts tells that the round counts toward max_fix_rounds. A round with no fix action does not count.
+	counts bool
 	// items is the prompt text of the open items with their actions.
 	items string
 	// parent is the session of the agent whose result started the round.
@@ -176,7 +180,7 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if moved == 0 {
 		return "", refuse("The task of #%d is %s, not ready_for_review.", input.N, task.State)
 	}
-	r := round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, items: "\nFindings of the Lead:\n" + input.Findings + "\n", parent: sql.NullInt64{Int64: c.session, Valid: true}}
+	r := round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: "\nFindings of the Lead:\n" + input.Findings + "\n", parent: sql.NullInt64{Int64: c.session, Valid: true}}
 	if err := e.fixRound(ctx, repository, r); err != nil {
 		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "working"})
 		return "", errors.Join(err, stateErr)
@@ -217,16 +221,18 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 	return "Mobius posts the reply after it pushes your commits.", nil
 }
 
-// fixRound starts a fix round of the Implementer on the pull request of the working task. A round counts toward
-// max_fix_rounds, and at the limit the task goes to a human instead. A task that is not working, for example after a
-// decline, gets no round.
+// fixRound starts a fix round of the Implementer on the pull request of the working task. At max_fix_rounds, a round
+// that counts hands the task to a human instead. A task that is not working, for example after a decline, gets no
+// round.
 func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r round) error {
-	added, err := e.queries.AddFixRound(ctx, store.AddFixRoundParams{ID: r.task.ID, Max: int64(e.config.MaxFixRounds)})
-	if err != nil {
-		return err
-	}
-	if added == 0 {
-		return e.stopAtLimit(ctx, repository, r, "fix")
+	if r.counts {
+		added, err := e.queries.AddFixRound(ctx, store.AddFixRoundParams{ID: r.task.ID, Max: int64(e.config.MaxFixRounds)})
+		if err != nil {
+			return err
+		}
+		if added == 0 {
+			return e.stopAtLimit(ctx, repository, r, "fix")
+		}
 	}
 	brief, err := brief(ctx, repository, r.task.Workstream)
 	if err != nil {
@@ -347,21 +353,28 @@ func (e *Engine) setWorker(ctx context.Context, task int64, worker, input string
 // runImplementer runs the job in the background until the task stops. After a failure, the Implementer starts again
 // after the wait of RestartWorker.
 func (e *Engine) runImplementer(j job) {
-	e.startWorker(j.task.ID, func(ctx context.Context) {
+	e.runWorker(j.task, j.title, "Implementer", func(ctx context.Context) error { return e.implementer(ctx, &j) })
+}
+
+// runWorker runs work, the Worker name of the task with title, in the background until the task stops. An error of
+// work tells that the Worker must start again: after the wait of RestartWorker, the task goes back to the queue and
+// work runs again.
+func (e *Engine) runWorker(task store.Task, title, name string, work func(context.Context) error) {
+	e.startWorker(task.ID, func(ctx context.Context) {
 		for {
-			err := e.implementer(ctx, &j)
+			err := work(ctx)
 			if err == nil {
 				return
 			}
-			log.Printf("Implementer of %s#%d: %v", j.task.Repository, j.task.Issue, err)
-			again, err := e.RestartWorker(ctx, j.task, j.title, err)
+			log.Printf("%s of %s#%d: %v", name, task.Repository, task.Issue, err)
+			again, err := e.RestartWorker(ctx, task, title, err)
 			if err == nil && again {
 				var queued int64
-				queued, err = e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: j.task.ID, FromState: "working"})
+				queued, err = e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: "working"})
 				again = queued > 0
 			}
 			if err != nil && ctx.Err() == nil {
-				log.Printf("restart of %s#%d: %v", j.task.Repository, j.task.Issue, err)
+				log.Printf("restart of %s#%d: %v", task.Repository, task.Issue, err)
 			}
 			if err != nil || !again {
 				return
@@ -407,7 +420,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 	}
 	switch r.outcome {
 	case done:
-		return e.review(ended, j, r.pushed)
+		return e.review(ended, j, r.pushed, a.id)
 	case cannotDo:
 		// A task that the Lead declined during the turn gets no event.
 		moved, err := e.queries.SetTaskState(ended, store.SetTaskStateParams{State: "dispatched", ID: task.ID, FromState: "working"})
@@ -422,11 +435,6 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		return e.handOver(ended, task, j.title, "the conflict round did not merge the base branch. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.")
 	}
 	return e.handOver(ended, task, j.title, fmt.Sprintf("GitHub rejected the push. Mobius added mobius:needs-human. Git gave this error:\n\n```\n%s\n```", r.text))
-}
-
-// review hands the pushed head of the done Implementer to the review of the pull request.
-func (e *Engine) review(ctx context.Context, j *job, p pushed) error {
-	return e.readyForReview(ctx, j.task, j.title, p, "working")
 }
 
 // readyForReview moves the task from the state from to ready_for_review, sets the Mobius check of the head to
@@ -475,7 +483,12 @@ func (e *Engine) stopAtLimit(ctx context.Context, repository github.Repository, 
 	}
 	rounds := e.config.MaxFixRounds
 	summary := fmt.Sprintf("The pull request has open items after %d %s rounds.", rounds, limit)
-	if err := repository.CreateFailedCheckRun(ctx, checkRunName, r.pullRequest.GetHead().GetSHA(), "Round limit", summary); err != nil {
+	if r.checkRun != 0 {
+		err = repository.CompleteCheckRun(ctx, r.checkRun, checkRunName, "failure")
+	} else {
+		err = repository.CreateFailedCheckRun(ctx, checkRunName, r.pullRequest.GetHead().GetSHA(), "Round limit", summary)
+	}
+	if err != nil {
 		return err
 	}
 	reason := fmt.Sprintf("the pull request has open items after %d %s rounds. Mobius set the Mobius check to failure and added mobius:needs-human.", rounds, limit)

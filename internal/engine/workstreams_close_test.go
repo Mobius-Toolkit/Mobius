@@ -299,3 +299,31 @@ func TestARemovalOfTheWorkstreamLabelStopsTheRunningImplementer(t *testing.T) {
 		}
 	}
 }
+
+func TestACompletionStopsTheRunningReviewer(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, "[[prompts]]\nwhen = \"You are the Reviewer\"\nhang = true\n\n"+leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool {
+		reviewers := roleSessions(t, server, engine.ReviewerRole)
+		return len(reviewers) == 1 && reviewers[0].AcpSessionID.Valid
+	})
+
+	// The pull request is open and the Reviewer works, so only the completion ends them.
+	fake.CloseIssue(shop, 41)
+
+	testkit.WaitFor(t, func() bool { return workstreams(t, server)[0].AllTasksClosed })
+	if !live(t, server) {
+		t.Fatal("the task of #41 is not live")
+	}
+	if status, body := complete(t, server, 12); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	if live(t, server) {
+		t.Error("the task of #41 is live")
+	}
+	testkit.WaitFor(t, func() bool {
+		reviewers := roleSessions(t, server, engine.ReviewerRole)
+		return reviewers[0].EndReason.String == "stopped"
+	})
+}

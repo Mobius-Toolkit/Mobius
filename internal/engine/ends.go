@@ -43,9 +43,11 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 // has work for an agent: the round that the task queues or runs, or the round that the check starts.
 //   - A task whose issue is gone, or whose issue closed with no pull request, ends.
 //   - A merged or closed pull request ends the task, and a merge closes the open issue (Mobius#226).
-//   - A removal of mobius:working by a person stops the task.
+//   - A removal of mobius:working by a person stops the task. A Judge that runs from needs_human has no
+//     mobius:working.
 //   - A pull request of a task in ready_for_review with a merge conflict, or behind its base, gets a conflict round. A
 //     failed check run of another App on its head gets a fix round.
+//   - Else the new comments of the pull request of a task in ready_for_review, reviewed or needs_human go to the Judge.
 func (e *Engine) checkTask(ctx context.Context, repository github.Repository, task store.Task) (Work, bool, error) {
 	issue, err := repository.Issue(ctx, task.Issue)
 	if err != nil {
@@ -66,24 +68,39 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	if pullRequest == nil && issue.GetState() == "closed" {
 		return Work{}, false, e.endTask(ctx, repository, task)
 	}
-	if task.State != "stopped" && task.State != "needs_human" && !hasLabel(issue, workingLabel) {
+	judgeOfHuman := task.Worker.String == JudgeRole && task.WorkerInput.String == "needs_human"
+	if task.State != "stopped" && task.State != "needs_human" && !judgeOfHuman && !hasLabel(issue, workingLabel) {
 		return Work{}, false, e.workingRemoved(ctx, repository, task, issue)
 	}
 	if pullRequest == nil {
 		return Work{}, false, nil
 	}
 	work := Work{Repository: repository.FullName, PullRequest: int64(pullRequest.GetNumber()), CreatedAt: pullRequest.GetCreatedAt().Time}
+	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest)
 	switch {
 	case task.State == "queued" || task.State == "working":
-		return work, task.Worker.String == ImplementerRole || task.Worker.String == conflictRoundWorker, nil
-	case task.State != "ready_for_review":
+		return work, slices.Contains([]string{ImplementerRole, conflictRoundWorker, JudgeRole}, task.Worker.String), nil
+	case !slices.Contains([]string{"ready_for_review", "reviewed", "needs_human"}, task.State):
 		return Work{}, false, nil
-	case pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest):
+	case task.State == "ready_for_review" && conflict:
 		round, err := e.onConflict(ctx, repository, task, pullRequest)
 		return work, round, err
+	case task.State == "ready_for_review":
+		round, err := e.onFailure(ctx, repository, task, pullRequest)
+		if err != nil || round {
+			return work, round, err
+		}
 	}
-	round, err := e.onFailure(ctx, repository, task, pullRequest)
-	return work, round, err
+	waiting := false
+	if task.State == "reviewed" {
+		failed, err := e.unhandledFailure(ctx, repository, task, pullRequest)
+		if err != nil {
+			return Work{}, false, err
+		}
+		waiting = conflict || failed
+	}
+	judged, err := e.judge(ctx, repository, task, pullRequest, waiting)
+	return work, judged, err
 }
 
 // endPullRequest ends the task of the closed pull request, closes the open issue of a merged pull request as completed,

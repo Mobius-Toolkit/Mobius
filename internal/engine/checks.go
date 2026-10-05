@@ -37,6 +37,17 @@ func failedCheckRuns(ctx context.Context, repository github.Repository, sha stri
 	return failed, nil
 }
 
+// unhandledFailure tells if the head of the pull request of the task has a failed check run of another App and no fix
+// round yet.
+func (e *Engine) unhandledFailure(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
+	head := pullRequest.GetHead().GetSHA()
+	if task.CheckHead.String == head {
+		return false, nil
+	}
+	runs, err := failedCheckRuns(ctx, repository, head)
+	return len(runs) > 0, err
+}
+
 // onFailure starts a fix round when check runs of other Apps failed on the head of the pull request of the task in
 // ready_for_review. Each failed check run is an item with its annotations, and a check run of GitHub Actions also has
 // the end of its job log. A head gets one round. It gives true when a round started, or when the task left
@@ -85,7 +96,7 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	if err != nil || moved == 0 {
 		return true, err
 	}
-	if err := e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, items: items.String(), parent: parent}); err != nil {
+	if err := e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items.String(), parent: parent}); err != nil {
 		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "working"})
 		return false, errors.Join(err, stateErr)
 	}

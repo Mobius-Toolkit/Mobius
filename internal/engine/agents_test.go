@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -562,5 +563,33 @@ func TestTheAgentsOfAWorkstreamComeWithTheirParents(t *testing.T) {
 		if err != nil || time.Since(started) > time.Minute || agent.EndedAt == "" {
 			t.Errorf("agent = %+v: %v", agent, err)
 		}
+	}
+}
+
+func TestTheTreeShowsEachAgentBelowTheAgentThatStartedIt(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	fake.SetCheck(shop, "grep -q cents plan.txt")
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	nodes := testkit.WaitForValue(t, func() ([]engine.Node, bool) {
+		nodes := tree(t, server)
+		return nodes, slices.ContainsFunc(nodes, func(node engine.Node) bool { return node.Session.Role == engine.ReviewerRole })
+	})
+	parent := func(node engine.Node) engine.Node {
+		index := slices.IndexFunc(nodes, func(other engine.Node) bool {
+			return node.Session.Parent == sql.NullInt64{Int64: other.Session.ID, Valid: true}
+		})
+		if index < 0 {
+			t.Fatalf("the parent of %+v is not in the tree %+v", node, nodes)
+		}
+		return nodes[index]
+	}
+	reviewer := nodes[slices.IndexFunc(nodes, func(node engine.Node) bool { return node.Session.Role == engine.ReviewerRole })]
+	implementer := parent(reviewer)
+	lead := parent(implementer)
+	if implementer.Session.Role != engine.ImplementerRole || lead.Session.Role != engine.LeadRole || lead.Session.Parent.Valid {
+		t.Errorf("tree = %+v", nodes)
 	}
 }

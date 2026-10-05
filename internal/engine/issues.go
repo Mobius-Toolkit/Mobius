@@ -74,9 +74,31 @@ func (e *Engine) readIssue(ctx context.Context, repository github.Repository, nu
 	if err != nil {
 		return "", err
 	}
-	for _, root := range reviewComments {
+	return text.String() + threads(reviewComments, trusted), nil
+}
+
+// threads gives the text of each review thread of comments that a trusted author started.
+func threads(comments []*gh.PullRequestComment, trusted func(string) bool) string {
+	var text strings.Builder
+	for _, root := range comments {
 		if root.InReplyTo == nil && trusted(root.GetUser().GetLogin()) {
-			text.WriteString(thread(reviewComments, root, trusted))
+			text.WriteString(thread(comments, root, trusted))
+		}
+	}
+	return text.String()
+}
+
+// fixThreads gives the text of each review thread of the pull request number that starts with a comment of roots,
+// with the action fix.
+func fixThreads(ctx context.Context, repository github.Repository, number int64, roots []int64, trusted func(string) bool) (string, error) {
+	comments, err := repository.ReviewComments(ctx, number)
+	if err != nil {
+		return "", err
+	}
+	var text strings.Builder
+	for _, root := range comments {
+		if slices.Contains(roots, root.GetID()) {
+			text.WriteString(thread(comments, root, trusted) + "\nAction: fix\n")
 		}
 	}
 	return text.String(), nil
