@@ -14,7 +14,7 @@ import (
 )
 
 // The migration files are copies of the migration files of the Rust version
-// (crates/mobius-store/migrations in Mobius-Toolkit/Mobius). They have no goose
+// (crates/mobius-store/migrations in Mobius-Toolkit/Mobius-rust). They have no goose
 // annotations, so each file runs as one Go migration.
 //
 //go:embed migrations/*.sql
