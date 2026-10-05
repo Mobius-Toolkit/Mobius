@@ -3,5 +3,4 @@
 /web/dist/*
 !/web/dist/.gitkeep
 /mobius.db*
-/web/screenshots/
 /web/test-results/
