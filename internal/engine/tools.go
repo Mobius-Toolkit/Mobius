@@ -230,6 +230,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue."},
 				},
 				e.moveIssue),
+			tool(e, c, "message_lead",
+				"Send a message to the Lead of an open Workstream. In the chat, call it only after the Owner selects the Workstream and approves the exact message.",
+				map[string]any{
+					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue that the Owner selects."},
+					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
+				},
+				e.messageLead),
 		}
 	}
 	return nil
@@ -351,6 +358,11 @@ type workstreamInput struct {
 type moveInput struct {
 	N          int64 `json:"n"`
 	Workstream int64 `json:"workstream"`
+}
+
+type messageLeadInput struct {
+	Workstream int64  `json:"workstream"`
+	Text       string `json:"text"`
 }
 
 type implementerInput struct {
@@ -637,4 +649,21 @@ func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repo
 		log.Printf("copy the tree of %s#%d: %v", repository.FullName, input.Workstream, err)
 	}
 	return fmt.Sprintf("Moved #%d to the Workstream #%d.", input.N, input.Workstream), nil
+}
+
+func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Repository, input messageLeadInput) (string, error) {
+	if c.repository != "" {
+		return "", refuse("Only the Triager chat sends a message to a Lead, after the Owner approves it.")
+	}
+	if empty(input.Text) {
+		return "", refuse("text must not be empty.")
+	}
+	if err := openWorkstream(ctx, repository, input.Workstream); err != nil {
+		return "", err
+	}
+	text := "Message of the Triager, approved by the Owner:\n\n" + input.Text
+	if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, "triager", text); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Sent the message to the Lead of #%d.", input.Workstream), nil
 }
