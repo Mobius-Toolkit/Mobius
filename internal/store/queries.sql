@@ -266,6 +266,18 @@ UPDATE tasks SET fix_rounds = fix_rounds + 1 WHERE id = sqlc.arg(id) AND fix_rou
 -- name: SetTaskCheckHead :exec
 UPDATE tasks SET check_head = ? WHERE id = ?;
 
+-- name: AddReviewRound :exec
+UPDATE tasks SET review_rounds = review_rounds + 1 WHERE id = ?;
+
+-- name: GetReviewComment :one
+SELECT review_comment FROM tasks WHERE id = ?;
+
+-- name: SetReviewComment :exec
+UPDATE tasks SET review_comment = ? WHERE id = ?;
+
+-- name: SetJudgedAt :exec
+UPDATE tasks SET judged_at = ? WHERE id = ?;
+
 -- name: StopTask :execrows
 UPDATE tasks SET state = 'stopped' WHERE id = ? AND state NOT IN ('stopped', 'ended');
 

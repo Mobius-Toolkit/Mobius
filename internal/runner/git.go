@@ -123,6 +123,16 @@ func ResearchDir(dataDir, repository string, id int64) string {
 	return filepath.Join(dataDir, "worktrees", repository, "research-"+strconv.FormatInt(id, 10))
 }
 
+// ReviewDir gives the worktree of the Reviewer session id of repository below dataDir.
+func ReviewDir(dataDir, repository string, id int64) string {
+	return filepath.Join(dataDir, "worktrees", repository, "review-"+strconv.FormatInt(id, 10))
+}
+
+// JudgeDir gives the worktree of the Judge session id of repository below dataDir.
+func JudgeDir(dataDir, repository string, id int64) string {
+	return filepath.Join(dataDir, "worktrees", repository, "judge-"+strconv.FormatInt(id, 10))
+}
+
 // succeeds tells if cmd exits with status 0. Another exit status is no error.
 func succeeds(cmd *exec.Cmd) (bool, error) {
 	err := cmd.Run()
@@ -226,6 +236,11 @@ func Push(ctx context.Context, dataDir, worktree, token, branch string) (string,
 		return "", err
 	}
 	return RevParse(ctx, dataDir, worktree, "HEAD")
+}
+
+// MergeBase gives the best common ancestor of the commits one and other in the bare clone of repository.
+func MergeBase(ctx context.Context, dataDir, repository, one, other string) (string, error) {
+	return run(git(ctx, dataDir, bareDir(dataDir, repository), "", "merge-base", one, other))
 }
 
 // RevParse gives the commit of name in the worktree.

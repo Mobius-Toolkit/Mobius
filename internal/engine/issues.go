@@ -187,7 +187,8 @@ func (t replyTarget) post(ctx context.Context, repository github.Repository, pul
 		return repository.ResolveReviewThread(ctx, t.thread)
 	}
 	// A conversation comment has no thread, so the reply is a new comment that quotes it, and nobody can resolve it.
-	return repository.AddComment(ctx, pullRequest, quote(t.body)+"\n\n"+text)
+	_, err := repository.AddComment(ctx, pullRequest, quote(t.body)+"\n\n"+text)
+	return err
 }
 
 // quote gives text with "> " before each line.

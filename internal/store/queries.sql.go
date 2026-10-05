@@ -318,6 +318,15 @@ func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) erro
 	return err
 }
 
+const addReviewRound = `-- name: AddReviewRound :exec
+UPDATE tasks SET review_rounds = review_rounds + 1 WHERE id = ?
+`
+
+func (q *Queries) AddReviewRound(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, addReviewRound, id)
+	return err
+}
+
 const addSession = `-- name: AddSession :one
 INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, parent, started_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -961,6 +970,17 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 		&i.CheckHead,
 	)
 	return i, err
+}
+
+const getReviewComment = `-- name: GetReviewComment :one
+SELECT review_comment FROM tasks WHERE id = ?
+`
+
+func (q *Queries) GetReviewComment(ctx context.Context, id int64) (sql.NullInt64, error) {
+	row := q.db.QueryRowContext(ctx, getReviewComment, id)
+	var review_comment sql.NullInt64
+	err := row.Scan(&review_comment)
+	return review_comment, err
 }
 
 const getSession = `-- name: GetSession :one
@@ -2381,6 +2401,20 @@ func (q *Queries) SetHarnessPause(ctx context.Context, arg SetHarnessPauseParams
 	return err
 }
 
+const setJudgedAt = `-- name: SetJudgedAt :exec
+UPDATE tasks SET judged_at = ? WHERE id = ?
+`
+
+type SetJudgedAtParams struct {
+	JudgedAt sql.NullString
+	ID       int64
+}
+
+func (q *Queries) SetJudgedAt(ctx context.Context, arg SetJudgedAtParams) error {
+	_, err := q.db.ExecContext(ctx, setJudgedAt, arg.JudgedAt, arg.ID)
+	return err
+}
+
 const setQueueReason = `-- name: SetQueueReason :one
 UPDATE sessions SET queue_reason = ? WHERE id = ?
 RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent
@@ -2411,6 +2445,20 @@ func (q *Queries) SetQueueReason(ctx context.Context, arg SetQueueReasonParams) 
 		&i.Parent,
 	)
 	return i, err
+}
+
+const setReviewComment = `-- name: SetReviewComment :exec
+UPDATE tasks SET review_comment = ? WHERE id = ?
+`
+
+type SetReviewCommentParams struct {
+	ReviewComment sql.NullInt64
+	ID            int64
+}
+
+func (q *Queries) SetReviewComment(ctx context.Context, arg SetReviewCommentParams) error {
+	_, err := q.db.ExecContext(ctx, setReviewComment, arg.ReviewComment, arg.ID)
+	return err
 }
 
 const setSyncCursor = `-- name: SetSyncCursor :exec

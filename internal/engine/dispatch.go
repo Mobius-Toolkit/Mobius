@@ -344,7 +344,7 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if issue == nil {
 		return "", refuse("#%d does not exist.", input.N)
 	}
-	if err := repository.AddComment(ctx, input.N, input.Text); err != nil {
+	if _, err := repository.AddComment(ctx, input.N, input.Text); err != nil {
 		return "", err
 	}
 	if err := repository.AddLabel(ctx, input.N, needsHumanLabel); err != nil {

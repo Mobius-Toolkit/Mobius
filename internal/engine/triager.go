@@ -98,7 +98,8 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err != nil || issue == nil || !hasLabel(issue, noWorkstreamLabel) {
 		return err
 	}
-	return repository.AddComment(ctx, number, proposal)
+	_, err = repository.AddComment(ctx, number, proposal)
+	return err
 }
 
 // stopTriager stops the Triager of the issue number when a person removed mobius:no-workstream last. Mobius ignores
