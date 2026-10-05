@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { flushSync } from 'react-dom'
 import {
   getChat,
   seeChat,
@@ -126,18 +127,23 @@ export function Conversation({
   const inFlight = useRef(false)
   const [briefOpen, setBriefOpen] = useState<boolean>()
   const listRef = useRef<HTMLDivElement>(null)
+  const input = useRef<HTMLTextAreaElement>(null)
   const pinned = useRef(true)
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined)
-  const voice = useVoice(
-    (spoken) =>
-      setText((current) =>
-        current === '' || current.endsWith(' ')
-          ? current + spoken
-          : `${current} ${spoken}`,
-      ),
-    setSendError,
-  )
+  const voice = useVoice((spoken) => {
+    const field = input.current
+    if (!field) {
+      return
+    }
+    const before = field.value.slice(0, field.selectionStart)
+    const after = field.value.slice(field.selectionEnd)
+    const lead = before === '' || /\s$/.test(before) ? before : `${before} `
+    const trail = after === '' || /^\s/.test(after) ? after : ` ${after}`
+    flushSync(() => setText(lead + spoken + trail))
+    const cursor = lead.length + spoken.length
+    field.setSelectionRange(cursor, cursor)
+  }, setSendError)
 
   const load = useCallback(() => {
     getChat({ organization, repository, workstream })
@@ -243,6 +249,7 @@ export function Conversation({
       return
     }
     const sent = text
+    voice.abort()
     inFlight.current = true
     setSending(true)
     setText('')
@@ -348,6 +355,7 @@ export function Conversation({
       >
         <div className="grid grow gap-1">
           <Textarea
+            ref={input}
             rows={1}
             aria-label={`Message to the ${agent}`}
             placeholder={`Write to the ${agent}`}

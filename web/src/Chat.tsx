@@ -1,3 +1,4 @@
+import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import {
   completeWorkstream,
@@ -99,6 +100,7 @@ export function Chat({
   const [autopilotError, setAutopilotError] = useState('')
   const [closeBusy, setCloseBusy] = useState(false)
   const [closeError, setCloseError] = useState('')
+  const navigate = useNavigate()
 
   const switchAutopilot = (on: boolean) => {
     setAutopilotBusy(true)
@@ -119,7 +121,7 @@ export function Chat({
     completeWorkstream(owner, name, number)
       .then((res) => {
         if (res.status === 204) {
-          window.location.assign('/workstreams')
+          void navigate({ to: '/workstreams' })
         } else {
           setCloseError(res.data.error)
           setCloseBusy(false)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 // The DOM types have the events of the Web Speech API, but not the recognition. Chrome and Safari have only
 // webkitSpeechRecognition.
@@ -6,6 +6,7 @@ type Recognition = {
   lang: string
   start(): void
   stop(): void
+  abort(): void
   addEventListener(
     type: 'result',
     listener: (event: SpeechRecognitionEvent) => void,
@@ -29,13 +30,28 @@ export function useVoice(
   setError: (error: string) => void,
 ) {
   const recognition = useRef<Recognition>(undefined)
+  // The sessions that can still send a result. A session that "Stop mic" stopped stays here until its end event.
+  const sessions = useRef(new Set<Recognition>())
   const [listening, setListening] = useState(false)
 
-  useEffect(() => () => recognition.current?.stop(), [])
+  // abort drops the phrase that each session still holds.
+  const abort = useCallback(() => {
+    recognition.current = undefined
+    setListening(false)
+    for (const live of sessions.current) {
+      live.abort()
+    }
+    sessions.current.clear()
+  }, [])
+
+  useEffect(() => abort, [abort])
 
   const toggle = () => {
     if (recognition.current) {
-      recognition.current.stop()
+      const live = recognition.current
+      recognition.current = undefined
+      setListening(false)
+      live.stop()
       return
     }
     const Speech = speech.SpeechRecognition ?? speech.webkitSpeechRecognition
@@ -44,15 +60,23 @@ export function useVoice(
       return
     }
     const live = new Speech()
-    live.lang = 'en-US'
-    live.addEventListener('result', (event) =>
-      onText(
-        Array.from(event.results, (result) => result[0].transcript)
-          .join(' ')
-          .trim(),
-      ),
-    )
+    live.lang = navigator.language
+    let added = 0
+    live.addEventListener('result', (event) => {
+      const spoken: string[] = []
+      while (added < event.results.length && event.results[added].isFinal) {
+        spoken.push(event.results[added][0].transcript)
+        added++
+      }
+      const text = spoken.join(' ').trim()
+      if (text) {
+        onText(text)
+      }
+    })
     live.addEventListener('error', (event) => {
+      if (recognition.current !== live) {
+        return
+      }
       if (
         event.error === 'not-allowed' ||
         event.error === 'service-not-allowed'
@@ -65,14 +89,23 @@ export function useVoice(
       }
     })
     live.addEventListener('end', () => {
-      recognition.current = undefined
-      setListening(false)
+      sessions.current.delete(live)
+      if (recognition.current === live) {
+        recognition.current = undefined
+        setListening(false)
+      }
     })
-    live.start()
+    try {
+      live.start()
+    } catch {
+      setError('The voice input did not start.')
+      return
+    }
     recognition.current = live
+    sessions.current.add(live)
     setError('')
     setListening(true)
   }
 
-  return { listening, toggle }
+  return { listening, toggle, abort }
 }

@@ -4,4 +4,4 @@ export const settingsPages = [
   { path: '/devices', title: 'Devices' },
   { path: '/settings/checkup', title: 'Checkup' },
   { path: '/agents', title: 'Agents' },
-]
+] as const

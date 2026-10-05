@@ -440,7 +440,7 @@ test('the Mic button adds the spoken text to the message', async ({ page }) => {
   await input.fill('Plant')
   await mic.click()
   await page.evaluate(
-    "recognition.dispatchEvent(Object.assign(new Event('result'), { results: [[{ transcript: ' red roses ' }]] }))",
+    "recognition.dispatchEvent(Object.assign(new Event('result'), { results: [Object.assign([{ transcript: ' red roses ' }], { isFinal: true })] }))",
   )
   await expect(input).toHaveValue('Plant red roses')
   await main.getByRole('button', { name: 'Stop mic' }).click()
@@ -453,6 +453,158 @@ test('the Mic button adds the spoken text to the message', async ({ page }) => {
   await expect(
     main.getByText('The browser blocks the microphone.'),
   ).toBeVisible()
+  await expect(mic).toBeVisible()
+})
+
+// The fake recognition keeps each instance in recognitions and the calls in calls. It sends no event by itself.
+const fakeRecognition = `window.recognitions = []
+  window.calls = []
+  window.SpeechRecognition = class extends EventTarget {
+    start() {
+      if (window.startError) throw new Error(window.startError)
+      window.recognitions.push(this)
+      window.calls.push('start')
+    }
+    stop() { window.calls.push('stop') }
+    abort() { window.calls.push('abort') }
+  }`
+
+// A transcript that ends in ... is not final.
+const result = (page: Page, ...transcripts: string[]) =>
+  page.evaluate(
+    `recognitions[0].dispatchEvent(Object.assign(new Event('result'), {
+      results: ${JSON.stringify(transcripts)}.map((transcript) =>
+        Object.assign([{ transcript }], {
+          isFinal: !transcript.endsWith('...'),
+        }),
+      ),
+    }))`,
+  )
+
+const select = (page: Page, start: number, end: number) =>
+  page.evaluate(
+    `document.querySelector('textarea').setSelectionRange(${start}, ${end})`,
+  )
+
+const selection = (page: Page) =>
+  page.evaluate(
+    "[document.querySelector('textarea').selectionStart, document.querySelector('textarea').selectionEnd]",
+  )
+
+test('two result events add the spoken text once', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.goto('/workstreams/new')
+  const main = page.getByRole('main')
+  const input = page.getByLabel('Message to the Triager')
+  await main.getByRole('button', { name: 'Mic', exact: true }).click()
+  await result(page, 'red')
+  await expect(input).toHaveValue('red')
+  await result(page, 'red')
+  await result(page, 'red', 'roses...')
+  await expect(input).toHaveValue('red')
+  await result(page, 'red', 'roses')
+  await expect(input).toHaveValue('red roses')
+})
+
+test('the spoken text goes in at the cursor', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.goto('/workstreams/new')
+  const main = page.getByRole('main')
+  const input = page.getByLabel('Message to the Triager')
+  await input.fill('Plant roses')
+  await select(page, 5, 5)
+  await main.getByRole('button', { name: 'Mic', exact: true }).click()
+  await result(page, ' red ')
+  await expect(input).toHaveValue('Plant red roses')
+  expect(await selection(page)).toEqual([9, 9])
+
+  await select(page, 0, 0)
+  await result(page, 'red', 'Now')
+  await expect(input).toHaveValue('Now Plant red roses')
+  expect(await selection(page)).toEqual([3, 3])
+})
+
+test('the spoken text replaces the selection', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.goto('/workstreams/new')
+  const main = page.getByRole('main')
+  const input = page.getByLabel('Message to the Triager')
+  await input.fill('Plant red roses.')
+  await select(page, 6, 9)
+  await main.getByRole('button', { name: 'Mic', exact: true }).click()
+  await result(page, 'white')
+  await expect(input).toHaveValue('Plant white roses.')
+  expect(await selection(page)).toEqual([11, 11])
+})
+
+test.describe('with a German browser', () => {
+  test.use({ locale: 'de-DE' })
+
+  test('the voice input gets the language of the browser', async ({ page }) => {
+    await page.addInitScript(fakeRecognition)
+    await page.goto('/workstreams/new')
+    await page
+      .getByRole('main')
+      .getByRole('button', { name: 'Mic', exact: true })
+      .click()
+    expect(await page.evaluate('recognitions[0].lang')).toBe('de-DE')
+  })
+})
+
+test('Send stops the voice input', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.goto('/workstreams/owner/shop/12')
+  const main = page.getByRole('main')
+  await main.getByRole('button', { name: 'Mic', exact: true }).click()
+  await main.getByLabel('Message to the Lead').fill('Add a plan')
+  await main.getByRole('button', { name: 'Send' }).click()
+  await expect(
+    main.getByRole('button', { name: 'Mic', exact: true }),
+  ).toBeVisible()
+  expect(await page.evaluate('calls')).toEqual(['start', 'abort'])
+})
+
+test('Send stops a voice input that Stop mic stopped', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.goto('/workstreams/owner/shop/12')
+  const main = page.getByRole('main')
+  await main.getByRole('button', { name: 'Mic', exact: true }).click()
+  await main.getByRole('button', { name: 'Stop mic' }).click()
+  await main.getByLabel('Message to the Lead').fill('Add a plan')
+  await main.getByRole('button', { name: 'Send' }).click()
+  await expect(main.getByLabel('Message to the Lead')).toHaveValue('')
+  expect(await page.evaluate('calls')).toEqual(['start', 'stop', 'abort'])
+})
+
+test('Stop mic lets a new voice input start at once', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.goto('/workstreams/owner/shop/12')
+  const main = page.getByRole('main')
+  const mic = main.getByRole('button', { name: 'Mic', exact: true })
+  await mic.click()
+  await main.getByRole('button', { name: 'Stop mic' }).click()
+  await expect(mic).toBeVisible()
+  await mic.click()
+  await expect(main.getByRole('button', { name: 'Stop mic' })).toBeVisible()
+  expect(await page.evaluate('calls')).toEqual(['start', 'stop', 'start'])
+
+  // The end of the old session does not stop the new session.
+  await page.evaluate("recognitions[0].dispatchEvent(new Event('end'))")
+  await expect(main.getByRole('button', { name: 'Stop mic' })).toBeVisible()
+  await page.evaluate("recognitions[1].dispatchEvent(new Event('end'))")
+  await expect(mic).toBeVisible()
+})
+
+test('the voice input shows a message when it does not start', async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition)
+  await page.addInitScript("window.startError = 'InvalidStateError'")
+  await page.goto('/workstreams/owner/shop/12')
+  const main = page.getByRole('main')
+  const mic = main.getByRole('button', { name: 'Mic', exact: true })
+  await mic.click()
+  await expect(main.getByText('The voice input did not start.')).toBeVisible()
   await expect(mic).toBeVisible()
 })
 
@@ -509,6 +661,8 @@ test('the note closes the Workstream when all tasks are closed', async ({
     if (closes) {
       await expect(page).toHaveURL('/workstreams')
       await expect(link).not.toBeAttached()
+      await expect(main.getByText('Water the roses')).toBeVisible()
+      await expect(main.getByText('Plant daisies')).not.toBeAttached()
       await expect(note).not.toBeAttached()
       // The close stops each agent session of the Workstream.
       await expect

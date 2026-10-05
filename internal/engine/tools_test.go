@@ -105,7 +105,7 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		spec engine.Spec
 		want []string
 	}{
-		{triager, []string{"create_task", "create_workstream", "move_issue"}},
+		{triager, []string{"create_task", "create_workstream", "message_lead", "move_issue"}},
 		{reviewer, []string{"submit_review"}},
 		{implementer, []string{"cannot_do", "reply_thread"}},
 		{researcher, []string{}},
@@ -485,6 +485,42 @@ func TestCreateTaskCreatesTheIssueInAnOpenWorkstream(t *testing.T) {
 	}
 	if got := fake.SubIssueNumbers(shop, 12); !reflect.DeepEqual(got, []int64{22}) {
 		t.Errorf("sub-issues of #12 = %v", got)
+	}
+}
+
+func TestMessageLeadSendsTheMessageToTheLeadOfAnOpenWorkstream(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("message_lead", `{ workstream = 12, text = "Create the task issues." }`)+
+		call("message_lead", `{ workstream = 21, text = "Create the task issues." }`))
+	fake.AddIssue(shop, 21, "Not a Workstream")
+	triagerChat := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()}
+	triagerOfIssue := triagerChat
+	triagerOfIssue.Repository = shop
+
+	ofIssue := run(t, server, triagerOfIssue, "1. ", "2. ")
+
+	want := "error: Only the Triager chat sends a message to a Lead, after the Owner approves it." +
+		"error: Only the Triager chat sends a message to a Lead, after the Owner approves it."
+	if got := reply(t, server, ofIssue); got != want {
+		t.Errorf("reply of the Triager of an issue = %q", got)
+	}
+	if events := leadEvents(t, server); len(events) != 0 {
+		t.Errorf("events = %v", events)
+	}
+
+	chat := run(t, server, triagerChat, "1. ", "2. ")
+
+	want = "Sent the message to the Lead of #12.error: #21 is not an open Workstream."
+	if got := reply(t, server, chat); got != want {
+		t.Errorf("reply of the Triager chat = %q", got)
+	}
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
+	text := "Message of the Triager, approved by the Owner:\n\nCreate the task issues."
+	if events := leadEvents(t, server); !reflect.DeepEqual(events, []leadEvent{{Workstream: 12, Kind: "triager", Payload: text, Delivered: true}}) {
+		t.Errorf("events = %v", events)
+	}
+	if prompts := leadPrompts(t, server); len(prompts) == 0 || !strings.HasSuffix(prompts[0], "# Event\n\n"+text) {
+		t.Errorf("prompts = %q", prompts)
 	}
 }
 

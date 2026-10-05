@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Outlet, useLocation, useMatch } from '@tanstack/react-router'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   listGitHubApps,
   listOrganizations,
@@ -10,42 +11,12 @@ import { Badge } from '@/components/ui/badge'
 import { onEvent } from '@/lib/events'
 import { useInbox } from '@/lib/inbox'
 import { LoginContext } from '@/lib/login'
-import { unreadCount, useUnread } from '@/lib/unread'
+import { ShellContext } from '@/lib/shell'
+import { useUnread } from '@/lib/unread'
 import { useWorkstreams } from '@/lib/workstreams'
-import { Activity } from './Activity'
-import { Agents } from './Agents'
-import { Chat } from './Chat'
-import { Checkup } from './Checkup'
-import { Devices } from './Devices'
 import { Frame } from './Frame'
 import { GitHub } from './GitHub'
-import { Inbox } from './Inbox'
 import { Login } from './Login'
-import { NewWorkstream } from './NewWorkstream'
-import { Settings } from './Settings'
-import { Workstreams } from './Workstreams'
-
-const paths = [
-  '/workstreams',
-  '/workstreams/new',
-  '/inbox',
-  '/activity',
-  '/agents',
-  '/settings',
-  '/settings/checkup',
-  '/devices',
-  '/github',
-]
-
-const chatPattern = /^\/workstreams\/([^/]+)\/([^/]+)\/(\d+)$/
-
-function currentPath() {
-  const path = window.location.pathname
-  if (!paths.includes(path) && !chatPattern.test(path)) {
-    window.history.replaceState(null, '', '/workstreams')
-  }
-  return window.location.pathname
-}
 
 function savedOrganization() {
   try {
@@ -64,7 +35,12 @@ function saveOrganization(organization: string) {
 }
 
 function App() {
-  const [path] = useState(currentPath)
+  const { pathname } = useLocation()
+  const chat = useMatch({
+    from: '/workstreams/$owner/$name/$number',
+    shouldThrow: false,
+  })
+  const chatOwner = useRef(chat?.params.owner)
   const [loginShown, setLoginShown] = useState(false)
   const [apps, setApps] = useState<GitHubApp[]>()
   const [organizations, setOrganizations] = useState<string[]>([])
@@ -77,7 +53,10 @@ function App() {
   const workstreams = useWorkstreams(showLogin, source)
   const unread = useUnread(source)
   const inbox = useInbox(source)
-  const chat = chatPattern.exec(path)
+
+  useEffect(() => {
+    chatOwner.current = chat?.params.owner
+  }, [chat?.params.owner])
 
   useEffect(() => {
     if (!live) {
@@ -134,8 +113,8 @@ function App() {
       .then((res) => {
         if (res.status === 200) {
           const list = res.data.data
-          const owner = chatPattern.exec(window.location.pathname)?.[1] ?? ''
-          if (list.includes(owner)) {
+          const owner = chatOwner.current
+          if (owner !== undefined && list.includes(owner)) {
             saveOrganization(owner)
           }
           const saved = savedOrganization()
@@ -176,7 +155,7 @@ function App() {
   return (
     <LoginContext value={showLogin}>
       <Frame
-        path={path}
+        path={pathname}
         organizations={organizations}
         organization={organization}
         onSelect={selectOrganization}
@@ -184,68 +163,22 @@ function App() {
         workstreams={workstreams}
         unread={unread ?? []}
         inbox={inbox}
-        fill={chat !== null || path === '/workstreams/new'}
+        fill={chat !== undefined || pathname === '/workstreams/new'}
       >
-        {chat && (
-          <Chat
-            owner={chat[1]}
-            name={chat[2]}
-            number={Number(chat[3])}
-            workstreams={workstreams}
-            unread={
-              unread &&
-              unreadCount(unread, {
-                organization: chat[1],
-                repository: `${chat[1]}/${chat[2]}`,
-                workstream: Number(chat[3]),
-              })
-            }
-            source={source}
-          />
-        )}
-        {path === '/workstreams' && (
-          <Workstreams
-            organization={organization}
-            workstreams={workstreams}
-            unread={unread ?? []}
-          />
-        )}
-        {path === '/workstreams/new' && (
-          <NewWorkstream
-            organizations={organizations}
-            organization={organization}
-            unread={
-              unread &&
-              unreadCount(unread, {
-                organization,
-                repository: '',
-                workstream: 0,
-              })
-            }
-            source={source}
-          />
-        )}
-        {path === '/inbox' && (
-          <Inbox
-            organization={organization}
-            items={inbox}
-            workstreams={workstreams.list}
-          />
-        )}
-        {path === '/activity' && (
-          <Activity
-            organization={organization}
-            activities={activities}
-            workstreams={workstreams.list}
-          />
-        )}
-        {path === '/agents' && <Agents source={source} />}
-        {path === '/settings' && <Settings />}
-        {path === '/settings/checkup' && (
-          <Checkup organization={organization} />
-        )}
-        {path === '/devices' && <Devices />}
-        {path === '/github' && <GitHub apps={apps} />}
+        <ShellContext
+          value={{
+            apps,
+            organizations,
+            organization,
+            source,
+            workstreams,
+            unread,
+            inbox,
+            activities,
+          }}
+        >
+          <Outlet />
+        </ShellContext>
       </Frame>
     </LoginContext>
   )
