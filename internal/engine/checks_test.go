@@ -223,8 +223,12 @@ func TestAFailedCheckRunAtMaxFixRoundsHandsTheTaskToAHuman(t *testing.T) {
 	if count := implementers(t, server); count != 1 {
 		t.Errorf("Implementers = %d", count)
 	}
-	runs := fake.CheckRuns(shop)
-	if last := runs[len(runs)-1]; last.Conclusion != "failure" || last.Output.Title != "Round limit" || last.Output.Summary != "The pull request has open items after 1 fix rounds." {
+	runs := testkit.WaitForValue(t, func() ([]testkit.CheckRun, bool) {
+		runs := fake.CheckRuns(shop)
+		last := runs[len(runs)-1]
+		return runs, last.Output != nil && last.Output.Title == "Round limit"
+	})
+	if last := runs[len(runs)-1]; last.Conclusion != "failure" || last.Output.Summary != "The pull request has open items after 1 fix rounds." {
 		t.Errorf("check runs = %+v", runs)
 	}
 	waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the pull request has open items after 1 fix rounds.")
