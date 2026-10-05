@@ -297,6 +297,14 @@ func TestServer(t *testing.T) {
 	if _, err := server.Engine.Start(ctx, lead); err != nil {
 		t.Fatal(err)
 	}
+	testkit.WaitFor(t, func() bool {
+		var lines int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM transcript WHERE json LIKE '%The plan prices are in cents now.%'").Scan(&lines); err != nil {
+			t.Fatal(err)
+		}
+		return lines == 1
+	})
+	fixTimes(t, server)
 	go func() { _, _ = server.Engine.Drain(ctx) }()
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
 	held := implementerSpec(t, server, 42)
@@ -331,6 +339,27 @@ func waitForChat(t *testing.T, server *testserver.Server, key engine.ChatKey, au
 		}
 		return open == 0
 	})
+}
+
+// fixTimes gives one fixed time to each time that the UI shows, so each run gives the same screenshots. An event text
+// starts with its time in the format of the engine.
+func fixTimes(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	for _, query := range []string{
+		"UPDATE device_logins SET created_at = ?1",
+		"UPDATE events SET time = ?1",
+		"UPDATE sessions SET started_at = ?1, ended_at = iif(ended_at IS NULL, NULL, ?1)",
+		"UPDATE transcript SET time = ?1",
+		"UPDATE chat_messages SET time = ?1",
+		"UPDATE inbox_items SET time = ?1",
+	} {
+		if _, err := server.DB.Exec(query, "2026-09-28T09:30:00Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := server.DB.Exec("UPDATE chat_messages SET text = '2026-09-28 09:30 UTC' || substr(text, 21) WHERE author = 'Event' AND text LIKE '____-__-__ __:__ UTC %'"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // implementerSpec adds a queued task of the issue number of the Workstream owner/shop#12, and gives the spec of its

@@ -14,6 +14,8 @@ export default defineConfig({
     userAgent: 'Mobius screenshots',
     // page.route does not see the requests that pass through a service worker.
     serviceWorkers: 'block',
+    // With partial raster, Chrome paints only the changed part of a tile again, and the edges of that part can differ from run to run.
+    launchOptions: { args: ['--disable-partial-raster'] },
   },
   webServer: {
     // A cached test result ends at once and serves nothing, so -count=1 runs the server each time.
