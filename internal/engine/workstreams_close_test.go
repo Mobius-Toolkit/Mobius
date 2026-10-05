@@ -271,9 +271,13 @@ func TestACloseKeepsTheBranchOfTheClosedPullRequest(t *testing.T) {
 
 	fake.CloseIssue(shop, 12)
 
-	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 42), closedComment) })
-	if state, _ := fake.State(shop, 42); state != "closed" || live(t, server) {
-		t.Errorf("state = %s, live = %v", state, live(t, server))
+	// Mobius closes the pull request after its comment.
+	testkit.WaitFor(t, func() bool {
+		state, _ := fake.State(shop, 42)
+		return slices.Contains(fake.Comments(shop, 42), closedComment) && state == "closed"
+	})
+	if live(t, server) {
+		t.Error("the task of #41 is live")
 	}
 	head(t, fake, "mobius/41")
 }
