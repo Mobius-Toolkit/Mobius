@@ -604,6 +604,26 @@ test('a new voice input clears the voice error and keeps the send error', async 
   await expect(main.getByRole('alert')).toHaveText('The send failed.')
 })
 
+test('a successful send removes the voice error', async ({ page }) => {
+  await page.addInitScript(fakeRecognition)
+  await page.route('/api/chat/messages', (route) =>
+    route.fulfill({ status: 204 }),
+  )
+  await page.goto('/workstreams/owner/shop/12')
+  const main = page.getByRole('main')
+  await main.getByRole('button', { name: 'Mic', exact: true }).click()
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'no-speech' })); recognitions[0].dispatchEvent(new Event('end'))",
+  )
+  await expect(main.getByRole('alert')).toHaveText(
+    'The microphone did not hear speech. Speak again.',
+  )
+
+  await main.getByLabel('Message to the Lead').fill('Add a plan')
+  await main.getByRole('button', { name: 'Send' }).click()
+  await expect(main.getByRole('alert')).toHaveCount(0)
+})
+
 test('the note closes the Workstream when all tasks are closed', async ({
   page,
 }) => {

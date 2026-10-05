@@ -37,7 +37,7 @@ const errorMessages: Record<string, string> = {
 }
 
 // useVoice gives the text of one spoken phrase to onText. It returns the error of the voice input, or '' when
-// the voice input starts.
+// the voice input starts or abort runs.
 export function useVoice(onText: (text: string) => void) {
   const recognition = useRef<Recognition>(undefined)
   // The sessions that can still send a result. A session that "Stop mic" stopped stays here until its end event.
@@ -49,6 +49,7 @@ export function useVoice(onText: (text: string) => void) {
   const abort = useCallback(() => {
     recognition.current = undefined
     setListening(false)
+    setError('')
     for (const live of sessions.current) {
       live.abort()
     }
