@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 import { PlusIcon } from 'lucide-react'
 import type { Unread, Workstream } from '@/api/api.gen'
 import { Badge } from '@/components/ui/badge'
@@ -11,7 +12,7 @@ import {
 } from '@/components/ui/card'
 import { unreadCount } from '@/lib/unread'
 import {
-  chatPath,
+  chatParams,
   organizationWorkstreams,
   type Workstreams as WorkstreamLists,
 } from '@/lib/workstreams'
@@ -65,10 +66,10 @@ export function Workstreams({
         <CardTitle>Workstreams</CardTitle>
         <CardAction>
           <Button asChild size="sm">
-            <a href="/workstreams/new">
+            <Link to="/workstreams/new">
               <PlusIcon />
               New
-            </a>
+            </Link>
           </Button>
         </CardAction>
       </CardHeader>
@@ -84,8 +85,9 @@ export function Workstreams({
         <ul className="divide-y">
           {shown?.map((workstream) => (
             <li key={`${workstream.repository}#${workstream.number}`}>
-              <a
-                href={chatPath(workstream)}
+              <Link
+                to="/workstreams/$owner/$name/$number"
+                params={chatParams(workstream)}
                 className="-mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-2 hover:bg-muted"
               >
                 <span>{workstream.title}</span>
@@ -94,7 +96,7 @@ export function Workstreams({
                   workstreams={workstreams}
                   unread={unread}
                 />
-              </a>
+              </Link>
             </li>
           ))}
         </ul>
