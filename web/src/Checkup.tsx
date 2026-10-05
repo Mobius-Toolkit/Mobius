@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { LoginContext } from '@/lib/login'
+import { BackButton } from './BackButton'
 
 const fixButton = { create: 'Create labels', fix: 'Fix labels' }
 
@@ -103,7 +104,10 @@ export function Checkup({ organization }: { organization: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Checkup</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <BackButton parent="/settings" />
+          Checkup
+        </CardTitle>
         {checkup && checkup.labelFix !== 'none' && (
           <CardAction>
             <Button disabled={fixing} onClick={fix}>

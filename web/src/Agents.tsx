@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/card'
 import { onEvent } from '@/lib/events'
 import { LoginContext } from '@/lib/login'
+import { BackButton } from './BackButton'
 import { cn } from '@/lib/utils'
 
 // The queue reason of a session that waits for the end of a usage-limit pause starts with this text.
@@ -239,7 +240,10 @@ export function Agents({ source }: { source?: EventSource }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Agents</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <BackButton parent="/settings" />
+          Agents
+        </CardTitle>
         {agents && (
           <CardAction className="text-muted-foreground">
             {agents.count} / {agents.max}

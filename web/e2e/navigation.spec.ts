@@ -186,3 +186,30 @@ test('the desktop layout has no back button', async ({ page }) => {
   await expect(page.getByRole('main').getByText('Note 12 of #17.')).toBeVisible()
   await expect(back(page)).toBeHidden()
 })
+
+test.describe('the back button of a settings page on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('goes back to the Settings after a click on its link', async ({
+    page,
+  }) => {
+    await page.goto('/settings')
+    await page.getByRole('main').locator('a[href="/devices"]').click()
+    await expect(page).toHaveURL('/devices')
+    await back(page).click()
+    await expect(page).toHaveURL('/settings')
+    await page.goForward()
+    await expect(page).toHaveURL('/devices')
+  })
+
+  test('opens the Settings after a direct open', async ({ page }) => {
+    for (const path of ['/github', '/devices', '/settings/checkup', '/agents']) {
+      await page.goto(path)
+      await back(page).click()
+      await expect(page).toHaveURL('/settings')
+      await expect(
+        page.getByRole('main').locator('a[href="/devices"]'),
+      ).toBeVisible()
+    }
+  })
+})
