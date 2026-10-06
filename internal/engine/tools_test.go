@@ -105,7 +105,7 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		spec engine.Spec
 		want []string
 	}{
-		{triager, []string{"create_workstream", "message_lead", "move_issue"}},
+		{triager, []string{"create_workstream", "message_lead", "move_issue", "start_researcher"}},
 		{reviewer, []string{"submit_review"}},
 		{implementer, []string{"cannot_do", "reply_thread"}},
 		{researcher, []string{}},
