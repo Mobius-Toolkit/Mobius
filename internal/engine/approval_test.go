@@ -193,6 +193,9 @@ func TestAFailedCheckRunOnTheHeadOfAFixRoundThatMadeNoCommitHandsTheTaskToAHuman
 // failed.
 func assertCIStop(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, sha string) {
 	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Kind == "stop" })
+	})
 	if labels := fake.Labels(shop, 41); !slices.Equal(labels, []string{"mobius:needs-human"}) {
 		t.Errorf("labels = %q", labels)
 	}

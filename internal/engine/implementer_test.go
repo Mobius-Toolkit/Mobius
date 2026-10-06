@@ -616,3 +616,41 @@ func TestAPushThatFailsAfterAPassedCheckTriesAgainWithNoNewSession(t *testing.T)
 		t.Errorf("sessions = %+v", sessions)
 	}
 }
+
+func TestSendDetailsStopsTheTurnAndSendsTheDetailsInTheSameSession(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"Send the details\"\ncall = { tool = \"send_details\", arguments = { n = 41, text = \"Round prices down.\" } }\n\n" + leadStarts
+	implementer := "[[prompts]]\nreply = [\"Working.\"]\nhang = true\n\n[[prompts]]\nwhen = \"The Owner gave new details\"\n" + commitCents
+	server, _ := connectTask(t, fake, lead, implementer, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := roleSessions(t, server, engine.ImplementerRole)
+		if len(sessions) != 1 {
+			return store.Session{}, false
+		}
+		return sessions[0], reply(t, server, sessions[0].ID) == "Working."
+	})
+
+	sendChat(t, server, leadChat, "Send the details to #41.")
+
+	approvalCheckRuns(t, server, fake)
+	if sessions := roleSessions(t, server, engine.ImplementerRole); len(sessions) != 1 || sessions[0].ID != session.ID {
+		t.Errorf("sessions = %+v", sessions)
+	}
+	if ended := endedImplementers(t, server, 1)[0]; ended.EndReason.String != "done" {
+		t.Errorf("end reason = %s", ended.EndReason.String)
+	}
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 2 {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	if want := "The Owner gave new details for the task. They replace the old text where they differ.\n\nRound prices down."; prompts[1] != want {
+		t.Errorf("prompt = %q", prompts[1])
+	}
+	if plan := testkit.Git(t, fake.Remote(shop), "show", "mobius/41:plan.txt"); plan != "cents" {
+		t.Errorf("plan.txt = %s", plan)
+	}
+	if len(fake.PullRequests(shop)) != 1 {
+		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
+	}
+}

@@ -776,7 +776,7 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s\n%s\n%s# Owner message\n\n%s", triagerPrompt, workstreams, history, first.message.Text), nil
+		return fmt.Sprintf("%s\n%s\n%s# %s message\n\n%s", triagerPrompt, workstreams, history, first.message.Author, first.message.Text), nil
 	}
 	repository, err := e.repository(key.Repository)
 	if err != nil {

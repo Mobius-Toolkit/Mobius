@@ -76,6 +76,11 @@ type Engine struct {
 	// running counts the Workers that run.
 	running sync.WaitGroup
 
+	// implementersMu guards implementers, and the pending details of their sessions.
+	implementersMu sync.Mutex
+	// implementers holds the open Implementer session of each task, by the id of the task.
+	implementers map[int64]*Agent
+
 	mu        sync.Mutex
 	listeners map[chan Change]bool
 	// upgradeFailure is the error of the last upgrade, or "".
@@ -94,23 +99,24 @@ type Agents struct {
 // New gives the Engine of the database db and of the GitHub Apps of gh with the settings of cfg.
 func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engine {
 	return &Engine{
-		db:          db,
-		queries:     store.New(db),
-		github:      gh,
-		config:      cfg,
-		agents:      agents,
-		labelsFixed: map[string]bool{},
-		recovered:   map[string]bool{},
-		copied:      map[string]bool{},
-		quiet:       map[int64]quietItem{},
-		ciWait:      map[int64]ciWait{},
-		limitItems:  map[config.Harness]int64{},
-		workers:     newWorkers(),
-		chats:       map[ChatKey]*chat{},
-		triages:     map[triageKey]triage{},
-		checks:      make(chan struct{}, cfg.MaxChecks),
-		stops:       map[any]stopper{},
-		listeners:   map[chan Change]bool{},
+		db:           db,
+		queries:      store.New(db),
+		github:       gh,
+		config:       cfg,
+		agents:       agents,
+		labelsFixed:  map[string]bool{},
+		recovered:    map[string]bool{},
+		copied:       map[string]bool{},
+		quiet:        map[int64]quietItem{},
+		ciWait:       map[int64]ciWait{},
+		limitItems:   map[config.Harness]int64{},
+		workers:      newWorkers(),
+		chats:        map[ChatKey]*chat{},
+		triages:      map[triageKey]triage{},
+		checks:       make(chan struct{}, cfg.MaxChecks),
+		stops:        map[any]stopper{},
+		implementers: map[int64]*Agent{},
+		listeners:    map[chan Change]bool{},
 	}
 }
 
