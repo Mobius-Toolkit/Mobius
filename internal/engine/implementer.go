@@ -312,11 +312,11 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err != nil {
 		return err
 	}
-	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: "ready_for_review"})
-	if err != nil || queued == 0 {
+	if err := makeDraft(ctx, repository, pullRequest); err != nil {
 		return err
 	}
-	if err := makeDraft(ctx, repository, pullRequest); err != nil {
+	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: "ready_for_review"})
+	if err != nil || queued == 0 {
 		return err
 	}
 	j := job{
