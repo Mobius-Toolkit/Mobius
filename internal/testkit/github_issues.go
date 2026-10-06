@@ -271,6 +271,20 @@ func (g *FakeGitHub) AddComment(repository string, number int64, author, body st
 	return g.comment(issueKey{repository, number}, author, body).ID
 }
 
+// listedComment is a comment that the next issue list with its issue adds after it builds its page.
+type listedComment struct {
+	key          issueKey
+	author, body string
+}
+
+// AddCommentAfterList adds a comment to the issue number after the next issue list that has the issue. The page of
+// that list shows the issue without the comment, but a later read of the comments gives the comment.
+func (g *FakeGitHub) AddCommentAfterList(repository string, number int64, author, body string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.commentsAfterList = append(g.commentsAfterList, listedComment{issueKey{repository, number}, author, body})
+}
+
 // AddAppComment adds a comment with body of author to the issue number, written through the Mobius App, as the gh of
 // the Lead writes it.
 func (g *FakeGitHub) AddAppComment(repository string, number int64, author, body string) {
@@ -457,6 +471,13 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
+	g.commentsAfterList = slices.DeleteFunc(g.commentsAfterList, func(pending listedComment) bool {
+		if !slices.Contains(keys, pending.key) {
+			return false
+		}
+		g.comment(pending.key, pending.author, pending.body)
+		return true
+	})
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
