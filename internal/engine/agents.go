@@ -76,6 +76,10 @@ type Agent struct {
 
 	mu       sync.Mutex
 	prompted bool
+	// turn tells that a turn runs: Prompt sent its text and the agent did not end the turn.
+	turn bool
+	// details are the new details from the Owner that the next prompt of the Implementer carries.
+	details []string
 	// chunk is the JSON of the last Transcript row while that row is a message chunk or a thought chunk, and chunkID is its id.
 	chunk   map[string]any
 	chunkID int64
@@ -325,7 +329,13 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 		if err != nil {
 			return err
 		}
+		a.mu.Lock()
+		a.turn = true
+		a.mu.Unlock()
 		_, err = a.session.Prompt(ctx, text)
+		a.mu.Lock()
+		a.turn = false
+		a.mu.Unlock()
 		if err == nil {
 			return a.engine.endPauseSince(ctx, paused)
 		}

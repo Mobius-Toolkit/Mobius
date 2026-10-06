@@ -560,7 +560,13 @@ func (e *Engine) implement(ctx context.Context, a *Agent, j *job) (result, error
 	if err := a.open(ctx); err != nil {
 		return result{}, err
 	}
+	e.implementersMu.Lock()
+	e.implementers[j.task.ID] = a
+	e.implementersMu.Unlock()
 	r, failedLog, err := e.turnsAndChecks(ctx, a, j)
+	e.implementersMu.Lock()
+	delete(e.implementers, j.task.ID)
+	e.implementersMu.Unlock()
 	a.closeHarness()
 	if err != nil {
 		return result{}, err
@@ -625,10 +631,13 @@ func (e *Engine) prepareWorktree(ctx context.Context, j *job, worktree string) e
 }
 
 // turnsAndChecks runs the turns of the agent until the local check passes. It gives a result when the Implementer
-// calls cannot_do, and the end of the output of the last check when the check fails max_check_attempts times.
+// calls cannot_do, and the end of the output of the last check when the check fails max_check_attempts times. New
+// details of the Owner stop the turn that runs and go to the agent as the next prompt, with no check and no attempt
+// of their own.
 func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result, string, error) {
 	prompt := j.prompt
-	for attempts := 1; ; attempts++ {
+	attempts := 1
+	for {
 		err := a.Prompt(ctx, prompt)
 		a.mu.Lock()
 		reason := a.cannotDo
@@ -636,19 +645,78 @@ func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result,
 		if reason != "" {
 			return &result{outcome: cannotDo, text: reason}, "", nil
 		}
+		if details := e.takeDetails(j.task.ID, a, false); details != "" && ctx.Err() == nil {
+			prompt = detailsPrompt(details)
+			continue
+		}
 		if err != nil {
 			return nil, "", err
 		}
 		output, passed, err := e.check(ctx, a, j)
-		if err != nil || passed {
+		if err != nil {
 			return nil, "", err
 		}
+		last := passed || attempts >= e.config.MaxCheckAttempts
+		if details := e.takeDetails(j.task.ID, a, last); details != "" && ctx.Err() == nil {
+			prompt = detailsPrompt(details)
+			continue
+		}
+		if passed {
+			return nil, "", nil
+		}
 		output = tail(output, logTail)
-		if attempts >= e.config.MaxCheckAttempts {
+		if last {
 			return nil, output, nil
 		}
+		attempts++
 		prompt = fmt.Sprintf("The local check `.mobius/check` failed. Fix the code and commit your work. The output ends with these lines:\n\n```\n%s\n```", output)
 	}
+}
+
+func detailsPrompt(details string) string {
+	return "The Owner gave new details for the task. They replace the old text where they differ.\n\n" + details
+}
+
+// takeDetails gives the new details that wait for the Implementer a, and clears them. With last, and no details,
+// the session leaves implementers in the same step, so a later send_details finds no open session.
+func (e *Engine) takeDetails(task int64, a *Agent, last bool) string {
+	e.implementersMu.Lock()
+	defer e.implementersMu.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	details := strings.Join(a.details, "\n\n")
+	a.details = nil
+	if last && details == "" {
+		delete(e.implementers, task)
+	}
+	return details
+}
+
+// sendDetails gives new details of the Owner to the open Implementer session of the task. A turn that runs ends, and
+// the details go to the agent as the next prompt.
+func (e *Engine) sendDetails(ctx context.Context, c caller, repository github.Repository, input textInput) (string, error) {
+	if empty(input.Text) {
+		return "", refuse("text must not be empty.")
+	}
+	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
+	if err != nil {
+		return "", err
+	}
+	e.implementersMu.Lock()
+	defer e.implementersMu.Unlock()
+	a, ok := e.implementers[task.ID]
+	if !ok {
+		return "", refuse("No Implementer session of #%d is open now. A later session reads the updated issue body.", input.N)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.details = append(a.details, input.Text)
+	if a.turn {
+		if err := a.cancel(ctx); err != nil {
+			return "", err
+		}
+	}
+	return fmt.Sprintf("Sent the details to the Implementer of #%d.", input.N), nil
 }
 
 // check runs the local check of the worktree of a in a check slot, and gives its output and true when it passes. A

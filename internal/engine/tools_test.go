@@ -79,7 +79,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"ask", "comment_pull_request", "create_issue", "create_workstream", "decline", "hold_event", "list_tasks", "mark_ready", "move_task", "read_issue", "reply_thread", "start_fix_round", "start_implementer", "start_researcher", "tell_owner"}
+	want := []string{"ask", "comment_pull_request", "create_issue", "create_workstream", "decline", "hold_event", "list_tasks", "mark_ready", "move_task", "read_issue", "reply_thread", "send_details", "start_fix_round", "start_implementer", "start_researcher", "tell_owner"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}
@@ -538,5 +538,21 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndMakesItReady(t *testing.T) {
 	}
 	if got := fake.Labels(shop, 50); !reflect.DeepEqual(got, []string{"mobius:ready"}) {
 		t.Errorf("labels = %v", got)
+	}
+}
+
+func TestSendDetailsRefusesAnIssueOfAnotherWorkstreamAndATaskWithNoOpenImplementerSession(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("send_details", `{ n = 41, text = "Round prices down." }`)+
+		call("send_details", `{ n = 42, text = "Round prices down." }`))
+	addTask(t, server, fake, 41, 12, 45)
+	addTask(t, server, fake, 42, 20, 46)
+
+	session := run(t, server, leadSpec(t), "1. ", "2. ")
+
+	want := "error: No Implementer session of #41 is open now. A later session reads the updated issue body." +
+		"error: #42 has no live task in this Workstream."
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q", got)
 	}
 }
