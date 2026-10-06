@@ -479,6 +479,8 @@ export interface TaskLine {
   depth: number;
   /** Number is the number of the task issue */
   number: number;
+  /** OtherRepository is true for a task in another repository than the Workstream */
+  otherRepository: boolean;
   /** State is the Mobius label of the issue with no "mobius:", queued for a task that waits for a slot, or open */
   state: string;
   /** Title is the title of the task issue */
@@ -2701,6 +2703,80 @@ export const resumeIssue = async (owner: string,
 
   const data: resumeIssueResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as resumeIssueResponse
+}
+
+
+
+export type startIssueResponse204 = {
+  data: void
+  status: 204
+}
+
+export type startIssueResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type startIssueResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type startIssueResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type startIssueResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type startIssueResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type startIssueResponseSuccess = (startIssueResponse204) & {
+  headers: Headers;
+};
+export type startIssueResponseError = (startIssueResponse400 | startIssueResponse401 | startIssueResponse409 | startIssueResponse422 | startIssueResponse500) & {
+  headers: Headers;
+};
+
+export type startIssueResponse = (startIssueResponseSuccess | startIssueResponseError)
+
+export const getStartIssueUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/repositories/${owner}/${name}/issues/${number}/start`
+}
+
+/**
+ * StartIssue adds mobius:ready to an issue, so Mobius starts the task. Mobius adds the label with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+ */
+export const startIssue = async (owner: string,
+    name: string,
+    number: number, ): Promise<startIssueResponse> => {
+
+  const res = await fetch(getStartIssueUrl(owner,name,number),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: startIssueResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as startIssueResponse
 }
 
 

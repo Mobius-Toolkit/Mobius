@@ -17,17 +17,20 @@ import (
 //go:embed prompts/researcher.md
 var researcherPrompt string
 
-// startResearcher starts a Researcher with the question of the Lead of c. The report goes to the chat of the Lead as
-// a Researcher message. A stop of the Lead stops the Researcher with no report.
-func (e *Engine) startResearcher(_ context.Context, c caller, _ github.Repository, input questionInput) (string, error) {
+// startResearcher starts a Researcher with the question of the Lead or of the Triager chat c. The report goes to the
+// chat of c as a Researcher message. A stop of the Lead stops the Researcher with no report.
+func (e *Engine) startResearcher(_ context.Context, c caller, repository github.Repository, input questionInput) (string, error) {
+	if c.role == TriagerRole && c.repository != "" {
+		return "", refuse("Only the Triager chat or the Lead chat starts a Researcher.")
+	}
 	if empty(input.Question) {
 		return "", refuse("question must not be empty.")
 	}
 	if e.draining() {
 		return "", refuse("Mobius prepares an upgrade, so no Researcher starts now.")
 	}
-	e.startWorker(leadChat(c.repository, c.workstream), func(ctx context.Context) {
-		if err := e.research(ctx, c, input.Question); err != nil {
+	e.startWorker(ChatKey{c.organization, c.repository, c.workstream}, func(ctx context.Context) {
+		if err := e.research(ctx, c, repository, input.Question); err != nil {
 			log.Printf("Researcher of %s#%d: %v", c.repository, c.workstream, err)
 		}
 	})
@@ -36,11 +39,11 @@ func (e *Engine) startResearcher(_ context.Context, c caller, _ github.Repositor
 
 // research runs the Researcher session of the question in a worktree that is detached at the default branch. A failed
 // Researcher reports its error.
-func (e *Engine) research(ctx context.Context, c caller, question string) error {
+func (e *Engine) research(ctx context.Context, c caller, repository github.Repository, question string) error {
 	a, err := e.addAgent(ctx, Spec{
 		Role:         ResearcherRole,
 		Organization: c.organization,
-		Repository:   c.repository,
+		Repository:   repository.FullName,
 		Workstream:   c.workstream,
 		Parent:       sql.NullInt64{Int64: c.session, Valid: true},
 	})
@@ -50,13 +53,13 @@ func (e *Engine) research(ctx context.Context, c caller, question string) error 
 		}
 		return err
 	}
-	a.spec.Dir = runner.ResearchDir(e.config.DataDir, c.repository, a.id)
+	a.spec.Dir = runner.ResearchDir(e.config.DataDir, repository.FullName, a.id)
 	report, err := e.researchTurn(ctx, a, question)
 	a.closeHarness()
 	ended := context.WithoutCancel(ctx)
 	e.gitMu.Lock()
 	if _, statErr := os.Stat(a.spec.Dir); !errors.Is(statErr, fs.ErrNotExist) {
-		err = errors.Join(err, runner.RemoveWorktree(ended, e.config.DataDir, c.repository, a.spec.Dir))
+		err = errors.Join(err, runner.RemoveWorktree(ended, e.config.DataDir, repository.FullName, a.spec.Dir))
 	}
 	e.gitMu.Unlock()
 	switch {
@@ -92,9 +95,13 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 	if err != nil {
 		return "", err
 	}
-	brief, err := brief(ctx, repository, a.spec.Workstream)
-	if err != nil {
-		return "", err
+	briefSection := ""
+	if a.spec.Workstream != 0 {
+		brief, err := brief(ctx, repository, a.spec.Workstream)
+		if err != nil {
+			return "", err
+		}
+		briefSection = "# Brief\n\n" + brief + "\n\n"
 	}
 	sections, err := e.repositorySections(ctx, repository, ResearcherRole)
 	if err != nil {
@@ -103,13 +110,13 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 	if err := a.open(ctx); err != nil {
 		return "", err
 	}
-	if err := a.Prompt(ctx, fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Question\n\n%s", researcherPrompt, sections, brief, question)); err != nil {
+	if err := a.Prompt(ctx, fmt.Sprintf("%s\n%s%s# Question\n\n%s", researcherPrompt, sections, briefSection, question)); err != nil {
 		return "", err
 	}
 	return a.replyText(), nil
 }
 
-// deliverReport gives the report on the question to the Lead of c as a Researcher message.
+// deliverReport gives the report on the question to the chat of c as a Researcher message.
 func (e *Engine) deliverReport(ctx context.Context, c caller, question, report string) error {
 	text := fmt.Sprintf("Report of the Researcher on \"%s\":\n\n%s", question, report)
 	return e.postChat(ctx, ChatKey{c.organization, c.repository, c.workstream}, researcherAuthor, text)

@@ -33,6 +33,7 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Get("/api/workstreams/{owner}/{name}/{number}/tasks", h.ListTasks, append(loggedIn("tasks"), api.WithErrorResponses(http.StatusNotFound))...)
 	r.Get("/api/needs-human", h.ListNeedsHuman, loggedIn("tasks")...)
 	r.Post("/api/repositories/{owner}/{name}/issues/{number}/resume", h.ResumeIssue, append(loggedIn("tasks"), api.WithErrorResponses(http.StatusConflict))...)
+	r.Post("/api/repositories/{owner}/{name}/issues/{number}/start", h.StartIssue, append(loggedIn("tasks"), api.WithErrorResponses(http.StatusConflict))...)
 	r.Get("/api/chat", h.GetChat, loggedIn("chat")...)
 	r.Post("/api/chat/messages", h.SendChat, append(loggedIn("chat"), api.WithErrorResponses(http.StatusConflict))...)
 	r.Post("/api/chat/stop", h.StopChat, loggedIn("chat")...)
