@@ -409,8 +409,14 @@ func TestASessionDoesNotSendThePromptAfterThePauseWhenTheDrainIsSealed(t *testin
 	if got := <-startDrain(t, server); got != "drained" {
 		t.Fatalf("drain end = %s", got)
 	}
+	if !agent.HarnessRuns() {
+		t.Fatal("the Harness of the session ended before the seal")
+	}
 	if got := server.Engine.Seal(); got != engine.Drained {
 		t.Fatalf("seal = %s", got)
+	}
+	if agent.HarnessRuns() {
+		t.Error("the Harness of the session runs after the seal")
 	}
 	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 

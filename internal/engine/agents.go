@@ -387,6 +387,10 @@ func (a *Agent) release() {
 		a.engine.untrack()
 		a.tracked = false
 	}
+	if a.uncounted {
+		a.engine.holdUncounted(a, false)
+		a.uncounted = false
+	}
 }
 
 // Fail adds err to the Transcript, and ends the agent and the session with the reason "failed". It gives err.
