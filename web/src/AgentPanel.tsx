@@ -176,7 +176,7 @@ function AgentTree({
 function TaskEntry({ owner, name, line }: { owner: string; name: string; line: TaskLine }) {
   const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
-  const state = started ? "ready" : line.state;
+  const state = started && line.state === "open" ? "ready" : line.state;
   const start = () => {
     startIssue(owner, name, line.number)
       .then((res) => {
