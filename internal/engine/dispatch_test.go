@@ -153,23 +153,18 @@ func TestTheFirstPromptHasTheContextAndEachLaterTurnHasOneEvent(t *testing.T) {
 	}
 }
 
-func TestAReadyLabelOfAStrangerOrOfTheMobiusAppDoesNotDispatch(t *testing.T) {
+func TestAReadyLabelOfAStrangerDoesNotDispatch(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 41, "Mine the servers")
 	fake.AddSubIssue(shop, 12, 41)
-	fake.AddIssue(shop, 42, "Label again")
-	fake.AddSubIssue(shop, 12, 42)
 
 	fake.AddLabel(shop, 41, "mobius:ready", "mallory")
-	fake.AddLabel(shop, 42, "mobius:ready", testkit.AppSlug+"[bot]")
 	dispatchTask(fake, 43, "Add plan model")
 
 	liveTaskOf(t, server, 43)
-	for _, number := range []int64{41, 42} {
-		if hasLiveTask(t, server, number) || !slices.Equal(fake.Labels(shop, number), []string{"mobius:ready"}) {
-			t.Errorf("#%d: labels %v", number, fake.Labels(shop, number))
-		}
+	if hasLiveTask(t, server, 41) || !slices.Equal(fake.Labels(shop, 41), []string{"mobius:ready"}) {
+		t.Errorf("labels %v", fake.Labels(shop, 41))
 	}
 }
 

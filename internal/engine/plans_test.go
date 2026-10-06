@@ -124,7 +124,7 @@ func leadReplies(t *testing.T, server *testserver.Server, number int64) string {
 }
 
 // startWithLeadPlans starts a server with the Workstream #20 and its task #88, and a Lead that plans the new
-// Workstreams #12 and #13 at their creation.
+// Workstreams #12, #13 and #14 at their creation.
 func startWithLeadPlans(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
 	fake.AddIssue(shop, 20, "Billing")
@@ -140,6 +140,10 @@ call = { tool = "create_issue", arguments = { title = "Add plan model", body = "
 [[prompts]]
 when = "creation of Workstream #13"
 call = { tool = "mark_ready", arguments = { n = 30 } }
+
+[[prompts]]
+when = "creation of Workstream #14"
+call = { tool = "mark_ready", arguments = { n = 31 } }
 `)
 	server := startServer(t, fake, dataDir, "")
 	server.WaitForFirstPoll(t, shop)
@@ -172,7 +176,7 @@ func TestTheLeadCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T) {
 	waitForTasks(t, server, []taskLine{task})
 }
 
-func TestMarkReadyAddsTheReadyLabelWhenTheWorkstreamHasNoAutopilot(t *testing.T) {
+func TestMarkReadyStartsTheTaskWhenTheWorkstreamHasNoAutopilot(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithLeadPlans(t, fake)
 	fake.AddIssue(shop, 13, "Plan prices")
@@ -182,11 +186,25 @@ func TestMarkReadyAddsTheReadyLabelWhenTheWorkstreamHasNoAutopilot(t *testing.T)
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
 
 	testkit.WaitFor(t, func() bool { return leadReplies(t, server, 13) == "Marked #30 ready." })
-	if !slices.Contains(fake.Labels(shop, 30), "mobius:ready") {
-		t.Errorf("labels = %v", fake.Labels(shop, 30))
+	testkit.WaitFor(t, func() bool { return hasLiveTask(t, server, 30) })
+	if slices.Contains(fake.Labels(shop, 13), "mobius:autopilot") {
+		t.Errorf("labels = %v", fake.Labels(shop, 13))
 	}
+}
+
+func TestMarkReadyOfAnIssueWithAnOpenBlockerWaitsWhenTheWorkstreamHasNoAutopilot(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithLeadPlans(t, fake)
+	fake.AddIssue(shop, 14, "Plan limits")
+	fake.AddIssue(shop, 31, "Add plan limit")
+	fake.AddSubIssue(shop, 14, 31)
+	fake.AddBlockedBy(shop, 31, 88)
+
+	fake.AddLabel(shop, 14, "mobius:workstream", "owner")
+
+	testkit.WaitFor(t, func() bool { return leadReplies(t, server, 14) == "Marked #31 ready." })
 	waitForPolls(t, fake)
-	if hasLiveTask(t, server, 30) || slices.Contains(fake.Labels(shop, 13), "mobius:autopilot") {
-		t.Error("the task started")
+	if hasLiveTask(t, server, 31) || !slices.Contains(fake.Labels(shop, 31), "mobius:ready") {
+		t.Errorf("labels = %v", fake.Labels(shop, 31))
 	}
 }

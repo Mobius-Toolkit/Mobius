@@ -23,7 +23,7 @@ const readyEndpoint = "ready"
 //   - A task that waits for a human, and a stopped task with a pull request, continues (Mobius-rust#225,
 //     Mobius-rust#253). A mobius:ready of the Mobius App needs Autopilot for that. Each other issue with a live task
 //     loses mobius:ready.
-//   - An issue with an open blocker waits. A mobius:ready of the Mobius App needs Autopilot.
+//   - An issue with an open blocker waits.
 //   - Each other issue gets a new task. A stopped task with no pull request ends first.
 //
 // The drain holds each new dispatch and Triager, and then the next poll after the drain reads the same list again.
@@ -96,15 +96,6 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		}
 		if issue.GetIssueDependenciesSummary().GetBlockedBy() > 0 {
 			continue
-		}
-		if strings.EqualFold(actor, appLogin(repository.AppSlug)) {
-			on, err := e.workstreamAutopilot(ctx, repository, workstream)
-			if err != nil {
-				return err
-			}
-			if !on {
-				continue
-			}
 		}
 		if live {
 			if err := e.queries.EndTask(ctx, task.ID); err != nil {
