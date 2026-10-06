@@ -320,7 +320,7 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 		}
 		_, err = a.session.Prompt(ctx, text)
 		if err == nil {
-			return nil
+			return a.engine.endPauseOf(ctx, a.harness)
 		}
 		limited, waitErr := a.waitOutLimit(ctx, err)
 		if waitErr != nil {

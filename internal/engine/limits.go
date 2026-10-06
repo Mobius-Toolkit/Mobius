@@ -23,6 +23,8 @@ const (
 	pausedPrefix = "paused until "
 	// noTimeWait is the pause after a usage limit with no reset time.
 	noTimeWait = 30 * time.Minute
+	// resetTolerance is how long after a reset time in the text of a usage limit the reset time still counts as now.
+	resetTolerance = 5 * time.Minute
 	// usageLimitKind is the kind of the Inbox item of a pause.
 	usageLimitKind = "usage limit"
 )
@@ -77,7 +79,7 @@ func detect(harness config.Harness, err *acp.RequestError, hint, now time.Time) 
 	return reset, true
 }
 
-// resetsAt reads "resets 3pm" or "resets 17:30" in text, and gives the next such time in UTC, or zero.
+// resetsAt reads "resets 3pm" or "resets 17:30" in text, and gives the next such time in UTC, or zero. A time that has just passed gives zero too.
 func resetsAt(text string, now time.Time) time.Time {
 	_, rest, ok := strings.Cut(text, "resets ")
 	if !ok {
@@ -119,6 +121,9 @@ func resetsAt(text string, now time.Time) time.Time {
 	today := time.Date(now.Year(), now.Month(), now.Day(), int(hour), int(minute), 0, 0, time.UTC)
 	if today.After(now) {
 		return today
+	}
+	if now.Sub(today) <= resetTolerance {
+		return time.Time{}
 	}
 	return today.AddDate(0, 0, 1)
 }
@@ -243,6 +248,18 @@ func (e *Engine) Resume(ctx context.Context, inboxItem int64) error {
 		}
 	}
 	return nil
+}
+
+// endPauseOf ends the pause of harness, if it has one.
+func (e *Engine) endPauseOf(ctx context.Context, harness config.Harness) error {
+	pause, err := e.queries.GetHarnessPause(ctx, string(harness))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return e.endPause(ctx, pause)
 }
 
 func (e *Engine) endPause(ctx context.Context, pause store.HarnessPause) error {

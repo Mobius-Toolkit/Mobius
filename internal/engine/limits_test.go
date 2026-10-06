@@ -27,6 +27,18 @@ error = { code = -32011, message = "Rate limited", data = { retryAfterSeconds = 
 reply = ["Done."]
 `
 
+// The first prompt hits the usage limit of Claude Code, and the same prompt again and the next prompt do the work.
+const claudeCodeLimit = `
+[[prompts]]
+error = { code = -32603, message = "Rate limited", data = { errorKind = "rate_limit" } }
+
+[[prompts]]
+reply = ["Noted."]
+
+[[prompts]]
+reply = ["Noted."]
+`
+
 // seed runs the SQL statements on the database in dataDir, as a server of an earlier run.
 func seed(t *testing.T, dataDir string, statements ...string) {
 	t.Helper()
@@ -194,5 +206,63 @@ func TestAUsageLimitOfTheImplementerHoldsThePullRequestUntilResume(t *testing.T)
 	prompts := promptTexts(t, server, roleSessions(t, server, engine.ImplementerRole)[0].ID)
 	if len(prompts) != 2 || prompts[0] != prompts[1] {
 		t.Errorf("prompts = %q", prompts)
+	}
+}
+
+func TestASuccessfulPromptEndsThePauseOfItsHarness(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Done.\"]\n")
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	for _, statement := range []string{
+		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
+		 VALUES (5, 'usage limit', 'owner', 'owner/shop', 12, 12, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z')`,
+		`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('devin', '2099-01-01T00:00:00Z', 5)`,
+	} {
+		if _, err := server.DB.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := agent.Prompt(t.Context(), "Store plans in cents."); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, paused := devinPause(t, server); paused || !dismissed(t, server, 5) {
+		t.Errorf("paused = %v, dismissed = %v", paused, dismissed(t, server, 5))
+	}
+}
+
+func TestAnEventForAPausedLeadGoesToThatLeadAfterThePause(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, claudeCodeLimit, keepSessionOpen)
+	sendChat(t, server, leadChat, "Plan the API")
+	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range inbox(t, server) {
+			if item.Kind == "usage limit" {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+	dispatchTask(fake, 41, "Add plan model")
+	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 1 })
+	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 1 || len(promptTexts(t, server, got[0].ID)) != 1 {
+		t.Errorf("sessions = %+v", got)
+	}
+
+	if err := server.Engine.Resume(t.Context(), item.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
+		prompts := leadPrompts(t, server)
+		return prompts, len(prompts) == 3 && eventDelivered(t, server)
+	})
+	if prompts[0] != prompts[1] || !strings.HasPrefix(prompts[2], "# Event\n\n") || !strings.Contains(prompts[2], " dispatch of #41 ") {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 1 {
+		t.Errorf("sessions = %+v", got)
 	}
 }

@@ -71,3 +71,16 @@ func TestDevinTakesTheRetryTimeAndWaits30MinutesWithNoTime(t *testing.T) {
 		t.Errorf("until = %v", until)
 	}
 }
+
+func TestAResetTimeThatJustPassedGivesTheWaitWithNoTimeAndALaterOneMovesToTheNextDay(t *testing.T) {
+	limit := &acp.RequestError{Code: -32603, Message: "Your limit resets 10am", Data: map[string]any{"errorKind": "rate_limit"}}
+	justPassed := limitNow.Add(30 * time.Second)
+	hoursLater := limitNow.Add(3 * time.Hour)
+
+	if until, ok := detect(config.ClaudeCode, limit, time.Time{}, justPassed); !ok || !until.Equal(justPassed.Add(noTimeWait)) {
+		t.Errorf("until = %v, %v", until, ok)
+	}
+	if until, ok := detect(config.ClaudeCode, limit, time.Time{}, hoursLater); !ok || !until.Equal(time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)) {
+		t.Errorf("until = %v, %v", until, ok)
+	}
+}
