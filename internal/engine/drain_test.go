@@ -422,6 +422,28 @@ func TestASessionSendsThePromptAfterThePauseWhenTheSealIsAborted(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return len(promptTexts(t, server, agent.ID())) == 2 })
 }
 
+func TestASessionSendsThePromptWhenThePauseEndsInASealedDrainAndTheSealIsAborted(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimitThenHang)
+	agent := startPausedImplementer(t, server, fake)
+	defer end(t, agent, "stopped")
+	if got := <-startDrain(t, server); got != "drained" {
+		t.Fatalf("drain end = %s", got)
+	}
+	if got := server.Engine.Seal(); got != engine.Drained {
+		t.Fatalf("seal = %s", got)
+	}
+	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+	if err := server.Engine.Resume(t.Context(), found.inboxItem); err != nil {
+		t.Fatal(err)
+	}
+	waitForPolls(t, fake)
+
+	server.Engine.AbortDrain()
+
+	testkit.WaitFor(t, func() bool { return len(promptTexts(t, server, agent.ID())) == 2 })
+}
+
 func TestASessionDoesNotSendThePromptAfterThePauseWhenTheDrainIsSealed(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimit)

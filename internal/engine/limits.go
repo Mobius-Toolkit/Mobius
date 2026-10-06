@@ -300,7 +300,7 @@ func pausedReason(pause store.HarnessPause) (string, error) {
 
 // waitForPause holds until the Harness of a has no pause. The session shows the pause in its queue reason while it
 // waits. While the drain is on, the drain does not count the session. After the end of the pause, the session counts
-// again before it goes on. After seal, it does not go on: it waits until the restart ends it.
+// again before it goes on. After seal, it does not go on: it waits until abortDrain or the restart ends it.
 func (a *Agent) waitForPause(ctx context.Context) error {
 	e := a.engine
 	shown := false
@@ -309,8 +309,12 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 		pause, err := e.queries.GetHarnessPause(ctx, string(a.harness))
 		if errors.Is(err, sql.ErrNoRows) {
 			if !a.setUncounted(false) {
-				<-ctx.Done()
-				return ctx.Err()
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-changed:
+					continue
+				}
 			}
 			if !shown {
 				return nil
