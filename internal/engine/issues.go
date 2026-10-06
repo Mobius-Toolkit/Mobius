@@ -47,15 +47,11 @@ func (e *Engine) readIssue(ctx context.Context, repository github.Repository, nu
 	}
 	var text strings.Builder
 	fmt.Fprintf(&text, "#%d %s (%s, %s)\n\n%s\n\n# Comments\n", number, issue.GetTitle(), kind, issue.GetState(), issue.GetBody())
-	comments, err := repository.Comments(ctx, number)
+	comments, err := conversationComments(ctx, repository, number, trusted)
 	if err != nil {
 		return "", err
 	}
-	for _, comment := range comments {
-		if login := comment.GetUser().GetLogin(); trusted(login) {
-			text.WriteString(entry(login, comment.GetCreatedAt().Time, "", comment.GetBody()))
-		}
-	}
+	text.WriteString(comments)
 	if !issue.IsPullRequest() {
 		return text.String(), nil
 	}
@@ -70,11 +66,50 @@ func (e *Engine) readIssue(ctx context.Context, repository github.Repository, nu
 		}
 	}
 	text.WriteString("\n# Review threads\n")
-	reviewComments, err := repository.ReviewComments(ctx, number)
+	reviewThreads, err := reviewThreads(ctx, repository, number, trusted)
 	if err != nil {
 		return "", err
 	}
-	return text.String() + threads(reviewComments, trusted), nil
+	return text.String() + reviewThreads, nil
+}
+
+// readPullRequestComments gives the text of the conversation comments and the review threads of the pull request number.
+// A comment of an untrusted author is absent from the text.
+func (e *Engine) readPullRequestComments(ctx context.Context, repository github.Repository, number int64) (string, error) {
+	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
+	comments, err := conversationComments(ctx, repository, number, trusted)
+	if err != nil {
+		return "", err
+	}
+	reviewThreads, err := reviewThreads(ctx, repository, number, trusted)
+	if err != nil {
+		return "", err
+	}
+	return "# Pull request comments\n" + comments + "\n# Review threads\n" + reviewThreads, nil
+}
+
+// conversationComments gives the text of the conversation comments of trusted authors on the issue or the pull request number.
+func conversationComments(ctx context.Context, repository github.Repository, number int64, trusted func(string) bool) (string, error) {
+	comments, err := repository.Comments(ctx, number)
+	if err != nil {
+		return "", err
+	}
+	var text strings.Builder
+	for _, comment := range comments {
+		if login := comment.GetUser().GetLogin(); trusted(login) {
+			text.WriteString(entry(login, comment.GetCreatedAt().Time, "", comment.GetBody()))
+		}
+	}
+	return text.String(), nil
+}
+
+// reviewThreads gives the text of each review thread of the pull request number that a trusted author started.
+func reviewThreads(ctx context.Context, repository github.Repository, number int64, trusted func(string) bool) (string, error) {
+	comments, err := repository.ReviewComments(ctx, number)
+	if err != nil {
+		return "", err
+	}
+	return threads(comments, trusted), nil
 }
 
 // threads gives the text of each review thread of comments that a trusted author started.
