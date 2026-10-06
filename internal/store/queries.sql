@@ -150,6 +150,11 @@ RETURNING *;
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
 RETURNING *;
 
+-- name: ReopenInboxItem :one
+UPDATE inbox_items SET text = ?, time = ?, dismissed_at = NULL
+WHERE id = ? AND (dismissed_at IS NULL OR julianday(dismissed_at) > julianday(CAST(sqlc.arg(retry_since) AS TEXT)))
+RETURNING *;
+
 -- name: ListOpenInboxItems :many
 SELECT * FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id;
 

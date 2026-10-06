@@ -97,12 +97,13 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 		id               int64
 		kind, text, link string
 		workstream       int64
+		issue            int64
 	}
 	testkit.WaitFor(t, func() bool {
-		err := server.DB.QueryRow("SELECT id, kind, text, link, workstream FROM inbox_items").Scan(&item.id, &item.kind, &item.text, &item.link, &item.workstream)
+		err := server.DB.QueryRow("SELECT id, kind, text, link, workstream, issue FROM inbox_items").Scan(&item.id, &item.kind, &item.text, &item.link, &item.workstream, &item.issue)
 		return err == nil
 	})
-	if item.kind != "usage limit" || !strings.HasPrefix(item.text, "devin reached a usage limit. Mobius sends the prompt again at ") || item.workstream != 12 {
+	if item.kind != "usage limit" || !strings.HasPrefix(item.text, "devin reached a usage limit. Mobius sends the prompt again at ") || item.workstream != 0 || item.issue != 0 {
 		t.Errorf("item = %+v", item)
 	}
 	// Mobius adds the Inbox item before the pause.
@@ -156,6 +157,129 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	}
 	if text := reply(t, server, agent.ID()); text != "Done." {
 		t.Errorf("reply = %q", text)
+	}
+}
+
+// The first two prompts hit the usage limit, the second one with a later reset, and the same prompt again does the work.
+const usageLimitTwice = `
+[[prompts]]
+error = { code = -32011, message = "Rate limited", data = { retryAfterSeconds = 3600 } }
+
+[[prompts]]
+error = { code = -32011, message = "Rate limited", data = { retryAfterSeconds = 7200 } }
+
+[[prompts]]
+reply = ["Done."]
+`
+
+// The first prompt hits the usage limit of Devin and of Claude Code.
+const usageLimitOfTwoHarnesses = `
+[[prompts]]
+error = { code = -32011, message = "Rate limited", data = { errorKind = "rate_limit", retryAfterSeconds = 3600 } }
+
+[[prompts]]
+reply = ["Done."]
+`
+
+func count(t *testing.T, server *testserver.Server, query string) int {
+	t.Helper()
+	var n int
+	if err := server.DB.QueryRow(query).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestARetryThatHitsTheUsageLimitAgainUsesTheInboxItemAndTheChatMessageAgain(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimitTwice)
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.") }()
+	first := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+
+	if err := server.Engine.Resume(t.Context(), first.inboxItem); err != nil {
+		t.Fatal(err)
+	}
+
+	second := testkit.WaitForValue(t, func() (pause, bool) {
+		found, paused := devinPause(t, server)
+		return found, paused && found.until != first.until
+	})
+	if second.inboxItem != first.inboxItem || dismissed(t, server, first.inboxItem) {
+		t.Errorf("pause = %+v, dismissed = %v", second, dismissed(t, server, first.inboxItem))
+	}
+	got := inbox(t, server)
+	want := "devin reached a usage limit. Mobius sends the prompt again at " + parseTime(t, second.until).UTC().Format("2006-01-02 15:04 UTC") + "."
+	if len(got) != 1 || got[0].ID != first.inboxItem || got[0].Text != want {
+		t.Errorf("inbox = %+v, want text %q", got, want)
+	}
+	if n := count(t, server, "SELECT COUNT(*) FROM inbox_items"); n != 1 {
+		t.Errorf("%d Inbox items", n)
+	}
+	if n := count(t, server, "SELECT COUNT(*) FROM chat_messages WHERE author = 'Mobius'"); n != 1 {
+		t.Errorf("%d chat messages", n)
+	}
+
+	if err := server.Engine.Resume(t.Context(), second.inboxItem); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-prompted; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestARetryThatHitsTheUsageLimitAfterARestartUsesTheInboxItemAgain(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	until := time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
+	server, _ := connectWith(t, fake, usageLimit, func(cfg *config.Config) {
+		seed(t, cfg.DataDir,
+			`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
+			 VALUES (5, 'usage limit', 'owner', 'owner/shop', 0, 0, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z')`,
+			`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('devin', '`+until+`', 5)`)
+	})
+	testkit.WaitFor(t, func() bool { return dismissed(t, server, 5) })
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.") }()
+
+	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+
+	if found.inboxItem != 5 || dismissed(t, server, 5) {
+		t.Errorf("pause = %+v, dismissed = %v", found, dismissed(t, server, 5))
+	}
+	if n := count(t, server, "SELECT COUNT(*) FROM inbox_items"); n != 1 {
+		t.Errorf("%d Inbox items", n)
+	}
+	if n := count(t, server, "SELECT COUNT(*) FROM chat_messages WHERE author = 'Mobius'"); n != 0 {
+		t.Errorf("%d chat messages", n)
+	}
+
+	if err := server.Engine.Resume(t.Context(), found.inboxItem); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-prompted; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAUsageLimitOfAnotherHarnessGetsItsOwnInboxItem(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, usageLimitOfTwoHarnesses, keepSessionOpen)
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	go func() { _ = agent.Prompt(t.Context(), "Store plans in cents.") }()
+	testkit.WaitFor(t, func() bool { _, paused := devinPause(t, server); return paused })
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	testkit.WaitFor(t, func() bool {
+		return count(t, server, "SELECT COUNT(*) FROM inbox_items WHERE text LIKE 'claude-code reached a usage limit.%'") == 1
+	})
+	if n := count(t, server, "SELECT COUNT(*) FROM inbox_items WHERE text LIKE 'devin reached a usage limit.%' AND dismissed_at IS NULL"); n != 1 {
+		t.Errorf("%d Inbox items of Devin", n)
 	}
 }
 
