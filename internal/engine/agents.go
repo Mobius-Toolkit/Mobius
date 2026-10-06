@@ -376,10 +376,11 @@ func (a *Agent) resendCancel(ctx context.Context) {
 			return
 		case <-ticker.C:
 			a.mu.Lock()
-			if len(a.details) > 0 {
+			waiting := len(a.details) > 0
+			a.mu.Unlock()
+			if waiting {
 				_ = a.cancel(ctx)
 			}
-			a.mu.Unlock()
 		}
 	}
 }

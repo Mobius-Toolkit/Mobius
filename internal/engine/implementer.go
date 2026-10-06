@@ -703,15 +703,17 @@ func (e *Engine) sendDetails(ctx context.Context, c caller, repository github.Re
 		return "", err
 	}
 	e.implementersMu.Lock()
-	defer e.implementersMu.Unlock()
 	a, ok := e.implementers[task.ID]
 	if !ok {
+		e.implementersMu.Unlock()
 		return "", refuse("No Implementer session of #%d is open now. A later session reads the updated issue body.", input.N)
 	}
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	e.implementersMu.Unlock()
 	a.details = append(a.details, input.Text)
-	if a.turn {
+	turn := a.turn
+	a.mu.Unlock()
+	if turn {
 		if err := a.cancel(ctx); err != nil {
 			return "", err
 		}
