@@ -27,6 +27,9 @@ const (
 	resetTolerance = 5 * time.Minute
 	// usageLimitKind is the kind of the Inbox item of a pause.
 	usageLimitKind = "usage limit"
+	// retryWindow is how long after the end of a pause a new usage limit of the same Harness still counts as a retry
+	// that failed again.
+	retryWindow = 5 * time.Minute
 )
 
 // limitData holds the fields of the data of an ACP error that tell a usage limit.
@@ -179,8 +182,9 @@ func (a *Agent) waitOutLimit(ctx context.Context, err error) (bool, error) {
 	return true, a.engine.waitForPause(ctx, a.harness, a.id)
 }
 
-// pause pauses the Harness of a until the time until, with an Inbox item and a message in the chat of the
-// Workstream of a. A second session at the same pause adds no second Inbox item.
+// pause pauses the Harness of a until the time until. A Harness has one usage-limit Inbox item. A second session at
+// the same pause, and a retry that fails again, use the item again. The first pause also adds a message in the chat of
+// the Workstream of a.
 func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	e.pausing.Lock()
 	defer e.pausing.Unlock()
@@ -192,23 +196,35 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 		return err
 	}
 	text := fmt.Sprintf("%s reached a usage limit. Mobius sends the prompt again at %s.", a.harness, until.UTC().Format(timeFormat))
-	spec := a.spec
-	item, err := e.addInboxItem(ctx, store.AddInboxItemParams{
-		Kind:         usageLimitKind,
-		Organization: spec.Organization,
-		Repository:   spec.Repository,
-		Workstream:   spec.Workstream,
-		Issue:        spec.Workstream,
-		Text:         text,
+	item, err := e.queries.ReopenInboxItem(ctx, store.ReopenInboxItemParams{
+		Text:       text,
+		Time:       now(),
+		ID:         e.limitItems[a.harness],
+		RetrySince: time.Now().Add(-retryWindow).UTC().Format(time.RFC3339Nano),
 	})
-	if err != nil {
+	spec := a.spec
+	switch {
+	case err == nil:
+		e.publish(Change{Inbox: &item})
+	case errors.Is(err, sql.ErrNoRows):
+		item, err = e.addInboxItem(ctx, store.AddInboxItemParams{
+			Kind:         usageLimitKind,
+			Organization: spec.Organization,
+			Repository:   spec.Repository,
+			Text:         text,
+		})
+		if err != nil {
+			return err
+		}
+		e.limitItems[a.harness] = item.ID
+		if _, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, mobiusAuthor, text); err != nil {
+			return err
+		}
+	default:
 		return err
 	}
 	pause := store.HarnessPause{Harness: string(a.harness), PausedUntil: until.UTC().Format(time.RFC3339Nano), InboxItem: item.ID}
 	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
-		return err
-	}
-	if _, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, mobiusAuthor, text); err != nil {
 		return err
 	}
 	return e.timer(pause)

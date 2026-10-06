@@ -54,12 +54,17 @@ export function Inbox({
               <div className="grid min-w-0 grow basis-60 gap-0.5">
                 <span className="break-words">{item.text}</span>
                 <span className="text-sm text-muted-foreground">
-                  {workstreams?.find(
-                    (workstream) =>
-                      workstream.repository === item.repository &&
-                      workstream.number === item.workstream,
-                  )?.title ?? `#${item.workstream}`}{" "}
-                  · #{item.issue} · {dayClock(item.time)}
+                  {item.kind !== InboxItemKind.usage_limit && (
+                    <>
+                      {workstreams?.find(
+                        (workstream) =>
+                          workstream.repository === item.repository &&
+                          workstream.number === item.workstream,
+                      )?.title ?? `#${item.workstream}`}{" "}
+                      · #{item.issue} ·{" "}
+                    </>
+                  )}
+                  {dayClock(item.time)}
                 </span>
               </div>
               <div className="flex items-center gap-2">

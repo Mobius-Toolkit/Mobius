@@ -2311,6 +2311,42 @@ func (q *Queries) QueueTask(ctx context.Context, arg QueueTaskParams) (int64, er
 	return result.RowsAffected()
 }
 
+const reopenInboxItem = `-- name: ReopenInboxItem :one
+UPDATE inbox_items SET text = ?, time = ?, dismissed_at = NULL
+WHERE id = ? AND (dismissed_at IS NULL OR julianday(dismissed_at) > julianday(CAST(?4 AS TEXT)))
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization
+`
+
+type ReopenInboxItemParams struct {
+	Text       string
+	Time       string
+	ID         int64
+	RetrySince string
+}
+
+func (q *Queries) ReopenInboxItem(ctx context.Context, arg ReopenInboxItemParams) (InboxItem, error) {
+	row := q.db.QueryRowContext(ctx, reopenInboxItem,
+		arg.Text,
+		arg.Time,
+		arg.ID,
+		arg.RetrySince,
+	)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Text,
+		&i.Link,
+		&i.Time,
+		&i.DismissedAt,
+		&i.Organization,
+	)
+	return i, err
+}
+
 const requeueTask = `-- name: RequeueTask :execrows
 UPDATE tasks SET state = 'queued' WHERE id = ? AND state IN ('queued', 'working')
 `
