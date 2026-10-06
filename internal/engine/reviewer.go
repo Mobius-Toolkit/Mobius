@@ -258,8 +258,8 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	return e.endReview(ctx, repository, j, comment, a.id)
 }
 
-// endReview acts on the open review threads after the turn of the Reviewer session. With no open thread, the pull
-// request is ready for review. The findings of the Reviewer go to a fix round, or at max_fix_rounds the task goes to a
+// endReview acts on the open review threads after the turn of the Reviewer session. With no open thread, the task waits
+// for the CI of the head. The findings of the Reviewer go to a fix round, or at max_fix_rounds the task goes to a
 // human. Each other open thread has a reply of a trusted user or bot, so the Judge takes it.
 func (e *Engine) endReview(ctx context.Context, repository github.Repository, j *reviewJob, comment, session int64) error {
 	// A comment of a trusted user during the turn resets the counters of the task.
@@ -280,10 +280,11 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 	open := slices.DeleteFunc(reviewThreads, func(thread github.ReviewThread) bool { return !openThread(thread, trusted, app) })
 	limit := int64(e.config.MaxFixRounds)
 	if len(open) == 0 {
-		if err := e.endRound(ctx, repository, j, task, comment, "Ready for review.", open); err != nil {
+		if err := e.endRound(ctx, repository, j, task, comment, "No open findings. Mobius waits for CI.", open); err != nil {
 			return err
 		}
-		return e.readyForReview(ctx, task, j.title, pushed{j.pullRequest, j.head, j.checkRun}, "working")
+		_, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "working"})
+		return err
 	}
 	// A finding of the Reviewer has only comments of the Mobius App.
 	var findings []int64

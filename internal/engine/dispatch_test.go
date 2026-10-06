@@ -400,7 +400,7 @@ func TestTheLeadDeclinesADispatchedTask(t *testing.T) {
 func TestADeclineClosesTheOpenPullRequestOfTheTask(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	// The first prompt of a new session has the earlier events in its history, so the rule of the newest event comes first.
-	lead := "[[prompts]]\nwhen = \"ready for review of #41\"\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"#43 has this work.\" } }\n\n" + leadStarts
+	lead := "[[prompts]]\nwhen = \"ready for Lead approval of #41\"\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"#43 has this work.\" } }\n\n" + leadStarts
 	server, _ := connectTask(t, fake, lead, commits, noChange)
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")

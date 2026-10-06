@@ -44,7 +44,7 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 
 ## Migrations
 
-`internal/store/migrations/` holds copies of the migration files of the Rust version (`crates/mobius-store/migrations` in Mobius-Toolkit/Mobius-rust). Do not change these files. Add a new migration only as a copy of a new Rust migration.
+`internal/store/migrations/` holds the migrations. The files up to `20261003000000_workstream_copy.sql` are copies of the migration files of the Rust version (`crates/mobius-store/migrations` in Mobius-Toolkit/Mobius-rust, which is archived). Do not change a migration file after it merges. To change the schema, add a new file in the same format.
 
 ## Tests
 

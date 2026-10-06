@@ -114,6 +114,8 @@ type FakeGitHub struct {
 	annotations  map[int64][]annotationJSON
 	checkRunApps map[int64]string
 	jobLogs      map[int64]string
+	// The id of a workflow run is its index plus 1.
+	workflowRuns []workflowRun
 }
 
 // A grant is a user code or a refresh token: the login of the user and the App index.
@@ -215,6 +217,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/check-runs/{id}", g.withToken(g.updateCheckRun))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/check-runs/{id}/annotations", g.withToken(g.checkRunAnnotations))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/commits/{sha}/check-runs", g.withToken(g.commitCheckRuns))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs", g.withToken(g.listWorkflowRuns))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/jobs/{id}/logs", g.withToken(g.jobLogLink))
 	mux.HandleFunc("GET /job-logs/{id}", g.jobLog)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/releases/latest", g.getLatestRelease)

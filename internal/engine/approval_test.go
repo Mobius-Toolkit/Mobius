@@ -1,0 +1,308 @@
+package engine_test
+
+import (
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
+)
+
+// longGrace is a review_quiet_period that a test does not reach. A head with no CI stays in checks.
+func longGrace(cfg *config.Config) { cfg.ReviewQuietPeriod = time.Hour }
+
+// checksHead dispatches #41, waits until its task waits for CI, and gives the head of its branch.
+func checksHead(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) string {
+	t.Helper()
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
+	return head(t, fake, "mobius/41")
+}
+
+func TestATaskWaitsInChecksForTheCIOfTheHeadAndThenWaitsForTheLead(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	id := fake.AddCheckRun(shop, checkRun("build", sha, "in_progress", ""))
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "checks" {
+		t.Errorf("state = %s", state)
+	}
+	if !fake.PullRequests(shop)[0].Draft {
+		t.Error("the pull request is ready for review")
+	}
+	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: sha, Status: "in_progress"}}; !slices.Equal(fake.CheckRuns(shop)[:1], want) {
+		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
+	}
+	if events := readyEvents(t, server); events != 0 {
+		t.Errorf("events = %d", events)
+	}
+
+	fake.SetCheckRunStatus(id, "completed", "success")
+
+	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\": pull request #42 https://github.com/owner/shop/pull/42.")
+	waitForPolls(t, fake)
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+	if events := readyEvents(t, server); events != 1 {
+		t.Errorf("events = %d", events)
+	}
+	if !fake.PullRequests(shop)[0].Draft {
+		t.Error("the pull request is ready for review")
+	}
+	if want := (testkit.CheckRun{Name: "Mobius", HeadSHA: sha, Status: "in_progress"}); fake.CheckRuns(shop)[0] != want {
+		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
+	}
+	if items := inbox(t, server); len(items) != 0 {
+		t.Errorf("Inbox = %+v", items)
+	}
+}
+
+func TestAHeadWithNoCheckRunOfAnotherAppAndNoWorkflowRunStaysInChecksUntilTheQuietPeriodEnds(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	checksHead(t, server, fake)
+
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "checks" {
+		t.Errorf("state = %s", state)
+	}
+	if events := readyEvents(t, server); events != 0 {
+		t.Errorf("events = %d", events)
+	}
+}
+
+func TestAHeadWithNoCIGivesTheLeadEventAfterTheQuietPeriod(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.ReviewQuietPeriod = 300 * time.Millisecond })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForReadyEvents(t, server, 1)
+
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+}
+
+func TestAWorkflowRunThatIsNotCompletedKeepsTheTaskInChecks(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	workflow := fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "queued"})
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "checks" {
+		t.Errorf("state = %s", state)
+	}
+
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "checks" {
+		t.Errorf("state = %s", state)
+	}
+
+	fake.SetWorkflowRunStatus(workflow, "completed", "success")
+
+	waitForReadyEvents(t, server, 1)
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+}
+
+func TestACompletedWorkflowRunIsEnoughCIForTheLead(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+
+	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "success"})
+
+	waitForReadyEvents(t, server, 1)
+}
+
+func TestACheckRunOfAnotherHeadDoesNotCountForTheHead(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	checksHead(t, server, fake)
+
+	fake.AddCheckRun(shop, checkRun("build", "0000000000000000000000000000000000000000", "completed", "success"))
+	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: "0000000000000000000000000000000000000000", Status: "completed", Conclusion: "success"})
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "checks" {
+		t.Errorf("state = %s", state)
+	}
+}
+
+func TestAFailedCheckRunInChecksStartsAFixRoundAndGivesTheLeadNoEvent(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("lint", sha, "completed", "success"))
+
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+
+	round := roundPrompt(t, server)
+	if want := "Check run \"build\""; !strings.Contains(round, want) {
+		t.Errorf("%q is not in %s", want, round)
+	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && head(t, fake, "mobius/41") != sha })
+	waitForPolls(t, fake)
+	if events := readyEvents(t, server); events != 0 {
+		t.Errorf("events = %d", events)
+	}
+	if task := liveTask(t, server, 41); task.FixRounds != 1 {
+		t.Errorf("fix rounds = %d", task.FixRounds)
+	}
+}
+
+func TestAFailedCheckRunOnTheHeadOfAFixRoundThatMadeNoCommitKeepsTheTaskInChecks(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+	endedImplementers(t, server, 2)
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
+
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "checks" {
+		t.Errorf("state = %s", state)
+	}
+	if events := readyEvents(t, server); events != 0 {
+		t.Errorf("events = %d", events)
+	}
+}
+
+func TestAFailedCheckRunInApprovalStartsAFixRound(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
+	sha := head(t, fake, "mobius/41")
+
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+
+	roundPrompt(t, server)
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" && head(t, fake, "mobius/41") != sha })
+	waitForReadyEvents(t, server, 2)
+}
+
+func TestAMergeConflictInChecksStartsAConflictRoundAndGivesTheLeadNoEvent(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, mergesCents, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("build", sha, "in_progress", ""))
+
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
+
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" && head(t, fake, "mobius/41") != sha })
+	isAncestor(t, fake, sha, head(t, fake, "mobius/41"))
+	waitForPolls(t, fake)
+	if events := readyEvents(t, server); events != 0 {
+		t.Errorf("events = %d", events)
+	}
+	if task := liveTask(t, server, 41); task.FixRounds != 0 {
+		t.Errorf("fix rounds = %d", task.FixRounds)
+	}
+}
+
+func TestAMergeConflictInApprovalStartsAConflictRound(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, first := startReady(t, fake, "", mergesCents)
+
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
+
+	waitForReadyEvents(t, server, 2)
+	isAncestor(t, fake, first, head(t, fake, "mobius/41"))
+}
+
+func TestACommentInChecksGoesOnlyToTheJudgeAndTheTaskReturnsToChecks(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, "[[prompts]]\nwhen = \"You are the Judge\"\nshell = \"true\"\n\n"+leadStarts, commits, func(cfg *config.Config) { cfg.ReviewQuietPeriod = time.Second })
+	sha := checksHead(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("build", sha, "in_progress", ""))
+
+	fake.AddComment(shop, 42, "owner", "Why cents?")
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(judgePrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "Why cents?") })
+	})
+	testkit.WaitFor(t, func() bool {
+		judges := roleSessions(t, server, engine.JudgeRole)
+		return len(judges) == 1 && judges[0].EndedAt.Valid
+	})
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
+	waitForPolls(t, fake)
+	if slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "Why cents?") }) {
+		t.Errorf("Lead prompts = %q", leadPrompts(t, server))
+	}
+}
+
+// A task that a restart finds in checks or approval has no worker. The poll continues from the state in the store.
+func seedWaiting(t *testing.T, fake *testkit.FakeGitHub, state string) (*testserver.Server, string) {
+	t.Helper()
+	dataDir := t.TempDir()
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
+	testkit.InstallFakeAgent(t, dataDir, options)
+	seed(t, dataDir,
+		`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, branch, pull_request)
+		 VALUES (1, 'owner/shop', 41, 12, '`+state+`', '2026-10-04T10:00:00Z', 'mobius/41', 42)`)
+	cfg := testserver.Config(t, dataDir)
+	cfg.ReviewQuietPeriod = time.Hour
+	server := startServerWith(t, fake, cfg, "")
+	fake.PushCommit(shop, "mobius/41", "Add plan model")
+	if number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41"); number != 42 {
+		t.Fatalf("pull request = %d", number)
+	}
+	return server, head(t, fake, "mobius/41")
+}
+
+func TestARestartKeepsTheWaitOfATaskInChecks(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, sha := seedWaiting(t, fake, "checks")
+	id := fake.AddCheckRun(shop, checkRun("build", sha, "in_progress", ""))
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "checks" {
+		t.Errorf("state = %s", state)
+	}
+	if events := readyEvents(t, server); events != 0 {
+		t.Errorf("events = %d", events)
+	}
+
+	fake.SetCheckRunStatus(id, "completed", "success")
+
+	waitForReadyEvents(t, server, 1)
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+}
+
+func TestARestartKeepsTheWaitOfATaskInApprovalAndGivesNoSecondEvent(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, sha := seedWaiting(t, fake, "approval")
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
+
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+	if events := readyEvents(t, server); events != 0 {
+		t.Errorf("events = %d", events)
+	}
+}

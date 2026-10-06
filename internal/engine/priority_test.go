@@ -44,6 +44,16 @@ func waitForState(t *testing.T, server *testserver.Server, number int64, state s
 	testkit.WaitFor(t, func() bool { return liveTaskState(t, server, number) == state })
 }
 
+// waitForImplementerEnd waits until the Implementer session number count of the issue number ended. A poll that stays at
+// a held request starts no check of the CI, so a test that holds the poll cannot wait for a task to wait for the Lead.
+func waitForImplementerEnd(t *testing.T, server *testserver.Server, number int64, count int) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		sessions := issueImplementers(t, server, number)
+		return len(sessions) >= count && sessions[count-1].EndedAt.Valid
+	})
+}
+
 // liveTaskState gives the state of the live task of the issue number, or "".
 func liveTaskState(t *testing.T, server *testserver.Server, number int64) string {
 	t.Helper()
@@ -60,12 +70,12 @@ func issueImplementers(t *testing.T, server *testserver.Server, number int64) []
 	return slices.DeleteFunc(roleSessions(t, server, engine.ImplementerRole), func(session store.Session) bool { return session.Issue.Int64 != number })
 }
 
-// readyPullRequest dispatches #41, waits until its task is ready for review, and gives the head of its branch and the
+// readyPullRequest dispatches #41, waits until its task waits for the Lead, and gives the head of its branch and the
 // number of its pull request.
 func readyPullRequest(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) (string, int64) {
 	t.Helper()
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForState(t, server, 41, "ready_for_review")
+	waitForState(t, server, 41, "approval")
 	return head(t, fake, "mobius/41"), fake.PullRequests(shop)[0].Number
 }
 
@@ -113,7 +123,8 @@ func testARoundTakesTheFreeSlotBeforeANewTicket(t *testing.T, trigger func(fake 
 		t.Fatal(err)
 	}
 
-	waitForState(t, server, 45, "ready_for_review")
+	waitForImplementerEnd(t, server, 45, 1)
+	waitForImplementerEnd(t, server, 41, 2)
 	startsAfter(t, issueImplementers(t, server, 45)[0], issueImplementers(t, server, 41)[1])
 }
 
@@ -166,7 +177,8 @@ func TestAFreeSlotGoesToTheFixRoundOfAnOldPullRequestBeforeANewTicket(t *testing
 	if state := liveTaskState(t, server, 45); state != "queued" {
 		t.Errorf("state of #45 = %s", state)
 	}
-	waitForState(t, server, 45, "ready_for_review")
+	waitForImplementerEnd(t, server, 45, 1)
+	waitForImplementerEnd(t, server, 41, 2)
 	startsAfter(t, issueImplementers(t, server, 45)[0], issueImplementers(t, server, 41)[1])
 	if head(t, fake, "mobius/41") == sha {
 		t.Error("the fix round pushed nothing")
@@ -197,7 +209,7 @@ func TestAFixRoundOfReviewFindingsDoesNotGoBeforeAnEarlierNewTicket(t *testing.T
 		t.Fatal(err)
 	}
 
-	waitForState(t, server, 45, "ready_for_review")
+	waitForState(t, server, 45, "approval")
 	testkit.WaitFor(t, func() bool { return len(issueImplementers(t, server, 41)) == 2 })
 	startsAfter(t, issueImplementers(t, server, 41)[1], issueImplementers(t, server, 45)[0])
 }
@@ -228,8 +240,8 @@ func TestAPullRequestThatWaitsForTheOwnerDoesNotStopANewTicket(t *testing.T) {
 
 	fake.AddLabel(shop, 43, "mobius:ready", "owner")
 
-	waitForState(t, server, 43, "ready_for_review")
-	if state := liveTaskState(t, server, 41); state != "ready_for_review" {
+	waitForState(t, server, 43, "approval")
+	if state := liveTaskState(t, server, 41); state != "approval" {
 		t.Errorf("state of #41 = %s", state)
 	}
 }
@@ -245,7 +257,7 @@ func TestAPullRequestInNeedsHumanDoesNotStopANewTicket(t *testing.T) {
 
 	fake.AddLabel(shop, 43, "mobius:ready", "owner")
 
-	waitForState(t, server, 43, "ready_for_review")
+	waitForState(t, server, 43, "approval")
 	if state := liveTaskState(t, server, 41); state != "needs_human" {
 		t.Errorf("state of #41 = %s", state)
 	}
@@ -257,11 +269,11 @@ func TestAFailedCheckOnAHeadThatGotItsFixRoundDoesNotStopANewTicket(t *testing.T
 	sha, _ := readyPullRequest(t, server, fake)
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	testkit.WaitFor(t, func() bool { return len(issueImplementers(t, server, 41)) == 2 })
-	waitForState(t, server, 41, "ready_for_review")
+	waitForState(t, server, 41, "checks")
 
 	fake.AddLabel(shop, 43, "mobius:ready", "owner")
 
-	waitForState(t, server, 43, "ready_for_review")
+	waitForState(t, server, 43, "approval")
 	if count := len(issueImplementers(t, server, 41)); count != 2 {
 		t.Errorf("Implementers of #41 = %d", count)
 	}
@@ -304,7 +316,7 @@ func TestAReviewedPullRequestWithAnOpenThreadDoesNotStopANewTicket(t *testing.T)
 		t.Fatal(err)
 	}
 	fake.AddReviewComment(shop, pullRequest, 0, "owner", "Use cents.")
-	if result, err := server.DB.Exec("UPDATE tasks SET state = 'reviewed' WHERE id = ? AND state = 'ready_for_review'", task.ID); err != nil {
+	if result, err := server.DB.Exec("UPDATE tasks SET state = 'reviewed' WHERE id = ? AND state = 'approval'", task.ID); err != nil {
 		t.Fatal(err)
 	} else if rows, _ := result.RowsAffected(); rows != 1 {
 		t.Fatalf("the task of #41 is %s", taskState(t, server))
@@ -315,7 +327,7 @@ func TestAReviewedPullRequestWithAnOpenThreadDoesNotStopANewTicket(t *testing.T)
 
 	fake.AddLabel(shop, 43, "mobius:ready", "owner")
 
-	waitForState(t, server, 43, "ready_for_review")
+	waitForState(t, server, 43, "approval")
 	if state := liveTaskState(t, server, 41); state != "reviewed" {
 		t.Errorf("state of #41 = %s", state)
 	}

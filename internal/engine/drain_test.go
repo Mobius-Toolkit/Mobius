@@ -291,7 +291,7 @@ func TestTheDrainHoldsTheReviewerAndTheJudgeUntilACancel(t *testing.T) {
 func TestTheDrainHoldsAJudgeThatAPollStartedBeforeTheDrain(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.ReviewQuietPeriod = 0 })
-	readyWithItem(t, server, fake)
+	waitForApproval(t, server, fake)
 	reached, release := fake.HoldReviewThreads(shop, 42)
 	// The poll reads the items of the Judge and waits for the review threads.
 	select {
@@ -309,7 +309,7 @@ func TestTheDrainHoldsAJudgeThatAPollStartedBeforeTheDrain(t *testing.T) {
 	if judges := roleSessions(t, server, engine.JudgeRole); len(judges) != 0 {
 		t.Errorf("Judges = %+v", judges)
 	}
-	if state := taskState(t, server); state != "ready_for_review" {
+	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s", state)
 	}
 

@@ -47,7 +47,7 @@ func connectJudge(t *testing.T, fake *testkit.FakeGitHub, judge, implementer str
 		cfg.ReviewQuietPeriod = 200 * time.Millisecond
 		adjust(cfg)
 	})
-	readyWithItem(t, server, fake)
+	waitForApproval(t, server, fake)
 	return server
 }
 
@@ -257,8 +257,8 @@ func TestARemovalOfTheWorkingLabelStopsATaskWhileTheJudgeRunsFromAStateOtherThan
 	})
 }
 
-// A comment on the pull request of a task in ready_for_review goes to the Judge, and not to the Lead (Mobius-rust#274).
-func TestACommentOnThePullRequestOfATaskInReadyForReviewGoesOnlyToTheJudge(t *testing.T) {
+// A comment on the pull request of a task in approval goes to the Judge, and not to the Lead (Mobius-rust#274).
+func TestACommentOnThePullRequestOfATaskInApprovalGoesOnlyToTheJudge(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
 

@@ -35,6 +35,9 @@ type Engine struct {
 	// quiet holds the newest item of the Judge of each task in its quiet period, by the id of the task. Only the poll
 	// uses it.
 	quiet map[int64]quietItem
+	// ciWait holds the head of each task in checks that has no CI, with the time of its first poll, by the id of the task.
+	// Only the poll uses it.
+	ciWait map[int64]ciWait
 
 	workers workers
 	drain   drain
@@ -100,6 +103,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		recovered:   map[string]bool{},
 		copied:      map[string]bool{},
 		quiet:       map[int64]quietItem{},
+		ciWait:      map[int64]ciWait{},
 		limitItems:  map[config.Harness]int64{},
 		workers:     newWorkers(),
 		chats:       map[ChatKey]*chat{},

@@ -18,12 +18,11 @@ import (
 // hangs is an Implementer whose turn ends only at a cancel.
 const hangs = "[[prompts]]\nhang = true\n"
 
-// readyWithItem dispatches #41 and waits until its task is ready for review and the Inbox has its item. Mobius adds
-// the Inbox item after the change of the state.
-func readyWithItem(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) {
+// waitForApproval dispatches #41 and waits until its task waits for the Lead.
+func waitForApproval(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) {
 	t.Helper()
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" && len(inbox(t, server)) > 0 })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 }
 
 // noTaskLabels waits until #41 has no mobius:working and no mobius:needs-human. Mobius removes the labels after it
@@ -47,7 +46,7 @@ func exists(t *testing.T, path string) bool {
 func TestAMergeEndsTheTaskAndKeepsTheBranch(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, commits, noChange)
-	readyWithItem(t, server, fake)
+	waitForApproval(t, server, fake)
 	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
 	if !exists(t, worktree) {
 		t.Fatal("the worktree is gone")
@@ -67,7 +66,7 @@ func TestAMergeEndsTheTaskAndKeepsTheBranch(t *testing.T) {
 func TestAMergeClosesTheOpenIssueAsCompleted(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
-	readyWithItem(t, server, fake)
+	waitForApproval(t, server, fake)
 
 	fake.MergePullRequest(shop, 42)
 
@@ -104,7 +103,7 @@ func TestACloseOfTheIssueBeforeAPullRequestStopsTheImplementerAndEndsTheTask(t *
 func TestARemovalOfTheWorkingLabelStopsTheTask(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, commits, noChange)
-	readyWithItem(t, server, fake)
+	waitForApproval(t, server, fake)
 	items := len(inbox(t, server))
 
 	fake.RemoveLabel(shop, 41, "mobius:working", "mallory")
@@ -162,7 +161,7 @@ func TestAReadyLabelAfterAStopContinuesThePullRequestOnTheSameBranch(t *testing.
 	fake := testkit.NewFakeGitHub(t)
 	finishes := "[[prompts]]\nwhen = \"The human continued the task.\"\nshell = \"echo done > done.txt && git add done.txt && git commit -q -m 'Finish the issue'\"\n\n" + commits
 	server, _ := connectTask(t, fake, leadStarts, finishes, noChange)
-	readyWithItem(t, server, fake)
+	waitForApproval(t, server, fake)
 	first := head(t, fake, "mobius/41")
 	fake.RemoveLabel(shop, 41, "mobius:working", "mallory")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
@@ -174,7 +173,7 @@ func TestAReadyLabelAfterAStopContinuesThePullRequestOnTheSameBranch(t *testing.
 	if !strings.Contains(round, "# Open items\n\nThe human continued the task. Finish the issue and make `.mobius/check` pass.\n") {
 		t.Errorf("round = %s", round)
 	}
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" && head(t, fake, "mobius/41") != first })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" && head(t, fake, "mobius/41") != first })
 	isAncestor(t, fake, first, head(t, fake, "mobius/41"))
 	if task := liveTask(t, server, 41); task.ID != stopped.ID || task.Branch != stopped.Branch {
 		t.Errorf("task = %+v", task)
@@ -191,7 +190,7 @@ func TestAReadyLabelAfterAStopContinuesThePullRequestOnTheSameBranch(t *testing.
 func TestAReadyLabelOnATaskInNeedsHumanSendsTheOpenThreadOfTheMobiusAppToAFixRound(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, fixes, noChange)
-	readyWithItem(t, server, fake)
+	waitForApproval(t, server, fake)
 	thread := fake.AddReviewComment(shop, 42, 0, "mobius-test[bot]", "Store the unit.")
 	testkit.InstallFakeHarness(t, dataDir, "devin", options+"[[prompts]]\nwhen = \"Action: fix\"\ncall = { tool = \"reply_thread\", arguments = { thread = "+itoa(thread)+", text = \"Stored.\" } }\n")
 	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
@@ -202,7 +201,7 @@ func TestAReadyLabelOnATaskInNeedsHumanSendsTheOpenThreadOfTheMobiusAppToAFixRou
 
 	round := roundPrompt(t, server)
 	inOrder(t, round, "# Open items\n", "Thread "+itoa(thread)+", src/plan.rs line 12:", "Store the unit.", "Action: fix\n")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 	if len(fake.PullRequests(shop)) != 1 {
 		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
 	}

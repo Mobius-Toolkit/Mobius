@@ -223,7 +223,7 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 
 // pullRequestComments acts on the new comments of the pull request of a live task: a new comment or review comment of
 // a trusted user resets the counters of the task. A comment goes to the Lead or to the Judge, never to both
-// (Mobius-rust#274). The Judge takes the new comments when the task is in ready_for_review, reviewed or needs_human,
+// (Mobius-rust#274). The Judge takes the new comments when the task is in checks, approval, ready_for_review, reviewed or needs_human,
 // also the comments from a round before that state. A stopped or dispatched task waits for a human or the Lead, so
 // each new comment that is an event goes to the Lead and becomes the last item of the Judge.
 func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repository, pullRequest *gh.Issue, since time.Time) error {
@@ -460,7 +460,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	to := "dispatched"
 	switch {
 	case conflict:
-		to = "ready_for_review"
+		to = "checks"
 	case pullRequest != nil:
 		to = "working"
 	}
@@ -481,6 +481,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	}
 	switch {
 	case conflict:
+		task.State = to
 		err = e.conflictRound(ctx, repository, task, pullRequest)
 	case pullRequest != nil:
 		err = e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items, parent: parent})

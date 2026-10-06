@@ -96,6 +96,11 @@ func (r Repository) CheckRuns(ctx context.Context, sha string) ([]*gh.CheckRun, 
 	return all(r.Client.Checks.ListCheckRunsForRefIter(ctx, r.Owner(), r.Name(), sha, &gh.ListCheckRunsOptions{ListOptions: gh.ListOptions{PerPage: 100}}))
 }
 
+// WorkflowRuns gives the workflow runs of GitHub Actions on the commit sha.
+func (r Repository) WorkflowRuns(ctx context.Context, sha string) ([]*gh.WorkflowRun, error) {
+	return all(r.Client.Actions.ListRepositoryWorkflowRunsIter(ctx, r.Owner(), r.Name(), &gh.ListWorkflowRunsOptions{HeadSHA: sha, ListOptions: gh.ListOptions{PerPage: 100}}))
+}
+
 // CheckRunAnnotations gives the annotations of the check run id.
 func (r Repository) CheckRunAnnotations(ctx context.Context, id int64) ([]*gh.CheckRunAnnotation, error) {
 	return all(r.Client.Checks.ListCheckRunAnnotationsIter(ctx, r.Owner(), r.Name(), id, &gh.ListOptions{PerPage: 100}))
