@@ -134,3 +134,36 @@ func TestARestartStartsTheJudgeAgainBelowTheParentOfTheEndedJudge(t *testing.T) 
 		t.Errorf("Judges = %+v", judges)
 	}
 }
+
+func TestARestartAfterADrainOfAPausedLeadGivesTheWaitingEventToANewLeadAndTheTimerEndsThePause(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	until := time.Now().Add(300 * time.Millisecond).UTC().Format(time.RFC3339Nano)
+	seed(t, dataDir,
+		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, issue, parent, started_at)
+		 VALUES (1, 'lead_chat', 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, NULL, NULL, '2026-10-04T10:00:00Z')`,
+		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
+		 VALUES (5, 'usage limit', 'owner', 'owner/shop', 12, 12, 'claude-code reached a usage limit.', '', '2026-10-04T10:00:00Z')`,
+		`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('claude-code', '`+until+`', 5)`,
+		`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, 'comment', 'A comment before the restart.', '2026-10-04T10:00:00Z')`)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nreply = [\"Seen\"]\n")
+
+	server := startServer(t, fake, dataDir, "")
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "A comment before the restart.") })
+	})
+	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+	if len(sessions) != 2 || sessions[0].ID != 1 || sessions[0].EndReason.String != "restart" {
+		t.Errorf("sessions = %+v", sessions)
+	}
+	testkit.WaitFor(t, func() bool {
+		var paused int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM harness_pauses").Scan(&paused); err != nil {
+			t.Fatal(err)
+		}
+		return paused == 0 && dismissed(t, server, 5)
+	})
+}

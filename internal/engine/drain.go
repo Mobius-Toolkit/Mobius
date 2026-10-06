@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"log"
+	"slices"
 	"sync"
 )
 
@@ -32,6 +33,8 @@ type drain struct {
 	mu      sync.Mutex
 	on      bool
 	running int
+	// uncounted are the sessions that wait for the end of a pause and that the drain does not count.
+	uncounted []*Agent
 	// sealed is set by seal: a sealed drain accepts no new session and ignores a cancel.
 	sealed bool
 	// changed wakes Drain at each change.
@@ -107,6 +110,37 @@ func (e *Engine) untrack() {
 	d.changed.notify()
 }
 
+// setUncounted stops the count of a session of a in the drain, and starts it again with uncounted false. A session that
+// the drain does not count has uncounted true. It gives false when the session must count again after seal.
+func (a *Agent) setUncounted(uncounted bool) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	switch {
+	case uncounted && a.tracked:
+		a.tracked, a.uncounted = false, true
+		a.engine.untrack()
+		a.engine.holdUncounted(a, true)
+	case !uncounted && a.uncounted:
+		if !a.engine.track() {
+			return false
+		}
+		a.tracked, a.uncounted = true, false
+		a.engine.holdUncounted(a, false)
+	}
+	return true
+}
+
+func (e *Engine) holdUncounted(a *Agent, held bool) {
+	d := &e.drain
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if held {
+		d.uncounted = append(d.uncounted, a)
+	} else {
+		d.uncounted = slices.DeleteFunc(d.uncounted, func(other *Agent) bool { return other == a })
+	}
+}
+
 // Draining gives the state of the drain.
 func (e *Engine) Draining() DrainState {
 	d := &e.drain
@@ -115,8 +149,9 @@ func (e *Engine) Draining() DrainState {
 	return DrainState{d.on, d.running}
 }
 
-// Drain holds each new Worker in the queue, asks each chat to close, and waits until no session runs. A cancel ends
-// the wait. A completed drain stays on, so a cancel still releases the held Workers when the restart does not come.
+// Drain holds each new Worker in the queue, asks each chat to close, and waits until no session runs. A session that
+// waits for the end of a pause does not count. A cancel ends the wait. A completed drain stays on, so a cancel still
+// releases the held Workers when the restart does not come.
 func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 	d := &e.drain
 	d.mu.Lock()
@@ -125,6 +160,7 @@ func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 	d.mu.Unlock()
 	// The Workers that wait for a slot show the drain reason.
 	e.workers.changed.notify()
+	e.pausesChanged.notify()
 	e.closeChats()
 	e.publish(Change{Drain: &state})
 	for {
@@ -161,15 +197,29 @@ func (e *Engine) CancelDrain() {
 func (e *Engine) seal() DrainEnd {
 	d := &e.drain
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	switch {
 	case !d.on:
+		d.mu.Unlock()
 		return Cancelled
 	case d.running > 0:
+		d.mu.Unlock()
 		return ""
 	}
 	d.sealed = true
+	d.mu.Unlock()
 	return Drained
+}
+
+// closePaused closes the Harness of each session that waits for the end of a pause, because the Harness process goes
+// on after the exec of the restart. The restart must be sure, because a closed session cannot send a prompt.
+func (e *Engine) closePaused() {
+	d := &e.drain
+	d.mu.Lock()
+	waiting := slices.Clone(d.uncounted)
+	d.mu.Unlock()
+	for _, a := range waiting {
+		a.closeHarness()
+	}
 }
 
 // abortDrain ends a sealed drain when the restart fails.
@@ -193,6 +243,7 @@ func (e *Engine) releaseDrain() {
 	d.changed.notify()
 	e.publish(Change{Drain: &DrainState{}})
 	e.workers.changed.notify()
+	e.pausesChanged.notify()
 	if err := e.wakeAllEvents(context.Background()); err != nil {
 		log.Printf("give the waiting events to the Leads after the drain: %v", err)
 	}

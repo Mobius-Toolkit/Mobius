@@ -157,6 +157,7 @@ func (e *Engine) upgrade(ctx context.Context) (DrainEnd, error) {
 		e.abortDrain()
 		return "", err
 	}
+	e.closePaused()
 	// The exec keeps the environment, the working directory and the terminal. A child process goes on after the
 	// exec, and the new program does not know it, so the drain must be complete.
 	time.AfterFunc(execDelay, func() {
