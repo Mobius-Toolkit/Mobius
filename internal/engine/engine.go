@@ -41,7 +41,7 @@ type Engine struct {
 	// pausing makes one pause of two sessions that reach the same usage limit, and one Inbox item of two checks on a
 	// full disk.
 	pausing sync.Mutex
-	// limitItems holds the last usage-limit Inbox item of each Harness. Only pause uses it, under pausing.
+	// limitItems holds the last usage-limit Inbox item of each Harness. Recover fills it before the first session. Then only pause uses it, under pausing.
 	limitItems map[config.Harness]int64
 	// pausesChanged wakes the sessions that wait for the end of a pause.
 	pausesChanged signal
