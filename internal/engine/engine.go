@@ -171,6 +171,7 @@ func (e *Engine) Recover(ctx context.Context) error {
 		return err
 	}
 	for _, pause := range pauses {
+		e.limitItems[config.Harness(pause.Harness)] = pause.InboxItem
 		if err := e.timer(pause); err != nil {
 			return err
 		}
