@@ -83,6 +83,9 @@ type Agent struct {
 	turn bool
 	// details are the new details from the Owner that the next prompt of the Implementer carries.
 	details []string
+	// wake tells the running Prompt that new details wait. Only the goroutine of that Prompt sends the cancel, so the
+	// cancel never reaches a later turn.
+	wake chan struct{}
 	// chunk is the JSON of the last Transcript row while that row is a message chunk or a thought chunk, and chunkID is its id.
 	chunk   map[string]any
 	chunkID int64
@@ -210,7 +213,7 @@ func (e *Engine) addAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, err
 	}
 	e.publish(Change{Node: new(node(session))})
-	a := &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker}
+	a := &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1)}
 	ended := context.WithoutCancel(ctx)
 	if err := e.takeSlot(ctx, a); err != nil {
 		switch {
@@ -365,8 +368,8 @@ func (a *Agent) cancel(ctx context.Context) error {
 	return a.session.Cancel(ctx)
 }
 
-// resendCancel sends the cancel again each cancelResend while new details wait, until ctx ends. A cancel that
-// sendDetails sends before the agent reads the prompt request does not end the turn.
+// resendCancel sends the cancel at each wake and each cancelResend while new details wait, until ctx ends. A cancel
+// that the agent gets before it reads the prompt request does not end the turn.
 func (a *Agent) resendCancel(ctx context.Context) {
 	ticker := time.NewTicker(cancelResend)
 	defer ticker.Stop()
@@ -374,13 +377,14 @@ func (a *Agent) resendCancel(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-a.wake:
 		case <-ticker.C:
-			a.mu.Lock()
-			waiting := len(a.details) > 0
-			a.mu.Unlock()
-			if waiting {
-				_ = a.cancel(ctx)
-			}
+		}
+		a.mu.Lock()
+		waiting := len(a.details) > 0
+		a.mu.Unlock()
+		if waiting {
+			_ = a.cancel(ctx)
 		}
 	}
 }

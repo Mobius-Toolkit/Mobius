@@ -711,13 +711,13 @@ func (e *Engine) sendDetails(ctx context.Context, c caller, repository github.Re
 	a.mu.Lock()
 	e.implementersMu.Unlock()
 	a.details = append(a.details, input.Text)
-	turn := a.turn
-	a.mu.Unlock()
-	if turn {
-		if err := a.cancel(ctx); err != nil {
-			return "", err
+	if a.turn {
+		select {
+		case a.wake <- struct{}{}:
+		default:
 		}
 	}
+	a.mu.Unlock()
 	return fmt.Sprintf("Sent the details to the Implementer of #%d.", input.N), nil
 }
 
