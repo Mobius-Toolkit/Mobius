@@ -401,6 +401,27 @@ func TestASessionCountsInTheDrainAgainBeforeItSendsThePromptAfterThePause(t *tes
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining() == engine.DrainState{On: true} })
 }
 
+func TestASessionSendsThePromptAfterThePauseWhenTheSealIsAborted(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimitThenHang)
+	agent := startPausedImplementer(t, server, fake)
+	defer end(t, agent, "stopped")
+	if got := <-startDrain(t, server); got != "drained" {
+		t.Fatalf("drain end = %s", got)
+	}
+	if got := server.Engine.Seal(); got != engine.Drained {
+		t.Fatalf("seal = %s", got)
+	}
+	server.Engine.AbortDrain()
+	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+
+	if err := server.Engine.Resume(t.Context(), found.inboxItem); err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool { return len(promptTexts(t, server, agent.ID())) == 2 })
+}
+
 func TestASessionDoesNotSendThePromptAfterThePauseWhenTheDrainIsSealed(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimit)
@@ -415,8 +436,12 @@ func TestASessionDoesNotSendThePromptAfterThePauseWhenTheDrainIsSealed(t *testin
 	if got := server.Engine.Seal(); got != engine.Drained {
 		t.Fatalf("seal = %s", got)
 	}
+	if !agent.HarnessRuns() {
+		t.Fatal("the seal ended the Harness of the session")
+	}
+	server.Engine.ClosePaused()
 	if agent.HarnessRuns() {
-		t.Error("the Harness of the session runs after the seal")
+		t.Error("the Harness of the session runs after the close")
 	}
 	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 

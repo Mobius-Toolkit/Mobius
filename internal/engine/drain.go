@@ -193,9 +193,7 @@ func (e *Engine) CancelDrain() {
 }
 
 // seal closes a completed drain for the restart: no session starts and a cancel does nothing, until abortDrain.
-// It gives Drained when it sealed the drain, Cancelled after a cancel, and "" while a session runs. A sealed drain
-// closes the Harness of each session that waits for the end of a pause, because the Harness process goes on after the
-// exec of the restart.
+// It gives Drained when it sealed the drain, Cancelled after a cancel, and "" while a session runs.
 func (e *Engine) seal() DrainEnd {
 	d := &e.drain
 	d.mu.Lock()
@@ -208,12 +206,20 @@ func (e *Engine) seal() DrainEnd {
 		return ""
 	}
 	d.sealed = true
+	d.mu.Unlock()
+	return Drained
+}
+
+// closePaused closes the Harness of each session that waits for the end of a pause, because the Harness process goes
+// on after the exec of the restart. The restart must be sure, because a closed session cannot send a prompt.
+func (e *Engine) closePaused() {
+	d := &e.drain
+	d.mu.Lock()
 	waiting := slices.Clone(d.uncounted)
 	d.mu.Unlock()
 	for _, a := range waiting {
 		a.closeHarness()
 	}
-	return Drained
 }
 
 // abortDrain ends a sealed drain when the restart fails.

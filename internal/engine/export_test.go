@@ -17,3 +17,13 @@ func (e *Engine) Seal() DrainEnd {
 func (a *Agent) HarnessRuns() bool {
 	return a.session.Cancel(context.Background()) == nil
 }
+
+// ClosePaused closes the Harness of each session that waits for the end of a pause.
+func (e *Engine) ClosePaused() {
+	e.closePaused()
+}
+
+// AbortDrain ends a sealed drain.
+func (e *Engine) AbortDrain() {
+	e.abortDrain()
+}
