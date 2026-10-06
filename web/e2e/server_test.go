@@ -110,7 +110,8 @@ const question = "What is the state of the plans? The full report is at " +
 // Lead chats of owner/shop#12 and plants/garden#12 and to the Triager chat of owner. Each chat session ends before
 // the next step. Then an Implementer and a Lead run, a drain waits for them, and the drain holds a second
 // Implementer. The parent of the first Implementer is a Lead session that ended. Release v0.1.4 of Mobius is newer
-// than this server.
+// than this server. The Inbox has an item of a usage limit of claude-code, with no Workstream and no issue. The
+// table of the pauses has no row, because a pause stops the fake agents.
 //
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
 // unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
@@ -304,6 +305,16 @@ func TestServer(t *testing.T) {
 		}
 		return lines == 1
 	})
+	_, err = queries.AddInboxItem(ctx, store.AddInboxItemParams{
+		Kind:         "usage limit",
+		Organization: "owner",
+		Repository:   "owner/shop",
+		Text:         "claude-code reached a usage limit. Mobius sends the prompt again at 2026-09-28 12:00 UTC.",
+		Time:         time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	fixTimes(t, server)
 	go func() { _, _ = server.Engine.Drain(ctx) }()
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })

@@ -79,7 +79,7 @@ test("screenshots", async ({ page }) => {
   const frame = (device: string, upgrade: Locator) => [
     upgrade,
     page.getByLabel("Work in another organization").filter({ visible: true }),
-    page.locator('a[href="/inbox"]').filter({ visible: true }).getByText("1", { exact: true }),
+    page.locator('a[href="/inbox"]').filter({ visible: true }).getByText("2", { exact: true }),
     ...(device === "desktop" ? [page.locator("nav").first().getByText("needs you")] : []),
   ];
   await screenshot(page, "workstreams", "/workstreams", (device) => [
@@ -132,6 +132,7 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain),
     main.getByText("#45 needs a decision"),
     main.getByText("Integrate loyalty plans ·"),
+    main.getByText("claude-code reached a usage limit."),
   ]);
   await screenshot(page, "activity", "/activity", (device) => [
     ...frame(device, drain),
