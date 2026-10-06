@@ -107,6 +107,24 @@ func (e *Engine) untrack() {
 	d.changed.notify()
 }
 
+// setUncounted stops the count of a session of a in the drain, and starts it again with uncounted false. A session that
+// the drain does not count has uncounted true. It gives false when the session must count again after seal.
+func (a *Agent) setUncounted(uncounted bool) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	switch {
+	case uncounted && a.tracked:
+		a.tracked, a.uncounted = false, true
+		a.engine.untrack()
+	case !uncounted && a.uncounted:
+		if !a.engine.track() {
+			return false
+		}
+		a.tracked, a.uncounted = true, false
+	}
+	return true
+}
+
 // Draining gives the state of the drain.
 func (e *Engine) Draining() DrainState {
 	d := &e.drain
@@ -115,8 +133,8 @@ func (e *Engine) Draining() DrainState {
 	return DrainState{d.on, d.running}
 }
 
-// Drain holds each new Worker in the queue, asks each chat to close, and waits until no session runs. A cancel ends
-// the wait. A completed drain stays on, so a cancel still releases the held Workers when the restart does not come.
+// Drain holds each new Worker in the queue, asks each chat to close, and waits until no session runs. A session that
+// waits for the end of a pause does not count. A cancel ends the wait. A completed drain stays on, so a cancel still releases the held Workers when the restart does not come.
 func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 	d := &e.drain
 	d.mu.Lock()
@@ -125,6 +143,7 @@ func (e *Engine) Drain(ctx context.Context) (DrainEnd, error) {
 	d.mu.Unlock()
 	// The Workers that wait for a slot show the drain reason.
 	e.workers.changed.notify()
+	e.pausesChanged.notify()
 	e.closeChats()
 	e.publish(Change{Drain: &state})
 	for {
@@ -193,6 +212,7 @@ func (e *Engine) releaseDrain() {
 	d.changed.notify()
 	e.publish(Change{Drain: &DrainState{}})
 	e.workers.changed.notify()
+	e.pausesChanged.notify()
 	if err := e.wakeAllEvents(context.Background()); err != nil {
 		log.Printf("give the waiting events to the Leads after the drain: %v", err)
 	}

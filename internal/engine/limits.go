@@ -176,7 +176,7 @@ func (a *Agent) waitOutLimit(ctx context.Context, err error) (bool, error) {
 	if err := a.engine.pause(ctx, a, until); err != nil {
 		return false, err
 	}
-	return true, a.engine.waitForPause(ctx, a.harness, a.id)
+	return true, a.waitForPause(ctx)
 }
 
 // pause pauses the Harness of a until the time until, with an Inbox item and a message in the chat of the
@@ -298,17 +298,24 @@ func pausedReason(pause store.HarnessPause) (string, error) {
 	return pausedPrefix + until.UTC().Format(timeFormat), nil
 }
 
-// waitForPause holds until harness has no pause. The session shows the pause in its queue reason while it waits.
-func (e *Engine) waitForPause(ctx context.Context, harness config.Harness, session int64) error {
+// waitForPause holds until the Harness of a has no pause. The session shows the pause in its queue reason while it
+// waits. While the drain is on, the drain does not count the session. After the end of the pause, the session counts
+// again before it goes on. After seal, it does not go on: it waits until the restart ends it.
+func (a *Agent) waitForPause(ctx context.Context) error {
+	e := a.engine
 	shown := false
 	for {
 		changed := e.pausesChanged.wait()
-		pause, err := e.queries.GetHarnessPause(ctx, string(harness))
+		pause, err := e.queries.GetHarnessPause(ctx, string(a.harness))
 		if errors.Is(err, sql.ErrNoRows) {
+			if !a.setUncounted(false) {
+				<-ctx.Done()
+				return ctx.Err()
+			}
 			if !shown {
 				return nil
 			}
-			cleared, err := e.queries.ClearQueueReason(ctx, session)
+			cleared, err := e.queries.ClearQueueReason(ctx, a.id)
 			if err != nil {
 				return err
 			}
@@ -323,13 +330,14 @@ func (e *Engine) waitForPause(ctx context.Context, harness config.Harness, sessi
 			if err != nil {
 				return err
 			}
-			queued, err := e.queries.SetQueueReason(ctx, store.SetQueueReasonParams{QueueReason: sql.NullString{String: reason, Valid: true}, ID: session})
+			queued, err := e.queries.SetQueueReason(ctx, store.SetQueueReasonParams{QueueReason: sql.NullString{String: reason, Valid: true}, ID: a.id})
 			if err != nil {
 				return err
 			}
 			e.publish(Change{Node: new(node(queued))})
 			shown = true
 		}
+		a.setUncounted(e.draining())
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

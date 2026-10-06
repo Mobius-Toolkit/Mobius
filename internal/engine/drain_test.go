@@ -13,6 +13,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -315,4 +316,113 @@ func TestTheDrainHoldsAJudgeThatAPollStartedBeforeTheDrain(t *testing.T) {
 	cancelDrain(t, server)
 
 	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.JudgeRole)) > 0 })
+}
+
+// The first prompt hits the usage limit of Devin, and the same prompt again hangs.
+const usageLimitThenHang = `
+[[prompts]]
+error = { code = -32011, message = "Rate limited", data = { retryAfterSeconds = 3600 } }
+
+[[prompts]]
+hang = true
+`
+
+func devinLead(cfg *config.Config) {
+	keepSessionOpen(cfg)
+	cfg.Roles.Lead.Harness = config.Devin
+}
+
+func hasPausedReason(session store.Session) bool {
+	return strings.HasPrefix(session.QueueReason.String, "paused until ")
+}
+
+// startPausedImplementer starts an Implementer whose prompt hit the usage limit, and waits until it waits for the pause.
+func startPausedImplementer(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) *engine.Agent {
+	t.Helper()
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	go func() { _ = agent.Prompt(t.Context(), "Store plans in cents.") }()
+	testkit.WaitFor(t, func() bool { return hasPausedReason(session(t, server, agent.ID())) })
+	return agent
+}
+
+func TestTheDrainDoesNotWaitForALeadAndAWorkerThatWaitForAPause(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, usageLimit, devinLead)
+	states := drainEvents(t, server)
+	agent := startPausedImplementer(t, server, fake)
+	sendChat(t, server, leadChat, "Plan the API")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, hasPausedReason)
+	defer end(t, agent, "stopped")
+
+	ends := startDrain(t, server)
+
+	if got := <-ends; got != "drained" {
+		t.Fatalf("drain end = %s", got)
+	}
+	waitForDrain(t, states, drainState{true, 0})
+	if got := server.Engine.Draining(); got != (engine.DrainState{On: true}) {
+		t.Errorf("drain = %+v", got)
+	}
+}
+
+func TestACancelOfTheDrainCountsTheSessionsThatWaitForAPauseAgain(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, usageLimit, devinLead)
+	agent := startPausedImplementer(t, server, fake)
+	sendChat(t, server, leadChat, "Plan the API")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, hasPausedReason)
+	defer end(t, agent, "stopped")
+	if got := <-startDrain(t, server); got != "drained" {
+		t.Fatalf("drain end = %s", got)
+	}
+
+	cancelDrain(t, server)
+
+	testkit.WaitFor(t, func() bool { return server.Engine.Draining() == engine.DrainState{Waiting: 2} })
+}
+
+func TestASessionCountsInTheDrainAgainBeforeItSendsThePromptAfterThePause(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimitThenHang)
+	states := drainEvents(t, server)
+	agent := startPausedImplementer(t, server, fake)
+	if got := <-startDrain(t, server); got != "drained" {
+		t.Fatalf("drain end = %s", got)
+	}
+	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+
+	if err := server.Engine.Resume(t.Context(), found.inboxItem); err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool { return len(promptTexts(t, server, agent.ID())) == 2 })
+	waitForDrain(t, states, drainState{true, 1})
+	end(t, agent, "stopped")
+	testkit.WaitFor(t, func() bool { return server.Engine.Draining() == engine.DrainState{On: true} })
+}
+
+func TestASessionDoesNotSendThePromptAfterThePauseWhenTheDrainIsSealed(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, usageLimit)
+	agent := startPausedImplementer(t, server, fake)
+	defer end(t, agent, "stopped")
+	if got := <-startDrain(t, server); got != "drained" {
+		t.Fatalf("drain end = %s", got)
+	}
+	if got := server.Engine.Seal(); got != engine.Drained {
+		t.Fatalf("seal = %s", got)
+	}
+	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+
+	if err := server.Engine.Resume(t.Context(), found.inboxItem); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForPolls(t, fake)
+	if got := promptTexts(t, server, agent.ID()); len(got) != 1 {
+		t.Errorf("prompts = %q", got)
+	}
+	if got := server.Engine.Draining(); got != (engine.DrainState{On: true}) {
+		t.Errorf("drain = %+v", got)
+	}
 }

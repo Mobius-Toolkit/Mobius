@@ -67,6 +67,9 @@ type Agent struct {
 	slot string
 	// tracked tells that the drain counts the session.
 	tracked bool
+	// uncounted tells that the session waits for the end of a pause and the drain does not count it. It and tracked
+	// are never both true.
+	uncounted bool
 
 	// scratch is the directory of the session below scratch/, or "".
 	scratch string
@@ -378,6 +381,8 @@ func (a *Agent) release() {
 		a.engine.releaseSlot(a.slot)
 		a.slot = ""
 	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.tracked {
 		a.engine.untrack()
 		a.tracked = false
