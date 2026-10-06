@@ -209,6 +209,7 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 	if err != nil {
 		return err
 	}
+	comments = commentsUntilUpdate(comments, issue)
 	replies, answered, err := e.newComments(ctx, repository, task, comments, since)
 	if err != nil {
 		return err
@@ -242,6 +243,7 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 	if err != nil {
 		return err
 	}
+	comments = commentsUntilUpdate(comments, pullRequest)
 	reviewComments, err := repository.ReviewComments(ctx, number)
 	if err != nil {
 		return err
@@ -265,6 +267,14 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 		return err
 	}
 	return e.commentEventsOf(ctx, task, pullRequest, replies)
+}
+
+// commentsUntilUpdate drops the comments that came after the issue was read. The cursor of the poll stops at the update
+// time of the issue, so the next poll reads these comments as new.
+func commentsUntilUpdate(comments []*gh.IssueComment, issue *gh.Issue) []*gh.IssueComment {
+	return slices.DeleteFunc(comments, func(comment *gh.IssueComment) bool {
+		return comment.GetCreatedAt().After(issue.GetUpdatedAt().Time)
+	})
 }
 
 // newComments resets the counters of the task when comments have a new comment of a trusted user. It gives the new
