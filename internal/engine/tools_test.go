@@ -332,7 +332,7 @@ func TestCreateIssueRefusesAParentOutsideTheWorkstreamAndABadBlocker(t *testing.
 	}
 }
 
-func TestMarkReadyAddsTheReadyLabelToATrustedIssueOfTheWorkstream(t *testing.T) {
+func TestMarkReadyStartsATrustedIssueOfTheWorkstream(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("mark_ready", "{ n = 30 }")+call("mark_ready", "{ n = 31 }")+call("mark_ready", "{ n = 32 }"))
 	fake.AddIssue(shop, 13, "Nested")
@@ -352,9 +352,7 @@ func TestMarkReadyAddsTheReadyLabelToATrustedIssueOfTheWorkstream(t *testing.T) 
 	if got := reply(t, server, session); got != want {
 		t.Errorf("reply = %q", got)
 	}
-	if got := fake.Labels(shop, 30); !slices.Contains(got, "mobius:ready") {
-		t.Errorf("labels = %v", got)
-	}
+	testkit.WaitFor(t, func() bool { return hasLiveTask(t, server, 30) })
 	if got := fake.Labels(shop, 31); slices.Contains(got, "mobius:ready") {
 		t.Errorf("labels = %v", got)
 	}
