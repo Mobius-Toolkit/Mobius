@@ -142,3 +142,25 @@ func (h *handlers) ResumeIssue(ctx context.Context, req ResumeIssueRequest) erro
 	}
 	return err
 }
+
+// StartIssueRequest is the request of StartIssue.
+type StartIssueRequest struct {
+	Path struct {
+		// Owner is the owner of the repository
+		Owner string `gork:"owner"`
+		// Name is the name of the repository
+		Name string `gork:"name"`
+		// Number is the number of the issue
+		Number int64 `gork:"number"`
+	}
+}
+
+// StartIssue adds mobius:ready to an issue, so Mobius starts the task. Mobius adds the label with the user token of
+// the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+func (h *handlers) StartIssue(ctx context.Context, req StartIssueRequest) error {
+	err := h.engine.StartIssue(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
+	if engine.Refused(err) {
+		return api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	return err
+}

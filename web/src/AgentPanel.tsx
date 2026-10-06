@@ -1,6 +1,15 @@
 import { use, useCallback, useEffect, useState } from "react";
-import { listAgents, listTasks, type Agent, type LiveEvents, type TaskLine } from "@/api/api.gen";
+import {
+  listAgents,
+  listTasks,
+  startIssue,
+  type Agent,
+  type LiveEvents,
+  type TaskLine,
+} from "@/api/api.gen";
+import { PlayIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -164,27 +173,60 @@ function AgentTree({
   );
 }
 
-function TaskEntry({ line }: { line: TaskLine }) {
+function TaskEntry({ owner, name, line }: { owner: string; name: string; line: TaskLine }) {
+  const [started, setStarted] = useState(false);
+  const [error, setError] = useState("");
+  const state = started ? "ready" : line.state;
+  const start = () => {
+    startIssue(owner, name, line.number)
+      .then((res) => {
+        if (res.status === 204) {
+          setError("");
+          setStarted(true);
+        } else {
+          setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => setError(String(err)));
+  };
   return (
-    <li>
-      <a
-        href={line.url}
-        target="_blank"
-        rel="noreferrer"
-        style={{ paddingLeft: `${0.5 + line.depth * 1.25}rem` }}
-        className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg py-2 pr-2 hover:bg-muted"
-      >
-        <span className="grow">
-          #{line.number} {line.title}
-        </span>
-        {line.blockedBy.map((blocker) => (
-          <span key={blocker.number} className="text-sm text-muted-foreground">
-            blocked by #{blocker.number}
-            {blocker.workstreamTitle && ` (Workstream "${blocker.workstreamTitle}")`}
+    <li className="grid gap-1">
+      <div className="flex items-center gap-1">
+        <a
+          href={line.url}
+          target="_blank"
+          rel="noreferrer"
+          style={{ paddingLeft: `${0.5 + line.depth * 1.25}rem` }}
+          className="flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-1 rounded-lg py-2 pr-2 hover:bg-muted"
+        >
+          <span className="grow">
+            #{line.number} {line.title}
           </span>
-        ))}
-        <Badge variant={line.state === "open" ? "outline" : "secondary"}>{line.state}</Badge>
-      </a>
+          {line.blockedBy.map((blocker) => (
+            <span key={blocker.number} className="text-sm text-muted-foreground">
+              blocked by #{blocker.number}
+              {blocker.workstreamTitle && ` (Workstream "${blocker.workstreamTitle}")`}
+            </span>
+          ))}
+          <Badge variant={state === "open" ? "outline" : "secondary"}>{state}</Badge>
+        </a>
+        {state === "open" && line.blockedBy.length === 0 && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="shrink-0"
+            aria-label={`Start #${line.number}`}
+            onClick={start}
+          >
+            <PlayIcon />
+          </Button>
+        )}
+      </div>
+      {error && (
+        <Badge variant="destructive" className="h-auto w-full justify-start whitespace-normal">
+          {error}
+        </Badge>
+      )}
     </li>
   );
 }
@@ -239,7 +281,7 @@ function Tasks({
       {lines?.length === 0 && <p className="px-2 text-sm text-muted-foreground">No tasks.</p>}
       <ul>
         {lines?.map((line) => (
-          <TaskEntry key={line.url} line={line} />
+          <TaskEntry key={line.url} owner={owner} name={name} line={line} />
         ))}
       </ul>
     </div>

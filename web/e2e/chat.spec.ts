@@ -384,6 +384,25 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
   }
 });
 
+test("Start gives only an open task with no blocker a button, and the row shows ready", async ({
+  page,
+}) => {
+  await page.goto("/api/github/user-callback?code=user-code");
+  await page.goto("/workstreams/plants/garden/19");
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const rows = page.getByRole("listitem");
+  const start = page.getByRole("button", { name: /^Start #/ });
+  await expect(rows.filter({ hasText: "#70 Order the bark" })).toBeVisible();
+  await expect(rows.filter({ hasText: "blocked by #70" })).toBeVisible();
+  await expect(rows.filter({ hasText: "needs-human" })).toBeVisible();
+  await expect(start).toHaveCount(1);
+  await expect(start).toHaveAccessibleName("Start #70");
+
+  await start.click();
+  await expect(rows.filter({ hasText: "#70 Order the bark" }).getByText("ready")).toBeVisible();
+  await expect(start).toHaveCount(0);
+});
+
 test("the voice button adds the spoken text to the message", async ({ page }) => {
   // The fake recognition gives the events that the test sends.
   await page.addInitScript(`window.SpeechRecognition = class extends EventTarget {

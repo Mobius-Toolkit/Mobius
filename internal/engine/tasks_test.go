@@ -227,3 +227,26 @@ func TestResumeReplacesMobiusNeedsHumanWithMobiusReadyAsTheOwner(t *testing.T) {
 		}
 	}
 }
+
+func TestStartAddsMobiusReadyAsTheOwner(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	fake.AddIssue(shop, 41, "Add plan model")
+	server := startCopied(t, fake)
+
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/start", ""); status != http.StatusConflict {
+		t.Errorf("status = %d: %s", status, body)
+	}
+	authorize(t, server)
+
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/start", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:ready"}) {
+		t.Errorf("labels = %v", got)
+	}
+	if got := fake.LabelActor(shop, 41, "mobius:ready"); got != "owner" {
+		t.Errorf("actor of mobius:ready = %s", got)
+	}
+}

@@ -299,3 +299,18 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 	}
 	return asOwner.AddLabel(ctx, number, readyLabel)
 }
+
+// StartIssue adds mobius:ready to the issue number of repositoryName. The label change uses the user token of the
+// Owner, because the dispatch trusts mobius:ready only from a trusted user.
+func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number int64) error {
+	repository, err := e.repository(repositoryName)
+	if err != nil {
+		return err
+	}
+	asOwner, err := e.github.AsOwner(ctx, repository)
+	if err != nil {
+		// The text tells the Owner how to authorize the Mobius App.
+		return refusal(err.Error())
+	}
+	return asOwner.AddLabel(ctx, number, readyLabel)
+}
