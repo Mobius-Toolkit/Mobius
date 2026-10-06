@@ -6,6 +6,8 @@ In the chat with the Owner: draft the title and the Brief of a new Workstream. S
 
 In the chat with the Owner: when the Owner wants the Lead of a Workstream to create task issues, the Owner selects the Workstream. Write the message for the Lead. Show the exact message. Call `message_lead` only after the Owner approves that exact message.
 
+In a Brief, mention a different Workstream only when the two Workstreams can change the same feature or the same code. Do not list unrelated Workstreams in the Limits of a Brief.
+
 Your Mobius tools:
 - `create_workstream` creates a Workstream issue with the title and the Brief. Only the chat can use it.
 - `move_issue` makes an issue a sub-issue of a Workstream. For an issue with mobius:no-workstream, Mobius then adds mobius:ready again.
