@@ -225,10 +225,13 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 	return "Mobius posts the reply after it pushes your commits.", nil
 }
 
-// fixRound starts a fix round of the Implementer on the pull request of the working task. At max_fix_rounds, a round
-// that counts hands the task to a human instead. A task that is not working, for example after a decline, gets no
-// round.
+// fixRound starts a fix round of the Implementer on the pull request of the working task. The pull request is a draft
+// during the round. At max_fix_rounds, a round that counts hands the task to a human instead. A task that is not
+// working, for example after a decline, gets no round.
 func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r round) error {
+	if err := makeDraft(ctx, repository, r.pullRequest); err != nil {
+		return err
+	}
 	if r.counts {
 		added, err := e.queries.AddFixRound(ctx, store.AddFixRoundParams{ID: r.task.ID, Max: int64(e.config.MaxFixRounds)})
 		if err != nil {
@@ -277,8 +280,21 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	return nil
 }
 
+// makeDraft makes the pull request a draft, so that readyForReview makes it ready for review at the end of the round.
+func makeDraft(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest) error {
+	if pullRequest.GetDraft() {
+		return nil
+	}
+	if err := repository.ConvertToDraft(ctx, pullRequest.GetNodeID()); err != nil {
+		return err
+	}
+	pullRequest.Draft = new(true)
+	return nil
+}
+
 // conflictRound starts a conflict round of the Implementer on the pull request of the task in ready_for_review. The
-// prompt has the issue body, and the round makes no change other than the merge of the base branch (Mobius-rust#227).
+// pull request is a draft during the round. The prompt has the issue body, and the round makes no change other than
+// the merge of the base branch (Mobius-rust#227).
 func (e *Engine) conflictRound(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
 	brief, err := brief(ctx, repository, task.Workstream)
 	if err != nil {
@@ -294,6 +310,9 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	}
 	parent, err := e.newestSession(ctx, task)
 	if err != nil {
+		return err
+	}
+	if err := makeDraft(ctx, repository, pullRequest); err != nil {
 		return err
 	}
 	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: "ready_for_review"})

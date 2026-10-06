@@ -327,6 +327,33 @@ func TestStartFixRoundSendsTheFindingsOfTheLeadToAFixRound(t *testing.T) {
 	}
 }
 
+func TestAFixRoundOfTheLeadMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	goFile := filepath.Join(dataDir, "go")
+	round := fmt.Sprintf("[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\n\n", goFile)
+	server, _ := connectTaskIn(t, fake, dataDir, noFinding+leadFindings+leadStarts, round+commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	if fake.PullRequests(shop)[0].Draft {
+		t.Fatal("the pull request is a draft")
+	}
+
+	sendChat(t, server, leadChat, "Send the findings to #41")
+
+	testkit.WaitFor(t, func() bool { return fake.PullRequests(shop)[0].Draft })
+	if state := taskState(t, server); state != "working" {
+		t.Errorf("state = %s", state)
+	}
+
+	touch(t, goFile)
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	if fake.PullRequests(shop)[0].Draft {
+		t.Error("the pull request is a draft")
+	}
+}
+
 func TestStartFixRoundRefusesATaskThatIsNotReadyForReview(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, finding+leadFindings+leadStarts, commits, func(cfg *config.Config) { cfg.MaxFixRounds = 0 })

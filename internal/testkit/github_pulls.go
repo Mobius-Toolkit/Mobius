@@ -198,8 +198,8 @@ func (g *FakeGitHub) HoldReviewThreads(repository string, number int64) (<-chan 
 	return h.reached, func() { close(h.release) }
 }
 
-// graphql answers the review threads query and the mutations resolveReviewThread and markPullRequestReadyForReview,
-// each in one page.
+// graphql answers the review threads query and the mutations resolveReviewThread, markPullRequestReadyForReview and
+// convertPullRequestToDraft, each in one page.
 // The node id of a thread is "RT_" and the id of its first comment.
 func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 	var request struct {
@@ -229,6 +229,10 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	if strings.Contains(request.Query, "markPullRequestReadyForReview") {
 		g.markReadyForReview(w, variables.ID)
+		return
+	}
+	if strings.Contains(request.Query, "convertPullRequestToDraft") {
+		g.convertToDraft(w, variables.ID)
 		return
 	}
 	if strings.Contains(request.Query, "resolveReviewThread") {

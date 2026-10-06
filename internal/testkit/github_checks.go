@@ -227,6 +227,17 @@ func (g *FakeGitHub) markReadyForReview(w http.ResponseWriter, id string) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"markPullRequestReadyForReview": map[string]any{"clientMutationId": nil}}})
 }
 
+// convertToDraft answers the GraphQL mutation convertPullRequestToDraft. The caller must hold the lock.
+func (g *FakeGitHub) convertToDraft(w http.ResponseWriter, id string) {
+	index := slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return fmt.Sprintf("PR_%d", pull.Number) == id })
+	if index < 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"data": nil, "errors": []map[string]string{{"message": "Could not resolve to a node"}}})
+		return
+	}
+	g.pullRequests[index].Draft = true
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"convertPullRequestToDraft": map[string]any{"clientMutationId": nil}}})
+}
+
 func (g *FakeGitHub) createCheckRun(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Name       string          `json:"name"`
