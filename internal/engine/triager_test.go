@@ -267,7 +267,7 @@ func TestAReportOfTheResearcherGoesToTheTriagerChat(t *testing.T) {
 		t.Errorf("prompt = %s", prompts[0])
 	}
 	waitForChat(t, server, triagerChat, "Triager", "I have the report.")
-	report := fmt.Sprintf("# Researcher message\n\nReport of the Researcher on \"%s\":\n\n%s", question, reply(t, server, session.ID))
+	report := fmt.Sprintf("# Researcher message\n\nReport of the Researcher %d on \"%s\":\n\n%s", session.ID, question, reply(t, server, session.ID))
 	if prompts := triagerPrompts(t, server); !slices.ContainsFunc(prompts, func(prompt string) bool { return strings.Contains(prompt, report) }) {
 		t.Errorf("prompts = %q", prompts)
 	}
@@ -307,7 +307,8 @@ shell = "while [ ! -e `+gate+` ]; do sleep 0.05; done"
 		prompts := promptTexts(t, server, second.ID)
 		return strings.Join(prompts, ""), len(prompts) > 0
 	})
-	if !strings.Contains(prompt, "# Researcher message\n\nReport of the Researcher on \""+question+"\"") || strings.Contains(prompt, "# Owner message\n\nReport") {
+	researcher := chatSessions(t, server, issueTriagers, engine.ResearcherRole)[0]
+	if !strings.Contains(prompt, fmt.Sprintf("# Researcher message\n\nReport of the Researcher %d on \"%s\"", researcher.ID, question)) || strings.Contains(prompt, "# Owner message\n\nReport") {
 		t.Errorf("prompt = %s", prompt)
 	}
 }
