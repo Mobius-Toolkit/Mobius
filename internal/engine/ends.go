@@ -142,14 +142,18 @@ func (e *Engine) workingRemoved(ctx context.Context, repository github.Repositor
 	return e.stopTask(ctx, repository, task, issue, actor, "Stopped by a label removal.", fmt.Sprintf("Stopped \"%s\" after a removal of %s", issue.GetTitle(), workingLabel))
 }
 
-// stopTask stops the task and its Worker. The head of its pull request gets a failed Mobius check with summary, and
-// the activity feed gets text. A task that is already stopped or ended stays as it is.
+// stopTask stops the task and its Worker, and removes mobius:working and mobius:needs-human from its issue. The head
+// of its pull request gets a failed Mobius check with summary, and the activity feed gets text. A task that is already
+// stopped or ended stays as it is.
 func (e *Engine) stopTask(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, actor, summary, text string) error {
 	stopped, err := e.queries.StopTask(ctx, task.ID)
 	if err != nil || stopped == 0 {
 		return err
 	}
 	if err := e.stopWorkersOf(ctx, task); err != nil {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
 	if err := repository.RemoveLabel(ctx, task.Issue, needsHumanLabel); err != nil {

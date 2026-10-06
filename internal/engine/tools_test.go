@@ -558,6 +558,9 @@ func TestStopTaskStopsTheImplementerAsAStopOfTheOwnerDoes(t *testing.T) {
 	if exists(t, filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")) {
 		t.Error("the worktree stays")
 	}
+	if labels := fake.Labels(shop, 41); slices.Contains(labels, "mobius:working") {
+		t.Errorf("labels = %v", labels)
+	}
 	feed := activities(t, server)
 	if last := feed[len(feed)-1]; last.Issue != 41 || last.Text != "Stopped \"Add plan model\" on request of the Owner" {
 		t.Errorf("activity = %+v", last)
