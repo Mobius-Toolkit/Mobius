@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -83,6 +84,32 @@ func TestAFailedCheckRunOnTheHeadStartsAFixRoundWithTheCheckAndItsAnnotations(t 
 	}
 	if count := implementers(t, server); count != 2 {
 		t.Errorf("Implementers = %d", count)
+	}
+}
+
+func TestAFailedCheckRunMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	goFile := filepath.Join(dataDir, "go")
+	round := fmt.Sprintf("[[prompts]]\nwhen = \"Action: fix\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\n\n", goFile)
+	server, _ := connectTaskIn(t, fake, dataDir, leadStarts, round+commits, noChange)
+	sha := readyForReview(t, server, fake)
+	if fake.PullRequests(shop)[0].Draft {
+		t.Fatal("the pull request is a draft")
+	}
+
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+
+	testkit.WaitFor(t, func() bool { return fake.PullRequests(shop)[0].Draft })
+	if state := taskState(t, server); state != "working" {
+		t.Errorf("state = %s", state)
+	}
+
+	touch(t, goFile)
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	if fake.PullRequests(shop)[0].Draft {
+		t.Error("the pull request is a draft")
 	}
 }
 

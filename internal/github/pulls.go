@@ -34,6 +34,13 @@ func (r Repository) MarkReadyForReview(ctx context.Context, id string) error {
 	return r.graphql(ctx, query, map[string]any{"id": id}, &data)
 }
 
+// ConvertToDraft makes the pull request with the GraphQL node id a draft.
+func (r Repository) ConvertToDraft(ctx context.Context, id string) error {
+	const query = `mutation($id: ID!) { convertPullRequestToDraft(input: { pullRequestId: $id }) { clientMutationId } }`
+	var data any
+	return r.graphql(ctx, query, map[string]any{"id": id}, &data)
+}
+
 // InlineComment is a comment of a new review on a line of a file.
 type InlineComment struct {
 	// Path is relative to the root of the repository.
