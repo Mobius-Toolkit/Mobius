@@ -334,10 +334,7 @@ func TestAFixRoundOfTheLeadMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t
 	round := fmt.Sprintf("[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\n\n", goFile)
 	server, _ := connectTaskIn(t, fake, dataDir, noFinding+leadFindings+leadStarts, round+commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
-	if fake.PullRequests(shop)[0].Draft {
-		t.Fatal("the pull request is a draft")
-	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" && !fake.PullRequests(shop)[0].Draft })
 
 	sendChat(t, server, leadChat, "Send the findings to #41")
 
@@ -348,10 +345,7 @@ func TestAFixRoundOfTheLeadMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t
 
 	touch(t, goFile)
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
-	if fake.PullRequests(shop)[0].Draft {
-		t.Error("the pull request is a draft")
-	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" && !fake.PullRequests(shop)[0].Draft })
 }
 
 func TestStartFixRoundRefusesATaskThatIsNotReadyForReview(t *testing.T) {

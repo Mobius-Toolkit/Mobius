@@ -81,6 +81,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
 				},
 				e.stopTaskTool),
+			tool(e, c, "send_details",
+				"Send new details from the Owner to the Implementer that operates on a task now. The Implementer keeps its session and its context. Update the body of the task issue first. It refuses a task with no open Implementer session: a later session reads the updated issue body.",
+				map[string]any{
+					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"text": map[string]any{"type": "string", "minLength": 1, "description": "The new details."},
+				},
+				e.sendDetails),
 			tool(e, c, "start_researcher",
 				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the Brief and the question. The tool returns at once, and the report arrives later.",
 				map[string]any{
@@ -243,6 +250,12 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
 				},
 				e.messageLead),
+			tool(e, c, "start_researcher",
+				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the question. The tool returns at once, and the report arrives later.",
+				map[string]any{
+					"question": map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
+				},
+				e.startResearcher),
 		}
 	}
 	return nil

@@ -119,6 +119,26 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
   );
+  // The Inbox of the organization plants has no item, so the frame has no Inbox count.
+  await screenshot(
+    page,
+    "chat-tasks-start",
+    "/workstreams/plants/garden/19",
+    (device) => [
+      drain,
+      page.getByLabel("Work in another organization").filter({ visible: true }),
+      ...(device === "desktop"
+        ? [page.locator('nav a[href="/workstreams/plants/garden/19"]')]
+        : []),
+      page.getByRole("button", { name: "Start #70" }).filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await main.getByRole("button", { name: "Agents" }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    },
+  );
   await screenshot(page, "chat-all-tasks-closed", "/workstreams/owner/shop/13", (device) => [
     ...frame(device, drain),
     main.getByText("All tasks are closed."),
