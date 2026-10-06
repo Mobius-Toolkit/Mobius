@@ -767,6 +767,10 @@ export type LiveEvents = {
   event: 'workstreams';
   id?: string;
 } | {
+  data: { [key: string]: unknown };
+  event: 'repositories';
+  id?: string;
+} | {
   data: ChatMessage;
   event: 'message';
   id?: string;

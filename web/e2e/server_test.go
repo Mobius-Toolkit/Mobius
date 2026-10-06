@@ -118,6 +118,7 @@ const question = "What is the state of the plans? The full report is at " +
 // Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, and
 // the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55. The
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
+// POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -202,6 +203,12 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	server.Mux.Handle("/", web.Handler(dist))
+	server.Mux.HandleFunc("POST /e2e/repositories/{owner}/{name}", func(_ http.ResponseWriter, r *http.Request) {
+		github.AddRepository(r.PathValue("owner") + "/" + r.PathValue("name"))
+	})
+	server.Mux.HandleFunc("DELETE /e2e/repositories/{owner}/{name}", func(_ http.ResponseWriter, r *http.Request) {
+		github.RemoveRepository(r.PathValue("owner") + "/" + r.PathValue("name"))
+	})
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
