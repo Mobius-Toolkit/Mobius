@@ -27,6 +27,9 @@ var toolsTimeout = 30 * time.Second
 // listenerBuffer is the number of changes that the channel of a listener holds.
 const listenerBuffer = 256
 
+// cancelResend is the time between two cancels for the same new details.
+const cancelResend = time.Second
+
 // errNoTools is the error of a Claude Code session that gets no tools/list (Mobius-rust#254).
 var errNoTools = errors.New("the session sent no tools/list, so it has no Mobius tools")
 
@@ -332,7 +335,15 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 		a.mu.Lock()
 		a.turn = true
 		a.mu.Unlock()
+		resendCtx, stopResend := context.WithCancel(ctx)
+		resent := make(chan struct{})
+		go func() {
+			defer close(resent)
+			a.resendCancel(resendCtx)
+		}()
 		_, err = a.session.Prompt(ctx, text)
+		stopResend()
+		<-resent
 		a.mu.Lock()
 		a.turn = false
 		a.mu.Unlock()
@@ -352,6 +363,25 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 // cancel asks the agent to end the turn that runs.
 func (a *Agent) cancel(ctx context.Context) error {
 	return a.session.Cancel(ctx)
+}
+
+// resendCancel sends the cancel again each cancelResend while new details wait, until ctx ends. A cancel that
+// sendDetails sends before the agent reads the prompt request does not end the turn.
+func (a *Agent) resendCancel(ctx context.Context) {
+	ticker := time.NewTicker(cancelResend)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.mu.Lock()
+			if len(a.details) > 0 {
+				_ = a.cancel(ctx)
+			}
+			a.mu.Unlock()
+		}
+	}
 }
 
 // replyText gives the reply text of the last turn after its last tool call.
