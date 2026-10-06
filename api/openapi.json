@@ -3582,6 +3582,10 @@
             "type": "integer",
             "description": "Number is the number of the task issue"
           },
+          "otherRepository": {
+            "type": "boolean",
+            "description": "OtherRepository is true for a task in another repository than the Workstream"
+          },
           "state": {
             "type": "string",
             "description": "State is the Mobius label of the issue with no \"mobius:\", queued for a task that waits for a slot, or open"
@@ -3601,6 +3605,7 @@
           "state",
           "url",
           "depth",
+          "otherRepository",
           "blockedBy"
         ],
         "description": "TaskLine is a task of a Workstream."

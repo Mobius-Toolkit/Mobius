@@ -210,7 +210,7 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
           ))}
           <Badge variant={state === "open" ? "outline" : "secondary"}>{state}</Badge>
         </a>
-        {state === "open" && line.blockedBy.length === 0 && (
+        {state === "open" && !line.otherRepository && line.blockedBy.length === 0 && (
           <Button
             size="icon"
             variant="ghost"

@@ -12,12 +12,13 @@ import (
 )
 
 type taskLine struct {
-	Number    int64         `json:"number"`
-	Title     string        `json:"title"`
-	State     string        `json:"state"`
-	URL       string        `json:"url"`
-	Depth     int64         `json:"depth"`
-	BlockedBy []taskBlocker `json:"blockedBy"`
+	Number          int64         `json:"number"`
+	Title           string        `json:"title"`
+	State           string        `json:"state"`
+	URL             string        `json:"url"`
+	Depth           int64         `json:"depth"`
+	OtherRepository bool          `json:"otherRepository"`
+	BlockedBy       []taskBlocker `json:"blockedBy"`
 }
 
 type taskBlocker struct {
@@ -108,8 +109,23 @@ func TestTheTasksTabShowsASubIssueOfAnotherRepository(t *testing.T) {
 		VALUES ('owner/shop', 77, 12, 'queued', '2026-09-30T00:00:00Z')`)
 	server.WaitForFirstPoll(t, shop)
 
-	foreign := taskLine{Number: 77, Title: "A task in another repository", State: "working", URL: "https://github.com/other/repo/issues/77", BlockedBy: []taskBlocker{}}
+	foreign := taskLine{Number: 77, Title: "A task in another repository", State: "working", URL: "https://github.com/other/repo/issues/77", OtherRepository: true, BlockedBy: []taskBlocker{}}
 	waitForTasks(t, server, []taskLine{line(41, "Add plan model", "open", 0), foreign, line(42, "Let customers change plans", "open", 0)})
+}
+
+// The Start button of the Tasks tab adds mobius:ready to the number in the repository of the Workstream, so an open
+// task of another repository must show that it is not in that repository.
+func TestTheTasksTabMarksAnOpenSubIssueOfAnotherRepository(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue("other/repo", 5, "An open task in another repository")
+	fake.AddForeignSubIssue(shop, 12, "other/repo", 5)
+
+	server := startCopied(t, fake)
+
+	foreign := taskLine{Number: 5, Title: "An open task in another repository", State: "open", URL: "https://github.com/other/repo/issues/5", OtherRepository: true, BlockedBy: []taskBlocker{}}
+	waitForTasks(t, server, []taskLine{foreign})
 }
 
 // A closed task still has its sub-issues. They keep the depth of the hidden parent, so a nested task does not move

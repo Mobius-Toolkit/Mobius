@@ -21,6 +21,8 @@ type TaskLine struct {
 	URL string `gork:"url"`
 	// Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below
 	Depth int64 `gork:"depth"`
+	// OtherRepository is true for a task in another repository than the Workstream
+	OtherRepository bool `gork:"otherRepository"`
 	// BlockedBy are the open blockers of the task
 	BlockedBy []Blocker `gork:"blockedBy"`
 }
@@ -62,7 +64,7 @@ func (h *handlers) ListTasks(ctx context.Context, req ListTasksRequest) (*ListTa
 	}
 	tasks := make([]TaskLine, 0, len(lines))
 	for _, line := range lines {
-		task := TaskLine{Number: line.Number, Title: line.Title, State: line.State, URL: line.URL, Depth: line.Depth, BlockedBy: make([]Blocker, 0, len(line.BlockedBy))}
+		task := TaskLine{Number: line.Number, Title: line.Title, State: line.State, URL: line.URL, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy))}
 		for _, blocker := range line.BlockedBy {
 			found := Blocker{Number: blocker.Number}
 			if blocker.WorkstreamTitle != "" {

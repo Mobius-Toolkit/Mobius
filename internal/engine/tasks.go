@@ -152,6 +152,8 @@ type TaskLine struct {
 	URL   string
 	// Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below.
 	Depth int64
+	// OtherRepository is true for an issue in another repository than the Workstream.
+	OtherRepository bool
 	// BlockedBy holds the open blockers.
 	BlockedBy []Blocker
 }
@@ -207,7 +209,7 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 		own := !otherRepository(row.RepositoryUrl, repositoryName)
 		visible := row.State == "open" && e.TrustedAuthor(repository.AppSlug, row.Author)
 		if visible {
-			line := TaskLine{Number: row.Number, Title: row.Title, State: labelState(labels[row.Position]), URL: row.HtmlUrl, Depth: depth, BlockedBy: []Blocker{}}
+			line := TaskLine{Number: row.Number, Title: row.Title, State: labelState(labels[row.Position]), URL: row.HtmlUrl, Depth: depth, OtherRepository: !own, BlockedBy: []Blocker{}}
 			if own {
 				line.BlockedBy = append(line.BlockedBy, blockers[row.Position]...)
 				if line.State == "working" {
