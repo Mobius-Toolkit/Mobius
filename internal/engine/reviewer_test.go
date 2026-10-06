@@ -365,7 +365,7 @@ func TestAFixRoundOfTheLeadMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t
 	}
 }
 
-func TestStartFixRoundRefusesATaskThatIsNotReadyForReview(t *testing.T) {
+func TestStartFixRoundRefusesATaskThatNeitherWaitsForTheLeadNorIsReadyForReview(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, finding+leadFindings+leadStarts, commits, func(cfg *config.Config) { cfg.MaxFixRounds = 0 })
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -373,7 +373,7 @@ func TestStartFixRoundRefusesATaskThatIsNotReadyForReview(t *testing.T) {
 
 	sendChat(t, server, leadChat, "Send the findings to #41")
 
-	waitForChat(t, server, leadChat, "Lead", "error: The task of #41 is needs_human, not ready_for_review.")
+	waitForChat(t, server, leadChat, "Lead", "error: The task of #41 is needs_human, not approval or ready_for_review.")
 	if task := liveTask(t, server, 41); task.State != "needs_human" || task.FixRounds != 0 {
 		t.Errorf("task = %+v", task)
 	}

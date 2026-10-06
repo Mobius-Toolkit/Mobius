@@ -177,16 +177,19 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if err != nil {
 		return "", err
 	}
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: "ready_for_review"})
+	if task.State != "approval" && task.State != "ready_for_review" {
+		return "", refuse("The task of #%d is %s, not approval or ready_for_review.", input.N, task.State)
+	}
+	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
 	if err != nil {
 		return "", err
 	}
 	if moved == 0 {
-		return "", refuse("The task of #%d is %s, not ready_for_review.", input.N, task.State)
+		return "", refuse("The task of #%d is not %s any more.", input.N, task.State)
 	}
 	r := round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: "\nFindings of the Lead:\n" + input.Findings + "\n", parent: sql.NullInt64{Int64: c.session, Valid: true}}
 	if err := e.fixRound(ctx, repository, r); err != nil {
-		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "working"})
+		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "working"})
 		return "", errors.Join(err, stateErr)
 	}
 	return fmt.Sprintf("Sent the findings to a fix round of #%d. At max_fix_rounds, Mobius stops the task instead.", input.N), nil

@@ -116,6 +116,14 @@ func (g *FakeGitHub) SetBehind(repository string, number int64) {
 	g.behind[issueKey{repository, number}] = true
 }
 
+// SetMergeableUnknown makes the pull request give mergeable null, as GitHub does while it calculates the merge, or
+// gives its mergeable back.
+func (g *FakeGitHub) SetMergeableUnknown(repository string, number int64, unknown bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.unknownMergeable[issueKey{repository, number}] = unknown
+}
+
 // CheckRuns gives the check runs of repository, in the order of their creation.
 func (g *FakeGitHub) CheckRuns(repository string) []CheckRun {
 	g.mu.Lock()
@@ -236,6 +244,10 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		state = "behind"
 	}
 	found := g.issues[key]
+	var mergeableValue any = mergeable
+	if g.unknownMergeable[key] {
+		mergeableValue = nil
+	}
 	return map[string]any{
 		"number":          number,
 		"node_id":         fmt.Sprintf("PR_%d", number),
@@ -244,7 +256,7 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		"merged":          found.merged,
 		"head":            map[string]string{"sha": strings.TrimSpace(string(head)), "ref": pull.Head},
 		"draft":           pull.Draft,
-		"mergeable":       mergeable,
+		"mergeable":       mergeableValue,
 		"mergeable_state": state,
 		"created_at":      timestamp(g.createdAt[key]),
 	}

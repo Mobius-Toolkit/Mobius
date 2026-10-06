@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -109,13 +108,29 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	return true, e.queries.SetTaskCheckHead(ctx, store.SetTaskCheckHeadParams{CheckHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
 }
 
-// onChecks moves the task in checks to approval when the CI of the head of its pull request passed, and gives the Lead
-// the event ready_for_approval one time for the head. A task that is not in checks, for example after a decline,
-// stays as it is.
+// onChecks moves the task in checks to approval when the CI of the head of its pull request passed and the pull request
+// has no merge conflict, and gives the Lead the event ready_for_approval one time for the head. A task that is not in
+// checks, for example after a decline, stays as it is. A pull request whose mergeability GitHub still calculates waits.
+// A head whose CI failed after its fix round, or whose workflow run failed with no failed check run to fix, goes to a
+// human.
 func (e *Engine) onChecks(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
-	passed, err := e.ciPassed(ctx, repository, task.ID, pullRequest.GetHead().GetSHA())
-	if err != nil || !passed {
+	if pullRequest.Mergeable == nil {
+		return nil
+	}
+	head := pullRequest.GetHead().GetSHA()
+	state, err := ciOf(ctx, repository, head)
+	if err != nil {
 		return err
+	}
+	switch {
+	case state.failedCheck && task.CheckHead.String != head:
+		return nil
+	case state.failedCheck || state.failedWorkflow:
+		return e.ciFailed(ctx, repository, task, pullRequest)
+	case state.running:
+		return nil
+	case state.absent && !e.quietPeriodEnded(task.ID, head):
+		return nil
 	}
 	issue, err := existingIssue(ctx, repository, task.Issue)
 	if err != nil {
@@ -130,41 +145,76 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
 }
 
-// ciPassed tells if the CI of the head passed. Each check run of another App on the head is completed and did not
-// fail, and each workflow run of GitHub Actions on the head is completed. A workflow run can exist before its jobs have
-// check runs. A head with no check run of another App and no workflow run has no CI yet. It counts as passed after
-// review_quiet_period from the first poll that saw it, so a repository with no CI does not wait forever.
-func (e *Engine) ciPassed(ctx context.Context, repository github.Repository, taskID int64, head string) (bool, error) {
+// ciFailed hands the task in checks to a human, with a failed Mobius check and a stop event for the Lead.
+func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
+	handed, err := e.handToHuman(ctx, task)
+	if err != nil || !handed {
+		return err
+	}
+	issue, err := existingIssue(ctx, repository, task.Issue)
+	if err != nil {
+		return err
+	}
+	if err := repository.CreateFailedCheckRun(ctx, checkRunName, pullRequest.GetHead().GetSHA(), "CI failed", "The CI of the head commit failed, and a fix round cannot change it."); err != nil {
+		return err
+	}
+	reason := "the CI of the head commit failed, and a fix round cannot change it. Mobius set the Mobius check to failure and added mobius:needs-human."
+	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", stopText(task.Issue, issue.GetTitle(), reason))
+}
+
+// ci is what the check runs of other Apps and the workflow runs of GitHub Actions on a head show.
+type ci struct {
+	failedCheck, failedWorkflow, running bool
+	// absent is true for a head with no check run of another App and no workflow run: its CI has not started, or the
+	// repository has no CI.
+	absent bool
+}
+
+// ciOf reads the CI of the head. A workflow run can exist before its jobs have check runs.
+func ciOf(ctx context.Context, repository github.Repository, head string) (ci, error) {
 	runs, err := repository.CheckRuns(ctx, head)
 	if err != nil {
-		return false, err
+		return ci{}, err
 	}
 	workflows, err := repository.WorkflowRuns(ctx, head)
 	if err != nil {
-		return false, err
+		return ci{}, err
 	}
+	var state ci
 	others := 0
 	for _, run := range runs {
 		if run.GetName() == checkRunName {
 			continue
 		}
-		if run.GetStatus() != "completed" || failedConclusion(run.GetConclusion()) {
-			return false, nil
-		}
 		others++
+		switch {
+		case run.GetStatus() != "completed":
+			state.running = true
+		case failedConclusion(run.GetConclusion()):
+			state.failedCheck = true
+		}
 	}
-	if slices.ContainsFunc(workflows, func(workflow *gh.WorkflowRun) bool { return workflow.GetStatus() != "completed" }) {
-		return false, nil
+	for _, workflow := range workflows {
+		switch {
+		case workflow.GetStatus() != "completed":
+			state.running = true
+		case failedConclusion(workflow.GetConclusion()) || workflow.GetConclusion() == "startup_failure":
+			state.failedWorkflow = true
+		}
 	}
-	if others+len(workflows) > 0 {
-		return true, nil
-	}
+	state.absent = others+len(workflows) == 0
+	return state, nil
+}
+
+// quietPeriodEnded tells if review_quiet_period passed since the first poll that saw the head with no CI, so a
+// repository with no CI does not wait forever.
+func (e *Engine) quietPeriodEnded(taskID int64, head string) bool {
 	seen, ok := e.ciWait[taskID]
 	if !ok || seen.head != head {
 		seen = ciWait{head, time.Now()}
 		e.ciWait[taskID] = seen
 	}
-	return time.Since(seen.since) >= e.config.ReviewQuietPeriod, nil
+	return time.Since(seen.since) >= e.config.ReviewQuietPeriod
 }
 
 // failedConclusion tells if the conclusion of a completed check run is a failure.

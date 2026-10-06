@@ -167,7 +167,7 @@ func TestAFailedJobLogDownloadStillStartsTheFixRound(t *testing.T) {
 	}
 }
 
-func TestAFailedCheckRunOnTheSameHeadStartsOneFixRound(t *testing.T) {
+func TestAFailedCheckRunOnTheSameHeadStartsOneFixRoundAndThenHandsTheTaskToAHuman(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixesNothing, noChange)
 	sha := approvalHead(t, server, fake)
@@ -175,7 +175,7 @@ func TestAFailedCheckRunOnTheSameHeadStartsOneFixRound(t *testing.T) {
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
 	endedImplementers(t, server, 2)
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
 	if got := head(t, fake, "mobius/41"); got != sha {
 		t.Errorf("head = %s", got)
 	}
@@ -183,9 +183,6 @@ func TestAFailedCheckRunOnTheSameHeadStartsOneFixRound(t *testing.T) {
 
 	if count := implementers(t, server); count != 2 {
 		t.Errorf("Implementers = %d", count)
-	}
-	if state := taskState(t, server); state != "checks" {
-		t.Errorf("state = %s", state)
 	}
 }
 

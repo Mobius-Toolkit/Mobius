@@ -109,6 +109,8 @@ type FakeGitHub struct {
 	// createdAt holds the creation time of each pull request, in seconds after the Unix epoch.
 	createdAt map[issueKey]int64
 	behind    map[issueKey]bool
+	// unknownMergeable holds the pull requests whose mergeable GitHub still calculates.
+	unknownMergeable map[issueKey]bool
 	// The id of a check run is its index plus 1.
 	checkRuns    []checkRun
 	annotations  map[int64][]annotationJSON
@@ -165,6 +167,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		issueHolds:              map[issueKey]*hold{},
 		createdAt:               map[issueKey]int64{},
 		behind:                  map[issueKey]bool{},
+		unknownMergeable:        map[issueKey]bool{},
 		annotations:             map[int64][]annotationJSON{},
 		checkRunApps:            map[int64]string{},
 		jobLogs:                 map[int64]string{},

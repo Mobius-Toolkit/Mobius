@@ -163,15 +163,61 @@ func TestAFailedCheckRunInChecksStartsAFixRoundAndGivesTheLeadNoEvent(t *testing
 	}
 }
 
-func TestAFailedCheckRunOnTheHeadOfAFixRoundThatMadeNoCommitKeepsTheTaskInChecks(t *testing.T) {
+func TestAFailedCheckRunOnTheHeadOfAFixRoundThatMadeNoCommitHandsTheTaskToAHuman(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
 	sha := checksHead(t, server, fake)
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
 	endedImplementers(t, server, 2)
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
 
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	assertCIStop(t, server, fake, sha)
+}
+
+// assertCIStop checks the labels, the Mobius check and the stop event of a task that waited in checks for a CI that
+// failed.
+func assertCIStop(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, sha string) {
+	t.Helper()
+	if labels := fake.Labels(shop, 41); !slices.Equal(labels, []string{"mobius:needs-human"}) {
+		t.Errorf("labels = %q", labels)
+	}
+	runs := fake.CheckRuns(shop)
+	if last := runs[len(runs)-1]; last.Name != "Mobius" || last.HeadSHA != sha || last.Conclusion != "failure" {
+		t.Errorf("check runs = %+v", runs)
+	}
+	var stops []leadEvent
+	for _, event := range leadEvents(t, server) {
+		if event.Kind == "stop" {
+			stops = append(stops, event)
+		}
+	}
+	if len(stops) != 1 || !strings.Contains(stops[0].Payload, " stop of #41 \"Add plan model\": the CI of the head commit failed") {
+		t.Errorf("events = %+v", stops)
+	}
+	if events := readyEvents(t, server); events != 0 {
+		t.Errorf("events = %d", events)
+	}
+}
+
+func TestAFailedWorkflowRunWithNoCheckRunHandsTheTaskToAHuman(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+
+	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "startup_failure"})
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	assertCIStop(t, server, fake, sha)
+}
+
+func TestAPullRequestWithAnUnknownMergeabilityStaysInChecks(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.SetMergeableUnknown(shop, 42, true)
+	waitForPolls(t, fake)
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
 	waitForPolls(t, fake)
 
 	if state := taskState(t, server); state != "checks" {
@@ -180,6 +226,10 @@ func TestAFailedCheckRunOnTheHeadOfAFixRoundThatMadeNoCommitKeepsTheTaskInChecks
 	if events := readyEvents(t, server); events != 0 {
 		t.Errorf("events = %d", events)
 	}
+
+	fake.SetMergeableUnknown(shop, 42, false)
+
+	waitForReadyEvents(t, server, 1)
 }
 
 func TestAFailedCheckRunInApprovalStartsAFixRound(t *testing.T) {
@@ -304,5 +354,20 @@ func TestARestartKeepsTheWaitOfATaskInApprovalAndGivesNoSecondEvent(t *testing.T
 	}
 	if events := readyEvents(t, server); events != 0 {
 		t.Errorf("events = %d", events)
+	}
+}
+
+func TestStartFixRoundWorksWhileTheTaskWaitsForTheLead(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+
+	sendChat(t, server, leadChat, "Send the findings to #41")
+
+	waitForChat(t, server, leadChat, "Lead", "Sent the findings to a fix round of #41. At max_fix_rounds, Mobius stops the task instead.")
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+	if task := liveTask(t, server, 41); task.FixRounds != 1 {
+		t.Errorf("task = %+v", task)
 	}
 }
