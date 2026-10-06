@@ -116,7 +116,8 @@ const question = "What is the state of the plans? The full report is at " +
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
 // unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
 // Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, and
-// the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55.
+// the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55. The
+// Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -180,6 +181,11 @@ func TestServer(t *testing.T) {
 	github.CloseIssue("plants/garden", 56)
 	github.AddSubIssueOf("plants/garden", 55, 57, "Sow the asters")
 	github.FailClose("plants/garden", 55)
+	github.AddSubIssueOf("plants/garden", 19, 70, "Order the bark")
+	github.AddSubIssueOf("plants/garden", 19, 71, "Spread the bark")
+	github.AddBlockedBy("plants/garden", 71, 70)
+	github.AddSubIssueOf("plants/garden", 19, 72, "Water the bark")
+	github.AddLabel("plants/garden", 72, "mobius:needs-human", "owner")
 	engine.Release = "v0.1.0"
 	github.SetLatestRelease("v0.1.4")
 	github.SetComparedCommits(

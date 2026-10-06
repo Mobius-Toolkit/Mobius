@@ -21,6 +21,8 @@ type TaskLine struct {
 	URL string `gork:"url"`
 	// Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below
 	Depth int64 `gork:"depth"`
+	// OtherRepository is true for a task in another repository than the Workstream
+	OtherRepository bool `gork:"otherRepository"`
 	// BlockedBy are the open blockers of the task
 	BlockedBy []Blocker `gork:"blockedBy"`
 }
@@ -62,7 +64,7 @@ func (h *handlers) ListTasks(ctx context.Context, req ListTasksRequest) (*ListTa
 	}
 	tasks := make([]TaskLine, 0, len(lines))
 	for _, line := range lines {
-		task := TaskLine{Number: line.Number, Title: line.Title, State: line.State, URL: line.URL, Depth: line.Depth, BlockedBy: make([]Blocker, 0, len(line.BlockedBy))}
+		task := TaskLine{Number: line.Number, Title: line.Title, State: line.State, URL: line.URL, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy))}
 		for _, blocker := range line.BlockedBy {
 			found := Blocker{Number: blocker.Number}
 			if blocker.WorkstreamTitle != "" {
@@ -137,6 +139,28 @@ type ResumeIssueRequest struct {
 // the steps when the Owner did not.
 func (h *handlers) ResumeIssue(ctx context.Context, req ResumeIssueRequest) error {
 	err := h.engine.ResumeIssue(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
+	if engine.Refused(err) {
+		return api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	return err
+}
+
+// StartIssueRequest is the request of StartIssue.
+type StartIssueRequest struct {
+	Path struct {
+		// Owner is the owner of the repository
+		Owner string `gork:"owner"`
+		// Name is the name of the repository
+		Name string `gork:"name"`
+		// Number is the number of the issue
+		Number int64 `gork:"number"`
+	}
+}
+
+// StartIssue adds mobius:ready to an issue, so Mobius starts the task. Mobius adds the label with the user token of
+// the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+func (h *handlers) StartIssue(ctx context.Context, req StartIssueRequest) error {
+	err := h.engine.StartIssue(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
 	if engine.Refused(err) {
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}
