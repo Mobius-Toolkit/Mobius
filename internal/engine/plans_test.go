@@ -124,7 +124,7 @@ func leadReplies(t *testing.T, server *testserver.Server, number int64) string {
 }
 
 // startWithLeadPlans starts a server with the Workstream #20 and its task #88, and a Lead that plans the new
-// Workstreams #12 and #13 at their creation.
+// Workstreams #12, #13 and #14 at their creation.
 func startWithLeadPlans(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
 	fake.AddIssue(shop, 20, "Billing")
