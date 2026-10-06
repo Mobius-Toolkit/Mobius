@@ -230,7 +230,7 @@ test("a switch to another organization leaves the chat of the old organization",
   await page.getByRole("menuitemradio", { name: "owner" }).click();
   await expect(page).toHaveURL("/workstreams");
   await expect(main.getByText("Integrate loyalty plans")).toBeVisible();
-  await expect(main.getByText("plants/garden")).toHaveCount(0);
+  await expect(main.getByText("Cut the roses")).toHaveCount(0);
 
   await page.goto("/inbox");
   await organization("owner").click();
