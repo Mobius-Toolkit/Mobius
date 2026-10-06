@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -40,7 +41,8 @@ call = { tool = "create_workstream", arguments = { title = "Loyalty points", bri
 // triagerChat is the Triager chat of the organization owner.
 var triagerChat = engine.ChatKey{Organization: "owner"}
 
-// issueTriagers is the key of the sessions of the Triagers of the issues of owner/shop.
+// issueTriagers is the key of the sessions of the Triagers of the issues of owner/shop, and of the Researchers of the
+// Triager chat.
 var issueTriagers = engine.ChatKey{Organization: "owner", Repository: shop}
 
 // connectTriager starts a server with the Workstream #12 and its Brief, and the Triager of triager.
@@ -216,5 +218,111 @@ func TestANewTriagerChatSessionGetsTheChatHistory(t *testing.T) {
 	}
 	if !strings.HasSuffix(history, "# Owner message\n\nYes, create it.") {
 		t.Errorf("history = %s", history)
+	}
+}
+
+// researchTriager is a Triager chat that starts a Researcher for a message of the Owner, and answers its report. The
+// first prompt of a new chat session also has the Role prompt, so the report prompt comes first in the script.
+const researchTriager = `
+[[prompts]]
+when = "# Researcher message"
+reply = ["I have the report."]
+
+[[prompts]]
+when = "# Owner message"
+call = { tool = "start_researcher", arguments = { question = "Where do plans store the price?" } }
+`
+
+// triagerPrompts gives the prompts of the Triager chat sessions, the oldest first.
+func triagerPrompts(t *testing.T, server *testserver.Server) []string {
+	t.Helper()
+	var texts []string
+	for _, session := range chatSessions(t, server, triagerChat, engine.TriagerRole) {
+		texts = append(texts, promptTexts(t, server, session.ID)...)
+	}
+	return texts
+}
+
+func TestAReportOfTheResearcherGoesToTheTriagerChat(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectResearch(t, fake, researchTriager)
+
+	sendChat(t, server, triagerChat, "Where do plans store the price?")
+
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := chatSessions(t, server, issueTriagers, engine.ResearcherRole)
+		if len(sessions) == 0 {
+			return store.Session{}, false
+		}
+		return sessions[0], sessions[0].EndedAt.Valid
+	})
+	if session.EndReason.String != "done" || session.Parent.Int64 != chatSessions(t, server, triagerChat, engine.TriagerRole)[0].ID {
+		t.Errorf("session = %+v", session)
+	}
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 1 {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	if !strings.Contains(prompts[0], "# Question\n\n"+question) || strings.Contains(prompts[0], "# Brief") {
+		t.Errorf("prompt = %s", prompts[0])
+	}
+	waitForChat(t, server, triagerChat, "Triager", "I have the report.")
+	report := fmt.Sprintf("# Researcher message\n\nReport of the Researcher on \"%s\":\n\n%s", question, reply(t, server, session.ID))
+	if prompts := triagerPrompts(t, server); !slices.ContainsFunc(prompts, func(prompt string) bool { return strings.Contains(prompt, report) }) {
+		t.Errorf("prompts = %q", prompts)
+	}
+	messages := chatView(t, server, triagerChat).Messages
+	if slices.ContainsFunc(messages, func(message store.ChatMessage) bool { return message.Author == "Researcher" }) {
+		t.Errorf("messages = %+v", messages)
+	}
+}
+
+func TestAReportOfTheResearcherStartsANewTriagerChatSession(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	gate := filepath.Join(t.TempDir(), "gate")
+	dataDir := t.TempDir()
+	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options+researchTriager)
+	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+`
+[[prompts]]
+when = "You are a Researcher"
+reply = ["Plans store the price in cents.\n"]
+shell = "while [ ! -e `+gate+` ]; do sleep 0.05; done"
+`)
+	server := startServerWith(t, fake, testserver.Config(t, dataDir), "")
+	server.WaitForFirstPoll(t, shop)
+	sendChat(t, server, triagerChat, "Where do plans store the price?")
+	first := waitForChatSession(t, server, triagerChat, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	if first.EndReason.String != "idle" {
+		t.Fatalf("end reason = %s", first.EndReason.String)
+	}
+
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	second := waitForChatSession(t, server, triagerChat, engine.TriagerRole, func(session store.Session) bool { return session.ID != first.ID })
+	prompt := testkit.WaitForValue(t, func() (string, bool) {
+		prompts := promptTexts(t, server, second.ID)
+		return strings.Join(prompts, ""), len(prompts) > 0
+	})
+	if !strings.Contains(prompt, "# Researcher message\n\nReport of the Researcher on \""+question+"\"") || strings.Contains(prompt, "# Owner message\n\nReport") {
+		t.Errorf("prompt = %s", prompt)
+	}
+}
+
+func TestTheTriagerOfAnIssueGetsARefusalFromStartResearcher(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("start_researcher", `{ question = "Where do plans store the price?" }`))
+	triagerOfIssue := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Repository: shop, Dir: t.TempDir()}
+
+	session := run(t, server, triagerOfIssue, "Research it.")
+
+	if got, want := reply(t, server, session), "error: Only the Triager chat or the Lead chat starts a Researcher."; got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+	if sessions := chatSessions(t, server, issueTriagers, engine.ResearcherRole); len(sessions) != 0 {
+		t.Errorf("Researchers = %+v", sessions)
 	}
 }

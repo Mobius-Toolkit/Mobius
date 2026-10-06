@@ -237,6 +237,12 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
 				},
 				e.messageLead),
+			tool(e, c, "start_researcher",
+				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the Brief and the question. The tool returns at once, and the report arrives later.",
+				map[string]any{
+					"question": map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
+				},
+				e.startResearcher),
 		}
 	}
 	return nil
