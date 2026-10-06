@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -194,7 +196,7 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 			state.failedCheck = true
 		}
 	}
-	for _, workflow := range workflows {
+	for _, workflow := range newestWorkflowRuns(workflows) {
 		switch {
 		case workflow.GetStatus() != "completed":
 			state.running = true
@@ -204,6 +206,18 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 	}
 	state.absent = others+len(workflows) == 0
 	return state, nil
+}
+
+// newestWorkflowRuns keeps the run with the highest id of each workflow, as the check runs keep the latest run of each
+// name. An older run that a newer run replaced, for example a cancelled one, does not count.
+func newestWorkflowRuns(runs []*gh.WorkflowRun) []*gh.WorkflowRun {
+	newest := map[int64]*gh.WorkflowRun{}
+	for _, run := range runs {
+		if current, ok := newest[run.GetWorkflowID()]; !ok || run.GetID() > current.GetID() {
+			newest[run.GetWorkflowID()] = run
+		}
+	}
+	return slices.Collect(maps.Values(newest))
 }
 
 // quietPeriodEnded tells if review_quiet_period passed since the first poll that saw the head with no CI, so a

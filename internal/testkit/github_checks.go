@@ -36,8 +36,9 @@ type CheckRunOutput struct {
 
 // WorkflowRun is a workflow run of GitHub Actions on a commit.
 type WorkflowRun struct {
-	HeadSHA string
-	Status  string
+	HeadSHA    string
+	WorkflowID int64
+	Status     string
 	// Conclusion is "" while the workflow run runs.
 	Conclusion string
 }
@@ -415,7 +416,7 @@ func (g *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 		if run.repository != repository(r) || run.HeadSHA != r.URL.Query().Get("head_sha") {
 			continue
 		}
-		body := map[string]any{"id": index + 1, "head_sha": run.HeadSHA, "status": run.Status}
+		body := map[string]any{"id": index + 1, "workflow_id": run.WorkflowID, "head_sha": run.HeadSHA, "status": run.Status}
 		if run.Conclusion != "" {
 			body["conclusion"] = run.Conclusion
 		}

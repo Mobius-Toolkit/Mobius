@@ -117,6 +117,20 @@ func TestAWorkflowRunThatIsNotCompletedKeepsTheTaskInChecks(t *testing.T) {
 	}
 }
 
+func TestAWorkflowRunThatANewerRunOfTheSameWorkflowReplacedDoesNotCount(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+
+	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, WorkflowID: 7, Status: "completed", Conclusion: "cancelled"})
+	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, WorkflowID: 7, Status: "completed", Conclusion: "success"})
+
+	waitForReadyEvents(t, server, 1)
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+}
+
 func TestACompletedWorkflowRunIsEnoughCIForTheLead(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
