@@ -318,9 +318,13 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 		if err != nil {
 			return err
 		}
+		paused, err := a.engine.harnessPause(ctx, a.harness)
+		if err != nil {
+			return err
+		}
 		_, err = a.session.Prompt(ctx, text)
 		if err == nil {
-			return a.engine.endPauseOf(ctx, a.harness)
+			return a.engine.endPauseSince(ctx, paused)
 		}
 		limited, waitErr := a.waitOutLimit(ctx, err)
 		if waitErr != nil {

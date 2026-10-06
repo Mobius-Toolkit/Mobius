@@ -250,16 +250,32 @@ func (e *Engine) Resume(ctx context.Context, inboxItem int64) error {
 	return nil
 }
 
-// endPauseOf ends the pause of harness, if it has one.
-func (e *Engine) endPauseOf(ctx context.Context, harness config.Harness) error {
+// harnessPause gives the pause of harness, or nil when harness has no pause.
+func (e *Engine) harnessPause(ctx context.Context, harness config.Harness) (*store.HarnessPause, error) {
 	pause, err := e.queries.GetHarnessPause(ctx, string(harness))
 	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &pause, nil
+}
+
+// endPauseSince ends the pause of a Harness after a prompt succeeded. before is the pause of the Harness when the
+// prompt started. A pause that is new or different started while the prompt ran, so it stays.
+func (e *Engine) endPauseSince(ctx context.Context, before *store.HarnessPause) error {
+	if before == nil {
 		return nil
 	}
+	current, err := e.harnessPause(ctx, config.Harness(before.Harness))
 	if err != nil {
 		return err
 	}
-	return e.endPause(ctx, pause)
+	if current == nil || *current != *before {
+		return nil
+	}
+	return e.endPause(ctx, *current)
 }
 
 func (e *Engine) endPause(ctx context.Context, pause store.HarnessPause) error {

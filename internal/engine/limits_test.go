@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -229,6 +230,38 @@ func TestASuccessfulPromptEndsThePauseOfItsHarness(t *testing.T) {
 	}
 
 	if _, paused := devinPause(t, server); paused || !dismissed(t, server, 5) {
+		t.Errorf("paused = %v, dismissed = %v", paused, dismissed(t, server, 5))
+	}
+}
+
+func TestASuccessfulPromptKeepsAPauseThatStartedDuringThePrompt(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	dir := t.TempDir()
+	started, release := filepath.Join(dir, "started"), filepath.Join(dir, "release")
+	server, _ := connect(t, fake, "[[prompts]]\nshell = \"touch "+started+"; until [ -f "+release+" ]; do sleep 0.05; done\"\n")
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	done := make(chan error, 1)
+	go func() { done <- agent.Prompt(t.Context(), "Store plans in cents.") }()
+	testkit.WaitFor(t, func() bool { _, err := os.Stat(started); return err == nil })
+	for _, statement := range []string{
+		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
+		 VALUES (5, 'usage limit', 'owner', 'owner/shop', 12, 12, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z')`,
+		`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('devin', '2099-01-01T00:00:00Z', 5)`,
+	} {
+		if _, err := server.DB.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	if _, paused := devinPause(t, server); !paused || dismissed(t, server, 5) {
 		t.Errorf("paused = %v, dismissed = %v", paused, dismissed(t, server, 5))
 	}
 }
