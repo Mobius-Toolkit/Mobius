@@ -107,10 +107,9 @@ func TestAFailedCheckRunMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *t
 
 	touch(t, goFile)
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
-	if fake.PullRequests(shop)[0].Draft {
-		t.Error("the pull request is a draft")
-	}
+	testkit.WaitFor(t, func() bool {
+		return taskState(t, server) == "ready_for_review" && !fake.PullRequests(shop)[0].Draft
+	})
 }
 
 func TestAFailedGitHubActionsCheckRunGivesTheLast200LinesOfItsJobLog(t *testing.T) {
