@@ -164,3 +164,42 @@ func TestACloseAsWontDoStopsTheRunningImplementer(t *testing.T) {
 		}
 	}
 }
+
+func TestACloseAsWontDoClosesTheOpenPullRequestOfAClosedTaskIssue(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.AddSubIssueOf(shop, 12, 42, "Store the price in cents")
+	fake.AddPullRequest(shop, 45, "Add plan model")
+	fake.AddPullRequest(shop, 46, "Old plan model")
+	fake.CloseIssue(shop, 41)
+	fake.CloseIssue(shop, 46)
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request)
+		VALUES ('owner/shop', 41, 12, 'ended', '2026-10-04T10:00:00Z', 46), ('owner/shop', 41, 12, 'ended', '2026-10-04T11:00:00Z', 45)`)
+	server.WaitForFirstPoll(t, shop)
+
+	items := closure(t, server)
+
+	if len(items) != 3 || items[0].Kind != "pullRequest" || items[0].Number != 45 || items[1].Number != 42 || items[2].Number != 12 {
+		t.Fatalf("items = %+v", items)
+	}
+	if status, body := closeWontDo(t, server, 12); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if state, _ := fake.State(shop, 45); state != "closed" {
+		t.Errorf("state of #45 = %s", state)
+	}
+	if comments := fake.Comments(shop, 45); !slices.Equal(comments, []testkit.Comment{wontDoComment}) {
+		t.Errorf("comments of #45 = %v", comments)
+	}
+	if !slices.Contains(fake.Labels(shop, 45), wontDo) {
+		t.Errorf("labels of #45 = %v", fake.Labels(shop, 45))
+	}
+	unchanged(t, fake, shop, 41, "closed")
+	unchanged(t, fake, shop, 46, "closed")
+
+	waitForPoll(t, server, fake)
+	if slices.Contains(fake.Comments(shop, 45), closedComment) {
+		t.Errorf("comments of #45 = %v", fake.Comments(shop, 45))
+	}
+}
