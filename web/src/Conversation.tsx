@@ -1,4 +1,4 @@
-import { ChevronRightIcon, MicIcon, SquareIcon } from "lucide-react";
+import { ChevronRightIcon, MicIcon, PaperclipIcon, SquareIcon, XIcon } from "lucide-react";
 import {
   use,
   useCallback,
@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Textarea } from "@/components/ui/textarea";
 import { onEvent } from "@/lib/events";
+import { fitImage, maxImages } from "@/lib/images";
 import { LoginContext } from "@/lib/login";
 import { clock } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
@@ -81,6 +82,46 @@ function Message({ message }: { message: ChatMessage }) {
   );
 }
 
+function Thumbnail({
+  file,
+  position,
+  remove,
+}: {
+  file: File;
+  position: number;
+  remove: () => void;
+}) {
+  const show = useCallback(
+    (image: HTMLImageElement) => {
+      const url = URL.createObjectURL(file);
+      image.src = url;
+      return () => URL.revokeObjectURL(url);
+    },
+    [file],
+  );
+  return (
+    <div className="relative">
+      <img
+        ref={show}
+        alt={`Image ${position}`}
+        className="size-16 rounded-lg border object-cover"
+      />
+      <Button
+        type="button"
+        variant="secondary"
+        size="icon-sm"
+        aria-label={`Remove image ${position}`}
+        title={`Remove image ${position}`}
+        className="absolute top-0.5 right-0.5 rounded-full max-md:size-8"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={remove}
+      >
+        <XIcon />
+      </Button>
+    </div>
+  );
+}
+
 // The chat of the agent: a Lead chat, or the Triager chat with the empty repository and the Workstream 0. unread is
 // undefined until the first read of the unread counts.
 export function Conversation({
@@ -116,6 +157,7 @@ export function Conversation({
   const [failure, setFailure] = useState("");
   const [error, setError] = useState<string>();
   const [text, setText] = useState("");
+  const [images, setImages] = useState<File[]>([]);
   const [sendError, setSendError] = useState("");
   const [sending, setSending] = useState(false);
   // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
@@ -124,6 +166,7 @@ export function Conversation({
   const [briefOpen, setBriefOpen] = useState<boolean>();
   const listRef = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const pinned = useRef(true);
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined);
@@ -233,22 +276,40 @@ export function Conversation({
     }
   });
 
+  const addImages = async (files: File[]) => {
+    const room = maxImages - images.length;
+    let problem = files.length > room ? `A message has at most ${maxImages} images.` : "";
+    const added: File[] = [];
+    for (const file of files.slice(0, room)) {
+      try {
+        added.push(await fitImage(file));
+      } catch (err) {
+        problem = err instanceof Error ? err.message : String(err);
+      }
+    }
+    setImages((current) => [...current, ...added].slice(0, maxImages));
+    setSendError(problem);
+  };
+
   const send = () => {
-    if (inFlight.current || !text.trim()) {
+    if (inFlight.current || (!text.trim() && images.length === 0)) {
       return;
     }
     const sent = text;
+    const sentImages = images;
     voice.abort();
     inFlight.current = true;
     setSending(true);
     setText("");
-    sendChat({ organization, repository, workstream, text: sent })
+    setImages([]);
+    sendChat({ organization, repository, workstream, text: sent, images: sentImages })
       .then((res) => {
         if (res.status === 204) {
           setSendError("");
           return;
         }
         setText((current) => sent + current);
+        setImages((current) => [...sentImages, ...current].slice(0, maxImages));
         if (res.status === 401) {
           showLogin();
         } else {
@@ -257,6 +318,7 @@ export function Conversation({
       })
       .catch((err: unknown) => {
         setText((current) => sent + current);
+        setImages((current) => [...sentImages, ...current].slice(0, maxImages));
         setSendError(String(err));
       })
       .finally(() => {
@@ -340,6 +402,18 @@ export function Conversation({
         }}
       >
         <div className="grid min-w-30 grow gap-1">
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {images.map((image, index) => (
+                <Thumbnail
+                  key={index}
+                  file={image}
+                  position={index + 1}
+                  remove={() => setImages((current) => current.filter((_, i) => i !== index))}
+                />
+              ))}
+            </div>
+          )}
           <Textarea
             ref={input}
             rows={1}
@@ -347,6 +421,15 @@ export function Conversation({
             placeholder={`Write to the ${agent}`}
             value={text}
             onChange={(event) => setText(event.target.value)}
+            onPaste={(event) => {
+              const pasted = [...event.clipboardData.files].filter((file) =>
+                file.type.startsWith("image/"),
+              );
+              if (pasted.length > 0) {
+                event.preventDefault();
+                void addImages(pasted);
+              }
+            }}
             onKeyDown={(event) => {
               // On a touch screen, Enter adds a line and only the Send button sends. Safari gives the Enter that
               // ends an IME composition with isComposing false and keyCode 229.
@@ -385,6 +468,29 @@ export function Conversation({
             Stop
           </Button>
         )}
+        <input
+          ref={picker}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(event) => {
+            void addImages([...(event.target.files ?? [])]);
+            event.target.value = "";
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          aria-label="Attach images"
+          title="Attach images"
+          className="max-md:w-11"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => picker.current?.click()}
+        >
+          <PaperclipIcon />
+        </Button>
         {voice.supported && (
           <Button
             type="button"

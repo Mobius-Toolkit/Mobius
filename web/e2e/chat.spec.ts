@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { pasteImage, png } from "./images.js";
 
 const phone = { width: 390, height: 844 };
 const shop = "/workstreams/owner/shop/12";
@@ -30,6 +31,17 @@ async function sent(page: Page) {
   return chat.messages
     .filter((message) => message.author === "Owner")
     .map((message) => message.text);
+}
+
+// The image counts of the Owner messages that the server has in the Lead chat of owner/shop#12, with their texts.
+async function sentImages(page: Page) {
+  const chat = await get<{ messages: { author: string; text: string; images: number }[] }>(
+    page,
+    "/api/chat?organization=owner&repository=owner/shop&workstream=12",
+  );
+  return chat.messages
+    .filter((message) => message.author === "Owner")
+    .map((message) => `${message.text}:${message.images}`);
 }
 
 async function unread(page: Page, workstream: number) {
@@ -67,6 +79,99 @@ test("Enter sends, and Shift+Enter adds a line on a desktop", async ({ page }) =
   await input.press("Enter");
   await expect.poll(() => sent(page)).toContain("one\ntwo");
   await expect(input).toHaveValue("");
+});
+
+test.describe("images", () => {
+  test("a pasted image and an uploaded image show, and the Owner removes one", async ({ page }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    await pasteImage(page, await png(page, 40, 30, "red"));
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
+    await main.locator("input[type=file]").setInputFiles({
+      name: "photo.png",
+      mimeType: "image/png",
+      buffer: await png(page, 40, 30, "blue"),
+    });
+    await expect(main.getByRole("img", { name: "Image 2" })).toBeVisible();
+    await main.getByRole("button", { name: "Remove image 1" }).click();
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 2" })).toBeHidden();
+  });
+
+  test("a message with an image and a message with only an image reach the server", async ({
+    page,
+  }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const input = page.getByLabel("Message to the Lead");
+    await input.fill("with image");
+    await pasteImage(page, await png(page, 40, 30, "red"));
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
+    await main.getByRole("button", { name: "Send" }).click();
+    await expect.poll(() => sentImages(page)).toContain("with image:1");
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeHidden();
+
+    const image = await png(page, 40, 30, "green");
+    await main.locator("input[type=file]").setInputFiles([
+      { name: "one.png", mimeType: "image/png", buffer: image },
+      { name: "two.png", mimeType: "image/png", buffer: image },
+    ]);
+    await expect(main.getByRole("img", { name: "Image 2" })).toBeVisible();
+    await main.getByRole("button", { name: "Send" }).click();
+    await expect.poll(() => sentImages(page)).toContain(":2");
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeHidden();
+  });
+
+  test("the images stay in the input when the server refuses the message", async ({ page }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    await page.route("/api/chat/messages", (route) =>
+      route.fulfill({ status: 400, json: { error: "The image is too large." } }),
+    );
+    await pasteImage(page, await png(page, 40, 30, "red"));
+    await main.getByRole("button", { name: "Send" }).click();
+    await expect(main.getByText("The image is too large.")).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
+  });
+
+  test("a message has at most 4 images", async ({ page }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const image = await png(page, 40, 30, "red");
+    const files = [1, 2, 3, 4, 5].map((n) => ({
+      name: `${n}.png`,
+      mimeType: "image/png",
+      buffer: image,
+    }));
+    await main.locator("input[type=file]").setInputFiles(files);
+    await expect(main.getByText("A message has at most 4 images.")).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 4" })).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 5" })).toBeHidden();
+    await pasteImage(page, image);
+    await expect(main.getByText("A message has at most 4 images.")).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 5" })).toBeHidden();
+  });
+
+  test("an image of another type gets an error, and a large image is scaled down", async ({
+    page,
+  }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    await main.locator("input[type=file]").setInputFiles({
+      name: "notes.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("notes"),
+    });
+    await expect(main.getByText("notes.txt is not a PNG, JPEG, GIF or WebP image.")).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeHidden();
+
+    await main.locator("input[type=file]").setInputFiles({
+      name: "large.png",
+      mimeType: "image/png",
+      buffer: await png(page, 3136, 1000, "red"),
+    });
+    await expect(main.getByRole("img", { name: "Image 1" })).toHaveJSProperty("naturalWidth", 1568);
+  });
 });
 
 test.describe("on a touch screen", () => {
