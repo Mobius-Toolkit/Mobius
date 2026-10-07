@@ -202,9 +202,17 @@ func AddDetachedWorktree(ctx context.Context, dataDir, repository, dir, commit s
 	return err
 }
 
-// RemoveWorktree removes the worktree dir of the bare clone of repository, with its changes.
+// RemoveWorktree removes the worktree dir of the bare clone of repository, with its changes. It also removes a worktree
+// that a killed "git worktree add" left: a locked one, or one whose record git cannot read.
 func RemoveWorktree(ctx context.Context, dataDir, repository, dir string) error {
-	_, err := run(git(ctx, dataDir, bareDir(dataDir, repository), "", "worktree", "remove", "--force", dir))
+	bare := bareDir(dataDir, repository)
+	if _, err := run(git(ctx, dataDir, bare, "", "worktree", "remove", "--force", "--force", dir)); err == nil {
+		return nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	_, err := run(git(ctx, dataDir, bare, "", "worktree", "prune"))
 	return err
 }
 
