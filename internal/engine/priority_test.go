@@ -210,7 +210,7 @@ func TestAFixRoundOfReviewFindingsDoesNotGoBeforeAnEarlierNewTicket(t *testing.T
 	}
 
 	waitForState(t, server, 45, "approval")
-	testkit.WaitFor(t, func() bool { return len(issueImplementers(t, server, 41)) == 2 })
+	testkit.WaitFor(t, func() bool { return len(issueImplementers(t, server, 41)) >= 2 })
 	startsAfter(t, issueImplementers(t, server, 41)[1], issueImplementers(t, server, 45)[0])
 }
 

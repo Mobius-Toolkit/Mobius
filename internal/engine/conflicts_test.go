@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -102,8 +101,9 @@ func TestAMergeConflictStartsAConflictRoundThatMergesTheBaseBranch(t *testing.T)
 
 func TestAConflictRoundHasTheCommentsOfTrustedAuthorsOnThePullRequest(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, mergesCents, func(cfg *config.Config) { cfg.ReviewQuietPeriod = time.Hour })
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	server, _ := connectTask(t, fake, leadStarts, mergesCents, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
 	waitForReadyEvents(t, server, 1)
 	fake.AddComment(shop, 42, "owner", "Keep the unit.")
 	fake.AddReviewComment(shop, 42, 0, "owner", "Store the unit.")
