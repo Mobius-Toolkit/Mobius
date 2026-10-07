@@ -25,12 +25,12 @@ func waitForApproval(t *testing.T, server *testserver.Server, fake *testkit.Fake
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 }
 
-// noTaskLabels waits until #41 has no mobius:working and no mobius:needs-human. Mobius removes the labels after it
-// changes the state of the task.
+// noTaskLabels waits until #41 has no mobius:working, no mobius:review and no mobius:needs-human. Mobius removes the
+// labels after it changes the state of the task.
 func noTaskLabels(t *testing.T, fake *testkit.FakeGitHub) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
-		return !hasLabel(fake, "mobius:working") && !hasLabel(fake, "mobius:needs-human")
+		return !hasLabel(fake, "mobius:working") && !hasLabel(fake, "mobius:review") && !hasLabel(fake, "mobius:needs-human")
 	})
 }
 

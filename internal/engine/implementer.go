@@ -177,8 +177,8 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if err != nil {
 		return "", err
 	}
-	if task.State != "approval" && task.State != "ready_for_review" {
-		return "", refuse("The task of #%d is %s, not approval or ready_for_review.", input.N, task.State)
+	if task.State != "checks" && task.State != "approval" && task.State != "ready_for_review" {
+		return "", refuse("The task of #%d is %s, not checks, approval or ready_for_review.", input.N, task.State)
 	}
 	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
 	if err != nil {
@@ -193,6 +193,100 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 		return "", errors.Join(err, stateErr)
 	}
 	return fmt.Sprintf("Sent the findings to a fix round of #%d. At max_fix_rounds, Mobius stops the task instead.", input.N), nil
+}
+
+// approvePullRequest moves the task from approval to ready_for_review, sets the Mobius check of the head to success,
+// makes a draft pull request ready for review, replaces mobius:working with mobius:review, and adds the Inbox item for
+// the Owner.
+func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository github.Repository, input numberInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
+	if err != nil {
+		return "", err
+	}
+	if !task.PullRequest.Valid {
+		return "", refuse("The task of #%d has no pull request.", input.N)
+	}
+	if task.State == "checks" {
+		return "", refuse("The task of #%d still waits for CI, so it is not ready for approval.", input.N)
+	}
+	if task.State != "approval" {
+		return "", refuse("The task of #%d is %s, not approval.", input.N, task.State)
+	}
+	pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
+	if err != nil {
+		return "", err
+	}
+	checkRun, err := openCheckRun(ctx, repository, pullRequest.GetHead().GetSHA())
+	if err != nil {
+		return "", err
+	}
+	if checkRun == 0 {
+		if _, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"}); err != nil {
+			return "", err
+		}
+		return "", refuse("The head of the pull request of #%d changed after the CI passed. The task waits for the CI of the new head.", input.N)
+	}
+	issue, err := existingIssue(ctx, repository, input.N)
+	if err != nil {
+		return "", err
+	}
+	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "approval"})
+	if err != nil {
+		return "", err
+	}
+	if moved == 0 {
+		return "", refuse("The task of #%d is not approval any more.", input.N)
+	}
+	if err := e.approve(ctx, repository, task, issue.GetTitle(), pullRequest, checkRun); err != nil {
+		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
+		return "", errors.Join(err, stateErr)
+	}
+	return fmt.Sprintf("Approved pull request #%d of #%d. The Owner got it for review.", pullRequest.GetNumber(), input.N), nil
+}
+
+// openCheckRun returns the id of the Mobius check run of the head that is not complete, or 0 when it has none. A head
+// that passed the CI check of Mobius has one.
+func openCheckRun(ctx context.Context, repository github.Repository, head string) (int64, error) {
+	runs, err := repository.CheckRuns(ctx, head)
+	if err != nil {
+		return 0, err
+	}
+	for _, run := range runs {
+		if run.GetName() == checkRunName && run.GetStatus() != "completed" {
+			return run.GetID(), nil
+		}
+	}
+	return 0, nil
+}
+
+func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, title string, pullRequest *gh.PullRequest, checkRun int64) error {
+	if err := repository.CompleteCheckRun(ctx, checkRun, checkRunName, "success"); err != nil {
+		return err
+	}
+	if pullRequest.GetDraft() {
+		if err := repository.MarkReadyForReview(ctx, pullRequest.GetNodeID()); err != nil {
+			return err
+		}
+	}
+	if err := repository.AddLabel(ctx, task.Issue, reviewLabel); err != nil {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
+		return err
+	}
+	_, err := e.addInboxItem(ctx, store.AddInboxItemParams{
+		Kind:         readyForReviewKind,
+		Organization: repository.Owner(),
+		Repository:   task.Repository,
+		Workstream:   task.Workstream,
+		Issue:        task.Issue,
+		Text:         fmt.Sprintf("Pull request #%d of #%d \"%s\" is ready for review.", pullRequest.GetNumber(), task.Issue, title),
+		Link:         pullRequest.GetHTMLURL(),
+	})
+	return err
 }
 
 // cannotDo ends the turn of the Implementer with the reason for the Lead.
@@ -264,6 +358,9 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err != nil || queued == 0 {
 		return err
 	}
+	if err := resumeWork(ctx, repository, r.task); err != nil {
+		return err
+	}
 	j := job{
 		task:        r.task,
 		title:       r.title,
@@ -285,6 +382,18 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	}
 	e.runImplementer(j)
 	return nil
+}
+
+// resumeWork replaces mobius:review of the issue of a task in ready_for_review with mobius:working, because a round
+// starts. task.State is the state before the round.
+func resumeWork(ctx context.Context, repository github.Repository, task store.Task) error {
+	if task.State != "ready_for_review" {
+		return nil
+	}
+	if err := repository.AddLabel(ctx, task.Issue, workingLabel); err != nil {
+		return err
+	}
+	return repository.RemoveLabel(ctx, task.Issue, reviewLabel)
 }
 
 // makeDraft makes the pull request a draft, so that a pull request that is ready for review is a draft during the round.
@@ -328,6 +437,9 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	}
 	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: task.State})
 	if err != nil || queued == 0 {
+		return err
+	}
+	if err := resumeWork(ctx, repository, task); err != nil {
 		return err
 	}
 	j := job{

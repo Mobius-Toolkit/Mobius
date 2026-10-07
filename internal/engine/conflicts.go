@@ -36,6 +36,9 @@ func (e *Engine) stale(ctx context.Context, repository github.Repository, task s
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
+	if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
+		return err
+	}
 	if err := repository.AddLabel(ctx, task.Issue, needsHumanLabel); err != nil {
 		return err
 	}
