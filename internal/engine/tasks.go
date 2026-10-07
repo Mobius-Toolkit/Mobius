@@ -88,9 +88,7 @@ func (e *Engine) taskLine(ctx context.Context, repository github.Repository, wor
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return taskLine{}, err
 		}
-		if task.State == "queued" {
-			line.state = "queued"
-		}
+		line.state = waitState(task.State, line.state)
 	}
 	return line, nil
 }
@@ -147,7 +145,7 @@ func taskText(lines []taskLine) string {
 type TaskLine struct {
 	Number int64
 	Title  string
-	// State is the Mobius label with no "mobius:", queued for a task that waits for a slot, or open.
+	// State is the Mobius label with no "mobius:", or open. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead".
 	State string
 	URL   string
 	// Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below.
@@ -217,9 +215,7 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 					if err != nil && !errors.Is(err, sql.ErrNoRows) {
 						return nil, err
 					}
-					if task.State == "queued" {
-						line.State = "queued"
-					}
+					line.State = waitState(task.State, line.State)
 				}
 			}
 			lines = append(lines, line)
@@ -232,6 +228,19 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 		}
 	}
 	return lines, nil
+}
+
+// waitState gives the line state of a task that waits for a slot, for CI or for the Lead. Any other task keeps the Mobius label.
+func waitState(task, label string) string {
+	switch task {
+	case "queued":
+		return "queued"
+	case "checks":
+		return "waits for CI"
+	case "approval":
+		return "waits for Lead"
+	}
+	return label
 }
 
 // labelState gives the first Mobius label of labels in the order of Labels, with no "mobius:", or open.

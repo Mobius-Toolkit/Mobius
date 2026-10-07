@@ -318,13 +318,19 @@ func TestACommentInChecksGoesOnlyToTheJudgeAndTheTaskReturnsToChecks(t *testing.
 // A task that a restart finds in checks or approval has no worker. The poll continues from the state in the store.
 func seedWaiting(t *testing.T, fake *testkit.FakeGitHub, state string) (*testserver.Server, string) {
 	t.Helper()
+	return seedWaitingWith(t, fake, state, "")
+}
+
+// seedWaitingWith is seedWaiting with the script of the fake agent after the options.
+func seedWaitingWith(t *testing.T, fake *testkit.FakeGitHub, state, script string) (*testserver.Server, string) {
+	t.Helper()
 	dataDir := t.TempDir()
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
-	testkit.InstallFakeAgent(t, dataDir, options)
+	testkit.InstallFakeAgent(t, dataDir, options+script)
 	seed(t, dataDir,
 		`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, branch, pull_request)
 		 VALUES (1, 'owner/shop', 41, 12, '`+state+`', '2026-10-04T10:00:00Z', 'mobius/41', 42)`)
@@ -386,5 +392,25 @@ func TestStartFixRoundWorksWhileTheTaskWaitsForTheLead(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
 	if task := liveTask(t, server, 41); task.FixRounds != 1 {
 		t.Errorf("task = %+v", task)
+	}
+}
+
+func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLead(t *testing.T) {
+	for state, want := range map[string]string{"checks": "waits for CI", "approval": "waits for Lead"} {
+		t.Run(state, func(t *testing.T) {
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := seedWaitingWith(t, fake, state, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
+
+			session, _ := leadReply(t, server)
+
+			lines := taskTab(t, server)
+			if len(lines) != 1 || lines[0].Number != 41 || lines[0].State != want {
+				t.Errorf("lines = %+v", lines)
+			}
+			calls := rows(t, server, session, "mcp_call")
+			if len(calls) != 1 || calls[0]["result"] != "#41 Add plan model: "+want+"\n" {
+				t.Errorf("calls = %+v", calls)
+			}
+		})
 	}
 }
