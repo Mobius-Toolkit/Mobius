@@ -74,7 +74,9 @@ func TestFixLabelsCreatesTheMissingLabelsAndSetsTheFixedColors(t *testing.T) {
 		{"mobius:ready", engine.Present, ""},
 		{"mobius:working", engine.WrongColor, "ededed"},
 		{"mobius:needs-human", engine.Missing, ""},
+		{"mobius:review", engine.Missing, ""},
 		{"mobius:no-workstream", engine.Missing, ""},
+		{"mobius:wont-do", engine.Missing, ""},
 	}
 	if got := checkLabels(t, repository); !reflect.DeepEqual(got, want) {
 		t.Errorf("status = %v, want %v", got, want)
@@ -90,6 +92,8 @@ func TestFixLabelsCreatesTheMissingLabelsAndSetsTheFixedColors(t *testing.T) {
 		{Name: "mobius:needs-human", Color: "D93F0B", Description: "Mobius waits for an answer from a human"},
 		{Name: "mobius:no-workstream", Color: "BFD4F2", Description: "The Triager found no Workstream for this issue"},
 		{Name: "mobius:ready", Color: "0e8a16", Description: "Ready, says the Owner"},
+		{Name: "mobius:review", Color: "006B75", Description: "The pull request waits for a human review"},
+		{Name: "mobius:wont-do", Color: "CFD3D7", Description: "The Owner closed the Workstream of this issue as \"won't do\""},
 		{Name: "mobius:working", Color: "FBCA04", Description: "Custom description"},
 		{Name: "mobius:workstream", Color: "5319E7", Description: "Mobius Workstream: a parent issue for a group of tasks"},
 	}
@@ -119,7 +123,9 @@ func TestFixLabelsSkipsALabelWithANameInADifferentCase(t *testing.T) {
 		{"mobius:ready", engine.WrongCase, "Mobius:Ready"},
 		{"mobius:working", engine.WrongCase, "MOBIUS:WORKING"},
 		{"mobius:needs-human", engine.Missing, ""},
+		{"mobius:review", engine.Missing, ""},
 		{"mobius:no-workstream", engine.Missing, ""},
+		{"mobius:wont-do", engine.Missing, ""},
 	}
 	if got := checkLabels(t, repository); !reflect.DeepEqual(got, want) {
 		t.Errorf("status = %v, want %v", got, want)
@@ -139,6 +145,8 @@ func TestFixLabelsSkipsALabelWithANameInADifferentCase(t *testing.T) {
 		"mobius:autopilot 1D76DB Mobius dispatches the ready tasks of this Workstream",
 		"mobius:needs-human D93F0B Mobius waits for an answer from a human",
 		"mobius:no-workstream BFD4F2 The Triager found no Workstream for this issue",
+		"mobius:review 006B75 The pull request waits for a human review",
+		"mobius:wont-do CFD3D7 The Owner closed the Workstream of this issue as \"won't do\"",
 		"mobius:workstream 5319E7 Mobius Workstream: a parent issue for a group of tasks",
 	}
 	if !reflect.DeepEqual(names, wantNames) {

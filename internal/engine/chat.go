@@ -684,7 +684,7 @@ func (e *Engine) pending(ctx context.Context, event *store.LeadEvent) (bool, err
 
 // itemTurn runs the turn of the item, and then ends the turn. The reply text of a turn for an event goes only to the
 // Transcript, and a stop does not cancel that turn: the Owner cannot see it. The Lead uses tell_owner to write to the
-// Owner.
+// Owner. After a tell_owner call, the reply text of a turn for a message goes only to the Transcript.
 func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images []Image) error {
 	e.chatsMu.Lock()
 	c.current = &current
@@ -771,7 +771,8 @@ func (e *Engine) holdEvent(_ context.Context, c caller, _ github.Repository, _ n
 	return "Mobius holds the event. It sends the event again after your next reply to the Owner.", nil
 }
 
-// tellOwner adds text to the Lead chat as a message of the Lead to the Owner, and adds an Inbox item.
+// tellOwner adds text to the Lead chat as a message of the Lead to the Owner, and adds an Inbox item. The reply text
+// after the call, in the same turn, goes only to the Transcript.
 func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repository, input tellInput) (string, error) {
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
@@ -786,6 +787,7 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repo
 	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text, ""); err != nil {
 		return "", err
 	}
+	c.agent.setAuthor("")
 	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         leadKind,
 		Organization: c.organization,

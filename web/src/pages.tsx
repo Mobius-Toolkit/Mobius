@@ -4,7 +4,7 @@ import { unreadCount } from "@/lib/unread";
 import { Activity } from "./Activity";
 import { Agents } from "./Agents";
 import { Chat } from "./Chat";
-import { Checkup } from "./Checkup";
+import { Checkup, CheckupLabels, CheckupPermissions, CheckupTools } from "./Checkup";
 import { GitHub } from "./GitHub";
 import { Inbox } from "./Inbox";
 import { NewWorkstream } from "./NewWorkstream";
@@ -72,8 +72,22 @@ export function AgentsPage() {
 }
 
 export function CheckupPage() {
-  const { organization } = useShell();
-  return <Checkup organization={organization} />;
+  const { organizations } = useShell();
+  return <Checkup organizations={organizations} />;
+}
+
+export function CheckupToolsPage() {
+  return <CheckupTools />;
+}
+
+export function CheckupPermissionsPage() {
+  const { organization } = useParams({ from: "/settings/checkup/$organization/permissions" });
+  return <CheckupPermissions key={organization} organization={organization} />;
+}
+
+export function CheckupLabelsPage() {
+  const { organization } = useParams({ from: "/settings/checkup/$organization/labels" });
+  return <CheckupLabels key={organization} organization={organization} />;
 }
 
 export function GitHubPage() {

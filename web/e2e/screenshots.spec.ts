@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { png } from "./images.js";
 
 const viewports = {
   desktop: { width: 1280, height: 800 },
@@ -103,6 +104,27 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [...chatReady(device), main.getByRole("button", { name: "Stop voice input" })],
     () => main.getByRole("button", { name: "Start voice input" }).click(),
+  );
+  const photos = [
+    { name: "plan.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#2563eb") },
+    { name: "cart.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#16a34a") },
+  ];
+  await screenshot(
+    page,
+    "chat-images",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...chatReady(device),
+      main.getByRole("img", { name: "Image 1" }),
+      main.getByRole("img", { name: "Image 2" }),
+    ],
+    async () => {
+      await main.getByLabel("Message to the Lead").fill("This is the new plan page.");
+      await main.locator("input[type=file]").setInputFiles(photos);
+      for (const name of ["Image 1", "Image 2"]) {
+        await expect(main.getByRole("img", { name })).toHaveJSProperty("naturalWidth", 200);
+      }
+    },
   );
   await screenshot(
     page,
@@ -232,6 +254,20 @@ test("screenshots", async ({ page }) => {
   ]);
   await screenshot(page, "checkup", "/settings/checkup", (device) => [
     ...frame(device, release),
+    main.getByRole("link", { name: "Tools" }),
+    main.getByRole("heading", { name: "owner", exact: true }),
+    main.getByRole("heading", { name: "plants", exact: true }),
+  ]);
+  await screenshot(page, "checkup-tools", "/settings/checkup/tools", (device) => [
+    ...frame(device, release),
+    main.getByText("2.1.284 (Claude Code)"),
+  ]);
+  await screenshot(page, "checkup-permissions", "/settings/checkup/owner/permissions", (device) => [
+    ...frame(device, release),
+    main.getByText("workflows: write"),
+  ]);
+  await screenshot(page, "checkup-labels", "/settings/checkup/owner/labels", (device) => [
+    ...frame(device, release),
     main.getByText("wrong color: #ededed"),
   ]);
 
@@ -241,4 +277,28 @@ test("screenshots", async ({ page }) => {
   await main.getByRole("button", { name: "Close Workstream" }).click();
   await expect(page).toHaveURL("/workstreams");
   await expect(main.getByText("Seasonal prices")).toBeHidden();
+
+  // Opening a chat of plants saves plants as the organization, so this screenshot comes last.
+  const pictures = main.getByRole("img", { name: /^Picture \d of message/ });
+  await screenshot(
+    page,
+    "chat-history-images",
+    "/workstreams/plants/garden/25",
+    (device) => [
+      release,
+      page.getByLabel("Work in another organization").filter({ visible: true }),
+      ...(device === "desktop"
+        ? [page.locator('nav a[href="/workstreams/plants/garden/25"]')]
+        : []),
+      main.getByText("This is the new plan page."),
+      pictures.last(),
+    ],
+    async () => {
+      await expect(pictures).toHaveCount(3);
+      for (let position = 0; position < 3; position++) {
+        await expect(pictures.nth(position)).toHaveJSProperty("naturalWidth", 200);
+      }
+      await expect(pictures.last()).toBeInViewport();
+    },
+  );
 });

@@ -12,16 +12,26 @@ import (
 const (
 	workingLabel    = "mobius:working"
 	needsHumanLabel = "mobius:needs-human"
+	reviewLabel     = "mobius:review"
 	// stoppedKind is the kind of the Inbox item of a task that stopped.
 	stoppedKind = "stopped"
 	lostText    = "Mobius lost the state of this task. Add mobius:ready to start again."
 )
 
-// handLostTasks hands to a human each issue of repository that has mobius:working and no live task: the task
-// is lost with the store. The Inbox item comes before the label change, so a later poll finds the issue again
+// handLostTasks hands to a human each issue of repository that has mobius:working or mobius:review and no live task: the
+// task is lost with the store. The Inbox item comes before the label change, so a later poll finds the issue again
 // after a failure.
 func (e *Engine) handLostTasks(ctx context.Context, repository github.Repository) error {
-	issues, err := repository.OpenIssuesWithLabel(ctx, workingLabel)
+	for _, label := range []string{workingLabel, reviewLabel} {
+		if err := e.handLostTasksWith(ctx, repository, label); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *Engine) handLostTasksWith(ctx context.Context, repository github.Repository, label string) error {
+	issues, err := repository.OpenIssuesWithLabel(ctx, label)
 	if err != nil {
 		return err
 	}
@@ -53,6 +63,9 @@ func (e *Engine) handLostTasks(ctx context.Context, repository github.Repository
 			return err
 		}
 		if err := repository.RemoveLabel(ctx, number, workingLabel); err != nil {
+			return err
+		}
+		if err := repository.RemoveLabel(ctx, number, reviewLabel); err != nil {
 			return err
 		}
 	}

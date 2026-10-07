@@ -102,3 +102,77 @@ func (h *handlers) CompleteWorkstream(ctx context.Context, req CompleteWorkstrea
 	}
 	return err
 }
+
+// ClosureItem is an issue or a pull request that the close of a Workstream as "won't do" closes.
+type ClosureItem struct {
+	// Kind is issue or pullRequest
+	Kind string `gork:"kind" validate:"oneof=issue pullRequest"`
+	// Number is the number of the issue or the pull request
+	Number int64 `gork:"number"`
+	// Title is the title of the issue or the pull request
+	Title string `gork:"title"`
+	// URL is the web address of the issue or the pull request on GitHub
+	URL string `gork:"url"`
+}
+
+// WorkstreamClosureRequest is the request of WorkstreamClosure.
+type WorkstreamClosureRequest struct {
+	Path struct {
+		// Owner is the owner of the repository
+		Owner string `gork:"owner"`
+		// Name is the name of the repository
+		Name string `gork:"name"`
+		// Number is the number of the Workstream issue
+		Number int64 `gork:"number"`
+	}
+}
+
+// WorkstreamClosureResponse is the response of WorkstreamClosure.
+type WorkstreamClosureResponse struct {
+	Body Envelope[[]ClosureItem]
+}
+
+// WorkstreamClosure returns the items that CloseWorkstream closes, in the order of the close: the open pull requests of
+// the tasks, the open task issues, and the Workstream issue. It reads the state from GitHub. It returns 409 when the
+// issue is not an open Workstream.
+func (h *handlers) WorkstreamClosure(ctx context.Context, req WorkstreamClosureRequest) (*WorkstreamClosureResponse, error) {
+	items, err := h.engine.WorkstreamClosure(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
+	if engine.Refused(err) {
+		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	if err != nil {
+		return nil, err
+	}
+	data := make([]ClosureItem, 0, len(items))
+	for _, item := range items {
+		kind := "issue"
+		if item.PullRequest {
+			kind = "pullRequest"
+		}
+		data = append(data, ClosureItem{Kind: kind, Number: item.Number, Title: item.Title, URL: item.URL})
+	}
+	return &WorkstreamClosureResponse{Body: Envelope[[]ClosureItem]{Data: data}}, nil
+}
+
+// CloseWorkstreamRequest is the request of CloseWorkstream.
+type CloseWorkstreamRequest struct {
+	Path struct {
+		// Owner is the owner of the repository
+		Owner string `gork:"owner"`
+		// Name is the name of the repository
+		Name string `gork:"name"`
+		// Number is the number of the Workstream issue
+		Number int64 `gork:"number"`
+	}
+}
+
+// CloseWorkstream closes the Workstream as "won't do", also when it has open issues. For each item of
+// WorkstreamClosure, Mobius adds a comment and mobius:wont-do, and closes the item. It closes the Workstream issue
+// last. It returns 409 when the issue is not an open Workstream.
+func (h *handlers) CloseWorkstream(ctx context.Context, req CloseWorkstreamRequest) error {
+	err := h.engine.CloseWorkstreamWontDo(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
+	if engine.Refused(err) {
+		return api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	return err
+}
