@@ -44,7 +44,7 @@ func (a *Agent) sendPrompt(ctx context.Context, text string) error {
 	go func() { hung <- a.watch(promptCtx, stop) }()
 	_, err := a.session.Prompt(promptCtx, text)
 	stop()
-	if <-hung && err != nil {
+	if <-hung {
 		return errHung
 	}
 	return err
