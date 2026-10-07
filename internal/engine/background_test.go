@@ -141,6 +141,54 @@ func TestAUserTurnEndWhileAPromptRunsGetsNoCancel(t *testing.T) {
 	}
 }
 
+func TestAnEndOfAnAutonomousTurnWhileATaskRunsIsNoAbsorbedPrompt(t *testing.T) {
+	shortAbsorb(t)
+	fake := testkit.NewFakeGitHub(t)
+	starts := []string{
+		`{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "_meta": {"claudeCode": {"toolName": "Agent", "toolResponse": {"isAsync": true, "agentId": "s1"}}}}`,
+		`{"sessionUpdate": "tool_call_update", "toolCallId": "t2", "_meta": {"claudeCode": {"toolName": "Agent", "toolResponse": {"isAsync": true, "agentId": "s2"}}}}`,
+		endUpdate,
+	}
+	server, _ := connect(t, fake, "[[prompts]]\nupdates = ['"+strings.Join(starts, "', '")+"']\nhang = true\n")
+	agent := start(t, server, leadSpec(t))
+	waiting, stopWaiting := context.WithTimeout(t.Context(), 1200*time.Millisecond)
+	defer stopWaiting()
+
+	if err := agent.Prompt(waiting, "One", nil); err == nil {
+		t.Fatal("the prompt got a cancel and ended before the timeout")
+	}
+	if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
+		t.Errorf("notes = %q", notes)
+	}
+}
+
+func TestMonitorEventsDoNotEndABackgroundTask(t *testing.T) {
+	shortHang(t)
+	for name, persistent := range map[string]string{"a Monitor": "false", "a persistent Monitor": "true"} {
+		t.Run(name, func(t *testing.T) {
+			fake := testkit.NewFakeGitHub(t)
+			bash := `{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "_meta": {"claudeCode": {"toolName": "Bash", "toolResponse": {"backgroundTaskId": "b1"}}}}`
+			monitor := `{"sessionUpdate": "tool_call_update", "toolCallId": "t2", "_meta": {"claudeCode": {"toolName": "Monitor", "toolResponse": {"taskId": "m1", "timeoutMs": 300000, "persistent": ` + persistent + `}}}}`
+			starts := "updates = ['" + bash + "', '" + monitor + "']\n"
+			events := `later = { after = "100ms", updates = ['` + workUpdate + `', '` + endUpdate + `', '` + workUpdate + `', '` + endUpdate + `'] }` + "\n"
+			server, _ := connect(t, fake, "[[prompts]]\n"+starts+"reply = [\"Started\"]\n"+events+"\n[[prompts]]\nreply = [\"Done\"]\n")
+			agent := start(t, server, leadSpec(t))
+
+			if err := agent.Prompt(t.Context(), "One", nil); err != nil {
+				t.Fatal(err)
+			}
+
+			notes := noteTexts(t, server, agent.ID())
+			if len(notes) != 1 || !strings.Contains(notes[0], "retry 1 of 3") {
+				t.Errorf("notes = %q", notes)
+			}
+			if err := agent.End(t.Context(), "done"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestALostEndSignalGetsARetryPromptInTheSameSession(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)

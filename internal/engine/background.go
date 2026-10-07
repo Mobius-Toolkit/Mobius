@@ -36,16 +36,19 @@ func (a *Agent) track(notification map[string]any, kind string) {
 			return
 		}
 		a.autonomous = false
-		if a.turn {
+		// The origin has no task id, so the oldest task counts as the one that ended. A Monitor sends one
+		// task-notification for each event, so while a Monitor lives, no end belongs to a task for sure.
+		if origin == "task-notification" && len(a.tasks) > 0 && len(a.monitors) == 0 {
+			a.tasks = a.tasks[1:]
+		}
+		// A live task at the end means that the turn started it, and the adapter can hold the turn open for it. Then
+		// the prompt is not absorbed.
+		if a.turn && len(a.tasks) == 0 {
 			a.autonomousEnd = time.Now()
 			select {
 			case a.ended <- struct{}{}:
 			default:
 			}
-		}
-		// The origin has no task id, so the oldest task counts as the one that ended.
-		if origin == "task-notification" && len(a.tasks) > 0 {
-			a.tasks = a.tasks[1:]
 		}
 	}
 	if kind == "tool_call_update" {
@@ -57,13 +60,19 @@ func (a *Agent) track(notification map[string]any, kind string) {
 // KillShell tool call stops, or that a BashOutput or a TaskOutput tool call shows with a final status. A turn that
 // reads the final status of a task takes the task notification into itself, so no autonomous end follows. A final
 // status of a task that is not in the list takes the oldest task: an autonomous end can have taken the id of
-// that task for another id. A Monitor that is persistent has no end that Mobius can wait for, so it does not count.
+// that task for another id. A Monitor that is persistent has no end that Mobius can wait for, so it does not count
+// as a task, but it still counts in monitors.
 func (a *Agent) trackTasks(update any) {
 	response := field(update, "_meta", "claudeCode", "toolResponse")
 	id := stringField(response, "backgroundTaskId")
 	toolName := stringField(update, "_meta", "claudeCode", "toolName")
-	if taskID := stringField(response, "taskId"); toolName == "Monitor" && taskID != "" && field(response, "persistent") != true {
-		id = taskID
+	if taskID := stringField(response, "taskId"); toolName == "Monitor" && taskID != "" {
+		if !slices.Contains(a.monitors, taskID) {
+			a.monitors = append(a.monitors, taskID)
+		}
+		if field(response, "persistent") != true {
+			id = taskID
+		}
 	}
 	if field(response, "isAsync") == true {
 		id = stringField(response, "agentId")
@@ -91,6 +100,9 @@ func (a *Agent) trackTasks(update any) {
 	}
 	if ended == "" {
 		return
+	}
+	if index := slices.Index(a.monitors, ended); index >= 0 {
+		a.monitors = slices.Delete(a.monitors, index, index+1)
 	}
 	if index := slices.Index(a.tasks, ended); index >= 0 {
 		a.tasks = slices.Delete(a.tasks, index, index+1)
@@ -120,6 +132,7 @@ func (a *Agent) waitQuiet(ctx context.Context) error {
 		if hung {
 			a.autonomous = false
 			a.tasks = nil
+			a.monitors = nil
 		}
 		a.mu.Unlock()
 		if hung {
