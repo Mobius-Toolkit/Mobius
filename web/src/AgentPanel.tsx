@@ -231,6 +231,23 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
   );
 }
 
+// Removes the closed tasks. A sub-issue of a removed task moves up one level for each removed ancestor.
+function withoutClosed(lines: TaskLine[]): TaskLine[] {
+  const removed: number[] = [];
+  const open: TaskLine[] = [];
+  for (const line of lines) {
+    while (removed.length > 0 && removed[removed.length - 1] >= line.depth) {
+      removed.pop();
+    }
+    if (line.state === "closed") {
+      removed.push(line.depth);
+    } else {
+      open.push({ ...line, depth: line.depth - removed.length });
+    }
+  }
+  return open;
+}
+
 function Tasks({
   owner,
   name,
@@ -276,7 +293,7 @@ function Tasks({
     };
   }, [source, load]);
 
-  const shown = showClosed ? lines : lines?.filter((line) => line.state !== "closed");
+  const shown = showClosed ? lines : lines && withoutClosed(lines);
   return (
     <div className="grid gap-2">
       {error && <Badge variant="destructive">{error}</Badge>}
