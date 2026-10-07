@@ -269,7 +269,7 @@ func TestAFailedCheckOnAHeadThatGotItsFixRoundDoesNotStopANewTicket(t *testing.T
 	sha, _ := readyPullRequest(t, server, fake)
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	testkit.WaitFor(t, func() bool { return len(issueImplementers(t, server, 41)) == 2 })
-	waitForState(t, server, 41, "checks")
+	waitForState(t, server, 41, "needs_human")
 
 	fake.AddLabel(shop, 43, "mobius:ready", "owner")
 
