@@ -413,6 +413,44 @@ func TestACreatedIssueGetsTheNextNumberAndHasSubIssuesAndComments(t *testing.T) 
 	}
 }
 
+func TestTheCommentListOfARepositoryFiltersSortsAndPages(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+	github.AddIssue("owner/shop", 41, "Add plan model")
+	github.AddIssue("owner/other", 7, "Other")
+	first := github.AddComment("owner/shop", 12, "owner", "One.")
+	github.AddComment("owner/shop", 41, "owner", "Two.")
+	github.AddComment("owner/other", 7, "owner", "Three.")
+	last := github.AddCommentInLastSecond("owner/shop", 41, "owner", "Four.")
+	github.EditComment("owner/shop", first, "One, edited.")
+	token := installationToken(t, github)
+	list := github.URL + "/repos/owner/shop/issues/comments"
+	ids := func(query string) []int64 {
+		var comments []commentJSON
+		send(t, http.MethodGet, list+query, token, "", &comments)
+		var ids []int64
+		for _, comment := range comments {
+			ids = append(ids, comment.ID)
+		}
+		return ids
+	}
+
+	created := ids("")
+	updated := ids("?sort=updated&direction=desc")
+	since := ids("?sort=updated&since=" + timestamp(github.Now().Unix()))
+	paged := ids("?per_page=1&page=2")
+
+	if !reflect.DeepEqual(created, []int64{first, first + 1, last}) || !reflect.DeepEqual(updated, []int64{first, last, first + 1}) ||
+		!reflect.DeepEqual(since, []int64{first}) || !reflect.DeepEqual(paged, []int64{first + 1}) {
+		t.Errorf("created = %v, updated = %v, since = %v, paged = %v", created, updated, since, paged)
+	}
+	var comments []commentJSON
+	send(t, http.MethodGet, list, token, "", &comments)
+	if comments[0].IssueURL != "https://api.github.com/repos/owner/shop/issues/12" {
+		t.Errorf("comment = %+v", comments[0])
+	}
+}
+
 func TestRepositoryLabelsCompareTheNameWithNoRegardToCase(t *testing.T) {
 	github := NewFakeGitHub(t)
 	github.AddRepositoryLabel("owner/shop", "mobius:working", "ededed", "Custom description")

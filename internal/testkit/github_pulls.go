@@ -16,12 +16,14 @@ type reviewJSON struct {
 }
 
 type reviewCommentJSON struct {
-	ID        int64     `json:"id"`
-	User      loginJSON `json:"user"`
-	Body      string    `json:"body"`
-	CreatedAt string    `json:"created_at"`
-	Path      string    `json:"path"`
-	Line      int       `json:"line"`
+	ID             int64     `json:"id"`
+	PullRequestURL string    `json:"pull_request_url"`
+	User           loginJSON `json:"user"`
+	Body           string    `json:"body"`
+	CreatedAt      string    `json:"created_at"`
+	UpdatedAt      string    `json:"updated_at"`
+	Path           string    `json:"path"`
+	Line           int       `json:"line"`
 	// InReplyToID is the id of the first comment of the thread. The first comment has no InReplyToID.
 	InReplyToID int64 `json:"in_reply_to_id,omitempty"`
 }
@@ -96,13 +98,15 @@ func (g *FakeGitHub) reviewComment(key issueKey, inReplyTo int64, author string,
 	found := g.issues[key]
 	g.lastCommentID++
 	comment := reviewCommentJSON{
-		ID:          g.lastCommentID,
-		User:        loginJSON{author},
-		Body:        inline.Body,
-		CreatedAt:   timestamp(now),
-		Path:        inline.Path,
-		Line:        inline.Line,
-		InReplyToID: inReplyTo,
+		ID:             g.lastCommentID,
+		PullRequestURL: fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d", key.repository, key.number),
+		User:           loginJSON{author},
+		Body:           inline.Body,
+		CreatedAt:      timestamp(now),
+		UpdatedAt:      timestamp(now),
+		Path:           inline.Path,
+		Line:           inline.Line,
+		InReplyToID:    inReplyTo,
 	}
 	found.reviewComments = append(found.reviewComments, comment)
 	found.updatedAt = now
@@ -120,9 +124,26 @@ func (g *FakeGitHub) reviews(w http.ResponseWriter, r *http.Request) {
 func (g *FakeGitHub) reviewComments(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.singleCommentReads++
 	if key, ok := g.issue(w, r); ok {
 		writeJSON(w, http.StatusOK, page(w, r, append([]reviewCommentJSON{}, g.issues[key].reviewComments...)))
 	}
+}
+
+// repositoryReviewComments lists the review comments of all pull requests of the repository that changed at or after
+// `since`.
+func (g *FakeGitHub) repositoryReviewComments(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.repositoryCommentReads++
+	comments := []reviewCommentJSON{}
+	for key, found := range g.issues {
+		if key.repository == repository(r) {
+			comments = append(comments, found.reviewComments...)
+		}
+	}
+	comments = changedComments(r, comments, func(comment reviewCommentJSON) (int64, string) { return comment.ID, comment.UpdatedAt })
+	writeJSON(w, http.StatusOK, page(w, r, comments))
 }
 
 // replyToReviewComment adds a reply of the token owner to the thread that starts with the comment in_reply_to.
