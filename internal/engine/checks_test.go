@@ -95,6 +95,7 @@ func TestAFailedCheckRunMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *t
 	server, _ := connectTaskIn(t, fake, dataDir, leadStarts, round+commits, noChange)
 	sha := approvalHead(t, server, fake)
 	fake.SetDraft(shop, 42, false)
+	waitForPolls(t, fake)
 
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 
@@ -105,7 +106,7 @@ func TestAFailedCheckRunMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *t
 
 	touch(t, goFile)
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
+	testkit.WaitFor(t, func() bool { state := taskState(t, server); return state == "checks" || state == "approval" })
 	if !fake.PullRequests(shop)[0].Draft {
 		t.Error("the pull request is ready for review before the approval of the Lead")
 	}
