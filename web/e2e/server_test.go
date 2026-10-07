@@ -39,6 +39,21 @@ thought_level = ["low", "medium", "high"]
 mode = ["default", "bypassPermissions", "yolo"]
 
 [[prompts]]
+when = "Which lilies sell best?"
+reply = ["Pink lilies sell best."]
+busy = "3s"
+
+[[prompts]]
+when = "Which daisies sell best?"
+reply = ["White daisies sell best."]
+busy = "2s"
+
+[[prompts]]
+when = "Which tulips sell best?"
+reply = ["Yellow tulips sell best."]
+busy = "2s"
+
+[[prompts]]
 when = "What is the state of the plans?"
 reply = ["The Implementer works on #41. #42 and #45 wait for your decision."]
 

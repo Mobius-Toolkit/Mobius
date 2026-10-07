@@ -122,24 +122,54 @@ function TranscriptEntry({ line }: { line: TranscriptLine }) {
   );
 }
 
-export function Transcript({ agent, onClose }: { agent: Agent; onClose: () => void }) {
+function upsert(list: TranscriptLine[], line: TranscriptLine) {
+  const known = list.find((other) => other.id === line.id);
+  // The agent only adds text to a chunk, so the longer raw text is the newer text.
+  if (known && known.raw.length >= line.raw.length) {
+    return list;
+  }
+  return [...list.filter((other) => other.id !== line.id), line].toSorted((a, b) => a.id - b.id);
+}
+
+export function Transcript({
+  agent,
+  source,
+  onClose,
+}: {
+  agent: Agent;
+  source?: EventSource;
+  onClose: () => void;
+}) {
   const showLogin = use(LoginContext);
   const [lines, setLines] = useState<TranscriptLine[]>();
   const [error, setError] = useState<string>();
 
-  useEffect(() => {
+  const load = useCallback(() => {
     getTranscript(agent.id)
       .then((res) => {
         if (res.status === 401) {
           showLogin();
         } else if (res.status === 200) {
-          setLines(res.data.data);
+          setLines((list) => res.data.data.reduce(upsert, list ?? []));
         } else {
           setError(res.data.error);
         }
       })
       .catch((err: unknown) => setError(String(err)));
   }, [agent.id, showLogin]);
+
+  // A line that comes while the connection is down is lost, so each connection reads the log.
+  useEffect(() => {
+    if (!source) {
+      return;
+    }
+    load();
+    return onEvent<LiveEvents, "transcript">(source, "transcript", (line) => {
+      if (line.session === agent.id) {
+        setLines((list) => upsert(list ?? [], line));
+      }
+    });
+  }, [source, load, agent.id]);
 
   return (
     <Card>
@@ -205,7 +235,7 @@ export function Agents({ source }: { source?: EventSource }) {
   }, [source, load]);
 
   if (selected) {
-    return <Transcript agent={selected} onClose={() => setSelected(undefined)} />;
+    return <Transcript agent={selected} source={source} onClose={() => setSelected(undefined)} />;
   }
   return (
     <Card>
