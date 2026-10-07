@@ -2117,43 +2117,6 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 	return items, nil
 }
 
-const listTaskIssuePullRequests = `-- name: ListTaskIssuePullRequests :many
-SELECT issue, CAST(pull_request AS INTEGER) AS pull_request FROM tasks WHERE repository = ? AND workstream = ? AND pull_request IS NOT NULL GROUP BY issue, pull_request ORDER BY MIN(id)
-`
-
-type ListTaskIssuePullRequestsParams struct {
-	Repository string
-	Workstream int64
-}
-
-type ListTaskIssuePullRequestsRow struct {
-	Issue       int64
-	PullRequest int64
-}
-
-func (q *Queries) ListTaskIssuePullRequests(ctx context.Context, arg ListTaskIssuePullRequestsParams) ([]ListTaskIssuePullRequestsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listTaskIssuePullRequests, arg.Repository, arg.Workstream)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListTaskIssuePullRequestsRow
-	for rows.Next() {
-		var i ListTaskIssuePullRequestsRow
-		if err := rows.Scan(&i.Issue, &i.PullRequest); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listTaskPullRequests = `-- name: ListTaskPullRequests :many
 SELECT CAST(pull_request AS INTEGER) FROM tasks WHERE repository = ? AND workstream = ? AND pull_request IS NOT NULL ORDER BY id
 `

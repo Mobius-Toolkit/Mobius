@@ -126,9 +126,9 @@ func (e *Engine) openWorkstream(ctx context.Context, repository github.Repositor
 	return issue, nil
 }
 
-// closureItems gives the open items that a close as "won't do" closes: the open pull requests of the tasks with an
-// open issue, the open task issues, and the Workstream issue last. It walks the issues below the Workstream as
-// closeWorkstream does.
+// closureItems gives the open items that a close as "won't do" closes: the open pull requests of the tasks, also
+// when the issue of the task is closed, the open task issues, and the Workstream issue last. It walks the issues below
+// the Workstream as closeWorkstream does.
 func (e *Engine) closureItems(ctx context.Context, repository github.Repository, workstreamIssue *gh.Issue) ([]ClosureItem, error) {
 	workstream := int64(workstreamIssue.GetNumber())
 	var issues []*gh.Issue
@@ -149,16 +149,18 @@ func (e *Engine) closureItems(ctx context.Context, repository github.Repository,
 			}
 		}
 	}
-	rows, err := e.queries.ListTaskIssuePullRequests(ctx, store.ListTaskIssuePullRequestsParams{Repository: repository.FullName, Workstream: workstream})
+	numbers, err := e.queries.ListTaskPullRequests(ctx, store.ListTaskPullRequestsParams{Repository: repository.FullName, Workstream: workstream})
 	if err != nil {
 		return nil, err
 	}
 	var items []ClosureItem
-	for _, row := range rows {
-		if !slices.ContainsFunc(issues, func(issue *gh.Issue) bool { return int64(issue.GetNumber()) == row.Issue }) {
+	var seen []int64
+	for _, number := range numbers {
+		if slices.Contains(seen, number) {
 			continue
 		}
-		pullRequest, err := repository.Issue(ctx, row.PullRequest)
+		seen = append(seen, number)
+		pullRequest, err := repository.Issue(ctx, number)
 		if err != nil {
 			return nil, err
 		}

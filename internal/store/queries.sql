@@ -299,9 +299,6 @@ SELECT DISTINCT repository FROM tasks WHERE state <> 'ended' ORDER BY repository
 -- name: ListTaskPullRequests :many
 SELECT CAST(pull_request AS INTEGER) FROM tasks WHERE repository = ? AND workstream = ? AND pull_request IS NOT NULL ORDER BY id;
 
--- name: ListTaskIssuePullRequests :many
-SELECT issue, CAST(pull_request AS INTEGER) AS pull_request FROM tasks WHERE repository = ? AND workstream = ? AND pull_request IS NOT NULL GROUP BY issue, pull_request ORDER BY MIN(id);
-
 -- name: ListCopiedRepositories :many
 SELECT DISTINCT repository FROM copied_workstreams;
 
