@@ -953,7 +953,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		return result{}, err
 	}
 	if j.pullRequest == nil {
-		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, fmt.Sprintf("Closes #%d", j.task.Issue))
+		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, fmt.Sprintf("Workstream:\n- #%d\n\nIssue:\n- #%d\n\nCloses #%d", j.task.Workstream, j.task.Issue, j.task.Issue))
 		if err != nil {
 			return result{}, err
 		}
