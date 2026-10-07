@@ -43,6 +43,10 @@ func roundPrompt(t *testing.T, server *testserver.Server) string {
 	})
 }
 
+// roundEnded tells if the state is one that a task has after a fix round for a failed check run that the round did not
+// fix. The task stays in checks for one poll, and then goes to a human.
+func roundEnded(state string) bool { return state == "checks" || state == "needs_human" }
+
 func checkRun(name, sha, status, conclusion string) testkit.CheckRun {
 	return testkit.CheckRun{Name: name, HeadSHA: sha, Status: status, Conclusion: conclusion, Output: &testkit.CheckRunOutput{Title: name + " title", Summary: name + " summary"}}
 }
@@ -106,7 +110,7 @@ func TestAFailedCheckRunMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *t
 
 	touch(t, goFile)
 
-	testkit.WaitFor(t, func() bool { state := taskState(t, server); return state == "checks" || state == "approval" })
+	testkit.WaitFor(t, func() bool { return roundEnded(taskState(t, server)) })
 	if !fake.PullRequests(shop)[0].Draft {
 		t.Error("the pull request is ready for review before the approval of the Lead")
 	}

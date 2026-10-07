@@ -15,6 +15,7 @@ const (
 
 // The kinds of the Inbox items of the pull requests and the checks.
 const (
+	readyForReviewKind   = "ready for review"
 	stalePullRequestKind = "stale pull request"
 	fullDiskKind         = "full disk"
 )

@@ -1,4 +1,4 @@
-import { ChevronRightIcon, MicIcon, SquareIcon } from "lucide-react";
+import { ChevronRightIcon, MicIcon, PaperclipIcon, SquareIcon, XIcon } from "lucide-react";
 import {
   use,
   useCallback,
@@ -23,12 +23,15 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Textarea } from "@/components/ui/textarea";
 import { onEvent } from "@/lib/events";
+import { fitImage, maxImages } from "@/lib/images";
 import { LoginContext } from "@/lib/login";
 import { clock } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
 import { useVoice } from "@/lib/voice";
 import { Markdown } from "./Markdown";
+
+const tooManyImages = `A message has at most ${maxImages} images.`;
 
 function upsert(list: ChatMessage[], message: ChatMessage) {
   const known = list.find((other) => other.id === message.id);
@@ -81,6 +84,46 @@ function Message({ message }: { message: ChatMessage }) {
   );
 }
 
+function Thumbnail({
+  file,
+  position,
+  remove,
+}: {
+  file: File;
+  position: number;
+  remove: () => void;
+}) {
+  const show = useCallback(
+    (image: HTMLImageElement) => {
+      const url = URL.createObjectURL(file);
+      image.src = url;
+      return () => URL.revokeObjectURL(url);
+    },
+    [file],
+  );
+  return (
+    <div className="relative">
+      <img
+        ref={show}
+        alt={`Image ${position}`}
+        className="size-16 rounded-lg border object-cover"
+      />
+      <Button
+        type="button"
+        variant="secondary"
+        size="icon-sm"
+        aria-label={`Remove image ${position}`}
+        title={`Remove image ${position}`}
+        className="absolute top-0.5 right-0.5 rounded-full max-md:size-8"
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={remove}
+      >
+        <XIcon />
+      </Button>
+    </div>
+  );
+}
+
 // The chat of the agent: a Lead chat, or the Triager chat with the empty repository and the Workstream 0. unread is
 // undefined until the first read of the unread counts.
 export function Conversation({
@@ -116,14 +159,17 @@ export function Conversation({
   const [failure, setFailure] = useState("");
   const [error, setError] = useState<string>();
   const [text, setText] = useState("");
+  const [images, setImages] = useState<File[]>([]);
   const [sendError, setSendError] = useState("");
   const [sending, setSending] = useState(false);
   // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
   // message.
+  const imagesRef = useRef<File[]>([]);
   const inFlight = useRef(false);
   const [briefOpen, setBriefOpen] = useState<boolean>();
   const listRef = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const pinned = useRef(true);
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined);
@@ -233,31 +279,67 @@ export function Conversation({
     }
   });
 
+  // The ref has the images at once, so two calls that wait for fitImage count the images of each other.
+  const changeImages = (change: (current: File[]) => File[]) => {
+    imagesRef.current = change(imagesRef.current);
+    setImages(imagesRef.current);
+  };
+
+  const restoreImages = (sentImages: File[]) => {
+    const all = [...sentImages, ...imagesRef.current];
+    changeImages(() => all.slice(0, maxImages));
+    return all.length > maxImages;
+  };
+
+  const addImages = async (files: File[]) => {
+    const room = maxImages - imagesRef.current.length;
+    let problem = "";
+    const added: File[] = [];
+    for (const file of files.slice(0, room)) {
+      try {
+        added.push(await fitImage(file));
+      } catch (err) {
+        problem = err instanceof Error ? err.message : String(err);
+      }
+    }
+    const all = [...imagesRef.current, ...added];
+    changeImages(() => all.slice(0, maxImages));
+    if (!problem && (files.length > room || all.length > maxImages)) {
+      problem = tooManyImages;
+    }
+    setSendError(problem);
+  };
+
   const send = () => {
-    if (inFlight.current || !text.trim()) {
+    if (inFlight.current || (!text.trim() && images.length === 0)) {
       return;
     }
     const sent = text;
+    const sentImages = imagesRef.current;
     voice.abort();
     inFlight.current = true;
     setSending(true);
     setText("");
-    sendChat({ organization, repository, workstream, text: sent })
+    changeImages(() => []);
+    sendChat({ organization, repository, workstream, text: sent, images: sentImages })
       .then((res) => {
         if (res.status === 204) {
           setSendError("");
           return;
         }
         setText((current) => sent + current);
+        const dropped = restoreImages(sentImages);
         if (res.status === 401) {
           showLogin();
+          setSendError(dropped ? tooManyImages : "");
         } else {
-          setSendError(res.data.error);
+          setSendError(dropped ? `${res.data.error} ${tooManyImages}` : res.data.error);
         }
       })
       .catch((err: unknown) => {
         setText((current) => sent + current);
-        setSendError(String(err));
+        const dropped = restoreImages(sentImages);
+        setSendError(dropped ? `${String(err)} ${tooManyImages}` : String(err));
       })
       .finally(() => {
         inFlight.current = false;
@@ -340,6 +422,18 @@ export function Conversation({
         }}
       >
         <div className="grid min-w-30 grow gap-1">
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {images.map((image, index) => (
+                <Thumbnail
+                  key={index}
+                  file={image}
+                  position={index + 1}
+                  remove={() => changeImages((current) => current.filter((_, i) => i !== index))}
+                />
+              ))}
+            </div>
+          )}
           <Textarea
             ref={input}
             rows={1}
@@ -347,6 +441,16 @@ export function Conversation({
             placeholder={`Write to the ${agent}`}
             value={text}
             onChange={(event) => setText(event.target.value)}
+            onPaste={(event) => {
+              const pasted = [...event.clipboardData.files].filter((file) =>
+                file.type.startsWith("image/"),
+              );
+              // Spreadsheet and word processor apps put the text and a picture of the selection on the clipboard.
+              if (pasted.length > 0 && !event.clipboardData.getData("text/plain")) {
+                event.preventDefault();
+                void addImages(pasted);
+              }
+            }}
             onKeyDown={(event) => {
               // On a touch screen, Enter adds a line and only the Send button sends. Safari gives the Enter that
               // ends an IME composition with isComposing false and keyCode 229.
@@ -385,6 +489,29 @@ export function Conversation({
             Stop
           </Button>
         )}
+        <input
+          ref={picker}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(event) => {
+            void addImages([...(event.target.files ?? [])]);
+            event.target.value = "";
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          aria-label="Attach images"
+          title="Attach images"
+          className="max-md:w-11"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => picker.current?.click()}
+        >
+          <PaperclipIcon />
+        </Button>
         {voice.supported && (
           <Button
             type="button"
