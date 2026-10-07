@@ -41,7 +41,7 @@ const (
 func connectJudge(t *testing.T, fake *testkit.FakeGitHub, judge, implementer string, adjust func(*config.Config)) *testserver.Server {
 	t.Helper()
 	lead := "[[prompts]]\nwhen = \"You are the Judge\"\n" + judge + "\n" + noFinding +
-		"[[prompts]]\nwhen = \"follow-up on pull request #42\"\ncall = { tool = \"reply_thread\", arguments = { thread = 4, text = \"Follow-up: #99.\" } }\n\n" + leadStarts
+		"[[prompts]]\nwhen = \"follow-up on pull request #42\"\ncall = { tool = \"reply_thread\", arguments = { thread = 4, text = \"Follow-up: #99.\" } }\n\n" + leadApproves + leadStarts
 	server, _ := connectTask(t, fake, lead, implementer+commits, func(cfg *config.Config) {
 		cfg.TrustedBots = []string{bot}
 		cfg.ReviewQuietPeriod = 200 * time.Millisecond
