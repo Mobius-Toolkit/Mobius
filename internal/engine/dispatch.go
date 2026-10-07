@@ -235,7 +235,7 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 		return err
 	}
 	for _, comment := range reviewComments {
-		if e.newUserComment(comment.GetUser().GetLogin(), comment.GetCreatedAt().Time, time.Time{}) {
+		if e.trustedUser(comment.GetUser().GetLogin()) {
 			if err := e.queries.ResetTaskCounters(ctx, task.ID); err != nil {
 				return err
 			}
@@ -259,13 +259,13 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 // that are events, and true when the newest of them is newer than the last comment of the Mobius App.
 func (e *Engine) newComments(ctx context.Context, repository github.Repository, task store.Task, comments []*gh.IssueComment) ([]*gh.IssueComment, bool, error) {
 	if slices.ContainsFunc(comments, func(comment *gh.IssueComment) bool {
-		return e.newUserComment(comment.GetUser().GetLogin(), comment.GetCreatedAt().Time, time.Time{})
+		return e.trustedUser(comment.GetUser().GetLogin())
 	}) {
 		if err := e.queries.ResetTaskCounters(ctx, task.ID); err != nil {
 			return nil, false, err
 		}
 	}
-	replies, answered := e.replies(repository.AppSlug, comments, time.Time{})
+	replies, answered := e.replies(repository.AppSlug, comments)
 	return replies, answered, nil
 }
 
@@ -282,14 +282,14 @@ func (e *Engine) commentEventsOf(ctx context.Context, task store.Task, issue *gh
 	return nil
 }
 
-// newUserComment tells if a comment of login at createdAt is a comment of a trusted user after since.
-func (e *Engine) newUserComment(login string, createdAt, since time.Time) bool {
-	return createdAt.After(since) && slices.ContainsFunc(e.config.TrustedUsers, func(user string) bool { return strings.EqualFold(user, login) })
+// trustedUser tells if login is a trusted user.
+func (e *Engine) trustedUser(login string) bool {
+	return slices.ContainsFunc(e.config.TrustedUsers, func(user string) bool { return strings.EqualFold(user, login) })
 }
 
-// replies gives the comments after since that are events, and true when the newest of them is newer than the last
+// replies gives the comments that are events, and true when the newest of them is newer than the last
 // comment of the Mobius App.
-func (e *Engine) replies(appSlug string, comments []*gh.IssueComment, since time.Time) ([]*gh.IssueComment, bool) {
+func (e *Engine) replies(appSlug string, comments []*gh.IssueComment) ([]*gh.IssueComment, bool) {
 	var askedAt, repliedAt time.Time
 	var replies []*gh.IssueComment
 	for _, comment := range comments {
@@ -297,7 +297,7 @@ func (e *Engine) replies(appSlug string, comments []*gh.IssueComment, since time
 		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(appSlug)) && createdAt.After(askedAt) {
 			askedAt = createdAt
 		}
-		if createdAt.After(since) && e.commentIsEvent(appSlug, comment) {
+		if e.commentIsEvent(appSlug, comment) {
 			replies = append(replies, comment)
 			if createdAt.After(repliedAt) {
 				repliedAt = createdAt
@@ -310,8 +310,7 @@ func (e *Engine) replies(appSlug string, comments []*gh.IssueComment, since time
 // commentIsEvent tells if the comment is an event for the Lead: a comment of a trusted user. A comment of the Lead
 // session has a trusted user as its author and the Mobius App in performed_via_github_app, so it is no event.
 func (e *Engine) commentIsEvent(appSlug string, comment *gh.IssueComment) bool {
-	trusted := slices.ContainsFunc(e.config.TrustedUsers, func(user string) bool { return strings.EqualFold(user, comment.GetUser().GetLogin()) })
-	return trusted && comment.GetPerformedViaGithubApp().GetSlug() != appSlug
+	return e.trustedUser(comment.GetUser().GetLogin()) && comment.GetPerformedViaGithubApp().GetSlug() != appSlug
 }
 
 // ask posts the question text on the issue of a live task of the Workstream, adds mobius:needs-human, and adds an
