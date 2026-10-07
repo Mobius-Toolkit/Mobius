@@ -165,11 +165,12 @@ test("a new message scrolls the chat to its end", async ({ page }) => {
     await expect(page.getByText("What is the state of the plans?").first()).toBeVisible();
     await page.evaluate(`(async () => {
       for (let n = 0; n < 20; n++) {
-        await fetch('/api/chat/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ organization: 'owner', repository: 'owner/shop', workstream: 12, text: 'spam ${device} ' + n + ' ' + 'word '.repeat(40) }),
-        })
+        const form = new FormData()
+        form.append('organization', 'owner')
+        form.append('repository', 'owner/shop')
+        form.append('workstream', '12')
+        form.append('text', 'spam ${device} ' + n + ' ' + 'word '.repeat(40))
+        await fetch('/api/chat/messages', { method: 'POST', body: form })
       }
     })()`);
     await expect.poll(() => page.evaluate(shows(`spam ${device} 19 `, "end"))).toBe(true);
