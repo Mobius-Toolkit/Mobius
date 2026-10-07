@@ -1,6 +1,8 @@
 package engine_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -66,13 +68,16 @@ func TestAnAgentGetsNoPromptWhileAnAutonomousTurnRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	agent.Update(fmt.Appendf(nil, agentUpdate, workUpdate))
-	prompted := make(chan error, 1)
-	go func() { prompted <- agent.Prompt(t.Context(), "Two") }()
-
-	time.Sleep(100 * time.Millisecond)
+	waiting, stopWaiting := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer stopWaiting()
+	if err := agent.Prompt(waiting, "Two"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Prompt = %v", err)
+	}
+	if line := lineID(t, server, agent.ID(), "prompt", "Two"); line != 0 {
+		t.Fatalf("the prompt is line %d while the autonomous turn runs", line)
+	}
 	agent.Update(fmt.Appendf(nil, agentUpdate, endUpdate))
-
-	if err := <-prompted; err != nil {
+	if err := agent.Prompt(t.Context(), "Two"); err != nil {
 		t.Fatal(err)
 	}
 	ended := lineID(t, server, agent.ID(), "update", "task-notification")
@@ -164,6 +169,34 @@ func TestAStoppedTaskIsNotAWaitedTask(t *testing.T) {
 	}
 	if err := agent.End(t.Context(), "done"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestATaskThatEndsInTheSameTurnIsNotAWaitedTask(t *testing.T) {
+	shortHang(t)
+	reads := map[string]string{
+		"BashOutput": `{"shellId": "b1", "status": "completed", "exitCode": 0}`,
+		"TaskOutput": `{"retrieval_status": "success", "task": {"task_id": "b1", "status": "completed"}}`,
+	}
+	for tool, response := range reads {
+		t.Run(tool, func(t *testing.T) {
+			fake := testkit.NewFakeGitHub(t)
+			read := `'{"sessionUpdate": "tool_call_update", "toolCallId": "t2", "_meta": {"claudeCode": {"toolName": "` + tool + `", "toolResponse": ` + response + `}}}'`
+			starts := strings.Replace(strings.TrimSpace(startsTask), "]", ", "+read+"]", 1)
+			server, _ := connect(t, fake, "[[prompts]]\n"+starts+"\nreply = [\"Done\"]\n")
+			agent := start(t, server, leadSpec(t))
+
+			if err := agent.Prompt(t.Context(), "One"); err != nil {
+				t.Fatal(err)
+			}
+
+			if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
+				t.Errorf("notes = %q", notes)
+			}
+			if err := agent.End(t.Context(), "done"); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

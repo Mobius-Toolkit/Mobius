@@ -51,7 +51,8 @@ func (a *Agent) track(notification map[string]any, kind string) {
 }
 
 // trackTasks adds the background task that a tool call update starts, and removes the task that a TaskStop or a
-// KillShell tool call stops. A Monitor that is persistent has no end that Mobius can wait for, so it does not count.
+// KillShell tool call stops, or that a BashOutput or a TaskOutput tool call shows with a final status. A turn that
+// reads the final status of a task takes the task notification into itself, so no autonomous end follows. A Monitor that is persistent has no end that Mobius can wait for, so it does not count.
 func (a *Agent) trackTasks(update any) {
 	response := field(update, "_meta", "claudeCode", "toolResponse")
 	id := stringField(response, "backgroundTaskId")
@@ -64,16 +65,28 @@ func (a *Agent) trackTasks(update any) {
 	if id != "" && !slices.Contains(a.tasks, id) {
 		a.tasks = append(a.tasks, id)
 	}
-	stopped := ""
+	ended := ""
 	switch stringField(update, "_meta", "claudeCode", "toolName") {
 	case "TaskStop":
-		stopped = stringField(response, "task_id")
+		ended = stringField(response, "task_id")
 	case "KillShell":
-		stopped = stringField(response, "shell_id")
+		ended = stringField(response, "shell_id")
+	case "BashOutput":
+		if isFinalStatus(stringField(response, "status")) {
+			ended = stringField(response, "shellId")
+		}
+	case "TaskOutput":
+		if isFinalStatus(stringField(response, "task", "status")) {
+			ended = stringField(response, "task", "task_id")
+		}
 	}
-	if index := slices.Index(a.tasks, stopped); stopped != "" && index >= 0 {
+	if index := slices.Index(a.tasks, ended); ended != "" && index >= 0 {
 		a.tasks = slices.Delete(a.tasks, index, index+1)
 	}
+}
+
+func isFinalStatus(status string) bool {
+	return status == "completed" || status == "failed" || status == "killed"
 }
 
 // waitQuiet holds until no autonomous turn runs and no background task is live. When the agent has no activity for
