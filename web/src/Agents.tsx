@@ -12,13 +12,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { queueState } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
 import { cn } from "@/lib/utils";
 import { BackButton } from "./BackButton";
-
-// The queue reason of a session that waits for the end of a usage-limit pause starts with this text.
-export const paused = "paused until ";
 
 function numbered(number: number, title?: string | null) {
   return title ? `#${number} ${title}` : `#${number}`;
@@ -26,6 +24,7 @@ function numbered(number: number, title?: string | null) {
 
 function AgentRow({ row, onOpen }: { row: ActiveAgent; onOpen: (agent: Agent) => void }) {
   const agent = row.agent;
+  const state = queueState(agent.queueReason);
   return (
     <li>
       <button
@@ -33,12 +32,7 @@ function AgentRow({ row, onOpen }: { row: ActiveAgent; onOpen: (agent: Agent) =>
         onClick={() => onOpen(agent)}
         className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted"
       >
-        <span
-          className={cn(
-            "size-2 shrink-0 rounded-full",
-            agent.queueReason ? "bg-amber-500" : "bg-green-600",
-          )}
-        />
+        <span className={cn("size-2 shrink-0 rounded-full", state.dot)} />
         <span className="grid min-w-0 grow gap-0.5">
           <span>
             {agent.name} {agent.title}
@@ -67,11 +61,7 @@ function AgentRow({ row, onOpen }: { row: ActiveAgent; onOpen: (agent: Agent) =>
             <span className="text-sm text-muted-foreground">Pull request #{row.pullRequest}</span>
           )}
         </span>
-        {agent.queueReason && (
-          <Badge variant="outline">
-            {agent.queueReason.startsWith(paused) ? "paused" : "queued"}
-          </Badge>
-        )}
+        {state.badge && <Badge variant="outline">{state.badge}</Badge>}
       </button>
     </li>
   );

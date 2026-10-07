@@ -20,6 +20,7 @@ export default defineConfig({
       testMatch: "installations.spec.ts",
       dependencies: ["navigation"],
     },
+    { name: "agents", testMatch: "agents.spec.ts", dependencies: ["installations"] },
   ],
   use: {
     baseURL: `http://${addr}`,

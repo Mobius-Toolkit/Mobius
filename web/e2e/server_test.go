@@ -144,6 +144,8 @@ const question = "What is the state of the plans? The full report is at " +
 // Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, and
 // the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55. The
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
+// The Workstream owner/shop#12 also has four Implementer sessions with the queue reasons of a check that runs, a check
+// that waits for a slot, a pause, and a full Role.
 // POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
@@ -406,6 +408,21 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 		github.AddLabel("owner/shop", number, "mobius:working", testkit.AppSlug+"[bot]")
+	}
+	for _, session := range []struct {
+		number int64
+		reason string
+	}{
+		{38, "runs .mobius/check"},
+		{39, "waits for a check slot"},
+		{45, "paused until 2026-09-28 12:00 UTC"},
+		{42, "no free Implementer slot (2/2)"},
+	} {
+		if _, err := server.DB.Exec(`INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, started_at, queue_reason)
+			VALUES (?, 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, ?, ?, ?)`,
+			engine.ImplementerRole, session.number, time.Now().UTC().Format(time.RFC3339Nano), session.reason); err != nil {
+			t.Fatal(err)
+		}
 	}
 	fixTimes(t, server)
 	go func() { _, _ = server.Engine.Drain(ctx) }()
