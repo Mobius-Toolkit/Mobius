@@ -11,6 +11,7 @@ import {
 import { flushSync } from "react-dom";
 import {
   getChat,
+  getGetChatImageUrl,
   seeChat,
   sendChat,
   stopChat,
@@ -78,7 +79,19 @@ function Message({ message }: { message: ChatMessage }) {
           </CollapsibleContent>
         </Collapsible>
       ) : (
-        <Markdown text={message.text} />
+        message.text && <Markdown text={message.text} />
+      )}
+      {message.images > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {Array.from({ length: message.images }, (_, position) => (
+            <img
+              key={position}
+              src={getGetChatImageUrl(message.id, position)}
+              alt={`Picture ${position + 1} of message ${message.id}`}
+              className="max-h-48 max-w-full rounded-lg border object-contain"
+            />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -389,6 +402,12 @@ export function Conversation({
         ref={listRef}
         onScroll={(event) => {
           pinned.current = atEnd(event.currentTarget);
+        }}
+        // An image has no height before it loads, and its load moves the end of the list.
+        onLoadCapture={(event) => {
+          if (pinned.current) {
+            event.currentTarget.scrollTop = event.currentTarget.scrollHeight;
+          }
         }}
         className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto bg-muted/40 p-4"
       >

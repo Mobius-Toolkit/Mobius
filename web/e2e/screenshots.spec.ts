@@ -263,4 +263,28 @@ test("screenshots", async ({ page }) => {
   await main.getByRole("button", { name: "Close Workstream" }).click();
   await expect(page).toHaveURL("/workstreams");
   await expect(main.getByText("Seasonal prices")).toBeHidden();
+
+  // Opening a chat of plants saves plants as the organization, so this screenshot comes last.
+  const pictures = main.getByRole("img", { name: /^Picture \d of message/ });
+  await screenshot(
+    page,
+    "chat-history-images",
+    "/workstreams/plants/garden/25",
+    (device) => [
+      release,
+      page.getByLabel("Work in another organization").filter({ visible: true }),
+      ...(device === "desktop"
+        ? [page.locator('nav a[href="/workstreams/plants/garden/25"]')]
+        : []),
+      main.getByText("This is the new plan page."),
+      pictures.last(),
+    ],
+    async () => {
+      await expect(pictures).toHaveCount(3);
+      for (let position = 0; position < 3; position++) {
+        await expect(pictures.nth(position)).toHaveJSProperty("naturalWidth", 200);
+      }
+      await expect(pictures.last()).toBeInViewport();
+    },
+  );
 });

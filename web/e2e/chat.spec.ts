@@ -122,6 +122,45 @@ test.describe("images", () => {
     await expect(main.getByRole("img", { name: "Image 1" })).toBeHidden();
   });
 
+  test("the history shows the images of a message after a reload", async ({ page }) => {
+    await page.goto("/workstreams/plants/garden/25");
+    const main = page.getByRole("main");
+    const withText = main.locator("[data-message]", { hasText: "This is the new plan page." });
+    const onlyImage = main
+      .locator("[data-message]")
+      .filter({ has: page.getByRole("img") })
+      .last();
+    for (const [message, count] of [
+      [withText, 2],
+      [onlyImage, 1],
+    ] as const) {
+      const pictures = message.getByRole("img");
+      await expect(pictures).toHaveCount(count);
+      for (let position = 0; position < count; position++) {
+        await expect(pictures.nth(position)).toHaveJSProperty("naturalWidth", 200);
+      }
+    }
+    await expect(onlyImage.locator(":scope > *")).toHaveCount(2);
+    await page.reload();
+    await expect(withText.getByRole("img")).toHaveCount(2);
+    await expect(withText.getByRole("img").first()).toHaveJSProperty("naturalWidth", 200);
+  });
+
+  test("a sent message shows its images in the history with no reload", async ({ page }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    await main.getByLabel("Message to the Lead").fill("Live images");
+    await pasteImage(page, await png(page, 40, 30, "red"));
+    await pasteImage(page, await png(page, 40, 30, "green"));
+    await expect(main.getByRole("img", { name: "Image 2" })).toBeVisible();
+    await main.getByRole("button", { name: "Send" }).click();
+    const message = main.locator("[data-message]", { hasText: "Live images" });
+    const pictures = message.getByRole("img");
+    await expect(pictures).toHaveCount(2);
+    await expect(pictures.first()).toHaveJSProperty("naturalWidth", 40);
+    await expect(pictures.last()).toHaveJSProperty("naturalWidth", 40);
+  });
+
   test("the images stay in the input when the server refuses the message", async ({ page }) => {
     await page.goto(shop);
     const main = page.getByRole("main");
