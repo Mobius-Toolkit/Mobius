@@ -118,3 +118,25 @@ func TestAnOldCommentGivesNoEventAfterTheCommentCursorsAreMissing(t *testing.T) 
 		t.Errorf("events = %d", got)
 	}
 }
+
+func TestTheFirstPollOfARepositoryReadsNoComments(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddComment(shop, 41, "owner", "Old.")
+	fake.AddReviewComment(shop, 41, 0, "owner", "Older.")
+	reached, release := fake.HoldIssueEvents(shop, 12)
+	type reads struct{ single, repositories int }
+	atEvents := make(chan reads, 1)
+	go func() {
+		<-reached
+		single, repositories := fake.CommentReads()
+		atEvents <- reads{single, repositories}
+		release()
+	}()
+	connectSeen(t, fake)
+
+	// The poll reads the comments of the repository before it reads the events of #12.
+	if got := <-atEvents; got != (reads{}) {
+		t.Errorf("reads of one issue = %d, reads of the repository = %d", got.single, got.repositories)
+	}
+}

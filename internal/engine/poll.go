@@ -159,7 +159,8 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 // changedIssues reads the issues and pull requests that changed at or after the `since` cursor, reads the new comments
 // of the repository with two calls, acts on the comments, stops a Triager, updates the copy, acts on the new events of
 // the Workstreams, and moves the cursors to the last change. The first poll of a repository has no cursor, so it reads
-// all issues, and it cannot see which event or comment is new.
+// all issues, and it cannot see which event is new. It reads no comment: the next poll starts each comment list at the
+// issue cursor.
 func (e *Engine) changedIssues(ctx context.Context, repository github.Repository) error {
 	cursor, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: issuesEndpoint})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -175,13 +176,21 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	if err != nil || !changed {
 		return err
 	}
-	conversation, conversationCursor, err := newComments(ctx, e.queries, repository, issueCommentsEndpoint, since, repository.CommentsSince, issueCommentNumber)
-	if err != nil {
-		return err
-	}
-	review, reviewCursor, err := newComments(ctx, e.queries, repository, reviewCommentsEndpoint, since, repository.ReviewCommentsSince, reviewCommentNumber)
-	if err != nil {
-		return err
+	firstPoll := since.IsZero()
+	var conversation map[int64][]*gh.IssueComment
+	var review map[int64][]*gh.PullRequestComment
+	var commentCursors []store.SetSyncCursorParams
+	if !firstPoll {
+		var conversationCursor, reviewCursor store.SetSyncCursorParams
+		conversation, conversationCursor, err = newComments(ctx, e.queries, repository, issueCommentsEndpoint, since, repository.CommentsSince, issueCommentNumber)
+		if err != nil {
+			return err
+		}
+		review, reviewCursor, err = newComments(ctx, e.queries, repository, reviewCommentsEndpoint, since, repository.ReviewCommentsSince, reviewCommentNumber)
+		if err != nil {
+			return err
+		}
+		commentCursors = []store.SetSyncCursorParams{conversationCursor, reviewCursor}
 	}
 	unrouted := map[int64]bool{}
 	for number := range conversation {
@@ -190,7 +199,6 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	for number := range review {
 		unrouted[number] = true
 	}
-	firstPoll := since.IsZero()
 	listChanged := false
 	for _, issue := range page.Issues {
 		number := int64(issue.GetNumber())
@@ -251,7 +259,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	if listChanged {
 		e.publish(Change{Workstreams: true})
 	}
-	for _, cursor := range []store.SetSyncCursorParams{conversationCursor, reviewCursor} {
+	for _, cursor := range commentCursors {
 		if err := e.queries.SetSyncCursor(ctx, cursor); err != nil {
 			return err
 		}
