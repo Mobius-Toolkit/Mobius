@@ -22,6 +22,10 @@
 //	error = { code = -32000, message = "Usage limit", data = "..." }  # the turn ends with this error
 //	hang = true             # the turn ends only at session/cancel
 //	busy = "300ms"          # before the reply, the agent sends a tool_call_update every 10 ms for this long
+//	later = { after = "100ms", updates = ['{"sessionUpdate": "plan", "entries": []}'], absorb = true }
+//	                        # after the response, the agent waits for after and then sends the updates, as Claude Code
+//	                        # does for a turn that it starts alone; with absorb, a session/prompt that arrives
+//	                        # until the last update gets no response before session/cancel, which ends it as cancelled
 //
 // The reply has the texts of reply, then the text of call or list_tools, then the text of shell.
 //
@@ -72,6 +76,13 @@ type prompt struct {
 	Call      *call        `toml:"call"`
 	Shell     string       `toml:"shell"`
 	Error     *scriptError `toml:"error"`
+	Later     *later       `toml:"later"`
+}
+
+type later struct {
+	After   string   `toml:"after"`
+	Updates []string `toml:"updates"`
+	Absorb  bool     `toml:"absorb"`
 }
 
 type call struct {
@@ -110,6 +121,8 @@ type agent struct {
 	mcpURL      string
 	// cancel closes at a session/cancel. It is nil when no turn runs.
 	cancel chan struct{}
+	// absorbing tells that a later with absorb runs.
+	absorbing bool
 }
 
 // Run is the main function of the fake agent program, with the script at path.
@@ -338,6 +351,14 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 			text.WriteString(block.Text)
 		}
 	}
+	if cancel, absorbed := a.absorb(); absorbed {
+		select {
+		case <-cancel:
+			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
+		case <-ctx.Done():
+			return nil, acp.NewRequestCancelled(nil)
+		}
+	}
 	turn, mcpURL, cancel := a.next(text.String())
 	stopReason, err := a.play(ctx, request.SessionID, turn, mcpURL, cancel)
 	a.mu.Lock()
@@ -348,7 +369,46 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 	if err != nil {
 		return nil, err
 	}
+	if turn.Later != nil {
+		if err := a.startLater(request.SessionID, *turn.Later); err != nil {
+			return nil, acp.NewInternalError(err.Error())
+		}
+	}
 	return acp.PromptResponse{StopReason: stopReason}, nil
+}
+
+// absorb gives the channel that closes at a session/cancel, and true, when a later with absorb runs.
+func (a *agent) absorb() (chan struct{}, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.absorbing {
+		return nil, false
+	}
+	a.cancel = make(chan struct{})
+	return a.cancel, true
+}
+
+// startLater sends the updates of l in the background, after the response of the prompt.
+func (a *agent) startLater(sessionID string, l later) error {
+	after, err := time.ParseDuration(l.After)
+	if err != nil {
+		return err
+	}
+	a.mu.Lock()
+	a.absorbing = l.Absorb
+	a.mu.Unlock()
+	go func() {
+		time.Sleep(after)
+		for _, update := range l.Updates {
+			if err := a.send(context.Background(), sessionID, json.RawMessage(update)); err != nil {
+				break
+			}
+		}
+		a.mu.Lock()
+		a.absorbing = false
+		a.mu.Unlock()
+	}()
+	return nil
 }
 
 func (a *agent) play(ctx context.Context, sessionID string, turn prompt, mcpURL string, cancel chan struct{}) (acp.StopReason, *acp.RequestError) {

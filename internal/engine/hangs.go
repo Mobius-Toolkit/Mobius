@@ -36,16 +36,24 @@ func retryText(role string) string {
 }
 
 // sendPrompt sends text and holds until the response of the agent. When the turn has no activity for hangTimeout,
-// sendPrompt sends the cancel, stops the wait for the response, and gives errHung.
+// sendPrompt sends the cancel, stops the wait for the response, and gives errHung. When the Harness absorbed the
+// prompt into an autonomous turn, the cancel ends the prompt, and sendPrompt adds a note and gives nil: the
+// autonomous turn did the work.
 func (a *Agent) sendPrompt(ctx context.Context, text string) error {
 	promptCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	hung := make(chan bool, 1)
+	absorbed := make(chan bool, 1)
 	go func() { hung <- a.watch(promptCtx, stop) }()
+	go func() { absorbed <- a.watchAbsorbed(promptCtx) }()
 	_, err := a.session.Prompt(promptCtx, text)
 	stop()
 	if <-hung {
+		<-absorbed
 		return errHung
+	}
+	if <-absorbed {
+		return a.addNote(ctx, fmt.Sprintf("The agent ended an autonomous turn and had no more work for %s, so the prompt had no response. Mobius cancelled the prompt and counts the turn as complete.", absorbTimeout))
 	}
 	return err
 }

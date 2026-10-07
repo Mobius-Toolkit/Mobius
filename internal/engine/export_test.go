@@ -1,12 +1,16 @@
 package engine
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // The tests make these waits short.
 var (
 	ToolsTimeout  = &toolsTimeout
 	RestartDelays = &restartDelays
 	HangTimeout   = &hangTimeout
+	AbsorbTimeout = &absorbTimeout
 )
 
 // Seal seals the drain for the restart.
@@ -27,4 +31,9 @@ func (e *Engine) ClosePaused() {
 // AbortDrain ends a sealed drain.
 func (e *Engine) AbortDrain() {
 	e.abortDrain()
+}
+
+// Update gives params to the agent as a session/update of its Harness.
+func (a *Agent) Update(params json.RawMessage) {
+	a.update(params)
 }

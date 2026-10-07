@@ -83,6 +83,15 @@ type Agent struct {
 	turn bool
 	// activity is the time of the last activity of the agent, or of the last prompt.
 	activity time.Time
+	// tasks are the ids of the live background tasks of the agent, the oldest first.
+	tasks []string
+	// autonomous tells that a turn runs that no prompt of Mobius started.
+	autonomous bool
+	// autonomousEnd is the time of the end of an autonomous turn while a prompt runs, until the next work update.
+	// Otherwise it is zero.
+	autonomousEnd time.Time
+	// ended gets a value at each autonomousEnd.
+	ended chan struct{}
 	// retries is the number of retry prompts that Prompt sent in the session.
 	retries int
 	// details are the new details from the Owner that the next prompt of the Implementer or the Researcher carries.
@@ -230,7 +239,7 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, err
 	}
 	e.publish(Change{Node: new(node(session))})
-	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1)}, nil
+	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
 }
 
 // waitForSlot waits for a slot of the Role of a, and starts the session. A failed wait ends the session, like Start.
@@ -337,7 +346,13 @@ func (a *Agent) ID() int64 {
 // Prompt adds text to the Transcript, sends it, and holds until the turn ends. After a usage limit, Prompt waits
 // for the end of the pause of the Harness and sends text again.
 func (a *Agent) Prompt(ctx context.Context, text string) error {
+	retrying := false
 	for {
+		if !retrying {
+			if err := a.waitQuiet(ctx); err != nil {
+				return err
+			}
+		}
 		row, err := compact(map[string]string{"text": text})
 		if err != nil {
 			return err
@@ -359,6 +374,7 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 		}
 		a.mu.Lock()
 		a.turn = true
+		a.autonomousEnd = time.Time{}
 		a.activity = time.Now()
 		a.mu.Unlock()
 		resendCtx, stopResend := context.WithCancel(ctx)
@@ -370,14 +386,21 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 		err = a.sendPrompt(ctx, text)
 		stopResend()
 		<-resent
-		a.mu.Lock()
-		a.turn = false
-		a.mu.Unlock()
+		// While a retry runs, turn stays true, so a late update of the hung turn is no autonomous turn.
+		retrying = errors.Is(err, errHung) && a.retries < maxRetries
+		if !retrying {
+			a.mu.Lock()
+			a.turn = false
+			a.mu.Unlock()
+		}
 		if err == nil {
+			if err := a.waitQuiet(ctx); err != nil {
+				return err
+			}
 			return a.engine.endPauseSince(ctx, paused)
 		}
 		if errors.Is(err, errHung) {
-			if a.retries == maxRetries {
+			if !retrying {
 				return errors.Join(err, a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s after %d retries. Mobius stops the session.", hangTimeout, maxRetries)))
 			}
 			a.retries++
@@ -504,10 +527,7 @@ func (a *Agent) record(params json.RawMessage) error {
 	ctx := context.Background()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	switch kind {
-	case "agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update", "plan":
-		a.activity = time.Now()
-	}
+	a.track(notification, kind)
 	// The unit of resetsAt is Unix seconds.
 	if resetsAt, ok := field(notification, "update", "_meta", "_claude/rateLimit", "resetsAt").(float64); ok {
 		a.resetHint = time.Unix(int64(resetsAt), 0)
