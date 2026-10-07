@@ -35,11 +35,7 @@ export function UpgradeControls({ upgrade, newBuild }: { upgrade: Upgrade; newBu
         </Button>
       ) : (
         upgrade.version && (
-          <Button
-            variant="secondary"
-            disabled={upgrade.upgrading}
-            onClick={() => upgrade.setChangesShown(true)}
-          >
+          <Button variant="secondary" disabled={upgrade.upgrading} onClick={upgrade.showChanges}>
             Upgrade <span className="text-muted-foreground">{upgrade.version}</span>
           </Button>
         )
