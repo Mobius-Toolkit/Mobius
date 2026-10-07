@@ -20,6 +20,9 @@ func TestMain(m *testing.M) {
 	if filepath.Base(os.Args[0]) == "gh" {
 		os.Exit(GH(os.Args[1:], os.Getenv))
 	}
+	if filepath.Base(os.Args[0]) == "check" {
+		os.Exit(printNiceValue())
+	}
 	if os.Getenv("MOBIUS_FAKE_AGENT") == "1" {
 		runFakeAgent()
 		return

@@ -23,7 +23,7 @@ func Check(ctx context.Context, dataDir, worktree, path string, timeout time.Dur
 		return "", true, nil
 	}
 	cmd := command(context.Background(), "/bin/sh", worktree, dataDir, path, "")
-	cmd.Args = append(cmd.Args, "-c", "exec ./.mobius/check 2>&1")
+	cmd.Args = append(cmd.Args, "-c", "exec nice -n 10 ./.mobius/check 2>&1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
