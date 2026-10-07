@@ -134,7 +134,7 @@ func TestTheClaudeCodeCLIVersionComesFromThePackageOfTheAdapter(t *testing.T) {
 	}
 }
 
-func TestTheSDKInAParentDirectoryGivesTheClaudeCodeCLIVersion(t *testing.T) {
+func TestAnSDKInTheNodeModulesOfAParentDirectoryGivesTheClaudeCodeCLIVersion(t *testing.T) {
 	bin := t.TempDir()
 	store := filepath.Join(t.TempDir(), "node_modules")
 	pkg := filepath.Join(store, "@zed-industries", "claude-agent-acp")
