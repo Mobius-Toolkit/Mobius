@@ -277,3 +277,62 @@ func TestTheResearcherToolsRefuseAResearcherOfAnotherWorkstream(t *testing.T) {
 		t.Errorf("session = %+v", session)
 	}
 }
+
+// waitingResearcherLead is researchLeadOfDetails with a third Researcher, the session 4, that waits for a slot while
+// the sessions 2 and 3 hold the two Researcher slots.
+const waitingResearcherLead = researchLeadOfDetails + `
+[[prompts]]
+when = "Begin gamma"
+call = { tool = "start_researcher", arguments = { question = "Gamma question" } }
+
+[[prompts]]
+when = "Details for gamma"
+call = { tool = "send_researcher_details", arguments = { id = 4, text = "Ask about the discount too." } }
+`
+
+// answeringGammaResearcher is hangingResearcher with a Gamma question that gets an answer.
+const answeringGammaResearcher = `
+[[prompts]]
+when = "Gamma question"
+reply = ["Plans have a price.\n"]
+` + hangingResearcher
+
+func TestDetailsForAResearcherThatWaitsForASlotGoToItsSecondPrompt(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectResearcher(t, fake, waitingResearcherLead, answeringGammaResearcher)
+	sendChat(t, server, leadChat, "Begin alpha.")
+	waitForResearchers(t, server, "Looking.")
+	sendChat(t, server, leadChat, "Begin beta.")
+	waitForResearchers(t, server, "Looking.", "Looking.")
+	sendChat(t, server, leadChat, "Begin gamma.")
+	waiting := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := roleSessions(t, server, engine.ResearcherRole)
+		return sessions[len(sessions)-1], len(sessions) == 3 && sessions[2].QueueReason.Valid
+	})
+	if waiting.ID != 4 {
+		t.Fatalf("waiting = %+v", waiting)
+	}
+
+	sendChat(t, server, leadChat, "Details for gamma.")
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadCalls(t, server), func(call map[string]any) bool { return call["result"] == "Sent the details to the Researcher 4." })
+	})
+	sendChat(t, server, leadChat, "Stop alpha.")
+
+	report := waitForLeadPrompt(t, server, "Report of the Researcher 4")
+	if want := "# Researcher message\n\nReport of the Researcher 4 on \"Gamma question\":\n\nDiscounts are in cents.\n"; report != want {
+		t.Errorf("report = %q", report)
+	}
+	prompts := promptTexts(t, server, waiting.ID)
+	if len(prompts) != 2 || !strings.Contains(prompts[0], "# Question\n\nGamma question") ||
+		prompts[1] != "The Owner gave new details for the question. They replace the old text where they differ.\n\nAsk about the discount too." {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if want := "Plans have a price.\nDiscounts are in cents.\n"; reply(t, server, waiting.ID) != want {
+		t.Errorf("reply = %q", reply(t, server, waiting.ID))
+	}
+	reports := slices.DeleteFunc(leadPrompts(t, server), func(prompt string) bool { return !strings.Contains(prompt, "Report of the Researcher 4") })
+	if len(reports) != 1 {
+		t.Errorf("reports = %q", reports)
+	}
+}
