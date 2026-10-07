@@ -28,22 +28,6 @@ func researchEngine(t *testing.T) *Engine {
 	return New(db, nil, limits(t), Agents{MCP: mcp.New()})
 }
 
-// runningResearcher gives a Researcher of the Workstream #12 that runs, the context of its Worker, and the Lead chat.
-// The chat holds its messages in a queue.
-func runningResearcher(t *testing.T, e *Engine) (*Agent, context.Context, *chat) {
-	t.Helper()
-	a, err := e.newAgent(t.Context(), Spec{Role: ResearcherRole, Organization: "owner", Repository: "owner/shop", Workstream: 12})
-	if err != nil {
-		t.Fatal(err)
-	}
-	e.researchers[a.id] = a
-	ctx, stop := context.WithCancel(t.Context())
-	e.stops[researcherKey(a.id)] = stopper{ctx: ctx, stop: stop}
-	queue := &chat{wake: make(chan struct{}, 1)}
-	e.chats[leadChat("owner/shop", 12)] = queue
-	return a, ctx, queue
-}
-
 func TestAResearcherThatStartsAfterTheShutdownIsDeclined(t *testing.T) {
 	e := researchEngine(t)
 	e.stopWorkers()
@@ -72,7 +56,15 @@ func TestAReportBeforeTheStopRefusesTheStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.github = gh
-	a, _, queue := runningResearcher(t, e)
+	a, err := e.newAgent(t.Context(), Spec{Role: ResearcherRole, Organization: "owner", Repository: "owner/shop", Workstream: 12})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.researchers[a.id] = a
+	ctx, stop := context.WithCancel(t.Context())
+	e.stops[researcherKey(a.id)] = stopper{ctx: ctx, stop: stop}
+	queue := &chat{wake: make(chan struct{}, 1)}
+	e.chats[leadChat("owner/shop", 12)] = queue
 	e.gitMu.Lock()
 	finished := make(chan error, 1)
 	go func() { finished <- e.research(t.Context(), leadCaller, shopRepository, a, "Where?") }()
