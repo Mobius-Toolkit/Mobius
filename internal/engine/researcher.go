@@ -74,6 +74,11 @@ func (e *Engine) startResearcher(ctx context.Context, c caller, repository githu
 func (e *Engine) ownedResearcher(c caller, id int64) *Agent {
 	e.detailsMu.Lock()
 	defer e.detailsMu.Unlock()
+	return e.ownedResearcherLocked(c, id)
+}
+
+// ownedResearcherLocked is ownedResearcher for a caller that holds detailsMu.
+func (e *Engine) ownedResearcherLocked(c caller, id int64) *Agent {
 	a, ok := e.researchers[id]
 	if !ok || a.spec.Repository != c.repository || a.spec.Workstream != c.workstream {
 		return nil
@@ -94,11 +99,16 @@ func (e *Engine) sendResearcherDetails(_ context.Context, c caller, _ github.Rep
 }
 
 // stopResearcher stops the Researcher of the input with no report. The Lead chat gets a message that tells the stop.
+// The Researcher leaves e.researchers and gets the stop in one step, so it either gives its report or stops.
 func (e *Engine) stopResearcher(ctx context.Context, c caller, _ github.Repository, input researcherInput) (string, error) {
-	if e.ownedResearcher(c, input.ID) == nil {
+	e.detailsMu.Lock()
+	if e.ownedResearcherLocked(c, input.ID) == nil {
+		e.detailsMu.Unlock()
 		return "", refuse("No Researcher %d of this Workstream runs now.", input.ID)
 	}
+	delete(e.researchers, input.ID)
 	e.stop(researcherKey(input.ID))
+	e.detailsMu.Unlock()
 	text := fmt.Sprintf("The Researcher %d stopped. No report arrives.", input.ID)
 	if err := e.postChat(ctx, leadChat(c.repository, c.workstream), researcherAuthor, text); err != nil {
 		return "", err
@@ -133,6 +143,7 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 	a.spec.Dir = runner.ResearchDir(e.config.DataDir, repository.FullName, a.id)
 	report, err := e.researchTurn(ctx, a, question)
 	a.closeHarness()
+	stopped := e.leave(ctx, a.id)
 	ended := context.WithoutCancel(ctx)
 	e.gitMu.Lock()
 	if _, statErr := os.Stat(a.spec.Dir); !errors.Is(statErr, fs.ErrNotExist) {
@@ -140,7 +151,7 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 	}
 	e.gitMu.Unlock()
 	switch {
-	case ctx.Err() != nil:
+	case stopped:
 		return a.End(ended, "stopped")
 	case err != nil:
 		failure := a.Fail(ended, err)
@@ -150,6 +161,14 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 		return err
 	}
 	return e.deliverReport(ended, c, a.id, question, report)
+}
+
+// leave removes the Researcher id from e.researchers. It tells if a stop came before, as ctx shows.
+func (e *Engine) leave(ctx context.Context, id int64) bool {
+	e.detailsMu.Lock()
+	defer e.detailsMu.Unlock()
+	delete(e.researchers, id)
+	return ctx.Err() != nil
 }
 
 // researchTurn makes the worktree of the Researcher a and runs its turn. It gives the report: the reply text after the
