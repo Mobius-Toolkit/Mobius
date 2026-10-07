@@ -126,12 +126,12 @@ type stopper struct {
 }
 
 // startWorker runs work in the background with the context of key, a task id or a researcherKey. The context
-// ends at the next stop of key and at the end of Run. After the end of Run, startWorker does nothing.
-func (e *Engine) startWorker(key any, work func(context.Context)) {
+// ends at the next stop of key and at the end of Run. After the end of Run, startWorker does nothing and gives false.
+func (e *Engine) startWorker(key any, work func(context.Context)) bool {
 	e.stopsMu.Lock()
 	defer e.stopsMu.Unlock()
 	if e.closed {
-		return
+		return false
 	}
 	found, ok := e.stops[key]
 	if !ok {
@@ -139,6 +139,7 @@ func (e *Engine) startWorker(key any, work func(context.Context)) {
 		e.stops[key] = found
 	}
 	e.running.Go(func() { work(found.ctx) })
+	return true
 }
 
 // stop ends the context of the Workers of key.

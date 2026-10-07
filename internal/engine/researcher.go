@@ -56,7 +56,7 @@ func (e *Engine) startResearcher(ctx context.Context, c caller, repository githu
 	e.detailsMu.Lock()
 	e.researchers[a.id] = a
 	e.detailsMu.Unlock()
-	e.startWorker(key, func(ctx context.Context) {
+	started := e.startWorker(key, func(ctx context.Context) {
 		defer e.stop(key)
 		defer func() {
 			e.detailsMu.Lock()
@@ -67,6 +67,12 @@ func (e *Engine) startResearcher(ctx context.Context, c caller, repository githu
 			log.Printf("Researcher %d of %s#%d: %v", a.id, c.repository, c.workstream, err)
 		}
 	})
+	if !started {
+		e.detailsMu.Lock()
+		delete(e.researchers, a.id)
+		e.detailsMu.Unlock()
+		return "", errors.Join(refuse("Mobius stops, so no Researcher starts now."), a.End(context.WithoutCancel(ctx), "declined"))
+	}
 	return fmt.Sprintf("Started the Researcher %d. The report arrives later.", a.id), nil
 }
 
