@@ -291,6 +291,7 @@ func TestAQueuedReviewerGetsTheEarlierThreadsOfTrustedAuthors(t *testing.T) {
 
 	endedReviewers(t, server, 2)
 	waitForState(t, server, 43, "approval")
+	waitForState(t, server, 41, "reviewed")
 	prompts := promptTexts(t, server, queued.ID)
 	if len(prompts) != 1 {
 		t.Fatalf("prompts = %q", prompts)
@@ -305,9 +306,6 @@ func TestAQueuedReviewerGetsTheEarlierThreadsOfTrustedAuthors(t *testing.T) {
 	}
 	if !fake.PullRequests(shop)[1].Draft {
 		t.Error("the pull request of #41 is ready for review")
-	}
-	if state := taskState(t, server); state != "reviewed" {
-		t.Errorf("state = %s", state)
 	}
 }
 
