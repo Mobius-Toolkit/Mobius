@@ -132,24 +132,27 @@ test("a long list of release changes scrolls inside the upgrade dialog on a phon
 });
 
 test("the upgrade dialog shows the newest release when it opens", async ({ page }) => {
+  let version = "v0.1.4";
+  await page.route("**/api/release", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { version: string } };
+    body.data.version = version;
+    await route.fulfill({ response, json: body });
+  });
   await page.goto("/workstreams");
   const button = page.getByRole("button", { name: "Upgrade v0.1.4" }).filter({ visible: true });
   await expect(button).toBeVisible();
 
-  await page.request.post("/e2e/release/v0.1.5");
-  try {
-    await button.click();
+  version = "v0.1.5";
+  await button.click();
 
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("heading", { name: "Upgrade to v0.1.5" })).toBeVisible();
-    await dialog.getByRole("button", { name: "Close" }).click();
-    await expect(dialog).toBeHidden();
-    await expect(
-      page.getByRole("button", { name: "Upgrade v0.1.5" }).filter({ visible: true }),
-    ).toBeVisible();
-  } finally {
-    await page.request.post("/e2e/release/v0.1.4");
-  }
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Upgrade to v0.1.5" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Upgrade v0.1.5" }).filter({ visible: true }),
+  ).toBeVisible();
 });
 
 test("a new page starts at the top", async ({ page }) => {
