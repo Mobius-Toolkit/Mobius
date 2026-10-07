@@ -21,7 +21,15 @@ async function screenshot(
     for (const locator of [ready(device)].flat()) {
       await expect(locator).toBeVisible();
     }
-    await top?.evaluate("element => element.scrollIntoView()");
+    if (top) {
+      // The padding lets the last section reach the top of the view.
+      await page.addStyleTag({ content: "main { padding-bottom: 100svh }" });
+      await expect(async () => {
+        const box = await top.boundingBox();
+        await page.evaluate(`scrollBy(0, ${(box?.y ?? 0) - 16})`);
+        expect(Math.abs(((await top.boundingBox())?.y ?? Infinity) - 16)).toBeLessThan(2);
+      }).toPass();
+    }
     await page.screenshot({
       path: `screenshots/${name}-${device}.png`,
       animations: "disabled",
@@ -239,18 +247,21 @@ test("screenshots", async ({ page }) => {
     undefined,
     section("Tools"),
   );
-  // The page ends after the labels, so this view is the end of the page.
   await screenshot(
     page,
-    "checkup-permissions-labels",
+    "checkup-permissions",
     "/settings/checkup",
-    (device) => [
-      ...frame(device, release),
-      main.getByText("workflows: write"),
-      main.getByText("wrong color: #ededed"),
-    ],
+    (device) => [...frame(device, release), main.getByText("workflows: write")],
     undefined,
     section("App permissions"),
+  );
+  await screenshot(
+    page,
+    "checkup-labels",
+    "/settings/checkup",
+    (device) => [...frame(device, release), main.getByText("wrong color: #ededed")],
+    undefined,
+    section("owner/shop"),
   );
 
   // The note closes a Workstream whose tasks are all closed.
