@@ -1,10 +1,13 @@
 package engine_test
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1005,6 +1008,36 @@ func nextEventData[T any](t *testing.T, events <-chan string, matches func(T) bo
 	}
 }
 
+// sendMessage posts a message of the Owner with the form fields.
+func sendMessage(t *testing.T, server *testserver.Server, fields map[string]string) (int, string) {
+	t.Helper()
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	for name, value := range fields {
+		if err := form.WriteField(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/api/chat/messages", &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	response, err := server.Client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	text, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response.StatusCode, string(text)
+}
+
 func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hello\"]\n")
@@ -1013,7 +1046,7 @@ func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 	unreads := liveEvents(t, server, "unread")
 	key := `"organization":"owner","repository":"owner/shop","workstream":12`
 
-	if status, body := send(t, server, http.MethodPost, "/api/chat/messages", `{`+key+`,"text":"Plan the loyalty API"}`); status != http.StatusNoContent {
+	if status, body := sendMessage(t, server, map[string]string{"organization": "owner", "repository": shop, "workstream": "12", "text": "Plan the loyalty API"}); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -1043,7 +1076,7 @@ func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 	if status, body := send(t, server, http.MethodPost, "/api/chat/stop", `{`+key+`}`); status != http.StatusNoContent {
 		t.Errorf("status = %d: %s", status, body)
 	}
-	if status, body := send(t, server, http.MethodPost, "/api/chat/messages", `{"organization":"nobody","text":"Hello"}`); status != http.StatusConflict {
+	if status, body := sendMessage(t, server, map[string]string{"organization": "nobody", "text": "Hello"}); status != http.StatusConflict {
 		t.Errorf("status = %d: %s", status, body)
 	}
 }
