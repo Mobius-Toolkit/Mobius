@@ -783,19 +783,10 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repo
 	if issue == nil {
 		return "", refuse("The Workstream issue does not exist.")
 	}
-	key := ChatKey{c.organization, c.repository, c.workstream}
-	if _, err := e.addChatMessage(ctx, key, tellOwnerAuthor, input.Text, ""); err != nil {
+	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text, ""); err != nil {
 		return "", err
 	}
-	e.chatsMu.Lock()
-	var agent *Agent
-	if running, ok := e.chats[key]; ok && running.agent != nil && running.agent.ID() == c.session {
-		agent = running.agent
-	}
-	e.chatsMu.Unlock()
-	if agent != nil {
-		agent.setAuthor("")
-	}
+	c.agent.setAuthor("")
 	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         leadKind,
 		Organization: c.organization,
