@@ -75,20 +75,17 @@ func claudeCodeCLI(ctx context.Context, adapterPath, path string) ToolCheck {
 	return check
 }
 
-// builtInClaudeCodeVersion reads the version of the Claude Code CLI in the npm package of the adapter at adapterPath.
-// It gives "" when the package has no such version.
+// builtInClaudeCodeVersion reads the version of the Claude Code CLI in the SDK that the adapter at adapterPath loads.
+// It looks in the node_modules of each parent directory, as Node does. It gives "" when it finds no such version.
 func builtInClaudeCodeVersion(adapterPath string) string {
 	file, err := filepath.EvalSymlinks(adapterPath)
 	if err != nil {
 		return ""
 	}
 	for dir := filepath.Dir(file); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-		if _, err := os.Stat(filepath.Join(dir, "package.json")); err != nil {
-			continue
-		}
 		sdk, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "node_modules", "@anthropic-ai", "claude-agent-sdk", "package.json")))
 		if err != nil {
-			return ""
+			continue
 		}
 		var manifest struct {
 			ClaudeCodeVersion string `json:"claudeCodeVersion"`

@@ -134,6 +134,32 @@ func TestTheClaudeCodeCLIVersionComesFromThePackageOfTheAdapter(t *testing.T) {
 	}
 }
 
+func TestTheSDKInAParentDirectoryGivesTheClaudeCodeCLIVersion(t *testing.T) {
+	bin := t.TempDir()
+	store := filepath.Join(t.TempDir(), "node_modules")
+	pkg := filepath.Join(store, "@zed-industries", "claude-agent-acp")
+	sdk := filepath.Join(store, "@anthropic-ai", "claude-agent-sdk", "package.json")
+	for file, text := range map[string]string{
+		filepath.Join(pkg, "dist", "index.js"): "",
+		filepath.Join(pkg, "package.json"):     "{}",
+		sdk:                                    `{"claudeCodeVersion": "2.1.284"}`,
+	} {
+		if err := os.MkdirAll(filepath.Dir(file), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(pkg, "dist", "index.js"), filepath.Join(bin, "claude-agent-acp")); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := builtInClaudeCodeVersion(filepath.Join(bin, "claude-agent-acp")); got != "2.1.284" {
+		t.Errorf("version = %q", got)
+	}
+}
+
 func TestAPackageWithNoClaudeCodeVersionGivesNoVersion(t *testing.T) {
 	bin := t.TempDir()
 	adapter(t, bin, `{"name": "@anthropic-ai/claude-agent-sdk"}`)
