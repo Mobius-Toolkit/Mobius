@@ -139,6 +139,8 @@ const question = "What is the state of the plans? The full report is at " +
 // table of the pauses has no row, because a pause stops the fake agents. The tools of the Checkup page have fixed
 // paths and versions, and tar gives no version.
 //
+// The Workstream owner/shop#14 has Autopilot on and no task.
+//
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
 // unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
 // Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, and
@@ -163,6 +165,7 @@ func TestServer(t *testing.T) {
 	}{
 		{"owner/shop", 12, "Integrate loyalty plans"},
 		{"owner/shop", 13, "Seasonal prices"},
+		{"owner/shop", 14, "Early renewals"},
 		{"plants/garden", 12, "Plant roses"},
 		{"plants/garden", 14, "Water the roses"},
 		{"plants/garden", 15, "Feed the roses"},
@@ -179,6 +182,7 @@ func TestServer(t *testing.T) {
 		github.AddIssue(workstream.repository, workstream.number, workstream.title)
 		github.AddLabel(workstream.repository, workstream.number, "mobius:workstream", "owner")
 	}
+	github.AddLabel("owner/shop", 14, "mobius:autopilot", "owner")
 	github.AddSubIssueOf("owner/shop", 12, 41, "Add plan model")
 	github.AddSubIssueOf("owner/shop", 12, 42, "Let customers change plans")
 	github.AddSubIssueOf("owner/shop", 12, 45, "Pick the plan limits")

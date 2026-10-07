@@ -86,6 +86,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "workstreams", "/workstreams", (device) => [
     ...frame(device, drain),
     main.getByText("Seasonal prices"),
+    main.getByRole("img", { name: "Autopilot" }),
     main.getByText("done"),
     main.getByText("needs you"),
   ]);
