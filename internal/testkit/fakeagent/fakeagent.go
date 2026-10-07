@@ -23,10 +23,13 @@
 //	error = { code = -32000, message = "Usage limit", data = "..." }  # the turn ends with this error
 //	hang = true             # the turn ends only at session/cancel
 //	busy = "300ms"          # before the reply, the agent sends a tool_call_update every 10 ms for this long
-//	later = { after = "100ms", updates = ['{"sessionUpdate": "plan", "entries": []}'], absorb = true }
+//	later = { after = "100ms", updates = ['{"sessionUpdate": "plan", "entries": []}'] }
 //	                        # after the response, the agent waits for after and then sends the updates, as Claude Code
-//	                        # does for a turn that it starts alone; with absorb, a session/prompt that arrives
-//	                        # until the last update gets no response before session/cancel, which ends it as cancelled
+//	                        # does for a turn that it starts alone
+//	later = { updates = ['{"sessionUpdate": "plan", "entries": []}'], absorb = true }
+//	                        # with absorb, the agent sends the updates when the next session/prompt arrives, and that
+//	                        # prompt gets no response before session/cancel, which ends it as cancelled, as Claude
+//	                        # Code does when it takes a prompt into a turn that it started alone
 //
 // The reply has the texts of reply, then one text "image <MIME type> <base64 data>" for each image block of the
 // prompt, then the text of call or list_tools, then the text of shell.
@@ -124,8 +127,8 @@ type agent struct {
 	mcpURL      string
 	// cancel closes at a session/cancel. It is nil when no turn runs.
 	cancel chan struct{}
-	// absorbing tells that a later with absorb runs.
-	absorbing bool
+	// absorbed is the later with absorb that waits for the next session/prompt, or nil.
+	absorbed *later
 }
 
 // Run is the main function of the fake agent program, with the script at path.
@@ -363,7 +366,12 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 			images = append(images, "image "+block.MIMEType+" "+block.Data)
 		}
 	}
-	if cancel, absorbed := a.absorb(); absorbed {
+	if cancel, absorbed := a.absorb(); absorbed != nil {
+		for _, update := range absorbed.Updates {
+			if err := a.send(ctx, request.SessionID, json.RawMessage(update)); err != nil {
+				return nil, acp.NewInternalError(err.Error())
+			}
+		}
 		select {
 		case <-cancel:
 			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
@@ -390,26 +398,32 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 	return acp.PromptResponse{StopReason: stopReason}, nil
 }
 
-// absorb gives the channel that closes at a session/cancel, and true, when a later with absorb runs.
-func (a *agent) absorb() (chan struct{}, bool) {
+// absorb gives the channel that closes at a session/cancel, and the later with absorb that waited for this prompt, or nil.
+func (a *agent) absorb() (chan struct{}, *later) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if !a.absorbing {
-		return nil, false
+	absorbed := a.absorbed
+	if absorbed == nil {
+		return nil, nil
 	}
+	a.absorbed = nil
 	a.cancel = make(chan struct{})
-	return a.cancel, true
+	return a.cancel, absorbed
 }
 
-// startLater sends the updates of l in the background, after the response of the prompt.
+// startLater sends the updates of l in the background after the response of the prompt, or holds a later with
+// absorb for the next prompt.
 func (a *agent) startLater(sessionID string, l later) error {
+	if l.Absorb {
+		a.mu.Lock()
+		a.absorbed = &l
+		a.mu.Unlock()
+		return nil
+	}
 	after, err := time.ParseDuration(l.After)
 	if err != nil {
 		return err
 	}
-	a.mu.Lock()
-	a.absorbing = l.Absorb
-	a.mu.Unlock()
 	go func() {
 		time.Sleep(after)
 		for _, update := range l.Updates {
@@ -417,9 +431,6 @@ func (a *agent) startLater(sessionID string, l later) error {
 				break
 			}
 		}
-		a.mu.Lock()
-		a.absorbing = false
-		a.mu.Unlock()
 	}()
 	return nil
 }

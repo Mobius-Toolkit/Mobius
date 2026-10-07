@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 )
@@ -12,6 +13,9 @@ const quietPoll = 20 * time.Millisecond
 // absorbTimeout is the time with no work update after an autonomous end, while a prompt runs, after which Mobius
 // takes the prompt as absorbed into the autonomous turn.
 var absorbTimeout = 30 * time.Second
+
+// errStopped is the error of waitQuiet when a stop ends the wait.
+var errStopped = errors.New("a stop ended the wait for an autonomous turn")
 
 // autonomousOrigins are the origin kinds of the end of an autonomous turn. Any other kind ends a turn of a user.
 var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "observer", "observer-activity"}
@@ -51,10 +55,19 @@ func (a *Agent) track(notification map[string]any, kind string) {
 }
 
 // waitQuiet holds until no autonomous turn runs. When the agent has no activity for hangTimeout, the agent is stuck in
-// the autonomous turn: waitQuiet sends the cancel, forgets the turn, and gives errHung.
+// the autonomous turn: waitQuiet sends the cancel, forgets the turn, and gives errHung. A stop gives errStopped.
 func (a *Agent) waitQuiet(ctx context.Context) error {
 	ticker := time.NewTicker(quietPoll)
 	defer ticker.Stop()
+	stopped := make(chan struct{})
+	a.mu.Lock()
+	a.quietStop = stopped
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		a.quietStop = nil
+		a.mu.Unlock()
+	}()
 	last := time.Now()
 	for {
 		a.mu.Lock()
@@ -77,6 +90,8 @@ func (a *Agent) waitQuiet(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-stopped:
+			return errStopped
 		case <-ticker.C:
 		}
 	}

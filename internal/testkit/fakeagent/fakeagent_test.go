@@ -420,21 +420,32 @@ reply = ["second"]
 	}
 }
 
-func TestAPromptDuringALaterWithAbsorbGetsNoResponseBeforeTheCancel(t *testing.T) {
+func TestAPromptAfterALaterWithAbsorbGetsItsUpdatesAndNoResponseBeforeTheCancel(t *testing.T) {
 	c := start(t, `
 [[prompts]]
 reply = ["first"]
-later = { after = "200ms", updates = ['{"sessionUpdate": "plan", "entries": []}'], absorb = true }
+later = { updates = ['{"sessionUpdate": "plan", "entries": []}'], absorb = true }
 
 [[prompts]]
 reply = ["second"]
 `)
 	c.prompt(t, "Go.")
+	time.Sleep(100 * time.Millisecond)
+	if updates := c.updatesNow(); len(updates) != 0 {
+		t.Fatalf("updates before the next prompt = %+v", updates)
+	}
 	done := make(chan string)
 	go func() {
 		stopReason, _ := c.send("Absorbed.")
 		done <- stopReason
 	}()
+	deadline := time.Now().Add(time.Minute)
+	for len(c.updatesNow()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if updates := c.takeUpdates(); len(updates) != 1 || updates[0]["sessionUpdate"] != "plan" {
+		t.Fatalf("updates = %+v", updates)
+	}
 
 	select {
 	case stopReason := <-done:
@@ -448,7 +459,6 @@ reply = ["second"]
 	if stopReason := <-done; stopReason != "cancelled" {
 		t.Errorf("stop reason = %q", stopReason)
 	}
-	c.takeUpdates()
 	if reply, _ := c.prompt(t, "Again."); reply != "second" {
 		t.Errorf("reply after the cancel = %q", reply)
 	}

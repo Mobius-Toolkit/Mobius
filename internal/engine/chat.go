@@ -322,7 +322,7 @@ func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 		c.stopWait()
 		return nil
 	case c.stoppable:
-		return c.agent.cancel(ctx)
+		return c.agent.stop(ctx)
 	}
 	return nil
 }

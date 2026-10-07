@@ -92,6 +92,8 @@ type Agent struct {
 	autonomousEnd time.Time
 	// ended gets a value at each autonomousEnd.
 	ended chan struct{}
+	// quietStop closes at a stop while waitQuiet runs. Otherwise it is nil.
+	quietStop chan struct{}
 	// retries is the number of retry prompts that Prompt sent in the session.
 	retries int
 	// details are the new details from the Owner that the next prompt of the Implementer or the Researcher carries.
@@ -355,6 +357,9 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 	for {
 		if !retrying {
 			err := a.waitQuiet(ctx)
+			if errors.Is(err, errStopped) {
+				return nil
+			}
 			if errors.Is(err, errHung) {
 				var retry string
 				retry, err = a.retryHang(ctx)
@@ -423,6 +428,20 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 			return err
 		}
 	}
+}
+
+// stop ends the wait of Prompt for an autonomous turn, or else asks the agent to end the turn that runs. A stop
+// during the wait sends no prompt and no cancel.
+func (a *Agent) stop(ctx context.Context) error {
+	a.mu.Lock()
+	if a.quietStop != nil {
+		close(a.quietStop)
+		a.quietStop = nil
+		a.mu.Unlock()
+		return nil
+	}
+	a.mu.Unlock()
+	return a.cancel(ctx)
 }
 
 // cancel asks the agent to end the turn that runs.

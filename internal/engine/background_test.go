@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -17,7 +18,7 @@ import (
 const (
 	workUpdate    = `{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "The task ended."}}`
 	endUpdate     = `{"sessionUpdate": "usage_update", "used": 1, "size": 2, "_meta": {"_claude/origin": {"kind": "task-notification"}}}`
-	absorbedLater = `later = { after = "1s", updates = ['` + workUpdate + `', '` + endUpdate + `'], absorb = true }` + "\n"
+	absorbedLater = `later = { updates = ['` + workUpdate + `', '` + endUpdate + `'], absorb = true }` + "\n"
 	agentUpdate   = `{"sessionId": "s", "update": %s}`
 )
 
@@ -67,6 +68,24 @@ func TestAnAgentGetsNoPromptWhileAnAutonomousTurnRuns(t *testing.T) {
 	}
 	if err := agent.End(t.Context(), "done"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAStopWhileAnAutonomousTurnRunsEndsTheWaitAndSendsNoPrompt(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First\"]\nlater = { after = \"10ms\", updates = ['"+workUpdate+"'] }\n")
+	sendChat(t, server, leadChat, "Plan the loyalty API")
+	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return lineID(t, server, session.ID, "update", "The task ended.") != 0
+	})
+	sendChat(t, server, leadChat, "Also add a plan price")
+	testkit.WaitFor(t, func() bool { return chatView(t, server, leadChat).Writing })
+
+	stopChat(t, server, leadChat)
+
+	testkit.WaitFor(t, func() bool { return !chatView(t, server, leadChat).Writing })
+	if got := promptTexts(t, server, session.ID); len(got) != 1 {
+		t.Errorf("prompts = %q", got)
 	}
 }
 
