@@ -431,7 +431,7 @@ test("the voice button adds the spoken text to the message", async ({ page }) =>
 });
 
 // The fake recognition keeps each instance in recognitions and the calls in calls. It sends no event by itself.
-// Like WebKit, it throws on a start before the end or the error of the run before.
+// Like WebKit, it throws on a start before the end of the run before.
 const fakeRecognition = `window.recognitions = []
   window.calls = []
   window.SpeechRecognition = class extends EventTarget {
@@ -439,7 +439,6 @@ const fakeRecognition = `window.recognitions = []
       super()
       window.recognitions.push(this)
       this.addEventListener('end', () => { this.active = false })
-      this.addEventListener('error', () => { this.active = false })
     }
     start() {
       if (this.active) throw new Error('InvalidStateError')
@@ -575,6 +574,26 @@ test("the voice button lets a new voice input start after the end of the old run
   await expect.poll(() => page.evaluate("calls")).toEqual(["start", "stop", "start"]);
   await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
   expect(await page.evaluate("recognitions.length")).toBe(1);
+});
+
+test("a tap after an error starts a new voice input after the end of the old run", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/owner/shop/12");
+  const main = page.getByRole("main");
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  await mic.click();
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'no-speech' }))",
+  );
+  await expect(mic).toBeVisible();
+  await mic.click();
+  expect(await page.evaluate("calls")).toEqual(["start"]);
+
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "start"]);
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
 });
 
 test("the voice input keeps the session open across pauses", async ({ page }) => {

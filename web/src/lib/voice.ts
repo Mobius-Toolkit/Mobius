@@ -79,7 +79,6 @@ export function useVoice(onText: (text: string) => void) {
       canRestart.current = true;
     });
     live.addEventListener("error", (event) => {
-      running.current = false;
       if (!wanted.current || event.error === "aborted") {
         return;
       }
