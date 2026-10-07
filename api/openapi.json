@@ -1890,6 +1890,167 @@
         ]
       }
     },
+    "/api/workstreams/{owner}/{name}/{number}/close": {
+      "post": {
+        "description": "CloseWorkstream closes the Workstream as \"won't do\", also when it has open issues. For each item of WorkstreamClosure, Mobius adds a comment and mobius:wont-do, and closes the item. It closes the Workstream issue last. It returns 409 when the issue is not an open Workstream.",
+        "operationId": "CloseWorkstream",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the Workstream issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      }
+    },
+    "/api/workstreams/{owner}/{name}/{number}/closure": {
+      "get": {
+        "description": "WorkstreamClosure returns the items that CloseWorkstream closes, in the order of the close: the open pull requests of the tasks, the open task issues, and the Workstream issue. It reads the state from GitHub. It returns 409 when the issue is not an open Workstream.",
+        "operationId": "WorkstreamClosure",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the Workstream issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_ClosureItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      }
+    },
     "/api/workstreams/{owner}/{name}/{number}/complete": {
       "post": {
         "description": "CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open Workstream, or when the Workstream has no task or an open task.",
@@ -2477,6 +2638,39 @@
         ],
         "description": "Checkup is the status of the App permissions and of the Mobius labels in an organization."
       },
+      "ClosureItem": {
+        "type": "object",
+        "title": "ClosureItem",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "Kind is issue or pullRequest",
+            "enum": [
+              "issue",
+              "pullRequest"
+            ]
+          },
+          "number": {
+            "type": "integer",
+            "description": "Number is the number of the issue or the pull request"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title is the title of the issue or the pull request"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL is the web address of the issue or the pull request on GitHub"
+          }
+        },
+        "required": [
+          "kind",
+          "number",
+          "title",
+          "url"
+        ],
+        "description": "ClosureItem is an issue or a pull request that the close of a Workstream as \"won't do\" closes."
+      },
       "CreateManifestFormBody": {
         "type": "object",
         "title": "CreateManifestFormBody",
@@ -2608,6 +2802,24 @@
             "description": "Data is the payload of the response",
             "items": {
               "$ref": "#/components/schemas/Agent"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_Array_ClosureItem": {
+        "type": "object",
+        "title": "Envelope_Array_ClosureItem",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]ClosureItem",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/ClosureItem"
             }
           }
         },
