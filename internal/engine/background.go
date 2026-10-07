@@ -61,7 +61,8 @@ func (a *Agent) track(notification map[string]any, kind string) {
 func (a *Agent) trackTasks(update any) {
 	response := field(update, "_meta", "claudeCode", "toolResponse")
 	id := stringField(response, "backgroundTaskId")
-	if taskID := stringField(response, "taskId"); taskID != "" && field(response, "persistent") != true {
+	toolName := stringField(update, "_meta", "claudeCode", "toolName")
+	if taskID := stringField(response, "taskId"); toolName == "Monitor" && taskID != "" && field(response, "persistent") != true {
 		id = taskID
 	}
 	if field(response, "isAsync") == true {
@@ -72,7 +73,7 @@ func (a *Agent) trackTasks(update any) {
 	}
 	ended := ""
 	shown := false
-	switch stringField(update, "_meta", "claudeCode", "toolName") {
+	switch toolName {
 	case "TaskStop":
 		ended = stringField(response, "task_id")
 	case "KillShell":
