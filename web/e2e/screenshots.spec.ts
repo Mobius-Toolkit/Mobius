@@ -105,6 +105,24 @@ test("screenshots", async ({ page }) => {
     (device) => [...chatReady(device), main.getByRole("button", { name: "Stop voice input" })],
     () => main.getByRole("button", { name: "Start voice input" }).click(),
   );
+  await screenshot(
+    page,
+    "chat-typing",
+    "/workstreams/owner/shop/12",
+    (device) => [...chatReady(device), main.getByRole("button", { name: "Send", exact: true })],
+    () => main.getByLabel("Message to the Lead").fill("Show the prices of the roses first."),
+  );
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { writing: boolean } };
+    body.data.writing = true;
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(page, "chat-writing", "/workstreams/owner/shop/12", (device) => [
+    ...chatReady(device),
+    main.getByRole("button", { name: "Stop the reply" }),
+  ]);
+  await page.unroute("**/api/chat?*");
   const photos = [
     { name: "plan.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#2563eb") },
     { name: "cart.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#16a34a") },

@@ -1266,10 +1266,119 @@ test("the voice button shows an icon, a name and its state", async ({ page }) =>
   await expect(start).toHaveAttribute("aria-pressed", "false");
 });
 
+const writingNow = (page: Page) =>
+  page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { writing: boolean } };
+    body.data.writing = true;
+    await route.fulfill({ response, json: body });
+  });
+
+test("the send button follows the text and the writing agent", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await writingNow(page);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const send = main.getByRole("button", { name: "Send", exact: true });
+  const stop = main.getByRole("button", { name: "Stop the reply", exact: true });
+
+  await expect(stop).toBeEnabled();
+  await expect(stop).toHaveAttribute("title", "Stop the reply");
+  await expect(send).toHaveCount(0);
+  await input.fill("   ");
+  await expect(stop).toBeEnabled();
+  await input.fill("Add a plan");
+  await expect(send).toBeEnabled();
+  await expect(send).toHaveAttribute("title", "Send");
+  await expect(stop).toHaveCount(0);
+
+  await input.fill("");
+  const stopped = page.waitForRequest((request) => request.url().endsWith("/api/chat/stop"));
+  await stop.click();
+  await stopped;
+});
+
+test("the send button is disabled with no text while the agent does not write", async ({
+  page,
+}) => {
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const send = main.getByRole("button", { name: "Send", exact: true });
+  await expect(send).toBeDisabled();
+  await expect(main.getByRole("button", { name: "Stop the reply" })).toHaveCount(0);
+  await input.fill("  ");
+  await expect(send).toBeDisabled();
+  await input.fill("Add a plan");
+  await expect(send).toBeEnabled();
+});
+
+test("the box holds the text area, the voice button and the send button", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const box = input.locator("..");
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  const send = main.getByRole("button", { name: "Send", exact: true });
+  await expect(input).toHaveCSS("border-top-width", "0px");
+  await expect(box).toHaveCSS("border-top-width", "1px");
+  const frame = (await box.boundingBox())!;
+  const micBox = (await mic.boundingBox())!;
+  const sendBox = (await send.boundingBox())!;
+  for (const button of [micBox, sendBox]) {
+    expect(button.x).toBeGreaterThanOrEqual(frame.x);
+    expect(button.x + button.width).toBeLessThanOrEqual(frame.x + frame.width);
+    expect(button.y).toBeGreaterThanOrEqual(frame.y);
+    expect(button.y + button.height).toBeLessThanOrEqual(frame.y + frame.height);
+  }
+  expect(micBox.x + micBox.width).toBeLessThanOrEqual(sendBox.x);
+  expect(sendBox.x + sendBox.width).toBeGreaterThan(frame.x + frame.width - 12);
+
+  await expect(box).toHaveCSS("box-shadow", "none");
+  await input.focus();
+  await expect(box).not.toHaveCSS("box-shadow", "none");
+});
+
+for (const [device, size] of [
+  ["desktop", undefined],
+  ["phone", phone],
+] as const) {
+  test(`a long text grows the box and stays beside the buttons on a ${device}`, async ({
+    page,
+  }) => {
+    await page.addInitScript(fakeRecognition);
+    if (size) {
+      await page.setViewportSize(size);
+    }
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const input = main.getByLabel("Message to the Lead");
+    const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+    const send = main.getByRole("button", { name: "Send", exact: true });
+    const short = (await input.boundingBox())!.height;
+    await input.fill("A long line without a break. ".repeat(80));
+    const long = (await input.boundingBox())!;
+    expect(long.height).toBeGreaterThan(short);
+    expect(long.height).toBeLessThanOrEqual(160);
+    expect(await input.evaluate((field) => field.scrollHeight > field.clientHeight)).toBe(true);
+    const micBox = (await mic.boundingBox())!;
+    const sendBox = (await send.boundingBox())!;
+    expect(long.x + long.width).toBeLessThanOrEqual(micBox.x);
+    expect(micBox.x + micBox.width).toBeLessThanOrEqual(sendBox.x);
+    if (size) {
+      expect(micBox.width).toBeGreaterThanOrEqual(44);
+      expect(sendBox.width).toBeGreaterThanOrEqual(44);
+      expect(sendBox.height).toBeGreaterThanOrEqual(44);
+    }
+  });
+}
+
 test.describe("on a phone", () => {
   test.use({ viewport: phone });
 
-  test("the textarea stays wide with the Stop, voice and Send buttons", async ({ page }) => {
+  test("the textarea stays wide with the voice button and the Stop button", async ({ page }) => {
     await page.addInitScript(fakeRecognition);
     await page.route("**/api/chat?*", async (route) => {
       const response = await route.fetch();
@@ -1279,9 +1388,8 @@ test.describe("on a phone", () => {
     });
     await page.goto(shop);
     const main = page.getByRole("main");
-    await expect(main.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+    await expect(main.getByRole("button", { name: "Stop the reply", exact: true })).toBeVisible();
     await expect(main.getByRole("button", { name: "Start voice input" })).toBeVisible();
-    await expect(main.getByRole("button", { name: "Send" })).toBeVisible();
     const width = await page.evaluate("document.querySelector('textarea').clientWidth");
     expect(width).toBeGreaterThanOrEqual(120);
     expect(

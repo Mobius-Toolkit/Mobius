@@ -1,4 +1,11 @@
-import { ChevronRightIcon, MicIcon, PaperclipIcon, SquareIcon, XIcon } from "lucide-react";
+import {
+  ArrowUpIcon,
+  ChevronRightIcon,
+  MicIcon,
+  PaperclipIcon,
+  SquareIcon,
+  XIcon,
+} from "lucide-react";
 import {
   use,
   useCallback,
@@ -329,8 +336,11 @@ export function Conversation({
     setSendError(problem);
   };
 
+  const empty = !text.trim() && images.length === 0;
+  const stopping = empty && writing;
+
   const send = () => {
-    if (inFlight.current || (!text.trim() && images.length === 0)) {
+    if (inFlight.current || empty) {
       return;
     }
     const sent = text;
@@ -441,12 +451,36 @@ export function Conversation({
       </div>
       {footer}
       <form
-        className="flex items-end gap-2 border-t p-3 max-md:[&>button]:h-11"
+        className="flex items-end gap-2 border-t p-3"
         onSubmit={(event) => {
           event.preventDefault();
           send();
         }}
       >
+        <input
+          ref={picker}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(event) => {
+            void addImages([...(event.target.files ?? [])]);
+            event.target.value = "";
+          }}
+        />
+        {/* A button that takes the focus closes the keyboard of a phone, and the button moves before the click. */}
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          aria-label="Attach images"
+          title="Attach images"
+          className="max-md:size-11"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => picker.current?.click()}
+        >
+          <PaperclipIcon />
+        </Button>
         <div className="grid min-w-30 grow gap-1">
           {images.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -460,39 +494,72 @@ export function Conversation({
               ))}
             </div>
           )}
-          <Textarea
-            ref={input}
-            rows={1}
-            aria-label={`Message to the ${agent}`}
-            placeholder={`Write to the ${agent}`}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onPaste={(event) => {
-              const pasted = [...event.clipboardData.files].filter((file) =>
-                file.type.startsWith("image/"),
-              );
-              // Spreadsheet and word processor apps put the text and a picture of the selection on the clipboard.
-              if (pasted.length > 0 && !event.clipboardData.getData("text/plain")) {
-                event.preventDefault();
-                void addImages(pasted);
-              }
-            }}
-            onKeyDown={(event) => {
-              // On a touch screen, Enter adds a line and only the Send button sends. Safari gives the Enter that
-              // ends an IME composition with isComposing false and keyCode 229.
-              if (
-                event.key === "Enter" &&
-                !event.shiftKey &&
-                !event.nativeEvent.isComposing &&
-                event.keyCode !== 229 &&
-                !window.matchMedia("(pointer: coarse)").matches
-              ) {
-                event.preventDefault();
-                send();
-              }
-            }}
-            className="max-h-40 min-h-9 resize-none"
-          />
+          <div className="flex items-end gap-1 rounded-lg border border-input p-1 transition-colors has-[textarea:focus-visible]:border-ring has-[textarea:focus-visible]:ring-3 has-[textarea:focus-visible]:ring-ring/50 dark:bg-input/30">
+            <Textarea
+              ref={input}
+              rows={1}
+              aria-label={`Message to the ${agent}`}
+              placeholder={`Write to the ${agent}`}
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onPaste={(event) => {
+                const pasted = [...event.clipboardData.files].filter((file) =>
+                  file.type.startsWith("image/"),
+                );
+                // Spreadsheet and word processor apps put the text and a picture of the selection on the clipboard.
+                if (pasted.length > 0 && !event.clipboardData.getData("text/plain")) {
+                  event.preventDefault();
+                  void addImages(pasted);
+                }
+              }}
+              onKeyDown={(event) => {
+                // On a touch screen, Enter adds a line and only the Send button sends. Safari gives the Enter that
+                // ends an IME composition with isComposing false and keyCode 229.
+                if (
+                  event.key === "Enter" &&
+                  !event.shiftKey &&
+                  !event.nativeEvent.isComposing &&
+                  event.keyCode !== 229 &&
+                  !window.matchMedia("(pointer: coarse)").matches
+                ) {
+                  event.preventDefault();
+                  send();
+                }
+              }}
+              className="max-h-40 min-h-9 min-w-0 flex-1 resize-none border-0 bg-transparent focus-visible:ring-0 dark:bg-transparent"
+            />
+            {voice.supported && (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label={voice.listening ? "Stop voice input" : "Start voice input"}
+                title={voice.listening ? "Stop voice input" : "Start voice input"}
+                aria-pressed={voice.listening}
+                className={cn(
+                  "max-md:size-11",
+                  voice.listening &&
+                    "border-destructive text-destructive motion-safe:animate-pulse",
+                )}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={voice.toggle}
+              >
+                {voice.listening ? <SquareIcon /> : <MicIcon />}
+              </Button>
+            )}
+            <Button
+              type={stopping ? "button" : "submit"}
+              size="icon"
+              aria-label={stopping ? "Stop the reply" : "Send"}
+              title={stopping ? "Stop the reply" : "Send"}
+              disabled={sending || (empty && !writing)}
+              className="max-md:size-11"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={stopping ? stop : undefined}
+            >
+              {stopping ? <SquareIcon className="fill-current" /> : <ArrowUpIcon />}
+            </Button>
+          </div>
           {voice.error && (
             <p role="alert" className="text-sm text-destructive">
               {voice.error}
@@ -504,61 +571,6 @@ export function Conversation({
             </p>
           )}
         </div>
-        {/* A button that takes the focus closes the keyboard of a phone, and the button moves before the click. */}
-        {writing && (
-          <Button
-            type="button"
-            variant="destructive"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={stop}
-          >
-            Stop
-          </Button>
-        )}
-        <input
-          ref={picker}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(event) => {
-            void addImages([...(event.target.files ?? [])]);
-            event.target.value = "";
-          }}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          aria-label="Attach images"
-          title="Attach images"
-          className="max-md:w-11"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => picker.current?.click()}
-        >
-          <PaperclipIcon />
-        </Button>
-        {voice.supported && (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            aria-label={voice.listening ? "Stop voice input" : "Start voice input"}
-            title={voice.listening ? "Stop voice input" : "Start voice input"}
-            aria-pressed={voice.listening}
-            className={cn(
-              "max-md:w-11",
-              voice.listening && "border-destructive text-destructive motion-safe:animate-pulse",
-            )}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={voice.toggle}
-          >
-            {voice.listening ? <SquareIcon /> : <MicIcon />}
-          </Button>
-        )}
-        <Button type="submit" disabled={sending} onMouseDown={(event) => event.preventDefault()}>
-          Send
-        </Button>
       </form>
     </section>
   );
