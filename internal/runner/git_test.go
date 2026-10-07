@@ -10,7 +10,8 @@ import (
 
 func gitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-c", "user.name=Test", "-c", "user.email=test@example.com"}, args...)...)
+	cmd := exec.Command("git", "-c", "user.name=Test", "-c", "user.email=test@example.com")
+	cmd.Args = append(cmd.Args, args...)
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, out)
