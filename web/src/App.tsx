@@ -1,4 +1,4 @@
-import { Outlet, useLocation, useMatch } from "@tanstack/react-router";
+import { Outlet, useLocation, useMatch, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   listGitHubApps,
@@ -36,6 +36,7 @@ function saveOrganization(organization: string) {
 
 function App() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const chat = useMatch({
     from: "/workstreams/$owner/$name/$number",
     shouldThrow: false,
@@ -137,6 +138,9 @@ function App() {
   const selectOrganization = (name: string) => {
     saveOrganization(name);
     setOrganization(name);
+    if (chat !== undefined && chat.params.owner !== name) {
+      void navigate({ to: "/workstreams" });
+    }
   };
 
   if (loginShown) {
