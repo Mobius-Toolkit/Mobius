@@ -3223,6 +3223,29 @@
                 "type": "string",
                 "contentMediaType": "application/json",
                 "contentSchema": {
+                  "type": "object"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "repositories"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
                   "$ref": "#/components/schemas/ChatMessage"
                 }
               },

@@ -79,7 +79,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"ask", "comment_pull_request", "create_issue", "create_workstream", "decline", "hold_event", "list_tasks", "mark_ready", "move_task", "read_issue", "reply_thread", "send_details", "start_fix_round", "start_implementer", "start_researcher", "tell_owner"}
+	want := []string{"ask", "comment_pull_request", "create_issue", "create_workstream", "decline", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "read_issue", "reply_thread", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}
@@ -489,6 +489,36 @@ func TestMessageLeadSendsTheMessageToTheLeadOfAnOpenWorkstream(t *testing.T) {
 	}
 }
 
+func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("message_lead", `{ workstream = 20, text = "Create the task issues." }`)+
+		call("message_lead", `{ workstream = 12, text = "Create the task issues." }`)+
+		call("message_lead", `{ workstream = 21, text = "Create the task issues." }`))
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 21, "Not a Workstream")
+
+	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ")
+
+	want := "Sent the message to the Lead of #20." +
+		"error: A Lead cannot send a message to its own Workstream." +
+		"error: #21 is not an open Workstream."
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q", got)
+	}
+	toLead20 := func() []leadEvent {
+		return slices.DeleteFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Workstream != 20 || event.Kind != "lead" })
+	}
+	testkit.WaitFor(t, func() bool {
+		events := toLead20()
+		return len(events) > 0 && events[0].Delivered
+	})
+	text := "Message of the Lead of #12, approved by the Owner:\n\nCreate the task issues."
+	if events := toLead20(); !reflect.DeepEqual(events, []leadEvent{{Workstream: 20, Kind: "lead", Payload: text, Delivered: true}}) {
+		t.Errorf("events = %v", events)
+	}
+}
+
 func TestMoveTaskMovesAnIssueOfTheWorkstreamWithNoLiveTask(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("move_task", "{ n = 41, workstream = 20 }")+
@@ -538,6 +568,51 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndMakesItReady(t *testing.T) {
 	}
 	if got := fake.Labels(shop, 50); !reflect.DeepEqual(got, []string{"mobius:ready"}) {
 		t.Errorf("labels = %v", got)
+	}
+}
+
+func TestStopTaskStopsTheImplementerAsAStopOfTheOwnerDoes(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"Stop #41.\"\ncall = { tool = \"stop_task\", arguments = { n = 41 } }\n\n" + leadStarts
+	server, dataDir := connectTask(t, fake, lead, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
+
+	sendChat(t, server, leadChat, "Stop #41.")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
+	implementers := endedImplementers(t, server, 1)
+	if implementers[0].EndReason.String != "stopped" {
+		t.Errorf("end reason = %s", implementers[0].EndReason.String)
+	}
+	if exists(t, filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")) {
+		t.Error("the worktree stays")
+	}
+	if labels := fake.Labels(shop, 41); slices.Contains(labels, "mobius:working") {
+		t.Errorf("labels = %v", labels)
+	}
+	feed := activities(t, server)
+	if last := feed[len(feed)-1]; last.Issue != 41 || last.Text != "Stopped \"Add plan model\" on request of the Owner" {
+		t.Errorf("activity = %+v", last)
+	}
+}
+
+func TestStopTaskRefusesATaskOfAnotherWorkstreamAndATaskWithNoWork(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("stop_task", "{ n = 41 }")+call("stop_task", "{ n = 42 }")+call("stop_task", "{ n = 43 }"))
+	addTask(t, server, fake, 41, 12, 45)
+	addTask(t, server, fake, 42, 20, 46)
+
+	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ")
+
+	want := "error: The task of #41 is ready_for_review, so it has no work to stop." +
+		"error: #42 has no live task in this Workstream." +
+		"error: #43 has no live task in this Workstream."
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q", got)
+	}
+	if state := taskState(t, server); state != "ready_for_review" {
+		t.Errorf("state = %s", state)
 	}
 }
 

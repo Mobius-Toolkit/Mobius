@@ -152,11 +152,21 @@ func (e *Engine) workingRemoved(ctx context.Context, repository github.Repositor
 	if actor == "" || strings.EqualFold(actor, appLogin(repository.AppSlug)) {
 		return nil
 	}
+	return e.stopTask(ctx, repository, task, issue, actor, "Stopped by a label removal.", fmt.Sprintf("Stopped \"%s\" after a removal of %s", issue.GetTitle(), workingLabel))
+}
+
+// stopTask stops the task and its Worker, and removes mobius:working and mobius:needs-human from its issue. The head
+// of its pull request gets a failed Mobius check with summary, and the activity feed gets text. A task that is already
+// stopped or ended stays as it is.
+func (e *Engine) stopTask(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, actor, summary, text string) error {
 	stopped, err := e.queries.StopTask(ctx, task.ID)
 	if err != nil || stopped == 0 {
 		return err
 	}
 	if err := e.stopWorkersOf(ctx, task); err != nil {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
 	if err := repository.RemoveLabel(ctx, task.Issue, needsHumanLabel); err != nil {
@@ -167,11 +177,11 @@ func (e *Engine) workingRemoved(ctx context.Context, repository github.Repositor
 		if err != nil {
 			return err
 		}
-		if err := repository.CreateFailedCheckRun(ctx, checkRunName, pullRequest.GetHead().GetSHA(), "Stopped", "Stopped by a label removal."); err != nil {
+		if err := repository.CreateFailedCheckRun(ctx, checkRunName, pullRequest.GetHead().GetSHA(), "Stopped", summary); err != nil {
 			return err
 		}
 	}
-	return e.addActivity(ctx, task.Repository, task.Workstream, issue, actor, fmt.Sprintf("Stopped \"%s\" after a removal of %s", issue.GetTitle(), workingLabel))
+	return e.addActivity(ctx, task.Repository, task.Workstream, issue, actor, text)
 }
 
 // lostAccess ends the live tasks of each repository that no App gives, and stops their Workers.

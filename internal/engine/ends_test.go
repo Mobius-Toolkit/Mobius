@@ -200,7 +200,8 @@ func TestAReadyLabelOnATaskInNeedsHumanSendsTheOpenThreadOfTheMobiusAppToAFixRou
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	round := roundPrompt(t, server)
-	inOrder(t, round, "# Open items\n", "Thread "+itoa(thread)+", src/plan.rs line 12:", "Store the unit.", "Action: fix\n")
+	_, items, _ := strings.Cut(round, "# Open items\n")
+	inOrder(t, items, "Thread "+itoa(thread)+", src/plan.rs line 12:", "Store the unit.", "Action: fix\n")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 	if len(fake.PullRequests(shop)) != 1 {
 		t.Errorf("pull requests = %+v", fake.PullRequests(shop))

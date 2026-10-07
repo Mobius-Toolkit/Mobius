@@ -75,6 +75,12 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"findings": map[string]any{"type": "string", "minLength": 1, "description": "Your findings on the pull request: what to change and why."},
 				},
 				e.startFixRound),
+			tool(e, c, "stop_task",
+				"Stop the work on a task of this Workstream that is queued or working. Call it only when the Owner tells you to stop that task. The pull request and the branch stay.",
+				map[string]any{
+					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+				},
+				e.stopTaskTool),
 			tool(e, c, "send_details",
 				"Send new details from the Owner to the Implementer that operates on a task now. The Implementer keeps its session and its context. Update the body of the task issue first. It refuses a task with no open Implementer session: a later session reads the updated issue body.",
 				map[string]any{
@@ -83,11 +89,24 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.sendDetails),
 			tool(e, c, "start_researcher",
-				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the Brief and the question. The tool returns at once, and the report arrives later.",
+				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the Brief and the question. The tool returns the id of the Researcher at once, and the report arrives later.",
 				map[string]any{
 					"question": map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
 				},
 				e.startResearcher),
+			tool(e, c, "send_researcher_details",
+				"Send new details from the Owner to a Researcher that runs now. The Researcher keeps its session and its context. The report of the Researcher answers the new details. It refuses a Researcher that does not run.",
+				map[string]any{
+					"id":   map[string]any{"type": "integer", "minimum": 1, "description": "The id of the Researcher, from start_researcher or from its report."},
+					"text": map[string]any{"type": "string", "minLength": 1, "description": "The new details."},
+				},
+				e.sendResearcherDetails),
+			tool(e, c, "stop_researcher",
+				"Stop a Researcher that runs now. The Researcher gives no report. Call it only when the Owner tells you to.",
+				map[string]any{
+					"id": map[string]any{"type": "integer", "minimum": 1, "description": "The id of the Researcher, from start_researcher or from its report."},
+				},
+				e.stopResearcher),
 			tool(e, c, "ask",
 				"Ask the people on a task issue a question. Mobius posts the question as a comment, adds mobius:needs-human, and adds an Inbox item for the Owner. The reply arrives later as an event.",
 				map[string]any{
@@ -142,6 +161,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue."},
 				},
 				e.moveTask),
+			tool(e, c, "message_lead",
+				"Send a message to the Lead of a different open Workstream in this repository. Call it only after the Owner approves the target Workstream and the exact message in the chat.",
+				map[string]any{
+					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue."},
+					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
+				},
+				e.messageLead),
 			tool(e, c, "hold_event",
 				"Hold the event of this turn until the Owner decides. Mobius sends the event again after the end of your next reply to the Owner. A later event of the same task issue waits behind it. Call it only in a turn for an event.",
 				map[string]any{},
@@ -472,6 +498,28 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 	return fmt.Sprintf("Created #%d.", issue.GetNumber()), nil
 }
 
+func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.Repository, input numberInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
+	if err != nil {
+		return "", err
+	}
+	if task.State != "queued" && task.State != "working" {
+		return "", refuse("The task of #%d is %s, so it has no work to stop.", input.N, task.State)
+	}
+	issue, err := existingIssue(ctx, repository, input.N)
+	if err != nil {
+		return "", err
+	}
+	text := fmt.Sprintf("Stopped \"%s\" on request of the Owner", issue.GetTitle())
+	if err := e.stopTask(ctx, repository, task, issue, appLogin(repository.AppSlug), "Stopped by the Owner.", text); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Stopped the task of #%d.", input.N), nil
+}
+
 func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repository, input numberInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -665,7 +713,13 @@ func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repo
 }
 
 func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Repository, input messageLeadInput) (string, error) {
-	if c.repository != "" {
+	kind, sender := "triager", "the Triager"
+	if c.role == LeadRole {
+		kind, sender = "lead", fmt.Sprintf("the Lead of #%d", c.workstream)
+		if input.Workstream == c.workstream {
+			return "", refuse("A Lead cannot send a message to its own Workstream.")
+		}
+	} else if c.repository != "" {
 		return "", refuse("Only the Triager chat sends a message to a Lead, after the Owner approves it.")
 	}
 	if empty(input.Text) {
@@ -674,8 +728,8 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 	if err := openWorkstream(ctx, repository, input.Workstream); err != nil {
 		return "", err
 	}
-	text := "Message of the Triager, approved by the Owner:\n\n" + input.Text
-	if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, "triager", text); err != nil {
+	text := fmt.Sprintf("Message of %s, approved by the Owner:\n\n%s", sender, input.Text)
+	if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, kind, text); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Sent the message to the Lead of #%d.", input.Workstream), nil

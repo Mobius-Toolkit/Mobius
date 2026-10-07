@@ -59,6 +59,9 @@ type LiveEvents struct {
 	// Workstreams is a change of the Workstream list or of the tasks of a Workstream. It has no data, so the client
 	// reads the lists again
 	Workstreams *struct{} `gork:"workstreams"`
+	// Repositories is a change of the repositories of the Apps. It has no data, so the client reads the Apps and the
+	// organizations again
+	Repositories *struct{} `gork:"repositories"`
 	// Message is a new chat message, or a message of the Lead or of the Triager that got more text
 	Message *ChatMessage `gork:"message"`
 	// Unread is the new number of unread messages of a chat
@@ -154,6 +157,8 @@ func sendChange(stream *api.Stream[LiveEvents], change engine.Change) error {
 		return stream.Send(LiveEvents{Upgrade: &Upgrade{Failure: *change.Upgrade}})
 	case change.Workstreams:
 		return stream.Send(LiveEvents{Workstreams: &struct{}{}})
+	case change.Repositories:
+		return stream.Send(LiveEvents{Repositories: &struct{}{}})
 	case change.Message != nil:
 		message, err := chatMessageOf(*change.Message)
 		if err != nil {

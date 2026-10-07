@@ -68,18 +68,20 @@ type Engine struct {
 
 	// stopsMu guards stops and closed.
 	stopsMu sync.Mutex
-	// stops holds the context of the Workers of each task, by the id of the task, and of the Researchers of each Lead,
-	// by the ChatKey of the Lead. A stop of the task or the Lead ends the context.
+	// stops holds the context of the Workers of each task, by the id of the task, and of each Researcher, by its
+	// researcherKey. A stop of the task or the Researcher ends the context.
 	stops map[any]stopper
 	// closed tells that Run ended, so no new Worker starts.
 	closed bool
 	// running counts the Workers that run.
 	running sync.WaitGroup
 
-	// implementersMu guards implementers, and the pending details of their sessions.
-	implementersMu sync.Mutex
+	// detailsMu guards implementers, researchers, and the pending details of their sessions.
+	detailsMu sync.Mutex
 	// implementers holds the open Implementer session of each task, by the id of the task.
 	implementers map[int64]*Agent
+	// researchers holds the session of each Researcher that runs, by the id of its session.
+	researchers map[int64]*Agent
 
 	mu        sync.Mutex
 	listeners map[chan Change]bool
@@ -116,6 +118,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		checks:       make(chan struct{}, cfg.MaxChecks),
 		stops:        map[any]stopper{},
 		implementers: map[int64]*Agent{},
+		researchers:  map[int64]*Agent{},
 		listeners:    map[chan Change]bool{},
 	}
 }
@@ -126,13 +129,13 @@ type stopper struct {
 	stop context.CancelFunc
 }
 
-// startWorker runs work in the background with the context of key, a task id or the ChatKey of a Lead. The context
-// ends at the next stop of key and at the end of Run. After the end of Run, startWorker does nothing.
-func (e *Engine) startWorker(key any, work func(context.Context)) {
+// startWorker runs work in the background with the context of key, a task id or a researcherKey. The context
+// ends at the next stop of key and at the end of Run. After the end of Run, startWorker does nothing and gives false.
+func (e *Engine) startWorker(key any, work func(context.Context)) bool {
 	e.stopsMu.Lock()
 	defer e.stopsMu.Unlock()
 	if e.closed {
-		return
+		return false
 	}
 	found, ok := e.stops[key]
 	if !ok {
@@ -140,6 +143,7 @@ func (e *Engine) startWorker(key any, work func(context.Context)) {
 		e.stops[key] = found
 	}
 	e.running.Go(func() { work(found.ctx) })
+	return true
 }
 
 // stop ends the context of the Workers of key.

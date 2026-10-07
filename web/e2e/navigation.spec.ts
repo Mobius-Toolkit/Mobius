@@ -216,3 +216,24 @@ test.describe("the back button of a settings page on a phone", () => {
     }
   });
 });
+
+test("a switch to another organization leaves the chat of the old organization", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const organization = (name: string) =>
+    page.getByRole("button", { name }).filter({ visible: true });
+
+  await page.goto("/workstreams/plants/garden/16");
+  await expect(main.getByText("Note 12 of #16.")).toBeVisible();
+  await organization("plants").click();
+  await page.getByRole("menuitemradio", { name: "owner" }).click();
+  await expect(page).toHaveURL("/workstreams");
+  await expect(main.getByText("Integrate loyalty plans")).toBeVisible();
+  await expect(main.getByText("Cut the roses")).toHaveCount(0);
+
+  await page.goto("/inbox");
+  await organization("owner").click();
+  await page.getByRole("menuitemradio", { name: "plants" }).click();
+  await expect(page).toHaveURL("/inbox");
+});
