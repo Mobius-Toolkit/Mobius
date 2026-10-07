@@ -27,7 +27,7 @@ export function useWorkstreams(showLogin: () => void, source?: EventSource) {
   const [error, setError] = useState<string>();
 
   const load = useCallback(() => {
-    listWorkstreams()
+    const lists = listWorkstreams()
       .then((res) => {
         if (res.status === 401) {
           showLogin();
@@ -38,13 +38,14 @@ export function useWorkstreams(showLogin: () => void, source?: EventSource) {
         }
       })
       .catch((err: unknown) => setError(String(err)));
-    listNeedsHuman()
+    const needsHumanList = listNeedsHuman()
       .then((res) => {
         if (res.status === 200) {
           setNeedsHuman(res.data.data);
         }
       })
       .catch(() => {});
+    return Promise.all([lists, needsHumanList]);
   }, [showLogin]);
 
   // An event of the lists that comes while the connection is down is lost, so each connection reads the lists.

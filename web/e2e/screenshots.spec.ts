@@ -13,6 +13,7 @@ async function screenshot(
   path: string,
   ready: (device: string) => Locator | Locator[],
   open?: (device: string) => Promise<void>,
+  close?: () => Promise<void>,
 ) {
   for (const [device, size] of Object.entries(viewports)) {
     await page.setViewportSize(size);
@@ -25,6 +26,7 @@ async function screenshot(
       path: `screenshots/${name}-${device}.png`,
       animations: "disabled",
     });
+    await close?.();
   }
 }
 
@@ -252,6 +254,32 @@ test("screenshots", async ({ page }) => {
     ...frame(device, release),
     main.getByText("This device"),
   ]);
+  const logOut = main
+    .getByRole("listitem")
+    .filter({ hasText: "This device" })
+    .getByRole("button", { name: "Log out" });
+  // The route holds the request until the screenshot is done, and then it answers with an error, so the server keeps
+  // the login.
+  let endLogOut!: () => void;
+  await screenshot(
+    page,
+    "devices-log-out",
+    "/devices",
+    (device) => [...frame(device, release), logOut.locator('[data-slot="spinner"]')],
+    async () => {
+      const ends = new Promise<void>((resolve) => (endLogOut = resolve));
+      await page.route("**/api/devices/*", async (route) => {
+        await ends;
+        await route.fulfill({ status: 500, json: { error: "The server failed." } });
+      });
+      await logOut.click();
+    },
+    async () => {
+      endLogOut();
+      await expect(logOut).toBeEnabled();
+      await page.unroute("**/api/devices/*");
+    },
+  );
   await screenshot(page, "checkup", "/settings/checkup", (device) => [
     ...frame(device, release),
     main.getByRole("link", { name: "Tools" }),

@@ -18,6 +18,7 @@ export function useUpgrade(source?: EventSource) {
   const [drain, setDrain] = useState<Drain>();
   const [failure, setFailure] = useState("");
   const [upgrading, setUpgrading] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [changesShown, setChangesShown] = useState(false);
 
   useEffect(() => {
@@ -92,13 +93,15 @@ export function useUpgrade(source?: EventSource) {
   };
 
   const cancel = () => {
+    setCancelling(true);
     cancelDrain()
       .then((res) => {
         if (res.status !== 204) {
           setFailure(res.data.error);
         }
       })
-      .catch((err: unknown) => setFailure(String(err)));
+      .catch((err: unknown) => setFailure(String(err)))
+      .finally(() => setCancelling(false));
   };
 
   return {
@@ -106,6 +109,7 @@ export function useUpgrade(source?: EventSource) {
     drain,
     failure,
     upgrading,
+    cancelling,
     changesShown,
     setChangesShown,
     start,

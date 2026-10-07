@@ -11,6 +11,7 @@ import { PlayIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { onEvent } from "@/lib/events";
@@ -175,9 +176,11 @@ function AgentTree({
 
 function TaskEntry({ owner, name, line }: { owner: string; name: string; line: TaskLine }) {
   const [started, setStarted] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const state = started && line.state === "open" ? "ready" : line.state;
   const start = () => {
+    setStarting(true);
     startIssue(owner, name, line.number)
       .then((res) => {
         if (res.status === 204) {
@@ -187,7 +190,8 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
           setError(res.data.error);
         }
       })
-      .catch((err: unknown) => setError(String(err)));
+      .catch((err: unknown) => setError(String(err)))
+      .finally(() => setStarting(false));
   };
   return (
     <li className="grid gap-1">
@@ -216,9 +220,10 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
             variant="ghost"
             className="shrink-0"
             aria-label={`Start #${line.number}`}
+            disabled={starting}
             onClick={start}
           >
-            <PlayIcon />
+            {starting ? <Spinner aria-hidden /> : <PlayIcon />}
           </Button>
         )}
       </div>
