@@ -218,6 +218,16 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if err != nil {
 		return "", err
 	}
+	checkRun, err := openCheckRun(ctx, repository, pullRequest.GetHead().GetSHA())
+	if err != nil {
+		return "", err
+	}
+	if checkRun == 0 {
+		if _, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"}); err != nil {
+			return "", err
+		}
+		return "", refuse("The head of the pull request of #%d changed after the CI passed. The task waits for the CI of the new head.", input.N)
+	}
 	issue, err := existingIssue(ctx, repository, input.N)
 	if err != nil {
 		return "", err
@@ -229,30 +239,29 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if moved == 0 {
 		return "", refuse("The task of #%d is not approval any more.", input.N)
 	}
-	if err := e.approve(ctx, repository, task, issue.GetTitle(), pullRequest); err != nil {
+	if err := e.approve(ctx, repository, task, issue.GetTitle(), pullRequest, checkRun); err != nil {
 		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
 		return "", errors.Join(err, stateErr)
 	}
 	return fmt.Sprintf("Approved pull request #%d of #%d. The Owner got it for review.", pullRequest.GetNumber(), input.N), nil
 }
 
-func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, title string, pullRequest *gh.PullRequest) error {
-	head := pullRequest.GetHead().GetSHA()
+// openCheckRun returns the id of the Mobius check run of the head that is not complete, or 0 when it has none. A head
+// that passed the CI check of Mobius has one.
+func openCheckRun(ctx context.Context, repository github.Repository, head string) (int64, error) {
 	runs, err := repository.CheckRuns(ctx, head)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	var checkRun int64
 	for _, run := range runs {
 		if run.GetName() == checkRunName && run.GetStatus() != "completed" {
-			checkRun = run.GetID()
+			return run.GetID(), nil
 		}
 	}
-	if checkRun == 0 {
-		if checkRun, err = repository.CreateCheckRun(ctx, checkRunName, head, "in_progress"); err != nil {
-			return err
-		}
-	}
+	return 0, nil
+}
+
+func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, title string, pullRequest *gh.PullRequest, checkRun int64) error {
 	if err := repository.CompleteCheckRun(ctx, checkRun, checkRunName, "success"); err != nil {
 		return err
 	}
@@ -261,7 +270,7 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 			return err
 		}
 	}
-	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
+	_, err := e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         readyForReviewKind,
 		Organization: repository.Owner(),
 		Repository:   task.Repository,

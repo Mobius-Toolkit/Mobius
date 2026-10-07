@@ -459,3 +459,28 @@ func TestStartFixRoundWorksWhileTheTaskWaitsForCI(t *testing.T) {
 		t.Errorf("task = %+v", task)
 	}
 }
+
+func TestApprovePullRequestRefusesANewHeadAndMovesTheTaskBackToChecks(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
+	work := t.TempDir()
+	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
+	testkit.Git(t, work, "commit", "--allow-empty", "-m", "Change by a human")
+	testkit.Git(t, work, "push", "origin", "HEAD:refs/heads/mobius/41")
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	waitForChat(t, server, leadChat, "Lead", "error: The head of the pull request of #41 changed after the CI passed. The task waits for the CI of the new head.")
+	if !fake.PullRequests(shop)[0].Draft {
+		t.Error("the pull request is ready for review")
+	}
+	if items := inbox(t, server); len(items) != 0 {
+		t.Errorf("Inbox = %+v", items)
+	}
+	waitForReadyEvents(t, server, 2)
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+}
