@@ -55,7 +55,7 @@ shell = "pwd"
 	if err := session.Configure(context.Background(), "opus", "low"); err != nil {
 		t.Fatal(err)
 	}
-	stopReason, err := session.Prompt(context.Background(), "Hi.")
+	stopReason, err := session.Prompt(context.Background(), "Hi.", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

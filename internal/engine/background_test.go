@@ -64,20 +64,20 @@ func TestAnAgentGetsNoPromptWhileAnAutonomousTurnRuns(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First\"]\n\n[[prompts]]\nreply = [\"Second\"]\n")
 	agent := start(t, server, leadSpec(t))
-	if err := agent.Prompt(t.Context(), "One"); err != nil {
+	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
 		t.Fatal(err)
 	}
 	agent.Update(fmt.Appendf(nil, agentUpdate, workUpdate))
 	waiting, stopWaiting := context.WithTimeout(t.Context(), 300*time.Millisecond)
 	defer stopWaiting()
-	if err := agent.Prompt(waiting, "Two"); !errors.Is(err, context.DeadlineExceeded) {
+	if err := agent.Prompt(waiting, "Two", nil); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Prompt = %v", err)
 	}
 	if line := lineID(t, server, agent.ID(), "prompt", "Two"); line != 0 {
 		t.Fatalf("the prompt is line %d while the autonomous turn runs", line)
 	}
 	agent.Update(fmt.Appendf(nil, agentUpdate, endUpdate))
-	if err := agent.Prompt(t.Context(), "Two"); err != nil {
+	if err := agent.Prompt(t.Context(), "Two", nil); err != nil {
 		t.Fatal(err)
 	}
 	ended := lineID(t, server, agent.ID(), "update", "task-notification")
@@ -133,7 +133,7 @@ func TestAUserTurnEndWhileAPromptRunsGetsNoCancel(t *testing.T) {
 	waiting, stopWaiting := context.WithTimeout(t.Context(), 1200*time.Millisecond)
 	defer stopWaiting()
 
-	if err := agent.Prompt(waiting, "One"); err == nil {
+	if err := agent.Prompt(waiting, "One", nil); err == nil {
 		t.Fatal("the prompt got a cancel and ended before the timeout")
 	}
 	if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
@@ -147,7 +147,7 @@ func TestALostEndSignalGetsARetryPromptInTheSameSession(t *testing.T) {
 	server, _ := connect(t, fake, "[[prompts]]\n"+startsTask+"reply = [\"Started\"]\n\n[[prompts]]\nreply = [\"Done\"]\n")
 	agent := start(t, server, leadSpec(t))
 
-	if err := agent.Prompt(t.Context(), "One"); err != nil {
+	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -171,7 +171,7 @@ func TestAHangBeforeAPromptSendsTheTextOfTheCallerAfterTheRetryText(t *testing.T
 	agent := start(t, server, leadSpec(t))
 	agent.Update(fmt.Appendf(nil, agentUpdate, `{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "_meta": {"claudeCode": {"toolName": "Bash", "toolResponse": {"backgroundTaskId": "b1"}}}}`))
 
-	if err := agent.Prompt(t.Context(), "The check failed with exit code 7"); err != nil {
+	if err := agent.Prompt(t.Context(), "The check failed with exit code 7", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -195,7 +195,7 @@ func TestALostEndSignalAfterTheThirdRetryStopsTheSession(t *testing.T) {
 	server, _ := connect(t, fake, strings.Repeat("[[prompts]]\n"+startsTask+"reply = [\"Started\"]\n\n", 4))
 	agent := start(t, server, leadSpec(t))
 
-	err := agent.Prompt(t.Context(), "One")
+	err := agent.Prompt(t.Context(), "One", nil)
 
 	if !errors.Is(err, engine.ErrHung) {
 		t.Fatalf("Prompt = %v", err)
@@ -224,7 +224,7 @@ func TestTwoTasksThatEndInTheOppositeOrderAreNotWaitedTasks(t *testing.T) {
 	server, _ := connect(t, fake, "[[prompts]]\nupdates = ['"+strings.Join(updates, "', '")+"']\nreply = [\"Done\"]\n")
 	agent := start(t, server, leadSpec(t))
 
-	if err := agent.Prompt(t.Context(), "One"); err != nil {
+	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -244,7 +244,7 @@ func TestAStoppedTaskIsNotAWaitedTask(t *testing.T) {
 	server, _ := connect(t, fake, "[[prompts]]\n"+starts+"\nreply = [\"Stopped\"]\n")
 	agent := start(t, server, leadSpec(t))
 
-	if err := agent.Prompt(t.Context(), "One"); err != nil {
+	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -270,7 +270,7 @@ func TestATaskThatEndsInTheSameTurnIsNotAWaitedTask(t *testing.T) {
 			server, _ := connect(t, fake, "[[prompts]]\n"+starts+"\nreply = [\"Done\"]\n")
 			agent := start(t, server, leadSpec(t))
 
-			if err := agent.Prompt(t.Context(), "One"); err != nil {
+			if err := agent.Prompt(t.Context(), "One", nil); err != nil {
 				t.Fatal(err)
 			}
 
@@ -295,7 +295,7 @@ func TestAMonitorThatIsNotPersistentIsAWaitedTask(t *testing.T) {
 	server, _ := connect(t, fake, "[[prompts]]\n"+starts+"reply = [\"Started\"]\n\n[[prompts]]\nreply = [\"Done\"]\n")
 	agent := start(t, server, leadSpec(t))
 
-	if err := agent.Prompt(t.Context(), "One"); err != nil {
+	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -320,7 +320,7 @@ func TestAPersistentMonitorOrATaskIdOfAnotherToolIsNotAWaitedTask(t *testing.T) 
 			server, _ := connect(t, fake, "[[prompts]]\n"+toolStart+"reply = [\"Done\"]\n")
 			agent := start(t, server, leadSpec(t))
 
-			if err := agent.Prompt(t.Context(), "One"); err != nil {
+			if err := agent.Prompt(t.Context(), "One", nil); err != nil {
 				t.Fatal(err)
 			}
 
@@ -342,7 +342,7 @@ func TestAHarnessWithNoSignalsHasNoWaitAndNoNote(t *testing.T) {
 	agent := start(t, server, leadSpec(t))
 
 	for _, text := range []string{"One", "Two"} {
-		if err := agent.Prompt(t.Context(), text); err != nil {
+		if err := agent.Prompt(t.Context(), text, nil); err != nil {
 			t.Fatal(err)
 		}
 	}

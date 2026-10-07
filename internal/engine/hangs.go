@@ -47,18 +47,18 @@ func (a *Agent) retryHang(ctx context.Context) (string, error) {
 	return retryText(a.spec.Role), nil
 }
 
-// sendPrompt sends text and holds until the response of the agent. When the turn has no activity for hangTimeout,
+// sendPrompt sends text and images and holds until the response of the agent. When the turn has no activity for hangTimeout,
 // sendPrompt sends the cancel, stops the wait for the response, and gives errHung. When the Harness absorbed the
 // prompt into an autonomous turn, the cancel ends the prompt, and sendPrompt adds a note and gives nil: the
 // autonomous turn did the work.
-func (a *Agent) sendPrompt(ctx context.Context, text string) error {
+func (a *Agent) sendPrompt(ctx context.Context, text string, images []Image) error {
 	promptCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	hung := make(chan bool, 1)
 	absorbed := make(chan bool, 1)
 	go func() { hung <- a.watch(promptCtx, stop) }()
 	go func() { absorbed <- a.watchAbsorbed(promptCtx) }()
-	_, err := a.session.Prompt(promptCtx, text)
+	_, err := a.session.Prompt(promptCtx, text, images)
 	stop()
 	if <-hung {
 		<-absorbed

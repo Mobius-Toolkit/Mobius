@@ -4,6 +4,7 @@
 //
 //	login_required = true   # session/new fails until an authenticate request logs in
 //	login_works = true      # authenticate logs in; with no login_works it fails
+//	image_support = true    # the agent declares that it reads the images of a prompt
 //	skip_tools_list = 1     # the first 1 agent processes of the script do not list the tools after session/new;
 //	                        # the file "starts" next to the script counts the processes
 //
@@ -27,7 +28,8 @@
 //	                        # does for a turn that it starts alone; with absorb, a session/prompt that arrives
 //	                        # until the last update gets no response before session/cancel, which ends it as cancelled
 //
-// The reply has the texts of reply, then the text of call or list_tools, then the text of shell.
+// The reply has the texts of reply, then one text "image <MIME type> <base64 data>" for each image block of the
+// prompt, then the text of call or list_tools, then the text of shell.
 //
 // After session/new, the agent lists the tools of the Mobius MCP server in the background, as Claude Code does.
 package fakeagent
@@ -61,6 +63,7 @@ const busyInterval = 10 * time.Millisecond
 type script struct {
 	LoginRequired bool                `toml:"login_required"`
 	LoginWorks    bool                `toml:"login_works"`
+	ImageSupport  bool                `toml:"image_support"`
 	SkipToolsList int                 `toml:"skip_tools_list"`
 	Options       map[string][]string `toml:"options"`
 	Prompts       []prompt            `toml:"prompts"`
@@ -180,7 +183,10 @@ func (a *agent) handle(ctx context.Context, method string, params json.RawMessag
 		if err := json.Unmarshal(params, &request); err != nil {
 			return nil, acp.NewInvalidParams(err.Error())
 		}
-		return acp.InitializeResponse{ProtocolVersion: request.ProtocolVersion}, nil
+		return acp.InitializeResponse{
+			ProtocolVersion:   request.ProtocolVersion,
+			AgentCapabilities: acp.AgentCapabilities{PromptCapabilities: acp.PromptCapabilities{Image: a.script.ImageSupport}},
+		}, nil
 	case acp.AgentMethodAuthenticate:
 		return a.authenticate()
 	case acp.AgentMethodSessionNew:
@@ -338,17 +344,23 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 	var request struct {
 		SessionID string `json:"sessionId"`
 		Prompt    []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			Data     string `json:"data"`
+			MIMEType string `json:"mimeType"`
 		} `json:"prompt"`
 	}
 	if err := json.Unmarshal(params, &request); err != nil {
 		return nil, acp.NewInvalidParams(err.Error())
 	}
 	var text strings.Builder
+	var images []string
 	for _, block := range request.Prompt {
-		if block.Type == "text" {
+		switch block.Type {
+		case "text":
 			text.WriteString(block.Text)
+		case "image":
+			images = append(images, "image "+block.MIMEType+" "+block.Data)
 		}
 	}
 	if cancel, absorbed := a.absorb(); absorbed {
@@ -360,6 +372,7 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 		}
 	}
 	turn, mcpURL, cancel := a.next(text.String())
+	turn.Reply = append(slices.Clone(turn.Reply), images...)
 	stopReason, err := a.play(ctx, request.SessionID, turn, mcpURL, cancel)
 	a.mu.Lock()
 	if a.cancel == cancel {
