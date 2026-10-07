@@ -580,7 +580,14 @@ func TestStopTaskStopsTheImplementerAsAStopOfTheOwnerDoes(t *testing.T) {
 
 	sendChat(t, server, leadChat, "Stop #41.")
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
+	testkit.WaitFor(t, func() bool {
+		feed := activities(t, server)
+		last := feed[len(feed)-1]
+		return last.Issue == 41 && last.Text == "Stopped \"Add plan model\" on request of the Owner"
+	})
+	if state := taskState(t, server); state != "stopped" {
+		t.Errorf("state = %s", state)
+	}
 	implementers := endedImplementers(t, server, 1)
 	if implementers[0].EndReason.String != "stopped" {
 		t.Errorf("end reason = %s", implementers[0].EndReason.String)
@@ -590,10 +597,6 @@ func TestStopTaskStopsTheImplementerAsAStopOfTheOwnerDoes(t *testing.T) {
 	}
 	if labels := fake.Labels(shop, 41); slices.Contains(labels, "mobius:working") {
 		t.Errorf("labels = %v", labels)
-	}
-	feed := activities(t, server)
-	if last := feed[len(feed)-1]; last.Issue != 41 || last.Text != "Stopped \"Add plan model\" on request of the Owner" {
-		t.Errorf("activity = %+v", last)
 	}
 }
 
