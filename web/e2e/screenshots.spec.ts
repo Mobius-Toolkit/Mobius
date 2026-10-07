@@ -12,6 +12,7 @@ async function screenshot(
   path: string,
   ready: (device: string) => Locator | Locator[],
   open?: (device: string) => Promise<void>,
+  top?: Locator,
 ) {
   for (const [device, size] of Object.entries(viewports)) {
     await page.setViewportSize(size);
@@ -20,6 +21,7 @@ async function screenshot(
     for (const locator of [ready(device)].flat()) {
       await expect(locator).toBeVisible();
     }
+    await top?.evaluate("element => element.scrollIntoView()");
     await page.screenshot({
       path: `screenshots/${name}-${device}.png`,
       animations: "disabled",
@@ -228,11 +230,28 @@ test("screenshots", async ({ page }) => {
     ...frame(device, release),
     main.getByText("This device"),
   ]);
-  await screenshot(page, "checkup", "/settings/checkup", (device) => [
-    ...frame(device, release),
-    main.getByText("2.1.284 (Claude Code)"),
-    main.getByText("wrong color: #ededed"),
-  ]);
+  const section = (name: string) => main.getByRole("heading", { name, exact: true });
+  await screenshot(
+    page,
+    "checkup-tools",
+    "/settings/checkup",
+    (device) => [...frame(device, release), main.getByText("2.1.284 (Claude Code)")],
+    undefined,
+    section("Tools"),
+  );
+  // The page ends after the labels, so this view is the end of the page.
+  await screenshot(
+    page,
+    "checkup-permissions-labels",
+    "/settings/checkup",
+    (device) => [
+      ...frame(device, release),
+      main.getByText("workflows: write"),
+      main.getByText("wrong color: #ededed"),
+    ],
+    undefined,
+    section("App permissions"),
+  );
 
   // The note closes a Workstream whose tasks are all closed.
   await page.setViewportSize(viewports.desktop);
