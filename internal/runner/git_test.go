@@ -19,6 +19,13 @@ func gitIn(t *testing.T, dir string, args ...string) {
 	}
 }
 
+func remove(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRemoveWorktreeRemovesTheWorktreeThatAKilledAddLeft(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -27,15 +34,13 @@ func TestRemoveWorktreeRemovesTheWorktreeThatAKilledAddLeft(t *testing.T) {
 		{"a locked worktree", func(t *testing.T, bare, dir string) {
 			gitIn(t, bare, "worktree", "add", "--lock", "--reason", "initializing", "--no-checkout", dir, "main")
 		}},
-		{"a record with no commondir", func(t *testing.T, bare, dir string) {
-			gitIn(t, bare, "worktree", "add", "--detach", dir, "main")
-			records, err := filepath.Glob(filepath.Join(bare, "worktrees", "*", "commondir"))
-			if err != nil || len(records) != 1 {
-				t.Fatalf("commondir files = %v, err = %v", records, err)
-			}
-			if err := os.Remove(records[0]); err != nil {
-				t.Fatal(err)
-			}
+		{"a locked record with no commondir", func(t *testing.T, bare, dir string) {
+			gitIn(t, bare, "worktree", "add", "--lock", "--reason", "initializing", "--detach", dir, "main")
+			remove(t, filepath.Join(bare, "worktrees", filepath.Base(dir), "commondir"))
+		}},
+		{"a locked worktree with no .git file", func(t *testing.T, bare, dir string) {
+			gitIn(t, bare, "worktree", "add", "--lock", "--reason", "initializing", "--detach", dir, "main")
+			remove(t, filepath.Join(dir, ".git"))
 		}},
 	}
 	for _, tt := range tests {
@@ -61,6 +66,9 @@ func TestRemoveWorktreeRemovesTheWorktreeThatAKilledAddLeft(t *testing.T) {
 			records, err := os.ReadDir(filepath.Join(bare, "worktrees"))
 			if err == nil && len(records) != 0 {
 				t.Errorf("worktree records = %v", records)
+			}
+			if err := AddDetachedWorktree(context.Background(), dataDir, "acme/shop", dir, "main"); err != nil {
+				t.Errorf("add the worktree again: %v", err)
 			}
 		})
 	}
