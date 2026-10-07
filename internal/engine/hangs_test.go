@@ -66,7 +66,7 @@ func TestATurnWithNoActivityGetsARetryPromptInTheSameSession(t *testing.T) {
 func TestTheRetryPromptOfAnImplementerTellsItToCallCannotDo(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, hang+commits, noChange)
+	server, _ := connectTask(t, fake, leadStarts, hang+commits, longGrace)
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
@@ -112,7 +112,7 @@ func TestAnUpdateThatIsNoWorkDoesNotEndTheHang(t *testing.T) {
 func TestAnImplementerThatChecksItsWorkLongerThanTheHangTimeGetsNoRetryPrompt(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
-	server, dataDir := connectTask(t, fake, leadStarts, commits, noChange)
+	server, dataDir := connectTask(t, fake, leadStarts, commits, longGrace)
 	goFile := filepath.Join(dataDir, "go")
 	fake.SetCheck(shop, fmt.Sprintf("while [ ! -e '%s' ]; do sleep 0.05; done", goFile))
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
