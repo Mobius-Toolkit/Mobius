@@ -701,7 +701,7 @@ func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result,
 	prompt := j.prompt
 	attempts := 1
 	for {
-		err := a.Prompt(ctx, prompt)
+		err := a.Prompt(ctx, prompt, nil)
 		a.mu.Lock()
 		reason := a.cannotDo
 		a.mu.Unlock()

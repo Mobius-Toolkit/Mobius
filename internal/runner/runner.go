@@ -4,6 +4,7 @@ package runner
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -141,8 +142,15 @@ type Session struct {
 	conn    *acp.Connection
 	id      acp.SessionId
 	options []acp.SessionConfigOption
+	images  bool
 	cmd     *exec.Cmd
 	stop    context.CancelFunc
+}
+
+// Image is an image of a prompt.
+type Image struct {
+	MIMEType string
+	Data     []byte
 }
 
 func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, path, ghTokenURL string) (*exec.Cmd, error) {
@@ -253,9 +261,11 @@ func describe(err error) error {
 }
 
 func (s *Session) open(ctx context.Context, cwd, mcpURL string) error {
-	if _, err := acp.SendRequest[acp.InitializeResponse](s.conn, ctx, acp.AgentMethodInitialize, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber}); err != nil {
+	initialized, err := acp.SendRequest[acp.InitializeResponse](s.conn, ctx, acp.AgentMethodInitialize, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
+	if err != nil {
 		return err
 	}
+	s.images = initialized.AgentCapabilities.PromptCapabilities.Image
 	response, err := acp.SendRequest[acp.NewSessionResponse](s.conn, ctx, acp.AgentMethodSessionNew, acp.NewSessionRequest{
 		Cwd: cwd,
 		McpServers: []acp.McpServer{{Http: &acp.McpServerHttpInline{
@@ -367,10 +377,22 @@ func values(option *acp.SessionConfigOptionSelect) []string {
 	return values
 }
 
-// Prompt sends text and holds until the turn ends. The updates of the turn go to the updates
-// function of Start before Prompt returns.
-func (s *Session) Prompt(ctx context.Context, text string) (acp.StopReason, error) {
-	response, err := acp.SendRequest[acp.PromptResponse](s.conn, ctx, acp.AgentMethodSessionPrompt, acp.PromptRequest{SessionId: s.id, Prompt: []acp.ContentBlock{acp.TextBlock(text)}})
+// ImagesSupported tells if the agent declared that it reads the images of a prompt.
+func (s *Session) ImagesSupported() bool {
+	return s.images
+}
+
+// Prompt sends text and then each image, and holds until the turn ends. The updates of the turn go to the updates
+// function of Start before Prompt returns. A prompt with no text has no text block.
+func (s *Session) Prompt(ctx context.Context, text string, images []Image) (acp.StopReason, error) {
+	var blocks []acp.ContentBlock
+	if text != "" {
+		blocks = append(blocks, acp.TextBlock(text))
+	}
+	for _, image := range images {
+		blocks = append(blocks, acp.ImageBlock(base64.StdEncoding.EncodeToString(image.Data), image.MIMEType))
+	}
+	response, err := acp.SendRequest[acp.PromptResponse](s.conn, ctx, acp.AgentMethodSessionPrompt, acp.PromptRequest{SessionId: s.id, Prompt: blocks})
 	return response.StopReason, err
 }
 

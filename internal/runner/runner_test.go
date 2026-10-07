@@ -148,7 +148,7 @@ func TestSessionGivesTheMCPServerSetsTheOptionsAndAllowsTools(t *testing.T) {
 	if err := session.Configure(ctx, "sonnet", "low"); err != nil {
 		t.Fatal(err)
 	}
-	stopReason, err := session.Prompt(ctx, "Call list_tasks.")
+	stopReason, err := session.Prompt(ctx, "Call list_tasks.", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

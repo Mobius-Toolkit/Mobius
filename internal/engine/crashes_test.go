@@ -36,7 +36,7 @@ func liveTask(t *testing.T, server *testserver.Server, number int64) store.Task 
 func dieOnce(t *testing.T, server *testserver.Server, spec engine.Spec) error {
 	t.Helper()
 	agent := start(t, server, spec)
-	err := agent.Prompt(t.Context(), "Store plans in cents.")
+	err := agent.Prompt(t.Context(), "Store plans in cents.", nil)
 	if err == nil {
 		t.Fatal("the turn did not fail")
 	}

@@ -35,14 +35,14 @@ func retryText(role string) string {
 	return fmt.Sprintf(retryPrompt, retryAdvice)
 }
 
-// sendPrompt sends text and holds until the response of the agent. When the turn has no activity for hangTimeout,
+// sendPrompt sends text and images and holds until the response of the agent. When the turn has no activity for hangTimeout,
 // sendPrompt sends the cancel, stops the wait for the response, and gives errHung.
-func (a *Agent) sendPrompt(ctx context.Context, text string) error {
+func (a *Agent) sendPrompt(ctx context.Context, text string, images []Image) error {
 	promptCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	hung := make(chan bool, 1)
 	go func() { hung <- a.watch(promptCtx, stop) }()
-	_, err := a.session.Prompt(promptCtx, text)
+	_, err := a.session.Prompt(promptCtx, text, images)
 	stop()
 	if <-hung {
 		return errHung
