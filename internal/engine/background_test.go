@@ -147,6 +147,31 @@ func TestALostEndSignalGetsARetryPromptInTheSameSession(t *testing.T) {
 	}
 }
 
+func TestAHangBeforeAPromptSendsTheTextOfTheCallerAfterTheRetryText(t *testing.T) {
+	shortHang(t)
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Done\"]\n")
+	agent := start(t, server, leadSpec(t))
+	agent.Update(fmt.Appendf(nil, agentUpdate, `{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "_meta": {"claudeCode": {"toolName": "Bash", "toolResponse": {"backgroundTaskId": "b1"}}}}`))
+
+	if err := agent.Prompt(t.Context(), "The check failed with exit code 7"); err != nil {
+		t.Fatal(err)
+	}
+
+	prompts := promptTexts(t, server, agent.ID())
+	if len(prompts) != 1 {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	retry := strings.Index(prompts[0], "You had no activity for 15 minutes.")
+	text := strings.Index(prompts[0], "The check failed with exit code 7")
+	if retry != 0 || text < 0 {
+		t.Errorf("prompt = %q", prompts[0])
+	}
+	if err := agent.End(t.Context(), "done"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestALostEndSignalAfterTheThirdRetryStopsTheSession(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)

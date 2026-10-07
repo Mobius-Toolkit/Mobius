@@ -351,7 +351,9 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 		if !retrying {
 			err := a.waitQuiet(ctx)
 			if errors.Is(err, errHung) {
-				text, err = a.retryHang(ctx)
+				var retry string
+				retry, err = a.retryHang(ctx)
+				text = retry + "\n\n" + text
 			}
 			if err != nil {
 				return err
