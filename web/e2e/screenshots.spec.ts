@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { png } from "./images.js";
 
 const viewports = {
   desktop: { width: 1280, height: 800 },
@@ -103,6 +104,27 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [...chatReady(device), main.getByRole("button", { name: "Stop voice input" })],
     () => main.getByRole("button", { name: "Start voice input" }).click(),
+  );
+  const photos = [
+    { name: "plan.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#2563eb") },
+    { name: "cart.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#16a34a") },
+  ];
+  await screenshot(
+    page,
+    "chat-images",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...chatReady(device),
+      main.getByRole("img", { name: "Image 1" }),
+      main.getByRole("img", { name: "Image 2" }),
+    ],
+    async () => {
+      await main.getByLabel("Message to the Lead").fill("This is the new plan page.");
+      await main.locator("input[type=file]").setInputFiles(photos);
+      for (const name of ["Image 1", "Image 2"]) {
+        await expect(main.getByRole("img", { name })).toHaveJSProperty("naturalWidth", 200);
+      }
+    },
   );
   await screenshot(
     page,
