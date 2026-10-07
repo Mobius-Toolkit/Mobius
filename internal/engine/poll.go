@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"time"
 
 	gh "github.com/google/go-github/v92/github"
@@ -33,12 +34,16 @@ func (e *Engine) poll(ctx context.Context) {
 		}
 		return
 	}
+	known := repositoryKeys(e.github.Repositories())
 	complete, err := e.github.Refresh(ctx)
 	if err != nil {
 		log.Printf("read the repositories of the GitHub Apps: %v", err)
 		return
 	}
 	repositories := e.github.Repositories()
+	if !slices.Equal(known, repositoryKeys(repositories)) {
+		e.publish(Change{Repositories: true})
+	}
 	if err := e.lostAccess(ctx, repositories); err != nil {
 		log.Printf("end the tasks of the repositories with no access: %v", err)
 	}
@@ -73,6 +78,16 @@ func (e *Engine) poll(ctx context.Context) {
 		}
 	}
 	e.ReplaceWork(work)
+}
+
+// repositoryKeys gives the sorted full name and App of each repository.
+func repositoryKeys(repositories []github.Repository) []string {
+	keys := make([]string, 0, len(repositories))
+	for _, repository := range repositories {
+		keys = append(keys, fmt.Sprintf("%s %d", repository.FullName, repository.AppID))
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 // recover hands the lost tasks of repository to a human, gives the events that wait from the earlier run of the
