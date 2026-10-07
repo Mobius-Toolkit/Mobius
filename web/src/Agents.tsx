@@ -124,8 +124,8 @@ function TranscriptEntry({ line }: { line: TranscriptLine }) {
 
 function upsert(list: TranscriptLine[], line: TranscriptLine) {
   const known = list.find((other) => other.id === line.id);
-  // The agent only adds text to a chunk, so the longer raw text is the newer text.
-  if (known && known.raw.length >= line.raw.length) {
+  // The agent only adds text to a chunk, so the longer body is the newer body.
+  if (known && known.body.length >= line.body.length) {
     return list;
   }
   return [...list.filter((other) => other.id !== line.id), line].toSorted((a, b) => a.id - b.id);
