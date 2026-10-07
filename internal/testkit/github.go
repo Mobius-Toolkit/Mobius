@@ -108,7 +108,7 @@ type FakeGitHub struct {
 	threadHolds     map[issueKey]*hold
 	issueHolds      map[issueKey]*hold
 	pullRequests    []pullRequest
-	// createdAt holds the creation time of each pull request, in seconds after the Unix epoch.
+	// createdAt holds the creation time of each issue and pull request, in seconds after the Unix epoch.
 	createdAt map[issueKey]int64
 	behind    map[issueKey]bool
 	// unknownMergeable holds the pull requests whose mergeable GitHub still calculates.

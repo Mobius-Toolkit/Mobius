@@ -103,7 +103,7 @@ func (g *FakeGitHub) MergePullRequest(repository string, number int64) {
 	found.updatedAt = now
 }
 
-// SetCreatedAt sets the creation time of the pull request to seconds after the Unix epoch.
+// SetCreatedAt sets the creation time of the issue or the pull request to seconds after the Unix epoch.
 func (g *FakeGitHub) SetCreatedAt(repository string, number, seconds int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -202,7 +202,6 @@ func (g *FakeGitHub) insertPullRequest(repository string, pull PullRequest) int6
 	}
 	g.insertIssue(key, pull.Title, pull.Body, botLogin(g.appOf(repository)))
 	g.issues[key].pullRequest = true
-	g.createdAt[key] = g.issues[key].updatedAt
 	pull.Number = key.number
 	g.pullRequests = append(g.pullRequests, pullRequest{repository, pull})
 	return key.number

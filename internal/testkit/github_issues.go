@@ -85,6 +85,7 @@ type issueJSON struct {
 	HTMLURL       string     `json:"html_url"`
 	RepositoryURL string     `json:"repository_url"`
 	State         string     `json:"state"`
+	CreatedAt     string     `json:"created_at"`
 	UpdatedAt     string     `json:"updated_at"`
 	Labels        []nameJSON `json:"labels"`
 	PullRequest   *urlJSON   `json:"pull_request,omitempty"`
@@ -196,6 +197,13 @@ func (g *FakeGitHub) CloseIssue(repository string, number int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.setState(issueKey{repository, number}, "closed", "", "owner")
+}
+
+// CloseIssueAs closes the issue as the owner, with the reason "completed" or "not_planned".
+func (g *FakeGitHub) CloseIssueAs(repository string, number int64, reason string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.setState(issueKey{repository, number}, "closed", reason, "owner")
 }
 
 // ReopenIssue opens the closed issue again as the owner.
@@ -334,6 +342,7 @@ func (g *FakeGitHub) Labels(repository string, number int64) []string {
 
 func (g *FakeGitHub) insertIssue(key issueKey, title, body, author string) {
 	g.issues[key] = &issue{title: title, body: body, author: author, state: "open", updatedAt: g.tick()}
+	g.createdAt[key] = g.issues[key].updatedAt
 }
 
 func (g *FakeGitHub) label(key issueKey, label, actor string) {
@@ -388,6 +397,7 @@ func (g *FakeGitHub) issueJSON(key issueKey) issueJSON {
 		HTMLURL:       fmt.Sprintf("https://github.com/%s/issues/%d", key.repository, key.number),
 		RepositoryURL: "https://api.github.com/repos/" + key.repository,
 		State:         found.state,
+		CreatedAt:     timestamp(g.createdAt[key]),
 		UpdatedAt:     timestamp(found.updatedAt),
 		Labels:        labels,
 	}

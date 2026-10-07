@@ -710,6 +710,28 @@ export interface EnvelopeUpgrade {
 }
 
 /**
+ * WorkstreamDetails is the details of a Workstream.
+ */
+export interface WorkstreamDetails {
+  /** CompletedTasks is the number of closed tasks, with each close reason */
+  completedTasks: number;
+  /** CreatedAt is the creation time of the Workstream issue */
+  createdAt: string;
+  /** Open is true when the Workstream issue is open */
+  open: boolean;
+  /** OpenTasks is the number of open tasks */
+  openTasks: number;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeWorkstreamDetails {
+  /** Data is the payload of the response */
+  data: WorkstreamDetails;
+}
+
+/**
  * Additional error details
  */
 export type ErrorResponseDetails = {[key: string]: unknown};
@@ -3264,6 +3286,80 @@ export const completeWorkstream = async (owner: string,
 
   const data: completeWorkstreamResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as completeWorkstreamResponse
+}
+
+
+
+export type getWorkstreamDetailsResponse200 = {
+  data: EnvelopeWorkstreamDetails
+  status: 200
+}
+
+export type getWorkstreamDetailsResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getWorkstreamDetailsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getWorkstreamDetailsResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type getWorkstreamDetailsResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getWorkstreamDetailsResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getWorkstreamDetailsResponseSuccess = (getWorkstreamDetailsResponse200) & {
+  headers: Headers;
+};
+export type getWorkstreamDetailsResponseError = (getWorkstreamDetailsResponse400 | getWorkstreamDetailsResponse401 | getWorkstreamDetailsResponse409 | getWorkstreamDetailsResponse422 | getWorkstreamDetailsResponse500) & {
+  headers: Headers;
+};
+
+export type getWorkstreamDetailsResponse = (getWorkstreamDetailsResponseSuccess | getWorkstreamDetailsResponseError)
+
+export const getGetWorkstreamDetailsUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/details`
+}
+
+/**
+ * GetWorkstreamDetails returns the creation time, the state and the task counts of a Workstream. It reads GitHub, so it works also for a closed Workstream. A task is an issue in the sub-issue tree of the Workstream, at each depth. It returns 409 when the issue is not a Workstream.
+ */
+export const getWorkstreamDetails = async (owner: string,
+    name: string,
+    number: number, ): Promise<getWorkstreamDetailsResponse> => {
+
+  const res = await fetch(getGetWorkstreamDetailsUrl(owner,name,number),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getWorkstreamDetailsResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getWorkstreamDetailsResponse
 }
 
 

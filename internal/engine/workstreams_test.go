@@ -452,3 +452,79 @@ func TestMoveTaskMovesTheTaskInTheCopyAtOnce(t *testing.T) {
 	}
 	waitForWorkstreams(t, changes)
 }
+
+type workstreamDetails struct {
+	CreatedAt      string `json:"createdAt"`
+	Open           bool   `json:"open"`
+	CompletedTasks int64  `json:"completedTasks"`
+	OpenTasks      int64  `json:"openTasks"`
+}
+
+func details(t *testing.T, server *testserver.Server, number int64) (int, workstreamDetails) {
+	t.Helper()
+	status, text := send(t, server, http.MethodGet, "/api/workstreams/owner/shop/"+itoa(number)+"/details", "")
+	var body struct {
+		Data workstreamDetails `json:"data"`
+	}
+	if status == http.StatusOK {
+		if err := json.Unmarshal([]byte(text), &body); err != nil {
+			t.Fatalf("details: %v: %s", err, text)
+		}
+	}
+	return status, body.Data
+}
+
+func TestTheDetailsCountTheTasksOfTheWorkstreamAtEachDepth(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.SetCreatedAt(shop, 12, 1790000000)
+	fake.CloseIssueAs(shop, 41, "completed")
+	fake.AddIssue(shop, 42, "Price table")
+	fake.AddSubIssue(shop, 12, 42)
+	fake.AddIssue(shop, 43, "Price column")
+	fake.AddSubIssue(shop, 42, 43)
+	fake.AddIssue(shop, 44, "Price index")
+	fake.AddSubIssue(shop, 43, 44)
+	fake.CloseIssueAs(shop, 44, "not_planned")
+	fake.AddIssue(shop, 50, "Nested Workstream")
+	fake.AddLabel(shop, 50, "mobius:workstream", "owner")
+	fake.AddSubIssue(shop, 12, 50)
+	fake.AddIssue(shop, 51, "Task of the nested Workstream")
+	fake.AddSubIssue(shop, 50, 51)
+	fake.AddIssue("other/repo", 77, "A task in another repository")
+	fake.AddIssue("other/repo", 78, "A child in another repository")
+	fake.AddForeignSubIssue(shop, 12, "other/repo", 77)
+	fake.AddForeignSubIssue("other/repo", 77, "other/repo", 78)
+	server := startCopied(t, fake)
+
+	status, got := details(t, server, 12)
+
+	want := workstreamDetails{CreatedAt: "2026-09-21T14:13:20Z", Open: true, CompletedTasks: 2, OpenTasks: 2}
+	if status != http.StatusOK || got != want {
+		t.Errorf("details = %d %+v, want %+v", status, got, want)
+	}
+}
+
+func TestTheDetailsOfAClosedWorkstreamShowThatItIsNotOpen(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.CloseIssue(shop, 41)
+	fake.CloseIssue(shop, 12)
+	server := startCopied(t, fake)
+
+	status, got := details(t, server, 12)
+
+	if status != http.StatusOK || got.Open || got.CompletedTasks != 1 || got.OpenTasks != 0 {
+		t.Errorf("details = %d %+v", status, got)
+	}
+}
+
+func TestTheDetailsRefuseAnIssueThatIsNotAWorkstream(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+
+	if status, _ := details(t, server, 41); status != http.StatusConflict {
+		t.Errorf("status = %d, want %d", status, http.StatusConflict)
+	}
+}

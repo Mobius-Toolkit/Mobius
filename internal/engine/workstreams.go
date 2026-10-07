@@ -50,6 +50,51 @@ func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, 
 	return e.closeWorkstream(ctx, repository, number)
 }
 
+// WorkstreamDetails is what GitHub knows about a Workstream issue.
+type WorkstreamDetails struct {
+	CreatedAt      time.Time
+	Open           bool
+	CompletedTasks int64
+	OpenTasks      int64
+}
+
+// WorkstreamDetails reads the Workstream number of repository from GitHub. A task is an issue in the sub-issue tree of
+// the Workstream. A nested Workstream, the issues below it, and an issue of another repository are no tasks.
+func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, number int64) (WorkstreamDetails, error) {
+	repository, err := e.repository(repositoryName)
+	if err != nil {
+		return WorkstreamDetails{}, err
+	}
+	issue, err := repository.Issue(ctx, number)
+	if err != nil {
+		return WorkstreamDetails{}, err
+	}
+	if issue == nil || !hasLabel(issue, workstreamLabel) {
+		return WorkstreamDetails{}, refuse("The issue is not a Workstream.")
+	}
+	details := WorkstreamDetails{CreatedAt: issue.GetCreatedAt().Time, Open: issue.GetState() == "open"}
+	parents := []int64{number}
+	for len(parents) > 0 {
+		tasks, err := repository.SubIssues(ctx, parents[0])
+		if err != nil {
+			return WorkstreamDetails{}, err
+		}
+		parents = parents[1:]
+		for _, task := range tasks {
+			if hasLabel(task, workstreamLabel) || inOtherRepository(task, repository.FullName) {
+				continue
+			}
+			parents = append(parents, int64(task.GetNumber()))
+			if task.GetState() == "open" {
+				details.OpenTasks++
+			} else {
+				details.CompletedTasks++
+			}
+		}
+	}
+	return details, nil
+}
+
 // closeWorkstream ends the work of the Workstream, removes mobius:autopilot, closes the open pull requests of its
 // tasks, and closes the issues below it as not planned. A nested Workstream and the issues below it stay open.
 func (e *Engine) closeWorkstream(ctx context.Context, repository github.Repository, workstream int64) error {

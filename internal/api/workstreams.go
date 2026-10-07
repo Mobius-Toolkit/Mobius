@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/gork-labs/gork/pkg/api"
 
@@ -101,4 +102,52 @@ func (h *handlers) CompleteWorkstream(ctx context.Context, req CompleteWorkstrea
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}
 	return err
+}
+
+// WorkstreamDetailsRequest is the request of GetWorkstreamDetails.
+type WorkstreamDetailsRequest struct {
+	Path struct {
+		// Owner is the owner of the repository
+		Owner string `gork:"owner"`
+		// Name is the name of the repository
+		Name string `gork:"name"`
+		// Number is the number of the Workstream issue
+		Number int64 `gork:"number"`
+	}
+}
+
+// WorkstreamDetails is the details of a Workstream.
+type WorkstreamDetails struct {
+	// CreatedAt is the creation time of the Workstream issue
+	CreatedAt time.Time `gork:"createdAt"`
+	// Open is true when the Workstream issue is open
+	Open bool `gork:"open"`
+	// CompletedTasks is the number of closed tasks, with each close reason
+	CompletedTasks int64 `gork:"completedTasks"`
+	// OpenTasks is the number of open tasks
+	OpenTasks int64 `gork:"openTasks"`
+}
+
+// WorkstreamDetailsResponse is the response of GetWorkstreamDetails.
+type WorkstreamDetailsResponse struct {
+	Body Envelope[WorkstreamDetails]
+}
+
+// GetWorkstreamDetails returns the creation time, the state and the task counts of a Workstream. It reads GitHub, so
+// it works also for a closed Workstream. A task is an issue in the sub-issue tree of the Workstream, at each depth. It
+// returns 409 when the issue is not a Workstream.
+func (h *handlers) GetWorkstreamDetails(ctx context.Context, req WorkstreamDetailsRequest) (*WorkstreamDetailsResponse, error) {
+	details, err := h.engine.WorkstreamDetails(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)
+	if engine.Refused(err) {
+		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &WorkstreamDetailsResponse{Body: Envelope[WorkstreamDetails]{Data: WorkstreamDetails{
+		CreatedAt:      details.CreatedAt,
+		Open:           details.Open,
+		CompletedTasks: details.CompletedTasks,
+		OpenTasks:      details.OpenTasks,
+	}}}, nil
 }
