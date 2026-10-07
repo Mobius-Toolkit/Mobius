@@ -287,6 +287,31 @@ export interface Checkup {
   repositories: RepositoryCheckup[];
 }
 
+/**
+ * Kind is issue or pullRequest
+ */
+export type ClosureItemKind = typeof ClosureItemKind[keyof typeof ClosureItemKind];
+
+
+export const ClosureItemKind = {
+  issue: 'issue',
+  pullRequest: 'pullRequest',
+} as const;
+
+/**
+ * ClosureItem is an issue or a pull request that the close of a Workstream as "won't do" closes.
+ */
+export interface ClosureItem {
+  /** Kind is issue or pullRequest */
+  kind: ClosureItemKind;
+  /** Number is the number of the issue or the pull request */
+  number: number;
+  /** Title is the title of the issue or the pull request */
+  title: string;
+  /** URL is the web address of the issue or the pull request on GitHub */
+  url: string;
+}
+
 export interface CreateManifestFormBody {
   /** Account is the GitHub user or organization that owns the new App */
   account: string;
@@ -361,6 +386,14 @@ export interface EnvelopeActiveAgents {
 export interface EnvelopeArrayAgent {
   /** Data is the payload of the response */
   data: Agent[];
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayClosureItem {
+  /** Data is the payload of the response */
+  data: ClosureItem[];
 }
 
 /**
@@ -3294,6 +3327,154 @@ export const setAutopilot = async (owner: string,
 
   const data: setAutopilotResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as setAutopilotResponse
+}
+
+
+
+export type closeWorkstreamResponse204 = {
+  data: void
+  status: 204
+}
+
+export type closeWorkstreamResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type closeWorkstreamResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type closeWorkstreamResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type closeWorkstreamResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type closeWorkstreamResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type closeWorkstreamResponseSuccess = (closeWorkstreamResponse204) & {
+  headers: Headers;
+};
+export type closeWorkstreamResponseError = (closeWorkstreamResponse400 | closeWorkstreamResponse401 | closeWorkstreamResponse409 | closeWorkstreamResponse422 | closeWorkstreamResponse500) & {
+  headers: Headers;
+};
+
+export type closeWorkstreamResponse = (closeWorkstreamResponseSuccess | closeWorkstreamResponseError)
+
+export const getCloseWorkstreamUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/close`
+}
+
+/**
+ * CloseWorkstream closes the Workstream as "won't do", also when it has open issues. For each item of WorkstreamClosure, Mobius adds a comment and mobius:wont-do, and closes the item. It closes the Workstream issue last. It returns 409 when the issue is not an open Workstream.
+ */
+export const closeWorkstream = async (owner: string,
+    name: string,
+    number: number, ): Promise<closeWorkstreamResponse> => {
+
+  const res = await fetch(getCloseWorkstreamUrl(owner,name,number),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: closeWorkstreamResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as closeWorkstreamResponse
+}
+
+
+
+export type workstreamClosureResponse200 = {
+  data: EnvelopeArrayClosureItem
+  status: 200
+}
+
+export type workstreamClosureResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type workstreamClosureResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type workstreamClosureResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type workstreamClosureResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type workstreamClosureResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type workstreamClosureResponseSuccess = (workstreamClosureResponse200) & {
+  headers: Headers;
+};
+export type workstreamClosureResponseError = (workstreamClosureResponse400 | workstreamClosureResponse401 | workstreamClosureResponse409 | workstreamClosureResponse422 | workstreamClosureResponse500) & {
+  headers: Headers;
+};
+
+export type workstreamClosureResponse = (workstreamClosureResponseSuccess | workstreamClosureResponseError)
+
+export const getWorkstreamClosureUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/closure`
+}
+
+/**
+ * WorkstreamClosure returns the items that CloseWorkstream closes, in the order of the close: the open pull requests of the tasks, the open task issues, and the Workstream issue. It reads the state from GitHub. It returns 409 when the issue is not an open Workstream.
+ */
+export const workstreamClosure = async (owner: string,
+    name: string,
+    number: number, ): Promise<workstreamClosureResponse> => {
+
+  const res = await fetch(getWorkstreamClosureUrl(owner,name,number),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: workstreamClosureResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as workstreamClosureResponse
 }
 
 

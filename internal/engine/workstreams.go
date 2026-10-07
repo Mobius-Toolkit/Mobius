@@ -50,6 +50,132 @@ func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, 
 	return e.closeWorkstream(ctx, repository, number)
 }
 
+// ClosureItem is an issue or a pull request that the close of a Workstream as "won't do" closes.
+type ClosureItem struct {
+	PullRequest bool
+	Number      int64
+	Title       string
+	URL         string
+}
+
+// WorkstreamClosure gives the items that CloseWorkstreamWontDo closes for the open Workstream number of repository.
+func (e *Engine) WorkstreamClosure(ctx context.Context, repositoryName string, number int64) ([]ClosureItem, error) {
+	repository, err := e.repository(repositoryName)
+	if err != nil {
+		return nil, err
+	}
+	workstreamIssue, err := e.openWorkstream(ctx, repository, number)
+	if err != nil {
+		return nil, err
+	}
+	return e.closureItems(ctx, repository, workstreamIssue)
+}
+
+// CloseWorkstreamWontDo closes the open Workstream number of repository and the items of WorkstreamClosure as "won't
+// do", also when the Workstream has open issues. Then it does the work of a close on GitHub.
+func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName string, number int64) error {
+	repository, err := e.repository(repositoryName)
+	if err != nil {
+		return err
+	}
+	workstreamIssue, err := e.openWorkstream(ctx, repository, number)
+	if err != nil {
+		return err
+	}
+	if err := e.stopWorkstream(ctx, repository, number); err != nil {
+		return err
+	}
+	items, err := e.closureItems(ctx, repository, workstreamIssue)
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf("The Workstream #%d closed as \"won't do\".", number)
+	var closed *gh.Issue
+	for _, item := range items {
+		if _, err := repository.AddComment(ctx, item.Number, text); err != nil {
+			return err
+		}
+		if err := repository.AddLabel(ctx, item.Number, wontDoLabel); err != nil {
+			return err
+		}
+		if item.PullRequest {
+			err = repository.ClosePullRequest(ctx, item.Number)
+		} else {
+			closed, err = repository.CloseIssue(ctx, item.Number, "not_planned")
+		}
+		if err != nil {
+			return err
+		}
+	}
+	// The Workstream issue is the last item.
+	if _, err := e.updateCopy(ctx, repository, closed, nil, false); err != nil {
+		return err
+	}
+	e.publish(Change{Workstreams: true})
+	return e.closeWorkstream(ctx, repository, number)
+}
+
+func (e *Engine) openWorkstream(ctx context.Context, repository github.Repository, number int64) (*gh.Issue, error) {
+	issue, err := repository.Issue(ctx, number)
+	if err != nil {
+		return nil, err
+	}
+	if issue == nil || issue.GetState() != "open" || !hasLabel(issue, workstreamLabel) {
+		return nil, refuse("The issue is not an open Workstream.")
+	}
+	return issue, nil
+}
+
+// closureItems gives the open items that a close as "won't do" closes: the open pull requests of the tasks with an
+// open issue, the open task issues, and the Workstream issue last. It walks the issues below the Workstream as
+// closeWorkstream does.
+func (e *Engine) closureItems(ctx context.Context, repository github.Repository, workstreamIssue *gh.Issue) ([]ClosureItem, error) {
+	workstream := int64(workstreamIssue.GetNumber())
+	var issues []*gh.Issue
+	parents := []int64{workstream}
+	for len(parents) > 0 {
+		subIssues, err := repository.SubIssues(ctx, parents[0])
+		if err != nil {
+			return nil, err
+		}
+		parents = parents[1:]
+		for _, subIssue := range subIssues {
+			if hasLabel(subIssue, workstreamLabel) || inOtherRepository(subIssue, repository.FullName) {
+				continue
+			}
+			parents = append(parents, int64(subIssue.GetNumber()))
+			if subIssue.GetState() == "open" {
+				issues = append(issues, subIssue)
+			}
+		}
+	}
+	rows, err := e.queries.ListTaskIssuePullRequests(ctx, store.ListTaskIssuePullRequestsParams{Repository: repository.FullName, Workstream: workstream})
+	if err != nil {
+		return nil, err
+	}
+	var items []ClosureItem
+	for _, row := range rows {
+		if !slices.ContainsFunc(issues, func(issue *gh.Issue) bool { return int64(issue.GetNumber()) == row.Issue }) {
+			continue
+		}
+		pullRequest, err := repository.Issue(ctx, row.PullRequest)
+		if err != nil {
+			return nil, err
+		}
+		if pullRequest.GetState() == "open" {
+			items = append(items, closureItem(pullRequest, true))
+		}
+	}
+	for _, issue := range append(issues, workstreamIssue) {
+		items = append(items, closureItem(issue, false))
+	}
+	return items, nil
+}
+
+func closureItem(issue *gh.Issue, pullRequest bool) ClosureItem {
+	return ClosureItem{PullRequest: pullRequest, Number: int64(issue.GetNumber()), Title: issue.GetTitle(), URL: issue.GetHTMLURL()}
+}
+
 // closeWorkstream ends the work of the Workstream, removes mobius:autopilot, closes the open pull requests of its
 // tasks, and closes the issues below it as not planned. A nested Workstream and the issues below it stay open.
 func (e *Engine) closeWorkstream(ctx context.Context, repository github.Repository, workstream int64) error {
