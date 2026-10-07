@@ -164,25 +164,38 @@ func (e *Engine) publishUnread(ctx context.Context, key ChatKey) error {
 	return nil
 }
 
-// SendChat adds the message text of the Owner to the chat, and gives it to the agent of the chat. It starts the
-// agent when none runs.
-func (e *Engine) SendChat(ctx context.Context, key ChatKey, text string) error {
+// SendChat adds the message text of the Owner with its images to the chat, and gives it to the agent of the chat. It
+// starts the agent when none runs. The text can be empty when the message has an image.
+func (e *Engine) SendChat(ctx context.Context, key ChatKey, text string, images []Image) error {
 	if !slices.Contains(e.github.Organizations(), key.Organization) {
 		return refuse("Mobius has no repository in the organization \"%s\".", key.Organization)
 	}
-	return e.postChat(ctx, key, ownerAuthor, text)
+	return e.postChat(ctx, key, ownerAuthor, text, images)
 }
 
-// postChat adds the message text of author to the chat, and gives it to the agent of the chat. It starts the agent
-// when none runs.
-func (e *Engine) postChat(ctx context.Context, key ChatKey, author, text string) error {
+// postChat adds the message text of author with its images to the chat, and gives it to the agent of the chat. It
+// starts the agent when none runs. A message that has images is not added when Mobius cannot keep them.
+func (e *Engine) postChat(ctx context.Context, key ChatKey, author, text string, images []Image) error {
 	if e.sealed() {
 		return refuse("Mobius restarts for an upgrade. Send the message after the restart.")
+	}
+	var saved string
+	if len(images) > 0 {
+		var err error
+		if saved, err = e.saveImages(images); err != nil {
+			return err
+		}
 	}
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
 	message, err := e.addChatMessage(ctx, key, author, text)
+	if err == nil && saved != "" {
+		err = e.moveImages(saved, message.ID)
+	}
 	if err != nil {
+		if saved != "" {
+			_ = os.RemoveAll(saved)
+		}
 		return err
 	}
 	e.give(key, false, item{message: &message})
@@ -555,19 +568,23 @@ func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 // lead_idle_timeout or the drain asks it to close, the Lead saves its memory and the session ends.
 func (e *Engine) chat(c *chat, a *Agent, first item) error {
 	ctx := c.ctx
-	prompt, err := e.firstPrompt(ctx, c.key, first)
+	prompt, images, err := e.firstPrompt(ctx, c.key, first)
 	if err != nil {
 		return err
 	}
-	if err := e.itemTurn(c, a, first, prompt); err != nil {
+	if err := e.itemTurn(c, a, first, prompt, images); err != nil {
 		return err
 	}
 	for {
 		next, ok := e.next(c)
 		if ok {
 			var prompt string
+			var images []Image
 			if next.message != nil {
-				prompt = messagePrompt(*next.message)
+				prompt, images, err = e.messagePrompt(*next.message)
+				if err != nil {
+					return err
+				}
 			} else {
 				// The drain holds each event. The event stays undelivered until the drain ends.
 				pending, err := e.pending(ctx, next.event)
@@ -579,7 +596,7 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 				}
 				prompt = "# Event\n\n" + next.event.Payload
 			}
-			if err := e.itemTurn(c, a, next, prompt); err != nil {
+			if err := e.itemTurn(c, a, next, prompt, images); err != nil {
 				return err
 			}
 			continue
@@ -592,7 +609,7 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 			continue
 		}
 		if c.key.Workstream != 0 {
-			if err := e.turn(c, a, savePrompt, true); err != nil {
+			if err := e.turn(c, a, savePrompt, nil, true); err != nil {
 				return err
 			}
 		}
@@ -658,7 +675,7 @@ func (e *Engine) pending(ctx context.Context, event *store.LeadEvent) (bool, err
 // itemTurn runs the turn of the item, and then ends the turn. The reply text of a turn for an event goes only to the
 // Transcript, and a stop does not cancel that turn: the Owner cannot see it. The Lead uses tell_owner to write to the
 // Owner.
-func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string) error {
+func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images []Image) error {
 	e.chatsMu.Lock()
 	c.current = &current
 	e.chatsMu.Unlock()
@@ -670,14 +687,14 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string) error 
 		}
 	}
 	a.setAuthor(author)
-	if err := e.turn(c, a, prompt, current.message != nil); err != nil {
+	if err := e.turn(c, a, prompt, images, current.message != nil); err != nil {
 		return err
 	}
 	return e.endTurn(c, current)
 }
 
-// turn sends prompt to the agent and holds until the turn ends. A stop cancels a stoppable turn.
-func (e *Engine) turn(c *chat, a *Agent, prompt string, stoppable bool) error {
+// turn sends prompt and images to the agent and holds until the turn ends. A stop cancels a stoppable turn.
+func (e *Engine) turn(c *chat, a *Agent, prompt string, images []Image, stoppable bool) error {
 	e.chatsMu.Lock()
 	c.stoppable = stoppable
 	e.chatsMu.Unlock()
@@ -686,7 +703,7 @@ func (e *Engine) turn(c *chat, a *Agent, prompt string, stoppable bool) error {
 		c.stoppable = false
 		e.chatsMu.Unlock()
 	}()
-	return a.Prompt(c.ctx, prompt)
+	return a.Prompt(c.ctx, prompt, images)
 }
 
 // endTurn delivers the event of the turn, or holds it when the Lead called hold_event. The end of a turn for a
@@ -771,30 +788,37 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repo
 }
 
 // firstPrompt gives the first prompt of a session with the item first: the Role prompt, the context and the chat
-// history before the item.
-func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (string, error) {
+// history before the item. It also gives the images of the item.
+func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (string, []Image, error) {
+	var images []Image
+	if first.message != nil {
+		var err error
+		if images, err = e.messageImages(first.message.ID); err != nil {
+			return "", nil, err
+		}
+	}
 	if key.Workstream == 0 {
 		history, err := e.history(ctx, key, first.message.ID)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		workstreams, err := openWorkstreams(ctx, e.organizationRepositories(key.Organization))
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
-		return fmt.Sprintf("%s\n%s\n%s# %s message\n\n%s", triagerPrompt, workstreams, history, first.message.Author, first.message.Text), nil
+		return fmt.Sprintf("%s\n%s\n%s# %s message\n\n%s", triagerPrompt, workstreams, history, first.message.Author, first.message.Text), images, nil
 	}
 	repository, err := e.repository(key.Repository)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	lead, err := e.leadContext(ctx, repository, key.Workstream)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	sections, err := e.repositorySections(ctx, repository, "lead")
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	before, heading, text := int64(math.MaxInt64), "Event", ""
 	if first.message != nil {
@@ -807,9 +831,9 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 	}
 	history, err := e.history(ctx, key, before)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return fmt.Sprintf("%s\n%s%s%s# %s\n\n%s", leadPrompt, sections, lead, history, heading, text), nil
+	return fmt.Sprintf("%s\n%s%s%s# %s\n\n%s", leadPrompt, sections, lead, history, heading, text), images, nil
 }
 
 // leadContext gives the Brief, the memory and the task list of the Workstream.
@@ -868,15 +892,29 @@ func (e *Engine) history(ctx context.Context, key ChatKey, before int64) (string
 		if err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&history, "%s (%s):\n%s\n\n", message.Author, t.UTC().Format(timeFormat), message.Text)
+		text := message.Text
+		if message.Author == ownerAuthor {
+			count, err := e.ImageCount(message.ID)
+			if err != nil {
+				return "", err
+			}
+			if count > 0 && text != "" {
+				text += "\n"
+			}
+			if count > 0 {
+				text += "[" + imagesText(count) + "]"
+			}
+		}
+		fmt.Fprintf(&history, "%s (%s):\n%s\n\n", message.Author, t.UTC().Format(timeFormat), text)
 	}
 	return history.String(), nil
 }
 
-// messagePrompt gives the prompt of a message. A message of the Owner is its text.
-func messagePrompt(message store.ChatMessage) string {
+// messagePrompt gives the prompt of a message and its images. A message of the Owner is its text.
+func (e *Engine) messagePrompt(message store.ChatMessage) (string, []Image, error) {
 	if message.Author == ownerAuthor {
-		return message.Text
+		images, err := e.messageImages(message.ID)
+		return message.Text, images, err
 	}
-	return fmt.Sprintf("# %s message\n\n%s", message.Author, message.Text)
+	return fmt.Sprintf("# %s message\n\n%s", message.Author, message.Text), nil, nil
 }

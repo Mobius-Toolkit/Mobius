@@ -91,7 +91,7 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	defer end(t, agent, "done")
 	before := time.Now()
 	prompted := make(chan error, 1)
-	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.") }()
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 
 	var item struct {
 		id               int64
@@ -196,7 +196,7 @@ func TestARetryThatHitsTheUsageLimitAgainUsesTheInboxItemAndTheChatMessageAgain(
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, agent, "done")
 	prompted := make(chan error, 1)
-	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.") }()
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 	first := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 
 	if err := server.Engine.Resume(t.Context(), first.inboxItem); err != nil {
@@ -243,7 +243,7 @@ func TestARetryThatHitsTheUsageLimitAfterARestartUsesTheInboxItemAgain(t *testin
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, agent, "done")
 	prompted := make(chan error, 1)
-	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.") }()
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 
 	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 
@@ -270,7 +270,7 @@ func TestAUsageLimitOfAnotherHarnessGetsItsOwnInboxItem(t *testing.T) {
 	server, _ := connectWith(t, fake, usageLimitOfTwoHarnesses, keepSessionOpen)
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, agent, "done")
-	go func() { _ = agent.Prompt(t.Context(), "Store plans in cents.") }()
+	go func() { _ = agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 	testkit.WaitFor(t, func() bool { _, paused := devinPause(t, server); return paused })
 
 	sendChat(t, server, leadChat, "Plan the API")
@@ -349,7 +349,7 @@ func TestASuccessfulPromptEndsThePauseOfItsHarness(t *testing.T) {
 		}
 	}
 
-	if err := agent.Prompt(t.Context(), "Store plans in cents."); err != nil {
+	if err := agent.Prompt(t.Context(), "Store plans in cents.", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -366,7 +366,7 @@ func TestASuccessfulPromptKeepsAPauseThatStartedDuringThePrompt(t *testing.T) {
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, agent, "done")
 	done := make(chan error, 1)
-	go func() { done <- agent.Prompt(t.Context(), "Store plans in cents.") }()
+	go func() { done <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 	testkit.WaitFor(t, func() bool { _, err := os.Stat(started); return err == nil })
 	for _, statement := range []string{
 		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)

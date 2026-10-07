@@ -334,11 +334,16 @@ func (a *Agent) ID() int64 {
 	return a.id
 }
 
-// Prompt adds text to the Transcript, sends it, and holds until the turn ends. After a usage limit, Prompt waits
-// for the end of the pause of the Harness and sends text again.
-func (a *Agent) Prompt(ctx context.Context, text string) error {
+// Prompt adds text to the Transcript, sends it with images, and holds until the turn ends. The Transcript row has
+// only the type and the size of each image. When the agent cannot read images, Prompt sends a note in place of them.
+// After a usage limit, Prompt waits for the end of the pause of the Harness and sends text again.
+func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
+	if len(images) > 0 && !a.session.ImagesSupported() {
+		text += imagesNote(text, len(images))
+		images = nil
+	}
 	for {
-		row, err := compact(map[string]string{"text": text})
+		row, err := compact(promptRow(text, images))
 		if err != nil {
 			return err
 		}
@@ -367,7 +372,7 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 			defer close(resent)
 			a.resendCancel(resendCtx)
 		}()
-		err = a.sendPrompt(ctx, text)
+		err = a.sendPrompt(ctx, text, images)
 		stopResend()
 		<-resent
 		a.mu.Lock()
@@ -384,7 +389,7 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 			if err := a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s. Mobius stopped the turn and sends retry %d of %d.", hangTimeout, a.retries, maxRetries)); err != nil {
 				return err
 			}
-			text = retryText(a.spec.Role)
+			text, images = retryText(a.spec.Role), nil
 			continue
 		}
 		limited, waitErr := a.waitOutLimit(ctx, err)

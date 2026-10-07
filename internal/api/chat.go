@@ -93,7 +93,7 @@ type SendChatRequest struct {
 // upgrade.
 func (h *handlers) SendChat(ctx context.Context, req SendChatRequest) error {
 	body := req.Body
-	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.Text)
+	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.Text, nil)
 	if engine.Refused(err) {
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}

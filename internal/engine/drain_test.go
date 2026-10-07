@@ -118,7 +118,7 @@ func TestTheDrainHoldsNewWorkersWaitsForTheRunningSessionsAndACancelReleasesThem
 	server, _ := connectWith(t, fake, "[[prompts]]\nhang = true\n", func(cfg *config.Config) { cfg.MaxAgents = 1 })
 	states := drainEvents(t, server)
 	implementer := start(t, server, implementerSpec(t, server, fake, 41))
-	go func() { _ = implementer.Prompt(t.Context(), "Store plans in cents.") }()
+	go func() { _ = implementer.Prompt(t.Context(), "Store plans in cents.", nil) }()
 	held := startLater(t.Context(), server, implementerSpec(t, server, fake, 43))
 	waiting := queued(t, server, engine.ImplementerRole)
 	lead := start(t, server, leadSpec(t))
@@ -340,7 +340,7 @@ func hasPausedReason(session store.Session) bool {
 func startPausedImplementer(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) *engine.Agent {
 	t.Helper()
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
-	go func() { _ = agent.Prompt(t.Context(), "Store plans in cents.") }()
+	go func() { _ = agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 	testkit.WaitFor(t, func() bool { return hasPausedReason(session(t, server, agent.ID())) })
 	return agent
 }
