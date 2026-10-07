@@ -83,13 +83,8 @@ type Agent struct {
 	turn bool
 	// activity is the time of the last activity of the agent, or of the last prompt.
 	activity time.Time
-	// tasks are the ids of the live background tasks of the agent, the oldest first.
-	tasks []string
-	// monitors are the live Monitors of the agent, with the persistent ones.
-	monitors []monitor
-	// skippedEnd tells that an autonomous end with task-notification took no task because a Monitor lived. It is
-	// false while no task is live.
-	skippedEnd bool
+	// subagent tells that the current prompt started a background subagent.
+	subagent bool
 	// autonomous tells that a turn runs that no prompt of Mobius started.
 	autonomous bool
 	// autonomousEnd is the time of the end of an autonomous turn while a prompt runs, until the next work update.
@@ -390,6 +385,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		}
 		a.mu.Lock()
 		a.turn = true
+		a.subagent = false
 		a.autonomousEnd = time.Time{}
 		a.activity = time.Now()
 		a.mu.Unlock()
@@ -410,14 +406,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 			a.mu.Unlock()
 		}
 		if err == nil {
-			err = a.waitQuiet(ctx)
-			if err == nil {
-				return a.engine.endPauseSince(ctx, paused)
-			}
-			if !errors.Is(err, errHung) {
-				return err
-			}
-			retrying = a.retries < maxRetries
+			return a.engine.endPauseSince(ctx, paused)
 		}
 		if errors.Is(err, errHung) {
 			if text, err = a.retryHang(ctx); err != nil {
