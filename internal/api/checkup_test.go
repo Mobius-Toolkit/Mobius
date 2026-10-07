@@ -257,3 +257,33 @@ func TestTheCheckupNeedsAnOrganization(t *testing.T) {
 		}
 	}
 }
+
+func TestTheToolsCheckGivesEachProgramWithItsStatus(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_EXECUTABLE", "")
+	server := testserver.Start(t, t.TempDir(), testkit.NewFakeGitHub(t).URL)
+
+	var body struct {
+		Data []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	if reply := call(t, server.Client, http.MethodGet, server.URL+"/api/checkup/tools", "", &body); reply.StatusCode != http.StatusOK {
+		t.Fatalf("tools: status %d", reply.StatusCode)
+	}
+
+	var names []string
+	for _, tool := range body.Data {
+		names = append(names, tool.Name)
+	}
+	if want := []string{"claude-agent-acp", "Claude Code CLI", "agy_acp_server", "devin", "git", "curl", "tar"}; !slices.Equal(names, want) {
+		t.Fatalf("names = %v, want %v", names, want)
+	}
+	// The test PATH has no Harness command.
+	if got := body.Data[0].Status; got != "not-found" {
+		t.Errorf("claude-agent-acp status = %q", got)
+	}
+	if got := body.Data[1].Status; got != "no-version" {
+		t.Errorf("Claude Code CLI status = %q", got)
+	}
+}

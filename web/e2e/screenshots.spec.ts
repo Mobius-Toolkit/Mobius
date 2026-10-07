@@ -254,6 +254,20 @@ test("screenshots", async ({ page }) => {
   ]);
   await screenshot(page, "checkup", "/settings/checkup", (device) => [
     ...frame(device, release),
+    main.getByRole("link", { name: "Tools" }),
+    main.getByRole("heading", { name: "owner", exact: true }),
+    main.getByRole("heading", { name: "plants", exact: true }),
+  ]);
+  await screenshot(page, "checkup-tools", "/settings/checkup/tools", (device) => [
+    ...frame(device, release),
+    main.getByText("2.1.284 (Claude Code)"),
+  ]);
+  await screenshot(page, "checkup-permissions", "/settings/checkup/owner/permissions", (device) => [
+    ...frame(device, release),
+    main.getByText("workflows: write"),
+  ]);
+  await screenshot(page, "checkup-labels", "/settings/checkup/owner/labels", (device) => [
+    ...frame(device, release),
     main.getByText("wrong color: #ededed"),
   ]);
 
