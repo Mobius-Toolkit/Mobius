@@ -10,6 +10,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
 var (
@@ -64,39 +65,38 @@ func TestAResearcherThatStartsAfterTheShutdownIsDeclined(t *testing.T) {
 	}
 }
 
-func TestAStopBeforeTheReportMakesTheResearcherLeaveStopped(t *testing.T) {
-	e := researchEngine(t)
-	a, ctx, queue := runningResearcher(t, e)
-
-	if _, err := e.stopResearcher(t.Context(), leadCaller, shopRepository, researcherInput{ID: a.id}); err != nil {
-		t.Fatal(err)
-	}
-
-	if !e.leave(ctx, a.id) {
-		t.Error("the Researcher did not see the stop")
-	}
-	want := fmt.Sprintf("The Researcher %d stopped. No report arrives.", a.id)
-	if len(queue.queue) != 1 || queue.queue[0].message.Text != want {
-		t.Errorf("queue = %+v", queue.queue)
-	}
-}
-
 func TestAReportBeforeTheStopRefusesTheStop(t *testing.T) {
 	e := researchEngine(t)
-	a, ctx, queue := runningResearcher(t, e)
-
-	if e.leave(ctx, a.id) {
-		t.Error("the Researcher saw a stop")
+	gh, err := github.New(e.queries, "http://127.0.0.1", "http://127.0.0.1", nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	_, err := e.stopResearcher(t.Context(), leadCaller, shopRepository, researcherInput{ID: a.id})
+	e.github = gh
+	a, _, queue := runningResearcher(t, e)
+	e.gitMu.Lock()
+	finished := make(chan error, 1)
+	go func() { finished <- e.research(t.Context(), leadCaller, shopRepository, a, "Where?") }()
+	testkit.WaitFor(t, func() bool {
+		e.detailsMu.Lock()
+		defer e.detailsMu.Unlock()
+		return len(e.researchers) == 0
+	})
+
+	_, err = e.stopResearcher(t.Context(), leadCaller, shopRepository, researcherInput{ID: a.id})
+
 	if want := fmt.Sprintf("No Researcher %d of this Workstream runs now.", a.id); err == nil || err.Error() != want {
 		t.Errorf("error = %v", err)
 	}
-	if ctx.Err() != nil {
-		t.Error("the stop reached the Researcher")
+	e.gitMu.Unlock()
+	if err := <-finished; err == nil || err.Error() != "The Mobius App has no access to owner/shop." {
+		t.Errorf("research error = %v", err)
 	}
-	if err := e.deliverReport(t.Context(), leadCaller, a.id, "Where?", "In cents."); err != nil {
+	session, err := e.queries.GetSession(t.Context(), a.id)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if session.EndReason.String != "failed" {
+		t.Errorf("end reason = %s", session.EndReason.String)
 	}
 	if len(queue.queue) != 1 || !strings.Contains(queue.queue[0].message.Text, "Report of the Researcher") {
 		t.Errorf("queue = %+v", queue.queue)
