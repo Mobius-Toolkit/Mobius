@@ -20,7 +20,11 @@ import (
 )
 
 // dies is the script of a Harness that dies in its turn.
-const dies = "[[prompts]]\nshell = \"kill -9 $PPID\"\n"
+// killHarness kills the Harness of the shell. The sleep keeps the shell alive until the kill lands, so that the
+// Harness sends no reply.
+const killHarness = "kill -9 $PPID; sleep 5"
+
+const dies = "[[prompts]]\nshell = \"" + killHarness + "\"\n"
 
 // liveTask gives the live task of the issue number.
 func liveTask(t *testing.T, server *testserver.Server, number int64) store.Task {
@@ -197,7 +201,7 @@ func TestTheHousekeeperRemovesTheDirectoriesThatNothingOwns(t *testing.T) {
 func TestALeadThatCrashesGetsTheSameEventInANewSession(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	flag := filepath.Join(t.TempDir(), "died")
-	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"if [ -e '"+flag+"' ]; then true; else touch '"+flag+"'; kill -9 $PPID; fi\"\n")
+	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"if [ -e '"+flag+"' ]; then true; else touch '"+flag+"'; "+killHarness+"; fi\"\n")
 
 	dispatchTask(fake, 41, "Add plan model")
 
@@ -213,7 +217,7 @@ func TestALeadThatCrashesGetsTheSameEventInANewSession(t *testing.T) {
 
 func TestALeadThatAlwaysCrashesSendsTheEventToTheInbox(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"kill -9 $PPID\"\n")
+	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \""+killHarness+"\"\n")
 
 	dispatchTask(fake, 41, "Add plan model")
 
@@ -239,7 +243,7 @@ func TestALeadThatAlwaysCrashesSendsTheEventToTheInbox(t *testing.T) {
 // dieOnceThen is the shell of an Implementer whose Harness dies in its first turn and runs then after that. The flag
 // file tells that a Harness died.
 func dieOnceThen(flag, then string) string {
-	return fmt.Sprintf("[[prompts]]\nshell = \"if [ -e '%[1]s' ]; then %[2]s; else touch '%[1]s'; kill -9 $PPID; fi\"\n", flag, then)
+	return fmt.Sprintf("[[prompts]]\nshell = \"if [ -e '%[1]s' ]; then %[2]s; else touch '%[1]s'; %[3]s; fi\"\n", flag, then, killHarness)
 }
 
 const commitShell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'"
@@ -284,7 +288,7 @@ func TestATaskInNeedsHumanStaysInNeedsHumanAfterTheNextPolls(t *testing.T) {
 func TestMobiusReadyOnATaskInNeedsHumanWithNoPullRequestStartsTheImplementerOnTheSameBranch(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	goFile := filepath.Join(t.TempDir(), "go")
-	server := handedToHuman(t, fake, fmt.Sprintf("[[prompts]]\nshell = \"if [ -e '%s' ]; then %s; else kill -9 $PPID; fi\"\n", goFile, commitShell))
+	server := handedToHuman(t, fake, fmt.Sprintf("[[prompts]]\nshell = \"if [ -e '%s' ]; then %s; else %s; fi\"\n", goFile, commitShell, killHarness))
 	stopped := liveTask(t, server, 41)
 	if len(fake.PullRequests(shop)) != 0 || !stopped.Branch.Valid {
 		t.Fatalf("pull requests = %+v, task = %+v", fake.PullRequests(shop), stopped)

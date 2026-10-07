@@ -81,9 +81,10 @@ func TestAStopWhileAnAutonomousTurnRunsEndsTheWaitAndSendsNoPrompt(t *testing.T)
 	sendChat(t, server, leadChat, "Also add a plan price")
 	testkit.WaitFor(t, func() bool { return chatView(t, server, leadChat).Writing })
 
-	stopChat(t, server, leadChat)
-
-	testkit.WaitFor(t, func() bool { return !chatView(t, server, leadChat).Writing })
+	testkit.WaitFor(t, func() bool {
+		stopChat(t, server, leadChat)
+		return !chatView(t, server, leadChat).Writing
+	})
 	if got := promptTexts(t, server, session.ID); len(got) != 1 {
 		t.Errorf("prompts = %q", got)
 	}

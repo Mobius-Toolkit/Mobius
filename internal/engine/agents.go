@@ -374,17 +374,6 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		if err != nil {
 			return err
 		}
-		a.mu.Lock()
-		err = a.engine.addRow(ctx, a.id, "prompt", row, !a.prompted)
-		a.prompted = true
-		a.chunk = nil
-		a.message = 0
-		a.reply.Reset()
-		a.cannotDo = ""
-		a.mu.Unlock()
-		if err != nil {
-			return err
-		}
 		paused, err := a.engine.harnessPause(ctx, a.harness)
 		if err != nil {
 			return err
@@ -393,7 +382,17 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		if a.stopRequested {
 			a.stopRequested = false
 			a.mu.Unlock()
-			return a.engine.endPauseSince(ctx, paused)
+			return nil
+		}
+		err = a.engine.addRow(ctx, a.id, "prompt", row, !a.prompted)
+		a.prompted = true
+		a.chunk = nil
+		a.message = 0
+		a.reply.Reset()
+		a.cannotDo = ""
+		if err != nil {
+			a.mu.Unlock()
+			return err
 		}
 		a.turn = true
 		a.subagent = false
