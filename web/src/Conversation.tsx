@@ -184,6 +184,12 @@ export function Conversation({
   const input = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const pinned = useRef(true);
+  // The scrollTop of the last scroll to the end. A scroll event can come after an image has made the list longer.
+  const endTop = useRef<number>(undefined);
+  const scrollToEnd = (list: HTMLElement) => {
+    list.scrollTop = list.scrollHeight;
+    endTop.current = list.scrollTop;
+  };
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined);
   const voice = useVoice((spoken) => {
@@ -280,7 +286,7 @@ export function Conversation({
         pinned.current = atEnd(list);
         return;
       }
-      list.scrollTop = list.scrollHeight;
+      scrollToEnd(list);
       return;
     }
     if (messages.length > scrolledCount.current) {
@@ -288,7 +294,7 @@ export function Conversation({
     }
     scrolledCount.current = messages.length;
     if (pinned.current) {
-      list.scrollTop = list.scrollHeight;
+      scrollToEnd(list);
     }
   });
 
@@ -401,12 +407,13 @@ export function Conversation({
       <div
         ref={listRef}
         onScroll={(event) => {
-          pinned.current = atEnd(event.currentTarget);
+          pinned.current =
+            atEnd(event.currentTarget) || event.currentTarget.scrollTop === endTop.current;
         }}
         // An image has no height before it loads, and its load moves the end of the list.
         onLoadCapture={(event) => {
           if (pinned.current) {
-            event.currentTarget.scrollTop = event.currentTarget.scrollHeight;
+            scrollToEnd(event.currentTarget);
           }
         }}
         className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto bg-muted/40 p-4"
