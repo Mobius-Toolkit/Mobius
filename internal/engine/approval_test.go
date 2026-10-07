@@ -344,6 +344,7 @@ func seedWaitingWith(t *testing.T, fake *testkit.FakeGitHub, state, script strin
 	if number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41"); number != 42 {
 		t.Fatalf("pull request = %d", number)
 	}
+	server.WaitForFirstPoll(t, shop)
 	return server, head(t, fake, "mobius/41")
 }
 

@@ -306,9 +306,12 @@ func TestAQueuedReviewerGetsTheEarlierThreadsOfTrustedAuthors(t *testing.T) {
 	if !fake.PullRequests(shop)[1].Draft {
 		t.Error("the pull request of #41 is ready for review")
 	}
-	if state := taskState(t, server); state != "reviewed" {
-		t.Errorf("state = %s", state)
-	}
+	// The state reviewed lasts only until the Judge starts, so the round comment proves it.
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(fake.Comments(shop, number), func(comment testkit.Comment) bool {
+			return comment.Author == app && strings.Contains(comment.Body, "Result: The Judge takes the open threads.")
+		})
+	})
 }
 
 func TestStartFixRoundSendsTheFindingsOfTheLeadToAFixRound(t *testing.T) {

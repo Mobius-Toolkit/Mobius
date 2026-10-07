@@ -156,6 +156,8 @@ export interface ChatMessage {
   author: ChatMessageAuthor;
   /** ID increases with each new message of all chats */
   id: number;
+  /** Images is the number of images of the message. GetChatImage gives each image by its position, from 0 */
+  images: number;
   /** Organization is the owner of the repository, or the organization of the Triager chat */
   organization: string;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
@@ -809,11 +811,13 @@ export interface SeeChatBody {
 }
 
 export interface SendChatBody {
+  /** Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB */
+  images?: (Blob | File)[];
   /** Organization is the owner of the repository, or the organization of the Triager chat */
   organization?: string;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
   repository?: string;
-  /** Text is the message of the Owner */
+  /** Text is the message of the Owner. It is required when the message has no image */
   text: string;
   /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
   workstream?: number;
@@ -1153,16 +1157,30 @@ export const getSendChatUrl = () => {
 }
 
 /**
- * SendChat adds a message of the Owner to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
+ * SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. It returns 400 when the request is larger than 4 images of 5 MB with the text. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
  */
 export const sendChat = async (sendChatBody: SendChatBody, ): Promise<sendChatResponse> => {
+    const formData = new FormData();
+if(sendChatBody.images !== undefined) {
+ sendChatBody.images.forEach(value => formData.append(`images`, value));
+ }
+if(sendChatBody.organization !== undefined) {
+ formData.append(`organization`, sendChatBody.organization);
+ }
+if(sendChatBody.repository !== undefined) {
+ formData.append(`repository`, sendChatBody.repository);
+ }
+formData.append(`text`, sendChatBody.text);
+if(sendChatBody.workstream !== undefined) {
+ formData.append(`workstream`, sendChatBody.workstream.toString())
+ }
 
   const res = await fetch(getSendChatUrl(),
   {
 
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(sendChatBody)
+    method: 'POST'
+    ,
+    body: formData
   }
 )
 
@@ -1171,6 +1189,92 @@ export const sendChat = async (sendChatBody: SendChatBody, ): Promise<sendChatRe
 
   const data: sendChatResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as sendChatResponse
+}
+
+
+
+export type getChatImageResponse200ImageGif = {
+  data: Blob
+  status: 200
+}
+
+export type getChatImageResponse200ImageJpeg = {
+  data: Blob
+  status: 200
+}
+
+export type getChatImageResponse200ImagePng = {
+  data: Blob
+  status: 200
+}
+
+export type getChatImageResponse200ImageWebp = {
+  data: Blob
+  status: 200
+}
+
+export type getChatImageResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getChatImageResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getChatImageResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type getChatImageResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getChatImageResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getChatImageResponseSuccess = (getChatImageResponse200ImageGif | getChatImageResponse200ImageJpeg | getChatImageResponse200ImagePng | getChatImageResponse200ImageWebp) & {
+  headers: Headers;
+};
+export type getChatImageResponseError = (getChatImageResponse400 | getChatImageResponse401 | getChatImageResponse404 | getChatImageResponse422 | getChatImageResponse500) & {
+  headers: Headers;
+};
+
+export type getChatImageResponse = (getChatImageResponseSuccess | getChatImageResponseError)
+
+export const getGetChatImageUrl = (id: number,
+    position: number,) => {
+
+
+
+
+  return `/api/chat/messages/${id}/images/${position}`
+}
+
+/**
+ * GetChatImage returns an image of a message. It returns 404 when the message has no such image.
+ */
+export const getChatImage = async (id: number,
+    position: number, ): Promise<getChatImageResponse> => {
+
+  const res = await fetch(getGetChatImageUrl(id,position),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.blob();
+  const data: getChatImageResponse['data'] = body as getChatImageResponse['data']
+  return { data, status: res.status, headers: res.headers } as getChatImageResponse
 }
 
 
