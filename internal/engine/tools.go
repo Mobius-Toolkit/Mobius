@@ -69,12 +69,18 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.startImplementerTool),
 			tool(e, c, "start_fix_round",
-				"Start a fix round on the pull request of a task that waits for approval or is ready_for_review. The Implementer gets your findings as the open items. The round counts toward max_fix_rounds. Returns at once.",
+				"Start a fix round on the pull request of a task that waits for CI (checks), waits for the Lead approval (approval), or is ready_for_review. The Implementer gets your findings as the open items. The round counts toward max_fix_rounds. Returns at once.",
 				map[string]any{
 					"n":        map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
 					"findings": map[string]any{"type": "string", "minLength": 1, "description": "Your findings on the pull request: what to change and why."},
 				},
 				e.startFixRound),
+			tool(e, c, "approve_pull_request",
+				"Approve the pull request of a task that waits for the Lead approval. Mobius removes the draft status, sets the Mobius check to success, and adds the \"ready for review\" Inbox item for the Owner.",
+				map[string]any{
+					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+				},
+				e.approvePullRequest),
 			tool(e, c, "stop_task",
 				"Stop the work on a task of this Workstream that is queued or working. Call it only when the Owner tells you to stop that task. The pull request and the branch stay.",
 				map[string]any{

@@ -177,8 +177,8 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if err != nil {
 		return "", err
 	}
-	if task.State != "approval" && task.State != "ready_for_review" {
-		return "", refuse("The task of #%d is %s, not approval or ready_for_review.", input.N, task.State)
+	if task.State != "checks" && task.State != "approval" && task.State != "ready_for_review" {
+		return "", refuse("The task of #%d is %s, not checks, approval or ready_for_review.", input.N, task.State)
 	}
 	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
 	if err != nil {
@@ -193,6 +193,84 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 		return "", errors.Join(err, stateErr)
 	}
 	return fmt.Sprintf("Sent the findings to a fix round of #%d. At max_fix_rounds, Mobius stops the task instead.", input.N), nil
+}
+
+// approvePullRequest moves the task from approval to ready_for_review, sets the Mobius check of the head to success,
+// makes a draft pull request ready for review, and adds the Inbox item for the Owner.
+func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository github.Repository, input numberInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
+	if err != nil {
+		return "", err
+	}
+	if !task.PullRequest.Valid {
+		return "", refuse("The task of #%d has no pull request.", input.N)
+	}
+	if task.State == "checks" {
+		return "", refuse("The task of #%d still waits for CI, so it is not ready for approval.", input.N)
+	}
+	if task.State != "approval" {
+		return "", refuse("The task of #%d is %s, not approval.", input.N, task.State)
+	}
+	pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
+	if err != nil {
+		return "", err
+	}
+	issue, err := existingIssue(ctx, repository, input.N)
+	if err != nil {
+		return "", err
+	}
+	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "approval"})
+	if err != nil {
+		return "", err
+	}
+	if moved == 0 {
+		return "", refuse("The task of #%d is not approval any more.", input.N)
+	}
+	if err := e.approve(ctx, repository, task, issue.GetTitle(), pullRequest); err != nil {
+		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
+		return "", errors.Join(err, stateErr)
+	}
+	return fmt.Sprintf("Approved pull request #%d of #%d. The Owner got it for review.", pullRequest.GetNumber(), input.N), nil
+}
+
+func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, title string, pullRequest *gh.PullRequest) error {
+	head := pullRequest.GetHead().GetSHA()
+	runs, err := repository.CheckRuns(ctx, head)
+	if err != nil {
+		return err
+	}
+	var checkRun int64
+	for _, run := range runs {
+		if run.GetName() == checkRunName && run.GetStatus() != "completed" {
+			checkRun = run.GetID()
+		}
+	}
+	if checkRun == 0 {
+		if checkRun, err = repository.CreateCheckRun(ctx, checkRunName, head, "in_progress"); err != nil {
+			return err
+		}
+	}
+	if err := repository.CompleteCheckRun(ctx, checkRun, checkRunName, "success"); err != nil {
+		return err
+	}
+	if pullRequest.GetDraft() {
+		if err := repository.MarkReadyForReview(ctx, pullRequest.GetNodeID()); err != nil {
+			return err
+		}
+	}
+	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
+		Kind:         readyForReviewKind,
+		Organization: repository.Owner(),
+		Repository:   task.Repository,
+		Workstream:   task.Workstream,
+		Issue:        task.Issue,
+		Text:         fmt.Sprintf("Pull request #%d of #%d \"%s\" is ready for review.", pullRequest.GetNumber(), task.Issue, title),
+		Link:         pullRequest.GetHTMLURL(),
+	})
+	return err
 }
 
 // cannotDo ends the turn of the Implementer with the reason for the Lead.
