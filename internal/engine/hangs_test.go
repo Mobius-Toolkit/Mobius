@@ -70,7 +70,7 @@ func TestTheRetryPromptOfAnImplementerTellsItToCallCannotDo(t *testing.T) {
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
 	sessions := roleSessions(t, server, engine.ImplementerRole)
 	if len(sessions) != 1 {
 		t.Fatalf("sessions = %+v", sessions)
@@ -124,7 +124,7 @@ func TestAnImplementerThatChecksItsWorkLongerThanTheHangTimeGetsNoRetryPrompt(t 
 	waitForPolls(t, fake)
 	touch(t, goFile)
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
 	session := roleSessions(t, server, engine.ImplementerRole)[0]
 	if prompts := promptTexts(t, server, session.ID); len(prompts) != 1 {
 		t.Errorf("prompts = %q", prompts)
