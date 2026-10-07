@@ -568,13 +568,13 @@ func (e *Engine) implement(ctx context.Context, a *Agent, j *job) (result, error
 	if err := a.open(ctx); err != nil {
 		return result{}, err
 	}
-	e.implementersMu.Lock()
+	e.detailsMu.Lock()
 	e.implementers[j.task.ID] = a
-	e.implementersMu.Unlock()
+	e.detailsMu.Unlock()
 	r, failedLog, err := e.turnsAndChecks(ctx, a, j)
-	e.implementersMu.Lock()
+	e.detailsMu.Lock()
 	delete(e.implementers, j.task.ID)
-	e.implementersMu.Unlock()
+	e.detailsMu.Unlock()
 	a.closeHarness()
 	if err != nil {
 		return result{}, err
@@ -653,8 +653,8 @@ func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result,
 		if reason != "" {
 			return &result{outcome: cannotDo, text: reason}, "", nil
 		}
-		if details := e.takeDetails(j.task.ID, a, false); details != "" && ctx.Err() == nil {
-			prompt = detailsPrompt(details)
+		if details := e.takeDetails(e.implementers, j.task.ID, a, false); details != "" && ctx.Err() == nil {
+			prompt = detailsPrompt("task", details)
 			continue
 		}
 		if err != nil {
@@ -665,8 +665,8 @@ func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result,
 			return nil, "", err
 		}
 		last := passed || attempts >= e.config.MaxCheckAttempts
-		if details := e.takeDetails(j.task.ID, a, last); details != "" && ctx.Err() == nil {
-			prompt = detailsPrompt(details)
+		if details := e.takeDetails(e.implementers, j.task.ID, a, last); details != "" && ctx.Err() == nil {
+			prompt = detailsPrompt("task", details)
 			continue
 		}
 		if passed {
@@ -681,23 +681,45 @@ func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result,
 	}
 }
 
-func detailsPrompt(details string) string {
-	return "The Owner gave new details for the task. They replace the old text where they differ.\n\n" + details
+func detailsPrompt(subject, details string) string {
+	return fmt.Sprintf("The Owner gave new details for the %s. They replace the old text where they differ.\n\n%s", subject, details)
 }
 
-// takeDetails gives the new details that wait for the Implementer a, and clears them. With last, and no details,
-// the session leaves implementers in the same step, so a later send_details finds no open session.
-func (e *Engine) takeDetails(task int64, a *Agent, last bool) string {
-	e.implementersMu.Lock()
-	defer e.implementersMu.Unlock()
+// takeDetails gives the new details that wait for the session a, and clears them. With last, and no details, the
+// session leaves open in the same step, so a later send finds no open session. open holds a under id.
+func (e *Engine) takeDetails(open map[int64]*Agent, id int64, a *Agent, last bool) string {
+	e.detailsMu.Lock()
+	defer e.detailsMu.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	details := strings.Join(a.details, "\n\n")
 	a.details = nil
 	if last && details == "" {
-		delete(e.implementers, task)
+		delete(open, id)
 	}
 	return details
+}
+
+// addDetails gives text as new details to the open session id of open, and ends the turn that runs. It tells if the
+// session is open.
+func (e *Engine) addDetails(open map[int64]*Agent, id int64, text string) bool {
+	e.detailsMu.Lock()
+	a, ok := open[id]
+	if !ok {
+		e.detailsMu.Unlock()
+		return false
+	}
+	a.mu.Lock()
+	e.detailsMu.Unlock()
+	a.details = append(a.details, text)
+	if a.turn {
+		select {
+		case a.wake <- struct{}{}:
+		default:
+		}
+	}
+	a.mu.Unlock()
+	return true
 }
 
 // sendDetails gives new details of the Owner to the open Implementer session of the task. A turn that runs ends, and
@@ -710,22 +732,9 @@ func (e *Engine) sendDetails(ctx context.Context, c caller, repository github.Re
 	if err != nil {
 		return "", err
 	}
-	e.implementersMu.Lock()
-	a, ok := e.implementers[task.ID]
-	if !ok {
-		e.implementersMu.Unlock()
+	if !e.addDetails(e.implementers, task.ID, input.Text) {
 		return "", refuse("No Implementer session of #%d is open now. A later session reads the updated issue body.", input.N)
 	}
-	a.mu.Lock()
-	e.implementersMu.Unlock()
-	a.details = append(a.details, input.Text)
-	if a.turn {
-		select {
-		case a.wake <- struct{}{}:
-		default:
-		}
-	}
-	a.mu.Unlock()
 	return fmt.Sprintf("Sent the details to the Implementer of #%d.", input.N), nil
 }
 

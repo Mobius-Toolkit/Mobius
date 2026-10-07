@@ -306,8 +306,8 @@ func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 
 // stopLead ends the Lead chat of the Workstream and its Researchers at once.
 func (e *Engine) stopLead(repository string, workstream int64) {
+	e.stopResearchers(repository, workstream)
 	key := leadChat(repository, workstream)
-	e.stop(key)
 	e.chatsMu.Lock()
 	defer e.chatsMu.Unlock()
 	if c, ok := e.chats[key]; ok {

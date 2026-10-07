@@ -81,7 +81,7 @@ type Agent struct {
 	prompted bool
 	// turn tells that a turn runs: Prompt sent its text and the agent did not end the turn.
 	turn bool
-	// details are the new details from the Owner that the next prompt of the Implementer carries.
+	// details are the new details from the Owner that the next prompt of the Implementer or the Researcher carries.
 	details []string
 	// wake tells the running Prompt that new details wait. Only the goroutine of that Prompt sends the cancel, so the
 	// cancel never reaches a later turn.
@@ -188,6 +188,18 @@ func (e *Engine) Start(ctx context.Context, spec Spec) (*Agent, error) {
 // addAgent adds the session of spec and waits for a slot of its Role, with the ends of Start. A Worker then
 // prepares its directory and opens the agent itself.
 func (e *Engine) addAgent(ctx context.Context, spec Spec) (*Agent, error) {
+	a, err := e.newAgent(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.waitForSlot(ctx); err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+// newAgent adds the session of spec. The agent holds no slot yet.
+func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 	binding, ok := roleBinding(e.config, spec.Role)
 	if !ok {
 		return nil, fmt.Errorf("the Role %s has no Role binding", spec.Role)
@@ -214,23 +226,28 @@ func (e *Engine) addAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, err
 	}
 	e.publish(Change{Node: new(node(session))})
-	a := &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1)}
+	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1)}, nil
+}
+
+// waitForSlot waits for a slot of the Role of a, and starts the session. A failed wait ends the session, like Start.
+func (a *Agent) waitForSlot(ctx context.Context) error {
+	e := a.engine
 	ended := context.WithoutCancel(ctx)
 	if err := e.takeSlot(ctx, a); err != nil {
 		switch {
 		case errors.Is(err, ErrLeftQueue):
-			return nil, errors.Join(err, a.End(ended, "declined"))
+			return errors.Join(err, a.End(ended, "declined"))
 		case ctx.Err() != nil:
-			return nil, errors.Join(err, a.End(ended, "stopped"))
+			return errors.Join(err, a.End(ended, "stopped"))
 		}
-		return nil, a.Fail(ended, err)
+		return a.Fail(ended, err)
 	}
 	started, err := e.queries.StartSession(ctx, store.StartSessionParams{StartedAt: now(), ID: a.id})
 	if err != nil {
-		return nil, a.Fail(ended, err)
+		return a.Fail(ended, err)
 	}
 	e.publish(Change{Node: new(node(started))})
-	return a, nil
+	return nil
 }
 
 // open starts the Harness in the directory of the session and configures the session. A Claude Code session with no

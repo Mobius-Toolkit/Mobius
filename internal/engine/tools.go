@@ -89,11 +89,24 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.sendDetails),
 			tool(e, c, "start_researcher",
-				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the Brief and the question. The tool returns at once, and the report arrives later.",
+				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the Brief and the question. The tool returns the id of the Researcher at once, and the report arrives later.",
 				map[string]any{
 					"question": map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
 				},
 				e.startResearcher),
+			tool(e, c, "send_researcher_details",
+				"Send new details from the Owner to a Researcher that runs now. The Researcher keeps its session and its context. The report of the Researcher answers the new details. It refuses a Researcher that does not run.",
+				map[string]any{
+					"id":   map[string]any{"type": "integer", "minimum": 1, "description": "The id of the Researcher, from start_researcher or from its report."},
+					"text": map[string]any{"type": "string", "minLength": 1, "description": "The new details."},
+				},
+				e.sendResearcherDetails),
+			tool(e, c, "stop_researcher",
+				"Stop a Researcher that runs now. The Researcher gives no report. Call it only when the Owner tells you to.",
+				map[string]any{
+					"id": map[string]any{"type": "integer", "minimum": 1, "description": "The id of the Researcher, from start_researcher or from its report."},
+				},
+				e.stopResearcher),
 			tool(e, c, "ask",
 				"Ask the people on a task issue a question. Mobius posts the question as a comment, adds mobius:needs-human, and adds an Inbox item for the Owner. The reply arrives later as an event.",
 				map[string]any{
