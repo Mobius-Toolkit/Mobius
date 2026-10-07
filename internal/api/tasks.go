@@ -15,7 +15,7 @@ type TaskLine struct {
 	Number int64 `gork:"number"`
 	// Title is the title of the task issue
 	Title string `gork:"title"`
-	// State is the Mobius label of the issue with no "mobius:", queued for a task that waits for a slot, or open
+	// State is the Mobius label of the issue with no "mobius:", or open. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead".
 	State string `gork:"state"`
 	// URL is the GitHub URL of the task issue
 	URL string `gork:"url"`
