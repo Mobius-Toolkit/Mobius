@@ -45,9 +45,11 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 //   - A merged or closed pull request ends the task, and a merge closes the open issue (Mobius-rust#226).
 //   - A removal of mobius:working by a person stops the task. A Judge that runs from needs_human has no
 //     mobius:working.
-//   - A pull request of a task in ready_for_review with a merge conflict, or behind its base, gets a conflict round. A
-//     failed check run of another App on its head gets a fix round.
-//   - Else the new comments of the pull request of a task in ready_for_review, reviewed or needs_human go to the Judge.
+//   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
+//     conflict round. A failed check run of another App on its head gets a fix round.
+//   - Else a task in checks moves to approval when the CI of the head passed (onChecks).
+//   - Else the new comments of the pull request of a task in checks, approval, ready_for_review, reviewed or needs_human
+//     go to the Judge.
 func (e *Engine) checkTask(ctx context.Context, repository github.Repository, task store.Task) (Work, bool, error) {
 	issue, err := repository.Issue(ctx, task.Issue)
 	if err != nil {
@@ -80,15 +82,20 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	switch {
 	case task.State == "queued" || task.State == "working":
 		return work, slices.Contains([]string{checkRoundWorker, conflictRoundWorker}, task.Worker.String), nil
-	case !slices.Contains([]string{"ready_for_review", "reviewed", "needs_human"}, task.State):
+	case !slices.Contains([]string{"checks", "approval", "ready_for_review", "reviewed", "needs_human"}, task.State):
 		return Work{}, false, nil
-	case task.State == "ready_for_review" && conflict:
+	case afterReview(task.State) && conflict:
 		round, err := e.onConflict(ctx, repository, task, pullRequest)
 		return work, round, err
-	case task.State == "ready_for_review":
+	case afterReview(task.State):
 		round, err := e.onFailure(ctx, repository, task, pullRequest)
 		if err != nil || round {
 			return work, round, err
+		}
+		if task.State == "checks" {
+			if err := e.onChecks(ctx, repository, task, pullRequest); err != nil {
+				return Work{}, false, err
+			}
 		}
 	}
 	waiting := false
@@ -101,6 +108,12 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	judged, err := e.judge(ctx, repository, task, pullRequest, waiting)
 	return work, judged, err
+}
+
+// afterReview tells if the state is one of the states of a task whose Reviewer has no open finding: the task waits for
+// CI, for the Lead, or for the Owner.
+func afterReview(state string) bool {
+	return slices.Contains([]string{"checks", "approval", "ready_for_review"}, state)
 }
 
 // endPullRequest ends the task of the closed pull request, closes the open issue of a merged pull request as completed,

@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -20,13 +19,13 @@ const (
 	mergesCents = commits + "\n" + conflictWhen + "shell = \"git merge -q origin/main; echo cents > plan.txt && git add plan.txt && git commit -q --no-edit\"\n"
 )
 
-// readyEvents gives the number of turns of the Lead for a ready for review event of #41.
+// readyEvents gives the number of turns of the Lead for a ready for Lead approval event of #41.
 func readyEvents(t *testing.T, server *testserver.Server) int {
 	t.Helper()
 	count := 0
 	for _, prompt := range leadPrompts(t, server) {
 		parts := strings.Split(prompt, "# Event\n\n")
-		if len(parts) > 1 && strings.Contains(parts[len(parts)-1], " ready for review of #41 \"Add plan model\"") {
+		if len(parts) > 1 && strings.Contains(parts[len(parts)-1], " ready for Lead approval of #41 \"Add plan model\"") {
 			count++
 		}
 	}
@@ -74,10 +73,10 @@ func TestAMergeConflictStartsAConflictRoundThatMergesTheBaseBranch(t *testing.T)
 	for _, run := range fake.CheckRuns(shop) {
 		runs = append(runs, [2]string{run.HeadSHA, run.Conclusion})
 	}
-	if want := [][2]string{{first, "success"}, {merged, "success"}}; !reflect.DeepEqual(runs, want) {
+	if want := [][2]string{{first, ""}, {merged, ""}}; !reflect.DeepEqual(runs, want) {
 		t.Errorf("check runs = %v", runs)
 	}
-	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 1 || pullRequests[0].Draft {
+	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 1 || !pullRequests[0].Draft {
 		t.Errorf("pull requests = %+v", pullRequests)
 	}
 	if task := liveTask(t, server, 41); task.FixRounds != 0 {
@@ -102,8 +101,9 @@ func TestAMergeConflictStartsAConflictRoundThatMergesTheBaseBranch(t *testing.T)
 
 func TestAConflictRoundHasTheCommentsOfTrustedAuthorsOnThePullRequest(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, mergesCents, func(cfg *config.Config) { cfg.ReviewQuietPeriod = time.Hour })
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	server, _ := connectTask(t, fake, leadStarts, mergesCents, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
 	waitForReadyEvents(t, server, 1)
 	fake.AddComment(shop, 42, "owner", "Keep the unit.")
 	fake.AddReviewComment(shop, 42, 0, "owner", "Store the unit.")
@@ -152,8 +152,8 @@ func TestTheReviewAfterAConflictRoundDoesNotCountAsAReviewRound(t *testing.T) {
 	}
 	comments := roundComments(fake)
 	want := []string{
-		"Review ended, round 1 of 1\n\nResult: Ready for review.\nOpen findings: 0",
-		"Review ended after a conflict round. It does not count (1 of 1)\n\nResult: Ready for review.\nOpen findings: 0",
+		"Review ended, round 1 of 1\n\nResult: No open findings. Mobius waits for CI.\nOpen findings: 0",
+		"Review ended after a conflict round. It does not count (1 of 1)\n\nResult: No open findings. Mobius waits for CI.\nOpen findings: 0",
 	}
 	if !reflect.DeepEqual(comments, want) {
 		t.Errorf("comments = %q", comments)
@@ -173,7 +173,7 @@ func TestAConflictRoundMergesWhenTheBaseBranchMovesDuringTheRound(t *testing.T) 
 		t.Errorf("Implementers = %+v", sessions)
 	}
 	runs := fake.CheckRuns(shop)
-	if len(runs) != 2 || runs[1].HeadSHA != head(t, fake, "mobius/41") || runs[1].Conclusion != "success" {
+	if len(runs) != 2 || runs[1].HeadSHA != head(t, fake, "mobius/41") || runs[1].Status != "in_progress" {
 		t.Errorf("check runs = %+v", runs)
 	}
 	if hasLabel(fake, "mobius:needs-human") {

@@ -34,6 +34,20 @@ type CheckRunOutput struct {
 	Summary string `json:"summary"`
 }
 
+// WorkflowRun is a workflow run of GitHub Actions on a commit.
+type WorkflowRun struct {
+	HeadSHA    string
+	WorkflowID int64
+	Status     string
+	// Conclusion is "" while the workflow run runs.
+	Conclusion string
+}
+
+type workflowRun struct {
+	repository string
+	WorkflowRun
+}
+
 type pullRequest struct {
 	repository string
 	PullRequest
@@ -70,6 +84,14 @@ func (g *FakeGitHub) PullRequests(repository string) []PullRequest {
 	return found
 }
 
+// SetDraft sets the draft status of the pull request number of repository.
+func (g *FakeGitHub) SetDraft(repository string, number int64, draft bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	index := slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == repository && pull.Number == number })
+	g.pullRequests[index].Draft = draft
+}
+
 // MergePullRequest marks the pull request as merged and closed. The branch stays.
 func (g *FakeGitHub) MergePullRequest(repository string, number int64) {
 	g.mu.Lock()
@@ -95,6 +117,14 @@ func (g *FakeGitHub) SetBehind(repository string, number int64) {
 	g.behind[issueKey{repository, number}] = true
 }
 
+// SetMergeableUnknown makes the pull request give mergeable null, as GitHub does while it calculates the merge, or
+// gives its mergeable back.
+func (g *FakeGitHub) SetMergeableUnknown(repository string, number int64, unknown bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.unknownMergeable[issueKey{repository, number}] = unknown
+}
+
 // CheckRuns gives the check runs of repository, in the order of their creation.
 func (g *FakeGitHub) CheckRuns(repository string) []CheckRun {
 	g.mu.Lock()
@@ -114,6 +144,30 @@ func (g *FakeGitHub) AddCheckRun(repository string, run CheckRun) int64 {
 	defer g.mu.Unlock()
 	g.checkRuns = append(g.checkRuns, checkRun{repository, run})
 	return int64(len(g.checkRuns))
+}
+
+// SetCheckRunStatus sets the status and the conclusion of the check run id.
+func (g *FakeGitHub) SetCheckRunStatus(id int64, status, conclusion string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.checkRuns[id-1].Status = status
+	g.checkRuns[id-1].Conclusion = conclusion
+}
+
+// AddWorkflowRun adds the workflow run of GitHub Actions to repository, and gives its id.
+func (g *FakeGitHub) AddWorkflowRun(repository string, run WorkflowRun) int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.workflowRuns = append(g.workflowRuns, workflowRun{repository, run})
+	return int64(len(g.workflowRuns))
+}
+
+// SetWorkflowRunStatus sets the status and the conclusion of the workflow run id.
+func (g *FakeGitHub) SetWorkflowRunStatus(id int64, status, conclusion string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.workflowRuns[id-1].Status = status
+	g.workflowRuns[id-1].Conclusion = conclusion
 }
 
 // AddAnnotation adds an annotation on line of path with message to the check run id.
@@ -191,6 +245,10 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		state = "behind"
 	}
 	found := g.issues[key]
+	var mergeableValue any = mergeable
+	if g.unknownMergeable[key] {
+		mergeableValue = nil
+	}
 	return map[string]any{
 		"number":          number,
 		"node_id":         fmt.Sprintf("PR_%d", number),
@@ -199,7 +257,7 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		"merged":          found.merged,
 		"head":            map[string]string{"sha": strings.TrimSpace(string(head)), "ref": pull.Head},
 		"draft":           pull.Draft,
-		"mergeable":       mergeable,
+		"mergeable":       mergeableValue,
 		"mergeable_state": state,
 		"created_at":      timestamp(g.createdAt[key]),
 	}
@@ -348,4 +406,21 @@ func (g *FakeGitHub) jobLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = w.Write([]byte(log))
+}
+
+func (g *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	runs := []map[string]any{}
+	for index, run := range g.workflowRuns {
+		if run.repository != repository(r) || run.HeadSHA != r.URL.Query().Get("head_sha") {
+			continue
+		}
+		body := map[string]any{"id": index + 1, "workflow_id": run.WorkflowID, "head_sha": run.HeadSHA, "status": run.Status}
+		if run.Conclusion != "" {
+			body["conclusion"] = run.Conclusion
+		}
+		runs = append(runs, body)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(runs), "workflow_runs": page(w, r, runs)})
 }

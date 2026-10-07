@@ -13,9 +13,9 @@ import (
 	_ "modernc.org/sqlite" // registers the database/sql driver "sqlite"
 )
 
-// The migration files are copies of the migration files of the Rust version
-// (crates/mobius-store/migrations in Mobius-Toolkit/Mobius-rust). They have no goose
-// annotations, so each file runs as one Go migration.
+// The migration files up to 20261003000000_workstream_copy.sql are copies of the migration
+// files of the Rust version (crates/mobius-store/migrations in Mobius-Toolkit/Mobius-rust,
+// which is archived). The files have no goose annotations, so each file runs as one Go migration.
 //
 //go:embed migrations/*.sql
 var migrations embed.FS

@@ -19,11 +19,11 @@ const (
 	fixesNothing = "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"true\"\n\n" + commits
 )
 
-// readyForReview dispatches #41, waits until its task is ready for review, and gives the head of its branch.
-func readyForReview(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) string {
+// approvalHead dispatches #41, waits until its task waits for the Lead, and gives the head of its branch.
+func approvalHead(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) string {
 	t.Helper()
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 	return head(t, fake, "mobius/41")
 }
 
@@ -62,7 +62,7 @@ func implementers(t *testing.T, server *testserver.Server) int {
 func TestAFailedCheckRunOnTheHeadStartsAFixRoundWithTheCheckAndItsAnnotations(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
-	sha := readyForReview(t, server, fake)
+	sha := approvalHead(t, server, fake)
 
 	id := fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	fake.AddAnnotation(id, "plan.txt", 1, "Store the unit.")
@@ -78,7 +78,7 @@ func TestAFailedCheckRunOnTheHeadStartsAFixRoundWithTheCheckAndItsAnnotations(t 
 			t.Errorf("%q is not in %s", part, round)
 		}
 	}
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" && head(t, fake, "mobius/41") != sha })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" && head(t, fake, "mobius/41") != sha })
 	if task := liveTask(t, server, 41); task.FixRounds != 1 {
 		t.Errorf("fix rounds = %d", task.FixRounds)
 	}
@@ -93,8 +93,8 @@ func TestAFailedCheckRunMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *t
 	goFile := filepath.Join(dataDir, "go")
 	round := fmt.Sprintf("[[prompts]]\nwhen = \"Action: fix\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\n\n", goFile)
 	server, _ := connectTaskIn(t, fake, dataDir, leadStarts, round+commits, noChange)
-	sha := readyForReview(t, server, fake)
-	testkit.WaitFor(t, func() bool { return !fake.PullRequests(shop)[0].Draft })
+	sha := approvalHead(t, server, fake)
+	fake.SetDraft(shop, 42, false)
 
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 
@@ -105,14 +105,16 @@ func TestAFailedCheckRunMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *t
 
 	touch(t, goFile)
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
-	testkit.WaitFor(t, func() bool { return !fake.PullRequests(shop)[0].Draft })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
+	if !fake.PullRequests(shop)[0].Draft {
+		t.Error("the pull request is ready for review before the approval of the Lead")
+	}
 }
 
 func TestAFailedGitHubActionsCheckRunGivesTheLast200LinesOfItsJobLog(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
-	sha := readyForReview(t, server, fake)
+	sha := approvalHead(t, server, fake)
 
 	id := fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	fake.SetCheckRunApp(id, "github-actions")
@@ -133,7 +135,7 @@ func TestAFailedGitHubActionsCheckRunGivesTheLast200LinesOfItsJobLog(t *testing.
 func TestAFailedCheckRunOfADifferentAppGivesNoJobLog(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
-	sha := readyForReview(t, server, fake)
+	sha := approvalHead(t, server, fake)
 
 	id := fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	fake.SetCheckRunApp(id, "other-ci")
@@ -148,7 +150,7 @@ func TestAFailedCheckRunOfADifferentAppGivesNoJobLog(t *testing.T) {
 func TestAFailedJobLogDownloadStillStartsTheFixRound(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
-	sha := readyForReview(t, server, fake)
+	sha := approvalHead(t, server, fake)
 
 	id := fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	fake.SetCheckRunApp(id, "github-actions")
@@ -165,15 +167,15 @@ func TestAFailedJobLogDownloadStillStartsTheFixRound(t *testing.T) {
 	}
 }
 
-func TestAFailedCheckRunOnTheSameHeadStartsOneFixRound(t *testing.T) {
+func TestAFailedCheckRunOnTheSameHeadStartsOneFixRoundAndThenHandsTheTaskToAHuman(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixesNothing, noChange)
-	sha := readyForReview(t, server, fake)
+	sha := approvalHead(t, server, fake)
 
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
 	endedImplementers(t, server, 2)
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
 	if got := head(t, fake, "mobius/41"); got != sha {
 		t.Errorf("head = %s", got)
 	}
@@ -182,9 +184,6 @@ func TestAFailedCheckRunOnTheSameHeadStartsOneFixRound(t *testing.T) {
 	if count := implementers(t, server); count != 2 {
 		t.Errorf("Implementers = %d", count)
 	}
-	if state := taskState(t, server); state != "ready_for_review" {
-		t.Errorf("state = %s", state)
-	}
 }
 
 func TestACancelledOrTimedOutCheckRunOnTheHeadStartsAFixRound(t *testing.T) {
@@ -192,7 +191,7 @@ func TestACancelledOrTimedOutCheckRunOnTheHeadStartsAFixRound(t *testing.T) {
 		t.Run(conclusion, func(t *testing.T) {
 			fake := testkit.NewFakeGitHub(t)
 			server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
-			sha := readyForReview(t, server, fake)
+			sha := approvalHead(t, server, fake)
 
 			fake.AddCheckRun(shop, checkRun("build", sha, "completed", conclusion))
 
@@ -204,7 +203,7 @@ func TestACancelledOrTimedOutCheckRunOnTheHeadStartsAFixRound(t *testing.T) {
 func TestAFailedCheckRunMobiusHasNoEffect(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
-	sha := readyForReview(t, server, fake)
+	sha := approvalHead(t, server, fake)
 
 	fake.AddCheckRun(shop, checkRun("Mobius", sha, "completed", "failure"))
 	round := sentinelRound(t, server, fake, sha)
@@ -217,7 +216,7 @@ func TestAFailedCheckRunMobiusHasNoEffect(t *testing.T) {
 func TestARunningCheckRunAndAPassedCheckRunHaveNoEffect(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
-	sha := readyForReview(t, server, fake)
+	sha := approvalHead(t, server, fake)
 
 	fake.AddCheckRun(shop, checkRun("running", sha, "in_progress", ""))
 	fake.AddCheckRun(shop, checkRun("passed", sha, "completed", "success"))
@@ -231,7 +230,7 @@ func TestARunningCheckRunAndAPassedCheckRunHaveNoEffect(t *testing.T) {
 func TestAFailedCheckRunAtMaxFixRoundsHandsTheTaskToAHuman(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
-	sha := readyForReview(t, server, fake)
+	sha := approvalHead(t, server, fake)
 	if _, err := server.DB.Exec("UPDATE tasks SET fix_rounds = 1 WHERE issue = 41"); err != nil {
 		t.Fatal(err)
 	}

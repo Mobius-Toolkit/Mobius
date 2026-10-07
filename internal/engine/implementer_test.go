@@ -95,13 +95,11 @@ func checkRuns(t *testing.T, fake *testkit.FakeGitHub) []testkit.CheckRun {
 	})
 }
 
-// readyCheckRuns waits until the pull request of #41 is ready for review, and gives the check runs. With no review,
-// the head that the Implementer pushed is ready for review at once. Mobius adds the Inbox item after the check run.
-func readyCheckRuns(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) []testkit.CheckRun {
+// approvalCheckRuns waits until the task of #41 waits for the Lead, and gives the check runs. A head with no CI waits
+// for review_quiet_period before the task waits for the Lead.
+func approvalCheckRuns(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) []testkit.CheckRun {
 	t.Helper()
-	testkit.WaitFor(t, func() bool {
-		return slices.ContainsFunc(inbox(t, server), func(item inboxItem) bool { return item.Kind == "ready for review" })
-	})
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 	return fake.CheckRuns(shop)
 }
 
@@ -163,11 +161,11 @@ func TestTheImplementerCommitsAndMobiusOpensADraftPullRequest(t *testing.T) {
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
-	runs := readyCheckRuns(t, server, fake)
-	if want := []testkit.PullRequest{{Number: 42, Title: "Add plan model", Body: "Closes #41", Head: "mobius/41", Base: "main"}}; !reflect.DeepEqual(fake.PullRequests(shop), want) {
+	runs := approvalCheckRuns(t, server, fake)
+	if want := []testkit.PullRequest{{Number: 42, Title: "Add plan model", Body: "Closes #41", Head: "mobius/41", Base: "main", Draft: true}}; !reflect.DeepEqual(fake.PullRequests(shop), want) {
 		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
 	}
-	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: head(t, fake, "mobius/41"), Status: "completed", Conclusion: "success"}}; !reflect.DeepEqual(runs, want) {
+	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: head(t, fake, "mobius/41"), Status: "in_progress"}}; !reflect.DeepEqual(runs, want) {
 		t.Errorf("check runs = %+v", runs)
 	}
 	author := testkit.Git(t, fake.Remote(shop), "log", "-1", "--format=%s by %an <%ae>", "mobius/41")
@@ -323,8 +321,8 @@ func TestAFailedCheckGoesBackToTheSameImplementerWithTheOutput(t *testing.T) {
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
-	runs := readyCheckRuns(t, server, fake)
-	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: head(t, fake, "mobius/41"), Status: "completed", Conclusion: "success"}}; !reflect.DeepEqual(runs, want) {
+	runs := approvalCheckRuns(t, server, fake)
+	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: head(t, fake, "mobius/41"), Status: "in_progress"}}; !reflect.DeepEqual(runs, want) {
 		t.Errorf("check runs = %+v", runs)
 	}
 	if plan := testkit.Git(t, fake.Remote(shop), "show", "mobius/41:plan.txt"); plan != "cents" {
@@ -424,8 +422,8 @@ func TestACheckOnAFullDiskWaitsForFreeSpaceWithNoPromptAndNoAttemptAndThenPushes
 
 	testkit.SetFreeSpace(t, dataDir, 20<<20)
 
-	runs := readyCheckRuns(t, server, fake)
-	if len(runs) != 1 || runs[0].Conclusion != "success" {
+	runs := approvalCheckRuns(t, server, fake)
+	if len(runs) != 1 || runs[0].Status != "in_progress" {
 		t.Errorf("check runs = %+v", runs)
 	}
 	if len(fake.PullRequests(shop)) != 1 {
@@ -635,7 +633,7 @@ func TestSendDetailsStopsTheTurnAndSendsTheDetailsInTheSameSession(t *testing.T)
 
 	sendChat(t, server, leadChat, "Send the details to #41.")
 
-	readyCheckRuns(t, server, fake)
+	approvalCheckRuns(t, server, fake)
 	if sessions := roleSessions(t, server, engine.ImplementerRole); len(sessions) != 1 || sessions[0].ID != session.ID {
 		t.Errorf("sessions = %+v", sessions)
 	}
