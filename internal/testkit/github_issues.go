@@ -88,7 +88,6 @@ type issueJSON struct {
 	RepositoryURL string     `json:"repository_url"`
 	State         string     `json:"state"`
 	UpdatedAt     string     `json:"updated_at"`
-	Comments      int        `json:"comments"`
 	Labels        []nameJSON `json:"labels"`
 	PullRequest   *urlJSON   `json:"pull_request,omitempty"`
 	// GitHub gives no dependency summary for a pull request.
@@ -427,7 +426,6 @@ func (g *FakeGitHub) issueJSON(key issueKey) issueJSON {
 		RepositoryURL: "https://api.github.com/repos/" + key.repository,
 		State:         found.state,
 		UpdatedAt:     timestamp(found.updatedAt),
-		Comments:      len(found.comments),
 		Labels:        labels,
 	}
 	if found.pullRequest {
