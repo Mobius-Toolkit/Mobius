@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
+import { dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { BackButton } from "./BackButton";
 
@@ -48,6 +49,7 @@ function AgentRow({ row, onOpen }: { row: ActiveAgent; onOpen: (agent: Agent) =>
               agent.role,
               agent.organization,
               (agent.workstream !== 0 || agent.issue != null) && agent.repository,
+              dayClock(agent.startedAt),
               agent.queueReason,
             ]
               .filter(Boolean)

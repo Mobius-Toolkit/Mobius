@@ -128,6 +128,22 @@ test("screenshots", async ({ page }) => {
   );
   await screenshot(
     page,
+    "chat-agents",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      page
+        .getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/)
+        .filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await main.getByRole("button", { name: "Agents" }).click();
+      }
+    },
+  );
+  await screenshot(
+    page,
     "chat-tasks",
     "/workstreams/owner/shop/12",
     (device) => [
@@ -205,7 +221,7 @@ test("screenshots", async ({ page }) => {
   ).toBe(true);
   await screenshot(page, "agents", "/agents", (device) => [
     ...frame(device, drain),
-    main.getByText("Mobius prepares an upgrade"),
+    main.getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/),
   ]);
   await screenshot(
     page,
