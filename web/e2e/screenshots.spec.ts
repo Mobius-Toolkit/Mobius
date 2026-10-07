@@ -203,6 +203,24 @@ test("screenshots", async ({ page }) => {
       `${wide("main pre")} && ${wide("main table")} && document.documentElement.scrollWidth <= window.innerWidth`,
     ),
   ).toBe(true);
+  await screenshot(
+    page,
+    "transcript-panel",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      page.getByText("The plan prices are in cents now.").filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await main.getByRole("button", { name: "Agents" }).click();
+      }
+      await page
+        .getByRole("button", { name: /implementer devin · swe-1.5 · Sep/ })
+        .filter({ visible: true })
+        .click();
+    },
+  );
   await screenshot(page, "agents", "/agents", (device) => [
     ...frame(device, drain),
     main.getByText("Mobius prepares an upgrade"),
