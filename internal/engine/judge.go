@@ -366,7 +366,7 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	return a.Prompt(ctx, prompt)
+	return a.Prompt(ctx, prompt, nil)
 }
 
 // route acts on the verdicts of the Judge: a reject replies with its reason, a follow-up goes to the Lead, and the fix

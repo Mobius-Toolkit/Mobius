@@ -163,6 +163,9 @@ INSERT INTO chat_messages (organization, repository, workstream, author, time, t
 VALUES (?, ?, ?, ?, ?, ?)
 RETURNING *;
 
+-- name: DeleteChatMessage :exec
+DELETE FROM chat_messages WHERE id = ?;
+
 -- name: AppendChatMessage :one
 UPDATE chat_messages SET text = text || sqlc.arg(text) WHERE id = sqlc.arg(id)
 RETURNING *;

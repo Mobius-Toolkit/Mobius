@@ -84,7 +84,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		return a.Fail(ended, err)
 	}
 	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n#%d %s\n\n%s", triagerPrompt, workstreams, number, issue.GetTitle(), issue.GetBody())
-	err = a.Prompt(ctx, prompt)
+	err = a.Prompt(ctx, prompt, nil)
 	switch {
 	case ctx.Err() != nil:
 		return a.End(ended, "stopped")

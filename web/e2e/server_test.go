@@ -308,7 +308,7 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go func() { _ = implementer.Prompt(ctx, "Store the plan prices in cents.") }()
+	go func() { _ = implementer.Prompt(ctx, "Store the plan prices in cents.", nil) }()
 	lead := engine.Spec{Role: engine.LeadRole, Organization: "owner", Repository: "owner/shop", Workstream: 12, Dir: t.TempDir()}
 	if _, err := server.Engine.Start(ctx, lead); err != nil {
 		t.Fatal(err)
@@ -349,7 +349,7 @@ func TestServer(t *testing.T) {
 // chat sends the Owner message text to the chat of key, and waits for the reply of author and the end of the session.
 func chat(ctx context.Context, t *testing.T, server *testserver.Server, key engine.ChatKey, text, author string) {
 	t.Helper()
-	if err := server.Engine.SendChat(ctx, key, text); err != nil {
+	if err := server.Engine.SendChat(ctx, key, text, nil); err != nil {
 		t.Fatal(err)
 	}
 	waitForChat(t, server, key, author)
