@@ -71,11 +71,14 @@ const shows = (text: string, place: "top" | "end") => `(() => {
 })()`;
 
 async function say(page: Page, text: string) {
-  await page.evaluate(`fetch('/api/chat/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ organization: 'owner', repository: 'owner/shop', workstream: 13, text: ${JSON.stringify(text)} }),
-  })`);
+  await page.evaluate(`(() => {
+    const form = new FormData()
+    form.append('organization', 'owner')
+    form.append('repository', 'owner/shop')
+    form.append('workstream', '13')
+    form.append('text', ${JSON.stringify(text)})
+    return fetch('/api/chat/messages', { method: 'POST', body: form })
+  })()`);
 }
 
 const runningLeads = async (page: Page) =>
