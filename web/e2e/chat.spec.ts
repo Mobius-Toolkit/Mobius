@@ -70,6 +70,122 @@ const shows = (text: string, place: "top" | "end") => `(() => {
   }
 })()`;
 
+async function say(page: Page, text: string) {
+  await page.evaluate(`(() => {
+    const form = new FormData()
+    form.append('organization', 'owner')
+    form.append('repository', 'owner/shop')
+    form.append('workstream', '13')
+    form.append('text', ${JSON.stringify(text)})
+    return fetch('/api/chat/messages', { method: 'POST', body: form })
+  })()`);
+}
+
+const runningLeads = async (page: Page) =>
+  (
+    await get<{ role: string; endedAt: string | null }[]>(
+      page,
+      "/api/workstreams/owner/shop/13/agents",
+    )
+  ).filter((agent) => agent.role === "lead_chat" && agent.endedAt === null).length;
+
+const leadRow = (page: Page) =>
+  page.getByRole("main").getByRole("button", { name: /Lead chat session/ });
+
+// The fake agent is busy for some seconds before its reply, so the new Lead session of owner/shop#13 runs while the
+// log opens. The Lead session of a test ends before the next test starts. These tests come first, because the later
+// tests leave Lead sessions that run, and no slot is free for a new Lead.
+test.describe("the agent log of a running Lead", () => {
+  const seasonal = "/workstreams/owner/shop/13";
+  test.afterEach(async ({ page }) => {
+    await expect.poll(() => runningLeads(page), { timeout: 15_000 }).toBe(0);
+  });
+
+  test("the side panel shows a new entry with no reload", async ({ page }) => {
+    await page.goto(seasonal);
+    const tree = page.getByRole("complementary");
+    await say(page, "Which tulips sell best?");
+    await tree
+      .getByRole("button", { name: /Lead chat session/ })
+      .filter({ hasNotText: "stopped" })
+      .click();
+    await page.evaluate("window.sameDocument = true");
+    await expect(tree.getByText("Yellow tulips sell best.")).toBeVisible({ timeout: 15_000 });
+    expect(await page.evaluate("window.sameDocument")).toBe(true);
+  });
+
+  test("the agents page shows a new entry with no reload", async ({ page }) => {
+    await page.goto("/agents");
+    await say(page, "Which daisies sell best?");
+    await leadRow(page).filter({ hasText: "Workstream #13" }).click();
+    await page.evaluate("window.sameDocument = true");
+    await expect(page.getByRole("main").getByText("White daisies sell best.")).toBeVisible({
+      timeout: 15_000,
+    });
+    expect(await page.evaluate("window.sameDocument")).toBe(true);
+  });
+
+  test("the log shows the entries that arrived while the same live connection was down", async ({
+    page,
+  }) => {
+    await page.addInitScript(`
+      window.lostTranscripts = false;
+      window.sources = [];
+      const add = EventSource.prototype.addEventListener;
+      EventSource.prototype.addEventListener = function (type, listener, options) {
+        if (this.url.endsWith('/api/events') && !window.sources.includes(this)) {
+          window.sources.push(this);
+        }
+        if (type === 'transcript') {
+          return add.call(this, type, (event) => {
+            if (!window.lostTranscripts) {
+              listener(event);
+            }
+          }, options);
+        }
+        return add.call(this, type, listener, options);
+      };
+    `);
+    await page.goto("/agents");
+    const main = page.getByRole("main");
+    await say(page, "Which poppies sell best?");
+    await leadRow(page).filter({ hasText: "Workstream #13" }).click();
+    await page.evaluate("window.lostTranscripts = true");
+
+    await expect.poll(() => runningLeads(page), { timeout: 15_000 }).toBe(0);
+    await expect(main.getByText("Orange poppies sell best.")).toBeHidden();
+
+    await page.evaluate(`window.lostTranscripts = false;
+      window.sources.forEach((source) => source.dispatchEvent(new Event('open')))`);
+    await expect(main.getByText("Orange poppies sell best.")).toBeVisible();
+  });
+
+  test("the log shows the entries that arrived while the live connection was down", async ({
+    page,
+  }) => {
+    await page.goto("/agents");
+    const main = page.getByRole("main");
+    await say(page, "Which lilies sell best?");
+    await leadRow(page).filter({ hasText: "Workstream #13" }).click();
+    await page.evaluate("window.sameDocument = true");
+    let refused = 0;
+    await page.route("/api/events", (route) => {
+      refused++;
+      return route.abort();
+    });
+    await page.evaluate("window.dispatchEvent(new Event('online'))");
+    await expect.poll(() => refused).toBeGreaterThan(0);
+
+    await expect.poll(() => runningLeads(page), { timeout: 15_000 }).toBe(0);
+    await expect(main.getByText("Pink lilies sell best.")).toBeHidden();
+
+    await page.unroute("/api/events");
+    await page.evaluate("window.dispatchEvent(new Event('online'))");
+    await expect(main.getByText("Pink lilies sell best.")).toBeVisible();
+    expect(await page.evaluate("window.sameDocument")).toBe(true);
+  });
+});
+
 test("Enter sends, and Shift+Enter adds a line on a desktop", async ({ page }) => {
   await page.goto(shop);
   const input = page.getByLabel("Message to the Lead");
