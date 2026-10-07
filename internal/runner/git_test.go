@@ -13,6 +13,7 @@ func gitIn(t *testing.T, dir string, args ...string) {
 	cmd := exec.Command("git", "-c", "user.name=Test", "-c", "user.email=test@example.com")
 	cmd.Args = append(cmd.Args, args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, out)
 	}
