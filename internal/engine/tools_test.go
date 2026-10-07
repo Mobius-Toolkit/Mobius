@@ -79,7 +79,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"ask", "comment_pull_request", "create_issue", "create_workstream", "decline", "hold_event", "list_tasks", "mark_ready", "move_task", "read_issue", "reply_thread", "send_details", "start_fix_round", "start_implementer", "start_researcher", "stop_task", "tell_owner"}
+	want := []string{"ask", "comment_pull_request", "create_issue", "create_workstream", "decline", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "read_issue", "reply_thread", "send_details", "start_fix_round", "start_implementer", "start_researcher", "stop_task", "tell_owner"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}
@@ -486,6 +486,36 @@ func TestMessageLeadSendsTheMessageToTheLeadOfAnOpenWorkstream(t *testing.T) {
 	}
 	if prompts := leadPrompts(t, server); len(prompts) == 0 || !strings.HasSuffix(prompts[0], "# Event\n\n"+text) {
 		t.Errorf("prompts = %q", prompts)
+	}
+}
+
+func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("message_lead", `{ workstream = 20, text = "Create the task issues." }`)+
+		call("message_lead", `{ workstream = 12, text = "Create the task issues." }`)+
+		call("message_lead", `{ workstream = 21, text = "Create the task issues." }`))
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 21, "Not a Workstream")
+
+	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ")
+
+	want := "Sent the message to the Lead of #20." +
+		"error: A Lead cannot send a message to its own Workstream." +
+		"error: #21 is not an open Workstream."
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q", got)
+	}
+	toLead20 := func() []leadEvent {
+		return slices.DeleteFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Workstream != 20 || event.Kind != "lead" })
+	}
+	testkit.WaitFor(t, func() bool {
+		events := toLead20()
+		return len(events) > 0 && events[0].Delivered
+	})
+	text := "Message of the Lead of #12, approved by the Owner:\n\nCreate the task issues."
+	if events := toLead20(); !reflect.DeepEqual(events, []leadEvent{{Workstream: 20, Kind: "lead", Payload: text, Delivered: true}}) {
+		t.Errorf("events = %v", events)
 	}
 }
 

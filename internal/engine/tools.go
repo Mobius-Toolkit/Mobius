@@ -148,6 +148,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue."},
 				},
 				e.moveTask),
+			tool(e, c, "message_lead",
+				"Send a message to the Lead of a different open Workstream in this repository. Call it only after the Owner approves the target Workstream and the exact message in the chat.",
+				map[string]any{
+					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue."},
+					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
+				},
+				e.messageLead),
 			tool(e, c, "hold_event",
 				"Hold the event of this turn until the Owner decides. Mobius sends the event again after the end of your next reply to the Owner. A later event of the same task issue waits behind it. Call it only in a turn for an event.",
 				map[string]any{},
@@ -693,7 +700,13 @@ func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repo
 }
 
 func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Repository, input messageLeadInput) (string, error) {
-	if c.repository != "" {
+	kind, sender := "triager", "the Triager"
+	if c.role == LeadRole {
+		kind, sender = "lead", fmt.Sprintf("the Lead of #%d", c.workstream)
+		if input.Workstream == c.workstream {
+			return "", refuse("A Lead cannot send a message to its own Workstream.")
+		}
+	} else if c.repository != "" {
 		return "", refuse("Only the Triager chat sends a message to a Lead, after the Owner approves it.")
 	}
 	if empty(input.Text) {
@@ -702,8 +715,8 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 	if err := openWorkstream(ctx, repository, input.Workstream); err != nil {
 		return "", err
 	}
-	text := "Message of the Triager, approved by the Owner:\n\n" + input.Text
-	if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, "triager", text); err != nil {
+	text := fmt.Sprintf("Message of %s, approved by the Owner:\n\n%s", sender, input.Text)
+	if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, kind, text); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Sent the message to the Lead of #%d.", input.Workstream), nil
