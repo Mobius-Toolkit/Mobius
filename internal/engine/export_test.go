@@ -10,6 +10,7 @@ var (
 	ToolsTimeout  = &toolsTimeout
 	RestartDelays = &restartDelays
 	HangTimeout   = &hangTimeout
+	ErrHung       = errHung
 	AbsorbTimeout = &absorbTimeout
 )
 

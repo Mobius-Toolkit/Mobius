@@ -124,28 +124,70 @@ func TestAnAbsorbedPromptGetsACancelAfterTheGraceTimeAndTheWorkContinues(t *test
 	}
 }
 
-func TestALostEndSignalEndsTheWaitWithANoteAndNoRetry(t *testing.T) {
+func TestALostEndSignalGetsARetryPromptInTheSameSession(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\n"+startsTask+"reply = [\"Started\"]\n\n[[prompts]]\nreply = [\"Done\"]\n")
 	agent := start(t, server, leadSpec(t))
 
-	for _, text := range []string{"One", "Two"} {
-		if err := agent.Prompt(t.Context(), text); err != nil {
-			t.Fatal(err)
-		}
+	if err := agent.Prompt(t.Context(), "One"); err != nil {
+		t.Fatal(err)
 	}
 
-	notes := noteTexts(t, server, agent.ID())
-	want := "The agent had no activity for 300ms while Mobius waited for its background tasks. Mobius continues."
-	if !slices.Equal(notes, []string{want}) {
-		t.Errorf("notes = %q", notes)
-	}
-	if prompts := promptTexts(t, server, agent.ID()); len(prompts) != 2 {
+	prompts := promptTexts(t, server, agent.ID())
+	if len(prompts) != 2 || !strings.Contains(prompts[1], "You had no activity for 15 minutes. You are probably stuck.") {
 		t.Errorf("prompts = %q", prompts)
 	}
-	if text := reply(t, server, agent.ID()); text != "StartedDone" {
-		t.Errorf("reply = %q", text)
+	notes := noteTexts(t, server, agent.ID())
+	if len(notes) != 1 || !strings.Contains(notes[0], "retry 1 of 3") {
+		t.Errorf("notes = %q", notes)
+	}
+	if err := agent.End(t.Context(), "done"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestALostEndSignalAfterTheThirdRetryStopsTheSession(t *testing.T) {
+	shortHang(t)
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, strings.Repeat("[[prompts]]\n"+startsTask+"reply = [\"Started\"]\n\n", 4))
+	agent := start(t, server, leadSpec(t))
+
+	err := agent.Prompt(t.Context(), "One")
+
+	if !errors.Is(err, engine.ErrHung) {
+		t.Fatalf("Prompt = %v", err)
+	}
+	if prompts := promptTexts(t, server, agent.ID()); len(prompts) != 4 {
+		t.Errorf("prompts = %q", prompts)
+	}
+	notes := noteTexts(t, server, agent.ID())
+	if len(notes) != 4 || !strings.Contains(notes[3], "Mobius stops the session") {
+		t.Errorf("notes = %q", notes)
+	}
+	if err := agent.End(t.Context(), "done"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTwoTasksThatEndInTheOppositeOrderAreNotWaitedTasks(t *testing.T) {
+	shortHang(t)
+	fake := testkit.NewFakeGitHub(t)
+	updates := []string{
+		`{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "_meta": {"claudeCode": {"toolName": "Bash", "toolResponse": {"backgroundTaskId": "b1"}}}}`,
+		`{"sessionUpdate": "tool_call_update", "toolCallId": "t2", "_meta": {"claudeCode": {"toolName": "Bash", "toolResponse": {"backgroundTaskId": "b2"}}}}`,
+		endUpdate,
+		`{"sessionUpdate": "tool_call_update", "toolCallId": "t3", "_meta": {"claudeCode": {"toolName": "BashOutput", "toolResponse": {"shellId": "b1", "status": "completed"}}}}`,
+	}
+	server, _ := connect(t, fake, "[[prompts]]\nupdates = ['"+strings.Join(updates, "', '")+"']\nreply = [\"Done\"]\n")
+	agent := start(t, server, leadSpec(t))
+
+	if err := agent.Prompt(t.Context(), "One"); err != nil {
+		t.Fatal(err)
+	}
+
+	if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
+		t.Errorf("notes = %q", notes)
 	}
 	if err := agent.End(t.Context(), "done"); err != nil {
 		t.Fatal(err)

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"time"
 )
@@ -41,6 +40,7 @@ func (a *Agent) track(notification map[string]any, kind string) {
 			default:
 			}
 		}
+		// The origin has no task id, so the oldest task counts as the one that ended.
 		if origin == "task-notification" && len(a.tasks) > 0 {
 			a.tasks = a.tasks[1:]
 		}
@@ -52,7 +52,9 @@ func (a *Agent) track(notification map[string]any, kind string) {
 
 // trackTasks adds the background task that a tool call update starts, and removes the task that a TaskStop or a
 // KillShell tool call stops, or that a BashOutput or a TaskOutput tool call shows with a final status. A turn that
-// reads the final status of a task takes the task notification into itself, so no autonomous end follows. A Monitor that is persistent has no end that Mobius can wait for, so it does not count.
+// reads the final status of a task takes the task notification into itself, so no autonomous end follows. A final
+// status of a task that is not in the list takes the oldest task: an autonomous end can have taken the id of
+// that task for another id. A Monitor that is persistent has no end that Mobius can wait for, so it does not count.
 func (a *Agent) trackTasks(update any) {
 	response := field(update, "_meta", "claudeCode", "toolResponse")
 	id := stringField(response, "backgroundTaskId")
@@ -66,6 +68,7 @@ func (a *Agent) trackTasks(update any) {
 		a.tasks = append(a.tasks, id)
 	}
 	ended := ""
+	shown := false
 	switch stringField(update, "_meta", "claudeCode", "toolName") {
 	case "TaskStop":
 		ended = stringField(response, "task_id")
@@ -74,14 +77,21 @@ func (a *Agent) trackTasks(update any) {
 	case "BashOutput":
 		if isFinalStatus(stringField(response, "status")) {
 			ended = stringField(response, "shellId")
+			shown = true
 		}
 	case "TaskOutput":
 		if isFinalStatus(stringField(response, "task", "status")) {
 			ended = stringField(response, "task", "task_id")
+			shown = true
 		}
 	}
-	if index := slices.Index(a.tasks, ended); ended != "" && index >= 0 {
+	if ended == "" {
+		return
+	}
+	if index := slices.Index(a.tasks, ended); index >= 0 {
 		a.tasks = slices.Delete(a.tasks, index, index+1)
+	} else if shown && len(a.tasks) > 0 {
+		a.tasks = a.tasks[1:]
 	}
 }
 
@@ -90,8 +100,8 @@ func isFinalStatus(status string) bool {
 }
 
 // waitQuiet holds until no autonomous turn runs and no background task is live. When the agent has no activity for
-// hangTimeout, no Mobius prompt runs, so the agent is not stuck in a turn: waitQuiet adds a note, forgets the tasks
-// and the turn, and gives nil.
+// hangTimeout, no Mobius prompt runs and the agent is stuck in an autonomous turn or has lost the end of a task:
+// waitQuiet sends the cancel, forgets the tasks and the turn, and gives errHung.
 func (a *Agent) waitQuiet(ctx context.Context) error {
 	ticker := time.NewTicker(quietPoll)
 	defer ticker.Stop()
@@ -102,13 +112,16 @@ func (a *Agent) waitQuiet(ctx context.Context) error {
 		if a.activity.After(last) {
 			last = a.activity
 		}
-		if busy && time.Since(last) >= hangTimeout {
+		hung := busy && time.Since(last) >= hangTimeout
+		if hung {
 			a.autonomous = false
 			a.tasks = nil
-			a.mu.Unlock()
-			return a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s while Mobius waited for its background tasks. Mobius continues.", hangTimeout))
 		}
 		a.mu.Unlock()
+		if hung {
+			_ = a.cancel(ctx)
+			return errHung
+		}
 		if !busy {
 			return nil
 		}

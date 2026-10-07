@@ -349,7 +349,11 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 	retrying := false
 	for {
 		if !retrying {
-			if err := a.waitQuiet(ctx); err != nil {
+			err := a.waitQuiet(ctx)
+			if errors.Is(err, errHung) {
+				text, err = a.retryHang(ctx)
+			}
+			if err != nil {
 				return err
 			}
 		}
@@ -394,20 +398,19 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 			a.mu.Unlock()
 		}
 		if err == nil {
-			if err := a.waitQuiet(ctx); err != nil {
+			err = a.waitQuiet(ctx)
+			if err == nil {
+				return a.engine.endPauseSince(ctx, paused)
+			}
+			if !errors.Is(err, errHung) {
 				return err
 			}
-			return a.engine.endPauseSince(ctx, paused)
+			retrying = a.retries < maxRetries
 		}
 		if errors.Is(err, errHung) {
-			if !retrying {
-				return errors.Join(err, a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s after %d retries. Mobius stops the session.", hangTimeout, maxRetries)))
-			}
-			a.retries++
-			if err := a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s. Mobius stopped the turn and sends retry %d of %d.", hangTimeout, a.retries, maxRetries)); err != nil {
+			if text, err = a.retryHang(ctx); err != nil {
 				return err
 			}
-			text = retryText(a.spec.Role)
 			continue
 		}
 		limited, waitErr := a.waitOutLimit(ctx, err)
