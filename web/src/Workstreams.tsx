@@ -1,9 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { PlusIcon } from "lucide-react";
 import type { Unread, Workstream } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { unreadCount } from "@/lib/unread";
 import {
   chatParams,
@@ -54,14 +52,6 @@ export function Workstreams({
     <Card>
       <CardHeader>
         <CardTitle>Workstreams</CardTitle>
-        <CardAction>
-          <Button asChild size="sm">
-            <Link to="/workstreams/new">
-              <PlusIcon />
-              New
-            </Link>
-          </Button>
-        </CardAction>
       </CardHeader>
       <CardContent>
         {workstreams.error && <Badge variant="destructive">{workstreams.error}</Badge>}

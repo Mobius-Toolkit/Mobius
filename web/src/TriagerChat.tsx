@@ -1,8 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BackButton } from "./BackButton";
 import { Conversation } from "./Conversation";
 
-export function NewWorkstream({
+export function TriagerChat({
   organizations,
   organization,
   unread,
@@ -17,7 +16,7 @@ export function NewWorkstream({
     return (
       <Card className="m-4 grow self-start md:m-6">
         <CardHeader>
-          <CardTitle>New Workstream</CardTitle>
+          <CardTitle>Chat</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground">
           Mobius reads the repositories from GitHub. The Triager chat opens after this step.
@@ -36,8 +35,7 @@ export function NewWorkstream({
       unread={unread}
       head={
         <>
-          <BackButton parent="/workstreams" />
-          <h2 className="font-semibold">New Workstream</h2>
+          <h2 className="font-semibold">Chat</h2>
         </>
       }
     />

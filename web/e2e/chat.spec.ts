@@ -578,7 +578,7 @@ test("the Triager chat stays open after its actions", async ({ page }) => {
     if (size) {
       await page.setViewportSize(size);
     }
-    await page.goto("/workstreams/new");
+    await page.goto("/chat");
     await input.fill(create);
     await send.click();
     // The side bar of a phone is hidden, and it has the link.
@@ -587,7 +587,7 @@ test("the Triager chat stays open after its actions", async ({ page }) => {
     await input.fill(move);
     await send.click();
     await expect(page.getByText(`Moved #${issue} to the Workstream #12.`)).toBeVisible();
-    await expect(page).toHaveURL("/workstreams/new");
+    await expect(page).toHaveURL("/chat");
     await expect(link).toBeAttached();
   }
 });
@@ -702,7 +702,7 @@ test("the voice button adds the spoken text to the message", async ({ page }) =>
     start() { window.recognition = this }
     stop() { this.dispatchEvent(new Event('end')) }
   }`);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   const mic = main.getByRole("button", { name: "Start voice input", exact: true });
@@ -768,7 +768,7 @@ const selection = (page: Page) =>
 
 test("two result events add the spoken text once", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
@@ -785,7 +785,7 @@ test("a final result that repeats the final result before it adds only the new t
   page,
 }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
@@ -799,7 +799,7 @@ test("a final result that repeats the final result before it adds only the new t
 
 test("two final results in one event that extend each other add one space", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
@@ -809,7 +809,7 @@ test("two final results in one event that extend each other add one space", asyn
 
 test("the spoken text goes in at the cursor", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await input.fill("Plant roses");
@@ -827,7 +827,7 @@ test("the spoken text goes in at the cursor", async ({ page }) => {
 
 test("the spoken text replaces the selection", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await input.fill("Plant red roses.");
@@ -843,7 +843,7 @@ test.describe("with a German browser", () => {
 
   test("the voice input gets the language of the browser", async ({ page }) => {
     await page.addInitScript(fakeRecognition);
-    await page.goto("/workstreams/new");
+    await page.goto("/chat");
     await page
       .getByRole("main")
       .getByRole("button", { name: "Start voice input", exact: true })
@@ -917,7 +917,7 @@ test("a tap after an error starts a new voice input after the end of the old run
 
 test("the voice input keeps the session open across pauses", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   await page
     .getByRole("main")
     .getByRole("button", { name: "Start voice input", exact: true })
@@ -927,7 +927,7 @@ test("the voice input keeps the session open across pauses", async ({ page }) =>
 
 test("each recording adds its text after the existing text", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   const mic = main.getByRole("button", { name: "Start voice input", exact: true });
@@ -956,7 +956,7 @@ test("each recording adds its text after the existing text", async ({ page }) =>
 
 test("the spoken text goes at the end when the textarea has no focus", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await input.fill("Plant roses");
@@ -970,7 +970,7 @@ test("the spoken text goes at the end when the textarea has no focus", async ({ 
 
 test("a session that the browser ends restarts", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
@@ -991,7 +991,7 @@ test("a session that the browser ends restarts", async ({ page }) => {
 
 test("a session that the browser ends after an aborted error restarts", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await emit(page, "audiostart");
@@ -1007,7 +1007,7 @@ test("the voice button goes back to the start state when the browser refuses the
   page,
 }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const mic = main.getByRole("button", { name: "Start voice input", exact: true });
   await mic.click();
@@ -1026,7 +1026,7 @@ test("the voice button goes back to the start state when the browser refuses the
 
 test("a session that never heard audio does not restart", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await emit(page, "end");
@@ -1036,7 +1036,7 @@ test("a session that never heard audio does not restart", async ({ page }) => {
 
 test("a session that ends with an error does not restart", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await emit(page, "audiostart");
@@ -1050,7 +1050,7 @@ test("a session that ends with an error does not restart", async ({ page }) => {
 
 test("a session that the user stops does not restart", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await emit(page, "audiostart");
