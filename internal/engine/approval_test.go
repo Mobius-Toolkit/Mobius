@@ -125,8 +125,10 @@ func TestAWorkflowRunThatANewerRunOfTheSameWorkflowReplacedDoesNotCount(t *testi
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
 	sha := checksHead(t, server, fake)
 
-	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, WorkflowID: 7, Status: "completed", Conclusion: "cancelled"})
-	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, WorkflowID: 7, Status: "completed", Conclusion: "success"})
+	cancelled := fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, WorkflowID: 7, Status: "in_progress"})
+	succeeded := fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, WorkflowID: 7, Status: "in_progress"})
+	fake.SetWorkflowRunStatus(cancelled, "completed", "cancelled")
+	fake.SetWorkflowRunStatus(succeeded, "completed", "success")
 
 	waitForReadyEvents(t, server, 1)
 	if state := taskState(t, server); state != "approval" {
