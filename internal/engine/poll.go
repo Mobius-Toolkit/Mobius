@@ -175,11 +175,11 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	if err != nil || !changed {
 		return err
 	}
-	conversation, conversationCursor, err := newComments(ctx, e.queries, repository, issueCommentsEndpoint, repository.CommentsSince, issueCommentNumber)
+	conversation, conversationCursor, err := newComments(ctx, e.queries, repository, issueCommentsEndpoint, since, repository.CommentsSince, issueCommentNumber)
 	if err != nil {
 		return err
 	}
-	review, reviewCursor, err := newComments(ctx, e.queries, repository, reviewCommentsEndpoint, repository.ReviewCommentsSince, reviewCommentNumber)
+	review, reviewCursor, err := newComments(ctx, e.queries, repository, reviewCommentsEndpoint, since, repository.ReviewCommentsSince, reviewCommentNumber)
 	if err != nil {
 		return err
 	}

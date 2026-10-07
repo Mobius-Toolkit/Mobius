@@ -101,3 +101,20 @@ func TestAPollReadsTheCommentsOfManyIssuesAndPullRequestsWithTwoCalls(t *testing
 		t.Errorf("reads of one issue = %d, reads of the repository = %d", afterSingle-single, afterRepositories-repositories)
 	}
 }
+
+func TestAnOldCommentGivesNoEventAfterTheCommentCursorsAreMissing(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithStoppedTask(t, fake)
+	fake.AddComment(shop, 41, "owner", "First.")
+	testkit.WaitFor(t, func() bool { return eventLines(t, server) == 1 })
+	if _, err := server.DB.Exec(`DELETE FROM sync_cursors WHERE endpoint IN ('issue_comments', 'review_comments')`); err != nil {
+		t.Fatal(err)
+	}
+
+	fake.AddLabel(shop, 41, "priority", "owner")
+	waitForPolls(t, fake)
+
+	if got := eventLines(t, server); got != 1 {
+		t.Errorf("events = %d", got)
+	}
+}
