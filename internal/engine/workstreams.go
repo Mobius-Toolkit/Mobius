@@ -64,7 +64,11 @@ func (e *Engine) WorkstreamClosure(ctx context.Context, repositoryName string, n
 	if err != nil {
 		return nil, err
 	}
-	return e.closureItems(ctx, repository, number)
+	workstreamIssue, err := e.openWorkstream(ctx, repository, number)
+	if err != nil {
+		return nil, err
+	}
+	return e.closureItems(ctx, repository, workstreamIssue)
 }
 
 // CloseWorkstreamWontDo closes the open Workstream number of repository and the items of WorkstreamClosure as "won't
@@ -74,11 +78,15 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 	if err != nil {
 		return err
 	}
-	items, err := e.closureItems(ctx, repository, number)
+	workstreamIssue, err := e.openWorkstream(ctx, repository, number)
 	if err != nil {
 		return err
 	}
 	if err := e.stopWorkstream(ctx, repository, number); err != nil {
+		return err
+	}
+	items, err := e.closureItems(ctx, repository, workstreamIssue)
+	if err != nil {
 		return err
 	}
 	text := fmt.Sprintf("The Workstream #%d closed as \"won't do\".", number)
@@ -107,17 +115,22 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 	return e.closeWorkstream(ctx, repository, number)
 }
 
-// closureItems gives the open items that a close as "won't do" closes: the open pull requests of the tasks with an
-// open issue, the open task issues, and the Workstream issue last. It walks the issues below the Workstream as
-// closeWorkstream does.
-func (e *Engine) closureItems(ctx context.Context, repository github.Repository, workstream int64) ([]ClosureItem, error) {
-	workstreamIssue, err := repository.Issue(ctx, workstream)
+func (e *Engine) openWorkstream(ctx context.Context, repository github.Repository, number int64) (*gh.Issue, error) {
+	issue, err := repository.Issue(ctx, number)
 	if err != nil {
 		return nil, err
 	}
-	if workstreamIssue == nil || workstreamIssue.GetState() != "open" || !hasLabel(workstreamIssue, workstreamLabel) {
+	if issue == nil || issue.GetState() != "open" || !hasLabel(issue, workstreamLabel) {
 		return nil, refuse("The issue is not an open Workstream.")
 	}
+	return issue, nil
+}
+
+// closureItems gives the open items that a close as "won't do" closes: the open pull requests of the tasks with an
+// open issue, the open task issues, and the Workstream issue last. It walks the issues below the Workstream as
+// closeWorkstream does.
+func (e *Engine) closureItems(ctx context.Context, repository github.Repository, workstreamIssue *gh.Issue) ([]ClosureItem, error) {
+	workstream := int64(workstreamIssue.GetNumber())
 	var issues []*gh.Issue
 	parents := []int64{workstream}
 	for len(parents) > 0 {
