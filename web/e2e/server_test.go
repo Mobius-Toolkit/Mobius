@@ -44,6 +44,11 @@ reply = ["Pink lilies sell best."]
 busy = "3s"
 
 [[prompts]]
+when = "Which poppies sell best?"
+reply = ["Orange poppies sell best."]
+busy = "3s"
+
+[[prompts]]
 when = "Which daisies sell best?"
 reply = ["White daisies sell best."]
 busy = "2s"

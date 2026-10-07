@@ -158,17 +158,24 @@ export function Transcript({
       .catch((err: unknown) => setError(String(err)));
   }, [agent.id, showLogin]);
 
+  useEffect(load, [load]);
+
   // A line that comes while the connection is down is lost, so each connection reads the log.
   useEffect(() => {
     if (!source) {
       return;
     }
     load();
-    return onEvent<LiveEvents, "transcript">(source, "transcript", (line) => {
+    source.addEventListener("open", load);
+    const remove = onEvent<LiveEvents, "transcript">(source, "transcript", (line) => {
       if (line.session === agent.id) {
         setLines((list) => upsert(list ?? [], line));
       }
     });
+    return () => {
+      source.removeEventListener("open", load);
+      remove();
+    };
   }, [source, load, agent.id]);
 
   return (

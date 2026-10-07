@@ -110,6 +110,41 @@ test.describe("the agent log of a running Lead", () => {
     expect(await page.evaluate("window.sameDocument")).toBe(true);
   });
 
+  test("the log shows the entries that arrived while the same live connection was down", async ({
+    page,
+  }) => {
+    await page.addInitScript(`
+      window.lostTranscripts = false;
+      window.sources = [];
+      const add = EventSource.prototype.addEventListener;
+      EventSource.prototype.addEventListener = function (type, listener, options) {
+        if (this.url.endsWith('/api/events') && !window.sources.includes(this)) {
+          window.sources.push(this);
+        }
+        if (type === 'transcript') {
+          return add.call(this, type, (event) => {
+            if (!window.lostTranscripts) {
+              listener(event);
+            }
+          }, options);
+        }
+        return add.call(this, type, listener, options);
+      };
+    `);
+    await page.goto("/agents");
+    const main = page.getByRole("main");
+    await say(page, "Which poppies sell best?");
+    await leadRow(page).filter({ hasText: "Workstream #13" }).click();
+    await page.evaluate("window.lostTranscripts = true");
+
+    await expect.poll(() => runningLeads(page), { timeout: 15_000 }).toBe(0);
+    await expect(main.getByText("Orange poppies sell best.")).toBeHidden();
+
+    await page.evaluate(`window.lostTranscripts = false;
+      window.sources.forEach((source) => source.dispatchEvent(new Event('open')))`);
+    await expect(main.getByText("Orange poppies sell best.")).toBeVisible();
+  });
+
   test("the log shows the entries that arrived while the live connection was down", async ({
     page,
   }) => {
