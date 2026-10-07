@@ -43,12 +43,15 @@ export function useVoice(onText: (text: string) => void) {
   const canRestart = useRef(false);
   // The result list of a run has all final results of the run. The new run starts a new list.
   const added = useRef(0);
+  // Chrome on Android adds a final result that repeats the text of the final result before it.
+  const lastFinal = useRef("");
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
 
   const begin = (live: Recognition) => {
     live.lang = navigator.language;
     added.current = 0;
+    lastFinal.current = "";
     canRestart.current = false;
     try {
       live.start();
@@ -67,7 +70,15 @@ export function useVoice(onText: (text: string) => void) {
     live.addEventListener("result", (event) => {
       const spoken: string[] = [];
       while (added.current < event.results.length && event.results[added.current].isFinal) {
-        spoken.push(event.results[added.current][0].transcript);
+        const transcript = event.results[added.current][0].transcript.trim();
+        if (transcript !== lastFinal.current) {
+          spoken.push(
+            transcript.startsWith(`${lastFinal.current} `)
+              ? transcript.slice(lastFinal.current.length)
+              : transcript,
+          );
+          lastFinal.current = transcript;
+        }
         added.current++;
       }
       const text = spoken.join(" ").trim();

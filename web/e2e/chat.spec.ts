@@ -488,6 +488,22 @@ test("two result events add the spoken text once", async ({ page }) => {
   await expect(input).toHaveValue("red roses");
 });
 
+test("a final result that repeats the final result before it adds only the new text", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red", "red");
+  await expect(input).toHaveValue("red");
+  await result(page, "red", "red", "red roses");
+  await expect(input).toHaveValue("red roses");
+  await result(page, "red", "red", "red roses", "red roses");
+  await expect(input).toHaveValue("red roses");
+});
+
 test("the spoken text goes in at the cursor", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/workstreams/new");
