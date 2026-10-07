@@ -153,6 +153,23 @@ func TestTheFirstPromptHasTheContextAndEachLaterTurnHasOneEvent(t *testing.T) {
 	}
 }
 
+func TestACommentThatArrivesWhileThePollReadsTheIssueGivesOneEvent(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, seen, keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	liveTaskOf(t, server, 41)
+	testkit.WaitFor(t, func() bool { return eventLines(t, server) == 1 })
+
+	fake.AddCommentAfterList(shop, 41, "owner", "Round down.")
+	fake.AddLabel(shop, 41, "priority", "owner")
+	testkit.WaitFor(t, func() bool { return eventLines(t, server) == 2 })
+	waitForPolls(t, fake)
+
+	if got := eventLines(t, server); got != 2 {
+		t.Errorf("events = %d", got)
+	}
+}
+
 func TestAReadyLabelOfAStrangerDoesNotDispatch(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)

@@ -27,6 +27,9 @@ var toolsTimeout = 30 * time.Second
 // listenerBuffer is the number of changes that the channel of a listener holds.
 const listenerBuffer = 256
 
+// cancelResend is the time between two cancels for the same new details.
+const cancelResend = time.Second
+
 // errNoTools is the error of a Claude Code session that gets no tools/list (Mobius-rust#254).
 var errNoTools = errors.New("the session sent no tools/list, so it has no Mobius tools")
 
@@ -76,6 +79,13 @@ type Agent struct {
 
 	mu       sync.Mutex
 	prompted bool
+	// turn tells that a turn runs: Prompt sent its text and the agent did not end the turn.
+	turn bool
+	// details are the new details from the Owner that the next prompt of the Implementer carries.
+	details []string
+	// wake tells the running Prompt that new details wait. Only the goroutine of that Prompt sends the cancel, so the
+	// cancel never reaches a later turn.
+	wake chan struct{}
 	// chunk is the JSON of the last Transcript row while that row is a message chunk or a thought chunk, and chunkID is its id.
 	chunk   map[string]any
 	chunkID int64
@@ -203,7 +213,7 @@ func (e *Engine) addAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, err
 	}
 	e.publish(Change{Node: new(node(session))})
-	a := &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker}
+	a := &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1)}
 	ended := context.WithoutCancel(ctx)
 	if err := e.takeSlot(ctx, a); err != nil {
 		switch {
@@ -325,7 +335,21 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 		if err != nil {
 			return err
 		}
+		a.mu.Lock()
+		a.turn = true
+		a.mu.Unlock()
+		resendCtx, stopResend := context.WithCancel(ctx)
+		resent := make(chan struct{})
+		go func() {
+			defer close(resent)
+			a.resendCancel(resendCtx)
+		}()
 		_, err = a.session.Prompt(ctx, text)
+		stopResend()
+		<-resent
+		a.mu.Lock()
+		a.turn = false
+		a.mu.Unlock()
 		if err == nil {
 			return a.engine.endPauseSince(ctx, paused)
 		}
@@ -342,6 +366,27 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 // cancel asks the agent to end the turn that runs.
 func (a *Agent) cancel(ctx context.Context) error {
 	return a.session.Cancel(ctx)
+}
+
+// resendCancel sends the cancel at each wake and each cancelResend while new details wait, until ctx ends. A cancel
+// that the agent gets before it reads the prompt request does not end the turn.
+func (a *Agent) resendCancel(ctx context.Context) {
+	ticker := time.NewTicker(cancelResend)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-a.wake:
+		case <-ticker.C:
+		}
+		a.mu.Lock()
+		waiting := len(a.details) > 0
+		a.mu.Unlock()
+		if waiting {
+			_ = a.cancel(ctx)
+		}
+	}
 }
 
 // replyText gives the reply text of the last turn after its last tool call.

@@ -4,6 +4,8 @@ Change the code for the task and commit your work. Do not push. When your turn e
 
 In a fix round, the prompt gives the open items of the pull request: review threads and conversation comments, each with one or more actions. For the action `fix`, change the code and commit. Then reply to the item with the SHA of the fix commit. For the action `question`, reply to the item with the answer. If you do not agree with a finding, reply with the reason. Mobius resolves the thread after each reply.
 
+New details from the Owner can arrive as a new prompt while you operate. Mobius can end your turn to send them. The new details replace the old text where they differ. Continue the work with the new details.
+
 Reply in a thread only with a fix commit, an answer, a follow-up link, or a reason to reject. Never post an acknowledgement.
 
 Your Mobius tools:

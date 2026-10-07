@@ -91,6 +91,8 @@ type FakeGitHub struct {
 	installationTokenLife   time.Duration
 	repositories            []string
 	issues                  map[issueKey]*issue
+	// commentsAfterList holds the comments that the next issue list adds after it builds its page.
+	commentsAfterList []listedComment
 	// The comment ids of all issues are different, as on GitHub.
 	lastCommentID    int64
 	repositoryLabels map[labelKey]Label

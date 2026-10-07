@@ -75,6 +75,19 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"findings": map[string]any{"type": "string", "minLength": 1, "description": "Your findings on the pull request: what to change and why."},
 				},
 				e.startFixRound),
+			tool(e, c, "stop_task",
+				"Stop the work on a task of this Workstream that is queued or working. Call it only when the Owner tells you to stop that task. The pull request and the branch stay.",
+				map[string]any{
+					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+				},
+				e.stopTaskTool),
+			tool(e, c, "send_details",
+				"Send new details from the Owner to the Implementer that operates on a task now. The Implementer keeps its session and its context. Update the body of the task issue first. It refuses a task with no open Implementer session: a later session reads the updated issue body.",
+				map[string]any{
+					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"text": map[string]any{"type": "string", "minLength": 1, "description": "The new details."},
+				},
+				e.sendDetails),
 			tool(e, c, "start_researcher",
 				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the Brief and the question. The tool returns at once, and the report arrives later.",
 				map[string]any{
@@ -463,6 +476,28 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 		}
 	}
 	return fmt.Sprintf("Created #%d.", issue.GetNumber()), nil
+}
+
+func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.Repository, input numberInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
+	if err != nil {
+		return "", err
+	}
+	if task.State != "queued" && task.State != "working" {
+		return "", refuse("The task of #%d is %s, so it has no work to stop.", input.N, task.State)
+	}
+	issue, err := existingIssue(ctx, repository, input.N)
+	if err != nil {
+		return "", err
+	}
+	text := fmt.Sprintf("Stopped \"%s\" on request of the Owner", issue.GetTitle())
+	if err := e.stopTask(ctx, repository, task, issue, appLogin(repository.AppSlug), "Stopped by the Owner.", text); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Stopped the task of #%d.", input.N), nil
 }
 
 func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repository, input numberInput) (string, error) {
