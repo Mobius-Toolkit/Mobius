@@ -788,10 +788,13 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repo
 		return "", err
 	}
 	e.chatsMu.Lock()
-	running, ok := e.chats[key]
+	var agent *Agent
+	if running, ok := e.chats[key]; ok && running.agent != nil && running.agent.ID() == c.session {
+		agent = running.agent
+	}
 	e.chatsMu.Unlock()
-	if ok && running.agent != nil && running.agent.ID() == c.session {
-		running.agent.setAuthor("")
+	if agent != nil {
+		agent.setAuthor("")
 	}
 	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         leadKind,

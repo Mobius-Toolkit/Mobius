@@ -7,7 +7,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -186,13 +188,16 @@ func TestTheReplyTextAfterTellOwnerDoesNotGoToTheChat(t *testing.T) {
 
 func TestTheReplyTextOfALaterTurnWithNoTellOwnerGoesToTheChat(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, tellOwnerThenReply)
+	server, _ := connectWith(t, fake, tellOwnerThenReply, func(cfg *config.Config) { cfg.LeadIdleTimeout = 30 * time.Second })
 	sendChat(t, server, leadChat, "First")
-	endedChatSession(t, server, 0)
+	waitForChat(t, server, leadChat, "tell_owner", "#41 needs a decision.")
 
 	sendChat(t, server, leadChat, "Second")
 
 	waitForChat(t, server, leadChat, "Lead", "Second reply.")
+	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 1 {
+		t.Errorf("sessions = %+v", got)
+	}
 	want := []chatLine{{"Owner", "First"}, {"tell_owner", "#41 needs a decision."}, {"Owner", "Second"}, {"Lead", "Second reply."}}
 	if got := chatLines(t, server, leadChat); !reflect.DeepEqual(got, want) {
 		t.Errorf("chat = %+v", got)
