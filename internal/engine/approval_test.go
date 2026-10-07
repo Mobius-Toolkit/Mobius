@@ -42,6 +42,9 @@ func TestATaskWaitsInChecksForTheCIOfTheHeadAndThenWaitsForTheLead(t *testing.T)
 	if events := readyEvents(t, server); events != 0 {
 		t.Errorf("events = %d", events)
 	}
+	if items := inbox(t, server); len(items) != 0 {
+		t.Errorf("Inbox = %+v", items)
+	}
 
 	fake.SetCheckRunStatus(id, "completed", "success")
 
@@ -341,6 +344,7 @@ func seedWaitingWith(t *testing.T, fake *testkit.FakeGitHub, state, script strin
 	if number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41"); number != 42 {
 		t.Fatalf("pull request = %d", number)
 	}
+	server.WaitForFirstPoll(t, shop)
 	return server, head(t, fake, "mobius/41")
 }
 
@@ -395,6 +399,99 @@ func TestStartFixRoundWorksWhileTheTaskWaitsForTheLead(t *testing.T) {
 	}
 }
 
+const leadApproves = "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { n = 41 } }\n\n"
+
+func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxItem(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
+	sha := head(t, fake, "mobius/41")
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got it for review.")
+	if state := taskState(t, server); state != "ready_for_review" {
+		t.Errorf("state = %s", state)
+	}
+	if fake.PullRequests(shop)[0].Draft {
+		t.Error("the pull request is a draft")
+	}
+	if want := (testkit.CheckRun{Name: "Mobius", HeadSHA: sha, Status: "completed", Conclusion: "success"}); fake.CheckRuns(shop)[0] != want {
+		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
+	}
+	want := []inboxItem{{Kind: "ready for review", Repository: shop, Workstream: 12, Issue: 41, Text: "Pull request #42 of #41 \"Add plan model\" is ready for review.", Link: "https://github.com/owner/shop/pull/42"}}
+	items := inbox(t, server)
+	if len(items) != 1 {
+		t.Fatalf("Inbox = %+v", items)
+	}
+	items[0].ID = 0
+	if items[0] != want[0] {
+		t.Errorf("Inbox = %+v", items)
+	}
+}
+
+func TestApprovePullRequestRefusesATaskInChecksAndChangesNothing(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	waitForChat(t, server, leadChat, "Lead", "error: The task of #41 still waits for CI, so it is not ready for approval.")
+	if state := taskState(t, server); state != "checks" {
+		t.Errorf("state = %s", state)
+	}
+	if !fake.PullRequests(shop)[0].Draft {
+		t.Error("the pull request is ready for review")
+	}
+	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: sha, Status: "in_progress"}}; !slices.Equal(fake.CheckRuns(shop), want) {
+		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
+	}
+	if items := inbox(t, server); len(items) != 0 {
+		t.Errorf("Inbox = %+v", items)
+	}
+}
+
+func TestStartFixRoundWorksWhileTheTaskWaitsForCI(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, commits, longGrace)
+	checksHead(t, server, fake)
+
+	sendChat(t, server, leadChat, "Send the findings to #41")
+
+	waitForChat(t, server, leadChat, "Lead", "Sent the findings to a fix round of #41. At max_fix_rounds, Mobius stops the task instead.")
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+	if task := liveTask(t, server, 41); task.FixRounds != 1 {
+		t.Errorf("task = %+v", task)
+	}
+}
+
+func TestApprovePullRequestRefusesANewHeadAndMovesTheTaskBackToChecks(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
+	work := t.TempDir()
+	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
+	testkit.Git(t, work, "commit", "--allow-empty", "-m", "Change by a human")
+	testkit.Git(t, work, "push", "origin", "HEAD:refs/heads/mobius/41")
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	waitForChat(t, server, leadChat, "Lead", "error: The head of the pull request of #41 changed after the CI passed. The task waits for the CI of the new head.")
+	if !fake.PullRequests(shop)[0].Draft {
+		t.Error("the pull request is ready for review")
+	}
+	if items := inbox(t, server); len(items) != 0 {
+		t.Errorf("Inbox = %+v", items)
+	}
+	waitForReadyEvents(t, server, 2)
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+}
+
 func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLead(t *testing.T) {
 	for state, want := range map[string]string{"checks": "waits for CI", "approval": "waits for Lead"} {
 		t.Run(state, func(t *testing.T) {
@@ -403,6 +500,7 @@ func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLead(t *testing.
 
 			session, _ := leadReply(t, server)
 
+			testkit.WaitFor(t, func() bool { return len(taskTab(t, server)) > 0 })
 			lines := taskTab(t, server)
 			if len(lines) != 1 || lines[0].Number != 41 || lines[0].State != want {
 				t.Errorf("lines = %+v", lines)

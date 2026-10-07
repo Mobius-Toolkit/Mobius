@@ -182,11 +182,11 @@
     },
     "/api/chat/messages": {
       "post": {
-        "description": "SendChat adds a message of the Owner to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.",
+        "description": "SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. It returns 400 when the request is larger than 4 images of 5 MB with the text. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.",
         "operationId": "SendChat",
         "requestBody": {
           "content": {
-            "application/json": {
+            "multipart/form-data": {
               "schema": {
                 "$ref": "#/components/schemas/SendChatBody"
               }
@@ -220,6 +220,100 @@
               }
             },
             "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/messages/{id}/images/{position}": {
+      "get": {
+        "description": "GetChatImage returns an image of a message. It returns 404 when the message has no such image.",
+        "operationId": "GetChatImage",
+        "parameters": [
+          {
+            "description": "ID is the id of the message",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Position is the position of the image in the message, from 0",
+            "in": "path",
+            "name": "position",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/gif": {
+                "schema": {
+                  "contentMediaType": "image/gif",
+                  "type": "string"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "contentMediaType": "image/jpeg",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "contentMediaType": "image/png",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "contentMediaType": "image/webp",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
@@ -2368,6 +2462,10 @@
             "type": "integer",
             "description": "ID increases with each new message of all chats"
           },
+          "images": {
+            "type": "integer",
+            "description": "Images is the number of images of the message. GetChatImage gives each image by its position, from 0"
+          },
           "organization": {
             "type": "string",
             "description": "Organization is the owner of the repository, or the organization of the Triager chat"
@@ -2397,7 +2495,8 @@
           "workstream",
           "author",
           "time",
-          "text"
+          "text",
+          "images"
         ],
         "description": "ChatMessage is a message of a Lead chat or of the Triager chat."
       },
@@ -3536,6 +3635,14 @@
         "type": "object",
         "title": "SendChatBody",
         "properties": {
+          "images": {
+            "type": "array",
+            "description": "Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB",
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            }
+          },
           "organization": {
             "type": "string",
             "description": "Organization is the owner of the repository, or the organization of the Triager chat"
@@ -3546,7 +3653,7 @@
           },
           "text": {
             "type": "string",
-            "description": "Text is the message of the Owner"
+            "description": "Text is the message of the Owner. It is required when the message has no image"
           },
           "workstream": {
             "type": "integer",

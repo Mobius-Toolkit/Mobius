@@ -135,7 +135,7 @@ func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, st
 			if !ok {
 				return nil
 			}
-			if err := sendChange(stream, change); err != nil {
+			if err := h.sendChange(stream, change); err != nil {
 				return err
 			}
 		case <-ticker.C:
@@ -147,7 +147,7 @@ func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, st
 	}
 }
 
-func sendChange(stream *api.Stream[LiveEvents], change engine.Change) error {
+func (h *handlers) sendChange(stream *api.Stream[LiveEvents], change engine.Change) error {
 	switch {
 	case change.Line != nil:
 		return stream.Send(LiveEvents{Transcript: new(transcriptLineOf(*change.Line))})
@@ -160,7 +160,7 @@ func sendChange(stream *api.Stream[LiveEvents], change engine.Change) error {
 	case change.Repositories:
 		return stream.Send(LiveEvents{Repositories: &struct{}{}})
 	case change.Message != nil:
-		message, err := chatMessageOf(*change.Message)
+		message, err := h.chatMessageOf(*change.Message)
 		if err != nil {
 			return err
 		}
