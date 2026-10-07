@@ -165,7 +165,6 @@ export function Transcript({
     if (!source) {
       return;
     }
-    load();
     source.addEventListener("open", load);
     const remove = onEvent<LiveEvents, "transcript">(source, "transcript", (line) => {
       if (line.session === agent.id) {
