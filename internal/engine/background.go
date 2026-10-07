@@ -13,6 +13,9 @@ const quietPoll = 20 * time.Millisecond
 // takes the prompt as absorbed into the autonomous turn.
 var absorbTimeout = 30 * time.Second
 
+// autonomousOrigins are the origin kinds of the end of an autonomous turn. Any other kind ends a turn of a user.
+var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "observer", "observer-activity"}
+
 // track follows the background tasks and the autonomous turns of a Claude Code agent. An autonomous turn is a turn
 // that the CLI starts alone, for example when a background task ends. The caller holds a.mu.
 //
@@ -29,7 +32,7 @@ func (a *Agent) track(notification map[string]any, kind string) {
 		}
 	case "usage_update":
 		origin := stringField(update, "_meta", "_claude/origin", "kind")
-		if origin == "" || origin == "human" {
+		if !slices.Contains(autonomousOrigins, origin) {
 			return
 		}
 		a.autonomous = false

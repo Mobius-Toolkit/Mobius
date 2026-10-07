@@ -124,6 +124,23 @@ func TestAnAbsorbedPromptGetsACancelAfterTheGraceTimeAndTheWorkContinues(t *test
 	}
 }
 
+func TestAUserTurnEndWhileAPromptRunsGetsNoCancel(t *testing.T) {
+	shortAbsorb(t)
+	fake := testkit.NewFakeGitHub(t)
+	userEnd := strings.Replace(endUpdate, "task-notification", "channel", 1)
+	server, _ := connect(t, fake, "[[prompts]]\nupdates = ['"+userEnd+"']\nhang = true\n")
+	agent := start(t, server, leadSpec(t))
+	waiting, stopWaiting := context.WithTimeout(t.Context(), 1200*time.Millisecond)
+	defer stopWaiting()
+
+	if err := agent.Prompt(waiting, "One"); err == nil {
+		t.Fatal("the prompt got a cancel and ended before the timeout")
+	}
+	if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
+		t.Errorf("notes = %q", notes)
+	}
+}
+
 func TestALostEndSignalGetsARetryPromptInTheSameSession(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
