@@ -5,7 +5,10 @@ import {
   ActivityPage,
   AgentsPage,
   ChatPage,
+  CheckupLabelsPage,
   CheckupPage,
+  CheckupPermissionsPage,
+  CheckupToolsPage,
   GitHubPage,
   InboxPage,
   NewWorkstreamPage,
@@ -86,6 +89,24 @@ const checkupRoute = createRoute({
   component: CheckupPage,
 });
 
+const checkupToolsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/checkup/tools",
+  component: CheckupToolsPage,
+});
+
+const checkupPermissionsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/checkup/$organization/permissions",
+  component: CheckupPermissionsPage,
+});
+
+const checkupLabelsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/checkup/$organization/labels",
+  component: CheckupLabelsPage,
+});
+
 const devicesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/devices",
@@ -109,6 +130,9 @@ const routeTree = rootRoute.addChildren([
   agentsRoute,
   settingsRoute,
   checkupRoute,
+  checkupToolsRoute,
+  checkupPermissionsRoute,
+  checkupLabelsRoute,
   devicesRoute,
   githubRoute,
 ]);

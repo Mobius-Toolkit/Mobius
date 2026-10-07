@@ -12,7 +12,6 @@ async function screenshot(
   path: string,
   ready: (device: string) => Locator | Locator[],
   open?: (device: string) => Promise<void>,
-  top?: Locator,
 ) {
   for (const [device, size] of Object.entries(viewports)) {
     await page.setViewportSize(size);
@@ -20,15 +19,6 @@ async function screenshot(
     await open?.(device);
     for (const locator of [ready(device)].flat()) {
       await expect(locator).toBeVisible();
-    }
-    if (top) {
-      // The padding lets the last section reach the top of the view.
-      await page.addStyleTag({ content: "main { padding-bottom: 100svh }" });
-      await expect(async () => {
-        const box = await top.boundingBox();
-        await page.evaluate(`scrollBy(0, ${(box?.y ?? 0) - 16})`);
-        expect(Math.abs(((await top.boundingBox())?.y ?? Infinity) - 16)).toBeLessThan(2);
-      }).toPass();
     }
     await page.screenshot({
       path: `screenshots/${name}-${device}.png`,
@@ -240,31 +230,24 @@ test("screenshots", async ({ page }) => {
     ...frame(device, release),
     main.getByText("This device"),
   ]);
-  const section = (name: string) => main.getByRole("heading", { name, exact: true });
-  await screenshot(
-    page,
-    "checkup-tools",
-    "/settings/checkup",
-    (device) => [...frame(device, release), main.getByText("2.1.284 (Claude Code)")],
-    undefined,
-    section("Tools"),
-  );
-  await screenshot(
-    page,
-    "checkup-permissions",
-    "/settings/checkup",
-    (device) => [...frame(device, release), main.getByText("workflows: write")],
-    undefined,
-    section("App permissions"),
-  );
-  await screenshot(
-    page,
-    "checkup-labels",
-    "/settings/checkup",
-    (device) => [...frame(device, release), main.getByText("wrong color: #ededed")],
-    undefined,
-    section("owner/shop"),
-  );
+  await screenshot(page, "checkup", "/settings/checkup", (device) => [
+    ...frame(device, release),
+    main.getByRole("link", { name: "Tools" }),
+    main.getByRole("heading", { name: "owner", exact: true }),
+    main.getByRole("heading", { name: "plants", exact: true }),
+  ]);
+  await screenshot(page, "checkup-tools", "/settings/checkup/tools", (device) => [
+    ...frame(device, release),
+    main.getByText("2.1.284 (Claude Code)"),
+  ]);
+  await screenshot(page, "checkup-permissions", "/settings/checkup/owner/permissions", (device) => [
+    ...frame(device, release),
+    main.getByText("workflows: write"),
+  ]);
+  await screenshot(page, "checkup-labels", "/settings/checkup/owner/labels", (device) => [
+    ...frame(device, release),
+    main.getByText("wrong color: #ededed"),
+  ]);
 
   // The note closes a Workstream whose tasks are all closed.
   await page.setViewportSize(viewports.desktop);
