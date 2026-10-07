@@ -199,12 +199,9 @@ func (r Repository) Comments(ctx context.Context, number int64) ([]*gh.IssueComm
 }
 
 // CommentsSince gives the conversation comments of all issues and pull requests of the repository that changed at or
-// after since, or all of them when since is zero.
+// after since.
 func (r Repository) CommentsSince(ctx context.Context, since time.Time) ([]*gh.IssueComment, error) {
-	options := &gh.IssueListCommentsOptions{Sort: new("updated"), Direction: new("asc"), ListOptions: gh.ListOptions{PerPage: 100}}
-	if !since.IsZero() {
-		options.Since = &since
-	}
+	options := &gh.IssueListCommentsOptions{Sort: new("updated"), Direction: new("asc"), Since: &since, ListOptions: gh.ListOptions{PerPage: 100}}
 	return all(r.Client.Issues.ListCommentsIter(ctx, r.Owner(), r.Name(), 0, options))
 }
 
@@ -218,8 +215,7 @@ func (r Repository) ReviewComments(ctx context.Context, number int64) ([]*gh.Pul
 	return all(r.Client.PullRequests.ListCommentsIter(ctx, r.Owner(), r.Name(), int(number), &gh.PullRequestListCommentsOptions{ListOptions: gh.ListOptions{PerPage: 100}}))
 }
 
-// ReviewCommentsSince gives the review comments of all pull requests of the repository that changed at or after since,
-// or all of them when since is zero.
+// ReviewCommentsSince gives the review comments of all pull requests of the repository that changed at or after since.
 func (r Repository) ReviewCommentsSince(ctx context.Context, since time.Time) ([]*gh.PullRequestComment, error) {
 	options := &gh.PullRequestListCommentsOptions{Sort: "updated", Direction: "asc", Since: since, ListOptions: gh.ListOptions{PerPage: 100}}
 	return all(r.Client.PullRequests.ListCommentsIter(ctx, r.Owner(), r.Name(), 0, options))
