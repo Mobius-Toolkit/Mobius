@@ -183,6 +183,8 @@ func (e *Engine) reviewer(ctx context.Context, j *reviewJob) error {
 	switch {
 	case ctx.Err() != nil:
 		return a.End(ended, "stopped")
+	case errors.Is(err, errHung):
+		return e.endHungTask(ended, a, task, j.title)
 	case err != nil:
 		return a.Fail(ended, err)
 	}

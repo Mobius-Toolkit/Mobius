@@ -157,6 +157,26 @@ mode = ["default", "bypassPermissions"]
 	}
 }
 
+func TestABusyPromptSendsToolCallUpdatesBeforeItsReply(t *testing.T) {
+	c := start(t, `
+[[prompts]]
+busy = "100ms"
+reply = ["done"]
+`)
+	if err := c.newSession(t, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.send("go"); err != nil {
+		t.Fatal(err)
+	}
+
+	updates := c.takeUpdates()
+	if len(updates) < 3 || updates[0]["sessionUpdate"] != "tool_call_update" || updates[len(updates)-1]["sessionUpdate"] != "agent_message_chunk" {
+		t.Errorf("updates = %+v", updates)
+	}
+}
+
 func TestAPromptWithWhenAnswersByTextAndTheOtherPromptsAnswerInOrder(t *testing.T) {
 	c := start(t, `
 [[prompts]]

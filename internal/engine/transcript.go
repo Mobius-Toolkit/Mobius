@@ -23,7 +23,7 @@ type Line struct {
 	ID      int64
 	Session int64
 	Time    time.Time
-	// Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer.
+	// Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer or a hang of the agent.
 	Kind string
 	// Text is the one line that the UI always shows.
 	Text string

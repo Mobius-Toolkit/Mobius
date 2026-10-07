@@ -159,6 +159,8 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 	switch {
 	case stopped:
 		return a.End(ended, "stopped")
+	case errors.Is(err, errHung):
+		return errors.Join(a.endHung(ended), e.deliverReport(ended, c, a.id, question, "The Researcher failed: "+err.Error()))
 	case err != nil:
 		failure := a.Fail(ended, err)
 		return errors.Join(failure, e.deliverReport(ended, c, a.id, question, "The Researcher failed: "+err.Error()))
