@@ -500,6 +500,7 @@ func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLead(t *testing.
 
 			session, _ := leadReply(t, server)
 
+			testkit.WaitFor(t, func() bool { return len(taskTab(t, server)) > 0 })
 			lines := taskTab(t, server)
 			if len(lines) != 1 || lines[0].Number != 41 || lines[0].State != want {
 				t.Errorf("lines = %+v", lines)
