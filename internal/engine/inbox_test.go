@@ -3,6 +3,7 @@ package engine_test
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -151,6 +152,51 @@ func TestTellOwnerAddsAChatMessageAndAnInboxItem(t *testing.T) {
 		t.Errorf("item = %+v", items[0])
 	}
 	waitForChange(t, changes, func(change engine.Change) bool { return change.Inbox != nil && change.Inbox.ID == items[0].ID })
+}
+
+const tellOwnerThenReply = `
+[[prompts]]
+when = "Second"
+reply = ["Second reply."]
+
+[[prompts]]
+when = "First"
+call = { tool = "tell_owner", arguments = { text = "#41 needs a decision." } }
+reply = ["Same text again."]
+`
+
+func TestTheReplyTextAfterTellOwnerDoesNotGoToTheChat(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, tellOwnerThenReply)
+
+	sendChat(t, server, leadChat, "First")
+
+	session := endedChatSession(t, server, 0)
+	if got := reply(t, server, session.ID); !strings.Contains(got, "Same text again.") {
+		t.Errorf("reply = %q", got)
+	}
+	want := []chatLine{{"Owner", "First"}, {"tell_owner", "#41 needs a decision."}}
+	if got := chatLines(t, server, leadChat); !reflect.DeepEqual(got, want) {
+		t.Errorf("chat = %+v", got)
+	}
+	if got := inbox(t, server); len(got) != 1 {
+		t.Errorf("inbox = %+v", got)
+	}
+}
+
+func TestTheReplyTextOfALaterTurnWithNoTellOwnerGoesToTheChat(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, tellOwnerThenReply)
+	sendChat(t, server, leadChat, "First")
+	endedChatSession(t, server, 0)
+
+	sendChat(t, server, leadChat, "Second")
+
+	waitForChat(t, server, leadChat, "Lead", "Second reply.")
+	want := []chatLine{{"Owner", "First"}, {"tell_owner", "#41 needs a decision."}, {"Owner", "Second"}, {"Lead", "Second reply."}}
+	if got := chatLines(t, server, leadChat); !reflect.DeepEqual(got, want) {
+		t.Errorf("chat = %+v", got)
+	}
 }
 
 func TestDismissRemovesTheItemFromTheInbox(t *testing.T) {
