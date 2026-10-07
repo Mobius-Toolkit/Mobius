@@ -22,10 +22,12 @@ const tabs = [
 
 function SideLink({
   link,
+  fuzzy,
   className,
   children,
 }: {
   link: LinkProps;
+  fuzzy?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -33,10 +35,10 @@ function SideLink({
   return (
     <Button
       asChild
-      variant={matchRoute(link) ? "secondary" : "ghost"}
+      variant={matchRoute({ ...link, fuzzy }) ? "secondary" : "ghost"}
       className={cn("justify-start", className)}
     >
-      <Link {...link} activeOptions={{ exact: true }}>
+      <Link {...link} activeOptions={{ exact: !fuzzy }}>
         {children}
       </Link>
     </Button>
@@ -119,7 +121,7 @@ export function Frame({
         <div className="grow" />
         {upgradeControls}
         {settingsPages.map((page) => (
-          <SideLink key={page.path} link={{ to: page.path }}>
+          <SideLink key={page.path} link={{ to: page.path }} fuzzy>
             {page.title}
           </SideLink>
         ))}
