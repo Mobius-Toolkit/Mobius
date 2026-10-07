@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/gork-labs/gork/pkg/api"
@@ -111,11 +112,13 @@ func (r *SendChatRequest) Validate() error {
 // returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
 func (h *handlers) SendChat(ctx context.Context, req SendChatRequest) error {
 	body := req.Body
+	// A browser sends each new line of a multipart text field as CRLF.
+	text := strings.ReplaceAll(body.Text, "\r\n", "\n")
 	images := make([]engine.Image, 0, len(body.Images))
 	for _, image := range body.Images {
 		images = append(images, engine.Image{MIMEType: image.ContentType, Data: image.Data})
 	}
-	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.Text, images)
+	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, text, images)
 	if engine.Refused(err) {
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}

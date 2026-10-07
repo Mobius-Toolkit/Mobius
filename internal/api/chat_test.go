@@ -122,6 +122,19 @@ func TestSendChatKeepsTheTextAndTheImagesOfAMessage(t *testing.T) {
 	}
 }
 
+func TestSendChatChangesTheNewLinesOfTheTextToLF(t *testing.T) {
+	server := startChat(t)
+
+	if status, text := sendChat(t, server, "one\r\ntwo"); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, text)
+	}
+
+	messages := getMessages(t, server)
+	if len(messages) != 1 || messages[0].Text != "one\ntwo" {
+		t.Fatalf("messages = %+v", messages)
+	}
+}
+
 func TestSendChatAcceptsAMessageWithOnlyImages(t *testing.T) {
 	server := startChat(t)
 
