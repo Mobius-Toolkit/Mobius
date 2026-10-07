@@ -59,18 +59,13 @@ func (a *Agent) track(notification map[string]any, kind string) {
 func (a *Agent) waitQuiet(ctx context.Context) error {
 	ticker := time.NewTicker(quietPoll)
 	defer ticker.Stop()
-	stopped := make(chan struct{})
-	a.mu.Lock()
-	a.quietStop = stopped
-	a.mu.Unlock()
-	defer func() {
-		a.mu.Lock()
-		a.quietStop = nil
-		a.mu.Unlock()
-	}()
 	last := time.Now()
 	for {
 		a.mu.Lock()
+		if a.stopRequested {
+			a.mu.Unlock()
+			return errStopped
+		}
 		busy := a.autonomous
 		if a.activity.After(last) {
 			last = a.activity
@@ -90,8 +85,6 @@ func (a *Agent) waitQuiet(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-stopped:
-			return errStopped
 		case <-ticker.C:
 		}
 	}

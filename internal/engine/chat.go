@@ -711,6 +711,7 @@ func (e *Engine) turn(c *chat, a *Agent, prompt string, images []Image, stoppabl
 	defer func() {
 		e.chatsMu.Lock()
 		c.stoppable = false
+		a.takeStop()
 		e.chatsMu.Unlock()
 	}()
 	return a.Prompt(c.ctx, prompt, images)

@@ -92,8 +92,8 @@ type Agent struct {
 	autonomousEnd time.Time
 	// ended gets a value at each autonomousEnd.
 	ended chan struct{}
-	// quietStop closes at a stop while waitQuiet runs. Otherwise it is nil.
-	quietStop chan struct{}
+	// stopRequested tells that a stop came while no turn ran. Prompt takes it before it sends its text.
+	stopRequested bool
 	// retries is the number of retry prompts that Prompt sent in the session.
 	retries int
 	// details are the new details from the Owner that the next prompt of the Implementer or the Researcher carries.
@@ -358,6 +358,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		if !retrying {
 			err := a.waitQuiet(ctx)
 			if errors.Is(err, errStopped) {
+				a.takeStop()
 				return nil
 			}
 			if errors.Is(err, errHung) {
@@ -389,6 +390,11 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 			return err
 		}
 		a.mu.Lock()
+		if a.stopRequested {
+			a.stopRequested = false
+			a.mu.Unlock()
+			return a.engine.endPauseSince(ctx, paused)
+		}
 		a.turn = true
 		a.subagent = false
 		a.autonomousEnd = time.Time{}
@@ -430,18 +436,24 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 	}
 }
 
-// stop ends the wait of Prompt for an autonomous turn, or else asks the agent to end the turn that runs. A stop
-// during the wait sends no prompt and no cancel.
+// stop asks the agent to end the turn that runs. While no turn runs, stop only sets stopRequested, so Prompt sends
+// no prompt and no cancel reaches an autonomous turn.
 func (a *Agent) stop(ctx context.Context) error {
 	a.mu.Lock()
-	if a.quietStop != nil {
-		close(a.quietStop)
-		a.quietStop = nil
+	if !a.turn {
+		a.stopRequested = true
 		a.mu.Unlock()
 		return nil
 	}
 	a.mu.Unlock()
 	return a.cancel(ctx)
+}
+
+// takeStop clears stopRequested.
+func (a *Agent) takeStop() {
+	a.mu.Lock()
+	a.stopRequested = false
+	a.mu.Unlock()
 }
 
 // cancel asks the agent to end the turn that runs.
