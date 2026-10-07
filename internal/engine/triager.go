@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"slices"
@@ -87,6 +88,8 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	switch {
 	case ctx.Err() != nil:
 		return a.End(ended, "stopped")
+	case errors.Is(err, errHung):
+		return a.endHung(ended)
 	case err != nil:
 		return a.Fail(ended, err)
 	}

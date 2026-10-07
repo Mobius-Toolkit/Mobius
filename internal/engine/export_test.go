@@ -6,6 +6,7 @@ import "context"
 var (
 	ToolsTimeout  = &toolsTimeout
 	RestartDelays = &restartDelays
+	HangTimeout   = &hangTimeout
 )
 
 // Seal seals the drain for the restart.

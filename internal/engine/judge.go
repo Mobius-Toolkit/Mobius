@@ -300,6 +300,8 @@ func (e *Engine) judgeSession(ctx context.Context, j judgeJob) error {
 	switch {
 	case ctx.Err() != nil:
 		return a.End(ended, "stopped")
+	case errors.Is(err, errHung):
+		return errors.Join(err, e.endHungTask(ended, a, j.task, j.title))
 	case err != nil:
 		return a.Fail(ended, err)
 	}

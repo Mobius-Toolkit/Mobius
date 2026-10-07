@@ -294,6 +294,7 @@ func tool[In any](e *Engine, c caller, name, description string, properties map[
 		Description: description,
 		Properties:  properties,
 		Run: func(ctx context.Context, arguments json.RawMessage) (string, error) {
+			c.agent.touch()
 			text, err := call(ctx, e, c, name, arguments, run)
 			if recordErr := e.recordCall(ctx, c.session, name, arguments, text, err); recordErr != nil {
 				return "", recordErr
