@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -61,8 +60,6 @@ func TestAReportBeforeTheStopRefusesTheStop(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.researchers[a.id] = a
-	ctx, stop := context.WithCancel(t.Context())
-	e.stops[researcherKey(a.id)] = stopper{ctx: ctx, stop: stop}
 	queue := &chat{wake: make(chan struct{}, 1)}
 	e.chats[leadChat("owner/shop", 12)] = queue
 	e.gitMu.Lock()
