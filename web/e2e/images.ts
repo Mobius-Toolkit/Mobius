@@ -15,12 +15,16 @@ export async function png(page: Page, width: number, height: number, color: stri
   return Buffer.from(data, "base64");
 }
 
-export function pasteImage(page: Page, image: Buffer) {
-  return page.evaluate(`(() => {
+// Resolves to false when the page cancels the paste.
+export function pasteImage(page: Page, image: Buffer, text = "") {
+  return page.evaluate<boolean>(`(() => {
     const bytes = Uint8Array.from(atob(${JSON.stringify(image.toString("base64"))}), (char) => char.charCodeAt(0))
     const data = new DataTransfer()
     data.items.add(new File([bytes], 'image.png', { type: 'image/png' }))
-    document.querySelector('main form textarea').dispatchEvent(
+    if (${JSON.stringify(text)}) {
+      data.setData('text/plain', ${JSON.stringify(text)})
+    }
+    return document.querySelector('main form textarea').dispatchEvent(
       new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
     )
   })()`);

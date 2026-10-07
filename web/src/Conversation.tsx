@@ -31,6 +31,8 @@ import { cn } from "@/lib/utils";
 import { useVoice } from "@/lib/voice";
 import { Markdown } from "./Markdown";
 
+const tooManyImages = `A message has at most ${maxImages} images.`;
+
 function upsert(list: ChatMessage[], message: ChatMessage) {
   const known = list.find((other) => other.id === message.id);
   // The agent only adds text to a message, so the longer text is the newer text.
@@ -162,6 +164,7 @@ export function Conversation({
   const [sending, setSending] = useState(false);
   // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
   // message.
+  const imagesRef = useRef<File[]>([]);
   const inFlight = useRef(false);
   const [briefOpen, setBriefOpen] = useState<boolean>();
   const listRef = useRef<HTMLDivElement>(null);
@@ -276,9 +279,21 @@ export function Conversation({
     }
   });
 
+  // The ref has the images at once, so two calls that wait for fitImage count the images of each other.
+  const changeImages = (change: (current: File[]) => File[]) => {
+    imagesRef.current = change(imagesRef.current);
+    setImages(imagesRef.current);
+  };
+
+  const restoreImages = (sentImages: File[]) => {
+    const all = [...sentImages, ...imagesRef.current];
+    changeImages(() => all.slice(0, maxImages));
+    return all.length > maxImages;
+  };
+
   const addImages = async (files: File[]) => {
-    const room = maxImages - images.length;
-    let problem = files.length > room ? `A message has at most ${maxImages} images.` : "";
+    const room = maxImages - imagesRef.current.length;
+    let problem = "";
     const added: File[] = [];
     for (const file of files.slice(0, room)) {
       try {
@@ -287,7 +302,11 @@ export function Conversation({
         problem = err instanceof Error ? err.message : String(err);
       }
     }
-    setImages((current) => [...current, ...added].slice(0, maxImages));
+    const all = [...imagesRef.current, ...added];
+    changeImages(() => all.slice(0, maxImages));
+    if (!problem && (files.length > room || all.length > maxImages)) {
+      problem = tooManyImages;
+    }
     setSendError(problem);
   };
 
@@ -296,12 +315,12 @@ export function Conversation({
       return;
     }
     const sent = text;
-    const sentImages = images;
+    const sentImages = imagesRef.current;
     voice.abort();
     inFlight.current = true;
     setSending(true);
     setText("");
-    setImages([]);
+    changeImages(() => []);
     sendChat({ organization, repository, workstream, text: sent, images: sentImages })
       .then((res) => {
         if (res.status === 204) {
@@ -309,17 +328,18 @@ export function Conversation({
           return;
         }
         setText((current) => sent + current);
-        setImages((current) => [...sentImages, ...current].slice(0, maxImages));
+        const dropped = restoreImages(sentImages);
         if (res.status === 401) {
           showLogin();
+          setSendError(dropped ? tooManyImages : "");
         } else {
-          setSendError(res.data.error);
+          setSendError(dropped ? `${res.data.error} ${tooManyImages}` : res.data.error);
         }
       })
       .catch((err: unknown) => {
         setText((current) => sent + current);
-        setImages((current) => [...sentImages, ...current].slice(0, maxImages));
-        setSendError(String(err));
+        const dropped = restoreImages(sentImages);
+        setSendError(dropped ? `${String(err)} ${tooManyImages}` : String(err));
       })
       .finally(() => {
         inFlight.current = false;
@@ -409,7 +429,7 @@ export function Conversation({
                   key={index}
                   file={image}
                   position={index + 1}
-                  remove={() => setImages((current) => current.filter((_, i) => i !== index))}
+                  remove={() => changeImages((current) => current.filter((_, i) => i !== index))}
                 />
               ))}
             </div>
@@ -425,7 +445,8 @@ export function Conversation({
               const pasted = [...event.clipboardData.files].filter((file) =>
                 file.type.startsWith("image/"),
               );
-              if (pasted.length > 0) {
+              // Spreadsheet and word processor apps put the text and a picture of the selection on the clipboard.
+              if (pasted.length > 0 && !event.clipboardData.getData("text/plain")) {
                 event.preventDefault();
                 void addImages(pasted);
               }

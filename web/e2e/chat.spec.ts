@@ -134,6 +134,38 @@ test.describe("images", () => {
     await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
   });
 
+  test("a paste with text and an image keeps the default paste", async ({ page }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const notCanceled = await pasteImage(page, await png(page, 40, 30, "red"), "cells");
+    expect(notCanceled).toBe(true);
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeHidden();
+  });
+
+  test("a second add while the first scales an image still gets the error at 4 images", async ({
+    page,
+  }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const image = await png(page, 40, 30, "red");
+    const files = [1, 2, 3].map((n) => ({
+      name: `${n}.png`,
+      mimeType: "image/png",
+      buffer: image,
+    }));
+    await main.locator("input[type=file]").setInputFiles(files);
+    await expect(main.getByRole("img", { name: "Image 3" })).toBeVisible();
+    await main.locator("input[type=file]").setInputFiles({
+      name: "large.png",
+      mimeType: "image/png",
+      buffer: await png(page, 3136, 1000, "red"),
+    });
+    await pasteImage(page, image);
+    await expect(main.getByRole("img", { name: "Image 4" })).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 5" })).toBeHidden();
+    await expect(main.getByText("A message has at most 4 images.")).toBeVisible();
+  });
+
   test("a message has at most 4 images", async ({ page }) => {
     await page.goto(shop);
     const main = page.getByRole("main");
