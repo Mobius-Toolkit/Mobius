@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -111,7 +112,8 @@ const question = "What is the state of the plans? The full report is at " +
 // the next step. Then an Implementer and a Lead run, a drain waits for them, and the drain holds a second
 // Implementer. The parent of the first Implementer is a Lead session that ended. Release v0.1.4 of Mobius is newer
 // than this server. The Inbox has an item of a usage limit of claude-code, with no Workstream and no issue. The
-// table of the pauses has no row, because a pause stops the fake agents.
+// table of the pauses has no row, because a pause stops the fake agents. The tools of the Checkup page have fixed
+// paths and versions, and tar gives no version.
 //
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
 // unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
@@ -195,8 +197,14 @@ func TestServer(t *testing.T) {
 		"Keep a Workstream in the list when its sub-issues cannot be read (#314)",
 		"Show the release changes in a modal before the upgrade (#320)",
 	)
-	dataDir := t.TempDir()
+	// The Checkup page shows the path of each tool, so the data directory has the same path in each run.
+	const dataDir = "/tmp/mobius-e2e"
+	if err := os.RemoveAll(dataDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dataDir) })
 	testkit.InstallFakeAgent(t, dataDir, script)
+	fixTools(t, dataDir)
 	server := testserver.Start(t, dataDir, github.URL)
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
@@ -363,6 +371,23 @@ func waitForChat(t *testing.T, server *testserver.Server, key engine.ChatKey, au
 		}
 		return open == 0
 	})
+}
+
+// fixTools makes each tool of the Checkup page give the same path and version in each run. The directory of the fake
+// Harness commands comes first in the PATH of the agents, so the programs there hide the programs of the machine.
+// tar gives no version.
+func fixTools(t *testing.T, dataDir string) {
+	t.Helper()
+	harnesses := filepath.Join(dataDir, "harnesses")
+	for program, output := range map[string]string{
+		"git":    "git version 2.50.1\n",
+		"curl":   "curl 8.14.1 (x86_64-pc-linux-gnu)\n",
+		"tar":    "",
+		"claude": "2.1.284 (Claude Code)\n",
+	} {
+		testkit.InstallFakeProgram(t, harnesses, program, output)
+	}
+	t.Setenv("CLAUDE_CODE_EXECUTABLE", filepath.Join(harnesses, "claude"))
 }
 
 // fixTimes gives one fixed time to each time that the UI shows, so each run gives the same screenshots. An event text

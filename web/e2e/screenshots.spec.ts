@@ -230,6 +230,7 @@ test("screenshots", async ({ page }) => {
   ]);
   await screenshot(page, "checkup", "/settings/checkup", (device) => [
     ...frame(device, release),
+    main.getByText("2.1.284 (Claude Code)"),
     main.getByText("wrong color: #ededed"),
   ]);
 

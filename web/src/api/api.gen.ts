@@ -498,6 +498,28 @@ export interface EnvelopeArrayTaskLine {
 }
 
 /**
+ * ToolCheck is the path and the version of a program that Mobius runs.
+ */
+export interface ToolCheck {
+  /** Name is the name of the program */
+  name: string;
+  /** Path is the file that Mobius runs. It is empty when Mobius cannot find the program, and for the Claude Code CLI that is built in the adapter */
+  path: string;
+  /** Status is not-found for a program that Mobius cannot find, and no-version for a program that gives no version. It is empty for a program with a version */
+  status: string;
+  /** Version is the first line of the version output. It is empty when Status is not empty */
+  version: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayToolCheck {
+  /** Data is the payload of the response */
+  data: ToolCheck[];
+}
+
+/**
  * Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer
  */
 export type TranscriptLineKind = typeof TranscriptLineKind[keyof typeof TranscriptLineKind];
@@ -1438,6 +1460,71 @@ export const fixLabels = async (fixLabelsBody: FixLabelsBody, ): Promise<fixLabe
 
   const data: fixLabelsResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as fixLabelsResponse
+}
+
+
+
+export type getCheckupToolsResponse200 = {
+  data: EnvelopeArrayToolCheck
+  status: 200
+}
+
+export type getCheckupToolsResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getCheckupToolsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getCheckupToolsResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getCheckupToolsResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getCheckupToolsResponseSuccess = (getCheckupToolsResponse200) & {
+  headers: Headers;
+};
+export type getCheckupToolsResponseError = (getCheckupToolsResponse400 | getCheckupToolsResponse401 | getCheckupToolsResponse422 | getCheckupToolsResponse500) & {
+  headers: Headers;
+};
+
+export type getCheckupToolsResponse = (getCheckupToolsResponseSuccess | getCheckupToolsResponseError)
+
+export const getGetCheckupToolsUrl = () => {
+
+
+
+
+  return `/api/checkup/tools`
+}
+
+/**
+ * GetCheckupTools returns the path and the version of each program that Mobius runs for its agents and its work.
+ */
+export const getCheckupTools = async ( ): Promise<getCheckupToolsResponse> => {
+
+  const res = await fetch(getGetCheckupToolsUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getCheckupToolsResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getCheckupToolsResponse
 }
 
 

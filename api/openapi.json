@@ -438,6 +438,51 @@
         ]
       }
     },
+    "/api/checkup/tools": {
+      "get": {
+        "description": "GetCheckupTools returns the path and the version of each program that Mobius runs for its agents and its work.",
+        "operationId": "GetCheckupTools",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_ToolCheck"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "checkup"
+        ]
+      }
+    },
     "/api/devices": {
       "get": {
         "description": "ListDevices returns the device logins.",
@@ -2688,6 +2733,24 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Array_ToolCheck": {
+        "type": "object",
+        "title": "Envelope_Array_ToolCheck",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]ToolCheck",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/ToolCheck"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Array_TranscriptLine": {
         "type": "object",
         "title": "Envelope_Array_TranscriptLine",
@@ -3632,6 +3695,35 @@
           "blockedBy"
         ],
         "description": "TaskLine is a task of a Workstream."
+      },
+      "ToolCheck": {
+        "type": "object",
+        "title": "ToolCheck",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name is the name of the program"
+          },
+          "path": {
+            "type": "string",
+            "description": "Path is the file that Mobius runs. It is empty when Mobius cannot find the program, and for the Claude Code CLI that is built in the adapter"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status is not-found for a program that Mobius cannot find, and no-version for a program that gives no version. It is empty for a program with a version"
+          },
+          "version": {
+            "type": "string",
+            "description": "Version is the first line of the version output. It is empty when Status is not empty"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "version",
+          "status"
+        ],
+        "description": "ToolCheck is the path and the version of a program that Mobius runs."
       },
       "TranscriptLine": {
         "type": "object",

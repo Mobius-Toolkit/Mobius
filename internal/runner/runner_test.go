@@ -40,14 +40,14 @@ func TestFindGivesTheFileOfAnExecutableProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := find("gh", dir); got != filepath.Join(dir, "gh") {
-		t.Errorf("find gh = %q", got)
+	if got := Find("gh", dir); got != filepath.Join(dir, "gh") {
+		t.Errorf("Find gh = %q", got)
 	}
-	if got := find("curl", dir); got != "" {
-		t.Errorf("find curl = %q", got)
+	if got := Find("curl", dir); got != "" {
+		t.Errorf("Find curl = %q", got)
 	}
-	if got := find("git", dir); got != "" {
-		t.Errorf("find git = %q", got)
+	if got := Find("git", dir); got != "" {
+		t.Errorf("Find git = %q", got)
 	}
 }
 

@@ -2,9 +2,11 @@ import { use, useCallback, useEffect, useState } from "react";
 import {
   fixLabels,
   getCheckup,
+  getCheckupTools,
   type Checkup as CheckupView,
   type LabelCheck,
   type PermissionCheck,
+  type ToolCheck,
 } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -50,9 +52,17 @@ function PermissionStatus({ permission }: { permission: PermissionCheck }) {
   }
 }
 
+function ToolVersion({ tool }: { tool: ToolCheck }) {
+  if (tool.status === "") {
+    return <Badge variant="secondary">{tool.version}</Badge>;
+  }
+  return <Badge variant="destructive">{tool.status.replace("-", " ")}</Badge>;
+}
+
 export function Checkup({ organization }: { organization: string }) {
   const showLogin = use(LoginContext);
   const [checkup, setCheckup] = useState<CheckupView>();
+  const [tools, setTools] = useState<ToolCheck[]>();
   const [error, setError] = useState<string>();
   const [fixing, setFixing] = useState(false);
 
@@ -74,6 +84,20 @@ export function Checkup({ organization }: { organization: string }) {
   }, [organization, showLogin]);
 
   useEffect(load, [load]);
+
+  useEffect(() => {
+    getCheckupTools()
+      .then((res) => {
+        if (res.status === 401) {
+          showLogin();
+        } else if (res.status === 200) {
+          setTools(res.data.data);
+        } else {
+          setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => setError(String(err)));
+  }, [showLogin]);
 
   const fix = () => {
     setFixing(true);
@@ -112,6 +136,24 @@ export function Checkup({ organization }: { organization: string }) {
       </CardHeader>
       <CardContent className="grid gap-6">
         {error && <Badge variant="destructive">{error}</Badge>}
+        {tools && (
+          <section className="grid gap-2">
+            <h3 className="font-medium">Tools</h3>
+            <ul className="divide-y">
+              {tools.map((tool) => (
+                <li key={tool.name} className="flex items-center justify-between gap-4 py-2">
+                  <span className="grid min-w-0">
+                    {tool.name}
+                    {tool.path && (
+                      <span className="text-muted-foreground text-sm break-all">{tool.path}</span>
+                    )}
+                  </span>
+                  <ToolVersion tool={tool} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {(!organization || checkup?.repositories.length === 0) && (
           <p className="text-muted-foreground">
             The Mobius App has no repository in this organization.
