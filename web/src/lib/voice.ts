@@ -74,7 +74,7 @@ export function useVoice(onText: (text: string) => void) {
         if (transcript !== lastFinal.current) {
           spoken.push(
             transcript.startsWith(`${lastFinal.current} `)
-              ? transcript.slice(lastFinal.current.length)
+              ? transcript.slice(lastFinal.current.length).trim()
               : transcript,
           );
           lastFinal.current = transcript;

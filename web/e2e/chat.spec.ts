@@ -504,6 +504,16 @@ test("a final result that repeats the final result before it adds only the new t
   await expect(input).toHaveValue("red roses");
 });
 
+test("two final results in one event that extend each other add one space", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red", "red roses");
+  await expect(input).toHaveValue("red roses");
+});
+
 test("the spoken text goes in at the cursor", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/workstreams/new");
