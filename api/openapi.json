@@ -3051,7 +3051,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost, and full disk for a local check that waits for free disk space",
+            "description": "Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space",
             "enum": [
               "question",
               "Lead",
@@ -3751,7 +3751,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer",
+            "description": "Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer or a hang of the agent",
             "enum": [
               "prompt",
               "update",

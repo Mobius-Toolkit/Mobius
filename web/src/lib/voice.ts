@@ -4,12 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // webkitSpeechRecognition.
 type Recognition = {
   lang: string;
+  continuous: boolean;
   start(): void;
   stop(): void;
   abort(): void;
   addEventListener(type: "result", listener: (event: SpeechRecognitionEvent) => void): void;
   addEventListener(type: "error", listener: (event: SpeechRecognitionErrorEvent) => void): void;
-  addEventListener(type: "end", listener: () => void): void;
+  addEventListener(type: "audiostart" | "end", listener: () => void): void;
 };
 
 const speech = window as Window & {
@@ -29,78 +30,114 @@ const errorMessages: Record<string, string> = {
   "language-not-supported": "The speech service does not support this language.",
 };
 
-// useVoice gives the text of one spoken phrase to onText. It returns the error of the voice input, or '' when
-// the voice input starts or abort runs.
+// useVoice gives the text of each spoken phrase to onText. It keeps the voice input on until toggle stops it,
+// abort runs or an error occurs. It returns the error of the voice input, or '' when the voice input starts or
+// abort runs.
 export function useVoice(onText: (text: string) => void) {
+  // WebKit allows one start() for each end event. A start() before the end event throws InvalidStateError.
+  // Thus one object does all starts, and each start waits for the end event of the run before it.
   const recognition = useRef<Recognition>(undefined);
-  // The sessions that can still send a result. A session that stop() stopped stays here until its end event.
-  const sessions = useRef(new Set<Recognition>());
+  const wanted = useRef(false);
+  const running = useRef(false);
+  // A run that never captured audio does not restart after its end event. This stops a loop of failed runs.
+  const canRestart = useRef(false);
+  // The result list of a run has all final results of the run. The new run starts a new list.
+  const added = useRef(0);
+  // Chrome on Android adds a final result that repeats the text of the final result before it.
+  const lastFinal = useRef("");
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
 
-  // abort drops the phrase that each session still holds.
-  const abort = useCallback(() => {
-    recognition.current = undefined;
-    setListening(false);
-    setError("");
-    for (const live of sessions.current) {
-      live.abort();
-    }
-    sessions.current.clear();
-  }, []);
-
-  useEffect(() => abort, [abort]);
-
-  const toggle = () => {
-    if (recognition.current) {
-      const live = recognition.current;
-      recognition.current = undefined;
-      setListening(false);
-      live.stop();
-      return;
-    }
-    if (!Speech) {
-      return;
-    }
-    const live = new Speech();
+  const begin = (live: Recognition) => {
     live.lang = navigator.language;
-    let added = 0;
+    added.current = 0;
+    lastFinal.current = "";
+    canRestart.current = false;
+    try {
+      live.start();
+    } catch {
+      wanted.current = false;
+      setListening(false);
+      setError("The voice input did not start.");
+      return;
+    }
+    running.current = true;
+  };
+
+  const create = (Ctor: new () => Recognition) => {
+    const live = new Ctor();
+    live.continuous = true;
     live.addEventListener("result", (event) => {
       const spoken: string[] = [];
-      while (added < event.results.length && event.results[added].isFinal) {
-        spoken.push(event.results[added][0].transcript);
-        added++;
+      while (added.current < event.results.length && event.results[added.current].isFinal) {
+        const transcript = event.results[added.current][0].transcript.trim();
+        if (transcript !== lastFinal.current) {
+          spoken.push(
+            transcript.startsWith(`${lastFinal.current} `)
+              ? transcript.slice(lastFinal.current.length).trim()
+              : transcript,
+          );
+          lastFinal.current = transcript;
+        }
+        added.current++;
       }
       const text = spoken.join(" ").trim();
       if (text) {
         onText(text);
       }
     });
+    live.addEventListener("audiostart", () => {
+      canRestart.current = true;
+    });
     live.addEventListener("error", (event) => {
-      if (recognition.current !== live) {
+      if (!wanted.current || event.error === "aborted") {
         return;
       }
-      if (event.error !== "aborted") {
-        setError(errorMessages[event.error] ?? `The voice input failed: ${event.error}`);
-      }
+      wanted.current = false;
+      setListening(false);
+      setError(errorMessages[event.error] ?? `The voice input failed: ${event.error}`);
     });
     live.addEventListener("end", () => {
-      sessions.current.delete(live);
-      if (recognition.current === live) {
-        recognition.current = undefined;
-        setListening(false);
+      running.current = false;
+      if (wanted.current && canRestart.current) {
+        begin(live);
+        return;
       }
+      wanted.current = false;
+      setListening(false);
     });
-    try {
-      live.start();
-    } catch {
-      setError("The voice input did not start.");
+    return live;
+  };
+
+  // abort drops the phrase that the run still holds.
+  const abort = useCallback(() => {
+    wanted.current = false;
+    setListening(false);
+    setError("");
+    recognition.current?.abort();
+  }, []);
+
+  useEffect(() => abort, [abort]);
+
+  const toggle = () => {
+    if (wanted.current) {
+      wanted.current = false;
+      setListening(false);
+      recognition.current?.stop();
       return;
     }
-    recognition.current = live;
-    sessions.current.add(live);
+    if (!Speech) {
+      return;
+    }
+    recognition.current ??= create(Speech);
+    wanted.current = true;
     setError("");
     setListening(true);
+    if (running.current) {
+      canRestart.current = true;
+    } else {
+      begin(recognition.current);
+    }
   };
 
   return { supported: Boolean(Speech), listening, error, toggle, abort };

@@ -49,7 +49,7 @@ type TranscriptLine struct {
 	Session int64 `gork:"session"`
 	// Time is the time of the row
 	Time time.Time `gork:"time"`
-	// Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer
+	// Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer or a hang of the agent
 	Kind string `gork:"kind" validate:"oneof=prompt update mcp_call error check"`
 	// Text is the one line that the UI always shows
 	Text string `gork:"text"`

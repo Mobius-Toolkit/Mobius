@@ -43,7 +43,8 @@ type Server struct {
 }
 
 // Config gives the config of a server under test with the data in dataDir: the access password Password, the
-// trusted user TrustedUser, a poll each 50 ms, a Lead that closes after 300 ms with no work, and a binding for each Role.
+// trusted user TrustedUser, a poll each 50 ms, a review quiet period of 100 ms, a Lead that closes after 300 ms with no
+// work, and a binding for each Role.
 func Config(t testing.TB, dataDir string) *config.Config {
 	t.Helper()
 	cfg, err := config.Parse(fmt.Appendf(nil, `
@@ -51,6 +52,7 @@ access_password = %q
 trusted_users = [%q]
 data_dir = %q
 poll_interval = "50ms"
+review_quiet_period = "100ms"
 lead_idle_timeout = "300ms"
 
 [roles]

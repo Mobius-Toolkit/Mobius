@@ -111,11 +111,15 @@ type FakeGitHub struct {
 	// createdAt holds the creation time of each pull request, in seconds after the Unix epoch.
 	createdAt map[issueKey]int64
 	behind    map[issueKey]bool
+	// unknownMergeable holds the pull requests whose mergeable GitHub still calculates.
+	unknownMergeable map[issueKey]bool
 	// The id of a check run is its index plus 1.
 	checkRuns    []checkRun
 	annotations  map[int64][]annotationJSON
 	checkRunApps map[int64]string
 	jobLogs      map[int64]string
+	// The id of a workflow run is its index plus 1.
+	workflowRuns []workflowRun
 }
 
 // A grant is a user code or a refresh token: the login of the user and the App index.
@@ -165,6 +169,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		issueHolds:              map[issueKey]*hold{},
 		createdAt:               map[issueKey]int64{},
 		behind:                  map[issueKey]bool{},
+		unknownMergeable:        map[issueKey]bool{},
 		annotations:             map[int64][]annotationJSON{},
 		checkRunApps:            map[int64]string{},
 		jobLogs:                 map[int64]string{},
@@ -217,6 +222,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/check-runs/{id}", g.withToken(g.updateCheckRun))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/check-runs/{id}/annotations", g.withToken(g.checkRunAnnotations))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/commits/{sha}/check-runs", g.withToken(g.commitCheckRuns))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs", g.withToken(g.listWorkflowRuns))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/jobs/{id}/logs", g.withToken(g.jobLogLink))
 	mux.HandleFunc("GET /job-logs/{id}", g.jobLog)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/releases/latest", g.getLatestRelease)

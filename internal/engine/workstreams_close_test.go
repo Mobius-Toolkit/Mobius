@@ -267,7 +267,7 @@ func TestAReopenStartsALeadWithTheEvent(t *testing.T) {
 func TestACloseKeepsTheBranchOfTheClosedPullRequest(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
-	readyWithItem(t, server, fake)
+	waitForApproval(t, server, fake)
 
 	fake.CloseIssue(shop, 12)
 

@@ -431,17 +431,27 @@ test("the voice button adds the spoken text to the message", async ({ page }) =>
 });
 
 // The fake recognition keeps each instance in recognitions and the calls in calls. It sends no event by itself.
+// Like WebKit, it throws on a start before the end of the run before.
 const fakeRecognition = `window.recognitions = []
   window.calls = []
   window.SpeechRecognition = class extends EventTarget {
-    start() {
-      if (window.startError) throw new Error(window.startError)
+    constructor() {
+      super()
       window.recognitions.push(this)
+      this.addEventListener('end', () => { this.active = false })
+    }
+    start() {
+      if (this.active) throw new Error('InvalidStateError')
+      if (window.startError) throw new Error(window.startError)
+      this.active = true
       window.calls.push('start')
     }
     stop() { window.calls.push('stop') }
     abort() { window.calls.push('abort') }
   }`;
+
+const emit = (page: Page, type: string) =>
+  page.evaluate(`recognitions[0].dispatchEvent(new Event('${type}'))`);
 
 // A transcript that ends in ... is not final.
 const result = (page: Page, ...transcripts: string[]) =>
@@ -475,6 +485,32 @@ test("two result events add the spoken text once", async ({ page }) => {
   await result(page, "red", "roses...");
   await expect(input).toHaveValue("red");
   await result(page, "red", "roses");
+  await expect(input).toHaveValue("red roses");
+});
+
+test("a final result that repeats the final result before it adds only the new text", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red", "red");
+  await expect(input).toHaveValue("red");
+  await result(page, "red", "red", "red roses");
+  await expect(input).toHaveValue("red roses");
+  await result(page, "red", "red", "red roses", "red roses");
+  await expect(input).toHaveValue("red roses");
+});
+
+test("two final results in one event that extend each other add one space", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red", "red roses");
   await expect(input).toHaveValue("red roses");
 });
 
@@ -546,7 +582,9 @@ test("Send stops a voice input that the voice button stopped", async ({ page }) 
   expect(await page.evaluate("calls")).toEqual(["start", "stop", "abort"]);
 });
 
-test("the voice button lets a new voice input start at once", async ({ page }) => {
+test("the voice button lets a new voice input start after the end of the old run", async ({
+  page,
+}) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/workstreams/owner/shop/12");
   const main = page.getByRole("main");
@@ -556,13 +594,177 @@ test("the voice button lets a new voice input start at once", async ({ page }) =
   await expect(mic).toBeVisible();
   await mic.click();
   await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
-  expect(await page.evaluate("calls")).toEqual(["start", "stop", "start"]);
+  expect(await page.evaluate("calls")).toEqual(["start", "stop"]);
 
-  // The end of the old session does not stop the new session.
-  await page.evaluate("recognitions[0].dispatchEvent(new Event('end'))");
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "stop", "start"]);
   await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
-  await page.evaluate("recognitions[1].dispatchEvent(new Event('end'))");
+  expect(await page.evaluate("recognitions.length")).toBe(1);
+});
+
+test("a tap after an error starts a new voice input after the end of the old run", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/owner/shop/12");
+  const main = page.getByRole("main");
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  await mic.click();
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'no-speech' }))",
+  );
   await expect(mic).toBeVisible();
+  await mic.click();
+  expect(await page.evaluate("calls")).toEqual(["start"]);
+
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "start"]);
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+});
+
+test("the voice input keeps the session open across pauses", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: "Start voice input", exact: true })
+    .click();
+  expect(await page.evaluate("recognitions[0].continuous")).toBe(true);
+});
+
+test("each recording adds its text after the existing text", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  await input.fill("Plant");
+  await input.blur();
+  await mic.click();
+  await result(page, "red");
+  await expect(input).toHaveValue("Plant red");
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await emit(page, "end");
+  await expect(mic).toBeVisible();
+
+  await mic.click();
+  await result(page, "roses");
+  await expect(input).toHaveValue("Plant red roses");
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await emit(page, "end");
+  await expect(mic).toBeVisible();
+
+  await mic.click();
+  await result(page, "today");
+  await expect(input).toHaveValue("Plant red roses today");
+  expect(await page.evaluate("recognitions.length")).toBe(1);
+  expect(await page.evaluate("calls")).toEqual(["start", "stop", "start", "stop", "start"]);
+});
+
+test("the spoken text goes at the end when the textarea has no focus", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await input.fill("Plant roses");
+  await select(page, 5, 5);
+  await input.blur();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "today");
+  await expect(input).toHaveValue("Plant roses today");
+  expect(await selection(page)).toEqual([17, 17]);
+});
+
+test("a session that the browser ends restarts", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await emit(page, "audiostart");
+  await result(page, "red");
+  await expect(input).toHaveValue("red");
+
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "start"]);
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+
+  // The result list of the new run starts again at the first result.
+  await result(page, "roses");
+  await expect(input).toHaveValue("red roses");
+  await result(page, "roses");
+  await expect(input).toHaveValue("red roses");
+});
+
+test("a session that the browser ends after an aborted error restarts", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await emit(page, "audiostart");
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'aborted' })); recognitions[0].dispatchEvent(new Event('end'))",
+  );
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "start"]);
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await expect(main.getByText("The voice input failed")).toHaveCount(0);
+});
+
+test("the voice button goes back to the start state when the browser refuses the restart", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  const main = page.getByRole("main");
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  await mic.click();
+  await emit(page, "audiostart");
+  await page.evaluate("window.startError = 'NotAllowedError'");
+  await emit(page, "end");
+  await expect(main.getByText("The voice input did not start.")).toBeVisible();
+  await expect(mic).toBeVisible();
+
+  await page.evaluate("window.startError = ''");
+  await mic.click();
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await expect(main.getByText("The voice input did not start.")).toHaveCount(0);
+  expect(await page.evaluate("calls")).toEqual(["start", "start"]);
+});
+
+test("a session that never heard audio does not restart", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await emit(page, "end");
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  expect(await page.evaluate("calls")).toEqual(["start"]);
+});
+
+test("a session that ends with an error does not restart", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await emit(page, "audiostart");
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'network' })); recognitions[0].dispatchEvent(new Event('end'))",
+  );
+  await expect(main.getByText("The speech service has no network connection.")).toBeVisible();
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  expect(await page.evaluate("calls")).toEqual(["start"]);
+});
+
+test("a session that the user stops does not restart", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/new");
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await emit(page, "audiostart");
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await emit(page, "end");
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  expect(await page.evaluate("calls")).toEqual(["start", "stop"]);
 });
 
 test("the voice input shows a message when it does not start", async ({ page }) => {

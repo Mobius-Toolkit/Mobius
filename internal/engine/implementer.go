@@ -177,16 +177,19 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if err != nil {
 		return "", err
 	}
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: "ready_for_review"})
+	if task.State != "approval" && task.State != "ready_for_review" {
+		return "", refuse("The task of #%d is %s, not approval or ready_for_review.", input.N, task.State)
+	}
+	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
 	if err != nil {
 		return "", err
 	}
 	if moved == 0 {
-		return "", refuse("The task of #%d is %s, not ready_for_review.", input.N, task.State)
+		return "", refuse("The task of #%d is not %s any more.", input.N, task.State)
 	}
 	r := round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: "\nFindings of the Lead:\n" + input.Findings + "\n", parent: sql.NullInt64{Int64: c.session, Valid: true}}
 	if err := e.fixRound(ctx, repository, r); err != nil {
-		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "working"})
+		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "working"})
 		return "", errors.Join(err, stateErr)
 	}
 	return fmt.Sprintf("Sent the findings to a fix round of #%d. At max_fix_rounds, Mobius stops the task instead.", input.N), nil
@@ -284,7 +287,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	return nil
 }
 
-// makeDraft makes the pull request a draft, so that readyForReview makes it ready for review at the end of the round.
+// makeDraft makes the pull request a draft, so that a pull request that is ready for review is a draft during the round.
 func makeDraft(ctx context.Context, repository github.Repository, pullRequest *gh.PullRequest) error {
 	if pullRequest.GetDraft() {
 		return nil
@@ -296,8 +299,8 @@ func makeDraft(ctx context.Context, repository github.Repository, pullRequest *g
 	return nil
 }
 
-// conflictRound starts a conflict round of the Implementer on the pull request of the task in ready_for_review. The
-// pull request is a draft during the round. The prompt has the issue body, and the round makes no change other than
+// conflictRound starts a conflict round of the Implementer on the pull request of the task in task.State, which is
+// ready_for_review, checks or approval. The pull request is a draft during the round. The prompt has the issue body, and the round makes no change other than
 // the merge of the base branch (Mobius-rust#227).
 func (e *Engine) conflictRound(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
 	brief, err := brief(ctx, repository, task.Workstream)
@@ -323,7 +326,7 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err := makeDraft(ctx, repository, pullRequest); err != nil {
 		return err
 	}
-	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: "ready_for_review"})
+	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: task.State})
 	if err != nil || queued == 0 {
 		return err
 	}
@@ -451,6 +454,8 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 	switch {
 	case ctx.Err() != nil:
 		return a.End(ended, "stopped")
+	case errors.Is(err, errHung):
+		return e.endHungTask(ended, a, task, j.title)
 	case err != nil:
 		return a.Fail(ended, err)
 	}
@@ -474,43 +479,6 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		return e.handOver(ended, task, j.title, "the conflict round did not merge the base branch. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.")
 	}
 	return e.handOver(ended, task, j.title, fmt.Sprintf("GitHub rejected the push. Mobius added mobius:needs-human. Git gave this error:\n\n```\n%s\n```", r.text))
-}
-
-// readyForReview moves the task from the state from to ready_for_review, sets the Mobius check of the head to
-// success, marks a draft pull request as ready for review, adds an Inbox item and gives the Lead an event. A task that
-// is not in the state from, for example after a decline, stays as it is.
-func (e *Engine) readyForReview(ctx context.Context, task store.Task, title string, p pushed, from string) error {
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: from})
-	if err != nil || moved == 0 {
-		return err
-	}
-	repository, err := e.repository(task.Repository)
-	if err != nil {
-		return err
-	}
-	if err := repository.CompleteCheckRun(ctx, p.checkRun, checkRunName, "success"); err != nil {
-		return err
-	}
-	if p.pullRequest.GetDraft() {
-		if err := repository.MarkReadyForReview(ctx, p.pullRequest.GetNodeID()); err != nil {
-			return err
-		}
-	}
-	number := p.pullRequest.GetNumber()
-	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
-		Kind:         readyForReviewKind,
-		Organization: repository.Owner(),
-		Repository:   task.Repository,
-		Workstream:   task.Workstream,
-		Issue:        task.Issue,
-		Text:         fmt.Sprintf("Pull request #%d of #%d \"%s\" is ready for review.", number, task.Issue, title),
-		Link:         p.pullRequest.GetHTMLURL(),
-	})
-	if err != nil {
-		return err
-	}
-	text := fmt.Sprintf("%s ready for review of #%d \"%s\": pull request #%d %s.", time.Now().UTC().Format(timeFormat), task.Issue, title, number, p.pullRequest.GetHTMLURL())
-	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_review", text)
 }
 
 // stopAtLimit hands the task of the round to a human, because the pull request has open items after max_fix_rounds

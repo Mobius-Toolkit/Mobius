@@ -17,8 +17,8 @@ func behind(pullRequest *gh.PullRequest) bool {
 	return pullRequest.GetMergeableState() == "behind"
 }
 
-// onConflict starts a conflict round on the pull request of the task in ready_for_review, which has a merge conflict
-// or is behind its base. A pull request older than stale_pr_age goes to a human instead, and then onConflict gives
+// onConflict starts a conflict round on the pull request of the task in ready_for_review, checks or approval, which has
+// a merge conflict or is behind its base. A pull request older than stale_pr_age goes to a human instead, and then onConflict gives
 // false.
 func (e *Engine) onConflict(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	if time.Since(pullRequest.GetCreatedAt().Time) > e.config.StalePRAge {
@@ -29,7 +29,7 @@ func (e *Engine) onConflict(ctx context.Context, repository github.Repository, t
 
 // stale hands the task of the stale pull request to a human, with an Inbox item and an event for the Lead.
 func (e *Engine) stale(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "needs_human", ID: task.ID, FromState: "ready_for_review"})
+	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "needs_human", ID: task.ID, FromState: task.State})
 	if err != nil || moved == 0 {
 		return err
 	}

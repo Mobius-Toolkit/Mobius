@@ -69,7 +69,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.startImplementerTool),
 			tool(e, c, "start_fix_round",
-				"Start a fix round on the pull request of a task that is ready_for_review. The Implementer gets your findings as the open items. The round counts toward max_fix_rounds. Returns at once.",
+				"Start a fix round on the pull request of a task that waits for approval or is ready_for_review. The Implementer gets your findings as the open items. The round counts toward max_fix_rounds. Returns at once.",
 				map[string]any{
 					"n":        map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
 					"findings": map[string]any{"type": "string", "minLength": 1, "description": "Your findings on the pull request: what to change and why."},
@@ -294,6 +294,7 @@ func tool[In any](e *Engine, c caller, name, description string, properties map[
 		Description: description,
 		Properties:  properties,
 		Run: func(ctx context.Context, arguments json.RawMessage) (string, error) {
+			c.agent.touch()
 			text, err := call(ctx, e, c, name, arguments, run)
 			if recordErr := e.recordCall(ctx, c.session, name, arguments, text, err); recordErr != nil {
 				return "", recordErr

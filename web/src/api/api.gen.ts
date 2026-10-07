@@ -382,7 +382,7 @@ export interface EnvelopeArrayGitHubApp {
 }
 
 /**
- * Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost, and full disk for a local check that waits for free disk space
+ * Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space
  */
 export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
 
@@ -411,7 +411,7 @@ export interface InboxItem {
   id: number;
   /** Issue is the number of the issue of the item */
   issue: number;
-  /** Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost, and full disk for a local check that waits for free disk space */
+  /** Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space */
   kind: InboxItemKind;
   /** Link is the GitHub URL of the item, or empty */
   link: string;
@@ -520,7 +520,7 @@ export interface EnvelopeArrayToolCheck {
 }
 
 /**
- * Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer
+ * Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer or a hang of the agent
  */
 export type TranscriptLineKind = typeof TranscriptLineKind[keyof typeof TranscriptLineKind];
 
@@ -547,7 +547,7 @@ export interface TranscriptLine {
   harnessToolName: string;
   /** ID increases with each new row of all sessions */
   id: number;
-  /** Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer */
+  /** Kind is prompt, update, mcp_call, error, or check for a phase of the local check of an Implementer or a hang of the agent */
   kind: TranscriptLineKind;
   /** Raw is the JSON text of the row, for example the full ACP update */
   raw: string;

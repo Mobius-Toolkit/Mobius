@@ -132,8 +132,11 @@ export function Conversation({
     if (!field) {
       return;
     }
-    const before = field.value.slice(0, field.selectionStart);
-    const after = field.value.slice(field.selectionEnd);
+    const focused = document.activeElement === field;
+    const start = focused ? field.selectionStart : field.value.length;
+    const end = focused ? field.selectionEnd : field.value.length;
+    const before = field.value.slice(0, start);
+    const after = field.value.slice(end);
     const lead = before === "" || /\s$/.test(before) ? before : `${before} `;
     const trail = after === "" || /^\s/.test(after) ? after : ` ${after}`;
     flushSync(() => setText(lead + spoken + trail));

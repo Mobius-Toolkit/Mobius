@@ -68,7 +68,18 @@ func touch(t *testing.T, file string) {
 	}
 }
 
-func TestAReviewerThatFindsNothingTakesTheTaskToReadyForReview(t *testing.T) {
+// readyForReview waits until the task of #41 waits for the Lead, and then makes its pull request ready and its state
+// ready_for_review, as the approval of the Lead does.
+func readyForReview(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'ready_for_review' WHERE issue = 41 AND state = 'approval'"); err != nil {
+		t.Fatal(err)
+	}
+	fake.SetDraft(shop, 42, false)
+}
+
+func TestAReviewerThatFindsNothingTakesTheTaskToChecksAndThenToApproval(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"pwd && git rev-parse HEAD && git rev-parse --abbrev-ref HEAD\"\n\n" + leadStarts
 	server, dataDir := connectTask(t, fake, lead, commits, noChange)
@@ -76,18 +87,18 @@ func TestAReviewerThatFindsNothingTakesTheTaskToReadyForReview(t *testing.T) {
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
-	waitForLeadPrompt(t, server, " ready for review of #41 \"Add plan model\": pull request #42 https://github.com/owner/shop/pull/42.")
+	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\": pull request #42 https://github.com/owner/shop/pull/42.")
 	sha, base := head(t, fake, "mobius/41"), head(t, fake, "main")
-	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: sha, Status: "completed", Conclusion: "success"}}; !reflect.DeepEqual(fake.CheckRuns(shop), want) {
+	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: sha, Status: "in_progress"}}; !reflect.DeepEqual(fake.CheckRuns(shop), want) {
 		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
 	}
-	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 1 || pullRequests[0].Draft {
+	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 1 || !pullRequests[0].Draft {
 		t.Errorf("pull requests = %+v", pullRequests)
 	}
-	if items := inbox(t, server); len(items) != 1 || items[0].Kind != "ready for review" || items[0].Issue != 41 || items[0].Link != "https://github.com/owner/shop/pull/42" {
+	if items := inbox(t, server); len(items) != 0 {
 		t.Errorf("Inbox = %+v", items)
 	}
-	if state := taskState(t, server); state != "ready_for_review" {
+	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s", state)
 	}
 	session := endedReviewers(t, server, 1)[0]
@@ -133,7 +144,7 @@ func TestAFixRoundRepliesWithThePushedFixCommitAndResolvesTheThread(t *testing.T
 	if kind := testkit.Git(t, fake.Remote(shop), "cat-file", "-t", fix); kind != "commit" {
 		t.Errorf("%s is a %s", fix, kind)
 	}
-	waitForLeadPrompt(t, server, " ready for review of #41 \"Add plan model\"")
+	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
 	sha, first := head(t, fake, "mobius/41"), head(t, fake, "mobius/41~1")
 	if fix != sha {
 		t.Errorf("fix = %s, head = %s", fix, sha)
@@ -142,11 +153,11 @@ func TestAFixRoundRepliesWithThePushedFixCommitAndResolvesTheThread(t *testing.T
 	if thread := fake.ReviewThread(shop, 42, 2); !reflect.DeepEqual(thread, want) {
 		t.Errorf("thread = %+v", thread)
 	}
-	runs := []testkit.CheckRun{{Name: "Mobius", HeadSHA: first, Status: "in_progress"}, {Name: "Mobius", HeadSHA: sha, Status: "completed", Conclusion: "success"}}
+	runs := []testkit.CheckRun{{Name: "Mobius", HeadSHA: first, Status: "in_progress"}, {Name: "Mobius", HeadSHA: sha, Status: "in_progress"}}
 	if !reflect.DeepEqual(fake.CheckRuns(shop), runs) {
 		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
 	}
-	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 1 || pullRequests[0].Draft {
+	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 1 || !pullRequests[0].Draft {
 		t.Errorf("pull requests = %+v", pullRequests)
 	}
 	if task := liveTask(t, server, 41); task.FixRounds != 1 {
@@ -182,13 +193,13 @@ func TestAnImplementerAfterCannotDoInAFixRoundContinuesThePullRequest(t *testing
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(roleSessions(t, server, engine.ImplementerRole), func(session store.Session) bool { return session.EndReason.String == "cannot_do" })
 	})
-	waitForLeadPrompt(t, server, " ready for review of #41 \"Add plan model\"")
+	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
 	sha := head(t, fake, "mobius/41")
 	want := testkit.Thread{Resolved: true, Comments: []testkit.Comment{{Author: app, Body: "Store the unit."}, {Author: app, Body: "Fixed in " + sha + "."}}}
 	if thread := fake.ReviewThread(shop, 42, 2); !reflect.DeepEqual(thread, want) {
 		t.Errorf("thread = %+v", thread)
 	}
-	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 1 || pullRequests[0].Draft {
+	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 1 || !pullRequests[0].Draft {
 		t.Errorf("pull requests = %+v", pullRequests)
 	}
 	var reasons []string
@@ -279,7 +290,7 @@ func TestAQueuedReviewerGetsTheEarlierThreadsOfTrustedAuthors(t *testing.T) {
 	touch(t, goFile)
 
 	endedReviewers(t, server, 2)
-	testkit.WaitFor(t, func() bool { return !fake.PullRequests(shop)[0].Draft })
+	waitForState(t, server, 43, "approval")
 	prompts := promptTexts(t, server, queued.ID)
 	if len(prompts) != 1 {
 		t.Fatalf("prompts = %q", prompts)
@@ -304,7 +315,7 @@ func TestStartFixRoundSendsTheFindingsOfTheLeadToAFixRound(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"true\"\n\n"+commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	readyForReview(t, server, fake)
 
 	sendChat(t, server, leadChat, "Send the findings to #41")
 
@@ -334,7 +345,10 @@ func TestAFixRoundOfTheLeadMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t
 	round := fmt.Sprintf("[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\n\n", goFile)
 	server, _ := connectTaskIn(t, fake, dataDir, noFinding+leadFindings+leadStarts, round+commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" && !fake.PullRequests(shop)[0].Draft })
+	readyForReview(t, server, fake)
+	if fake.PullRequests(shop)[0].Draft {
+		t.Fatal("the pull request is a draft")
+	}
 
 	sendChat(t, server, leadChat, "Send the findings to #41")
 
@@ -345,10 +359,13 @@ func TestAFixRoundOfTheLeadMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t
 
 	touch(t, goFile)
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" && !fake.PullRequests(shop)[0].Draft })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	if !fake.PullRequests(shop)[0].Draft {
+		t.Error("the pull request is ready for review before the approval of the Lead")
+	}
 }
 
-func TestStartFixRoundRefusesATaskThatIsNotReadyForReview(t *testing.T) {
+func TestStartFixRoundRefusesATaskThatNeitherWaitsForTheLeadNorIsReadyForReview(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, finding+leadFindings+leadStarts, commits, func(cfg *config.Config) { cfg.MaxFixRounds = 0 })
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -356,7 +373,7 @@ func TestStartFixRoundRefusesATaskThatIsNotReadyForReview(t *testing.T) {
 
 	sendChat(t, server, leadChat, "Send the findings to #41")
 
-	waitForChat(t, server, leadChat, "Lead", "error: The task of #41 is needs_human, not ready_for_review.")
+	waitForChat(t, server, leadChat, "Lead", "error: The task of #41 is needs_human, not approval or ready_for_review.")
 	if task := liveTask(t, server, 41); task.State != "needs_human" || task.FixRounds != 0 {
 		t.Errorf("task = %+v", task)
 	}
@@ -433,11 +450,11 @@ func TestAFailedReviewRunShowsTheReasonAndTheRestartKeepsTheRoundNumber(t *testi
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 	comments := roundComments(fake)
 	if len(comments) != 2 ||
 		!strings.HasPrefix(comments[0], "Review stopped, round 1 of 7\n\nThe run failed: ") ||
-		!strings.HasPrefix(comments[1], "Review ended, round 1 of 7\n\nResult: Ready for review.\nOpen findings: 0") {
+		!strings.HasPrefix(comments[1], "Review ended, round 1 of 7\n\nResult: No open findings. Mobius waits for CI.\nOpen findings: 0") {
 		t.Errorf("comments = %q", comments)
 	}
 	if task := liveTask(t, server, 41); task.ReviewRounds != 1 {
@@ -453,7 +470,7 @@ func TestAReviewRunAfterTheLimitPostsTheLimitComment(t *testing.T) {
 	implementer := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo more >> plan.txt && git commit -q -am 'Remove the lines'\"\n\n" + commits
 	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, implementer, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+	readyForReview(t, server, fake)
 
 	sendChat(t, server, leadChat, "Send the findings to #41")
 

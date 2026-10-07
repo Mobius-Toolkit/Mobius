@@ -88,7 +88,7 @@ func workerPrompts(t *testing.T, fake *testkit.FakeGitHub, implementer string, f
 	for _, file := range files {
 		fake.CommitFile(shop, file[0], file[1], "Add "+file[0])
 	}
-	readyWithItem(t, server, fake)
+	waitForApproval(t, server, fake)
 	fake.AddReviewComment(shop, 42, 0, "owner", "Rename plan to tier.")
 	sendChat(t, server, leadChat, question)
 	prompts := map[string]string{}

@@ -84,9 +84,9 @@ type quietItem struct {
 	since  time.Time
 }
 
-// judge starts a Judge for the new items of the pull request of the task in ready_for_review, reviewed or needs_human,
-// after review_quiet_period with no newer item. A task that waits for a human gets a Judge only for an item of a
-// trusted user. With no new item, a reviewed task with no open thread is ready for review.
+// judge starts a Judge for the new items of the pull request of the task in checks, approval, ready_for_review,
+// reviewed or needs_human, after review_quiet_period with no newer item. A task that waits for a human gets a Judge
+// only for an item of a trusted user. With no new item, a reviewed task with no open thread waits for CI.
 //
 // It gives true when the task has work for the Judge and does not wait for a human. With no new item, it gives
 // otherWork when the task leaves the state reviewed. The drain holds each new Judge, also a Judge whose Worker starts
@@ -201,8 +201,8 @@ func (e *Engine) newItems(ctx context.Context, repository github.Repository, tas
 	return items, nil
 }
 
-// judgeReady makes the pull request of the reviewed task ready for review when it has no open thread, with a new
-// Mobius check run on its head. It gives true when the task left the state reviewed.
+// judgeReady moves the reviewed task to checks when its pull request has no open thread, with a new Mobius check run on
+// the head. It gives true when the task left the state reviewed.
 func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
 	reviewThreads, err := repository.ReviewThreads(ctx, int64(pullRequest.GetNumber()))
@@ -214,16 +214,11 @@ func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, t
 	}) {
 		return false, nil
 	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
-	if err != nil {
+	if _, err := repository.CreateCheckRun(ctx, checkRunName, pullRequest.GetHead().GetSHA(), "in_progress"); err != nil {
 		return false, err
 	}
-	head := pullRequest.GetHead().GetSHA()
-	checkRun, err := repository.CreateCheckRun(ctx, checkRunName, head, "in_progress")
-	if err != nil {
-		return false, err
-	}
-	return true, e.readyForReview(ctx, task, issue.GetTitle(), pushed{pullRequest, head, checkRun}, "reviewed")
+	_, err = e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "reviewed"})
+	return true, err
 }
 
 // runJudge moves the task to working and runs the Judge of the job until the task stops. The Worker of the task exists
@@ -305,6 +300,8 @@ func (e *Engine) judgeSession(ctx context.Context, j judgeJob) error {
 	switch {
 	case ctx.Err() != nil:
 		return a.End(ended, "stopped")
+	case errors.Is(err, errHung):
+		return errors.Join(err, e.endHungTask(ended, a, j.task, j.title))
 	case err != nil:
 		return a.Fail(ended, err)
 	}

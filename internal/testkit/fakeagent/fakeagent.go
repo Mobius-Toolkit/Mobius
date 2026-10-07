@@ -21,6 +21,7 @@
 //	list_tools = true       # the reply gets the JSON of the tool list of the Mobius MCP server
 //	error = { code = -32000, message = "Usage limit", data = "..." }  # the turn ends with this error
 //	hang = true             # the turn ends only at session/cancel
+//	busy = "300ms"          # before the reply, the agent sends a tool_call_update every 10 ms for this long
 //
 // The reply has the texts of reply, then the text of call or list_tools, then the text of shell.
 //
@@ -43,11 +44,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/acp-go-sdk"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/pelletier/go-toml/v2"
 )
+
+// busyInterval is the time between two updates of a busy turn.
+const busyInterval = 10 * time.Millisecond
 
 type script struct {
 	LoginRequired bool                `toml:"login_required"`
@@ -62,6 +67,7 @@ type prompt struct {
 	Reply     []string     `toml:"reply"`
 	Updates   []string     `toml:"updates"`
 	Hang      bool         `toml:"hang"`
+	Busy      string       `toml:"busy"`
 	ListTools bool         `toml:"list_tools"`
 	Call      *call        `toml:"call"`
 	Shell     string       `toml:"shell"`
@@ -349,6 +355,17 @@ func (a *agent) play(ctx context.Context, sessionID string, turn prompt, mcpURL 
 	for _, update := range turn.Updates {
 		if err := a.send(ctx, sessionID, json.RawMessage(update)); err != nil {
 			return "", acp.NewInternalError(err.Error())
+		}
+	}
+	if turn.Busy != "" {
+		busy, err := time.ParseDuration(turn.Busy)
+		if err != nil {
+			return "", acp.NewInternalError(err.Error())
+		}
+		for end := time.Now().Add(busy); time.Now().Before(end); time.Sleep(busyInterval) {
+			if err := a.send(ctx, sessionID, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "busy"}); err != nil {
+				return "", acp.NewInternalError(err.Error())
+			}
 		}
 	}
 	var stdout, shell string

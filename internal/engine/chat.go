@@ -448,9 +448,15 @@ func (e *Engine) runChat(c *chat) {
 			}
 			return
 		}
-		failure := a.Fail(background, err)
-		if !contextError(err) {
-			crashes++
+		var failure error
+		if errors.Is(err, errHung) {
+			failure = errors.Join(err, a.endHung(background))
+			crashes = maxCrashes + 1
+		} else {
+			failure = a.Fail(background, err)
+			if !contextError(err) {
+				crashes++
+			}
 		}
 		e.chatsMu.Lock()
 		current := c.current

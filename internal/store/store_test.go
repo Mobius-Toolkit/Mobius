@@ -127,8 +127,72 @@ func TestOpenAdoptsSqlxVersions(t *testing.T) {
 	if state != "working" {
 		t.Errorf("state = %q, want %q", state, "working")
 	}
-	if err := db.QueryRow("SELECT count(*) FROM copied_workstreams").Scan(new(int)); err != nil {
-		t.Errorf("the last migration did not run: %v", err)
+	if _, err := db.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
+		VALUES ('o/r', 3, 1, 'unknown', '2026-10-01T10:00:00Z')`); err == nil {
+		t.Error("the last migration did not run: the database accepts an unknown task state")
+	}
+}
+
+func TestTheTaskStateMigrationKeepsTheRowsAndRefusesAnUnknownState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	sqlxDatabase(t, path)
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = old.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds,
+			pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head)
+		VALUES ('o/r', 5, 4, 'reviewed', '2026-10-01T11:00:00Z', 'mobius/5', '2026-10-01T11:01:00Z', 2,
+			9, '2026-10-01T11:02:00Z', 1, 'judge', 'needs_human', 3, 77, 'abc')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	tasks, err := New(db).ListLiveTasks(t.Context(), "o/r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("got %d tasks, want 2", len(tasks))
+	}
+	want := Task{
+		ID:             tasks[1].ID,
+		Repository:     "o/r",
+		Issue:          5,
+		Workstream:     4,
+		State:          "reviewed",
+		DispatchedAt:   "2026-10-01T11:00:00Z",
+		Branch:         sql.NullString{String: "mobius/5", Valid: true},
+		QueuedAt:       sql.NullString{String: "2026-10-01T11:01:00Z", Valid: true},
+		FixRounds:      2,
+		PullRequest:    sql.NullInt64{Int64: 9, Valid: true},
+		JudgedAt:       sql.NullString{String: "2026-10-01T11:02:00Z", Valid: true},
+		WorkerRestarts: 1,
+		Worker:         sql.NullString{String: "judge", Valid: true},
+		WorkerInput:    sql.NullString{String: "needs_human", Valid: true},
+		ReviewRounds:   3,
+		ReviewComment:  sql.NullInt64{Int64: 77, Valid: true},
+		CheckHead:      sql.NullString{String: "abc", Valid: true},
+	}
+	if tasks[1] != want {
+		t.Errorf("task = %+v, want %+v", tasks[1], want)
+	}
+	for _, state := range []string{"dispatched", "queued", "working", "reviewed", "needs_human", "ready_for_review", "stopped", "ended", "checks", "approval"} {
+		if _, err := db.Exec("UPDATE tasks SET state = ? WHERE issue = 5", state); err != nil {
+			t.Errorf("state %q: %v", state, err)
+		}
+	}
+	if _, err := db.Exec("UPDATE tasks SET state = 'unknown' WHERE issue = 5"); err == nil {
+		t.Error("the database accepts an unknown task state")
 	}
 }
 
