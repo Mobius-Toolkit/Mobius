@@ -135,8 +135,10 @@ func (c *chat) notify() {
 }
 
 // addChatMessage adds a chat message and sends it to the listeners. A message of the Researcher stays hidden. A
-// message that is not of the Owner, of a Researcher or of an event also changes the unread count of the chat.
-func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text string) (store.ChatMessage, error) {
+// message that is not of the Owner, of a Researcher or of an event also changes the unread count of the chat. When
+// images is not empty, it is the directory of saveImages. The message gets the images before the listeners see it, and
+// Mobius does not add it when the move fails.
+func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, images string) (store.ChatMessage, error) {
 	message, err := e.queries.AddChatMessage(ctx, store.AddChatMessageParams{
 		Organization: key.Organization,
 		Repository:   key.Repository,
@@ -145,8 +147,16 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text s
 		Time:         now(),
 		Text:         text,
 	})
-	if err != nil || author == researcherAuthor {
+	if err != nil {
 		return message, err
+	}
+	if images != "" {
+		if err := e.moveImages(images, message.ID); err != nil {
+			return message, errors.Join(err, e.queries.DeleteChatMessage(ctx, message.ID))
+		}
+	}
+	if author == researcherAuthor {
+		return message, nil
 	}
 	e.publish(Change{Message: &message})
 	if author == ownerAuthor || author == eventAuthor {
@@ -170,6 +180,9 @@ func (e *Engine) SendChat(ctx context.Context, key ChatKey, text string, images 
 	if !slices.Contains(e.github.Organizations(), key.Organization) {
 		return refuse("Mobius has no repository in the organization \"%s\".", key.Organization)
 	}
+	if text == "" && len(images) == 0 {
+		return refuse("A message must have text or an image.")
+	}
 	return e.postChat(ctx, key, ownerAuthor, text, images)
 }
 
@@ -188,10 +201,7 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, text string,
 	}
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
-	message, err := e.addChatMessage(ctx, key, author, text)
-	if err == nil && saved != "" {
-		err = e.moveImages(saved, message.ID)
-	}
+	message, err := e.addChatMessage(ctx, key, author, text, saved)
 	if err != nil {
 		if saved != "" {
 			_ = os.RemoveAll(saved)
@@ -230,7 +240,7 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 func (e *Engine) addLeadEvent(ctx context.Context, repository string, workstream int64, issue sql.NullInt64, kind, text string) error {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
-	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text)
+	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text, "")
 	if err != nil {
 		return err
 	}
@@ -772,7 +782,7 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repo
 	if issue == nil {
 		return "", refuse("The Workstream issue does not exist.")
 	}
-	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text); err != nil {
+	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text, ""); err != nil {
 		return "", err
 	}
 	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{

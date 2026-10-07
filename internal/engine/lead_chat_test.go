@@ -1204,3 +1204,31 @@ func TestAnOwnerMessageWithAnUnknownImageTypeIsNotAdded(t *testing.T) {
 		t.Errorf("chat = %+v", got)
 	}
 }
+
+func TestAListenerThatGetsAnOwnerMessageFindsItsImages(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectScript(t, fake, imageReading+options+"[[prompts]]\nreply = [\"Seen\"]\n", func(*config.Config) {})
+	changes, stop := server.Engine.Listen()
+	defer stop()
+
+	sendChatImages(t, server, leadChat, "Fix this screen", []engine.Image{pngImage})
+
+	change := waitForChange(t, changes, func(change engine.Change) bool { return change.Message != nil && change.Message.Author == "Owner" })
+	if count, err := server.Engine.ImageCount(change.Message.ID); err != nil || count != 1 {
+		t.Errorf("count = %d, %v", count, err)
+	}
+}
+
+func TestAnOwnerMessageWithNoTextAndNoImageIsNotAdded(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
+
+	err := server.Engine.SendChat(t.Context(), leadChat, "", nil)
+
+	if !engine.Refused(err) {
+		t.Errorf("error = %v", err)
+	}
+	if got := chatLines(t, server, leadChat); len(got) != 0 {
+		t.Errorf("chat = %+v", got)
+	}
+}

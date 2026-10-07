@@ -550,6 +550,15 @@ func (q *Queries) CountUnread(ctx context.Context, arg CountUnreadParams) (int64
 	return count, err
 }
 
+const deleteChatMessage = `-- name: DeleteChatMessage :exec
+DELETE FROM chat_messages WHERE id = ?
+`
+
+func (q *Queries) DeleteChatMessage(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteChatMessage, id)
+	return err
+}
+
 const deleteCopiedBlocker = `-- name: DeleteCopiedBlocker :execrows
 DELETE FROM copied_blockers WHERE repository = ? AND number = ?
 `
