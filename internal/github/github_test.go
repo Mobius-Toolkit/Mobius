@@ -112,7 +112,7 @@ func TestManifestFormPostsTheManifestToTheSettingsOfAnOrganization(t *testing.T)
 			"contents": "write",
 			"checks": "write",
 			"workflows": "write",
-			"actions": "read",
+			"actions": "write",
 			"metadata": "read"
 		}
 	}`), &want)
