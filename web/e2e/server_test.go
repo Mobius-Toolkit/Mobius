@@ -2,14 +2,19 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -294,6 +299,44 @@ func TestServer(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
+		}
+	}
+	for _, message := range []struct {
+		text   string
+		colors []color.RGBA
+	}{
+		{"This is the new plan page.", []color.RGBA{{37, 99, 235, 255}, {22, 163, 74, 255}}},
+		{"", []color.RGBA{{220, 38, 38, 255}}},
+	} {
+		added, err := queries.AddChatMessage(ctx, store.AddChatMessageParams{
+			Organization: "plants",
+			Repository:   "plants/garden",
+			Workstream:   25,
+			Author:       "Owner",
+			Time:         time.Now().UTC().Format(time.RFC3339Nano),
+			Text:         message.text,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := filepath.Join(dataDir, "images", fmt.Sprint(added.ID))
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		for position, fill := range message.colors {
+			picture := image.NewRGBA(image.Rect(0, 0, 200, 150))
+			for y := range 150 {
+				for x := range 200 {
+					picture.SetRGBA(x, y, fill)
+				}
+			}
+			var data bytes.Buffer
+			if err := png.Encode(&data, picture); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%d.png", position)), data.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 
