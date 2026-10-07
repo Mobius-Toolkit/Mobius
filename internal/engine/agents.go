@@ -87,6 +87,9 @@ type Agent struct {
 	tasks []string
 	// monitors are the live Monitors of the agent, with the persistent ones.
 	monitors []monitor
+	// skippedEnd tells that an autonomous end with task-notification took no task because a Monitor lived. It is
+	// false while no task is live.
+	skippedEnd bool
 	// autonomous tells that a turn runs that no prompt of Mobius started.
 	autonomous bool
 	// autonomousEnd is the time of the end of an autonomous turn while a prompt runs, until the next work update.

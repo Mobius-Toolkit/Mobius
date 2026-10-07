@@ -49,8 +49,12 @@ func (a *Agent) track(notification map[string]any, kind string) {
 		a.autonomous = false
 		// The origin has no task id, so the oldest task counts as the one that ended. A Monitor sends one
 		// task-notification for each event, so while a Monitor lives, no end belongs to a task for sure.
-		if origin == "task-notification" && len(a.tasks) > 0 && len(a.monitors) == 0 {
-			a.tasks = a.tasks[1:]
+		if origin == "task-notification" && len(a.tasks) > 0 {
+			if len(a.monitors) == 0 {
+				a.tasks = a.tasks[1:]
+			} else {
+				a.skippedEnd = true
+			}
 		}
 		// A live task at the end means that the turn started it, and the adapter can hold the turn open for it. Then
 		// the prompt is not absorbed.
@@ -64,6 +68,9 @@ func (a *Agent) track(notification map[string]any, kind string) {
 	}
 	if kind == "tool_call_update" {
 		a.trackTasks(update)
+	}
+	if len(a.tasks) == 0 {
+		a.skippedEnd = false
 	}
 }
 
@@ -150,8 +157,9 @@ func isFinalStatus(status string) bool {
 // waitQuiet holds until no autonomous turn runs and no background task is live. When the agent has no activity for
 // hangTimeout, no Mobius prompt runs and the agent is stuck in an autonomous turn or has lost the end of a task:
 // waitQuiet sends the cancel, forgets the tasks and the turn, and gives errHung. While a Monitor lives, the end of a
-// task is not sure, so the wait can end only because the end of the Monitor has no signal. Then waitQuiet forgets the
-// tasks and the Monitors that are not persistent, and gives nil.
+// task is not sure, so the wait can end only because the end of the Monitor has no signal. The end of a task is also
+// not sure when an end was skipped because of a Monitor that has since ended. Then waitQuiet forgets the tasks and the
+// Monitors that are not persistent, and gives nil.
 func (a *Agent) waitQuiet(ctx context.Context) error {
 	ticker := time.NewTicker(quietPoll)
 	defer ticker.Stop()
@@ -164,10 +172,11 @@ func (a *Agent) waitQuiet(ctx context.Context) error {
 			last = a.activity
 		}
 		hung := busy && time.Since(last) >= hangTimeout
-		unsure := hung && !a.autonomous && len(a.monitors) > 0
+		unsure := hung && !a.autonomous && (len(a.monitors) > 0 || a.skippedEnd)
 		if hung {
 			a.autonomous = false
 			a.tasks = nil
+			a.skippedEnd = false
 			a.monitors = slices.DeleteFunc(a.monitors, func(m monitor) bool { return !m.persistent })
 		}
 		a.mu.Unlock()

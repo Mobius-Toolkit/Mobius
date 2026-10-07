@@ -195,6 +195,35 @@ func TestMonitorEventsDoNotEndABackgroundTask(t *testing.T) {
 	}
 }
 
+func TestATaskEndSkippedForAMonitorThatThenExpiresGetsNoRetryPrompt(t *testing.T) {
+	shortHang(t)
+	fake := testkit.NewFakeGitHub(t)
+	bash := `{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "_meta": {"claudeCode": {"toolName": "Bash", "toolResponse": {"backgroundTaskId": "b1"}}}}`
+	monitor := `{"sessionUpdate": "tool_call_update", "toolCallId": "t2", "_meta": {"claudeCode": {"toolName": "Monitor", "toolResponse": {"taskId": "m1", "timeoutMs": 250, "persistent": false}}}}`
+	starts := "updates = ['" + bash + "', '" + monitor + "']\n"
+	end := `later = { after = "50ms", updates = ['` + workUpdate + `', '` + endUpdate + `'] }` + "\n"
+	server, _ := connect(t, fake, "[[prompts]]\n"+starts+"reply = [\"Started\"]\n"+end+"\n[[prompts]]\nreply = [\"Done\"]\n")
+	agent := start(t, server, leadSpec(t))
+	begin := time.Now()
+
+	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if waited := time.Since(begin); waited < *engine.HangTimeout {
+		t.Errorf("the prompt returned after %s, before the hang timeout", waited)
+	}
+	if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
+		t.Errorf("notes = %q", notes)
+	}
+	if prompts := promptTexts(t, server, agent.ID()); len(prompts) != 1 {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if err := agent.End(t.Context(), "done"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestALostEndSignalGetsARetryPromptInTheSameSession(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
