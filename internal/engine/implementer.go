@@ -196,7 +196,8 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 }
 
 // approvePullRequest moves the task from approval to ready_for_review, sets the Mobius check of the head to success,
-// makes a draft pull request ready for review, and adds the Inbox item for the Owner.
+// makes a draft pull request ready for review, replaces mobius:working with mobius:review, and adds the Inbox item for
+// the Owner.
 func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository github.Repository, input numberInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -269,6 +270,12 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		if err := repository.MarkReadyForReview(ctx, pullRequest.GetNodeID()); err != nil {
 			return err
 		}
+	}
+	if err := repository.AddLabel(ctx, task.Issue, reviewLabel); err != nil {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
+		return err
 	}
 	_, err := e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         readyForReviewKind,
@@ -351,6 +358,9 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err != nil || queued == 0 {
 		return err
 	}
+	if err := resumeWork(ctx, repository, r.task); err != nil {
+		return err
+	}
 	j := job{
 		task:        r.task,
 		title:       r.title,
@@ -372,6 +382,18 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	}
 	e.runImplementer(j)
 	return nil
+}
+
+// resumeWork replaces mobius:review of the issue of a task in ready_for_review with mobius:working, because a round
+// starts. task.State is the state before the round.
+func resumeWork(ctx context.Context, repository github.Repository, task store.Task) error {
+	if task.State != "ready_for_review" {
+		return nil
+	}
+	if err := repository.AddLabel(ctx, task.Issue, workingLabel); err != nil {
+		return err
+	}
+	return repository.RemoveLabel(ctx, task.Issue, reviewLabel)
 }
 
 // makeDraft makes the pull request a draft, so that a pull request that is ready for review is a draft during the round.
@@ -415,6 +437,9 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	}
 	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: task.State})
 	if err != nil || queued == 0 {
+		return err
+	}
+	if err := resumeWork(ctx, repository, task); err != nil {
 		return err
 	}
 	j := job{

@@ -66,7 +66,7 @@ func tail(text string, count int) string {
 }
 
 // handToHuman moves the task from working, queued or checks to needs_human, and the issue of the task from mobius:working
-// to mobius:needs-human. It gives false when the task is not working, queued or checks, for example after a decline.
+// or mobius:review to mobius:needs-human. It gives false when the task is not working, queued or checks, for example after a decline.
 func (e *Engine) handToHuman(ctx context.Context, task store.Task) (bool, error) {
 	moved := int64(0)
 	for _, from := range []string{"working", "queued", "checks"} {
@@ -85,6 +85,9 @@ func (e *Engine) handToHuman(ctx context.Context, task store.Task) (bool, error)
 		return false, err
 	}
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
+		return false, err
+	}
+	if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
 		return false, err
 	}
 	return true, repository.AddLabel(ctx, task.Issue, needsHumanLabel)
