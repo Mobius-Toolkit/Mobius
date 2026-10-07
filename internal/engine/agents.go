@@ -85,8 +85,8 @@ type Agent struct {
 	activity time.Time
 	// tasks are the ids of the live background tasks of the agent, the oldest first.
 	tasks []string
-	// monitors are the ids of the live Monitors of the agent, with the persistent ones.
-	monitors []string
+	// monitors are the live Monitors of the agent, with the persistent ones.
+	monitors []monitor
 	// autonomous tells that a turn runs that no prompt of Mobius started.
 	autonomous bool
 	// autonomousEnd is the time of the end of an autonomous turn while a prompt runs, until the next work update.

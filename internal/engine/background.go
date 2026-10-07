@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"time"
 )
@@ -15,6 +16,15 @@ var absorbTimeout = 30 * time.Second
 
 // autonomousOrigins are the origin kinds of the end of an autonomous turn. Any other kind ends a turn of a user.
 var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "observer", "observer-activity"}
+
+// monitor is a live Monitor of the agent. A Monitor sends each event and its end as a task-notification, so Mobius
+// cannot tell the end from an event.
+type monitor struct {
+	id         string
+	persistent bool
+	// deadline is the time of the latest end of a Monitor that is not persistent, or zero when it has no timeout.
+	deadline time.Time
+}
 
 // track follows the background tasks and the autonomous turns of a Claude Code agent. An autonomous turn is a turn
 // that the CLI starts alone, for example when a background task ends. The caller holds a.mu.
@@ -31,6 +41,7 @@ func (a *Agent) track(notification map[string]any, kind string) {
 			a.autonomous = true
 		}
 	case "usage_update":
+		a.expireMonitors()
 		origin := stringField(update, "_meta", "_claude/origin", "kind")
 		if !slices.Contains(autonomousOrigins, origin) {
 			return
@@ -61,16 +72,22 @@ func (a *Agent) track(notification map[string]any, kind string) {
 // reads the final status of a task takes the task notification into itself, so no autonomous end follows. A final
 // status of a task that is not in the list takes the oldest task: an autonomous end can have taken the id of
 // that task for another id. A Monitor that is persistent has no end that Mobius can wait for, so it does not count
-// as a task, but it still counts in monitors.
+// as a task, but it still counts in monitors. A Monitor that is not persistent ends at the latest after its timeout.
 func (a *Agent) trackTasks(update any) {
 	response := field(update, "_meta", "claudeCode", "toolResponse")
 	id := stringField(response, "backgroundTaskId")
 	toolName := stringField(update, "_meta", "claudeCode", "toolName")
 	if taskID := stringField(response, "taskId"); toolName == "Monitor" && taskID != "" {
-		if !slices.Contains(a.monitors, taskID) {
-			a.monitors = append(a.monitors, taskID)
+		persistent := field(response, "persistent") == true
+		if !slices.ContainsFunc(a.monitors, func(m monitor) bool { return m.id == taskID }) {
+			started := monitor{id: taskID, persistent: persistent}
+			timeout, _ := field(response, "timeoutMs").(json.Number)
+			if ms, _ := timeout.Int64(); ms > 0 && !persistent {
+				started.deadline = time.Now().Add(time.Duration(ms) * time.Millisecond)
+			}
+			a.monitors = append(a.monitors, started)
 		}
-		if field(response, "persistent") != true {
+		if !persistent {
 			id = taskID
 		}
 	}
@@ -101,13 +118,28 @@ func (a *Agent) trackTasks(update any) {
 	if ended == "" {
 		return
 	}
-	if index := slices.Index(a.monitors, ended); index >= 0 {
-		a.monitors = slices.Delete(a.monitors, index, index+1)
-	}
-	if index := slices.Index(a.tasks, ended); index >= 0 {
-		a.tasks = slices.Delete(a.tasks, index, index+1)
-	} else if shown && len(a.tasks) > 0 {
+	if !a.forget(ended) && shown && len(a.tasks) > 0 {
 		a.tasks = a.tasks[1:]
+	}
+}
+
+// forget removes the task and the Monitor with id, and tells if a task was in the list.
+func (a *Agent) forget(id string) bool {
+	a.monitors = slices.DeleteFunc(a.monitors, func(m monitor) bool { return m.id == id })
+	index := slices.Index(a.tasks, id)
+	if index >= 0 {
+		a.tasks = slices.Delete(a.tasks, index, index+1)
+	}
+	return index >= 0
+}
+
+// expireMonitors removes each Monitor that is not persistent and passed its timeout. The caller holds a.mu.
+func (a *Agent) expireMonitors() {
+	now := time.Now()
+	for _, m := range slices.Clone(a.monitors) {
+		if !m.deadline.IsZero() && now.After(m.deadline) {
+			a.forget(m.id)
+		}
 	}
 }
 
@@ -117,24 +149,31 @@ func isFinalStatus(status string) bool {
 
 // waitQuiet holds until no autonomous turn runs and no background task is live. When the agent has no activity for
 // hangTimeout, no Mobius prompt runs and the agent is stuck in an autonomous turn or has lost the end of a task:
-// waitQuiet sends the cancel, forgets the tasks and the turn, and gives errHung.
+// waitQuiet sends the cancel, forgets the tasks and the turn, and gives errHung. While a Monitor lives, the end of a
+// task is not sure, so the wait can end only because the end of the Monitor has no signal. Then waitQuiet forgets the
+// tasks and the Monitors that are not persistent, and gives nil.
 func (a *Agent) waitQuiet(ctx context.Context) error {
 	ticker := time.NewTicker(quietPoll)
 	defer ticker.Stop()
 	last := time.Now()
 	for {
 		a.mu.Lock()
+		a.expireMonitors()
 		busy := a.autonomous || len(a.tasks) > 0
 		if a.activity.After(last) {
 			last = a.activity
 		}
 		hung := busy && time.Since(last) >= hangTimeout
+		unsure := hung && !a.autonomous && len(a.monitors) > 0
 		if hung {
 			a.autonomous = false
 			a.tasks = nil
-			a.monitors = nil
+			a.monitors = slices.DeleteFunc(a.monitors, func(m monitor) bool { return !m.persistent })
 		}
 		a.mu.Unlock()
+		if unsure {
+			return nil
+		}
 		if hung {
 			_ = a.cancel(ctx)
 			return errHung

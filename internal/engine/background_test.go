@@ -173,14 +173,20 @@ func TestMonitorEventsDoNotEndABackgroundTask(t *testing.T) {
 			events := `later = { after = "100ms", updates = ['` + workUpdate + `', '` + endUpdate + `', '` + workUpdate + `', '` + endUpdate + `'] }` + "\n"
 			server, _ := connect(t, fake, "[[prompts]]\n"+starts+"reply = [\"Started\"]\n"+events+"\n[[prompts]]\nreply = [\"Done\"]\n")
 			agent := start(t, server, leadSpec(t))
+			begin := time.Now()
 
 			if err := agent.Prompt(t.Context(), "One", nil); err != nil {
 				t.Fatal(err)
 			}
 
-			notes := noteTexts(t, server, agent.ID())
-			if len(notes) != 1 || !strings.Contains(notes[0], "retry 1 of 3") {
+			if waited := time.Since(begin); waited < *engine.HangTimeout {
+				t.Errorf("the prompt returned after %s, before the Monitor events ended the wait", waited)
+			}
+			if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
 				t.Errorf("notes = %q", notes)
+			}
+			if prompts := promptTexts(t, server, agent.ID()); len(prompts) != 1 {
+				t.Errorf("prompts = %q", prompts)
 			}
 			if err := agent.End(t.Context(), "done"); err != nil {
 				t.Fatal(err)
@@ -336,20 +342,50 @@ func monitorStarts(tool, response string) string {
 	return `updates = ['{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "_meta": {"claudeCode": {"toolName": "` + tool + `", "toolResponse": ` + response + `}}}']` + "\n"
 }
 
-func TestAMonitorThatIsNotPersistentIsAWaitedTask(t *testing.T) {
-	shortHang(t)
+func TestAMonitorThatIsNotPersistentEndsTheWaitAtItsTimeout(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	starts := monitorStarts("Monitor", `{"taskId": "m1", "timeoutMs": 300000, "persistent": false}`)
-	server, _ := connect(t, fake, "[[prompts]]\n"+starts+"reply = [\"Started\"]\n\n[[prompts]]\nreply = [\"Done\"]\n")
+	starts := monitorStarts("Monitor", `{"taskId": "m1", "timeoutMs": 600, "persistent": false}`)
+	events := `later = { after = "100ms", updates = ['` + workUpdate + `', '` + endUpdate + `', '` + workUpdate + `', '` + endUpdate + `', '` + workUpdate + `', '` + endUpdate + `'] }` + "\n"
+	server, _ := connect(t, fake, "[[prompts]]\n"+starts+"reply = [\"Started\"]\n"+events+"\n[[prompts]]\nreply = [\"Done\"]\n")
 	agent := start(t, server, leadSpec(t))
+	begin := time.Now()
 
 	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
 		t.Fatal(err)
 	}
 
-	notes := noteTexts(t, server, agent.ID())
-	if len(notes) != 1 || !strings.Contains(notes[0], "retry 1 of 3") {
+	if waited := time.Since(begin); waited < 600*time.Millisecond {
+		t.Errorf("the prompt returned after %s, before the timeout of the Monitor", waited)
+	}
+	if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
 		t.Errorf("notes = %q", notes)
+	}
+	if prompts := promptTexts(t, server, agent.ID()); len(prompts) != 1 {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if err := agent.End(t.Context(), "done"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestATaskThatEndsWhileAPersistentMonitorLivesGetsNoRetry(t *testing.T) {
+	shortHang(t)
+	fake := testkit.NewFakeGitHub(t)
+	monitor := monitorStarts("Monitor", `{"taskId": "m1", "timeoutMs": 0, "persistent": true}`)
+	server, _ := connect(t, fake, "[[prompts]]\n"+monitor+"reply = [\"Started\"]\n\n[[prompts]]\n"+startsTask+"reply = [\"Started\"]\n"+taskEnds+"\n[[prompts]]\nreply = [\"Done\"]\n")
+	agent := start(t, server, leadSpec(t))
+
+	for _, text := range []string{"One", "Two"} {
+		if err := agent.Prompt(t.Context(), text, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if notes := noteTexts(t, server, agent.ID()); len(notes) != 0 {
+		t.Errorf("notes = %q", notes)
+	}
+	if prompts := promptTexts(t, server, agent.ID()); len(prompts) != 2 {
+		t.Errorf("prompts = %q", prompts)
 	}
 	if err := agent.End(t.Context(), "done"); err != nil {
 		t.Fatal(err)
