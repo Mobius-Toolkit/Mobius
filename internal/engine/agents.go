@@ -83,6 +83,17 @@ type Agent struct {
 	turn bool
 	// activity is the time of the last activity of the agent, or of the last prompt.
 	activity time.Time
+	// subagent tells that the current prompt started a background subagent.
+	subagent bool
+	// autonomous tells that a turn runs that no prompt of Mobius started.
+	autonomous bool
+	// autonomousEnd is the time of the end of an autonomous turn while a prompt runs, until the next work update.
+	// Otherwise it is zero.
+	autonomousEnd time.Time
+	// ended gets a value at each autonomousEnd.
+	ended chan struct{}
+	// stopRequested tells that a stop came while no turn ran. Prompt takes it before it sends its text.
+	stopRequested bool
 	// retries is the number of retry prompts that Prompt sent in the session.
 	retries int
 	// details are the new details from the Owner that the next prompt of the Implementer or the Researcher carries.
@@ -230,7 +241,7 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, err
 	}
 	e.publish(Change{Node: new(node(session))})
-	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1)}, nil
+	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
 }
 
 // waitForSlot waits for a slot of the Role of a, and starts the session. A failed wait ends the session, like Start.
@@ -334,22 +345,35 @@ func (a *Agent) ID() int64 {
 	return a.id
 }
 
-// Prompt adds text to the Transcript, sends it, and holds until the turn ends. After a usage limit, Prompt waits
-// for the end of the pause of the Harness and sends text again.
-func (a *Agent) Prompt(ctx context.Context, text string) error {
+// Prompt adds text to the Transcript, sends it with images, and holds until the turn ends. The Transcript row has
+// only the type and the size of each image. When the agent cannot read images, Prompt sends a note in place of them.
+// After a usage limit, Prompt waits for the end of the pause of the Harness and sends text again.
+func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
+	if len(images) > 0 && !a.session.ImagesSupported() {
+		text += imagesNote(text, len(images))
+		images = nil
+	}
+	retrying := false
 	for {
-		row, err := compact(map[string]string{"text": text})
-		if err != nil {
-			return err
+		if !retrying {
+			err := a.waitQuiet(ctx)
+			if errors.Is(err, errStopped) {
+				a.takeStop()
+				return nil
+			}
+			if errors.Is(err, errCannotDone) {
+				return nil
+			}
+			if errors.Is(err, errHung) {
+				var retry string
+				retry, err = a.retryHang(ctx)
+				text = retry + "\n\n" + text
+			}
+			if err != nil {
+				return err
+			}
 		}
-		a.mu.Lock()
-		err = a.engine.addRow(ctx, a.id, "prompt", row, !a.prompted)
-		a.prompted = true
-		a.chunk = nil
-		a.message = 0
-		a.reply.Reset()
-		a.cannotDo = ""
-		a.mu.Unlock()
+		row, err := compact(promptRow(text, images))
 		if err != nil {
 			return err
 		}
@@ -358,7 +382,24 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 			return err
 		}
 		a.mu.Lock()
+		if a.stopRequested {
+			a.stopRequested = false
+			a.mu.Unlock()
+			return nil
+		}
+		err = a.engine.addRow(ctx, a.id, "prompt", row, !a.prompted)
+		a.prompted = true
+		a.chunk = nil
+		a.message = 0
+		a.reply.Reset()
+		a.cannotDo = ""
+		if err != nil {
+			a.mu.Unlock()
+			return err
+		}
 		a.turn = true
+		a.subagent = false
+		a.autonomousEnd = time.Time{}
 		a.activity = time.Now()
 		a.mu.Unlock()
 		resendCtx, stopResend := context.WithCancel(ctx)
@@ -367,24 +408,24 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 			defer close(resent)
 			a.resendCancel(resendCtx)
 		}()
-		err = a.sendPrompt(ctx, text)
+		err = a.sendPrompt(ctx, text, images)
 		stopResend()
 		<-resent
-		a.mu.Lock()
-		a.turn = false
-		a.mu.Unlock()
+		// While a retry runs, turn stays true, so a late update of the hung turn is no autonomous turn.
+		retrying = errors.Is(err, errHung) && a.retries < maxRetries
+		if !retrying {
+			a.mu.Lock()
+			a.turn = false
+			a.mu.Unlock()
+		}
 		if err == nil {
 			return a.engine.endPauseSince(ctx, paused)
 		}
 		if errors.Is(err, errHung) {
-			if a.retries == maxRetries {
-				return errors.Join(err, a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s after %d retries. Mobius stops the session.", hangTimeout, maxRetries)))
-			}
-			a.retries++
-			if err := a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s. Mobius stopped the turn and sends retry %d of %d.", hangTimeout, a.retries, maxRetries)); err != nil {
+			if text, err = a.retryHang(ctx); err != nil {
 				return err
 			}
-			text = retryText(a.spec.Role)
+			images = nil
 			continue
 		}
 		limited, waitErr := a.waitOutLimit(ctx, err)
@@ -395,6 +436,26 @@ func (a *Agent) Prompt(ctx context.Context, text string) error {
 			return err
 		}
 	}
+}
+
+// stop asks the agent to end the turn that runs. While no turn runs, stop only sets stopRequested, so Prompt sends
+// no prompt and no cancel reaches an autonomous turn.
+func (a *Agent) stop(ctx context.Context) error {
+	a.mu.Lock()
+	if !a.turn {
+		a.stopRequested = true
+		a.mu.Unlock()
+		return nil
+	}
+	a.mu.Unlock()
+	return a.cancel(ctx)
+}
+
+// takeStop clears stopRequested.
+func (a *Agent) takeStop() {
+	a.mu.Lock()
+	a.stopRequested = false
+	a.mu.Unlock()
 }
 
 // cancel asks the agent to end the turn that runs.
@@ -504,10 +565,7 @@ func (a *Agent) record(params json.RawMessage) error {
 	ctx := context.Background()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	switch kind {
-	case "agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update", "plan":
-		a.activity = time.Now()
-	}
+	a.track(notification, kind)
 	// The unit of resetsAt is Unix seconds.
 	if resetsAt, ok := field(notification, "update", "_meta", "_claude/rateLimit", "resetsAt").(float64); ok {
 		a.resetHint = time.Unix(int64(resetsAt), 0)
@@ -568,7 +626,7 @@ func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 		return nil
 	}
 	spec := a.spec
-	message, err := a.engine.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, a.author, content)
+	message, err := a.engine.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, a.author, content, "")
 	a.message = message.ID
 	return err
 }

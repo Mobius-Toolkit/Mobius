@@ -79,7 +79,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"ask", "comment_pull_request", "create_issue", "create_workstream", "decline", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "read_issue", "reply_thread", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner"}
+	want := []string{"approve_pull_request", "ask", "comment_pull_request", "create_issue", "create_workstream", "decline", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "read_issue", "reply_thread", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}
@@ -580,7 +580,13 @@ func TestStopTaskStopsTheImplementerAsAStopOfTheOwnerDoes(t *testing.T) {
 
 	sendChat(t, server, leadChat, "Stop #41.")
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
+	testkit.WaitFor(t, func() bool {
+		if taskState(t, server) != "stopped" {
+			return false
+		}
+		feed := activities(t, server)
+		return feed[len(feed)-1].Text == "Stopped \"Add plan model\" on request of the Owner"
+	})
 	implementers := endedImplementers(t, server, 1)
 	if implementers[0].EndReason.String != "stopped" {
 		t.Errorf("end reason = %s", implementers[0].EndReason.String)
@@ -592,7 +598,7 @@ func TestStopTaskStopsTheImplementerAsAStopOfTheOwnerDoes(t *testing.T) {
 		t.Errorf("labels = %v", labels)
 	}
 	feed := activities(t, server)
-	if last := feed[len(feed)-1]; last.Issue != 41 || last.Text != "Stopped \"Add plan model\" on request of the Owner" {
+	if last := feed[len(feed)-1]; last.Issue != 41 {
 		t.Errorf("activity = %+v", last)
 	}
 }

@@ -21,8 +21,10 @@ import (
 const (
 	startImplementer = "call = { tool = \"start_implementer\", arguments = { n = 41, instructions = \"Store plans in cents.\" } }\n"
 	// leadStarts is a Lead that starts an Implementer for the dispatch of #41.
-	leadStarts   = "[[prompts]]\nwhen = \"dispatch of #41\"\n" + startImplementer
-	commitCents  = "shell = \"echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'\"\n"
+	leadStarts = "[[prompts]]\nwhen = \"dispatch of #41\"\n" + startImplementer
+	// commitCents has the directory of the task in the message, so that two tasks that commit in the same second get two
+	// commit ids. With one commit id, a check run of one task is also a check run of the other task.
+	commitCents  = "shell = '''echo cents > plan.txt && git add plan.txt && git commit -q -m \"Add plan model $(basename $PWD)\"'''\n"
 	commitDollar = "shell = \"echo dollars > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'\"\n"
 	fixCents     = "shell = \"echo cents > plan.txt && git commit -q -am 'Store plans in cents'\"\n"
 	cannotDoCall = "call = { tool = \"cannot_do\", arguments = { reason = \"The plan table does not exist.\" } }\n"
@@ -162,14 +164,14 @@ func TestTheImplementerCommitsAndMobiusOpensADraftPullRequest(t *testing.T) {
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	runs := approvalCheckRuns(t, server, fake)
-	if want := []testkit.PullRequest{{Number: 42, Title: "Add plan model", Body: "Closes #41", Head: "mobius/41", Base: "main", Draft: true}}; !reflect.DeepEqual(fake.PullRequests(shop), want) {
+	if want := []testkit.PullRequest{{Number: 42, Title: "Add plan model", Body: "Workstream:\n- #12\n\nIssue:\n- #41\n\nCloses #41", Head: "mobius/41", Base: "main", Draft: true}}; !reflect.DeepEqual(fake.PullRequests(shop), want) {
 		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
 	}
 	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: head(t, fake, "mobius/41"), Status: "in_progress"}}; !reflect.DeepEqual(runs, want) {
 		t.Errorf("check runs = %+v", runs)
 	}
 	author := testkit.Git(t, fake.Remote(shop), "log", "-1", "--format=%s by %an <%ae>", "mobius/41")
-	if want := "Add plan model by mobius-test[bot] <41898282+mobius-test[bot]@users.noreply.github.com>"; author != want {
+	if want := "Add plan model task-41 by mobius-test[bot] <41898282+mobius-test[bot]@users.noreply.github.com>"; author != want {
 		t.Errorf("commit = %s", author)
 	}
 	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")

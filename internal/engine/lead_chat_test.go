@@ -1,9 +1,13 @@
 package engine_test
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,9 +33,27 @@ type chatLine struct {
 
 func sendChat(t *testing.T, server *testserver.Server, key engine.ChatKey, text string) {
 	t.Helper()
-	if err := server.Engine.SendChat(t.Context(), key, text); err != nil {
+	sendChatImages(t, server, key, text, nil)
+}
+
+func sendChatImages(t *testing.T, server *testserver.Server, key engine.ChatKey, text string, images []engine.Image) {
+	t.Helper()
+	if err := server.Engine.SendChat(t.Context(), key, text, images); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// imageReading is the start of a script of a fake Harness that reads images.
+const imageReading = "image_support = true\n"
+
+var (
+	pngImage  = engine.Image{MIMEType: "image/png", Data: []byte("\x89PNG")}
+	jpegImage = engine.Image{MIMEType: "image/jpeg", Data: []byte("\xff\xd8\xff")}
+)
+
+// imageReply gives the text that the fake agent replies for the image block of image.
+func imageReply(image engine.Image) string {
+	return "image " + image.MIMEType + " " + base64.StdEncoding.EncodeToString(image.Data)
 }
 
 func stopChat(t *testing.T, server *testserver.Server, key engine.ChatKey) {
@@ -986,6 +1008,36 @@ func nextEventData[T any](t *testing.T, events <-chan string, matches func(T) bo
 	}
 }
 
+// sendMessage posts a message of the Owner with the form fields.
+func sendMessage(t *testing.T, server *testserver.Server, fields map[string]string) (int, string) {
+	t.Helper()
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	for name, value := range fields {
+		if err := form.WriteField(name, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := form.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/api/chat/messages", &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", form.FormDataContentType())
+	response, err := server.Client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	text, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response.StatusCode, string(text)
+}
+
 func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hello\"]\n")
@@ -994,7 +1046,7 @@ func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 	unreads := liveEvents(t, server, "unread")
 	key := `"organization":"owner","repository":"owner/shop","workstream":12`
 
-	if status, body := send(t, server, http.MethodPost, "/api/chat/messages", `{`+key+`,"text":"Plan the loyalty API"}`); status != http.StatusNoContent {
+	if status, body := sendMessage(t, server, map[string]string{"organization": "owner", "repository": shop, "workstream": "12", "text": "Plan the loyalty API"}); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -1024,7 +1076,7 @@ func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 	if status, body := send(t, server, http.MethodPost, "/api/chat/stop", `{`+key+`}`); status != http.StatusNoContent {
 		t.Errorf("status = %d: %s", status, body)
 	}
-	if status, body := send(t, server, http.MethodPost, "/api/chat/messages", `{"organization":"nobody","text":"Hello"}`); status != http.StatusConflict {
+	if status, body := sendMessage(t, server, map[string]string{"organization": "nobody", "text": "Hello"}); status != http.StatusConflict {
 		t.Errorf("status = %d: %s", status, body)
 	}
 }
@@ -1098,5 +1150,118 @@ call = { tool = "move_task", arguments = { n = 21, workstream = 20 } }
 	}
 	if got := fake.SubIssueNumbers(shop, 20); !reflect.DeepEqual(got, []int64{21}) {
 		t.Errorf("sub-issues of #20 = %v", got)
+	}
+}
+
+func TestTheLeadGetsTheImagesOfAnOwnerMessageAndTheTranscriptHasOnlyTheirMetadata(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectScript(t, fake, imageReading+options+"[[prompts]]\nreply = [\"Seen\"]\n", func(*config.Config) {})
+
+	sendChatImages(t, server, leadChat, "Fix this screen", []engine.Image{pngImage, jpegImage})
+
+	session := endedChatSession(t, server, 0)
+	if got, want := reply(t, server, session.ID), "Seen"+imageReply(pngImage)+imageReply(jpegImage); got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+	prompts := rows(t, server, session.ID, "prompt")
+	wantImages := []any{map[string]any{"mimeType": "image/png", "size": 4.0}, map[string]any{"mimeType": "image/jpeg", "size": 3.0}}
+	if got := prompts[0]["images"]; !reflect.DeepEqual(got, wantImages) {
+		t.Errorf("images = %v", got)
+	}
+	for _, line := range transcript(t, server, session.ID) {
+		if line.Kind == "prompt" && strings.Contains(line.Raw, base64.StdEncoding.EncodeToString(pngImage.Data)) {
+			t.Errorf("the prompt row has image data: %s", line.Raw)
+		}
+	}
+	id := chatView(t, server, leadChat).Messages[0].ID
+	if count, err := server.Engine.ImageCount(id); err != nil || count != 2 {
+		t.Errorf("count = %d, %v", count, err)
+	}
+	image, err := server.Engine.MessageImage(id, 1)
+	if err != nil || image == nil || !reflect.DeepEqual(*image, jpegImage) {
+		t.Errorf("image = %+v, %v", image, err)
+	}
+	if image, err := server.Engine.MessageImage(id, 2); err != nil || image != nil {
+		t.Errorf("image = %+v, %v", image, err)
+	}
+}
+
+func TestAQueuedOwnerMessageKeepsItsImages(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectScript(t, fake, imageReading+options+"[[prompts]]\nhang = true\n\n[[prompts]]\nreply = [\"After the stop\"]\n", func(*config.Config) {})
+	sendChat(t, server, leadChat, "Plan the loyalty API")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 1
+	})
+	sendChatImages(t, server, leadChat, "", []engine.Image{pngImage})
+
+	stopChat(t, server, leadChat)
+
+	session := endedChatSession(t, server, 0)
+	if got, want := reply(t, server, session.ID), "After the stop"+imageReply(pngImage); got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+	if got := promptTexts(t, server, session.ID); got[1] != "" {
+		t.Errorf("prompts = %q", got)
+	}
+}
+
+func TestAnAgentThatCannotReadImagesGetsATextNote(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
+
+	sendChatImages(t, server, leadChat, "Fix this screen", []engine.Image{pngImage, jpegImage})
+
+	session := endedChatSession(t, server, 0)
+	if got, want := promptTexts(t, server, session.ID)[0], "Fix this screen\n\n[The Owner attached 2 images. This agent cannot read images.]"; !strings.HasSuffix(got, want) {
+		t.Errorf("prompt = %q", got)
+	}
+	if got := reply(t, server, session.ID); got != "Seen" {
+		t.Errorf("reply = %q", got)
+	}
+	if got := rows(t, server, session.ID, "prompt")[0]["images"]; got != nil {
+		t.Errorf("images = %v", got)
+	}
+}
+
+func TestAnOwnerMessageWithAnUnknownImageTypeIsNotAdded(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
+
+	err := server.Engine.SendChat(t.Context(), leadChat, "Read this", []engine.Image{{MIMEType: "application/pdf", Data: []byte("%PDF")}})
+
+	if !engine.Refused(err) {
+		t.Errorf("error = %v", err)
+	}
+	if got := chatLines(t, server, leadChat); len(got) != 0 {
+		t.Errorf("chat = %+v", got)
+	}
+}
+
+func TestAListenerThatGetsAnOwnerMessageFindsItsImages(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectScript(t, fake, imageReading+options+"[[prompts]]\nreply = [\"Seen\"]\n", func(*config.Config) {})
+	changes, stop := server.Engine.Listen()
+	defer stop()
+
+	sendChatImages(t, server, leadChat, "Fix this screen", []engine.Image{pngImage})
+
+	change := waitForChange(t, changes, func(change engine.Change) bool { return change.Message != nil && change.Message.Author == "Owner" })
+	if count, err := server.Engine.ImageCount(change.Message.ID); err != nil || count != 1 {
+		t.Errorf("count = %d, %v", count, err)
+	}
+}
+
+func TestAnOwnerMessageWithNoTextAndNoImageIsNotAdded(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
+
+	err := server.Engine.SendChat(t.Context(), leadChat, "", nil)
+
+	if !engine.Refused(err) {
+		t.Errorf("error = %v", err)
+	}
+	if got := chatLines(t, server, leadChat); len(got) != 0 {
+		t.Errorf("chat = %+v", got)
 	}
 }

@@ -106,6 +106,36 @@ func labelFix(repositories []engine.RepositoryCheckup) string {
 	}
 }
 
+// ToolCheck is the path and the version of a program that Mobius runs.
+type ToolCheck struct {
+	// Name is the name of the program
+	Name string `gork:"name"`
+	// Path is the file that Mobius runs. It is empty when Mobius cannot find the program, and for the Claude Code CLI that is built in the adapter
+	Path string `gork:"path"`
+	// Version is the first line of the version output. It is empty when Status is not empty
+	Version string `gork:"version"`
+	// Status is not-found for a program that Mobius cannot find, and no-version for a program that gives no version. It is empty for a program with a version
+	Status string `gork:"status"`
+}
+
+// GetCheckupToolsRequest is the request of GetCheckupTools.
+type GetCheckupToolsRequest struct{}
+
+// GetCheckupToolsResponse is the response of GetCheckupTools.
+type GetCheckupToolsResponse struct {
+	Body Envelope[[]ToolCheck]
+}
+
+// GetCheckupTools returns the path and the version of each program that Mobius runs for its agents and its work.
+func (h *handlers) GetCheckupTools(ctx context.Context, _ GetCheckupToolsRequest) (*GetCheckupToolsResponse, error) {
+	found := h.engine.Tools(ctx)
+	tools := make([]ToolCheck, 0, len(found))
+	for _, tool := range found {
+		tools = append(tools, ToolCheck(tool))
+	}
+	return &GetCheckupToolsResponse{Body: Envelope[[]ToolCheck]{Data: tools}}, nil
+}
+
 // FixLabelsRequest is the request of FixLabels.
 type FixLabelsRequest struct {
 	Body struct {

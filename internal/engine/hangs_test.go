@@ -66,7 +66,7 @@ func TestATurnWithNoActivityGetsARetryPromptInTheSameSession(t *testing.T) {
 func TestTheRetryPromptOfAnImplementerTellsItToCallCannotDo(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, hang+commits, noChange)
+	server, _ := connectTask(t, fake, leadStarts, hang+commits, longGrace)
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
@@ -112,7 +112,7 @@ func TestAnUpdateThatIsNoWorkDoesNotEndTheHang(t *testing.T) {
 func TestAnImplementerThatChecksItsWorkLongerThanTheHangTimeGetsNoRetryPrompt(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
-	server, dataDir := connectTask(t, fake, leadStarts, commits, noChange)
+	server, dataDir := connectTask(t, fake, leadStarts, commits, longGrace)
 	goFile := filepath.Join(dataDir, "go")
 	fake.SetCheck(shop, fmt.Sprintf("while [ ! -e '%s' ]; do sleep 0.05; done", goFile))
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -137,7 +137,7 @@ func TestASessionThatWaitsForASlotLongerThanTheHangTimeGetsNoRetryPrompt(t *test
 	server, _ := connectWith(t, fake, "[[prompts]]\nwhen = \"Work\"\nbusy = \"1s\"\n", func(cfg *config.Config) { cfg.MaxAgents = 1 })
 	first := start(t, server, implementerSpec(t, server, fake, 41))
 	working := make(chan error, 1)
-	go func() { working <- first.Prompt(t.Context(), "Work") }()
+	go func() { working <- first.Prompt(t.Context(), "Work", nil) }()
 	second := startLater(t.Context(), server, roleSpec(t, engine.JudgeRole))
 	queued(t, server, engine.JudgeRole)
 
@@ -147,7 +147,7 @@ func TestASessionThatWaitsForASlotLongerThanTheHangTimeGetsNoRetryPrompt(t *test
 	end(t, first, "done")
 	agent := await(t, second)
 	defer end(t, agent, "done")
-	if err := agent.Prompt(t.Context(), "Judge"); err != nil {
+	if err := agent.Prompt(t.Context(), "Judge", nil); err != nil {
 		t.Fatal(err)
 	}
 

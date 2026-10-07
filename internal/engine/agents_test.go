@@ -48,10 +48,16 @@ func connect(t *testing.T, fake *testkit.FakeGitHub, prompts string) (*testserve
 // connectWith is connect with the config of testserver.Config after adjust.
 func connectWith(t *testing.T, fake *testkit.FakeGitHub, prompts string, adjust func(*config.Config)) (*testserver.Server, string) {
 	t.Helper()
+	return connectScript(t, fake, options+prompts, adjust)
+}
+
+// connectScript is connectWith with the whole script of the fake Harness.
+func connectScript(t *testing.T, fake *testkit.FakeGitHub, script string, adjust func(*config.Config)) (*testserver.Server, string) {
+	t.Helper()
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	dataDir := t.TempDir()
-	testkit.InstallFakeAgent(t, dataDir, options+prompts)
+	testkit.InstallFakeAgent(t, dataDir, script)
 	cfg := testserver.Config(t, dataDir)
 	adjust(cfg)
 	server := startServerWith(t, fake, cfg, "")
@@ -78,7 +84,7 @@ func run(t *testing.T, server *testserver.Server, spec engine.Spec, prompts ...s
 	t.Helper()
 	agent := start(t, server, spec)
 	for _, prompt := range prompts {
-		if err := agent.Prompt(t.Context(), prompt); err != nil {
+		if err := agent.Prompt(t.Context(), prompt, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -147,7 +153,7 @@ func TestALeadSessionIsALeadNodeThatIsLiveUntilItEnds(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nhang = true\n")
 	agent := start(t, server, leadSpec(t))
-	go func() { _ = agent.Prompt(t.Context(), "Plan the loyalty API") }()
+	go func() { _ = agent.Prompt(t.Context(), "Plan the loyalty API", nil) }()
 
 	testkit.WaitFor(t, func() bool { return len(rows(t, server, agent.ID(), "prompt")) == 1 })
 

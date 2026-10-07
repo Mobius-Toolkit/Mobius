@@ -3,10 +3,13 @@ package engine_test
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -151,6 +154,54 @@ func TestTellOwnerAddsAChatMessageAndAnInboxItem(t *testing.T) {
 		t.Errorf("item = %+v", items[0])
 	}
 	waitForChange(t, changes, func(change engine.Change) bool { return change.Inbox != nil && change.Inbox.ID == items[0].ID })
+}
+
+const tellOwnerThenReply = `
+[[prompts]]
+when = "Second"
+reply = ["Second reply."]
+
+[[prompts]]
+when = "First"
+call = { tool = "tell_owner", arguments = { text = "#41 needs a decision." } }
+reply = ["Same text again."]
+`
+
+func TestTheReplyTextAfterTellOwnerDoesNotGoToTheChat(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, tellOwnerThenReply)
+
+	sendChat(t, server, leadChat, "First")
+
+	session := endedChatSession(t, server, 0)
+	if got := reply(t, server, session.ID); !strings.Contains(got, "Same text again.") {
+		t.Errorf("reply = %q", got)
+	}
+	want := []chatLine{{"Owner", "First"}, {"tell_owner", "#41 needs a decision."}}
+	if got := chatLines(t, server, leadChat); !reflect.DeepEqual(got, want) {
+		t.Errorf("chat = %+v", got)
+	}
+	if got := inbox(t, server); len(got) != 1 {
+		t.Errorf("inbox = %+v", got)
+	}
+}
+
+func TestTheReplyTextOfALaterTurnWithNoTellOwnerGoesToTheChat(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, tellOwnerThenReply, func(cfg *config.Config) { cfg.LeadIdleTimeout = 30 * time.Second })
+	sendChat(t, server, leadChat, "First")
+	waitForChat(t, server, leadChat, "tell_owner", "#41 needs a decision.")
+
+	sendChat(t, server, leadChat, "Second")
+
+	waitForChat(t, server, leadChat, "Lead", "Second reply.")
+	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 1 {
+		t.Errorf("sessions = %+v", got)
+	}
+	want := []chatLine{{"Owner", "First"}, {"tell_owner", "#41 needs a decision."}, {"Owner", "Second"}, {"Lead", "Second reply."}}
+	if got := chatLines(t, server, leadChat); !reflect.DeepEqual(got, want) {
+		t.Errorf("chat = %+v", got)
+	}
 }
 
 func TestDismissRemovesTheItemFromTheInbox(t *testing.T) {

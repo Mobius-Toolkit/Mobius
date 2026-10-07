@@ -20,6 +20,9 @@ func TestMain(m *testing.M) {
 	if filepath.Base(os.Args[0]) == "gh" {
 		os.Exit(GH(os.Args[1:], os.Getenv))
 	}
+	if filepath.Base(os.Args[0]) == "check" {
+		os.Exit(printNiceValue())
+	}
 	if os.Getenv("MOBIUS_FAKE_AGENT") == "1" {
 		runFakeAgent()
 		return
@@ -40,14 +43,14 @@ func TestFindGivesTheFileOfAnExecutableProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := find("gh", dir); got != filepath.Join(dir, "gh") {
-		t.Errorf("find gh = %q", got)
+	if got := Find("gh", dir); got != filepath.Join(dir, "gh") {
+		t.Errorf("Find gh = %q", got)
 	}
-	if got := find("curl", dir); got != "" {
-		t.Errorf("find curl = %q", got)
+	if got := Find("curl", dir); got != "" {
+		t.Errorf("Find curl = %q", got)
 	}
-	if got := find("git", dir); got != "" {
-		t.Errorf("find git = %q", got)
+	if got := Find("git", dir); got != "" {
+		t.Errorf("Find git = %q", got)
 	}
 }
 
@@ -148,7 +151,7 @@ func TestSessionGivesTheMCPServerSetsTheOptionsAndAllowsTools(t *testing.T) {
 	if err := session.Configure(ctx, "sonnet", "low"); err != nil {
 		t.Fatal(err)
 	}
-	stopReason, err := session.Prompt(ctx, "Call list_tasks.")
+	stopReason, err := session.Prompt(ctx, "Call list_tasks.", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

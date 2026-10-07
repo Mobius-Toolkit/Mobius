@@ -4,6 +4,7 @@ package runner
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,14 +76,15 @@ func Prepare(dataDir string) error {
 func Missing(path string, programs ...string) []string {
 	var missing []string
 	for _, program := range programs {
-		if find(program, path) == "" {
+		if Find(program, path) == "" {
 			missing = append(missing, program)
 		}
 	}
 	return missing
 }
 
-func find(program, path string) string {
+// Find gives the first executable file of program on path, or "" when path has no such file.
+func Find(program, path string) string {
 	for _, dir := range filepath.SplitList(path) {
 		file := filepath.Join(dir, program)
 		if info, err := os.Stat(file); err == nil && executable(info) {
@@ -116,6 +118,11 @@ func FindGH(path string) string {
 	return ""
 }
 
+// AgentPath gives the PATH of an agent process: the bin of the agent environment in dataDir, then path.
+func AgentPath(dataDir, path string) string {
+	return filepath.Join(agentEnv(dataDir), "bin") + string(filepath.ListSeparator) + path
+}
+
 func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL string) *exec.Cmd {
 	agentEnv := agentEnv(dataDir)
 	cmd := exec.CommandContext(ctx, file)
@@ -127,7 +134,7 @@ func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL string) *
 		"GH_CONFIG_DIR="+filepath.Join(agentEnv, "gh-config"),
 		"GIT_CONFIG_GLOBAL="+filepath.Join(agentEnv, "gitconfig"),
 		"GIT_TERMINAL_PROMPT=0",
-		"PATH="+filepath.Join(agentEnv, "bin")+string(filepath.ListSeparator)+path,
+		"PATH="+AgentPath(dataDir, path),
 	)
 	if ghTokenURL != "" {
 		cmd.Env = append(cmd.Env, ghURLEnv+"="+ghTokenURL)
@@ -141,13 +148,20 @@ type Session struct {
 	conn    *acp.Connection
 	id      acp.SessionId
 	options []acp.SessionConfigOption
+	images  bool
 	cmd     *exec.Cmd
 	stop    context.CancelFunc
 }
 
+// Image is an image of a prompt.
+type Image struct {
+	MIMEType string
+	Data     []byte
+}
+
 func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, path, ghTokenURL string) (*exec.Cmd, error) {
 	program := Program(harness)
-	file := find(program, path)
+	file := Find(program, path)
 	if file == "" {
 		return nil, fmt.Errorf("%s is not on PATH", program)
 	}
@@ -253,9 +267,11 @@ func describe(err error) error {
 }
 
 func (s *Session) open(ctx context.Context, cwd, mcpURL string) error {
-	if _, err := acp.SendRequest[acp.InitializeResponse](s.conn, ctx, acp.AgentMethodInitialize, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber}); err != nil {
+	initialized, err := acp.SendRequest[acp.InitializeResponse](s.conn, ctx, acp.AgentMethodInitialize, acp.InitializeRequest{ProtocolVersion: acp.ProtocolVersionNumber})
+	if err != nil {
 		return err
 	}
+	s.images = initialized.AgentCapabilities.PromptCapabilities.Image
 	response, err := acp.SendRequest[acp.NewSessionResponse](s.conn, ctx, acp.AgentMethodSessionNew, acp.NewSessionRequest{
 		Cwd: cwd,
 		McpServers: []acp.McpServer{{Http: &acp.McpServerHttpInline{
@@ -367,10 +383,22 @@ func values(option *acp.SessionConfigOptionSelect) []string {
 	return values
 }
 
-// Prompt sends text and holds until the turn ends. The updates of the turn go to the updates
-// function of Start before Prompt returns.
-func (s *Session) Prompt(ctx context.Context, text string) (acp.StopReason, error) {
-	response, err := acp.SendRequest[acp.PromptResponse](s.conn, ctx, acp.AgentMethodSessionPrompt, acp.PromptRequest{SessionId: s.id, Prompt: []acp.ContentBlock{acp.TextBlock(text)}})
+// ImagesSupported tells if the agent declared that it reads the images of a prompt.
+func (s *Session) ImagesSupported() bool {
+	return s.images
+}
+
+// Prompt sends text and then each image, and holds until the turn ends. The updates of the turn go to the updates
+// function of Start before Prompt returns. A prompt with no text has no text block.
+func (s *Session) Prompt(ctx context.Context, text string, images []Image) (acp.StopReason, error) {
+	var blocks []acp.ContentBlock
+	if text != "" {
+		blocks = append(blocks, acp.TextBlock(text))
+	}
+	for _, image := range images {
+		blocks = append(blocks, acp.ImageBlock(base64.StdEncoding.EncodeToString(image.Data), image.MIMEType))
+	}
+	response, err := acp.SendRequest[acp.PromptResponse](s.conn, ctx, acp.AgentMethodSessionPrompt, acp.PromptRequest{SessionId: s.id, Prompt: blocks})
 	return response.StopReason, err
 }
 

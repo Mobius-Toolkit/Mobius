@@ -138,6 +138,15 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
+	checkRun, err := openCheckRun(ctx, repository, head)
+	if err != nil {
+		return err
+	}
+	if checkRun == 0 {
+		if _, err := repository.CreateCheckRun(ctx, checkRunName, head, "in_progress"); err != nil {
+			return err
+		}
+	}
 	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "checks"})
 	if err != nil || moved == 0 {
 		return err

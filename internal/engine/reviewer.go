@@ -247,7 +247,7 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	if err := a.Prompt(ctx, prompt); err != nil {
+	if err := a.Prompt(ctx, prompt, nil); err != nil {
 		return err
 	}
 	a.closeHarness()

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -181,7 +182,7 @@ func TestTheTriagerChatRefusesAnUnknownOrganization(t *testing.T) {
 	server, _ := connectTriager(t, fake)
 	unknown := engine.ChatKey{}
 
-	err := server.Engine.SendChat(t.Context(), unknown, "Start a Workstream for loyalty points.")
+	err := server.Engine.SendChat(t.Context(), unknown, "Start a Workstream for loyalty points.", nil)
 
 	if !engine.Refused(err) || err.Error() != `Mobius has no repository in the organization "".` {
 		t.Errorf("err = %v", err)
@@ -326,4 +327,30 @@ func TestTheTriagerOfAnIssueGetsARefusalFromStartResearcher(t *testing.T) {
 	if sessions := chatSessions(t, server, issueTriagers, engine.ResearcherRole); len(sessions) != 0 {
 		t.Errorf("Researchers = %+v", sessions)
 	}
+}
+
+func TestATriagerChatSessionGetsTheImagesOfTheMessageAndATextMarkerForOlderImages(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectScript(t, fake, imageReading+options+"[[prompts]]\nwhen = \"Now plan it.\"\nreply = [\"Second answer\"]\n\n[[prompts]]\nreply = [\"First answer\"]\n", func(*config.Config) {})
+	sendChatImages(t, server, triagerChat, "Look at this", []engine.Image{pngImage, jpegImage})
+	first := waitForChatSession(t, server, triagerChat, engine.TriagerRole, func(session store.Session) bool { return session.EndReason.String == "idle" })
+	if got, want := reply(t, server, first.ID), "First answer"+imageReply(pngImage)+imageReply(jpegImage); got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+
+	sendChat(t, server, triagerChat, "Now plan it.")
+
+	prompt := testkit.WaitForValue(t, func() (string, bool) {
+		sessions := chatSessions(t, server, triagerChat, engine.TriagerRole)
+		if len(sessions) < 2 {
+			return "", false
+		}
+		prompts := promptTexts(t, server, sessions[1].ID)
+		return strings.Join(prompts, ""), len(prompts) > 0
+	})
+	if !strings.Contains(prompt, "):\nLook at this\n[2 images]\n\n") {
+		t.Errorf("prompt = %s", prompt)
+	}
+	second := chatSessions(t, server, triagerChat, engine.TriagerRole)[1]
+	testkit.WaitFor(t, func() bool { return reply(t, server, second.ID) == "Second answer" })
 }
