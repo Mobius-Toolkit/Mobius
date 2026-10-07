@@ -196,6 +196,7 @@ export function Agents({ source }: { source?: EventSource }) {
     if (!source) {
       return;
     }
+    load();
     source.addEventListener("open", load);
     const remove = onEvent<LiveEvents, "agent">(source, "agent", load);
     return () => {

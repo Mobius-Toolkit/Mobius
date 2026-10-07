@@ -237,3 +237,27 @@ test("a switch to another organization leaves the chat of the old organization",
   await page.getByRole("menuitemradio", { name: "plants" }).click();
   await expect(page).toHaveURL("/inbox");
 });
+
+test("the agents screen shows a status that changed while the page was hidden", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const ticket = main.getByRole("button", { name: /Ticket #41 Add plan model/ });
+  const setVisibility = (state: "hidden" | "visible") =>
+    page.evaluate(`(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => ${state === "hidden"} })
+      document.dispatchEvent(new Event('visibilitychange'))
+    })()`);
+
+  await page.goto("/agents");
+  await expect(ticket).toBeVisible();
+  await expect(ticket.getByText("waits for the Owner")).toHaveCount(0);
+
+  await setVisibility("hidden");
+  const res = await page.request.put(
+    "/e2e/agents/41/queue-reason?reason=waits%20for%20the%20Owner",
+  );
+  expect(res.ok()).toBe(true);
+  await setVisibility("visible");
+  await expect(ticket.getByText("waits for the Owner")).toBeVisible();
+});
