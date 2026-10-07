@@ -253,6 +253,10 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err != nil {
 		return err
 	}
+	comments, err := e.readPullRequestComments(ctx, repository, int64(r.pullRequest.GetNumber()))
+	if err != nil {
+		return err
+	}
 	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: r.task.ID, FromState: "working"})
 	if err != nil || queued == 0 {
 		return err
@@ -262,8 +266,8 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		title:       r.title,
 		branch:      r.task.Branch.String,
 		pullRequest: r.pullRequest,
-		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n# Open items\n%s",
-			implementerPrompt, sections, brief, r.task.Issue, issue.GetTitle(), issue.GetBody(), r.items),
+		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n%s\n# Open items\n%s",
+			implementerPrompt, sections, brief, r.task.Issue, issue.GetTitle(), issue.GetBody(), comments, r.items),
 		parent: r.parent,
 	}
 	worker := ImplementerRole
@@ -308,6 +312,10 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err != nil {
 		return err
 	}
+	comments, err := e.readPullRequestComments(ctx, repository, int64(pullRequest.GetNumber()))
+	if err != nil {
+		return err
+	}
 	parent, err := e.newestSession(ctx, task)
 	if err != nil {
 		return err
@@ -325,8 +333,8 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 		branch:        task.Branch.String,
 		pullRequest:   pullRequest,
 		conflictRound: true,
-		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n# Base branch\n\norigin/%s\n\nMerge the base branch and remove the conflicts. Make no other change.",
-			implementerPrompt, sections, brief, task.Issue, issue.GetTitle(), issue.GetBody(), repository.DefaultBranch),
+		prompt: fmt.Sprintf("%s\n%s# Brief\n\n%s\n\n# Issue\n\n#%d %s\n\n%s\n\n%s\n# Base branch\n\norigin/%s\n\nMerge the base branch and remove the conflicts. Make no other change.",
+			implementerPrompt, sections, brief, task.Issue, issue.GetTitle(), issue.GetBody(), comments, repository.DefaultBranch),
 		parent: parent,
 	}
 	if err := e.setWorker(ctx, task.ID, conflictRoundWorker, j.prompt); err != nil {
