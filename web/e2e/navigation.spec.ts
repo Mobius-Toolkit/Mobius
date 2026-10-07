@@ -237,3 +237,16 @@ test("a switch to another organization leaves the chat of the old organization",
   await page.getByRole("menuitemradio", { name: "plants" }).click();
   await expect(page).toHaveURL("/inbox");
 });
+
+test("a Workstream with Autopilot on shows the Autopilot icon", async ({ page }) => {
+  const main = page.getByRole("main");
+  const row = (title: string) => main.getByRole("link").filter({ hasText: title });
+
+  await page.goto("/workstreams");
+  await expect(row("Early renewals").getByRole("img", { name: "Autopilot" })).toBeVisible();
+  await expect(row("Early renewals")).toContainText("#14");
+  await expect(row("Integrate loyalty plans")).toContainText("#12");
+  await expect(row("Integrate loyalty plans").getByRole("img", { name: "Autopilot" })).toHaveCount(
+    0,
+  );
+});
