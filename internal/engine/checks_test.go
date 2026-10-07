@@ -94,9 +94,7 @@ func TestAFailedCheckRunMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *t
 	round := fmt.Sprintf("[[prompts]]\nwhen = \"Action: fix\"\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\n\n", goFile)
 	server, _ := connectTaskIn(t, fake, dataDir, leadStarts, round+commits, noChange)
 	sha := readyForReview(t, server, fake)
-	if fake.PullRequests(shop)[0].Draft {
-		t.Fatal("the pull request is a draft")
-	}
+	testkit.WaitFor(t, func() bool { return !fake.PullRequests(shop)[0].Draft })
 
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 
@@ -108,9 +106,7 @@ func TestAFailedCheckRunMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *t
 	touch(t, goFile)
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
-	if fake.PullRequests(shop)[0].Draft {
-		t.Error("the pull request is a draft")
-	}
+	testkit.WaitFor(t, func() bool { return !fake.PullRequests(shop)[0].Draft })
 }
 
 func TestAFailedGitHubActionsCheckRunGivesTheLast200LinesOfItsJobLog(t *testing.T) {
