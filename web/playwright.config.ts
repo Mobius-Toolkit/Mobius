@@ -14,6 +14,12 @@ export default defineConfig({
       testMatch: "navigation.spec.ts",
       dependencies: ["chat"],
     },
+    // The installation test adds a repository and removes it again, so it comes after the tests that show the repositories.
+    {
+      name: "installations",
+      testMatch: "installations.spec.ts",
+      dependencies: ["navigation"],
+    },
   ],
   use: {
     baseURL: `http://${addr}`,

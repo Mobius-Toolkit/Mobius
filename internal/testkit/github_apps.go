@@ -76,6 +76,14 @@ func (g *FakeGitHub) AddRepository(fullName string) {
 	g.repositories = append(g.repositories, fullName)
 }
 
+// RemoveRepository takes the repository fullName out of its installation. The installation of an account ends
+// with its last repository.
+func (g *FakeGitHub) RemoveRepository(fullName string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.repositories = slices.DeleteFunc(g.repositories, func(repository string) bool { return repository == fullName })
+}
+
 func appIndex(appID int64) int {
 	return slices.IndexFunc(apps, func(app githubApp) bool { return app.id == appID })
 }
