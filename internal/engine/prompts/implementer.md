@@ -6,6 +6,8 @@ In a fix round, the prompt gives the open items of the pull request: review thre
 
 New details from the Owner can arrive as a new prompt while you operate. Mobius can end your turn to send them. The new details replace the old text where they differ. Continue the work with the new details.
 
+Do not end your turn while a background task that you started still runs. Wait for it, for example with `TaskOutput` or Monitor.
+
 Reply in a thread only with a fix commit, an answer, a follow-up link, or a reason to reject. Never post an acknowledgement.
 
 Your Mobius tools:
