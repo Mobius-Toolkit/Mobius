@@ -71,6 +71,27 @@ func TestAnAgentGetsNoPromptWhileAnAutonomousTurnRuns(t *testing.T) {
 	}
 }
 
+func TestACannotDoInAnAutonomousTurnEndsTheWaitAndSendsNoPrompt(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	later := `later = { after = "10ms", call = { tool = "cannot_do", arguments = { reason = "The plan table does not exist." } }, updates = ['` + workUpdate + `'] }`
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First\"]\n"+later+"\n\n[[prompts]]\nreply = [\"Second\"]\n")
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool { return lineID(t, server, agent.ID(), "update", "The task ended.") != 0 })
+
+	if err := agent.Prompt(t.Context(), "Two", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := agent.CannotDo(); got != "The plan table does not exist." {
+		t.Errorf("cannot_do = %q", got)
+	}
+	if got := promptTexts(t, server, agent.ID()); len(got) != 1 {
+		t.Errorf("prompts = %q", got)
+	}
+}
+
 func TestAStopWhileAnAutonomousTurnRunsEndsTheWaitAndSendsNoPrompt(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First\"]\nlater = { after = \"10ms\", updates = ['"+workUpdate+"'] }\n")

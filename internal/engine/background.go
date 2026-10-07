@@ -17,6 +17,9 @@ var absorbTimeout = 30 * time.Second
 // errStopped is the error of waitQuiet when a stop ends the wait.
 var errStopped = errors.New("a stop ended the wait for an autonomous turn")
 
+// errCannotDone is the error of waitQuiet when the agent called cannot_do in the autonomous turn.
+var errCannotDone = errors.New("the agent called cannot_do in an autonomous turn")
+
 // autonomousOrigins are the origin kinds of the end of an autonomous turn. Any other kind ends a turn of a user.
 var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "observer", "observer-activity"}
 
@@ -55,7 +58,9 @@ func (a *Agent) track(notification map[string]any, kind string) {
 }
 
 // waitQuiet holds until no autonomous turn runs. When the agent has no activity for hangTimeout, the agent is stuck in
-// the autonomous turn: waitQuiet sends the cancel, forgets the turn, and gives errHung. A stop gives errStopped.
+// the autonomous turn: waitQuiet sends the cancel, forgets the turn, and gives errHung. A stop gives errStopped. A
+// cannot_do of the agent in the autonomous turn gives errCannotDone, because the cancel of cannot_do may end that
+// turn with no autonomous end.
 func (a *Agent) waitQuiet(ctx context.Context) error {
 	ticker := time.NewTicker(quietPoll)
 	defer ticker.Stop()
@@ -65,6 +70,11 @@ func (a *Agent) waitQuiet(ctx context.Context) error {
 		if a.stopRequested {
 			a.mu.Unlock()
 			return errStopped
+		}
+		if a.cannotDo != "" {
+			a.autonomous = false
+			a.mu.Unlock()
+			return errCannotDone
 		}
 		busy := a.autonomous
 		if a.activity.After(last) {

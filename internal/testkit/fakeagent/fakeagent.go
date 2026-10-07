@@ -26,6 +26,8 @@
 //	later = { after = "100ms", updates = ['{"sessionUpdate": "plan", "entries": []}'] }
 //	                        # after the response, the agent waits for after and then sends the updates, as Claude Code
 //	                        # does for a turn that it starts alone
+//	later = { after = "100ms", call = { tool = "cannot_do", arguments = { reason = "No." } } }
+//	                        # with call, the agent calls the tool of the Mobius MCP server before it sends the updates
 //	later = { updates = ['{"sessionUpdate": "plan", "entries": []}'], absorb = true }
 //	                        # with absorb, the agent sends the updates when the next session/prompt arrives, and that
 //	                        # prompt gets no response before session/cancel, which ends it as cancelled, as Claude
@@ -89,6 +91,7 @@ type later struct {
 	After   string   `toml:"after"`
 	Updates []string `toml:"updates"`
 	Absorb  bool     `toml:"absorb"`
+	Call    *call    `toml:"call"`
 }
 
 type call struct {
@@ -391,7 +394,7 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 		return nil, err
 	}
 	if turn.Later != nil {
-		if err := a.startLater(request.SessionID, *turn.Later); err != nil {
+		if err := a.startLater(request.SessionID, mcpURL, *turn.Later); err != nil {
 			return nil, acp.NewInternalError(err.Error())
 		}
 	}
@@ -413,7 +416,7 @@ func (a *agent) absorb() (chan struct{}, *later) {
 
 // startLater sends the updates of l in the background after the response of the prompt, or holds a later with
 // absorb for the next prompt.
-func (a *agent) startLater(sessionID string, l later) error {
+func (a *agent) startLater(sessionID, mcpURL string, l later) error {
 	if l.Absorb {
 		a.mu.Lock()
 		a.absorbed = &l
@@ -426,6 +429,11 @@ func (a *agent) startLater(sessionID string, l later) error {
 	}
 	go func() {
 		time.Sleep(after)
+		if l.Call != nil {
+			if _, err := mobiusReply(context.Background(), mcpURL, prompt{Call: l.Call}, ""); err != nil {
+				return
+			}
+		}
 		for _, update := range l.Updates {
 			if err := a.send(context.Background(), sessionID, json.RawMessage(update)); err != nil {
 				break

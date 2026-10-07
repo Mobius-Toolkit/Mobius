@@ -38,3 +38,10 @@ func (e *Engine) AbortDrain() {
 func (a *Agent) Update(params json.RawMessage) {
 	a.update(params)
 }
+
+// CannotDo gives the reason of the last cannot_do of the agent, or "".
+func (a *Agent) CannotDo() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.cannotDo
+}

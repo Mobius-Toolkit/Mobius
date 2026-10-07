@@ -361,6 +361,9 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 				a.takeStop()
 				return nil
 			}
+			if errors.Is(err, errCannotDone) {
+				return nil
+			}
 			if errors.Is(err, errHung) {
 				var retry string
 				retry, err = a.retryHang(ctx)
