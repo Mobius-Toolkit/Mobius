@@ -301,7 +301,6 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// The first message has text and two images. The second message has only an image.
 	for _, message := range []struct {
 		text   string
 		colors []color.RGBA
