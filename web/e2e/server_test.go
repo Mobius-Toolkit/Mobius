@@ -167,6 +167,8 @@ func TestServer(t *testing.T) {
 	github.SetBody("plants/garden", 19, "Put **bark** on the beds.")
 	github.AddLabel("owner/shop", 41, "mobius:needs-human", "owner")
 	github.AddLabel("owner/shop", 42, "mobius:needs-human", "owner")
+	github.AddSubIssueOf("owner/shop", 12, 38, "Show the plan prices")
+	github.AddSubIssueOf("owner/shop", 12, 39, "Send the plan receipts")
 	github.AddIssue("owner/shop", 7, "Add plan prices")
 	github.AddIssue("owner/shop", 8, "Add plan names")
 	github.AddSubIssueOf("plants/garden", 20, 21, "Dig the tulip beds")
@@ -335,6 +337,13 @@ func TestServer(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for number, state := range map[int64]string{38: "checks", 39: "approval"} {
+		if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
+			VALUES ('owner/shop', ?, 12, ?, ?)`, number, state, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+		github.AddLabel("owner/shop", number, "mobius:working", testkit.AppSlug+"[bot]")
 	}
 	fixTimes(t, server)
 	go func() { _, _ = server.Engine.Drain(ctx) }()

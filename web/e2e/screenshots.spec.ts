@@ -121,6 +121,8 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...frame(device, drain),
       page.getByText("#45 Pick the plan limits").filter({ visible: true }),
+      page.getByText("waits for CI").filter({ visible: true }),
+      page.getByText("waits for Lead").filter({ visible: true }),
     ],
     async (device) => {
       if (device === "phone") {

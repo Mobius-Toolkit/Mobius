@@ -481,7 +481,7 @@ export interface TaskLine {
   number: number;
   /** OtherRepository is true for a task in another repository than the Workstream */
   otherRepository: boolean;
-  /** State is the Mobius label of the issue with no "mobius:", queued for a task that waits for a slot, or open */
+  /** State is the Mobius label of the issue with no "mobius:", or open. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". */
   state: string;
   /** Title is the title of the task issue */
   title: string;
