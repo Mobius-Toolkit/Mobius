@@ -13,6 +13,7 @@ async function screenshot(
   path: string,
   ready: (device: string) => Locator | Locator[],
   open?: (device: string) => Promise<void>,
+  close?: () => Promise<void>,
 ) {
   for (const [device, size] of Object.entries(viewports)) {
     await page.setViewportSize(size);
@@ -25,6 +26,7 @@ async function screenshot(
       path: `screenshots/${name}-${device}.png`,
       animations: "disabled",
     });
+    await close?.();
   }
 }
 
@@ -139,6 +141,9 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...frame(device, drain),
+      page
+        .getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/)
+        .filter({ visible: true }),
       ...queueReasons.map((reason) => page.getByText(reason).filter({ visible: true })),
     ],
     async (device) => {
@@ -162,6 +167,26 @@ test("screenshots", async ({ page }) => {
         await main.getByRole("button", { name: "Agents" }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    },
+  );
+  await screenshot(
+    page,
+    "chat-tasks-closed",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      page.getByText("#45 Pick the plan limits").filter({ visible: true }),
+      page.getByText("waits for CI").filter({ visible: true }),
+      page.getByText("waits for Lead").filter({ visible: true }),
+      page.getByText("#36 Rename the plan table").filter({ visible: true }),
+      page.getByText("#37 Remove the old plan page").filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await main.getByRole("button", { name: "Agents" }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+      await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
     },
   );
   // The Inbox of the organization plants has no item, so the frame has no Inbox count.
@@ -226,7 +251,7 @@ test("screenshots", async ({ page }) => {
   ).toBe(true);
   await screenshot(page, "agents", "/agents", (device) => [
     ...frame(device, drain),
-    main.getByText("Mobius prepares an upgrade"),
+    main.getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/),
     ...queueReasons.map((reason) => main.getByText(reason)),
   ]);
   await screenshot(
@@ -274,6 +299,32 @@ test("screenshots", async ({ page }) => {
     ...frame(device, release),
     main.getByText("This device"),
   ]);
+  const logOut = main
+    .getByRole("listitem")
+    .filter({ hasText: "This device" })
+    .getByRole("button", { name: "Log out" });
+  // The route holds the request until the screenshot is done, and then it answers with an error, so the server keeps
+  // the login.
+  let endLogOut!: () => void;
+  await screenshot(
+    page,
+    "devices-log-out",
+    "/devices",
+    (device) => [...frame(device, release), logOut.locator('[data-slot="spinner"]')],
+    async () => {
+      const ends = new Promise<void>((resolve) => (endLogOut = resolve));
+      await page.route("**/api/devices/*", async (route) => {
+        await ends;
+        await route.fulfill({ status: 500, json: { error: "The server failed." } });
+      });
+      await logOut.click();
+    },
+    async () => {
+      endLogOut();
+      await expect(logOut).toBeEnabled();
+      await page.unroute("**/api/devices/*");
+    },
+  );
   await screenshot(page, "checkup", "/settings/checkup", (device) => [
     ...frame(device, release),
     main.getByRole("link", { name: "Tools" }),

@@ -175,6 +175,7 @@ export function Conversation({
   const [images, setImages] = useState<File[]>([]);
   const [sendError, setSendError] = useState("");
   const [sending, setSending] = useState(false);
+  const [stopping, setStopping] = useState(false);
   // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
   // message.
   const imagesRef = useRef<File[]>([]);
@@ -219,6 +220,9 @@ export function Conversation({
           setMessages((list) => chat.messages.reduce(upsert, list));
           setHarness(chat.harness);
           setWriting(chat.writing);
+          if (!chat.writing) {
+            setStopping(false);
+          }
           setLoaded(true);
         } else {
           setError(res.data.error);
@@ -243,6 +247,9 @@ export function Conversation({
     const removeState = onEvent<LiveEvents, "chat">(source, "chat", (state) => {
       if (sameChat(state, key)) {
         setWriting(state.writing);
+        if (!state.writing) {
+          setStopping(false);
+        }
         setFailure(state.error);
       }
     });
@@ -367,13 +374,18 @@ export function Conversation({
   };
 
   const stop = () => {
+    setStopping(true);
     stopChat({ organization, repository, workstream })
       .then((res) => {
         if (res.status !== 204) {
           setSendError(res.data.error);
+          setStopping(false);
         }
       })
-      .catch((err: unknown) => setSendError(String(err)));
+      .catch((err: unknown) => {
+        setSendError(String(err));
+        setStopping(false);
+      });
   };
 
   return (
@@ -509,6 +521,7 @@ export function Conversation({
           <Button
             type="button"
             variant="destructive"
+            pending={stopping}
             onMouseDown={(event) => event.preventDefault()}
             onClick={stop}
           >
@@ -556,7 +569,7 @@ export function Conversation({
             {voice.listening ? <SquareIcon /> : <MicIcon />}
           </Button>
         )}
-        <Button type="submit" disabled={sending} onMouseDown={(event) => event.preventDefault()}>
+        <Button type="submit" pending={sending} onMouseDown={(event) => event.preventDefault()}>
           Send
         </Button>
       </form>

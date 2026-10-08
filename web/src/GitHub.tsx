@@ -99,7 +99,7 @@ export function GitHub({ apps, back }: { apps: GitHubApp[]; back?: boolean }) {
               </FieldDescription>
               <FieldError>{error}</FieldError>
             </Field>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" pending={busy}>
               Create the App
             </Button>
           </FieldGroup>

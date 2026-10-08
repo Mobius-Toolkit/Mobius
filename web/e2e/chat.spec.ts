@@ -696,6 +696,28 @@ test("Start gives only an open task with no blocker a button, and the row shows 
   await expect(start).toHaveCount(0);
 });
 
+test("the Tasks tab shows the closed tasks muted, with no Start button, when the switch is on", async ({
+  page,
+}) => {
+  await page.goto("/workstreams/owner/shop/12");
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const rows = page.getByRole("listitem");
+  const closed = rows.filter({ hasText: "#37 Remove the old plan page" });
+  await expect(rows.filter({ hasText: "#41 Add plan model" })).toBeVisible();
+  await expect(closed).toBeHidden();
+
+  await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
+  await expect(closed.getByText("closed", { exact: true })).toBeVisible();
+  await expect(closed.getByText("#37 Remove the old plan page")).toHaveClass(
+    /text-muted-foreground/,
+  );
+  await expect(closed.getByRole("button")).toHaveCount(0);
+  await expect(rows.filter({ hasText: "#36 Rename the plan table" })).toBeVisible();
+
+  await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
+  await expect(closed).toBeHidden();
+});
+
 test("the voice button adds the spoken text to the message", async ({ page }) => {
   // The fake recognition gives the events that the test sends.
   await page.addInitScript(`window.SpeechRecognition = class extends EventTarget {

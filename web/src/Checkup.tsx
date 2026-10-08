@@ -261,7 +261,7 @@ export function CheckupLabels({ organization }: { organization: string }) {
       action={
         checkup &&
         checkup.labelFix !== "none" && (
-          <Button disabled={fixing} onClick={fix}>
+          <Button pending={fixing} onClick={fix}>
             {fixButton[checkup.labelFix]}
           </Button>
         )

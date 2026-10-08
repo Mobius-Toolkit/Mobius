@@ -15,6 +15,7 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { queueState } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
+import { dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { BackButton } from "./BackButton";
 
@@ -42,6 +43,7 @@ function AgentRow({ row, onOpen }: { row: ActiveAgent; onOpen: (agent: Agent) =>
               agent.role,
               agent.organization,
               (agent.workstream !== 0 || agent.issue != null) && agent.repository,
+              dayClock(agent.startedAt),
               agent.queueReason,
             ]
               .filter(Boolean)
@@ -214,10 +216,10 @@ export function Agents({ source }: { source?: EventSource }) {
       .catch((err: unknown) => setError(String(err)));
   }, [showLogin]);
 
-  useEffect(load, [load]);
-
-  // An agent event that comes while the connection is down is lost, so each connection reads the list.
+  // An agent event that comes before the listener or while the connection is down is lost, so each connection reads
+  // the list.
   useEffect(() => {
+    load();
     if (!source) {
       return;
     }

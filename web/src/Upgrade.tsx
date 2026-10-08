@@ -30,14 +30,14 @@ export function UpgradeControls({ upgrade, newBuild }: { upgrade: Upgrade; newBu
         </p>
       )}
       {upgrade.drain?.on ? (
-        <Button variant="secondary" onClick={upgrade.cancel}>
+        <Button variant="secondary" pending={upgrade.cancelling} onClick={upgrade.cancel}>
           Cancel upgrade
         </Button>
       ) : (
         upgrade.version && (
           <Button
             variant="secondary"
-            disabled={upgrade.upgrading}
+            pending={upgrade.upgrading}
             onClick={() => upgrade.setChangesShown(true)}
           >
             Upgrade <span className="text-muted-foreground">{upgrade.version}</span>
@@ -106,7 +106,7 @@ export function UpgradeDialog({ upgrade }: { upgrade: Upgrade }) {
           <ReleaseChanges />
         </div>
         <DialogFooter>
-          <Button disabled={upgrade.upgrading} onClick={upgrade.start}>
+          <Button pending={upgrade.upgrading} onClick={upgrade.start}>
             Upgrade
           </Button>
         </DialogFooter>

@@ -142,6 +142,23 @@ func TestListTasksGivesTheTaskListOfTrustedAuthors(t *testing.T) {
 	}
 }
 
+func TestListTasksSkipsAClosedTask(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddIssue(shop, 42, "Old spike")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddSubIssue(shop, 12, 42)
+	fake.CloseIssue(shop, 42)
+
+	_, text := leadReply(t, server)
+
+	if text != "#41 Add plan model: open\n" {
+		t.Errorf("reply = %q", text)
+	}
+	waitForTasks(t, server, []taskLine{line(41, "Add plan model", "open", 0), line(42, "Old spike", "closed", 0)})
+}
+
 func TestListTasksShowsTheQueuedStateAndTheOpenBlockers(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")

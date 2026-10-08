@@ -18,6 +18,7 @@ export function useUpgrade(source?: EventSource) {
   const [drain, setDrain] = useState<Drain>();
   const [failure, setFailure] = useState("");
   const [upgrading, setUpgrading] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [changesShown, setChangesShown] = useState(false);
 
   useEffect(() => {
@@ -40,12 +41,18 @@ export function useUpgrade(source?: EventSource) {
     if (!source) {
       return;
     }
+    const setDrainState = (next: Drain) => {
+      setDrain(next);
+      if (!next.on) {
+        setCancelling(false);
+      }
+    };
     // The server sends a drain event only at a change, so each connection reads the state.
     const load = () => {
       getDrain()
         .then((res) => {
           if (res.status === 200) {
-            setDrain(res.data.data);
+            setDrainState(res.data.data);
           }
         })
         .catch(() => {});
@@ -59,7 +66,7 @@ export function useUpgrade(source?: EventSource) {
     };
     load();
     source.addEventListener("open", load);
-    const removeDrain = onEvent<LiveEvents, "drain">(source, "drain", setDrain);
+    const removeDrain = onEvent<LiveEvents, "drain">(source, "drain", setDrainState);
     const removeUpgrade = onEvent<LiveEvents, "upgrade">(source, "upgrade", (upgrade) =>
       setFailure(upgrade.failure),
     );
@@ -92,13 +99,18 @@ export function useUpgrade(source?: EventSource) {
   };
 
   const cancel = () => {
+    setCancelling(true);
     cancelDrain()
       .then((res) => {
         if (res.status !== 204) {
           setFailure(res.data.error);
+          setCancelling(false);
         }
       })
-      .catch((err: unknown) => setFailure(String(err)));
+      .catch((err: unknown) => {
+        setFailure(String(err));
+        setCancelling(false);
+      });
   };
 
   return {
@@ -106,6 +118,7 @@ export function useUpgrade(source?: EventSource) {
     drain,
     failure,
     upgrading,
+    cancelling,
     changesShown,
     setChangesShown,
     start,

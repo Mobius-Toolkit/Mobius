@@ -49,7 +49,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
                 />
                 <FieldError>{error}</FieldError>
               </Field>
-              <Button type="submit" disabled={busy}>
+              <Button type="submit" pending={busy}>
                 Log in
               </Button>
             </FieldGroup>

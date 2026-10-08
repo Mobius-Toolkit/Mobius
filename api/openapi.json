@@ -2269,7 +2269,7 @@
     },
     "/api/workstreams/{owner}/{name}/{number}/tasks": {
       "get": {
-        "description": "ListTasks returns the open tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.",
+        "description": "ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.",
         "operationId": "ListTasks",
         "parameters": [
           {
@@ -3993,7 +3993,7 @@
           },
           "state": {
             "type": "string",
-            "description": "State is the Mobius label of the issue with no \"mobius:\", or open. A task that waits for a slot shows \"queued\". A task that waits for CI shows \"waits for CI\". A task that waits for the Lead shows \"waits for Lead\"."
+            "description": "State is the Mobius label of the issue with no \"mobius:\", or open, or closed for a closed issue. A task that waits for a slot shows \"queued\". A task that waits for CI shows \"waits for CI\". A task that waits for the Lead shows \"waits for Lead\"."
           },
           "title": {
             "type": "string",
