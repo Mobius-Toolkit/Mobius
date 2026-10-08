@@ -282,7 +282,7 @@ test("screenshots", async ({ page }) => {
         await main.getByRole("button", { name: "Agents" }).click();
       }
       await page
-        .getByRole("button", { name: /implementer devin · swe-1.5 · Sep/ })
+        .getByRole("button", { name: /^implementer devin · swe-1.5 · Sep \d+, \d\d:\d\d [AP]M$/ })
         .filter({ visible: true })
         .click();
     },
