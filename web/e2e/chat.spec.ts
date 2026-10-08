@@ -197,6 +197,19 @@ test("Enter sends, and Shift+Enter adds a line on a desktop", async ({ page }) =
   await expect(input).toHaveValue("");
 });
 
+const fontSize = (selector: string) =>
+  `parseFloat(getComputedStyle(document.querySelector('${selector}')).fontSize)`;
+
+test("the chat text is 14px, and the chat input is at least 16px on a phone", async ({ page }) => {
+  await page.goto(shop);
+  await expect(page.locator("[data-message]").first()).toBeVisible();
+  expect(await page.evaluate(fontSize("[data-message] p"))).toBe(14);
+  expect(await page.evaluate(fontSize("textarea"))).toBe(14);
+  await page.setViewportSize(phone);
+  expect(await page.evaluate(fontSize("[data-message] p"))).toBe(14);
+  expect(await page.evaluate(fontSize("textarea"))).toBeGreaterThanOrEqual(16);
+});
+
 test.describe("images", () => {
   test("a pasted image and an uploaded image show, and the Owner removes one", async ({ page }) => {
     await page.goto(shop);

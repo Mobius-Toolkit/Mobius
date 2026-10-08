@@ -13,7 +13,7 @@ export const rowClass = "flex min-h-11 items-center gap-4 px-4 py-2 md:px-2";
 export function PageHeader({ title, children }: { title: ReactNode; children?: ReactNode }) {
   return (
     <div className="hidden items-center justify-between gap-4 md:flex">
-      <h2 className="min-w-0 truncate font-semibold">{title}</h2>
+      <h2 className="min-w-0 truncate text-base font-semibold">{title}</h2>
       {children}
     </div>
   );
