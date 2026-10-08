@@ -345,6 +345,7 @@ export function Conversation({
 
   const empty = !text.trim() && images.length === 0;
   const showStop = empty && writing;
+  const buttonPending = sending || (showStop && stopping);
 
   const send = () => {
     if (inFlight.current || empty) {
@@ -565,7 +566,7 @@ export function Conversation({
                 size="icon"
                 aria-label={showStop ? "Stop the reply" : "Send"}
                 title={showStop ? "Stop the reply" : "Send"}
-                pending={showStop ? stopping : sending}
+                pending={buttonPending}
                 disabled={empty && !writing}
                 className={cn(
                   "rounded-full max-md:size-11",
@@ -576,7 +577,7 @@ export function Conversation({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={showStop ? stop : undefined}
               >
-                {(showStop ? stopping : sending) ? null : showStop ? (
+                {buttonPending ? null : showStop ? (
                   <SquareIcon className="size-3 fill-current" />
                 ) : (
                   <ArrowUpIcon />
