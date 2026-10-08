@@ -145,6 +145,26 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
   );
+  await screenshot(
+    page,
+    "chat-tasks-closed",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      page.getByText("#45 Pick the plan limits").filter({ visible: true }),
+      page.getByText("waits for CI").filter({ visible: true }),
+      page.getByText("waits for Lead").filter({ visible: true }),
+      page.getByText("#36 Rename the plan table").filter({ visible: true }),
+      page.getByText("#37 Remove the old plan page").filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await main.getByRole("button", { name: "Agents" }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+      await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
+    },
+  );
   // The Inbox of the organization plants has no item, so the frame has no Inbox count.
   await screenshot(
     page,

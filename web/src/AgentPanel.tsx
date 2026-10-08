@@ -203,7 +203,7 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
           style={{ paddingLeft: `${0.5 + line.depth * 1.25}rem` }}
           className="flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-1 rounded-lg py-2 pr-2 hover:bg-muted"
         >
-          <span className="grow">
+          <span className={cn("grow", state === "closed" && "text-muted-foreground")}>
             #{line.number} {line.title}
           </span>
           {line.blockedBy.map((blocker) => (
@@ -236,6 +236,23 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
   );
 }
 
+// Removes the closed tasks. A sub-issue of a removed task moves up one level for each removed ancestor.
+function withoutClosed(lines: TaskLine[]): TaskLine[] {
+  const removed: number[] = [];
+  const open: TaskLine[] = [];
+  for (const line of lines) {
+    while (removed.length > 0 && removed[removed.length - 1] >= line.depth) {
+      removed.pop();
+    }
+    if (line.state === "closed") {
+      removed.push(line.depth);
+    } else {
+      open.push({ ...line, depth: line.depth - removed.length });
+    }
+  }
+  return open;
+}
+
 function Tasks({
   owner,
   name,
@@ -250,6 +267,7 @@ function Tasks({
   const showLogin = use(LoginContext);
   const [lines, setLines] = useState<TaskLine[]>();
   const [error, setError] = useState<string>();
+  const [showClosed, setShowClosed] = useState(false);
 
   const load = useCallback(() => {
     listTasks(owner, name, number)
@@ -280,12 +298,17 @@ function Tasks({
     };
   }, [source, load]);
 
+  const shown = showClosed ? lines : lines && withoutClosed(lines);
   return (
     <div className="grid gap-2">
       {error && <Badge variant="destructive">{error}</Badge>}
-      {lines?.length === 0 && <p className="px-2 text-sm text-muted-foreground">No tasks.</p>}
+      <div className="flex items-center gap-2 px-2">
+        <Switch id="closed-tasks" checked={showClosed} onCheckedChange={setShowClosed} />
+        <Label htmlFor="closed-tasks">Show closed tasks</Label>
+      </div>
+      {shown?.length === 0 && <p className="px-2 text-sm text-muted-foreground">No tasks.</p>}
       <ul>
-        {lines?.map((line) => (
+        {shown?.map((line) => (
           <TaskEntry key={line.url} owner={owner} name={name} line={line} />
         ))}
       </ul>

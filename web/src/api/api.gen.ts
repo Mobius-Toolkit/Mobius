@@ -516,7 +516,7 @@ export interface TaskLine {
   number: number;
   /** OtherRepository is true for a task in another repository than the Workstream */
   otherRepository: boolean;
-  /** State is the Mobius label of the issue with no "mobius:", or open. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". */
+  /** State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". */
   state: string;
   /** Title is the title of the task issue */
   title: string;
@@ -3690,7 +3690,7 @@ export const getListTasksUrl = (owner: string,
 }
 
 /**
- * ListTasks returns the open tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.
+ * ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.
  */
 export const listTasks = async (owner: string,
     name: string,
