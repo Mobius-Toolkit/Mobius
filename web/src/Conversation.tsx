@@ -182,6 +182,7 @@ export function Conversation({
   const [images, setImages] = useState<File[]>([]);
   const [sendError, setSendError] = useState("");
   const [sending, setSending] = useState(false);
+  const [stopping, setStopping] = useState(false);
   // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
   // message.
   const imagesRef = useRef<File[]>([]);
@@ -226,6 +227,9 @@ export function Conversation({
           setMessages((list) => chat.messages.reduce(upsert, list));
           setHarness(chat.harness);
           setWriting(chat.writing);
+          if (!chat.writing) {
+            setStopping(false);
+          }
           setLoaded(true);
         } else {
           setError(res.data.error);
@@ -250,6 +254,9 @@ export function Conversation({
     const removeState = onEvent<LiveEvents, "chat">(source, "chat", (state) => {
       if (sameChat(state, key)) {
         setWriting(state.writing);
+        if (!state.writing) {
+          setStopping(false);
+        }
         setFailure(state.error);
       }
     });
@@ -337,7 +344,7 @@ export function Conversation({
   };
 
   const empty = !text.trim() && images.length === 0;
-  const stopping = empty && writing;
+  const showStop = empty && writing;
 
   const send = () => {
     if (inFlight.current || empty) {
@@ -377,13 +384,18 @@ export function Conversation({
   };
 
   const stop = () => {
+    setStopping(true);
     stopChat({ organization, repository, workstream })
       .then((res) => {
         if (res.status !== 204) {
           setSendError(res.data.error);
+          setStopping(false);
         }
       })
-      .catch((err: unknown) => setSendError(String(err)));
+      .catch((err: unknown) => {
+        setSendError(String(err));
+        setStopping(false);
+      });
   };
 
   return (
@@ -451,7 +463,7 @@ export function Conversation({
       </div>
       {footer}
       <form
-        className="flex items-end gap-2 border-t p-3"
+        className="grid gap-1 border-t px-4 py-3"
         onSubmit={(event) => {
           event.preventDefault();
           send();
@@ -468,22 +480,9 @@ export function Conversation({
             event.target.value = "";
           }}
         />
-        {/* A button that takes the focus closes the keyboard of a phone, and the button moves before the click. */}
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          aria-label="Attach images"
-          title="Attach images"
-          className="max-md:size-11"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => picker.current?.click()}
-        >
-          <PaperclipIcon />
-        </Button>
-        <div className="grid min-w-30 grow gap-1">
+        <div className="grid gap-1 rounded-2xl border border-input bg-background p-2 transition-colors has-[textarea:focus-visible]:border-ring dark:bg-input/30">
           {images.length > 0 && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 pb-1">
               {images.map((image, index) => (
                 <Thumbnail
                   key={index}
@@ -494,83 +493,108 @@ export function Conversation({
               ))}
             </div>
           )}
-          <div className="flex items-end gap-1 rounded-lg border border-input p-1 transition-colors has-[textarea:focus-visible]:border-ring has-[textarea:focus-visible]:ring-3 has-[textarea:focus-visible]:ring-ring/50 dark:bg-input/30">
-            <Textarea
-              ref={input}
-              rows={1}
-              aria-label={`Message to the ${agent}`}
-              placeholder={`Write to the ${agent}`}
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              onPaste={(event) => {
-                const pasted = [...event.clipboardData.files].filter((file) =>
-                  file.type.startsWith("image/"),
-                );
-                // Spreadsheet and word processor apps put the text and a picture of the selection on the clipboard.
-                if (pasted.length > 0 && !event.clipboardData.getData("text/plain")) {
-                  event.preventDefault();
-                  void addImages(pasted);
-                }
-              }}
-              onKeyDown={(event) => {
-                // On a touch screen, Enter adds a line and only the Send button sends. Safari gives the Enter that
-                // ends an IME composition with isComposing false and keyCode 229.
-                if (
-                  event.key === "Enter" &&
-                  !event.shiftKey &&
-                  !event.nativeEvent.isComposing &&
-                  event.keyCode !== 229 &&
-                  !window.matchMedia("(pointer: coarse)").matches
-                ) {
-                  event.preventDefault();
-                  send();
-                }
-              }}
-              className="max-h-40 min-h-9 min-w-0 flex-1 resize-none border-0 bg-transparent focus-visible:ring-0 dark:bg-transparent"
-            />
-            {voice.supported && (
+          <Textarea
+            ref={input}
+            rows={1}
+            aria-label={`Message to the ${agent}`}
+            placeholder={`Write to the ${agent}`}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onPaste={(event) => {
+              const pasted = [...event.clipboardData.files].filter((file) =>
+                file.type.startsWith("image/"),
+              );
+              // Spreadsheet and word processor apps put the text and a picture of the selection on the clipboard.
+              if (pasted.length > 0 && !event.clipboardData.getData("text/plain")) {
+                event.preventDefault();
+                void addImages(pasted);
+              }
+            }}
+            onKeyDown={(event) => {
+              // On a touch screen, Enter adds a line and only the Send button sends. Safari gives the Enter that
+              // ends an IME composition with isComposing false and keyCode 229.
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing &&
+                event.keyCode !== 229 &&
+                !window.matchMedia("(pointer: coarse)").matches
+              ) {
+                event.preventDefault();
+                send();
+              }
+            }}
+            className="max-h-40 min-h-9 w-full resize-none rounded-none border-0 px-1 py-1.5 focus-visible:ring-0 dark:bg-transparent"
+          />
+          <div className="flex items-center justify-between gap-2">
+            {/* A button that takes the focus closes the keyboard of a phone, and the button moves before the click. */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Attach images"
+              title="Attach images"
+              className="rounded-full text-muted-foreground max-md:size-11"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => picker.current?.click()}
+            >
+              <PaperclipIcon />
+            </Button>
+            <div className="flex items-center gap-1">
+              {voice.supported && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={voice.listening ? "Stop voice input" : "Start voice input"}
+                  title={voice.listening ? "Stop voice input" : "Start voice input"}
+                  aria-pressed={voice.listening}
+                  className={cn(
+                    "rounded-full text-muted-foreground max-md:size-11",
+                    voice.listening &&
+                      "bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive motion-safe:animate-pulse",
+                  )}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={voice.toggle}
+                >
+                  {voice.listening ? <SquareIcon /> : <MicIcon />}
+                </Button>
+              )}
               <Button
-                type="button"
-                variant="outline"
+                type={showStop ? "button" : "submit"}
                 size="icon"
-                aria-label={voice.listening ? "Stop voice input" : "Start voice input"}
-                title={voice.listening ? "Stop voice input" : "Start voice input"}
-                aria-pressed={voice.listening}
+                aria-label={showStop ? "Stop the reply" : "Send"}
+                title={showStop ? "Stop the reply" : "Send"}
+                pending={sending || stopping}
+                disabled={empty && !writing}
                 className={cn(
-                  "max-md:size-11",
-                  voice.listening &&
-                    "border-destructive text-destructive motion-safe:animate-pulse",
+                  "rounded-full max-md:size-11",
+                  empty &&
+                    !writing &&
+                    "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
                 )}
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={voice.toggle}
+                onClick={showStop ? stop : undefined}
               >
-                {voice.listening ? <SquareIcon /> : <MicIcon />}
+                {sending || stopping ? null : showStop ? (
+                  <SquareIcon className="size-3 fill-current" />
+                ) : (
+                  <ArrowUpIcon />
+                )}
               </Button>
-            )}
-            <Button
-              type={stopping ? "button" : "submit"}
-              size="icon"
-              aria-label={stopping ? "Stop the reply" : "Send"}
-              title={stopping ? "Stop the reply" : "Send"}
-              disabled={sending || (empty && !writing)}
-              className="max-md:size-11"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={stopping ? stop : undefined}
-            >
-              {stopping ? <SquareIcon className="fill-current" /> : <ArrowUpIcon />}
-            </Button>
+            </div>
           </div>
-          {voice.error && (
-            <p role="alert" className="text-sm text-destructive">
-              {voice.error}
-            </p>
-          )}
-          {sendError && (
-            <p role="alert" className="text-sm text-destructive">
-              {sendError}
-            </p>
-          )}
         </div>
+        {voice.error && (
+          <p role="alert" className="text-sm text-destructive">
+            {voice.error}
+          </p>
+        )}
+        {sendError && (
+          <p role="alert" className="text-sm text-destructive">
+            {sendError}
+          </p>
+        )}
       </form>
     </section>
   );

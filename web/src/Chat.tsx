@@ -11,17 +11,29 @@ import { AgentPanel } from "./AgentPanel";
 import { BackButton } from "./BackButton";
 import { Conversation } from "./Conversation";
 
-function NeedsHumanList({ issues, onChange }: { issues: NeedsHuman[]; onChange: () => void }) {
+function NeedsHumanList({
+  issues,
+  onChange,
+}: {
+  issues: NeedsHuman[];
+  onChange: () => Promise<unknown>;
+}) {
   const [error, setError] = useState("");
+  const [pending, setPending] = useState<number[]>([]);
   if (issues.length === 0) {
     return null;
   }
   const resume = (issue: NeedsHuman) => {
     const [owner, name] = issue.repository.split("/");
+    setPending((numbers) => [...numbers, issue.number]);
     resumeIssue(owner, name, issue.number)
       .then((res) => setError(res.status === 204 ? "" : res.data.error))
       .catch((err: unknown) => setError(String(err)))
-      .finally(onChange);
+      .finally(() =>
+        onChange().then(() =>
+          setPending((numbers) => numbers.filter((number) => number !== issue.number)),
+        ),
+      );
   };
   return (
     <div className="grid gap-1 border-t px-4 py-2">
@@ -50,7 +62,7 @@ function NeedsHumanList({ issues, onChange }: { issues: NeedsHuman[]; onChange: 
               PR #{issue.pullRequest}
             </a>
           )}
-          <Button size="sm" onClick={() => resume(issue)}>
+          <Button size="sm" pending={pending.includes(issue.number)} onClick={() => resume(issue)}>
             Resume
           </Button>
         </div>
@@ -163,7 +175,7 @@ export function Chat({
             {workstream?.allTasksClosed && (
               <div className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
                 <span>All tasks are closed.</span>
-                <Button size="sm" disabled={closeBusy} onClick={close}>
+                <Button size="sm" pending={closeBusy} onClick={close}>
                   Close Workstream
                 </Button>
                 {closeError && <span className="text-sm text-destructive">{closeError}</span>}

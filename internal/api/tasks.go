@@ -15,7 +15,7 @@ type TaskLine struct {
 	Number int64 `gork:"number"`
 	// Title is the title of the task issue
 	Title string `gork:"title"`
-	// State is the Mobius label of the issue with no "mobius:", or open. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead".
+	// State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead".
 	State string `gork:"state"`
 	// URL is the GitHub URL of the task issue
 	URL string `gork:"url"`
@@ -52,7 +52,7 @@ type ListTasksResponse struct {
 	Body Envelope[[]TaskLine]
 }
 
-// ListTasks returns the open tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A
+// ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A
 // nested task follows its parent. The copy can be one poll interval old.
 func (h *handlers) ListTasks(ctx context.Context, req ListTasksRequest) (*ListTasksResponse, error) {
 	lines, err := h.engine.Tasks(ctx, req.Path.Owner+"/"+req.Path.Name, req.Path.Number)

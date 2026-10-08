@@ -397,7 +397,7 @@ test.describe("on a touch screen", () => {
         const buttons = [...document.querySelectorAll('main form button')]
         return buttons.length > 0 && buttons.every((button) => {
           const box = button.getBoundingClientRect()
-          return box.height >= 40 && (box.left >= field.right || box.right <= field.left)
+          return box.height >= 40 && box.top >= field.bottom
         })
       })()`),
     ).toBe(true);
@@ -694,6 +694,28 @@ test("Start gives only an open task with no blocker a button, and the row shows 
   await start.click();
   await expect(rows.filter({ hasText: "#70 Order the bark" }).getByText("ready")).toBeVisible();
   await expect(start).toHaveCount(0);
+});
+
+test("the Tasks tab shows the closed tasks muted, with no Start button, when the switch is on", async ({
+  page,
+}) => {
+  await page.goto("/workstreams/owner/shop/12");
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const rows = page.getByRole("listitem");
+  const closed = rows.filter({ hasText: "#37 Remove the old plan page" });
+  await expect(rows.filter({ hasText: "#41 Add plan model" })).toBeVisible();
+  await expect(closed).toBeHidden();
+
+  await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
+  await expect(closed.getByText("closed", { exact: true })).toBeVisible();
+  await expect(closed.getByText("#37 Remove the old plan page")).toHaveClass(
+    /text-muted-foreground/,
+  );
+  await expect(closed.getByRole("button")).toHaveCount(0);
+  await expect(rows.filter({ hasText: "#36 Rename the plan table" })).toBeVisible();
+
+  await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
+  await expect(closed).toBeHidden();
 });
 
 test("the voice button adds the spoken text to the message", async ({ page }) => {
@@ -1314,40 +1336,54 @@ test("the send button is disabled with no text while the agent does not write", 
   await expect(send).toBeEnabled();
 });
 
-test("the box holds the text area, the voice button and the send button", async ({ page }) => {
+test("the box holds the text area, the attach button, the voice button and the send button", async ({
+  page,
+}) => {
   await page.addInitScript(fakeRecognition);
   await page.goto(shop);
   const main = page.getByRole("main");
   const input = main.getByLabel("Message to the Lead");
   const box = input.locator("..");
+  const attach = main.getByRole("button", { name: "Attach images", exact: true });
   const mic = main.getByRole("button", { name: "Start voice input", exact: true });
   const send = main.getByRole("button", { name: "Send", exact: true });
   await expect(input).toHaveCSS("border-top-width", "0px");
   await expect(box).toHaveCSS("border-top-width", "1px");
   const frame = (await box.boundingBox())!;
+  const field = (await input.boundingBox())!;
+  const attachBox = (await attach.boundingBox())!;
   const micBox = (await mic.boundingBox())!;
   const sendBox = (await send.boundingBox())!;
-  for (const button of [micBox, sendBox]) {
+  for (const button of [attachBox, micBox, sendBox]) {
     expect(button.x).toBeGreaterThanOrEqual(frame.x);
     expect(button.x + button.width).toBeLessThanOrEqual(frame.x + frame.width);
     expect(button.y).toBeGreaterThanOrEqual(frame.y);
     expect(button.y + button.height).toBeLessThanOrEqual(frame.y + frame.height);
+    expect(button.y).toBeGreaterThanOrEqual(field.y + field.height);
   }
+  expect(field.width).toBeGreaterThan(frame.width - 24);
+  expect(attachBox.x).toBeLessThan(micBox.x);
   expect(micBox.x + micBox.width).toBeLessThanOrEqual(sendBox.x);
-  expect(sendBox.x + sendBox.width).toBeGreaterThan(frame.x + frame.width - 12);
+  expect(attachBox.x).toBeLessThan(frame.x + 16);
+  expect(sendBox.x + sendBox.width).toBeGreaterThan(frame.x + frame.width - 16);
+  for (const button of [attach, mic, send]) {
+    await expect(button).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+  }
+  await expect(send).toHaveCSS("border-top-left-radius", /e\+07px$/);
 
-  await expect(box).toHaveCSS("box-shadow", "none");
+  const border = (await page.evaluate(
+    "getComputedStyle(document.querySelector('main form textarea').parentElement).borderTopColor",
+  )) as string;
   await input.focus();
-  await expect(box).not.toHaveCSS("box-shadow", "none");
+  await expect(box).not.toHaveCSS("border-top-color", border);
+  await expect(box).toHaveCSS("box-shadow", "none");
 });
 
 for (const [device, size] of [
   ["desktop", undefined],
   ["phone", phone],
 ] as const) {
-  test(`a long text grows the box and stays beside the buttons on a ${device}`, async ({
-    page,
-  }) => {
+  test(`a long text grows the box and stays above the buttons on a ${device}`, async ({ page }) => {
     await page.addInitScript(fakeRecognition);
     if (size) {
       await page.setViewportSize(size);
@@ -1355,6 +1391,7 @@ for (const [device, size] of [
     await page.goto(shop);
     const main = page.getByRole("main");
     const input = main.getByLabel("Message to the Lead");
+    const attach = main.getByRole("button", { name: "Attach images", exact: true });
     const mic = main.getByRole("button", { name: "Start voice input", exact: true });
     const send = main.getByRole("button", { name: "Send", exact: true });
     const short = (await input.boundingBox())!.height;
@@ -1363,17 +1400,29 @@ for (const [device, size] of [
     expect(long.height).toBeGreaterThan(short);
     expect(long.height).toBeLessThanOrEqual(160);
     expect(await input.evaluate((field) => field.scrollHeight > field.clientHeight)).toBe(true);
-    const micBox = (await mic.boundingBox())!;
-    const sendBox = (await send.boundingBox())!;
-    expect(long.x + long.width).toBeLessThanOrEqual(micBox.x);
-    expect(micBox.x + micBox.width).toBeLessThanOrEqual(sendBox.x);
-    if (size) {
-      expect(micBox.width).toBeGreaterThanOrEqual(44);
-      expect(sendBox.width).toBeGreaterThanOrEqual(44);
-      expect(sendBox.height).toBeGreaterThanOrEqual(44);
+    for (const button of [attach, mic, send]) {
+      const buttonBox = (await button.boundingBox())!;
+      expect(buttonBox.y).toBeGreaterThanOrEqual(long.y + long.height);
+      if (size) {
+        expect(buttonBox.width).toBeGreaterThanOrEqual(44);
+        expect(buttonBox.height).toBeGreaterThanOrEqual(44);
+      }
     }
   });
 }
+
+test("the voice button in the listening state has a red background", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  await expect(mic).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await mic.click();
+  const listening = main.getByRole("button", { name: "Stop voice input", exact: true });
+  await expect(listening).toBeVisible();
+  await expect(listening).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(listening).toHaveAttribute("aria-pressed", "true");
+});
 
 test.describe("on a phone", () => {
   test.use({ viewport: phone });
