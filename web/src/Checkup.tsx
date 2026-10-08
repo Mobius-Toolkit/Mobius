@@ -55,10 +55,7 @@ function PermissionStatus({ permission }: { permission: PermissionCheck }) {
   }
 }
 
-function ToolVersion({ tool }: { tool: ToolCheck }) {
-  if (tool.status === "") {
-    return <Badge variant="secondary">{tool.version}</Badge>;
-  }
+function ToolProblem({ tool }: { tool: ToolCheck }) {
   return <Badge variant="destructive">{tool.status.replace("-", " ")}</Badge>;
 }
 
@@ -237,11 +234,14 @@ export function CheckupTools() {
             <li key={tool.name} className="flex items-center justify-between gap-4 py-2">
               <span className="grid min-w-0">
                 {tool.name}
+                {tool.status === "" && (
+                  <span className="text-muted-foreground text-sm break-words">{tool.version}</span>
+                )}
                 {tool.path && (
                   <span className="text-muted-foreground text-sm break-all">{tool.path}</span>
                 )}
               </span>
-              <ToolVersion tool={tool} />
+              {tool.status !== "" && <ToolProblem tool={tool} />}
             </li>
           ))}
         </ul>

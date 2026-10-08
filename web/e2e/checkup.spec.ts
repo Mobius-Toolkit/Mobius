@@ -119,3 +119,20 @@ test("the Checkup page shows no badge when a request fails", async ({ page }) =>
   await main.getByRole("link", { name: "Tools" }).click();
   await expect(page).toHaveURL("/settings/checkup/tools");
 });
+
+test.describe("on a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
+  test("the Tools page wraps a long version and does not overflow", async ({ page }) => {
+    const version =
+      "curl 8.7.1 (x86_64-apple-darwin23.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.61.0";
+    await routeCheckup(page, [{ ...tool, name: "curl", path: "/usr/bin/curl", version }], {});
+
+    await page.goto("/settings/checkup/tools");
+
+    await expect(page.getByRole("main").getByText(version)).toBeVisible();
+    expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
+      true,
+    );
+  });
+});
