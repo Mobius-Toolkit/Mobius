@@ -128,9 +128,8 @@ func TestTheTasksTabMarksAnOpenSubIssueOfAnotherRepository(t *testing.T) {
 	waitForTasks(t, server, []taskLine{foreign})
 }
 
-// A closed task still has its sub-issues. They keep the depth of the hidden parent, so a nested task does not move
-// below an unrelated sibling.
-func TestTheTasksTabShowsTheSubIssuesOfAClosedTaskAtTheirOwnDepth(t *testing.T) {
+// A closed task has the state closed and keeps its place in the tree, so its sub-issue follows it one level deeper.
+func TestTheTasksTabShowsAClosedTaskWithItsSubIssues(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -144,7 +143,23 @@ func TestTheTasksTabShowsTheSubIssuesOfAClosedTaskAtTheirOwnDepth(t *testing.T) 
 
 	server := startCopied(t, fake)
 
-	waitForTasks(t, server, []taskLine{line(40, "First task", "open", 0), line(50, "Task of the closed task", "open", 0)})
+	waitForTasks(t, server, []taskLine{line(40, "First task", "open", 0), line(41, "Closed task", "closed", 0), line(50, "Task of the closed task", "open", 1)})
+}
+
+func TestTheTasksTabHidesAClosedTaskOfAnUntrustedAuthor(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 40, "First task")
+	fake.AddSubIssue(shop, 12, 40)
+	fake.AddIssue(shop, 41, "Closed task of a stranger")
+	fake.SetAuthor(shop, 41, "mallory")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.CloseIssue(shop, 41)
+
+	server := startCopied(t, fake)
+
+	waitForTasks(t, server, []taskLine{line(40, "First task", "open", 0)})
 }
 
 func TestTheTasksTabShowsTheBlockersAndAQueuedTask(t *testing.T) {

@@ -261,3 +261,13 @@ test("a switch to another organization leaves the chat of the old organization",
   await page.getByRole("menuitemradio", { name: "plants" }).click();
   await expect(page).toHaveURL("/inbox");
 });
+
+test("the agents page shows the start time of an agent after the repository", async ({ page }) => {
+  await page.goto("/agents");
+  await expect(
+    page
+      .getByRole("main")
+      .getByRole("button", { name: /Ticket #41 Add plan model/ })
+      .getByText(/owner\/shop · Sep \d+, \d\d:\d\d [AP]M$/),
+  ).toBeVisible();
+});
