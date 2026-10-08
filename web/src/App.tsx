@@ -183,7 +183,7 @@ function App() {
         workstreams={workstreams}
         unread={unread ?? []}
         inbox={inbox}
-        fill={chat !== undefined || pathname === "/workstreams/new"}
+        fill={chat !== undefined || pathname === "/chat"}
       >
         <ShellContext
           value={{

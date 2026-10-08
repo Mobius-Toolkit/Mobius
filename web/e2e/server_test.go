@@ -132,7 +132,7 @@ const question = "What is the state of the plans? The full report is at " +
 // the second App, so the tests see the first App with no organization.
 //
 // After the first poll of both repositories, a dispatch of #45 gives an Inbox item, and the Owner writes to the
-// Lead chats of owner/shop#12 and plants/garden#12 and to the Triager chat of owner. Each chat session ends before
+// Lead chats of owner/shop#12 and plants/garden#12 and to the Triager chats of owner and plants. Each chat session ends before
 // the next step. Then an Implementer and a Lead run, a drain waits for them, and the drain holds a second
 // Implementer. The parent of the first Implementer is a Lead session that ended. Release v0.1.4 of Mobius is newer
 // than this server. The Inbox has an item of a usage limit of claude-code, with no Workstream and no issue. The
@@ -293,7 +293,9 @@ func TestServer(t *testing.T) {
 	chat(ctx, t, server, engine.ChatKey{Organization: "plants", Repository: "plants/garden", Workstream: 12}, "Which roses sell best?", "Lead")
 	triager := engine.ChatKey{Organization: "owner"}
 	chat(ctx, t, server, triager, "Start a Workstream for gift cards.", "Triager")
-	// The plants chat keeps its unread reply for the organization switch.
+	// The Lead chat and the Triager chat of plants keep their unread replies for the organization switch and for the
+	// unread count of the Chat tab.
+	chat(ctx, t, server, engine.ChatKey{Organization: "plants"}, "Start a Workstream for gift cards.", "Triager")
 	for _, key := range []engine.ChatKey{shop, triager} {
 		view, err := server.Engine.ChatView(ctx, key)
 		if err != nil {

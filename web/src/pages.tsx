@@ -7,8 +7,9 @@ import { Chat } from "./Chat";
 import { Checkup, CheckupLabels, CheckupPermissions, CheckupTools } from "./Checkup";
 import { GitHub } from "./GitHub";
 import { Inbox } from "./Inbox";
+import { InboxTabs } from "./InboxTabs";
 import { Memory, MemoryRepositories } from "./Memory";
-import { NewWorkstream } from "./NewWorkstream";
+import { TriagerChat } from "./TriagerChat";
 import { Workstreams } from "./Workstreams";
 
 export function WorkstreamsPage() {
@@ -18,10 +19,10 @@ export function WorkstreamsPage() {
   );
 }
 
-export function NewWorkstreamPage() {
+export function TriagerChatPage() {
   const { organizations, organization, unread, source } = useShell();
   return (
-    <NewWorkstream
+    <TriagerChat
       organizations={organizations}
       organization={organization}
       unread={unread && unreadCount(unread, { organization, repository: "", workstream: 0 })}
@@ -53,6 +54,11 @@ export function ChatPage() {
       source={source}
     />
   );
+}
+
+export function InboxLayoutPage() {
+  const { organization, inbox } = useShell();
+  return <InboxTabs count={inbox.filter((item) => item.organization === organization).length} />;
 }
 
 export function InboxPage() {
