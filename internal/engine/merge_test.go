@@ -1,6 +1,8 @@
 package engine_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -95,6 +97,42 @@ func TestAnApprovedPullRequestMergesOnALaterPollWhenTheConditionBecomesTrue(t *t
 				t.Errorf("merge calls = %d", calls)
 			}
 		})
+	}
+}
+
+func TestAnApprovedPullRequestWithAMergeConflictInNeedsHumanMergesAfterTheConflictIsGone(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := seedWaiting(t, fake, "needs_human")
+	work := t.TempDir()
+	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
+	if err := os.WriteFile(filepath.Join(work, "plan.txt"), []byte("cents\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, work, "add", "plan.txt")
+	testkit.Git(t, work, "commit", "-m", "Use cents")
+	testkit.Git(t, work, "push", "origin", "HEAD:refs/heads/mobius/41")
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
+	passMobius(fake, head(t, fake, "mobius/41"))
+
+	fake.AddReview(shop, 42, "owner", "APPROVED", "")
+	testkit.WaitFor(t, func() bool { return approvedReview(t, server) != "" })
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+	if calls := fake.MergeCalls(); calls != 0 {
+		t.Errorf("merge calls = %d", calls)
+	}
+
+	testkit.Git(t, work, "fetch", "origin", "main")
+	testkit.Git(t, work, "merge", "-X", "ours", "origin/main")
+	testkit.Git(t, work, "push", "origin", "HEAD:refs/heads/mobius/41")
+	passMobius(fake, head(t, fake, "mobius/41"))
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if calls := fake.MergeCalls(); calls != 1 {
+		t.Errorf("merge calls = %d", calls)
 	}
 }
 
