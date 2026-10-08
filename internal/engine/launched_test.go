@@ -179,3 +179,23 @@ func TestACommentThatTheFirstRunOfTheTriagerReadsGetsARocketWhenTheRunStarts(t *
 
 	waitForReactions(t, fake, id, reactions("eyes", "rocket"))
 }
+
+func TestACommentThatIsOlderThanAProposalOfTheTriagerGetsARocketWhenTheTriagerReadsIt(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.AddIssue(shop, 56, "Add points")
+	fake.AddLabel(shop, 56, "mobius:ready", "owner")
+	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 56)) == 1 })
+	if end := <-startDrain(t, server); end != "drained" {
+		t.Fatalf("end = %s", end)
+	}
+
+	id := fake.AddComment(shop, 56, "owner", "Please use points.")
+	fake.AddComment(shop, 56, testkit.AppSlug+"[bot]", "Second proposal.")
+
+	waitForReactions(t, fake, id, reactions("eyes"))
+	cancelDrain(t, server)
+
+	waitForReactions(t, fake, id, reactions("eyes", "rocket"))
+}

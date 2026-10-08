@@ -4,8 +4,6 @@ import (
 	"context"
 	"log"
 	"slices"
-	"strings"
-	"time"
 
 	gh "github.com/google/go-github/v92/github"
 
@@ -149,17 +147,10 @@ func (e *Engine) launchEventComment(ctx context.Context, event *store.LeadEvent)
 	launched(ctx, repository, event.Review.Bool, event.Comment.Int64)
 }
 
-// launchTriagerComments adds the reaction of a Triager run that starts to each comment of an event that is newer than the
-// last comment of the Mobius App. The Triager read the older comments in an earlier run.
+// launchTriagerComments adds the reaction of a Triager run that starts to each comment of an event that the run reads.
 func (e *Engine) launchTriagerComments(ctx context.Context, repository github.Repository, comments []*gh.IssueComment) {
-	var readAt time.Time
 	for _, comment := range comments {
-		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) {
-			readAt = laterOf(readAt, comment.GetCreatedAt().Time)
-		}
-	}
-	for _, comment := range comments {
-		if e.commentIsEvent(repository.AppSlug, comment) && comment.GetCreatedAt().After(readAt) {
+		if e.commentIsEvent(repository.AppSlug, comment) {
 			launched(ctx, repository, false, comment.GetID())
 		}
 	}
