@@ -555,7 +555,7 @@ func (e *Engine) finishChat(c *chat, failure string) {
 func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 	if failed.message != nil {
 		message := failed.message
-		_, err := e.addInboxItem(ctx, store.AddInboxItemParams{
+		err := e.addInboxItem(ctx, store.AddInboxItemParams{
 			Kind:         leadFailedKind,
 			Organization: message.Organization,
 			Repository:   message.Repository,
@@ -572,7 +572,7 @@ func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 	}
 	for _, event := range events {
 		organization, _, _ := strings.Cut(repository, "/")
-		_, err := e.addInboxItem(ctx, store.AddInboxItemParams{
+		err := e.addInboxItem(ctx, store.AddInboxItemParams{
 			Kind:         leadFailedKind,
 			Organization: organization,
 			Repository:   repository,
@@ -808,7 +808,7 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repo
 		return "", err
 	}
 	c.agent.setAuthor("")
-	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
+	err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         leadKind,
 		Organization: c.organization,
 		Repository:   c.repository,

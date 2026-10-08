@@ -87,7 +87,7 @@ func (e *Engine) addFullDiskItem(ctx context.Context, task store.Task, title str
 	if err != nil {
 		return err
 	}
-	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
+	err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         fullDiskKind,
 		Organization: repository.Owner(),
 		Repository:   task.Repository,

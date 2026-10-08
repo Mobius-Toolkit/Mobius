@@ -475,7 +475,7 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if err := repository.AddLabel(ctx, input.N, needsHumanLabel); err != nil {
 		return "", err
 	}
-	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
+	err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         questionKind,
 		Organization: repository.Owner(),
 		Repository:   repository.FullName,

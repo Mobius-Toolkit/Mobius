@@ -205,13 +205,13 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	spec := a.spec
 	switch {
 	case err == nil:
-		e.publish(Change{Inbox: &item})
 	case errors.Is(err, sql.ErrNoRows):
-		item, err = e.addInboxItem(ctx, store.AddInboxItemParams{
+		item, err = e.queries.AddInboxItem(ctx, store.AddInboxItemParams{
 			Kind:         usageLimitKind,
 			Organization: spec.Organization,
 			Repository:   spec.Repository,
 			Text:         text,
+			Time:         now(),
 		})
 		if err != nil {
 			return err
@@ -227,6 +227,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
 		return err
 	}
+	e.publish(Change{Inbox: &item})
 	return e.timer(pause)
 }
 
