@@ -58,7 +58,7 @@ const state = {
 // The lock that keeps the screen on while the voice input listens.
 let screenLock: WakeLockSentinel | undefined;
 
-// WebKit rejects the request without a recent tap when the Owner did not allow the lock before.
+// WebKit grants the lock only after a recent tap while the permission state is prompt.
 // Thus the tap on the voice button requests the lock.
 const holdScreen = () => {
   navigator.wakeLock?.request("screen").then(
