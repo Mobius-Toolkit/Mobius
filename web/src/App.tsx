@@ -92,7 +92,10 @@ function App() {
       events = connect();
     };
     const lose = () => setLink((current) => (current === "starting" ? current : "connecting"));
-    const starting = setTimeout(lose, startLimit);
+    const starting = setTimeout(
+      () => setLink((current) => (current === "starting" ? "connecting" : current)),
+      startLimit,
+    );
     // The server sends a ping each 15 s. A connection that is dead gives no error, so the page connects again when
     // no ping comes.
     const watch = () =>

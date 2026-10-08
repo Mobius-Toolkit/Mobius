@@ -87,6 +87,7 @@ for (const [device, size] of Object.entries(viewports)) {
     await page.goto("/workstreams");
     await opened;
     await expect(page.getByRole("main")).toBeVisible();
+    await page.clock.fastForward(4_000);
     await expect(status).toBeEmpty();
 
     await context.setOffline(true);
