@@ -514,6 +514,9 @@ func (a *Agent) setAuthor(author string) {
 func (a *Agent) End(ctx context.Context, reason string) error {
 	a.closeHarness()
 	defer a.release()
+	if err := a.addAutonomousUsage(context.WithoutCancel(ctx)); err != nil {
+		log.Printf("add the usage of the session %d: %v", a.id, err)
+	}
 	if a.scratch != "" {
 		if err := os.RemoveAll(a.scratch); err != nil {
 			return err

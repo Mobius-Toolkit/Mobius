@@ -130,17 +130,41 @@ func (a *Agent) addUsage(ctx context.Context, result runner.PromptResult, prompt
 	readResult(&usage, a.harness, result)
 	var cost sql.NullFloat64
 	if usage.costSeen {
-		cost = sql.NullFloat64{Float64: a.costTotal, Valid: true}
-		if a.costTotal >= a.costBase {
-			cost.Float64 -= a.costBase
-		}
-		a.costBase = a.costTotal
+		cost = a.takeCost()
 	}
 	hasData := usage.input.Valid || usage.output.Valid || usage.cacheRead.Valid || usage.cacheWrite.Valid || cost.Valid
 	ended := promptErr == nil && result.StopReason != acp.StopReasonCancelled
 	if !hasData && !ended {
 		return nil
 	}
+	endedAt := now()
+	a.turnUsage = turnUsage{started: endedAt, model: usage.model}
+	return a.insertUsage(ctx, usage, cost, endedAt)
+}
+
+// addAutonomousUsage adds a usage row with the cost that autonomous turns added after the last row. The caller
+// calls it when the session ends, so no more updates come.
+func (a *Agent) addAutonomousUsage(ctx context.Context) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.costTotal == a.costBase {
+		return nil
+	}
+	return a.insertUsage(ctx, a.turnUsage, a.takeCost(), now())
+}
+
+// takeCost gives the cost since the last row and moves costBase to the cost total. The caller holds a.mu.
+func (a *Agent) takeCost() sql.NullFloat64 {
+	cost := sql.NullFloat64{Float64: a.costTotal, Valid: true}
+	if a.costTotal >= a.costBase {
+		cost.Float64 -= a.costBase
+	}
+	a.costBase = a.costTotal
+	return cost
+}
+
+// insertUsage adds the usage row. The caller holds a.mu.
+func (a *Agent) insertUsage(ctx context.Context, usage turnUsage, cost sql.NullFloat64, endedAt string) error {
 	spec := a.spec
 	binding, _ := roleBinding(a.engine.config, spec.Role)
 	return a.engine.queries.AddTurnUsage(ctx, store.AddTurnUsageParams{
@@ -156,7 +180,7 @@ func (a *Agent) addUsage(ctx context.Context, result runner.PromptResult, prompt
 		ReportedModel:    usage.model,
 		Effort:           sql.NullString{String: binding.Effort, Valid: binding.Effort != ""},
 		StartedAt:        usage.started,
-		EndedAt:          now(),
+		EndedAt:          endedAt,
 		InputTokens:      usage.input,
 		OutputTokens:     usage.output,
 		CacheReadTokens:  usage.cacheRead,

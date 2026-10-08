@@ -81,7 +81,7 @@ func TestAClaudeCodeTurnHasAUsageRowWithTheTokensTheModelAndTheCostOfTheTurn(t *
 	first, second := rows[0], rows[1]
 	if first.Session != session || first.Task.Valid || first.Issue != nullInt(41) || first.Workstream != 12 || first.Organization != "owner" ||
 		first.Repository != shop || first.Role != engine.LeadRole || first.Harness != "claude-code" || first.Model != "opus" ||
-		first.ReportedModel.String != "claude-opus-5-5" || first.Effort.String != "high" || first.StartedAt == "" || first.EndedAt < first.StartedAt {
+		first.ReportedModel.String != "claude-opus-5-5" || first.Effort.String != "high" || first.StartedAt == "" || parseTime(t, first.EndedAt).Before(parseTime(t, first.StartedAt)) {
 		t.Errorf("first = %+v", first)
 	}
 	if first.Input != nullInt(100) || first.Output != nullInt(20) || first.CacheRead != nullInt(3000) || first.CacheWrite != nullInt(400) {
@@ -92,9 +92,36 @@ func TestAClaudeCodeTurnHasAUsageRowWithTheTokensTheModelAndTheCostOfTheTurn(t *
 		t.Errorf("second tokens = %+v", second)
 	}
 	costOf(t, second, 0.3)
-	if second.StartedAt < first.EndedAt {
+	if parseTime(t, second.StartedAt).Before(parseTime(t, first.EndedAt)) {
 		t.Errorf("the second turn starts at %s, before the first ends at %s", second.StartedAt, first.EndedAt)
 	}
+}
+
+func TestTheCostOfAnAutonomousTurnAfterTheLastPromptHasAUsageRowAtTheEndOfTheSession(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, claudeTurn(0.6, 1, 1, 1, 1)+`later = { after = "10ms", updates = ['{"sessionUpdate": "usage_update", "used": 1, "size": 2, "cost": {"amount": 0.9, "currency": "USD"}, "_meta": {"_claude/origin": {"kind": "task-notification"}}}'] }
+`)
+	agent := start(t, server, leadSpec(t))
+	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool {
+		var updates int
+		if err := server.DB.QueryRowContext(t.Context(), `SELECT count(*) FROM transcript WHERE session = ? AND json LIKE '%task-notification%'`, agent.ID()).Scan(&updates); err != nil {
+			t.Fatal(err)
+		}
+		return updates > 0
+	})
+	if err := agent.End(t.Context(), "done"); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := usageRows(t, server, agent.ID())
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	costOf(t, rows[0], 0.6)
+	costOf(t, rows[1], 0.3)
 }
 
 func TestACostTotalThatFallsGivesTheNewTotalAsTheCostOfTheTurn(t *testing.T) {
