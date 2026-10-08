@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { LoginContext } from "@/lib/login";
+import { cn } from "@/lib/utils";
 import { TopBar } from "./TopBar";
 
 const fixButton = { create: "Create labels", fix: "Fix labels" };
@@ -124,7 +125,7 @@ function CheckupCard({
     <>
       <TopBar title={title} back="/settings/checkup" />
       <Card>
-        <CardHeader>
+        <CardHeader className={cn(!action && "max-md:hidden")}>
           <CardTitle className="max-md:hidden">{title}</CardTitle>
           {action && <CardAction>{action}</CardAction>}
         </CardHeader>
