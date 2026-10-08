@@ -464,7 +464,7 @@ export function Conversation({
       </div>
       {footer}
       <form
-        className="grid gap-1 border-t px-4 py-3"
+        className="grid gap-1 border-t p-2"
         onSubmit={(event) => {
           event.preventDefault();
           send();
