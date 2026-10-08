@@ -183,7 +183,13 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
                   onChange={(event) => setDraft(event.target.value)}
                 />
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setDraft(undefined)}>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setDraft(undefined);
+                      setError(undefined);
+                    }}
+                  >
                     Cancel
                   </Button>
                   <Button pending={saving} onClick={() => save(draft)}>
