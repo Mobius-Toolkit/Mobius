@@ -289,6 +289,10 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 			break
 		}
 	}
+	state := e.pull(repository, number)
+	for _, comment := range comments {
+		state.conversation[comment.GetID()] = comment
+	}
 	replies, _, err := e.newComments(ctx, repository, task, comments)
 	if err != nil || task.State != "stopped" && task.State != "dispatched" || len(replies) == 0 {
 		return err

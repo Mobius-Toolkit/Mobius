@@ -32,7 +32,8 @@ type listedComment interface {
 // their issue or pull request, the oldest first. It gives the cursor that covers them, and the caller saves it after it
 // acts on the comments. A comment is new when its id is above the id of the cursor. GitHub gives a higher id to a later
 // comment, also in the same second, and an edited comment keeps its id. Thus a comment that GitHub writes in the second
-// of the cursor is new, and a comment that Mobius handled or that a human edited is not. A list with no cursor starts at
+// of the cursor is new, and a comment that Mobius handled or that a human edited is not. The list sorts by update time
+// with page offsets, so a comment that changes while the read runs can come two times. The result has it one time. A list with no cursor starts at
 // issuesSince, the cursor of the issue list: a comment that GitHub created at or before that time is old.
 func newComments[C listedComment](ctx context.Context, queries *store.Queries, repository github.Repository, endpoint string, issuesSince time.Time, list func(context.Context, time.Time) ([]C, error), number func(C) int64) (map[int64][]C, store.SetSyncCursorParams, error) {
 	cursor, err := queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: endpoint})
@@ -59,6 +60,7 @@ func newComments[C listedComment](ctx context.Context, queries *store.Queries, r
 		return comment.GetID() <= lastID || !cursor.Since.Valid && !comment.GetCreatedAt().After(issuesSince)
 	})
 	slices.SortFunc(comments, func(a, b C) int { return cmp.Compare(a.GetID(), b.GetID()) })
+	comments = slices.CompactFunc(comments, func(a, b C) bool { return a.GetID() == b.GetID() })
 	next := store.SetSyncCursorParams{Repository: repository.FullName, Endpoint: endpoint, Since: cursor.Since, Etag: cursor.Etag}
 	byNumber := map[int64][]C{}
 	for _, comment := range comments {
