@@ -14,11 +14,12 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { queueState } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
 import { clock, dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { paused, Transcript } from "./Agents";
+import { Transcript } from "./Agents";
 
 type Row = { agent: Agent; depth: number };
 
@@ -65,6 +66,7 @@ function shownAgents(agents: Agent[], showStopped: boolean) {
 
 function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void }) {
   const agent = row.agent;
+  const state = queueState(agent.queueReason);
   const started = `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ""}`;
   const detail = agent.queueReason ? `${started} · ${agent.queueReason}` : started;
   return (
@@ -78,11 +80,7 @@ function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void 
         <span
           className={cn(
             "size-2 shrink-0 rounded-full",
-            agent.queueReason
-              ? "bg-amber-500"
-              : agent.endedAt
-                ? "border border-muted-foreground"
-                : "bg-green-600",
+            agent.endedAt ? "border border-muted-foreground" : state.dot,
           )}
         />
         <span className="grid min-w-0 grow gap-0.5">
@@ -94,11 +92,7 @@ function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void 
           </span>
         </span>
         {agent.endedAt && <Badge variant="secondary">stopped</Badge>}
-        {agent.queueReason && (
-          <Badge variant="outline">
-            {agent.queueReason.startsWith(paused) ? "paused" : "queued"}
-          </Badge>
-        )}
+        {state.badge && <Badge variant="outline">{state.badge}</Badge>}
       </button>
     </li>
   );
