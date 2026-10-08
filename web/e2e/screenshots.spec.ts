@@ -64,7 +64,7 @@ test("screenshots", async ({ page }) => {
   await createApp("owner", "mobius-test");
   const release = page.getByText("v0.1.4").filter({ visible: true }).first();
   // The server adds the repositories after the second App, so Mobius knows no organization.
-  await screenshot(page, "new-workstream-no-organization", "/workstreams/new", () => [
+  await screenshot(page, "chat-no-organization", "/chat", () => [
     release,
     main.getByText("Mobius reads the repositories from GitHub."),
   ]);
@@ -79,7 +79,7 @@ test("screenshots", async ({ page }) => {
   }).toPass();
 
   await page.goto("/");
-  await expect(page).toHaveURL("/workstreams");
+  await expect(page).toHaveURL("/chat");
   // The side bar and the header of the phone have the same controls, and only one of them shows.
   const shown = (name: string) => page.getByRole("button", { name }).filter({ visible: true });
   const drain = page.getByText("Upgrade waits for 2 agents").filter({ visible: true });
@@ -89,10 +89,27 @@ test("screenshots", async ({ page }) => {
   const frame = (device: string, upgrade: Locator) => [
     upgrade,
     page.getByLabel("Work in another organization").filter({ visible: true }),
-    page.locator('a[href="/inbox"]').filter({ visible: true }).getByText("2", { exact: true }),
+    page.locator('nav a[href="/inbox"]').filter({ visible: true }).getByText("2", { exact: true }),
     ...(device === "desktop" ? [page.locator("nav").first().getByText("needs you")] : []),
   ];
+  // Each test that opens the Triager chat of owner marks its messages as seen. Thus the screenshots get a fixed count.
+  await page.route("/api/unread", async (route) => {
+    const response = await route.fetch();
+    const { data } = (await response.json()) as { data: { organization: string }[] };
+    const others = data.filter((chat) => chat.organization !== "owner");
+    await route.fulfill({
+      json: {
+        data: [...others, { organization: "owner", repository: "", workstream: 0, count: 1 }],
+      },
+    });
+  });
+  await page.route("/api/chat/seen", (route) => route.fulfill({ status: 204 }));
+  const chatCount = page
+    .locator("nav a[href='/chat']")
+    .filter({ visible: true })
+    .getByText("1", { exact: true });
   await screenshot(page, "workstreams", "/workstreams", (device) => [
+    chatCount,
     ...frame(device, drain),
     main.getByText("Seasonal prices"),
     main.getByRole("img", { name: "Autopilot" }),
@@ -235,21 +252,27 @@ test("screenshots", async ({ page }) => {
     main.getByText("All tasks are closed."),
     main.getByText("Change the prices for each season."),
   ]);
-  await screenshot(page, "new-workstream", "/workstreams/new", (device) => [
+  await screenshot(page, "chat-triager", "/chat", (device) => [
+    chatCount,
     ...frame(device, drain),
     main.getByText("Sell gift cards in the shop."),
   ]);
   await screenshot(page, "inbox", "/inbox", (device) => [
+    chatCount,
     ...frame(device, drain),
+    main.getByRole("tab", { name: "To do 2" }),
     main.getByText("#45 needs a decision"),
     main.getByText("Integrate loyalty plans ·"),
     main.getByText("claude-code reached a usage limit."),
   ]);
-  await screenshot(page, "activity", "/activity", (device) => [
+  await screenshot(page, "inbox-activity", "/inbox/activity", (device) => [
+    chatCount,
     ...frame(device, drain),
     main.getByText('Dispatched "Pick the plan limits"'),
     main.getByRole("button", { name: "Integrate loyalty plans" }),
   ]);
+  await page.unroute("/api/unread");
+  await page.unroute("/api/chat/seen");
 
   // The chat shows its last message, and the tree hides a stopped agent unless an agent below it runs.
   await page.setViewportSize(viewports.desktop);
@@ -270,6 +293,24 @@ test("screenshots", async ({ page }) => {
       `${wide("main pre")} && ${wide("main table")} && document.documentElement.scrollWidth <= window.innerWidth`,
     ),
   ).toBe(true);
+  await screenshot(
+    page,
+    "transcript-panel",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      page.getByText("The plan prices are in cents now.").filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await main.getByRole("button", { name: "Agents" }).click();
+      }
+      await page
+        .getByRole("button", { name: /^implementer devin · swe-1.5 · Sep \d+, \d\d:\d\d [AP]M$/ })
+        .filter({ visible: true })
+        .click();
+    },
+  );
   await screenshot(page, "agents", "/agents", (device) => [
     ...frame(device, drain),
     main.getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/),

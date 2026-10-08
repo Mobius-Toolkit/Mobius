@@ -1,11 +1,12 @@
 import { Link, useMatchRoute, type LinkProps } from "@tanstack/react-router";
-import { InboxIcon, LayersIcon, ListIcon, PlusIcon, SettingsIcon } from "lucide-react";
+import { InboxIcon, LayersIcon, MessageCircleIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { InboxItem, Unread } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useNewBuild } from "@/lib/build";
 import { settingsPages } from "@/lib/settings";
+import { unreadCount } from "@/lib/unread";
 import { useUpgrade } from "@/lib/upgrade";
 import { cn } from "@/lib/utils";
 import { chatParams, organizationWorkstreams, type Workstreams } from "@/lib/workstreams";
@@ -14,18 +15,20 @@ import { UpgradeControls, UpgradeDialog } from "./Upgrade";
 import { WorkstreamBadges } from "./Workstreams";
 
 const tabs = [
+  { path: "/chat", title: "Chat", Icon: MessageCircleIcon },
   { path: "/workstreams", title: "Workstreams", Icon: LayersIcon },
   { path: "/inbox", title: "Inbox", Icon: InboxIcon },
-  { path: "/activity", title: "Activity", Icon: ListIcon },
   { path: "/settings", title: "Settings", Icon: SettingsIcon },
 ];
 
 function SideLink({
   link,
+  fuzzy,
   className,
   children,
 }: {
   link: LinkProps;
+  fuzzy?: boolean;
   className?: string;
   children: ReactNode;
 }) {
@@ -33,10 +36,10 @@ function SideLink({
   return (
     <Button
       asChild
-      variant={matchRoute(link) ? "secondary" : "ghost"}
+      variant={matchRoute({ ...link, fuzzy }) ? "secondary" : "ghost"}
       className={cn("justify-start", className)}
     >
-      <Link {...link} activeOptions={{ exact: true }}>
+      <Link {...link} activeOptions={{ exact: !fuzzy }}>
         {children}
       </Link>
     </Button>
@@ -77,6 +80,7 @@ export function Frame({
     counts.set(chat.organization, (counts.get(chat.organization) ?? 0) + chat.count);
   }
   const inboxCount = inbox.filter((item) => item.organization === organization).length;
+  const chatCount = unreadCount(unread, { organization, repository: "", workstream: 0 });
   const organizationSwitch = organizations.length > 1 && (
     <OrganizationSwitch
       organizations={organizations}
@@ -86,18 +90,22 @@ export function Frame({
     />
   );
   const upgradeControls = <UpgradeControls upgrade={upgrade} newBuild={newBuild} />;
-  const currentTab = path.startsWith("/workstreams") ? "/workstreams" : path;
+  const currentTab = ["/workstreams", "/inbox"].find((tab) => path.startsWith(tab)) ?? path;
+  const tabCounts: Record<string, number> = { "/chat": chatCount, "/inbox": inboxCount };
   return (
     <div className={cn("flex", fill ? "h-svh" : "min-h-svh")}>
       <nav className="sticky top-0 hidden h-svh w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r bg-sidebar p-2 text-sidebar-foreground md:flex">
         <div className="px-2 py-1">
           {organizationSwitch || <span className="font-semibold">Mobius</span>}
         </div>
-        <SideLink link={{ to: "/inbox" }}>
+        <SideLink link={{ to: "/chat" }}>
+          <span className="grow">Chat</span>
+          {chatCount > 0 && <Badge>{chatCount}</Badge>}
+        </SideLink>
+        <SideLink link={{ to: "/inbox" }} fuzzy>
           <span className="grow">Inbox</span>
           {inboxCount > 0 && <Badge>{inboxCount}</Badge>}
         </SideLink>
-        <SideLink link={{ to: "/activity" }}>Activity</SideLink>
         <SideLink link={{ to: "/workstreams" }}>Workstreams</SideLink>
         {organizationWorkstreams(workstreams, organization)?.map((workstream) => (
           <SideLink
@@ -112,10 +120,6 @@ export function Frame({
             <WorkstreamBadges workstream={workstream} workstreams={workstreams} unread={unread} />
           </SideLink>
         ))}
-        <SideLink link={{ to: "/workstreams/new" }} className="pl-5">
-          <PlusIcon />
-          New Workstream
-        </SideLink>
         <div className="grow" />
         {upgradeControls}
         {settingsPages.map((page) => (
@@ -154,7 +158,7 @@ export function Frame({
             <Icon className="size-5" />
             <span className="flex items-center gap-1">
               {title}
-              {tabPath === "/inbox" && inboxCount > 0 && <Badge>{inboxCount}</Badge>}
+              {tabCounts[tabPath] > 0 && <Badge>{tabCounts[tabPath]}</Badge>}
             </span>
           </Link>
         ))}
