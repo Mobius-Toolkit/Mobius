@@ -40,7 +40,7 @@ func TestAPollReadsTheReviewsAndThreadsOfManyChangedPullRequestsWithOneCall(t *t
 	fake.AddReviewComment(shop, 44, 0, "owner", "Rename tier to plan.")
 	release()
 
-	testkit.WaitFor(t, func() bool { return eventLines(t, server) == 1 })
+	testkit.WaitFor(t, func() bool { return eventLines(t, server) == 3 })
 	waitForPolls(t, fake)
 	// The poll after the one that read the pull requests reads the last changed pull request again.
 	if got := fake.PullRequestReads() - reads; got != 2 {

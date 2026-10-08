@@ -46,14 +46,13 @@ func (e *Engine) triage(ctx context.Context, repository github.Repository, numbe
 	return true, nil
 }
 
-// retriage starts the Triager of the issue again after the comments, when the issue is open, has mobius:no-workstream,
-// and a comment is an event.
-func (e *Engine) retriage(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
-	if issue.GetState() != "open" || !hasLabel(issue, noWorkstreamLabel) ||
-		!slices.ContainsFunc(comments, func(comment *gh.IssueComment) bool { return e.commentIsEvent(repository.AppSlug, comment) }) {
-		return nil
+// retriage starts the Triager of the open issue with mobius:no-workstream again after the comments of events, and adds
+// the reaction of an agent that gets them. The Triager reads the comments of the issue.
+func (e *Engine) retriage(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueComment) error {
+	if err := e.restartTriager(ctx, repository, int64(issue.GetNumber())); err != nil {
+		return err
 	}
-	return e.restartTriager(ctx, repository, int64(issue.GetNumber()))
+	return acknowledge(ctx, repository, events)
 }
 
 // restartTriager starts the Triager of the issue number again. A running Triager stops first, so the new run reads the

@@ -1200,6 +1200,23 @@ func (q *Queries) HoldTriager(ctx context.Context, arg HoldTriagerParams) error 
 	return err
 }
 
+const isCommentAnswered = `-- name: IsCommentAnswered :one
+SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review = ? AND comment = ?)
+`
+
+type IsCommentAnsweredParams struct {
+	Repository string
+	Review     bool
+	Comment    int64
+}
+
+func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isCommentAnswered, arg.Repository, arg.Review, arg.Comment)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listChatMessages = `-- name: ListChatMessages :many
 SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Researcher'
@@ -2522,6 +2539,22 @@ func (q *Queries) ListWaitingLeadWorkstreams(ctx context.Context) ([]ListWaiting
 		return nil, err
 	}
 	return items, nil
+}
+
+const markCommentAnswered = `-- name: MarkCommentAnswered :exec
+INSERT INTO answered_comments (repository, review, comment) VALUES (?, ?, ?)
+ON CONFLICT (repository, review, comment) DO NOTHING
+`
+
+type MarkCommentAnsweredParams struct {
+	Repository string
+	Review     bool
+	Comment    int64
+}
+
+func (q *Queries) MarkCommentAnswered(ctx context.Context, arg MarkCommentAnsweredParams) error {
+	_, err := q.db.ExecContext(ctx, markCommentAnswered, arg.Repository, arg.Review, arg.Comment)
+	return err
 }
 
 const queueTask = `-- name: QueueTask :execrows

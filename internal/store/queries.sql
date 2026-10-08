@@ -457,3 +457,10 @@ WHERE s.repository = sqlc.arg(repository) AND s.role <> 'curator' AND s.ended_at
 SELECT started_at FROM sessions
 WHERE repository = ? AND role = 'curator' AND end_reason = 'done'
 ORDER BY julianday(started_at) DESC LIMIT 1;
+
+-- name: IsCommentAnswered :one
+SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review = ? AND comment = ?);
+
+-- name: MarkCommentAnswered :exec
+INSERT INTO answered_comments (repository, review, comment) VALUES (?, ?, ?)
+ON CONFLICT (repository, review, comment) DO NOTHING;

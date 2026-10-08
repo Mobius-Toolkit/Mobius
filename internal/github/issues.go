@@ -157,6 +157,25 @@ func (r Repository) AddComment(ctx context.Context, number int64, body string) (
 	return comment.GetID(), err
 }
 
+// ReactToComment adds the reaction content, for example "eyes", to the conversation comment id.
+func (r Repository) ReactToComment(ctx context.Context, id int64, content string) error {
+	_, _, err := r.Client.Reactions.CreateIssueCommentReaction(ctx, r.Owner(), r.Name(), id, content)
+	return err
+}
+
+// ReactToReviewComment adds the reaction content to the review comment id.
+func (r Repository) ReactToReviewComment(ctx context.Context, id int64, content string) error {
+	_, _, err := r.Client.Reactions.CreatePullRequestCommentReaction(ctx, r.Owner(), r.Name(), id, content)
+	return err
+}
+
+// ReplyToReviewComment adds a reply with body to the review thread that starts with the comment root of the pull
+// request number.
+func (r Repository) ReplyToReviewComment(ctx context.Context, number, root int64, body string) error {
+	_, _, err := r.Client.PullRequests.CreateCommentInReplyTo(ctx, r.Owner(), r.Name(), int(number), body, root)
+	return err
+}
+
 // UpdateComment replaces the body of the comment id of an issue or a pull request.
 func (r Repository) UpdateComment(ctx context.Context, id int64, body string) error {
 	_, _, err := r.Client.Issues.UpdateComment(ctx, r.Owner(), r.Name(), id, gh.IssueCommentRequest{Body: body})
