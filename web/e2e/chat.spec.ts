@@ -1565,3 +1565,56 @@ test.describe("on a phone", () => {
     ).toBe(true);
   });
 });
+
+test("the chat shows one separator before the first message of each day", async ({ page }) => {
+  const times = [
+    "2025-12-30T20:00:00Z",
+    "2026-09-28T09:30:00Z",
+    "2026-09-28T21:40:00Z",
+    "2026-10-14T09:12:00Z",
+    "2026-10-15T08:37:00Z",
+    "2026-10-15T08:38:00Z",
+  ];
+  await page.clock.setFixedTime("2026-10-15T12:00:00Z");
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { messages: unknown[] } };
+    body.data.messages = times.map((time, index) => ({
+      id: index + 1,
+      author: "Lead",
+      text: `Message ${index + 1}`,
+      time,
+      images: 0,
+      organization: "owner",
+      repository: "owner/shop",
+      workstream: 12,
+    }));
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await expect(main.getByText("Message 6")).toBeVisible();
+
+  const order = await main
+    .locator("[role=separator], [data-message]")
+    .evaluateAll((elements) =>
+      elements.map((element) =>
+        element.getAttribute("role") === "separator"
+          ? (element.getAttribute("aria-label") ?? "")
+          : (element.textContent ?? "").match(/Message \d/)?.[0],
+      ),
+    );
+  expect(order).toEqual([
+    "Tue, Dec 30, 2025",
+    "Message 1",
+    "Mon, Sep 28",
+    "Message 2",
+    "Message 3",
+    "Yesterday",
+    "Message 4",
+    "Today",
+    "Message 5",
+    "Message 6",
+  ]);
+  await expect(main.getByRole("separator", { name: "Mon, Sep 28" })).toHaveText("Mon, Sep 28");
+});

@@ -43,6 +43,8 @@ const wide = (selector: string) =>
 
 test("screenshots", async ({ page }) => {
   const main = page.getByRole("main");
+  // The day separator shows the year of a message that is not in the current year.
+  await page.clock.setFixedTime("2026-10-15T12:00:00Z");
   await page.addInitScript(`window.SpeechRecognition = class extends EventTarget {
     start() {}
     stop() {}
