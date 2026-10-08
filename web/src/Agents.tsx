@@ -13,7 +13,7 @@ import { ErrorBadge, inset, List, PageHeader, rowClass, Section } from "@/compon
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { queueState } from "@/lib/agents";
+import { queueState, queueText } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
 import { atEnd } from "@/lib/scroll";
@@ -46,7 +46,7 @@ function AgentRow({ row, onOpen }: { row: ActiveAgent; onOpen: (agent: Agent) =>
               agent.organization,
               (agent.workstream !== 0 || agent.issue != null) && agent.repository,
               dayClock(agent.startedAt),
-              agent.queueReason,
+              queueText(agent),
             ]
               .filter(Boolean)
               .join(" · ")}

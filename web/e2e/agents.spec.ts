@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
 const states = [
   { reason: "runs .mobius/check", badge: "checks", dot: /bg-green-600/ },
   { reason: "waits for a check slot", badge: "waits for check", dot: /bg-amber-500/ },
-  { reason: "paused until 2026-09-28 12:00 UTC", badge: "paused", dot: /bg-amber-500/ },
+  { reason: /paused until Sep 28, 12:00\sPM/, badge: "paused", dot: /bg-amber-500/ },
   { reason: "no free Implementer slot (2/2)", badge: "queued", dot: /bg-amber-500/ },
 ];
 

@@ -33,7 +33,7 @@ async function screenshot(
 const queueReasons = [
   "runs .mobius/check",
   "waits for a check slot",
-  "paused until 2026-09-28 12:00 UTC",
+  /paused until Sep 28, 12:00\sPM/,
   "no free Implementer slot (2/2)",
 ];
 
@@ -302,7 +302,8 @@ test("screenshots", async ({ page }) => {
     main.getByRole("tab", { name: "To do 2" }),
     main.getByText("#45 needs a decision"),
     main.getByText("Integrate loyalty plans ·"),
-    main.getByText("claude-code reached a usage limit."),
+    main.getByText("antigravity reached a usage limit."),
+    main.getByText(/· paused until Sep 28, 12:00\sPM/),
   ]);
   await screenshot(page, "inbox-activity", "/inbox/activity", (device) => [
     chatCount,

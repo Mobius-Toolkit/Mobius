@@ -86,6 +86,7 @@ function InboxRow({
             </>
           )}
           {dayClock(item.time)}
+          {item.pausedUntil && ` · paused until ${dayClock(item.pausedUntil)}`}
         </span>
       </div>
       <div className="flex items-center gap-2">

@@ -314,6 +314,44 @@ func pausedReason(pause store.HarnessPause) (string, error) {
 	return pausedPrefix + until.UTC().Format(timeFormat), nil
 }
 
+// PausedUntil gives the end of the pause that session waits for, or nil when the session does not wait for a pause.
+func (e *Engine) PausedUntil(ctx context.Context, session store.Session) (*time.Time, error) {
+	if !strings.HasPrefix(session.QueueReason.String, pausedPrefix) {
+		return nil, nil
+	}
+	pause, err := e.harnessPause(ctx, config.Harness(session.Harness))
+	if err != nil || pause == nil {
+		return nil, err
+	}
+	return pauseEnd(*pause)
+}
+
+// InboxPausedUntil gives the end of the pause of the usage-limit Inbox item, or nil for another item, a dismissed
+// item, and an item whose pause ended.
+func (e *Engine) InboxPausedUntil(ctx context.Context, item store.InboxItem) (*time.Time, error) {
+	if item.Kind != usageLimitKind || item.DismissedAt.Valid {
+		return nil, nil
+	}
+	pauses, err := e.queries.ListHarnessPauses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, pause := range pauses {
+		if pause.InboxItem == item.ID {
+			return pauseEnd(pause)
+		}
+	}
+	return nil, nil
+}
+
+func pauseEnd(pause store.HarnessPause) (*time.Time, error) {
+	until, err := time.Parse(time.RFC3339Nano, pause.PausedUntil)
+	if err != nil {
+		return nil, err
+	}
+	return &until, nil
+}
+
 // waitForPause holds until the Harness of a has no pause. The session shows the pause in its queue reason while it
 // waits. While the drain is on, the drain does not count the session. After the end of the pause, the session counts
 // again before it goes on. After seal, it does not go on: it waits until abortDrain or the restart ends it.
