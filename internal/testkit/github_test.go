@@ -617,3 +617,22 @@ func TestAReactionGoesToAConversationCommentOrAReviewCommentOnceForEachContent(t
 		t.Errorf("reactions = %+v", got)
 	}
 }
+
+func TestAFailedReactionContentGivesAServerErrorAndAddsNothing(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+	comment := github.AddComment("owner/shop", 12, "owner", "Start with the model.")
+	token := installationToken(t, github)
+	url := fmt.Sprintf("%s/repos/owner/shop/issues/comments/%d/reactions", github.URL, comment)
+	github.FailReactions("rocket", true)
+
+	failed := send(t, http.MethodPost, url, token, `{"content": "rocket"}`, nil)
+	other := send(t, http.MethodPost, url, token, `{"content": "eyes"}`, nil)
+
+	if failed.StatusCode != http.StatusInternalServerError || other.StatusCode != http.StatusCreated {
+		t.Errorf("statuses = %d, %d", failed.StatusCode, other.StatusCode)
+	}
+	if got := github.Reactions("owner/shop", comment); !reflect.DeepEqual(got, []Reaction{{"mobius-test[bot]", "eyes"}}) {
+		t.Errorf("reactions = %+v", got)
+	}
+}

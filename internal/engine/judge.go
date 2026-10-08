@@ -389,6 +389,11 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 	if err := a.open(ctx); err != nil {
 		return err
 	}
+	for _, item := range j.items {
+		if !item.bot {
+			launched(ctx, repository, item.thread != "", item.comment)
+		}
+	}
 	return a.Prompt(ctx, prompt, nil)
 }
 

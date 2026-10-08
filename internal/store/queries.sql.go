@@ -291,8 +291,8 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 }
 
 const addLeadEvent = `-- name: AddLeadEvent :exec
-INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message, comment, review)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type AddLeadEventParams struct {
@@ -303,6 +303,8 @@ type AddLeadEventParams struct {
 	Payload     string
 	Time        string
 	ChatMessage sql.NullInt64
+	Comment     sql.NullInt64
+	Review      sql.NullBool
 }
 
 func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) error {
@@ -314,6 +316,8 @@ func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) erro
 		arg.Payload,
 		arg.Time,
 		arg.ChatMessage,
+		arg.Comment,
+		arg.Review,
 	)
 	return err
 }
@@ -843,7 +847,7 @@ func (q *Queries) FindDeviceLogin(ctx context.Context, tokenHash []byte) (int64,
 
 const freeLeadEvents = `-- name: FreeLeadEvents :many
 UPDATE lead_events SET held = 0 WHERE repository = ? AND workstream = ? AND held = 1
-RETURNING id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held
+RETURNING id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review
 `
 
 type FreeLeadEventsParams struct {
@@ -871,6 +875,8 @@ func (q *Queries) FreeLeadEvents(ctx context.Context, arg FreeLeadEventsParams) 
 			&i.ChatMessage,
 			&i.Issue,
 			&i.Held,
+			&i.Comment,
+			&i.Review,
 		); err != nil {
 			return nil, err
 		}
@@ -2186,7 +2192,7 @@ func (q *Queries) ListQueuedTasks(ctx context.Context) ([]ListQueuedTasksRow, er
 }
 
 const listReadyLeadEvents = `-- name: ListReadyLeadEvents :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held FROM lead_events AS event
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events AS event
 WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NULL AND event.held = 0
   AND NOT EXISTS (
       SELECT 1 FROM lead_events AS earlier
@@ -2222,6 +2228,8 @@ func (q *Queries) ListReadyLeadEvents(ctx context.Context, arg ListReadyLeadEven
 			&i.ChatMessage,
 			&i.Issue,
 			&i.Held,
+			&i.Comment,
+			&i.Review,
 		); err != nil {
 			return nil, err
 		}
@@ -2350,7 +2358,7 @@ func (q *Queries) ListTranscript(ctx context.Context, session int64) ([]Transcri
 }
 
 const listUndeliveredLeadEvents = `-- name: ListUndeliveredLeadEvents :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id
 `
 
 type ListUndeliveredLeadEventsParams struct {
@@ -2378,6 +2386,8 @@ func (q *Queries) ListUndeliveredLeadEvents(ctx context.Context, arg ListUndeliv
 			&i.ChatMessage,
 			&i.Issue,
 			&i.Held,
+			&i.Comment,
+			&i.Review,
 		); err != nil {
 			return nil, err
 		}

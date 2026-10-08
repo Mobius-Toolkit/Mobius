@@ -2,7 +2,10 @@ package engine
 
 import (
 	"context"
+	"log"
 	"slices"
+	"strings"
+	"time"
 
 	gh "github.com/google/go-github/v92/github"
 
@@ -14,6 +17,7 @@ import (
 const (
 	gotReaction      = "eyes"
 	declinedReaction = "confused"
+	launchedReaction = "rocket"
 )
 
 // The replies to a comment that Mobius does not act on. Each reply gives the reason and the correct action.
@@ -121,4 +125,42 @@ func acknowledgeReviewComments(ctx context.Context, repository github.Repository
 		}
 	}
 	return nil
+}
+
+// launched adds the reaction of an agent that starts its work on the comment id. A failed call does not stop the agent.
+// GitHub keeps one reaction of a kind for each user, so a second call changes nothing.
+func launched(ctx context.Context, repository github.Repository, review bool, id int64) {
+	react := repository.ReactToComment
+	if review {
+		react = repository.ReactToReviewComment
+	}
+	if err := react(ctx, id, launchedReaction); err != nil {
+		log.Printf("react to comment %d of %s: %v", id, repository.FullName, err)
+	}
+}
+
+// launchEventComment adds the reaction of a Lead turn that starts on the event to the comment of the event.
+func (e *Engine) launchEventComment(ctx context.Context, event *store.LeadEvent) {
+	repository, err := e.repository(event.Repository)
+	if err != nil {
+		log.Printf("react to comment %d of %s: %v", event.Comment.Int64, event.Repository, err)
+		return
+	}
+	launched(ctx, repository, event.Review.Bool, event.Comment.Int64)
+}
+
+// launchTriagerComments adds the reaction of a Triager run that starts to each comment of an event that is newer than the
+// last comment of the Mobius App. The Triager read the older comments in an earlier run.
+func (e *Engine) launchTriagerComments(ctx context.Context, repository github.Repository, comments []*gh.IssueComment) {
+	var readAt time.Time
+	for _, comment := range comments {
+		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) {
+			readAt = laterOf(readAt, comment.GetCreatedAt().Time)
+		}
+	}
+	for _, comment := range comments {
+		if e.commentIsEvent(repository.AppSlug, comment) && comment.GetCreatedAt().After(readAt) {
+			launched(ctx, repository, false, comment.GetID())
+		}
+	}
 }

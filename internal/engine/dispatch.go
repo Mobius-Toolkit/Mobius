@@ -257,14 +257,17 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 	if workstream == 0 {
 		return e.declineComments(ctx, repository, number, events, noWorkstreamReply)
 	}
+	if err := acknowledge(ctx, repository, events); err != nil {
+		return err
+	}
 	eventIssue := sql.NullInt64{Int64: number, Valid: workstream != number}
 	for _, comment := range events {
 		text := eventText(comment.GetCreatedAt().Time, "comment on", issue, comment.GetUser().GetLogin(), comment.GetBody())
-		if err := e.addLeadEvent(ctx, repository.FullName, workstream, eventIssue, "comment", text); err != nil {
+		if err := e.addCommentLeadEvent(ctx, repository.FullName, workstream, eventIssue, "comment", text, commentRef{id: comment.GetID()}); err != nil {
 			return err
 		}
 	}
-	return acknowledge(ctx, repository, events)
+	return nil
 }
 
 // commentWorkstream gives the number of the open Workstream of the issue, or 0 when the issue is in no open Workstream.
@@ -351,13 +354,13 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 	}); err != nil {
 		return err
 	}
-	for _, comment := range open {
-		if err := e.addCommentEvent(ctx, task, pullRequest, comment.GetCreatedAt().Time, "review comment on", comment.GetUser().GetLogin(), comment.GetBody()); err != nil {
-			return err
-		}
-	}
 	if err := acknowledgeReviewComments(ctx, repository, open); err != nil {
 		return err
+	}
+	for _, comment := range open {
+		if err := e.addCommentEvent(ctx, task, pullRequest, commentRef{comment.GetID(), true}, comment.GetCreatedAt().Time, "review comment on", comment.GetUser().GetLogin(), comment.GetBody()); err != nil {
+			return err
+		}
 	}
 	return e.commentEventsOf(ctx, repository, task, pullRequest, replies)
 }
@@ -405,18 +408,21 @@ func (e *Engine) newComments(ctx context.Context, repository github.Repository, 
 // the reaction of an agent that gets the comment. The event gives the state of the task, so the Lead can tell the Owner
 // the next step.
 func (e *Engine) commentEventsOf(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, comments []*gh.IssueComment) error {
+	if err := acknowledge(ctx, repository, comments); err != nil {
+		return err
+	}
 	for _, comment := range comments {
-		if err := e.addCommentEvent(ctx, task, issue, comment.GetCreatedAt().Time, "comment on", comment.GetUser().GetLogin(), comment.GetBody()); err != nil {
+		if err := e.addCommentEvent(ctx, task, issue, commentRef{id: comment.GetID()}, comment.GetCreatedAt().Time, "comment on", comment.GetUser().GetLogin(), comment.GetBody()); err != nil {
 			return err
 		}
 	}
-	return acknowledge(ctx, repository, comments)
+	return nil
 }
 
 // addCommentEvent adds a comment event for the Lead of the Workstream of the task. what tells the kind of comment.
-func (e *Engine) addCommentEvent(ctx context.Context, task store.Task, issue *gh.Issue, at time.Time, what, author, body string) error {
+func (e *Engine) addCommentEvent(ctx context.Context, task store.Task, issue *gh.Issue, comment commentRef, at time.Time, what, author, body string) error {
 	text := eventText(at, what, issue, author, body) + fmt.Sprintf("\n\nThe state of the task of #%d is %s.", task.Issue, task.State)
-	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "comment", text)
+	return e.addCommentLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "comment", text, comment)
 }
 
 // trustedUser tells if login is a trusted user.

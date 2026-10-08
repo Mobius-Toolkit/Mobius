@@ -204,8 +204,8 @@ WHERE m.organization = sqlc.arg(organization) AND m.repository = sqlc.arg(reposi
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0);
 
 -- name: AddLeadEvent :exec
-INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message, comment, review)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: DeliverLeadEvents :exec
 UPDATE lead_events SET delivered_at = ? WHERE repository = ? AND workstream = ? AND delivered_at IS NULL;

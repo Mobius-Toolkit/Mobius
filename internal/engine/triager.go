@@ -49,10 +49,10 @@ func (e *Engine) triage(ctx context.Context, repository github.Repository, numbe
 // retriage starts the Triager of the open issue with mobius:no-workstream again after the comments of events, and adds
 // the reaction of an agent that gets them. The Triager reads the comments of the issue.
 func (e *Engine) retriage(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueComment) error {
-	if err := e.restartTriager(ctx, repository, int64(issue.GetNumber())); err != nil {
+	if err := acknowledge(ctx, repository, events); err != nil {
 		return err
 	}
-	return acknowledge(ctx, repository, events)
+	return e.restartTriager(ctx, repository, int64(issue.GetNumber()))
 }
 
 // restartTriager starts the Triager of the issue number again. A running Triager stops first, so the new run reads the
@@ -154,6 +154,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err != nil {
 		return a.Fail(ended, err)
 	}
+	e.launchTriagerComments(ctx, repository, comments)
 	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n#%d %s\n\n%s", triagerPrompt, workstreams, number, issue.GetTitle(), issue.GetBody())
 	comments = slices.DeleteFunc(comments, func(comment *gh.IssueComment) bool {
 		return !e.TrustedAuthor(repository.AppSlug, comment.GetUser().GetLogin())
