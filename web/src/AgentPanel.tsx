@@ -260,10 +260,10 @@ function Tasks({
       .catch((err: unknown) => setError(String(err)));
   }, [owner, name, number, showLogin]);
 
-  useEffect(load, [load]);
-
-  // The workstreams event also tells of a change of the tasks.
+  // The workstreams event also tells of a change of the tasks. An event that comes before the listener or while the
+  // connection is down is lost, so each connection reads the tasks.
   useEffect(() => {
+    load();
     if (!source) {
       return;
     }
