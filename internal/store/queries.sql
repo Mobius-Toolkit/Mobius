@@ -249,7 +249,7 @@ SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?);
 SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
 
 -- name: ResetTaskCounters :exec
-UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0 WHERE id = ?;
+UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;
 
 -- name: EndTask :exec
 UPDATE tasks SET state = 'ended' WHERE id = ?;

@@ -2534,7 +2534,7 @@ func (q *Queries) RequeueTask(ctx context.Context, id int64) (int64, error) {
 }
 
 const resetTaskCounters = `-- name: ResetTaskCounters :exec
-UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0 WHERE id = ?
+UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?
 `
 
 func (q *Queries) ResetTaskCounters(ctx context.Context, id int64) error {
