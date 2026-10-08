@@ -55,6 +55,38 @@ const state = {
   lastFinal: "",
 };
 
+// The lock that keeps the screen on while the voice input listens.
+let screenLock: WakeLockSentinel | undefined;
+
+// WebKit grants the lock only after a recent tap while the permission state is prompt.
+// Thus the tap on the voice button requests the lock.
+const holdScreen = () => {
+  navigator.wakeLock?.request("screen").then(
+    (lock) => {
+      if (!state.wanted) {
+        void lock.release();
+        return;
+      }
+      void screenLock?.release();
+      screenLock = lock;
+    },
+    () => {},
+  );
+};
+
+const stopWanting = () => {
+  state.wanted = false;
+  void screenLock?.release();
+  screenLock = undefined;
+};
+
+// The browser releases the lock when the page is hidden.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.wanted) {
+    holdScreen();
+  }
+});
+
 const begin = (live: Recognition) => {
   live.lang = navigator.language;
   state.owner = state.mounted;
@@ -64,7 +96,7 @@ const begin = (live: Recognition) => {
   try {
     live.start();
   } catch {
-    state.wanted = false;
+    stopWanting();
     state.owner?.setListening(false);
     state.owner?.setError("The voice input did not start.");
     return;
@@ -101,7 +133,7 @@ const create = (Ctor: new () => Recognition) => {
     if (!state.owner || !state.wanted || event.error === "aborted") {
       return;
     }
-    state.wanted = false;
+    stopWanting();
     state.owner.setListening(false);
     state.owner.setError(errorMessages[event.error] ?? `The voice input failed: ${event.error}`);
   });
@@ -111,14 +143,14 @@ const create = (Ctor: new () => Recognition) => {
       begin(live);
       return;
     }
-    state.wanted = false;
+    stopWanting();
     state.owner?.setListening(false);
   });
   return live;
 };
 
 const abortRun = () => {
-  state.wanted = false;
+  stopWanting();
   state.recognition?.abort();
 };
 
@@ -155,7 +187,7 @@ export function useVoice(onText: (text: string) => void) {
 
   const toggle = () => {
     if (state.wanted) {
-      state.wanted = false;
+      stopWanting();
       setListening(false);
       state.recognition?.stop();
       return;
@@ -165,6 +197,7 @@ export function useVoice(onText: (text: string) => void) {
     }
     state.recognition ??= create(Speech);
     state.wanted = true;
+    holdScreen();
     setError("");
     setListening(true);
     if (state.running) {

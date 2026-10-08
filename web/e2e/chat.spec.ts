@@ -1295,6 +1295,129 @@ test("a successful send removes the voice error", async ({ page }) => {
   await expect(main.getByRole("alert")).toHaveCount(0);
 });
 
+// The fake wake lock keeps each lock in locks. A lock has released true after its release().
+const fakeWakeLock = `window.locks = []
+  Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: {
+    request: async (type) => {
+      if (window.wakeLockError) throw new Error(window.wakeLockError)
+      const lock = { type, released: false, release: async () => { lock.released = true } }
+      window.locks.push(lock)
+      return lock
+    },
+  } })`;
+
+const heldLocks = (page: Page) =>
+  page.evaluate("locks.filter((lock) => !lock.released).map((lock) => lock.type)");
+
+const wakeLockTest = (name: string, run: (page: Page) => Promise<void>) =>
+  test(name, async ({ page }) => {
+    await page.addInitScript(fakeRecognition);
+    await page.addInitScript(fakeWakeLock);
+    await page.goto(shop);
+    await run(page);
+  });
+
+wakeLockTest("a voice input start requests the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+});
+
+wakeLockTest("the voice button stop releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("Send releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses");
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await main.getByRole("button", { name: "Send" }).click();
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("a voice error releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'network' }))",
+  );
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("an end without a restart releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await emit(page, "end");
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("a restart after an end keeps the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await emit(page, "audiostart");
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "start"]);
+  expect(await heldLocks(page)).toEqual(["screen"]);
+  expect(await page.evaluate("locks.length")).toBe(1);
+});
+
+wakeLockTest("a switch during a voice input releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await open(page, plants);
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("a page that becomes visible again requests the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await page.evaluate(
+    "locks[0].released = true; document.dispatchEvent(new Event('visibilitychange'))",
+  );
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  expect(await page.evaluate("locks.length")).toBe(2);
+});
+
+wakeLockTest("a page that becomes visible while not listening requests no lock", async (page) => {
+  await page.evaluate("document.dispatchEvent(new Event('visibilitychange'))");
+  await page.getByRole("main").getByLabel("Message to the Lead").click();
+  expect(await page.evaluate("locks.length")).toBe(0);
+});
+
+wakeLockTest("a refused wake lock request shows no error", async (page) => {
+  await page.evaluate("window.wakeLockError = 'NotAllowedError'");
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses");
+  await expect(main.getByLabel("Message to the Lead")).toHaveValue("red roses");
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await expect(main.getByRole("alert")).toHaveCount(0);
+});
+
+test("the voice input works without navigator.wakeLock", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.addInitScript("delete Navigator.prototype.wakeLock");
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  expect(await page.evaluate("navigator.wakeLock")).toBeUndefined();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses");
+  await expect(main.getByLabel("Message to the Lead")).toHaveValue("red roses");
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+});
+
 test("the note closes the Workstream when all tasks are closed", async ({ page }) => {
   const main = page.getByRole("main");
   const note = main.getByText("All tasks are closed.");
