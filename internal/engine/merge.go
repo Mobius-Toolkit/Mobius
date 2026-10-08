@@ -13,28 +13,32 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
-// keepApproval keeps the id of the newest APPROVED or DISMISSED review of a trusted user of the pull request of the
-// task, when this review is APPROVED. A review in another state does not change the kept id. It gives the task with the
-// new approval.
+// keepApproval keeps the id of the newest APPROVED review of a trusted user that comes after the kept approval in the
+// list of reviews. A dismissal of the kept approval cancels it: the task keeps the id and the approval counts as
+// refused, so a dismissal never brings back an older approval. A dismissal of another review does not change the kept
+// approval. It gives the task with the new approval.
 func (e *Engine) keepApproval(ctx context.Context, repository github.Repository, task store.Task) (store.Task, error) {
 	reviews := e.pull(repository, task.PullRequest.Int64).Reviews
-	approved := ""
-	for _, review := range slices.Backward(reviews) {
-		if (review.State == "APPROVED" || review.State == "DISMISSED") && e.trustedUser(review.Author) {
-			if review.State == "APPROVED" {
-				approved = review.ID
-			}
+	kept := slices.IndexFunc(reviews, func(review github.Review) bool { return review.ID == task.ApprovedReview.String })
+	approved := task.ApprovedReview
+	for _, review := range slices.Backward(reviews[kept+1:]) {
+		if review.State == "APPROVED" && e.trustedUser(review.Author) {
+			approved = sql.NullString{String: review.ID, Valid: true}
 			break
 		}
 	}
-	if approved == task.ApprovedReview.String {
-		return task, nil
+	if approved != task.ApprovedReview {
+		task.ApprovedReview = approved
+		return task, e.queries.SetTaskApprovedReview(ctx, store.SetTaskApprovedReviewParams{ApprovedReview: approved, ID: task.ID})
 	}
-	task.ApprovedReview = sql.NullString{String: approved, Valid: approved != ""}
-	return task, e.queries.SetTaskApprovedReview(ctx, store.SetTaskApprovedReviewParams{ApprovedReview: task.ApprovedReview, ID: task.ID})
+	if kept >= 0 && reviews[kept].State == "DISMISSED" && task.RefusedReview != approved {
+		task.RefusedReview = approved
+		return task, e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: approved, ID: task.ID})
+	}
+	return task, nil
 }
 
-// awaitsMerge tells if the task has an approval that GitHub did not refuse.
+// awaitsMerge tells if the task has an approval that GitHub did not refuse and that nobody dismissed.
 func awaitsMerge(task store.Task) bool {
 	return task.ApprovedReview.Valid && task.ApprovedReview != task.RefusedReview
 }

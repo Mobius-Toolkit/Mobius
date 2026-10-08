@@ -25,6 +25,16 @@ func approvedReview(t *testing.T, server *testserver.Server) string {
 	return id
 }
 
+// dismissedApproval tells if the kept approval of the task of #41 is dismissed or refused.
+func dismissedApproval(t *testing.T, server *testserver.Server) bool {
+	t.Helper()
+	var dismissed bool
+	if err := server.DB.QueryRow("SELECT coalesce(max(approved_review = refused_review), 0) FROM tasks WHERE issue = 41").Scan(&dismissed); err != nil {
+		t.Fatal(err)
+	}
+	return dismissed
+}
+
 func TestAnApprovalOfATrustedUserSquashMergesThePullRequestAndEndsTheTask(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "approval")
@@ -200,7 +210,7 @@ func TestADismissedApprovalDoesNotMerge(t *testing.T) {
 
 	fake.DismissReview(shop, 42, review)
 
-	testkit.WaitFor(t, func() bool { return approvedReview(t, server) == "" })
+	testkit.WaitFor(t, func() bool { return dismissedApproval(t, server) })
 	passMobius(fake, sha)
 	waitForPolls(t, fake)
 
@@ -223,7 +233,7 @@ func TestADismissalOfTheNewerApprovalDoesNotBringBackTheOlderApproval(t *testing
 
 	fake.DismissReview(shop, 42, newer)
 
-	testkit.WaitFor(t, func() bool { return approvedReview(t, server) == "" })
+	testkit.WaitFor(t, func() bool { return dismissedApproval(t, server) })
 	passMobius(fake, sha)
 	waitForPolls(t, fake)
 
@@ -235,9 +245,32 @@ func TestADismissalOfTheNewerApprovalDoesNotBringBackTheOlderApproval(t *testing
 	}
 }
 
-func TestADismissalOfARefusedApprovalDoesNotTryTheMergeAgain(t *testing.T) {
+func TestADismissalOfARequestForChangesKeepsTheApprovalAndMerges(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "approval")
+	fake.AddReview(shop, 42, "owner", "APPROVED", "")
+	testkit.WaitFor(t, func() bool { return approvedReview(t, server) != "" })
+	approved := approvedReview(t, server)
+	request := fake.AddReview(shop, 42, "owner", "CHANGES_REQUESTED", "")
+	waitForPolls(t, fake)
+	fake.DismissReview(shop, 42, request)
+	waitForPolls(t, fake)
+
+	if id := approvedReview(t, server); id != approved || dismissedApproval(t, server) {
+		t.Errorf("approval = %s, dismissed = %t", id, dismissedApproval(t, server))
+	}
+
+	passMobius(fake, sha)
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if calls := fake.MergeCalls(); calls != 1 {
+		t.Errorf("merge calls = %d", calls)
+	}
+}
+
+func TestADismissalOfARefusedApprovalDoesNotTryTheMergeAgain(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	_, sha := seedWaiting(t, fake, "approval")
 	passMobius(fake, sha)
 	fake.RefuseMerge(shop, 42, "Required status check is expected.")
 	fake.AddReview(shop, 42, "owner", "APPROVED", "")
@@ -246,7 +279,6 @@ func TestADismissalOfARefusedApprovalDoesNotTryTheMergeAgain(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return fake.MergeCalls() == 2 })
 
 	fake.DismissReview(shop, 42, newer)
-	testkit.WaitFor(t, func() bool { return approvedReview(t, server) == "" })
 	waitForPolls(t, fake)
 
 	if calls := fake.MergeCalls(); calls != 2 {
