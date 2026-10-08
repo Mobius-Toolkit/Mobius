@@ -158,6 +158,13 @@ func (e *Engine) startWorker(key any, work func(context.Context)) bool {
 	return true
 }
 
+// ended tells that Run ended.
+func (e *Engine) ended() bool {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	return e.closed
+}
+
 // stop ends the context of the Workers of key.
 func (e *Engine) stop(key any) {
 	e.stopsMu.Lock()

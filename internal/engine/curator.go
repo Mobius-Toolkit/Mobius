@@ -65,6 +65,10 @@ func (e *Engine) startCuratorLocked(ctx context.Context, repository string) erro
 // runCurator adds a Curator session for repository and runs it in the background. At its end, the Curator that
 // waits starts. The caller holds curatorsMu and has set e.curators[repository].
 func (e *Engine) runCurator(ctx context.Context, repository string) error {
+	if e.ended() {
+		delete(e.curators, repository)
+		return refuse("Mobius stops, so no Curator starts now.")
+	}
 	organization, _, _ := strings.Cut(repository, "/")
 	a, err := e.newAgent(ctx, Spec{Role: CuratorRole, Organization: organization, Repository: repository})
 	if err != nil {
