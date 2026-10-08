@@ -797,7 +797,7 @@
     },
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each new or changed Transcript row, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, and each Workstream that the Triager chat created. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
+        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each new or changed Transcript row, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, and each Workstream that the Triager chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
         "operationId": "StreamEvents",
         "parameters": [
           {
@@ -3998,6 +3998,29 @@
               "event",
               "data"
             ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "type": "object"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "ping"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
           }
         ],
         "description": "LiveEvents are the events of the live event stream. Only an activity has an event id."
@@ -4526,6 +4549,10 @@
             "type": "integer",
             "description": "Number is the number of the Workstream issue"
           },
+          "readyToMerge": {
+            "type": "boolean",
+            "description": "ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository of the Workstream issue, as \"owner/name\""
@@ -4541,7 +4568,8 @@
           "title",
           "brief",
           "autopilot",
-          "allTasksClosed"
+          "allTasksClosed",
+          "readyToMerge"
         ],
         "description": "Workstream is an open Workstream of a managed repository."
       },

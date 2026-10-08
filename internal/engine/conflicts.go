@@ -29,7 +29,7 @@ func (e *Engine) onConflict(ctx context.Context, repository github.Repository, t
 
 // stale hands the task of the stale pull request to a human, with an Inbox item and an event for the Lead.
 func (e *Engine) stale(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "needs_human", ID: task.ID, FromState: task.State})
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "needs_human", ID: task.ID, FromState: task.State})
 	if err != nil || moved == 0 {
 		return err
 	}

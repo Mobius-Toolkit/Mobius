@@ -180,6 +180,7 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 	if err != nil || stopped == 0 {
 		return err
 	}
+	e.publish(Change{Workstreams: true})
 	if err := e.stopWorkersOf(ctx, task); err != nil {
 		return err
 	}
@@ -222,6 +223,7 @@ func (e *Engine) lostAccess(ctx context.Context, repositories []github.Repositor
 			if err := e.queries.EndTask(ctx, task.ID); err != nil {
 				return err
 			}
+			e.publish(Change{Workstreams: true})
 			if err := e.stopWorkersOf(ctx, task); err != nil {
 				return err
 			}
@@ -236,6 +238,7 @@ func (e *Engine) endTask(ctx context.Context, repository github.Repository, task
 	if err := e.queries.EndTask(ctx, task.ID); err != nil {
 		return err
 	}
+	e.publish(Change{Workstreams: true})
 	if err := e.stopWorkersOf(ctx, task); err != nil {
 		return err
 	}

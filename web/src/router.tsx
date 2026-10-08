@@ -11,22 +11,23 @@ import {
   CheckupToolsPage,
   GitHubPage,
   InboxPage,
+  InboxLayoutPage,
   MemoryPage,
   MemoryRepositoriesPage,
-  NewWorkstreamPage,
+  TriagerChatPage,
   WorkstreamsPage,
 } from "./pages";
 import { Settings } from "./Settings";
 
 const rootRoute = createRootRoute({ component: App });
 
-const toWorkstreams = () => redirect({ to: "/workstreams", replace: true });
+const toChat = () => redirect({ to: "/chat", replace: true });
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   beforeLoad: () => {
-    throw toWorkstreams();
+    throw toChat();
   },
 });
 
@@ -34,7 +35,7 @@ const unknownRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
   beforeLoad: () => {
-    throw toWorkstreams();
+    throw toChat();
   },
 });
 
@@ -44,10 +45,10 @@ const workstreamsRoute = createRoute({
   component: WorkstreamsPage,
 });
 
-const newWorkstreamRoute = createRoute({
+const triagerChatRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/workstreams/new",
-  component: NewWorkstreamPage,
+  path: "/chat",
+  component: TriagerChatPage,
 });
 
 const chatRoute = createRoute({
@@ -55,7 +56,7 @@ const chatRoute = createRoute({
   path: "/workstreams/$owner/$name/$number",
   beforeLoad: ({ params }) => {
     if (!/^\d+$/.test(params.number)) {
-      throw toWorkstreams();
+      throw toChat();
     }
   },
   component: ChatPage,
@@ -64,11 +65,17 @@ const chatRoute = createRoute({
 const inboxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/inbox",
+  component: InboxLayoutPage,
+});
+
+const inboxTodoRoute = createRoute({
+  getParentRoute: () => inboxRoute,
+  path: "/",
   component: InboxPage,
 });
 
-const activityRoute = createRoute({
-  getParentRoute: () => rootRoute,
+const inboxActivityRoute = createRoute({
+  getParentRoute: () => inboxRoute,
   path: "/activity",
   component: ActivityPage,
 });
@@ -136,11 +143,10 @@ const githubRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   unknownRoute,
+  triagerChatRoute,
   workstreamsRoute,
-  newWorkstreamRoute,
   chatRoute,
-  inboxRoute,
-  activityRoute,
+  inboxRoute.addChildren([inboxTodoRoute, inboxActivityRoute]),
   agentsRoute,
   settingsRoute,
   checkupRoute,
@@ -153,7 +159,7 @@ const routeTree = rootRoute.addChildren([
   githubRoute,
 ]);
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({ routeTree, scrollToTopSelectors: ["#content"] });
 
 declare module "@tanstack/react-router" {
   interface Register {

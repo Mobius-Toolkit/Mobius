@@ -1185,6 +1185,21 @@ func (q *Queries) HoldLeadEvent(ctx context.Context, id int64) error {
 	return err
 }
 
+const holdTriager = `-- name: HoldTriager :exec
+INSERT INTO held_triagers (repository, issue) VALUES (?, ?)
+ON CONFLICT (repository, issue) DO NOTHING
+`
+
+type HoldTriagerParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) HoldTriager(ctx context.Context, arg HoldTriagerParams) error {
+	_, err := q.db.ExecContext(ctx, holdTriager, arg.Repository, arg.Issue)
+	return err
+}
+
 const listChatMessages = `-- name: ListChatMessages :many
 SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Researcher'
@@ -1571,7 +1586,9 @@ SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS 
                WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number)
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
                        WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number
-                         AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed
+                         AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
+       CAST(EXISTS (SELECT 1 FROM tasks t
+               WHERE t.repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
 FROM copied_workstreams w
 ORDER BY w.repository, w.number DESC
 `
@@ -1583,6 +1600,7 @@ type ListCopiedWorkstreamsRow struct {
 	Body           string
 	Autopilot      bool
 	AllTasksClosed bool
+	ReadyToMerge   bool
 }
 
 func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkstreamsRow, error) {
@@ -1601,6 +1619,7 @@ func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkst
 			&i.Body,
 			&i.Autopilot,
 			&i.AllTasksClosed,
+			&i.ReadyToMerge,
 		); err != nil {
 			return nil, err
 		}
@@ -1847,6 +1866,33 @@ func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error)
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listHeldTriagers = `-- name: ListHeldTriagers :many
+SELECT issue FROM held_triagers WHERE repository = ? ORDER BY issue
+`
+
+func (q *Queries) ListHeldTriagers(ctx context.Context, repository string) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listHeldTriagers, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var issue int64
+		if err := rows.Scan(&issue); err != nil {
+			return nil, err
+		}
+		items = append(items, issue)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -2496,6 +2542,20 @@ func (q *Queries) QueueTask(ctx context.Context, arg QueueTaskParams) (int64, er
 	return result.RowsAffected()
 }
 
+const releaseTriager = `-- name: ReleaseTriager :exec
+DELETE FROM held_triagers WHERE repository = ? AND issue = ?
+`
+
+type ReleaseTriagerParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) ReleaseTriager(ctx context.Context, arg ReleaseTriagerParams) error {
+	_, err := q.db.ExecContext(ctx, releaseTriager, arg.Repository, arg.Issue)
+	return err
+}
+
 const reopenInboxItem = `-- name: ReopenInboxItem :one
 UPDATE inbox_items SET text = ?, time = ?, dismissed_at = NULL
 WHERE id = ? AND (dismissed_at IS NULL OR julianday(dismissed_at) > julianday(CAST(?4 AS TEXT)))
@@ -2546,7 +2606,7 @@ func (q *Queries) RequeueTask(ctx context.Context, id int64) (int64, error) {
 }
 
 const resetTaskCounters = `-- name: ResetTaskCounters :exec
-UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0 WHERE id = ?
+UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?
 `
 
 func (q *Queries) ResetTaskCounters(ctx context.Context, id int64) error {

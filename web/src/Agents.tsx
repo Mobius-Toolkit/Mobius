@@ -1,5 +1,5 @@
-import { ChevronLeftIcon } from "lucide-react";
-import { use, useCallback, useEffect, useState } from "react";
+import { ArrowDownIcon, ChevronLeftIcon } from "lucide-react";
+import { use, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   getTranscript,
   listActiveAgents,
@@ -15,9 +15,10 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { queueState } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
-import { dayClock } from "@/lib/time";
+import { atEnd } from "@/lib/scroll";
+import { clock, dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { BackButton } from "./BackButton";
+import { TopBar } from "./TopBar";
 
 function numbered(number: number, title?: string | null) {
   return title ? `#${number} ${title}` : `#${number}`;
@@ -75,41 +76,39 @@ function TranscriptEntry({ line }: { line: TranscriptLine }) {
   return (
     <li
       className={cn(
-        "grid grid-cols-[auto_auto_minmax(0,1fr)] gap-x-3 py-2",
+        "grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 rounded-xl border px-3 py-2",
+        line.kind === "prompt"
+          ? "justify-self-end border-transparent bg-secondary"
+          : "justify-self-start bg-card",
         line.error && "text-destructive",
       )}
     >
-      <span className="text-muted-foreground tabular-nums">
-        {new Date(line.time).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}
-      </span>
-      <span className="font-mono text-xs leading-5">{line.kind}</span>
-      <div className="grid gap-1">
-        <span className="break-words">
-          {line.text}
-          {line.harnessToolName && (
-            <span className="text-sm text-muted-foreground"> {line.harnessToolName}</span>
-          )}
-        </span>
-        <span className="flex gap-1">
-          {line.folded && line.body && (
-            <Button variant="ghost" size="xs" onClick={() => setOpen(!open)}>
-              {open ? "Hide" : "Show"}
-            </Button>
-          )}
-          <Button variant="ghost" size="xs" onClick={() => setRaw(!raw)}>
-            Raw
-          </Button>
-        </span>
-        {open && line.body && (
-          <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs whitespace-pre-wrap">
-            {line.body}
-          </pre>
-        )}
-        {raw && <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">{line.raw}</pre>}
+      <div className="flex gap-2 text-xs text-muted-foreground">
+        <span className="font-mono">{line.kind}</span>
+        <span>{clock(line.time)}</span>
       </div>
+      <span className="break-words">
+        {line.text}
+        {line.harnessToolName && (
+          <span className="text-sm text-muted-foreground"> {line.harnessToolName}</span>
+        )}
+      </span>
+      <span className="flex gap-1">
+        {line.folded && line.body && (
+          <Button variant="ghost" size="xs" onClick={() => setOpen(!open)}>
+            {open ? "Hide" : "Show"}
+          </Button>
+        )}
+        <Button variant="ghost" size="xs" onClick={() => setRaw(!raw)}>
+          Raw
+        </Button>
+      </span>
+      {open && line.body && (
+        <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs whitespace-pre-wrap">
+          {line.body}
+        </pre>
+      )}
+      {raw && <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">{line.raw}</pre>}
     </li>
   );
 }
@@ -127,14 +126,19 @@ export function Transcript({
   agent,
   source,
   onClose,
+  page,
 }: {
   agent: Agent;
   source?: EventSource;
   onClose: () => void;
+  page?: boolean;
 }) {
   const showLogin = use(LoginContext);
   const [lines, setLines] = useState<TranscriptLine[]>();
   const [error, setError] = useState<string>();
+  const [behind, setBehind] = useState(false);
+  const listRef = useRef<HTMLUListElement>(null);
+  const pinned = useRef(true);
 
   const load = useCallback(() => {
     getTranscript(agent.id)
@@ -168,9 +172,22 @@ export function Transcript({
     };
   }, [source, load, agent.id]);
 
+  // New data scrolls the log to the end while the Owner is at the end. Else the log stays, and the button shows.
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list || !lines) {
+      return;
+    }
+    if (pinned.current) {
+      list.scrollTop = list.scrollHeight;
+    } else {
+      setBehind(true);
+    }
+  }, [lines]);
+
   return (
-    <Card>
-      <CardHeader>
+    <Card className="min-h-0 max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-3rem)]">
+      <CardHeader className={page ? "max-md:hidden" : undefined}>
         <CardTitle className="truncate">
           {agent.name} {agent.title}
         </CardTitle>
@@ -181,13 +198,42 @@ export function Transcript({
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="grid gap-4">
+      <CardContent className="flex min-h-0 grow flex-col gap-4">
         {error && <Badge variant="destructive">{error}</Badge>}
-        <ul className="divide-y">
-          {lines?.map((line) => (
-            <TranscriptEntry key={line.id} line={line} />
-          ))}
-        </ul>
+        <div className="relative flex min-h-0 grow flex-col">
+          <ul
+            ref={listRef}
+            onScroll={(event) => {
+              pinned.current = atEnd(event.currentTarget);
+              if (pinned.current) {
+                setBehind(false);
+              }
+            }}
+            className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-2 overflow-y-auto"
+          >
+            {lines?.map((line) => (
+              <TranscriptEntry key={line.id} line={line} />
+            ))}
+          </ul>
+          {behind && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full shadow-md"
+              onClick={() => {
+                const list = listRef.current;
+                if (list) {
+                  list.scrollTop = list.scrollHeight;
+                }
+                pinned.current = true;
+                setBehind(false);
+              }}
+            >
+              <ArrowDownIcon />
+              New messages
+            </Button>
+          )}
+        </div>
         <p className="text-sm text-muted-foreground">
           Read only. The Owner talks only to the Lead.
         </p>
@@ -223,6 +269,7 @@ export function Agents({ source }: { source?: EventSource }) {
     if (!source) {
       return;
     }
+    load();
     source.addEventListener("open", load);
     const remove = onEvent<LiveEvents, "agent">(source, "agent", load);
     return () => {
@@ -231,37 +278,48 @@ export function Agents({ source }: { source?: EventSource }) {
     };
   }, [source, load]);
 
-  if (selected) {
-    return <Transcript agent={selected} source={source} onClose={() => setSelected(undefined)} />;
-  }
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BackButton parent="/settings" />
-          Agents
-        </CardTitle>
-        {agents && (
-          <CardAction className="text-muted-foreground">
+    <>
+      <TopBar
+        title={selected ? `${selected.name} ${selected.title}` : "Agents"}
+        back="/settings"
+        onBack={selected && (() => setSelected(undefined))}
+      >
+        {agents && !selected && (
+          <span className="ml-auto text-muted-foreground">
             {agents.count} / {agents.max}
-          </CardAction>
+          </span>
         )}
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        {error && <Badge variant="destructive">{error}</Badge>}
-        {agents?.groups.map((group) => (
-          <section key={group.name} className="grid gap-1">
-            <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-              {group.name} {group.count} / {group.max}
-            </h3>
-            <ul>
-              {group.agents.map((row) => (
-                <AgentRow key={row.agent.id} row={row} onOpen={setSelected} />
-              ))}
-            </ul>
-          </section>
-        ))}
-      </CardContent>
-    </Card>
+      </TopBar>
+      {selected ? (
+        <Transcript agent={selected} source={source} onClose={() => setSelected(undefined)} page />
+      ) : (
+        <Card>
+          <CardHeader className="max-md:hidden">
+            <CardTitle>Agents</CardTitle>
+            {agents && (
+              <CardAction className="text-muted-foreground">
+                {agents.count} / {agents.max}
+              </CardAction>
+            )}
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            {error && <Badge variant="destructive">{error}</Badge>}
+            {agents?.groups.map((group) => (
+              <section key={group.name} className="grid gap-1">
+                <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  {group.name} {group.count} / {group.max}
+                </h3>
+                <ul>
+                  {group.agents.map((row) => (
+                    <AgentRow key={row.agent.id} row={row} onOpen={setSelected} />
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+    </>
   );
 }

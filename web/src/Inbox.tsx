@@ -2,7 +2,7 @@ import { use, useState } from "react";
 import { dismiss, InboxItemKind, resume, type InboxItem, type Workstream } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { LoginContext } from "@/lib/login";
 import { dayClock } from "@/lib/time";
 
@@ -22,9 +22,6 @@ export function Inbox({
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Inbox</CardTitle>
-      </CardHeader>
       <CardContent className="grid gap-2">
         {error && (
           <Badge variant="destructive" className="h-auto w-full justify-start whitespace-normal">

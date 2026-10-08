@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Activity as ActivityRow, Workstream } from "@/api/api.gen";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { dayClock } from "@/lib/time";
 
 export function Activity({
@@ -25,9 +25,6 @@ export function Activity({
     .toSorted((a, b) => b.id - a.id);
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Activity</CardTitle>
-      </CardHeader>
       <CardContent className="grid gap-4">
         <div className="flex flex-wrap gap-2">
           <Button

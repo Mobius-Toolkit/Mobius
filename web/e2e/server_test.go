@@ -132,14 +132,14 @@ const question = "What is the state of the plans? The full report is at " +
 // the second App, so the tests see the first App with no organization.
 //
 // After the first poll of both repositories, a dispatch of #45 gives an Inbox item, and the Owner writes to the
-// Lead chats of owner/shop#12 and plants/garden#12 and to the Triager chat of owner. Each chat session ends before
+// Lead chats of owner/shop#12 and plants/garden#12 and to the Triager chats of owner and plants. Each chat session ends before
 // the next step. Then an Implementer and a Lead run, a drain waits for them, and the drain holds a second
 // Implementer. The parent of the first Implementer is a Lead session that ended. Release v0.1.4 of Mobius is newer
 // than this server. The Inbox has an item of a usage limit of claude-code, with no Workstream and no issue. The
 // table of the pauses has no row, because a pause stops the fake agents. The tools of the Checkup page have fixed
 // paths and versions, and tar gives no version.
 //
-// The Workstream owner/shop#14 has Autopilot on and no task.
+// The Workstream owner/shop#14 has Autopilot on and one task in ready_for_review.
 //
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
 // unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
@@ -148,7 +148,8 @@ const question = "What is the state of the plans? The full report is at " +
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
 // The Workstream owner/shop#12 has two closed tasks. It also has four Implementer sessions with the queue reasons of a
 // check that runs, a check that waits for a slot, a pause, and a full Role.
-// POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub.
+// POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
+// /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -199,6 +200,7 @@ func TestServer(t *testing.T) {
 	github.SetBody("owner/shop", 45, "Each plan has a limit of seats.")
 	github.SetBody("plants/garden", 18, "Cut the **old** canes in March.")
 	github.SetBody("plants/garden", 19, "Put **bark** on the beds.")
+	github.AddIssue("owner/shop", 40, "Renew a month early")
 	github.AddLabel("owner/shop", 41, "mobius:needs-human", "owner")
 	github.AddLabel("owner/shop", 42, "mobius:needs-human", "owner")
 	github.AddSubIssueOf("owner/shop", 12, 38, "Show the plan prices")
@@ -253,6 +255,12 @@ func TestServer(t *testing.T) {
 	server.Mux.HandleFunc("DELETE /e2e/repositories/{owner}/{name}", func(_ http.ResponseWriter, r *http.Request) {
 		github.RemoveRepository(r.PathValue("owner") + "/" + r.PathValue("name"))
 	})
+	server.Mux.HandleFunc("PUT /e2e/agents/{issue}/queue-reason", func(w http.ResponseWriter, r *http.Request) {
+		_, err := server.DB.Exec("UPDATE sessions SET queue_reason = ? WHERE issue = ? AND ended_at IS NULL", r.URL.Query().Get("reason"), r.PathValue("issue"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -286,7 +294,9 @@ func TestServer(t *testing.T) {
 	chat(ctx, t, server, engine.ChatKey{Organization: "plants", Repository: "plants/garden", Workstream: 12}, "Which roses sell best?", "Lead")
 	triager := engine.ChatKey{Organization: "owner"}
 	chat(ctx, t, server, triager, "Start a Workstream for gift cards.", "Triager")
-	// The plants chat keeps its unread reply for the organization switch.
+	// The Lead chat and the Triager chat of plants keep their unread replies for the organization switch and for the
+	// unread count of the Chat tab.
+	chat(ctx, t, server, engine.ChatKey{Organization: "plants"}, "Start a Workstream for gift cards.", "Triager")
 	for _, key := range []engine.ChatKey{shop, triager} {
 		view, err := server.Engine.ChatView(ctx, key)
 		if err != nil {
@@ -417,6 +427,10 @@ func TestServer(t *testing.T) {
 		}
 		github.AddLabel("owner/shop", number, "mobius:working", testkit.AppSlug+"[bot]")
 	}
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
+		VALUES ('owner/shop', 40, 14, 'ready_for_review', ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
 	for i, text := range []string{
 		"Run make fmt before each commit.\nUse pnpm for the frontend.\n",
 		"Run make fmt before each commit.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\n",
@@ -501,7 +515,7 @@ func fixTools(t *testing.T, dataDir string) {
 	harnesses := filepath.Join(dataDir, "harnesses")
 	for program, output := range map[string]string{
 		"git":    "git version 2.50.1\n",
-		"curl":   "curl 8.14.1 (x86_64-pc-linux-gnu)\n",
+		"curl":   "curl 8.7.1 (x86_64-apple-darwin23.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.61.0\n",
 		"tar":    "",
 		"claude": "2.1.284 (Claude Code)\n",
 	} {

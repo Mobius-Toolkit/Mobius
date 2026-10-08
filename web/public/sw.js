@@ -9,5 +9,8 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  if (new URL(event.request.url).pathname === "/api/events") {
+    return;
+  }
   event.respondWith(fetch(event.request));
 });

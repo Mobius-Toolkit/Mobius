@@ -265,7 +265,7 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 	if task == 0 {
 		return nil
 	}
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task, FromState: "queued"})
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task, FromState: "queued"})
 	if err != nil {
 		return err
 	}

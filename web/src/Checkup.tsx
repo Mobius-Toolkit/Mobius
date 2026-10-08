@@ -15,7 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { LoginContext } from "@/lib/login";
-import { BackButton } from "./BackButton";
+import { cn } from "@/lib/utils";
+import { TopBar } from "./TopBar";
 
 const fixButton = { create: "Create labels", fix: "Fix labels" };
 
@@ -55,10 +56,7 @@ function PermissionStatus({ permission }: { permission: PermissionCheck }) {
   }
 }
 
-function ToolVersion({ tool }: { tool: ToolCheck }) {
-  if (tool.status === "") {
-    return <Badge variant="secondary">{tool.version}</Badge>;
-  }
+function ToolProblem({ tool }: { tool: ToolCheck }) {
   return <Badge variant="destructive">{tool.status.replace("-", " ")}</Badge>;
 }
 
@@ -121,16 +119,16 @@ function CheckupCard({
   children: ReactNode;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BackButton parent="/settings/checkup" />
-          {title}
-        </CardTitle>
-        {action && <CardAction>{action}</CardAction>}
-      </CardHeader>
-      <CardContent className="grid gap-6">{children}</CardContent>
-    </Card>
+    <>
+      <TopBar title={title} back="/settings/checkup" />
+      <Card>
+        <CardHeader className={cn(!action && "max-md:hidden")}>
+          <CardTitle className="max-md:hidden">{title}</CardTitle>
+          {action && <CardAction>{action}</CardAction>}
+        </CardHeader>
+        <CardContent className="grid gap-6">{children}</CardContent>
+      </Card>
+    </>
   );
 }
 
@@ -202,26 +200,26 @@ export function Checkup({ organizations }: { organizations: string[] }) {
   const { tools } = useTools();
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BackButton parent="/settings" />
-          Checkup
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <ItemGroup className="gap-1">
-          <CheckupLink
-            link={{ to: "/settings/checkup/tools" }}
-            title="Tools"
-            needsYou={!!tools?.some((tool) => tool.status !== "")}
-          />
-        </ItemGroup>
-        {organizations.map((organization) => (
-          <CheckupOrganization key={organization} organization={organization} />
-        ))}
-      </CardContent>
-    </Card>
+    <>
+      <TopBar title="Checkup" back="/settings" />
+      <Card>
+        <CardHeader className="max-md:hidden">
+          <CardTitle>Checkup</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <ItemGroup className="gap-1">
+            <CheckupLink
+              link={{ to: "/settings/checkup/tools" }}
+              title="Tools"
+              needsYou={!!tools?.some((tool) => tool.status !== "")}
+            />
+          </ItemGroup>
+          {organizations.map((organization) => (
+            <CheckupOrganization key={organization} organization={organization} />
+          ))}
+        </CardContent>
+      </Card>
+    </>
   );
 }
 
@@ -237,11 +235,14 @@ export function CheckupTools() {
             <li key={tool.name} className="flex items-center justify-between gap-4 py-2">
               <span className="grid min-w-0">
                 {tool.name}
+                {tool.status === "" && (
+                  <span className="text-muted-foreground text-sm break-words">{tool.version}</span>
+                )}
                 {tool.path && (
                   <span className="text-muted-foreground text-sm break-all">{tool.path}</span>
                 )}
               </span>
-              <ToolVersion tool={tool} />
+              {tool.status !== "" && <ToolProblem tool={tool} />}
             </li>
           ))}
         </ul>
