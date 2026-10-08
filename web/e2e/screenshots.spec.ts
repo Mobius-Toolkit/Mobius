@@ -126,7 +126,7 @@ test("screenshots", async ({ page }) => {
     .locator("nav a[href='/chat']")
     .filter({ visible: true })
     .getByText("1", { exact: true });
-  await screenshot(page, "workstreams", "/workstreams", (device) => [
+  const workstreamsReady = (device: string) => [
     chatCount,
     ...frame(device, drain, { organizations: true }),
     main.getByText("Seasonal prices"),
@@ -135,7 +135,26 @@ test("screenshots", async ({ page }) => {
     main.getByRole("img", { name: "Ready to merge" }),
     main.getByText("done"),
     main.getByText("needs you"),
-  ]);
+  ];
+  await screenshot(page, "workstreams", "/workstreams", workstreamsReady);
+  // The answer 502 is not an event stream, so the page shows Connecting… and tries again each 3 s.
+  await screenshot(
+    page,
+    "connecting",
+    "/workstreams",
+    (device) => [
+      ...workstreamsReady(device),
+      page.getByRole("status").filter({ hasText: "Connecting…" }),
+    ],
+    async (device) => {
+      for (const locator of workstreamsReady(device)) {
+        await expect(locator).toBeVisible();
+      }
+      await page.route("/api/events", (route) => route.fulfill({ status: 502 }));
+      await page.evaluate("window.dispatchEvent(new Event('online'))");
+    },
+    () => page.unroute("/api/events"),
+  );
   const chatReady = (device: string) => [
     ...frame(device, drain),
     main.getByText("#42 and #45 wait for your decision."),

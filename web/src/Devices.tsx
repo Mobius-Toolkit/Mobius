@@ -1,8 +1,8 @@
 import { use, useCallback, useEffect, useState } from "react";
 import { listDevices, logout, type Devices as DeviceList } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
+import { ErrorBadge, List, PageHeader, Row } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoginContext } from "@/lib/login";
 import { TopBar } from "./TopBar";
 
@@ -52,38 +52,30 @@ export function Devices() {
   return (
     <>
       <TopBar title="Devices" back="/settings" />
-      <Card>
-        <CardHeader className="max-md:hidden">
-          <CardTitle>Devices</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {error && <Badge variant="destructive">{error}</Badge>}
-          <ul className="divide-y">
-            {devices?.logins.map((login) => (
-              <li key={login.id} className="flex items-center justify-between gap-4 py-2">
-                <span className="grid gap-1">
-                  <span>{login.userAgent}</span>
-                  <span className="text-muted-foreground">
-                    Logged in {new Date(login.createdAt).toLocaleString()}
-                  </span>
-                </span>
-                <span className="flex items-center gap-2">
-                  {login.id === devices.thisDevice && (
-                    <Badge variant="secondary">This device</Badge>
-                  )}
-                  <Button
-                    variant="outline"
-                    pending={loggingOut.includes(login.id)}
-                    onClick={() => logOut(login.id)}
-                  >
-                    Log out
-                  </Button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
+      <PageHeader title="Devices" />
+      {error && <ErrorBadge>{error}</ErrorBadge>}
+      <List>
+        {devices?.logins.map((login) => (
+          <Row key={login.id} className="justify-between">
+            <span className="grid gap-1">
+              <span>{login.userAgent}</span>
+              <span className="text-muted-foreground">
+                Logged in {new Date(login.createdAt).toLocaleString()}
+              </span>
+            </span>
+            <span className="flex items-center gap-2">
+              {login.id === devices.thisDevice && <Badge variant="secondary">This device</Badge>}
+              <Button
+                variant="outline"
+                pending={loggingOut.includes(login.id)}
+                onClick={() => logOut(login.id)}
+              >
+                Log out
+              </Button>
+            </span>
+          </Row>
+        ))}
+      </List>
     </>
   );
 }

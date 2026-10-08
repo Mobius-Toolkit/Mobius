@@ -709,6 +709,52 @@ test("Start gives only an open task with no blocker a button, and the row shows 
   await expect(start).toHaveCount(0);
 });
 
+test("Resume gives a needs-human task with no blocker a button that waits for the request", async ({
+  page,
+}) => {
+  await page.goto("/api/github/user-callback?code=user-code");
+  // The route adds #73, a needs-human task with a blocker.
+  await page.route("**/api/workstreams/plants/garden/19/tasks", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: object[] };
+    body.data.push({
+      number: 73,
+      title: "Rake the bark",
+      state: "needs-human",
+      depth: 0,
+      otherRepository: false,
+      url: "https://github.com/plants/garden/issues/73",
+      blockedBy: [{ number: 70, workstreamTitle: "" }],
+    });
+    await route.fulfill({ response, json: body });
+  });
+  const requests: Route[] = [];
+  await page.route("**/api/repositories/plants/garden/issues/*/resume", (route) => {
+    requests.push(route);
+  });
+  await page.goto("/workstreams/plants/garden/19");
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const rows = page.getByRole("listitem");
+  const resume = page.getByRole("button", { name: /^Resume #/ });
+  await expect(rows.filter({ hasText: "#73 Rake the bark" })).toBeVisible();
+  await expect(rows.filter({ hasText: "#73 Rake the bark" }).getByRole("button")).toHaveCount(0);
+  await expect(resume).toHaveCount(1);
+  await expect(resume).toHaveAccessibleName("Resume #72");
+  await expect(resume).toHaveAttribute("title", "Resume #72");
+
+  await resume.click();
+  await expect(resume).toBeDisabled();
+  await expect(resume.locator('[data-slot="spinner"]')).toBeVisible();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].request().url()).toMatch(/\/issues\/72\/resume$/);
+
+  await requests[0].fulfill({ status: 204 });
+  await expect(resume).toHaveCount(0);
+  await expect(
+    rows.filter({ hasText: "#72 Water the bark" }).getByText("needs-human"),
+  ).toBeVisible();
+});
+
 test("the Tasks tab shows the closed tasks muted, with no Start button, when the switch is on", async ({
   page,
 }) => {

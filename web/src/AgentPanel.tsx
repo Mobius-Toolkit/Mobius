@@ -2,6 +2,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import {
   listAgents,
   listTasks,
+  resumeIssue,
   startIssue,
   type Agent,
   type LiveEvents,
@@ -173,9 +174,11 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const state = started && line.state === "open" ? "ready" : line.state;
+  const resumes = line.state === "needs-human";
+  const label = `${resumes ? "Resume" : "Start"} #${line.number}`;
   const start = () => {
     setStarting(true);
-    startIssue(owner, name, line.number)
+    (resumes ? resumeIssue : startIssue)(owner, name, line.number)
       .then((res) => {
         if (res.status === 204) {
           setError("");
@@ -208,18 +211,22 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
           ))}
           <Badge variant={state === "open" ? "outline" : "secondary"}>{state}</Badge>
         </a>
-        {state === "open" && !line.otherRepository && line.blockedBy.length === 0 && (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="shrink-0"
-            aria-label={`Start #${line.number}`}
-            disabled={starting}
-            onClick={start}
-          >
-            {starting ? <Spinner aria-hidden /> : <PlayIcon />}
-          </Button>
-        )}
+        {!started &&
+          (state === "open" || resumes) &&
+          !line.otherRepository &&
+          line.blockedBy.length === 0 && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="shrink-0"
+              aria-label={label}
+              title={label}
+              disabled={starting}
+              onClick={start}
+            >
+              {starting ? <Spinner aria-hidden /> : <PlayIcon />}
+            </Button>
+          )}
       </div>
       {error && (
         <Badge variant="destructive" className="h-auto w-full justify-start whitespace-normal">
@@ -304,7 +311,7 @@ function Tasks({
       {shown?.length === 0 && <p className="px-2 text-sm text-muted-foreground">No tasks.</p>}
       <ul>
         {shown?.map((line) => (
-          <TaskEntry key={line.url} owner={owner} name={name} line={line} />
+          <TaskEntry key={`${line.url} ${line.state}`} owner={owner} name={name} line={line} />
         ))}
       </ul>
     </div>

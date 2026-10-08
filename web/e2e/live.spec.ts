@@ -1,4 +1,9 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Route } from "@playwright/test";
+
+const viewports = {
+  desktop: { width: 1280, height: 800 },
+  phone: { width: 390, height: 844 },
+};
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -57,6 +62,44 @@ test("the page connects again when no ping comes", async ({ page }) => {
   await page.reload();
   await opened;
 
-  await page.clock.fastForward(41_000);
+  await page.clock.fastForward(36_000);
   await expect.poll(() => requests).toBe(2);
 });
+
+for (const [device, size] of Object.entries(viewports)) {
+  test(`the page shows the state of the live connection on the ${device}`, async ({
+    page,
+    context,
+  }) => {
+    await page.setViewportSize(size);
+    await page.clock.install();
+    let hold = false;
+    const held: Route[] = [];
+    await page.route("/api/events", async (route) => {
+      if (hold) {
+        held.push(route);
+        return;
+      }
+      await route.fallback();
+    });
+    const status = page.getByRole("status");
+    const opened = page.waitForResponse("/api/events");
+    await page.goto("/workstreams");
+    await opened;
+    await expect(page.getByRole("main")).toBeVisible();
+    await page.clock.fastForward(4_000);
+    await expect(status).toBeEmpty();
+
+    await context.setOffline(true);
+    await expect(status).toHaveText("Offline");
+    await context.setOffline(false);
+    await expect(status).toBeEmpty();
+
+    hold = true;
+    await page.clock.fastForward(36_000);
+    await expect(status).toHaveText("Connecting…");
+    await expect.poll(() => held.length).toBe(1);
+    await Promise.all(held.map((route) => route.fallback()));
+    await expect(status).toBeEmpty();
+  });
+}

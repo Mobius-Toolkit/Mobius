@@ -1,5 +1,13 @@
 import { Link, useMatchRoute, type LinkProps } from "@tanstack/react-router";
-import { ArrowUpIcon, InboxIcon, LayersIcon, MessageCircleIcon, SettingsIcon } from "lucide-react";
+import {
+  ArrowUpIcon,
+  InboxIcon,
+  LayersIcon,
+  LoaderCircleIcon,
+  MessageCircleIcon,
+  SettingsIcon,
+  WifiOffIcon,
+} from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { InboxItem, Unread } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +29,27 @@ const tabs = [
   { path: "/inbox", title: "Inbox", Icon: InboxIcon },
   { path: "/settings", title: "Settings", Icon: SettingsIcon },
 ];
+
+export type Connection = "connected" | "connecting" | "offline";
+
+function ConnectionBadge({ connection }: { connection: Connection }) {
+  return (
+    <div role="status" className="pointer-events-none flex justify-center pt-2">
+      {connection === "connecting" && (
+        <span className="flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900 shadow-md dark:bg-amber-950 dark:text-amber-200">
+          <LoaderCircleIcon className="size-3.5 animate-spin" />
+          Connecting…
+        </span>
+      )}
+      {connection === "offline" && (
+        <span className="flex items-center gap-1.5 rounded-full border border-destructive/40 bg-red-100 px-3 py-1 text-xs font-medium text-red-900 shadow-md dark:bg-red-950 dark:text-red-200">
+          <WifiOffIcon className="size-3.5" />
+          Offline
+        </span>
+      )}
+    </div>
+  );
+}
 
 function SideLink({
   link,
@@ -58,6 +87,7 @@ export function Frame({
   unread,
   inbox,
   fill,
+  connection,
   children,
 }: {
   path: string;
@@ -69,6 +99,7 @@ export function Frame({
   unread: Unread[];
   inbox: InboxItem[];
   fill: boolean;
+  connection: Connection;
   children: ReactNode;
 }) {
   const upgrade = useUpgrade(source);
@@ -141,9 +172,15 @@ export function Frame({
         <header className="shrink-0 border-b pt-[env(safe-area-inset-top)] md:hidden">
           <div ref={setTopBar} className="flex min-h-14 items-center gap-2 px-2" />
         </header>
+        <div className="sticky top-0 z-10 h-0 shrink-0">
+          <ConnectionBadge connection={connection} />
+        </div>
         <div
           id="content"
-          className="flex min-h-0 grow flex-col overflow-y-auto md:overflow-visible"
+          className={cn(
+            "flex min-h-0 grow flex-col overflow-y-auto md:overflow-visible",
+            !fill && "md:p-6",
+          )}
         >
           <div className="grid gap-2 px-4 pt-4 empty:hidden md:hidden">
             {(path === "/chat" ||
@@ -157,7 +194,7 @@ export function Frame({
             className={cn(
               fill
                 ? "flex min-h-0 grow"
-                : "mx-auto grid w-full max-w-3xl content-start gap-6 p-4 md:p-6",
+                : "grid w-full content-start gap-6 py-4 md:mx-auto md:max-w-3xl md:rounded-xl md:border md:bg-card md:p-6",
             )}
           >
             <TopBarContext value={topBar}>{children}</TopBarContext>
