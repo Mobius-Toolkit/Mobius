@@ -288,6 +288,7 @@ func TestAReviewCommentWrittenAgainInAnUnresolvedThreadGetsEyes(t *testing.T) {
 	fake.ResolveReviewThread(root)
 	declined := fake.AddReviewComment(shop, 42, root, "owner", "Rename it anyway.")
 	waitForReactions(t, fake, declined, reactions("confused"))
+	testkit.WaitFor(t, func() bool { return len(fake.ReviewThread(shop, 42, root).Comments) == 3 })
 
 	fake.UnresolveReviewThread(root)
 	again := fake.AddReviewComment(shop, 42, root, "owner", "Rename it anyway.")

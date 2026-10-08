@@ -511,14 +511,17 @@ func TestMessageLeadSendsTheMessageToTheLeadOfAnOpenWorkstream(t *testing.T) {
 
 func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("message_lead", `{ workstream = 20, text = "Create the task issues." }`)+
-		call("message_lead", `{ workstream = 12, text = "Create the task issues." }`)+
-		call("message_lead", `{ workstream = 21, text = "Create the task issues." }`))
+	// Only these prompts play a call, so a Lead that the engine starts for an event does not repeat the messages.
+	messageTo := func(prompt string, workstream int) string {
+		return "[[prompts]]\nwhen = \"" + prompt + "\"\n" +
+			strings.TrimPrefix(call("message_lead", "{ workstream = "+strconv.Itoa(workstream)+", text = \"Create the task issues.\" }"), "[[prompts]]\n")
+	}
+	server, _ := connect(t, fake, messageTo("Message 1.", 20)+messageTo("Message 2.", 12)+messageTo("Message 3.", 21))
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 21, "Not a Workstream")
 
-	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ")
+	session := run(t, server, leadSpec(t), "Message 1.", "Message 2.", "Message 3.")
 
 	want := "Sent the message to the Lead of #20." +
 		"error: A Lead cannot send a message to its own Workstream." +
