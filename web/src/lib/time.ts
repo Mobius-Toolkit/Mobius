@@ -13,3 +13,23 @@ export function dayClock(time: string) {
     minute: "2-digit",
   });
 }
+
+export function dayLabel(time: string) {
+  const date = new Date(time);
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return "Today";
+  }
+  if (
+    date.toDateString() ===
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toDateString()
+  ) {
+    return "Yesterday";
+  }
+  return date.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
+}

@@ -7,6 +7,7 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  Fragment,
   use,
   useCallback,
   useEffect,
@@ -34,7 +35,7 @@ import { onEvent } from "@/lib/events";
 import { fitImage, maxImages } from "@/lib/images";
 import { LoginContext } from "@/lib/login";
 import { atEnd } from "@/lib/scroll";
-import { clock } from "@/lib/time";
+import { clock, dayLabel } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
 import { useVoice } from "@/lib/voice";
@@ -97,6 +98,20 @@ function Message({ message }: { message: ChatMessage }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function DaySeparator({ label }: { label: string }) {
+  return (
+    <div
+      role="separator"
+      aria-label={label}
+      className="flex items-center gap-3 text-xs text-muted-foreground"
+    >
+      <span className="h-px grow bg-border" />
+      <span>{label}</span>
+      <span className="h-px grow bg-border" />
     </div>
   );
 }
@@ -444,9 +459,17 @@ export function Conversation({
             No messages. Write to start a chat session.
           </p>
         )}
-        {messages.map((message) => (
-          <Message key={message.id} message={message} />
-        ))}
+        {messages.map((message, index) => {
+          const label = dayLabel(message.time);
+          return (
+            <Fragment key={message.id}>
+              {(index === 0 || dayLabel(messages[index - 1].time) !== label) && (
+                <DaySeparator label={label} />
+              )}
+              <Message message={message} />
+            </Fragment>
+          );
+        })}
         {writing && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <span className="size-2 animate-pulse rounded-full bg-green-600" />
