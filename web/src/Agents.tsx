@@ -224,10 +224,10 @@ export function Agents({ source }: { source?: EventSource }) {
       .catch((err: unknown) => setError(String(err)));
   }, [showLogin]);
 
-  useEffect(load, [load]);
-
-  // An agent event that comes while the connection is down is lost, so each connection reads the list.
+  // An agent event that comes before the listener or while the connection is down is lost, so each connection reads
+  // the list.
   useEffect(() => {
+    load();
     if (!source) {
       return;
     }

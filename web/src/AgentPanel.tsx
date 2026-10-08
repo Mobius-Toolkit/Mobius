@@ -135,10 +135,10 @@ function AgentTree({
       .catch((err: unknown) => setError(String(err)));
   }, [owner, name, number, showLogin]);
 
-  useEffect(load, [load]);
-
-  // An agent event that comes while the connection is down is lost, so each connection reads the tree.
+  // An agent event that comes before the listener or while the connection is down is lost, so each connection reads
+  // the tree.
   useEffect(() => {
+    load();
     if (!source) {
       return;
     }
