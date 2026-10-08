@@ -295,6 +295,26 @@ func TestADismissalOfARefusedApprovalDoesNotTryTheMergeAgain(t *testing.T) {
 	}
 }
 
+func TestAReviewSubmittedAfterARefusedApprovalMergesEvenWhenItStartedBefore(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, sha := seedWaiting(t, fake, "approval")
+	passMobius(fake, sha)
+	fake.RefuseMerge(shop, 42, "Required status check is expected.")
+	pending := fake.StartReview(shop, 42, "owner")
+	fake.AddReview(shop, 42, "owner", "APPROVED", "")
+	testkit.WaitFor(t, func() bool { return fake.MergeCalls() == 1 })
+	waitForLeadPrompt(t, server, " merge refused for #41 \"Add plan model\"")
+
+	fake.RefuseMerge(shop, 42, "")
+	fake.SubmitStartedReview(shop, 42, pending, "APPROVED")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
+	if calls := fake.MergeCalls(); calls != 2 {
+		t.Errorf("merge calls = %d", calls)
+	}
+}
+
 func TestARefusedMergeGivesTheLeadOneEventAndWaitsForANewApproval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

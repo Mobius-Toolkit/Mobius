@@ -16,7 +16,7 @@ type reviewJSON struct {
 	CommitID    string    `json:"commit_id"`
 	Body        string    `json:"body"`
 	State       string    `json:"state"`
-	SubmittedAt string    `json:"submitted_at"`
+	SubmittedAt string    `json:"submitted_at,omitempty"`
 }
 
 type reviewCommentJSON struct {
@@ -63,6 +63,33 @@ func (g *FakeGitHub) AddReview(repository string, number int64, author, state, b
 	found.reviews = append(found.reviews, reviewJSON{ID: g.lastReviewID, User: loginJSON{author}, CommitID: g.headOf(repository, number), Body: body, State: state, SubmittedAt: timestamp(g.tick())})
 	found.updatedAt = g.tick()
 	return g.lastReviewID
+}
+
+// StartReview adds a pending review of author to the pull request, and gives its id. A pending review has no submit
+// time.
+func (g *FakeGitHub) StartReview(repository string, number int64, author string) int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	found := g.issues[issueKey{repository, number}]
+	g.lastReviewID++
+	found.reviews = append(found.reviews, reviewJSON{ID: g.lastReviewID, User: loginJSON{author}, CommitID: g.headOf(repository, number), State: "PENDING"})
+	found.updatedAt = g.tick()
+	return g.lastReviewID
+}
+
+// SubmitStartedReview gives the pending review id of the pull request the state, for example "APPROVED", and a submit time.
+// The review keeps its place in the list.
+func (g *FakeGitHub) SubmitStartedReview(repository string, number, id int64, state string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	found := g.issues[issueKey{repository, number}]
+	for i := range found.reviews {
+		if found.reviews[i].ID == id {
+			found.reviews[i].State = state
+			found.reviews[i].SubmittedAt = timestamp(g.tick())
+		}
+	}
+	found.updatedAt = g.tick()
 }
 
 // DismissReview sets the state of the review id of the pull request to DISMISSED.
@@ -404,7 +431,7 @@ func (g *FakeGitHub) reviewNodes(found *issue) []map[string]any {
 			"state":       review.State,
 			"author":      graphqlActor(review.User.Login),
 			"commit":      map[string]string{"oid": review.CommitID},
-			"submittedAt": review.SubmittedAt,
+			"submittedAt": submittedAt(review),
 		})
 	}
 	return nodes
@@ -439,4 +466,11 @@ func graphqlActor(login string) map[string]string {
 		return map[string]string{"__typename": "Bot", "login": bot}
 	}
 	return map[string]string{"__typename": "User", "login": login}
+}
+
+func submittedAt(review reviewJSON) any {
+	if review.SubmittedAt == "" {
+		return nil
+	}
+	return review.SubmittedAt
 }

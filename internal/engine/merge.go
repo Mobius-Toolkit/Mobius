@@ -13,18 +13,24 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
-// keepApproval keeps the id of the newest APPROVED review of a trusted user that comes after the kept approval in the
-// list of reviews. A dismissal of the kept approval cancels it: the task keeps the id and the approval counts as
+// keepApproval keeps the id of the newest APPROVED review of a trusted user that GitHub submitted after the kept
+// approval. The list of reviews is in the order of the start of each review, so the submit time decides which review is
+// newer. A dismissal of the kept approval cancels it: the task keeps the id and the approval counts as
 // refused, so a dismissal never brings back an older approval. A dismissal of another review does not change the kept
 // approval. It gives the task with the new approval.
 func (e *Engine) keepApproval(ctx context.Context, repository github.Repository, task store.Task) (store.Task, error) {
 	reviews := e.pull(repository, task.PullRequest.Int64).Reviews
 	kept := slices.IndexFunc(reviews, func(review github.Review) bool { return review.ID == task.ApprovedReview.String })
+	var keptAt time.Time
+	if kept >= 0 {
+		keptAt = reviews[kept].SubmittedAt
+	}
 	approved := task.ApprovedReview
-	for _, review := range slices.Backward(reviews[kept+1:]) {
-		if review.State == "APPROVED" && e.trustedUser(review.Author) {
+	var newest time.Time
+	for _, review := range reviews {
+		if review.State == "APPROVED" && e.trustedUser(review.Author) && review.SubmittedAt.After(keptAt) && !review.SubmittedAt.Before(newest) {
 			approved = sql.NullString{String: review.ID, Valid: true}
-			break
+			newest = review.SubmittedAt
 		}
 	}
 	if approved != task.ApprovedReview {
