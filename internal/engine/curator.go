@@ -175,13 +175,16 @@ func (e *Engine) curate(ctx context.Context, a *Agent, requests []store.ListCura
 }
 
 // answerRequests gives the result of the session a of the Curator on requests to the Triager chat, and then removes the
-// requests from the store. A stop of Mobius does not call it, so the next run of Mobius starts a Curator for them.
+// requests from the store. When the delivery fails, the requests stay, so the next Curator or the next run of Mobius
+// answers them. A stop of Mobius does not call it, so the next run of Mobius starts a Curator for them.
 func (e *Engine) answerRequests(ctx context.Context, a *Agent, requests []store.ListCuratorRequestsRow, newest int64, failure string) error {
 	if len(requests) == 0 {
 		return nil
 	}
-	err := e.deliverCuratorResult(ctx, a, requests, newest, failure)
-	return errors.Join(err, e.queries.DeleteCuratorRequestsUpTo(ctx, store.DeleteCuratorRequestsUpToParams{Repository: a.spec.Repository, ID: requests[len(requests)-1].ID}))
+	if err := e.deliverCuratorResult(ctx, a, requests, newest, failure); err != nil {
+		return err
+	}
+	return e.queries.DeleteCuratorRequestsUpTo(ctx, store.DeleteCuratorRequestsUpToParams{Repository: a.spec.Repository, ID: requests[len(requests)-1].ID})
 }
 
 // deliverCuratorResult gives the result of the session a of the Curator on requests to the Triager chat as a Curator
