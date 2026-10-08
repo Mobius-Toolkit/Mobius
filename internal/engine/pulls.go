@@ -52,6 +52,25 @@ func (e *Engine) readPullRequests(ctx context.Context, repository github.Reposit
 	return nil
 }
 
+// readPullRequestInFull reads the conversation comments, the reviews and the review threads of the pull request number
+// with a call for each, and replaces what the poll kept of them.
+func (e *Engine) readPullRequestInFull(ctx context.Context, repository github.Repository, number int64) error {
+	comments, err := repository.Comments(ctx, number)
+	if err != nil {
+		return err
+	}
+	if err := e.readPullRequests(ctx, repository, []int64{number}); err != nil {
+		return err
+	}
+	state := e.pull(repository, number)
+	state.conversation = map[int64]*gh.IssueComment{}
+	for _, comment := range comments {
+		state.conversation[comment.GetID()] = comment
+	}
+	state.read = true
+	return nil
+}
+
 // openPullRequests gives the numbers of the open pull requests of issues.
 func openPullRequests(issues []*gh.Issue) []int64 {
 	var numbers []int64

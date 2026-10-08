@@ -20,10 +20,21 @@ import (
 )
 
 // checkTasks checks each live task of the repository, and adds the pull request of each task with work for an agent
-// to work. A task that fails to check keeps its entry of the last poll.
+// to work. A task that fails to check keeps its entry of the last poll. It first reads the pull requests of the
+// reviewed tasks with one call, because GitHub does not document that a resolve of a review thread changes the update
+// time of the pull request.
 func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, work map[int64]Work) error {
 	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
 	if err != nil {
+		return err
+	}
+	var reviewed []int64
+	for _, task := range tasks {
+		if task.State == "reviewed" && task.PullRequest.Valid {
+			reviewed = append(reviewed, task.PullRequest.Int64)
+		}
+	}
+	if err := e.readPullRequests(ctx, repository, reviewed); err != nil {
 		return err
 	}
 	for _, task := range tasks {

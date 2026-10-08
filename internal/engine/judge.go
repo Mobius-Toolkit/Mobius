@@ -93,9 +93,10 @@ type quietItem struct {
 // reviewed or needs_human, after review_quiet_period with no newer item. A task that waits for a human gets a Judge
 // only for an item of a trusted user. With no new item, a reviewed task with no open thread waits for CI.
 //
-// The items come from what the poll read. GitHub does not document that a resolve of a review thread changes the
-// update time of the pull request. Thus the pull request is read again before the Judge starts, and in each poll for
-// a reviewed task with no new item. A change of the items at the read gives the next poll the decision.
+// The items come from what the poll read. A comment that a person edits or deletes does not show in the new comments of
+// the poll, and GitHub does not document that a resolve of a review thread changes the update time of the pull
+// request. Thus the pull request is read in full before the Judge starts. A change of the items at the read gives the
+// next poll the decision.
 //
 // It gives true when the task has work for the Judge and does not wait for a human. With no new item, it gives
 // otherWork when the task leaves the state reviewed. The drain holds each new Judge, also a Judge whose Worker starts
@@ -130,7 +131,7 @@ func (e *Engine) judge(ctx context.Context, repository github.Repository, task s
 		return work, nil
 	}
 	number := int64(pullRequest.GetNumber())
-	if err := e.readPullRequests(ctx, repository, []int64{number}); err != nil {
+	if err := e.readPullRequestInFull(ctx, repository, number); err != nil {
 		return false, err
 	}
 	fresh, err := e.newItems(ctx, repository, task, number)
@@ -173,17 +174,9 @@ func (e *Engine) newItems(ctx context.Context, repository github.Repository, tas
 	}
 	state := e.pull(repository, number)
 	if !state.read {
-		comments, err := repository.Comments(ctx, number)
-		if err != nil {
+		if err := e.readPullRequestInFull(ctx, repository, number); err != nil {
 			return nil, err
 		}
-		if err := e.readPullRequests(ctx, repository, []int64{number}); err != nil {
-			return nil, err
-		}
-		for _, comment := range comments {
-			state.conversation[comment.GetID()] = comment
-		}
-		state.read = true
 	}
 	app := appLogin(repository.AppSlug)
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
@@ -238,9 +231,6 @@ func threadText(thread github.ReviewThread, trusted func(string) bool) string {
 func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
 	number := int64(pullRequest.GetNumber())
-	if err := e.readPullRequests(ctx, repository, []int64{number}); err != nil {
-		return false, err
-	}
 	if slices.ContainsFunc(e.pull(repository, number).Threads, func(thread github.ReviewThread) bool {
 		return openThread(thread, trusted, appLogin(repository.AppSlug))
 	}) {
