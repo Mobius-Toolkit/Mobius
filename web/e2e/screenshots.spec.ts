@@ -364,6 +364,19 @@ test("screenshots", async ({ page }) => {
     ...frame(device, release),
     main.getByText("wrong color: #ededed"),
   ]);
+  await screenshot(page, "memory-repositories", "/settings/memory", (device) => [
+    ...frame(device, release),
+    main.getByRole("link", { name: "owner/shop" }),
+  ]);
+  await screenshot(page, "memory", "/settings/memory/owner/shop", (device) => [
+    ...frame(device, release),
+    main.getByText("Memory of owner/shop"),
+    main.getByText("+ Run make fmt before each commit and each push."),
+    main.getByText("+ Write each message in Simplified Technical English."),
+    main.getByText("- Run make fmt before each commit."),
+    main.getByText("+ Wait for a condition with testkit.WaitFor."),
+    main.getByText("A later version changed this part. Edit the file."),
+  ]);
 
   // The note closes a Workstream whose tasks are all closed.
   await page.setViewportSize(viewports.desktop);

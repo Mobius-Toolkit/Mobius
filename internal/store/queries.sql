@@ -417,3 +417,15 @@ ORDER BY i.repository, i.workstream, i.number;
 
 -- name: AddMemoryVersion :exec
 INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?);
+
+-- name: ListMemoryVersions :many
+SELECT id, time, author, text FROM memory_versions WHERE repository = ? ORDER BY id DESC;
+
+-- name: GetMemoryVersion :one
+SELECT id, repository, time, author, text FROM memory_versions WHERE id = ?;
+
+-- name: GetMemoryVersionBefore :one
+SELECT text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DESC LIMIT 1;
+
+-- name: GetNewestMemoryVersionID :one
+SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ?;
