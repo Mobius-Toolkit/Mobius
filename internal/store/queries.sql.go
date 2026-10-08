@@ -318,6 +318,27 @@ func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) erro
 	return err
 }
 
+const addMemoryVersion = `-- name: AddMemoryVersion :exec
+INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?)
+`
+
+type AddMemoryVersionParams struct {
+	Repository string
+	Time       string
+	Author     string
+	Text       string
+}
+
+func (q *Queries) AddMemoryVersion(ctx context.Context, arg AddMemoryVersionParams) error {
+	_, err := q.db.ExecContext(ctx, addMemoryVersion,
+		arg.Repository,
+		arg.Time,
+		arg.Author,
+		arg.Text,
+	)
+	return err
+}
+
 const addReviewRound = `-- name: AddReviewRound :exec
 UPDATE tasks SET review_rounds = review_rounds + 1 WHERE id = ?
 `
