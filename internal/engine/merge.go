@@ -64,12 +64,9 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	if task, err = e.keepApproval(ctx, repository, task); err != nil || !awaitsMerge(task) || hasOpenThread(e.pull(repository, number)) {
 		return false, err
 	}
-	reason, err := repository.MergePullRequest(ctx, number, head)
-	if err != nil {
-		return false, err
-	}
-	if reason == "" {
-		return true, nil
+	merged, reason, err := repository.MergePullRequest(ctx, number, head)
+	if err != nil || merged || reason == "" {
+		return merged, err
 	}
 	if err := e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID}); err != nil {
 		return false, err

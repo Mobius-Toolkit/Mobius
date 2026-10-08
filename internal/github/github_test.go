@@ -482,3 +482,31 @@ func TestPullRequestReviewsReadsTheNextPagesOfEachConnection(t *testing.T) {
 		t.Errorf("reads of pull requests = %d", got)
 	}
 }
+
+func TestMergePullRequestTellsAMergeApartFromAChangedHeadAndARefusal(t *testing.T) {
+	const shop = "owner/shop"
+	fake := testkit.NewFakeGitHub(t)
+	gh := connect(t, fake)
+	repository, _ := gh.Repository(shop)
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.PushCommit(shop, "mobius/41", "Add plan model")
+	number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41")
+	sha := testkit.Git(t, fake.Remote(shop), "rev-parse", "mobius/41")
+
+	merged, reason, err := repository.MergePullRequest(t.Context(), number, "0000000000000000000000000000000000000000")
+	if err != nil || merged || reason != "" {
+		t.Errorf("changed head: %v, %q, %v", merged, reason, err)
+	}
+
+	fake.RefuseMerge(shop, number, "Required status check is expected.")
+	merged, reason, err = repository.MergePullRequest(t.Context(), number, sha)
+	if err != nil || merged || reason != "Required status check is expected." {
+		t.Errorf("refusal: %v, %q, %v", merged, reason, err)
+	}
+
+	fake.RefuseMerge(shop, number, "")
+	merged, reason, err = repository.MergePullRequest(t.Context(), number, sha)
+	if err != nil || !merged || reason != "" {
+		t.Errorf("merge: %v, %q, %v", merged, reason, err)
+	}
+}
