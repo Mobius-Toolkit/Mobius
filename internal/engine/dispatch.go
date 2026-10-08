@@ -101,6 +101,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			if err := e.queries.EndTask(ctx, task.ID); err != nil {
 				return err
 			}
+			e.publish(Change{Workstreams: true})
 		}
 		if err := e.dispatch(ctx, repository, issue, workstream, actor); err != nil {
 			return err
@@ -195,11 +196,15 @@ func lastEvent(events []*gh.IssueEvent, kind, label string) (int, *gh.IssueEvent
 // commentEvents acts on the new comments of the issue of a live task: a new comment of a trusted user resets the
 // counters of the task, and each new comment that is an event goes to the Lead. When the newest such comment is
 // newer than the last comment of the Mobius App, the question, it answers the question: mobius:needs-human goes away
-// unless the task waits for a human.
+// unless the task waits for a human. An issue with no live task and with mobius:no-workstream goes to retriage. Any
+// other issue with no live task goes to workstreamCommentEvents.
 func (e *Engine) commentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
 	number := int64(issue.GetNumber())
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
 	if errors.Is(err, sql.ErrNoRows) {
+		if hasLabel(issue, noWorkstreamLabel) {
+			return e.retriage(ctx, repository, issue, comments)
+		}
 		return e.workstreamCommentEvents(ctx, repository, issue, comments)
 	}
 	if err != nil {
@@ -513,7 +518,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		}
 	}
 	from := task.State
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: to, ID: task.ID, FromState: from})
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: to, ID: task.ID, FromState: from})
 	if err != nil || moved == 0 {
 		return err
 	}
@@ -527,7 +532,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		_, err = e.startImplementer(ctx, repository, task.Workstream, number, issue.GetBody(), parent)
 	}
 	if err != nil {
-		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: from, ID: task.ID, FromState: to})
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: from, ID: task.ID, FromState: to})
 		return errors.Join(err, stateErr)
 	}
 	if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {

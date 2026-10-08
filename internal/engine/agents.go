@@ -782,3 +782,19 @@ func (e *Engine) publish(change Change) {
 		}
 	}
 }
+
+// setTaskState moves the task like SetTaskState. It publishes a Workstream change when the task enters or leaves
+// ready_for_review, because the Workstream list shows a pull request that waits for the merge.
+func (e *Engine) setTaskState(ctx context.Context, params store.SetTaskStateParams) (int64, error) {
+	moved, err := e.queries.SetTaskState(ctx, params)
+	if err == nil && moved > 0 {
+		e.publishReadyForReview(params.FromState, params.State)
+	}
+	return moved, err
+}
+
+func (e *Engine) publishReadyForReview(from, to string) {
+	if from == "ready_for_review" || to == "ready_for_review" {
+		e.publish(Change{Workstreams: true})
+	}
+}

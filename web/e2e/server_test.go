@@ -139,7 +139,7 @@ const question = "What is the state of the plans? The full report is at " +
 // table of the pauses has no row, because a pause stops the fake agents. The tools of the Checkup page have fixed
 // paths and versions, and tar gives no version.
 //
-// The Workstream owner/shop#14 has Autopilot on and no task.
+// The Workstream owner/shop#14 has Autopilot on and one task in ready_for_review.
 //
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
 // unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
@@ -200,6 +200,7 @@ func TestServer(t *testing.T) {
 	github.SetBody("owner/shop", 45, "Each plan has a limit of seats.")
 	github.SetBody("plants/garden", 18, "Cut the **old** canes in March.")
 	github.SetBody("plants/garden", 19, "Put **bark** on the beds.")
+	github.AddIssue("owner/shop", 40, "Renew a month early")
 	github.AddLabel("owner/shop", 41, "mobius:needs-human", "owner")
 	github.AddLabel("owner/shop", 42, "mobius:needs-human", "owner")
 	github.AddSubIssueOf("owner/shop", 12, 38, "Show the plan prices")
@@ -425,6 +426,10 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 		github.AddLabel("owner/shop", number, "mobius:working", testkit.AppSlug+"[bot]")
+	}
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
+		VALUES ('owner/shop', 40, 14, 'ready_for_review', ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
 	}
 	for i, text := range []string{
 		"Run make fmt before each commit.\nUse pnpm for the frontend.\n",

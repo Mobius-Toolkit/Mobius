@@ -329,7 +329,7 @@ export function AgentPanel({
         <TabsTrigger value="agents">Agents</TabsTrigger>
         <TabsTrigger value="tasks">Tasks</TabsTrigger>
       </TabsList>
-      <TabsContent value="agents" className="overflow-y-auto p-2">
+      <TabsContent value="agents" className="flex flex-col overflow-y-auto p-2">
         <AgentTree owner={owner} name={name} number={number} source={source} />
       </TabsContent>
       <TabsContent value="tasks" className="overflow-y-auto p-2">

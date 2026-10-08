@@ -1,5 +1,5 @@
-import { ChevronLeftIcon } from "lucide-react";
-import { use, useCallback, useEffect, useState } from "react";
+import { ArrowDownIcon, ChevronLeftIcon } from "lucide-react";
+import { use, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   getTranscript,
   listActiveAgents,
@@ -15,6 +15,7 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { queueState } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
+import { atEnd } from "@/lib/scroll";
 import { clock, dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { BackButton } from "./BackButton";
@@ -133,6 +134,9 @@ export function Transcript({
   const showLogin = use(LoginContext);
   const [lines, setLines] = useState<TranscriptLine[]>();
   const [error, setError] = useState<string>();
+  const [behind, setBehind] = useState(false);
+  const listRef = useRef<HTMLUListElement>(null);
+  const pinned = useRef(true);
 
   const load = useCallback(() => {
     getTranscript(agent.id)
@@ -166,8 +170,21 @@ export function Transcript({
     };
   }, [source, load, agent.id]);
 
+  // New data scrolls the log to the end while the Owner is at the end. Else the log stays, and the button shows.
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list || !lines) {
+      return;
+    }
+    if (pinned.current) {
+      list.scrollTop = list.scrollHeight;
+    } else {
+      setBehind(true);
+    }
+  }, [lines]);
+
   return (
-    <Card>
+    <Card className="min-h-0 max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-3rem)]">
       <CardHeader>
         <CardTitle className="truncate">
           {agent.name} {agent.title}
@@ -179,13 +196,42 @@ export function Transcript({
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="grid gap-4">
+      <CardContent className="flex min-h-0 grow flex-col gap-4">
         {error && <Badge variant="destructive">{error}</Badge>}
-        <ul className="grid grid-cols-[minmax(0,1fr)] gap-2">
-          {lines?.map((line) => (
-            <TranscriptEntry key={line.id} line={line} />
-          ))}
-        </ul>
+        <div className="relative flex min-h-0 grow flex-col">
+          <ul
+            ref={listRef}
+            onScroll={(event) => {
+              pinned.current = atEnd(event.currentTarget);
+              if (pinned.current) {
+                setBehind(false);
+              }
+            }}
+            className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-2 overflow-y-auto"
+          >
+            {lines?.map((line) => (
+              <TranscriptEntry key={line.id} line={line} />
+            ))}
+          </ul>
+          {behind && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full shadow-md"
+              onClick={() => {
+                const list = listRef.current;
+                if (list) {
+                  list.scrollTop = list.scrollHeight;
+                }
+                pinned.current = true;
+                setBehind(false);
+              }}
+            >
+              <ArrowDownIcon />
+              New messages
+            </Button>
+          )}
+        </div>
         <p className="text-sm text-muted-foreground">
           Read only. The Owner talks only to the Lead.
         </p>

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { PlaneIcon } from "lucide-react";
+import { GitPullRequestArrowIcon, PlaneIcon } from "lucide-react";
 import type { Unread, Workstream } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +41,16 @@ export function WorkstreamBadges({
       {workstream.autopilot && (
         <span role="img" aria-label="Autopilot" title="Autopilot" className="text-muted-foreground">
           <PlaneIcon className="size-3.5" />
+        </span>
+      )}
+      {workstream.readyToMerge && (
+        <span
+          role="img"
+          aria-label="Ready to merge"
+          title="Ready to merge"
+          className="text-green-600 dark:text-green-500"
+        >
+          <GitPullRequestArrowIcon className="size-3.5" />
         </span>
       )}
       <span className="text-muted-foreground">#{workstream.number}</span>
