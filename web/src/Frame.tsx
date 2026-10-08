@@ -155,7 +155,7 @@ export function Frame({
           </div>
           <main
             className={cn(
-              fill ? "flex min-h-0 grow" : "grid w-full max-w-4xl content-start gap-6 py-4 md:p-6",
+              fill ? "flex min-h-0 grow" : "grid w-full content-start gap-6 py-4 md:p-6",
             )}
           >
             <TopBarContext value={topBar}>{children}</TopBarContext>
