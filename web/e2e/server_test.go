@@ -510,7 +510,7 @@ func fixTools(t *testing.T, dataDir string) {
 	harnesses := filepath.Join(dataDir, "harnesses")
 	for program, output := range map[string]string{
 		"git":    "git version 2.50.1\n",
-		"curl":   "curl 8.14.1 (x86_64-pc-linux-gnu)\n",
+		"curl":   "curl 8.7.1 (x86_64-apple-darwin23.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.61.0\n",
 		"tar":    "",
 		"claude": "2.1.284 (Claude Code)\n",
 	} {
