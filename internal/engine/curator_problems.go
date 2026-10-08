@@ -116,7 +116,13 @@ func (e *Engine) toolCallItems(ctx context.Context, repository, since string) (c
 		if len(findings) < curatorRepeatedFixRounds {
 			continue
 		}
-		fixRounds = append(fixRounds, problemItem(fmt.Sprintf("Issue #%d, %d fix rounds", issue, len(findings)), strings.Join(findings, "\n\n")))
+		heading := fmt.Sprintf("Issue #%d, %d fix rounds", issue, len(findings))
+		text := ""
+		if left := len(findings) - curatorMaxRounds; left > 0 {
+			text = fmt.Sprintf("Mobius left out the %d oldest rounds.\n\n", left)
+			findings = findings[left:]
+		}
+		fixRounds = append(fixRounds, problemItem(heading, text+strings.Join(findings, "\n\n")))
 	}
 	return cannotDos, reviews, fixRounds, nil
 }

@@ -33,6 +33,8 @@ const (
 	curatorCut = " (cut)"
 	// curatorRepeatedFixRounds is the number of fix rounds of a task from which the Curator gets the task.
 	curatorRepeatedFixRounds = 2
+	// curatorMaxRounds is the maximum number of rounds of one task in the prompt of the Curator.
+	curatorMaxRounds = 6
 )
 
 // curatorKey is the key in e.stops of the Worker of the Curator with this session id.

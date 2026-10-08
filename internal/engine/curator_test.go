@@ -520,6 +520,34 @@ func TestTheFixRoundsThatRepeatCanComeOnlyFromReviews(t *testing.T) {
 	}
 }
 
+func TestTheFixRoundsThatRepeatHaveTheNewestRoundsOnly(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+	at := time.Now().Add(-time.Hour)
+	reviewer := addSession(t, server, engine.ReviewerRole, 52, at, "done")
+	for round := 1; round <= 8; round++ {
+		addCall(t, server, reviewer, at.Add(time.Duration(round)*time.Second), "submit_review", map[string]any{
+			"body":     fmt.Sprintf("Review %d", round),
+			"comments": []map[string]any{{"path": "plan.go", "line": round, "body": fmt.Sprintf("Finding %d", round)}},
+		})
+	}
+
+	prompt := nextCuratorPrompt(t, server, 1)
+
+	for _, part := range []string{"Issue #52, 8 fix rounds", "Mobius left out the 2 oldest rounds.", "- plan.go:3: Finding 3", "- plan.go:8: Finding 8"} {
+		if !strings.Contains(prompt, part) {
+			t.Errorf("%q is not in %s", part, prompt)
+		}
+	}
+	_, rounds, _ := strings.Cut(prompt, "# Fix rounds that repeat")
+	rounds, _, _ = strings.Cut(rounds, "# Review findings")
+	for _, part := range []string{"- plan.go:1: Finding 1", "- plan.go:2: Finding 2"} {
+		if strings.Contains(rounds, part) {
+			t.Errorf("%q is in %s", part, rounds)
+		}
+	}
+}
+
 func TestThePromptOfTheCuratorHasNoItemOfASessionBeforeTheLastDoneCurator(t *testing.T) {
 	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
