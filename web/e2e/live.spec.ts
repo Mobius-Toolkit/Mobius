@@ -98,7 +98,6 @@ for (const [device, size] of Object.entries(viewports)) {
     hold = true;
     await page.clock.fastForward(36_000);
     await expect(status).toHaveText("Connecting…");
-    await page.screenshot({ path: `screenshots/connecting-${device}.png`, animations: "disabled" });
     await expect.poll(() => held.length).toBe(1);
     await Promise.all(held.map((route) => route.fallback()));
     await expect(status).toBeEmpty();
