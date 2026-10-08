@@ -256,6 +256,16 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.submitVerdicts),
 		}
+	case CuratorRole:
+		return []mcp.Tool{
+			tool(e, c, "edit_memory",
+				"Change one part of the memory file of the repository. Give an old text that occurs one time in the file, and the new text. An empty old text adds the new text at the end of the file. An empty new text removes the old text. The tool refuses a result of more than 200 lines.",
+				map[string]any{
+					"old": map[string]any{"type": "string", "description": "The text to replace. It occurs one time in the memory file. Empty to add the new text at the end."},
+					"new": map[string]any{"type": "string", "description": "The replacement text. Empty to remove the old text."},
+				},
+				e.editMemory),
+		}
 	case TriagerRole:
 		return []mcp.Tool{
 			tool(e, c, "create_workstream",

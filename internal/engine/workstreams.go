@@ -184,6 +184,9 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 	if err := e.stopWorkstream(ctx, repository, workstream); err != nil {
 		return err
 	}
+	if err := e.startCurator(ctx, repository.FullName); err != nil {
+		return err
+	}
 	// A later reopen needs a new mobius:autopilot from a trusted user.
 	if err := repository.RemoveLabel(ctx, workstream, autopilotLabel); err != nil {
 		return err

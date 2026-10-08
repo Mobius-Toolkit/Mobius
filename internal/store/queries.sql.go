@@ -550,6 +550,19 @@ func (q *Queries) CountActiveTasks(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const countSessionsEndedSinceCurator = `-- name: CountSessionsEndedSinceCurator :one
+SELECT count(*) FROM sessions s
+WHERE s.repository = ?1 AND s.role <> 'curator' AND s.ended_at IS NOT NULL
+  AND julianday(s.ended_at) > coalesce((SELECT max(julianday(c.started_at)) FROM sessions c WHERE c.repository = s.repository AND c.role = 'curator'), 0)
+`
+
+func (q *Queries) CountSessionsEndedSinceCurator(ctx context.Context, repository string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countSessionsEndedSinceCurator, repository)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countUnread = `-- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = ?1 AND m.repository = ?2 AND m.workstream = ?3

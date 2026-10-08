@@ -106,7 +106,7 @@ type workDir struct {
 }
 
 // clean removes each directory of a task or a session that ended. The name of a directory tells its owner:
-// worktrees/<repository>/task-<issue> is a live task, and review-<id>, judge-<id> and research-<id> below
+// worktrees/<repository>/task-<issue> is a live task, and review-<id>, judge-<id>, research-<id> and curator-<id> below
 // worktrees/<repository> and scratch/<id> are open sessions. The other directories stay.
 func (e *Engine) clean(ctx context.Context) error {
 	worktrees := filepath.Join(e.config.DataDir, "worktrees")
@@ -151,7 +151,7 @@ func (e *Engine) clean(ctx context.Context) error {
 			if owned, err = e.liveTask(ctx, dir.repository, id); err != nil {
 				return err
 			}
-		case "review", "judge", "research":
+		case "review", "judge", "research", "curator":
 			owned = open[id]
 		}
 		if !owned {
