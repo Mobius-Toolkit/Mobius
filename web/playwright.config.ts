@@ -27,6 +27,8 @@ export default defineConfig({
     { name: "agents", testMatch: "agents.spec.ts", dependencies: ["installations"] },
     // The Checkup tests give their own data with page.route, and they need the Apps of the screenshots test.
     { name: "checkup", testMatch: "checkup.spec.ts", dependencies: ["agents"] },
+    // The live tests change no data, but they need the Apps of the screenshots test.
+    { name: "live", testMatch: "live.spec.ts", dependencies: ["checkup"] },
   ],
   use: {
     baseURL: `http://${addr}`,

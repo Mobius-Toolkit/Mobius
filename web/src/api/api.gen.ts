@@ -888,6 +888,10 @@ export type LiveEvents = {
   data: WorkstreamRef;
   event: 'workstreamCreated';
   id?: string;
+} | {
+  data: { [key: string]: unknown };
+  event: 'ping';
+  id?: string;
 };
 
 export interface LoginBody {

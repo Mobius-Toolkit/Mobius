@@ -93,3 +93,25 @@ func TestStreamEventsResume(t *testing.T) {
 		t.Errorf("new event after resume = %q, want %q", got, want)
 	}
 }
+
+func TestStreamEventsPing(t *testing.T) {
+	pingInterval = 10 * time.Millisecond
+	t.Cleanup(func() { pingInterval = 15 * time.Second })
+	mux, _ := testMux(t)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(server.URL + "/api/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	r := bufio.NewReader(resp.Body)
+
+	for range 2 {
+		if got, want := readEvent(t, r), "event: ping\ndata: {}\n"; got != want {
+			t.Errorf("idle event = %q, want %q", got, want)
+		}
+	}
+}
