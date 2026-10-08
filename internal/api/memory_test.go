@@ -152,7 +152,7 @@ func TestEachMemoryRouteGivesNotFoundForAnUnknownRepository(t *testing.T) {
 	for method, address := range map[string]string{
 		http.MethodGet:  memoryURL(server, "owner/none"),
 		http.MethodPut:  memoryURL(server, "owner/none"),
-		http.MethodPost: memoryURL(server, "../..") + "/1/revert",
+		http.MethodPost: memoryURL(server, "owner/none") + "/1/revert",
 	} {
 		if reply := call(t, server.Client, method, address, `{"text": "One.\n"}`, nil); reply.StatusCode != http.StatusNotFound {
 			t.Errorf("%s %s: status %d", method, address, reply.StatusCode)

@@ -66,9 +66,13 @@ export function MemoryRepositories({
 }
 
 function Diff({ before, after }: { before: string; after: string }) {
+  const lines = diffLines(before, after);
+  if (lines.length === 0) {
+    return <p className="text-sm text-muted-foreground">Only the final newline changed.</p>;
+  }
   return (
     <pre className="overflow-x-auto rounded-lg border text-sm">
-      {diffLines(before, after).map((line, i) => (
+      {lines.map((line, i) => (
         <div
           key={i}
           className={
