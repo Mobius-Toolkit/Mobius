@@ -96,6 +96,7 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain),
     main.getByText("Seasonal prices"),
     main.getByRole("img", { name: "Autopilot" }),
+    main.getByRole("img", { name: "Agent running" }),
     main.getByText("done"),
     main.getByText("needs you"),
   ]);
@@ -349,6 +350,7 @@ test("screenshots", async ({ page }) => {
     main.getByRole("link", { name: "Tools" }),
     main.getByRole("heading", { name: "owner", exact: true }),
     main.getByRole("heading", { name: "plants", exact: true }),
+    main.getByText("needs you").nth(3),
   ]);
   await screenshot(page, "checkup-tools", "/settings/checkup/tools", (device) => [
     ...frame(device, release),
@@ -361,6 +363,19 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "checkup-labels", "/settings/checkup/owner/labels", (device) => [
     ...frame(device, release),
     main.getByText("wrong color: #ededed"),
+  ]);
+  await screenshot(page, "memory-repositories", "/settings/memory", (device) => [
+    ...frame(device, release),
+    main.getByRole("link", { name: "owner/shop" }),
+  ]);
+  await screenshot(page, "memory", "/settings/memory/owner/shop", (device) => [
+    ...frame(device, release),
+    main.getByText("Memory of owner/shop"),
+    main.getByText("+ Run make fmt before each commit and each push."),
+    main.getByText("+ Write each message in Simplified Technical English."),
+    main.getByText("- Run make fmt before each commit."),
+    main.getByText("+ Wait for a condition with testkit.WaitFor."),
+    main.getByText("A later version changed this part. Edit the file."),
   ]);
 
   // The note closes a Workstream whose tasks are all closed.

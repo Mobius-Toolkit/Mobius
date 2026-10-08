@@ -148,7 +148,8 @@ const question = "What is the state of the plans? The full report is at " +
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
 // The Workstream owner/shop#12 has two closed tasks. It also has four Implementer sessions with the queue reasons of a
 // check that runs, a check that waits for a slot, a pause, and a full Role.
-// POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub.
+// POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
+// /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -252,6 +253,12 @@ func TestServer(t *testing.T) {
 	})
 	server.Mux.HandleFunc("DELETE /e2e/repositories/{owner}/{name}", func(_ http.ResponseWriter, r *http.Request) {
 		github.RemoveRepository(r.PathValue("owner") + "/" + r.PathValue("name"))
+	})
+	server.Mux.HandleFunc("PUT /e2e/agents/{issue}/queue-reason", func(w http.ResponseWriter, r *http.Request) {
+		_, err := server.DB.Exec("UPDATE sessions SET queue_reason = ? WHERE issue = ? AND ended_at IS NULL", r.URL.Query().Get("reason"), r.PathValue("issue"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	})
 
 	listener, err := net.Listen("tcp", addr)
@@ -417,6 +424,19 @@ func TestServer(t *testing.T) {
 		}
 		github.AddLabel("owner/shop", number, "mobius:working", testkit.AppSlug+"[bot]")
 	}
+	for i, text := range []string{
+		"Run make fmt before each commit.\nUse pnpm for the frontend.\n",
+		"Run make fmt before each commit.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\n",
+		"Run make fmt before each commit and each push.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\nWrite each message in Simplified Technical English.\n",
+	} {
+		author := "curator"
+		if i == 2 {
+			author = "owner"
+		}
+		if err := server.Engine.SaveMemory(ctx, "owner/shop", author, text); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, session := range []struct {
 		number int64
 		reason string
@@ -508,6 +528,7 @@ func fixTimes(t *testing.T, server *testserver.Server) {
 		"UPDATE transcript SET time = ?1",
 		"UPDATE chat_messages SET time = ?1",
 		"UPDATE inbox_items SET time = ?1",
+		"UPDATE memory_versions SET time = ?1",
 	} {
 		if _, err := server.DB.Exec(query, "2026-09-28T09:30:00Z"); err != nil {
 			t.Fatal(err)
