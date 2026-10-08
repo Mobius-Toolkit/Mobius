@@ -22,7 +22,7 @@ const (
 	closedIssueReply  = "Mobius does not act on a comment on a closed issue. To make Mobius act, reopen the issue and write the comment again."
 	noTaskReply       = "Mobius does not act on this comment. This pull request has no live task. To request work, add the label `mobius:ready` to an issue."
 	closedThreadReply = "Mobius does not act on this comment. Mobius acts only on an open review thread that a trusted author starts. " +
-		"This thread is resolved, or an untrusted author started it. To make Mobius act, unresolve the thread or write a new comment on the pull request."
+		"This thread is resolved, or an untrusted author started it. To make Mobius act, unresolve the thread and write the comment again, or write a new comment on the pull request."
 )
 
 // acknowledge adds the reaction of an agent that gets the conversation comments.

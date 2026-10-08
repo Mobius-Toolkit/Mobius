@@ -237,8 +237,8 @@ func (e *Engine) commentsWithoutTask(ctx context.Context, repository github.Repo
 
 // workstreamCommentEvents adds a comment event for the Lead for each comment of events on an open Workstream issue, or
 // on an open issue below a Workstream, that has no live task. The event of the Workstream issue has no issue. An issue
-// in no Workstream with mobius:ready waits for the Triager, which reads the comments. Mobius does not act on a comment
-// on another issue in no Workstream.
+// in no Workstream with a mobius:ready of a trusted author waits for the Triager, which reads the comments. Mobius does
+// not act on a comment on another issue in no Workstream.
 func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueComment) error {
 	number := int64(issue.GetNumber())
 	workstream, err := e.commentWorkstream(ctx, repository, issue)
@@ -246,7 +246,13 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 		return err
 	}
 	if workstream == 0 && hasLabel(issue, readyLabel) {
-		return acknowledge(ctx, repository, events)
+		issueEvents, err := repository.IssueEvents(ctx, number)
+		if err != nil {
+			return err
+		}
+		if actor, ok := readyActor(issueEvents, appLogin(repository.AppSlug)); ok && e.TrustedAuthor(repository.AppSlug, actor) {
+			return acknowledge(ctx, repository, events)
+		}
 	}
 	if workstream == 0 {
 		return e.declineComments(ctx, repository, number, events, noWorkstreamReply)

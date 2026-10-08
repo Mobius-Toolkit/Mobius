@@ -118,6 +118,23 @@ func TestACommentOnAnIssueInNoWorkstreamGetsConfusedAndOneReply(t *testing.T) {
 	}
 }
 
+func TestACommentOnAnIssueWithAReadyLabelOfAnUntrustedUserGetsConfusedAndOneReply(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	connectSeen(t, fake)
+	fake.AddIssue(shop, 61, "Fix the header")
+	fake.AddLabel(shop, 61, "mobius:ready", "mallory")
+	waitForPolls(t, fake)
+
+	id := fake.AddComment(shop, 61, "owner", "Use a smaller font.")
+
+	waitForReactions(t, fake, id, reactions("confused"))
+	waitForPolls(t, fake)
+	got := replies(fake, 61)
+	if len(got) != 1 || !strings.Contains(got[0], "add the label `mobius:ready`") {
+		t.Errorf("replies = %q", got)
+	}
+}
+
 func TestAFailedPollAfterADeclineDoesNotWriteASecondReply(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)
@@ -243,12 +260,26 @@ func TestAReviewCommentInAResolvedThreadGetsConfusedAndOneReplyInTheThread(t *te
 	waitForReactions(t, fake, id, reactions("confused"))
 	waitForPolls(t, fake)
 	thread := fake.ReviewThread(shop, 42, root)
-	if len(thread.Comments) != 3 || !strings.Contains(thread.Comments[2].Body, "unresolve the thread or write a new comment on the pull request.") {
+	if len(thread.Comments) != 3 || !strings.Contains(thread.Comments[2].Body, "unresolve the thread and write the comment again, or write a new comment on the pull request.") {
 		t.Errorf("thread = %+v", thread)
 	}
 	if got := fake.Reactions(shop, id); !slices.Equal(got, reactions("confused")) {
 		t.Errorf("reactions = %+v", got)
 	}
+}
+
+func TestAReviewCommentWrittenAgainInAnUnresolvedThreadGetsEyes(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
+	root := fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier.")
+	fake.ResolveReviewThread(root)
+	declined := fake.AddReviewComment(shop, 42, root, "owner", "Rename it anyway.")
+	waitForReactions(t, fake, declined, reactions("confused"))
+
+	fake.UnresolveReviewThread(root)
+	again := fake.AddReviewComment(shop, 42, root, "owner", "Rename it anyway.")
+
+	waitForReactions(t, fake, again, reactions("eyes"))
 }
 
 func TestACommentOfAnUntrustedUserOrOfATrustedBotOnAPullRequestGetsNoReaction(t *testing.T) {
