@@ -25,7 +25,7 @@ export function TopBar({
   return createPortal(
     <>
       {back && <BackButton parent={back} onBack={onBack} />}
-      <h1 className={cn("min-w-0 truncate font-semibold", !back && "pl-2")}>{title}</h1>
+      <h1 className={cn("min-w-0 truncate text-base font-semibold", !back && "pl-2")}>{title}</h1>
       {children}
     </>,
     topBar,
