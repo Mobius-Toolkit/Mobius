@@ -305,6 +305,13 @@ func TestTheClaudeCodeMemoryOfALeadIsInTheDirectoryOfItsProject(t *testing.T) {
 	}
 }
 
+func TestTheClaudeCodeMemoryDirectoryReplacesEachCharacterThatIsNotALetterOrADigit(t *testing.T) {
+	got := engine.ClaudeMemoryDir("/home/john_doe", "/home/john_doe/my data/leads/O/my_repo/12")
+	if want := "/home/john_doe/.claude/projects/-home-john-doe-my-data-leads-O-my-repo-12/memory"; got != want {
+		t.Errorf("directory = %s, want %s", got, want)
+	}
+}
+
 func writeNotes(t *testing.T, dir, name, text string) string {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o750); err != nil {

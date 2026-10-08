@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -166,9 +167,11 @@ func (e *Engine) memoryHistory(ctx context.Context, repository string) (string, 
 	return section.String(), nil
 }
 
+var notAlphanumeric = regexp.MustCompile(`[^a-zA-Z0-9]`)
+
 // claudeMemoryDir gives the directory of the Claude Code memory of the Lead with the directory leadDir.
 func claudeMemoryDir(home, leadDir string) string {
-	return filepath.Join(home, ".claude", "projects", strings.NewReplacer("/", "-", ".", "-").Replace(leadDir), "memory")
+	return filepath.Join(home, ".claude", "projects", notAlphanumeric.ReplaceAllString(leadDir, "-"), "memory")
 }
 
 // leadMemories gives the .md files of each Lead of repository as prompt sections. A Lead has a section only when one
