@@ -675,6 +675,8 @@ export interface Workstream {
   brief: string;
   /** Number is the number of the Workstream issue */
   number: number;
+  /** ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it */
+  readyToMerge: boolean;
   /** Repository is the repository of the Workstream issue, as "owner/name" */
   repository: string;
   /** Title is the title of the Workstream issue */
@@ -885,6 +887,10 @@ export type LiveEvents = {
 } | {
   data: WorkstreamRef;
   event: 'workstreamCreated';
+  id?: string;
+} | {
+  data: { [key: string]: unknown };
+  event: 'ping';
   id?: string;
 };
 

@@ -33,6 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { onEvent } from "@/lib/events";
 import { fitImage, maxImages } from "@/lib/images";
 import { LoginContext } from "@/lib/login";
+import { atEnd } from "@/lib/scroll";
 import { clock } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
@@ -50,10 +51,6 @@ function upsert(list: ChatMessage[], message: ChatMessage) {
   return [...list.filter((other) => other.id !== message.id), message].toSorted(
     (a, b) => a.id - b.id,
   );
-}
-
-function atEnd(list: HTMLElement) {
-  return list.scrollHeight - list.scrollTop - list.clientHeight < 40;
 }
 
 function Message({ message }: { message: ChatMessage }) {

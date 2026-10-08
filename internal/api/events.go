@@ -17,6 +17,9 @@ const (
 	pollInterval = time.Second
 )
 
+// pingInterval is the time between two ping events. The client connects again after two intervals with no ping.
+var pingInterval = 15 * time.Second
+
 // StreamEventsRequest is the request of StreamEvents.
 type StreamEventsRequest struct {
 	Headers struct {
@@ -72,6 +75,8 @@ type LiveEvents struct {
 	Inbox *InboxItem `gork:"inbox"`
 	// WorkstreamCreated is a Workstream that the Triager chat created, so the client can open it
 	WorkstreamCreated *WorkstreamRef `gork:"workstreamCreated"`
+	// Ping has no data. The server sends it at a fixed interval, so the client can find a connection that is dead
+	Ping *struct{} `gork:"ping"`
 }
 
 // ChatState is the state of a chat.
@@ -100,6 +105,7 @@ type WorkstreamRef struct {
 // each new or changed Transcript row, each change of the drain, each start and failure of an upgrade,
 // each change of the Workstream list, each new or longer chat message, each new unread count, each change of the
 // state of a chat, each new or dismissed Inbox item, and each Workstream that the Triager chat created.
+// It also sends a ping at a fixed interval.
 // When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities.
 // When the client does not read the session changes fast enough, the stream ends.
 func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, stream *api.Stream[LiveEvents]) error {
@@ -120,6 +126,8 @@ func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, st
 	}
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
+	pings := time.NewTicker(pingInterval)
+	defer pings.Stop()
 	for {
 		for _, e := range events {
 			if err := sendActivity(stream, e); err != nil {
@@ -136,6 +144,10 @@ func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, st
 				return nil
 			}
 			if err := h.sendChange(stream, change); err != nil {
+				return err
+			}
+		case <-pings.C:
+			if err := stream.Send(LiveEvents{Ping: &struct{}{}}); err != nil {
 				return err
 			}
 		case <-ticker.C:

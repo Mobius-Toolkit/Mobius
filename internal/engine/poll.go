@@ -127,7 +127,7 @@ func (e *Engine) recover(ctx context.Context, repository github.Repository) erro
 		// The poll gives the items to a new Judge.
 		case JudgeRole:
 			before := cmp.Or(task.WorkerInput.String, "reviewed")
-			_, err = e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: before, ID: task.ID, FromState: "working"})
+			_, err = e.setTaskState(ctx, store.SetTaskStateParams{State: before, ID: task.ID, FromState: "working"})
 		}
 		if err != nil {
 			log.Printf("start the %s of %s#%d again: %v", task.Worker.String, repository.FullName, task.Issue, err)
@@ -145,6 +145,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 		}
 	}
 	if err := e.changedIssues(ctx, repository); err != nil {
+		return err
+	}
+	if err := e.startHeldTriagers(ctx, repository); err != nil {
 		return err
 	}
 	if err := e.dispatchReady(ctx, repository); err != nil {

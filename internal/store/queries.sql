@@ -4,7 +4,9 @@ SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS 
                WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number)
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
                        WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number
-                         AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed
+                         AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
+       CAST(EXISTS (SELECT 1 FROM tasks t
+               WHERE t.repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
 FROM copied_workstreams w
 ORDER BY w.repository, w.number DESC;
 
@@ -417,6 +419,16 @@ ORDER BY i.repository, i.workstream, i.number;
 
 -- name: AddMemoryVersion :exec
 INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?);
+
+-- name: HoldTriager :exec
+INSERT INTO held_triagers (repository, issue) VALUES (?, ?)
+ON CONFLICT (repository, issue) DO NOTHING;
+
+-- name: ListHeldTriagers :many
+SELECT issue FROM held_triagers WHERE repository = ? ORDER BY issue;
+
+-- name: ReleaseTriager :exec
+DELETE FROM held_triagers WHERE repository = ? AND issue = ?;
 
 -- name: ListMemoryVersions :many
 SELECT id, time, author, text FROM memory_versions WHERE repository = ? ORDER BY id DESC;
