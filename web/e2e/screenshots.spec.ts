@@ -96,6 +96,7 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain),
     main.getByText("Seasonal prices"),
     main.getByRole("img", { name: "Autopilot" }),
+    main.getByRole("img", { name: "Agent running" }),
     main.getByText("done"),
     main.getByText("needs you"),
   ]);

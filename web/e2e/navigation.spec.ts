@@ -275,6 +275,54 @@ test("a Workstream with Autopilot on shows the Autopilot icon", async ({ page })
   );
 });
 
+test("a Workstream with an agent that works shows the dot, and a Workstream with no agent does not", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const row = (title: string) => main.getByRole("link").filter({ hasText: title });
+  const dot = (title: string) => row(title).getByRole("img", { name: "Agent running" });
+
+  await page.goto("/workstreams");
+  await expect(dot("Integrate loyalty plans")).toBeVisible();
+  await expect(row("Early renewals")).toBeVisible();
+  await expect(dot("Early renewals")).toHaveCount(0);
+});
+
+test("a Workstream with only a paused agent shows no dot", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.route("**/api/agents", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          count: 1,
+          max: 8,
+          groups: [
+            {
+              name: "Implementer",
+              count: 1,
+              max: 3,
+              agents: [
+                {
+                  agent: {
+                    repository: "owner/shop",
+                    workstream: 14,
+                    queueReason: "paused until 2026-09-28 12:00 UTC",
+                    working: false,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    }),
+  );
+
+  await page.goto("/workstreams");
+  await expect(main.getByRole("link").filter({ hasText: "Early renewals" })).toBeVisible();
+  await expect(main.getByRole("img", { name: "Agent running" })).toHaveCount(0);
+});
+
 test("the agents page shows the start time of an agent after the repository", async ({ page }) => {
   await page.goto("/agents");
   await expect(
