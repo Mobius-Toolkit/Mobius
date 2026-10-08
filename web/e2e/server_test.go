@@ -434,7 +434,7 @@ func TestServer(t *testing.T) {
 	held := implementerSpec(t, server, 42)
 	go func() { _, _ = server.Engine.Start(ctx, held) }()
 	testkit.WaitFor(t, func() bool {
-		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_reason <> ''", "2026-09-28T09:30:00Z")
+		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_reason = 'Mobius prepares an upgrade'", "2026-09-28T09:30:00Z")
 		if err != nil {
 			t.Fatal(err)
 		}
