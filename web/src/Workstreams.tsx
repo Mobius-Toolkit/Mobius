@@ -1,9 +1,9 @@
-import { Link } from "@tanstack/react-router";
 import { GitPullRequestArrowIcon, PlaneIcon } from "lucide-react";
 import type { Unread, Workstream } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ErrorBadge, inset, LinkRow, List, PageHeader } from "@/components/page";
 import { unreadCount } from "@/lib/unread";
+import { cn } from "@/lib/utils";
 import {
   chatParams,
   organizationWorkstreams,
@@ -77,35 +77,24 @@ export function Workstreams({
   return (
     <>
       <TopBar title="Workstreams" />
-      <Card>
-        <CardHeader className="max-md:hidden">
-          <CardTitle>Workstreams</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {workstreams.error && <Badge variant="destructive">{workstreams.error}</Badge>}
-          {shown?.length === 0 && (
-            <p className="text-muted-foreground">This organization has no open Workstream.</p>
-          )}
-          <ul className="divide-y">
-            {shown?.map((workstream) => (
-              <li key={`${workstream.repository}#${workstream.number}`}>
-                <Link
-                  to="/workstreams/$owner/$name/$number"
-                  params={chatParams(workstream)}
-                  className="-mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-2 hover:bg-muted"
-                >
-                  <span>{workstream.title}</span>
-                  <WorkstreamBadges
-                    workstream={workstream}
-                    workstreams={workstreams}
-                    unread={unread}
-                  />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
+      <PageHeader title="Workstreams" />
+      {workstreams.error && <ErrorBadge>{workstreams.error}</ErrorBadge>}
+      {shown?.length === 0 && (
+        <p className={cn("text-muted-foreground", inset)}>
+          This organization has no open Workstream.
+        </p>
+      )}
+      <List>
+        {shown?.map((workstream) => (
+          <LinkRow
+            key={`${workstream.repository}#${workstream.number}`}
+            link={{ to: "/workstreams/$owner/$name/$number", params: chatParams(workstream) }}
+            title={workstream.title}
+          >
+            <WorkstreamBadges workstream={workstream} workstreams={workstreams} unread={unread} />
+          </LinkRow>
+        ))}
+      </List>
     </>
   );
 }

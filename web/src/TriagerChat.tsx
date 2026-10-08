@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/page";
 import { Conversation } from "./Conversation";
 import { TopBar } from "./TopBar";
 
@@ -17,14 +17,12 @@ export function TriagerChat({
     return (
       <>
         <TopBar title="Chat" />
-        <Card className="m-4 grow self-start md:m-6">
-          <CardHeader className="max-md:hidden">
-            <CardTitle>Chat</CardTitle>
-          </CardHeader>
-          <CardContent className="text-muted-foreground">
+        <div className="grid grow content-start gap-6 p-4 md:p-6">
+          <PageHeader title="Chat" />
+          <p className="text-muted-foreground">
             Mobius reads the repositories from GitHub. The Triager chat opens after this step.
-          </CardContent>
-        </Card>
+          </p>
+        </div>
       </>
     );
   }

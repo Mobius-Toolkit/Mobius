@@ -1,4 +1,4 @@
-import { ArrowDownIcon, ChevronLeftIcon } from "lucide-react";
+import { ArrowDownIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { use, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   getTranscript,
@@ -9,6 +9,7 @@ import {
   type LiveEvents,
   type TranscriptLine,
 } from "@/api/api.gen";
+import { ErrorBadge, inset, List, PageHeader, rowClass, Section } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,7 +33,7 @@ function AgentRow({ row, onOpen }: { row: ActiveAgent; onOpen: (agent: Agent) =>
       <button
         type="button"
         onClick={() => onOpen(agent)}
-        className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted"
+        className={cn(rowClass, "w-full gap-3 text-left hover:bg-muted")}
       >
         <span className={cn("size-2 shrink-0 rounded-full", state.dot)} />
         <span className="grid min-w-0 grow gap-0.5">
@@ -65,6 +66,7 @@ function AgentRow({ row, onOpen }: { row: ActiveAgent; onOpen: (agent: Agent) =>
           )}
         </span>
         {state.badge && <Badge variant="outline">{state.badge}</Badge>}
+        <ChevronRightIcon className="size-4 shrink-0" />
       </button>
     </li>
   );
@@ -122,16 +124,14 @@ function upsert(list: TranscriptLine[], line: TranscriptLine) {
   return [...list.filter((other) => other.id !== line.id), line].toSorted((a, b) => a.id - b.id);
 }
 
-export function Transcript({
+function TranscriptLog({
   agent,
   source,
-  onClose,
-  page,
+  className,
 }: {
   agent: Agent;
   source?: EventSource;
-  onClose: () => void;
-  page?: boolean;
+  className?: string;
 }) {
   const showLogin = use(LoginContext);
   const [lines, setLines] = useState<TranscriptLine[]>();
@@ -186,8 +186,59 @@ export function Transcript({
   }, [lines]);
 
   return (
+    <div className={cn("flex min-h-0 grow flex-col gap-4", className)}>
+      {error && <Badge variant="destructive">{error}</Badge>}
+      <div className="relative flex min-h-0 grow flex-col">
+        <ul
+          ref={listRef}
+          onScroll={(event) => {
+            pinned.current = atEnd(event.currentTarget);
+            if (pinned.current) {
+              setBehind(false);
+            }
+          }}
+          className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-2 overflow-y-auto"
+        >
+          {lines?.map((line) => (
+            <TranscriptEntry key={line.id} line={line} />
+          ))}
+        </ul>
+        {behind && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full shadow-md"
+            onClick={() => {
+              const list = listRef.current;
+              if (list) {
+                list.scrollTop = list.scrollHeight;
+              }
+              pinned.current = true;
+              setBehind(false);
+            }}
+          >
+            <ArrowDownIcon />
+            New messages
+          </Button>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground">Read only. The Owner talks only to the Lead.</p>
+    </div>
+  );
+}
+
+export function Transcript({
+  agent,
+  source,
+  onClose,
+}: {
+  agent: Agent;
+  source?: EventSource;
+  onClose: () => void;
+}) {
+  return (
     <Card className="min-h-0 max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-3rem)]">
-      <CardHeader className={page ? "max-md:hidden" : undefined}>
+      <CardHeader>
         <CardTitle className="truncate">
           {agent.name} {agent.title}
         </CardTitle>
@@ -198,45 +249,8 @@ export function Transcript({
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="flex min-h-0 grow flex-col gap-4">
-        {error && <Badge variant="destructive">{error}</Badge>}
-        <div className="relative flex min-h-0 grow flex-col">
-          <ul
-            ref={listRef}
-            onScroll={(event) => {
-              pinned.current = atEnd(event.currentTarget);
-              if (pinned.current) {
-                setBehind(false);
-              }
-            }}
-            className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-2 overflow-y-auto"
-          >
-            {lines?.map((line) => (
-              <TranscriptEntry key={line.id} line={line} />
-            ))}
-          </ul>
-          {behind && (
-            <Button
-              variant="secondary"
-              size="sm"
-              className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full shadow-md"
-              onClick={() => {
-                const list = listRef.current;
-                if (list) {
-                  list.scrollTop = list.scrollHeight;
-                }
-                pinned.current = true;
-                setBehind(false);
-              }}
-            >
-              <ArrowDownIcon />
-              New messages
-            </Button>
-          )}
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Read only. The Owner talks only to the Lead.
-        </p>
+      <CardContent className="flex min-h-0 grow flex-col">
+        <TranscriptLog agent={agent} source={source} />
       </CardContent>
     </Card>
   );
@@ -292,33 +306,39 @@ export function Agents({ source }: { source?: EventSource }) {
         )}
       </TopBar>
       {selected ? (
-        <Transcript agent={selected} source={source} onClose={() => setSelected(undefined)} page />
+        <>
+          <PageHeader title={`${selected.name} ${selected.title}`}>
+            <Button variant="ghost" onClick={() => setSelected(undefined)}>
+              <ChevronLeftIcon />
+              Agents
+            </Button>
+          </PageHeader>
+          <TranscriptLog
+            agent={selected}
+            source={source}
+            className={cn(inset, "max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-3rem)]")}
+          />
+        </>
       ) : (
-        <Card>
-          <CardHeader className="max-md:hidden">
-            <CardTitle>Agents</CardTitle>
+        <>
+          <PageHeader title="Agents">
             {agents && (
-              <CardAction className="text-muted-foreground">
+              <span className="text-muted-foreground">
                 {agents.count} / {agents.max}
-              </CardAction>
+              </span>
             )}
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            {error && <Badge variant="destructive">{error}</Badge>}
-            {agents?.groups.map((group) => (
-              <section key={group.name} className="grid gap-1">
-                <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  {group.name} {group.count} / {group.max}
-                </h3>
-                <ul>
-                  {group.agents.map((row) => (
-                    <AgentRow key={row.agent.id} row={row} onOpen={setSelected} />
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </CardContent>
-        </Card>
+          </PageHeader>
+          {error && <ErrorBadge>{error}</ErrorBadge>}
+          {agents?.groups.map((group) => (
+            <Section key={group.name} title={`${group.name} ${group.count} / ${group.max}`}>
+              <List>
+                {group.agents.map((row) => (
+                  <AgentRow key={row.agent.id} row={row} onOpen={setSelected} />
+                ))}
+              </List>
+            </Section>
+          ))}
+        </>
       )}
     </>
   );
