@@ -32,7 +32,8 @@ const errorMessages: Record<string, string> = {
 
 // The hook that receives the events of the run.
 type Target = {
-  onText: (text: string, first: boolean, detach: () => string) => void;
+  onText: (text: string, first: boolean) => void;
+  touched: () => boolean;
   setListening: (listening: boolean) => void;
   setError: (error: string) => void;
 };
@@ -58,13 +59,14 @@ const state = {
   lastFinal: "",
   // The voice text of one recording is the final texts of all its runs and the draft of the last run.
   finals: [] as string[],
-  // The interim text that no final result has replaced.
-  draft: "",
-  // The words at the start of the draft that the field shows in an older place. A touch of the field sets them.
-  skip: 0,
-  // What the field shows: the number of final texts, and the number of words of the draft that is not skipped.
-  shownFinals: 0,
-  shownWords: 0,
+  // The interim texts of the results that no final result has replaced. The text at index i belongs to the result
+  // at index added + i.
+  draft: [] as string[],
+  // The number of words of each result, by the index of the result, that the field shows in an older place. A touch
+  // of the field sets them.
+  skips: [] as number[],
+  // The number of words of each result of the draft at the last result event, by the index of the result.
+  shown: [] as number[],
   // The voice text that the owner got last.
   spoken: "",
   // True until the owner gets the first voice text of the recording.
@@ -103,7 +105,16 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-const visibleDraft = () => state.draft.split(" ").slice(state.skip).join(" ");
+const visibleDraft = () =>
+  state.draft
+    .map((part, i) =>
+      part
+        .split(" ")
+        .slice(state.skips[state.added + i] ?? 0)
+        .join(" "),
+    )
+    .filter(Boolean)
+    .join(" ");
 
 const voiceText = () => [...state.finals, visibleDraft()].filter(Boolean).join(" ");
 
@@ -111,6 +122,7 @@ const begin = (live: Recognition) => {
   live.lang = navigator.language;
   state.owner = state.mounted;
   state.added = 0;
+  state.skips = [];
   state.stale = false;
   state.lastFinal = "";
   state.canRestart = false;
@@ -126,19 +138,13 @@ const begin = (live: Recognition) => {
 };
 
 // After the user touches the field, the voice text starts again at the touched place. The field already shows the
-// final texts and the draft words that it got, so the new voice text has only the words after them.
+// final texts and the words of the draft that the last result event gave, so the new voice text has only the words
+// after them.
 const detach = () => {
-  state.finals = state.finals.slice(state.shownFinals);
-  if (state.finals.length > 0) {
-    state.finals[0] = state.finals[0].split(" ").slice(state.shownWords).join(" ");
-    state.skip = 0;
-  } else if (state.draft) {
-    state.skip += state.shownWords;
-  } else {
-    state.skip = 0;
-  }
-  state.spoken = voiceText();
-  return state.spoken;
+  state.finals = [];
+  state.skips = state.shown;
+  state.spoken = "";
+  state.first = true;
 };
 
 const create = (Ctor: new () => Recognition) => {
@@ -148,34 +154,39 @@ const create = (Ctor: new () => Recognition) => {
     if (state.stale) {
       return;
     }
+    if (!state.first && state.owner?.touched()) {
+      detach();
+    }
     while (state.added < event.results.length && event.results[state.added].isFinal) {
       const transcript = event.results[state.added][0].transcript.trim();
       if (transcript !== state.lastFinal) {
         const piece = transcript.startsWith(`${state.lastFinal} `)
           ? transcript.slice(state.lastFinal.length).trim()
           : transcript;
-        const fresh = piece.split(" ").slice(state.skip).join(" ");
+        const fresh = piece
+          .split(" ")
+          .slice(state.skips[state.added] ?? 0)
+          .join(" ");
         if (fresh) {
           state.finals.push(fresh);
         }
         state.lastFinal = transcript;
       }
-      state.skip = 0;
       state.added++;
     }
     state.draft = Array.from(event.results)
       .slice(state.added)
-      .map((part) => part[0].transcript.trim())
-      .join(" ")
-      .trim();
+      .map((part) => part[0].transcript.trim());
     const text = voiceText();
     if (text !== state.spoken) {
       state.spoken = text;
-      state.owner?.onText(text, state.first, detach);
+      state.owner?.onText(text, state.first);
       state.first = false;
     }
-    state.shownFinals = state.finals.length;
-    state.shownWords = visibleDraft() === "" ? 0 : visibleDraft().split(" ").length;
+    state.shown = [];
+    state.draft.forEach((part, i) => {
+      state.shown[state.added + i] = part.split(" ").length;
+    });
   });
   live.addEventListener("audiostart", () => {
     state.canRestart = true;
@@ -194,10 +205,8 @@ const create = (Ctor: new () => Recognition) => {
     if (rest) {
       state.finals.push(rest);
     }
-    state.draft = "";
-    state.skip = 0;
-    state.shownFinals = state.finals.length;
-    state.shownWords = 0;
+    state.draft = [];
+    state.shown = [];
     if (state.wanted && state.canRestart) {
       begin(live);
       return;
@@ -217,20 +226,24 @@ const abortRun = () => {
 // useVoice gives the voice text of the recording to onText after each result. The voice text has the final texts and
 // the draft. first is true for the first voice text of a recording. When a run ends, its draft becomes a final text.
 // The voice input stays on until toggle stops it, abort runs or an error occurs. useVoice returns the error of the
-// voice input, or '' when the voice input starts or abort runs. The unmount stops the voice input. onText calls its
-// third argument when the user has touched the field. That call gives the voice text that the field does not show.
-export function useVoice(onText: (text: string, first: boolean, detach: () => string) => void) {
+// voice input, or '' when the voice input starts or abort runs. The unmount stops the voice input. touched tells
+// whether the user has changed the field or the cursor since the last onText. After a touch, the next voice text has
+// only the words that the field does not show, and first is true.
+export function useVoice(onText: (text: string, first: boolean) => void, touched: () => boolean) {
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
   const latestOnText = useRef(onText);
+  const latestTouched = useRef(touched);
 
   useEffect(() => {
     latestOnText.current = onText;
+    latestTouched.current = touched;
   });
 
   useEffect(() => {
     const target: Target = {
-      onText: (text, first, cut) => latestOnText.current(text, first, cut),
+      onText: (text, first) => latestOnText.current(text, first),
+      touched: () => latestTouched.current(),
       setListening,
       setError,
     };
@@ -260,11 +273,10 @@ export function useVoice(onText: (text: string, first: boolean, detach: () => st
     }
     state.recognition ??= create(Speech);
     state.finals = [];
-    state.draft = "";
+    state.draft = [];
+    state.shown = [];
+    state.skips = [];
     state.spoken = "";
-    state.skip = 0;
-    state.shownFinals = 0;
-    state.shownWords = 0;
     state.first = true;
     state.wanted = true;
     holdScreen();
