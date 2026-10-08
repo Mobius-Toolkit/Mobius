@@ -17,15 +17,21 @@ const healthy = {
   repositories: [{ repository: "shop", labels: [label] }],
 };
 
-async function routeCheckup(page: Page, tools: unknown[], checkups: Record<string, unknown>) {
+async function routeCheckup(
+  page: Page,
+  tools: unknown[],
+  checkups: Record<string, unknown>,
+  holds: Record<string, Promise<unknown>> = {},
+) {
   await page.route(
     (url) => url.pathname === "/api/checkup/tools",
     (route) => route.fulfill({ json: { data: tools } }),
   );
   await page.route(
     (url) => url.pathname === "/api/checkup",
-    (route) => {
+    async (route) => {
       const organization = new URL(route.request().url()).searchParams.get("organization") ?? "";
+      await holds[organization];
       return route.fulfill({ json: { data: checkups[organization] } });
     },
   );
@@ -58,26 +64,45 @@ test("the Checkup page shows a needs you badge on each row with a problem", asyn
   await expect(row("Tools").getByText("needs you")).toBeVisible();
   await expect(row("App permissions", "owner").getByText("needs you")).toBeVisible();
   await expect(row("Labels", "owner").getByText("needs you")).toBeHidden();
-  await expect(row("App permissions", "plants").getByText("needs you")).toBeHidden();
   await expect(row("Labels", "plants").getByText("needs you")).toBeVisible();
+  await expect(row("App permissions", "plants").getByText("needs you")).toBeHidden();
 });
 
 test("the Checkup page shows no badge on a row with no problem", async ({ page }) => {
   const main = page.getByRole("main");
-  await routeCheckup(page, [tool], { owner: healthy, plants: healthy });
   const loaded = Promise.all(
-    [
-      "/api/checkup/tools",
-      "/api/checkup?organization=owner",
-      "/api/checkup?organization=plants",
-    ].map((path) => page.waitForResponse((res) => res.url().endsWith(path))),
+    ["/api/checkup/tools", "/api/checkup?organization=owner"].map((path) =>
+      page.waitForResponse((res) => res.url().endsWith(path)),
+    ),
+  );
+  await routeCheckup(
+    page,
+    [tool],
+    {
+      owner: healthy,
+      plants: {
+        ...healthy,
+        repositories: [
+          {
+            repository: "garden",
+            labels: [{ ...label, status: "wrong-case", found: "Mobius:Ready" }],
+          },
+        ],
+      },
+    },
+    { plants: loaded },
   );
 
   await page.goto("/settings/checkup");
 
-  await loaded;
-  await expect(main.getByRole("link", { name: "Labels" })).toHaveCount(2);
-  await expect(main.getByText("needs you")).toBeHidden();
+  await expect(
+    main
+      .locator("section")
+      .filter({ hasText: "plants" })
+      .getByRole("link", { name: "Labels" })
+      .getByText("needs you"),
+  ).toBeVisible();
+  await expect(main.getByText("needs you")).toHaveCount(1);
 });
 
 test("the Checkup page shows no badge when a request fails", async ({ page }) => {
