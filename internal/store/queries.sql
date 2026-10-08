@@ -497,14 +497,6 @@ WHERE s.repository = sqlc.arg(repository) AND s.role <> 'curator' AND t.kind = '
   AND substr(json_extract(t.json, '$.text'), 1, length(CAST(sqlc.arg(prefix) AS TEXT))) = CAST(sqlc.arg(prefix) AS TEXT)
 ORDER BY t.id;
 
--- name: ListRepeatedFixRoundTasksSince :many
-SELECT t.issue, t.fix_rounds FROM tasks t
-WHERE t.repository = sqlc.arg(repository) AND t.fix_rounds >= sqlc.arg(fix_rounds)
-  AND EXISTS (SELECT 1 FROM sessions s
-              WHERE s.repository = t.repository AND s.issue = t.issue AND s.role = 'implementer'
-                AND julianday(s.started_at) > julianday(CAST(sqlc.arg(since) AS TEXT)))
-ORDER BY t.id;
-
 -- name: IsCommentAnswered :one
 SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review = ? AND comment = ?);
 

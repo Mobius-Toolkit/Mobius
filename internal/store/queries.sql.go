@@ -2422,49 +2422,6 @@ func (q *Queries) ListRecentMemoryVersions(ctx context.Context, repository strin
 	return items, nil
 }
 
-const listRepeatedFixRoundTasksSince = `-- name: ListRepeatedFixRoundTasksSince :many
-SELECT t.issue, t.fix_rounds FROM tasks t
-WHERE t.repository = ?1 AND t.fix_rounds >= ?2
-  AND EXISTS (SELECT 1 FROM sessions s
-              WHERE s.repository = t.repository AND s.issue = t.issue AND s.role = 'implementer'
-                AND julianday(s.started_at) > julianday(CAST(?3 AS TEXT)))
-ORDER BY t.id
-`
-
-type ListRepeatedFixRoundTasksSinceParams struct {
-	Repository string
-	FixRounds  int64
-	Since      string
-}
-
-type ListRepeatedFixRoundTasksSinceRow struct {
-	Issue     int64
-	FixRounds int64
-}
-
-func (q *Queries) ListRepeatedFixRoundTasksSince(ctx context.Context, arg ListRepeatedFixRoundTasksSinceParams) ([]ListRepeatedFixRoundTasksSinceRow, error) {
-	rows, err := q.db.QueryContext(ctx, listRepeatedFixRoundTasksSince, arg.Repository, arg.FixRounds, arg.Since)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListRepeatedFixRoundTasksSinceRow
-	for rows.Next() {
-		var i ListRepeatedFixRoundTasksSinceRow
-		if err := rows.Scan(&i.Issue, &i.FixRounds); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listRetryPromptsSince = `-- name: ListRetryPromptsSince :many
 SELECT s.role, s.issue, t.time, CAST(json_extract(t.json, '$.text') AS TEXT) AS text FROM transcript t
 JOIN sessions s ON s.id = t.session

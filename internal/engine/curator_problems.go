@@ -68,6 +68,7 @@ func (e *Engine) toolCallItems(ctx context.Context, repository, since string) (c
 	}
 	leadFindings := map[int64][]string{}
 	reviewFindings := map[int64][]string{}
+	var fixRoundIssues []int64
 	for _, call := range calls {
 		var row struct {
 			Tool      string          `json:"tool"`
@@ -103,16 +104,18 @@ func (e *Engine) toolCallItems(ctx context.Context, repository, since string) (c
 			if err := json.Unmarshal(row.Arguments, &input); err != nil {
 				return nil, nil, nil, err
 			}
+			if _, seen := leadFindings[input.N]; !seen {
+				fixRoundIssues = append(fixRoundIssues, input.N)
+			}
 			leadFindings[input.N] = append(leadFindings[input.N], "Findings of the Lead, "+call.Time+":\n"+clip(input.Findings))
 		}
 	}
-	tasks, err := e.queries.ListRepeatedFixRoundTasksSince(ctx, store.ListRepeatedFixRoundTasksSinceParams{Repository: repository, FixRounds: curatorRepeatedFixRounds, Since: since})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	for _, task := range tasks {
-		findings := slices.Concat(leadFindings[task.Issue], reviewFindings[task.Issue])
-		fixRounds = append(fixRounds, problemItem(fmt.Sprintf("Issue #%d, %d fix rounds", task.Issue, task.FixRounds), strings.Join(findings, "\n\n")))
+	for _, issue := range fixRoundIssues {
+		if len(leadFindings[issue]) < curatorRepeatedFixRounds {
+			continue
+		}
+		findings := slices.Concat(leadFindings[issue], reviewFindings[issue])
+		fixRounds = append(fixRounds, problemItem(fmt.Sprintf("Issue #%d, %d fix rounds", issue, len(leadFindings[issue])), strings.Join(findings, "\n\n")))
 	}
 	return cannotDos, reviews, fixRounds, nil
 }

@@ -449,10 +449,6 @@ func addProblems(t *testing.T, server *testserver.Server, marker string, at time
 		"body":     "Review summary " + marker,
 		"comments": []map[string]any{{"path": "plan.go", "line": 7, "body": "Finding " + marker}},
 	})
-	queuedAt := stamp(at)
-	if _, err := server.DB.Exec("INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, queued_at, fix_rounds) VALUES (?, 41, 12, 'ended', ?, ?, 2)", shop, queuedAt, queuedAt); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // nextCuratorPrompt ends 10 Lead sessions, waits for the count-th Curator session to end, and gives its first prompt.
