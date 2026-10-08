@@ -116,6 +116,17 @@ const visibleDraft = () =>
     .filter(Boolean)
     .join(" ");
 
+const withoutLastFinal = (transcript: string) => {
+  if (transcript === state.lastFinal) {
+    return "";
+  }
+  return transcript.startsWith(`${state.lastFinal} `)
+    ? transcript.slice(state.lastFinal.length).trim()
+    : transcript;
+};
+
+const wordCount = (text: string) => (text ? text.split(" ").length : 0);
+
 const voiceText = () => [...state.finals, visibleDraft()].filter(Boolean).join(" ");
 
 const begin = (live: Recognition) => {
@@ -159,24 +170,21 @@ const create = (Ctor: new () => Recognition) => {
     }
     while (state.added < event.results.length && event.results[state.added].isFinal) {
       const transcript = event.results[state.added][0].transcript.trim();
-      if (transcript !== state.lastFinal) {
-        const piece = transcript.startsWith(`${state.lastFinal} `)
-          ? transcript.slice(state.lastFinal.length).trim()
-          : transcript;
-        const fresh = piece
-          .split(" ")
-          .slice(state.skips[state.added] ?? 0)
-          .join(" ");
-        if (fresh) {
-          state.finals.push(fresh);
-        }
-        state.lastFinal = transcript;
+      const fresh = withoutLastFinal(transcript)
+        .split(" ")
+        .slice(state.skips[state.added] ?? 0)
+        .join(" ");
+      if (fresh) {
+        state.finals.push(fresh);
       }
+      state.lastFinal = transcript;
       state.added++;
     }
     state.draft = Array.from(event.results)
       .slice(state.added)
-      .map((part) => part[0].transcript.trim());
+      .map((part, i) =>
+        i === 0 ? withoutLastFinal(part[0].transcript.trim()) : part[0].transcript.trim(),
+      );
     const text = voiceText();
     if (text !== state.spoken) {
       state.spoken = text;
@@ -185,7 +193,7 @@ const create = (Ctor: new () => Recognition) => {
     }
     state.shown = [];
     state.draft.forEach((part, i) => {
-      state.shown[state.added + i] = part.split(" ").length;
+      state.shown[state.added + i] = wordCount(part);
     });
   });
   live.addEventListener("audiostart", () => {

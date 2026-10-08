@@ -811,7 +811,7 @@ test("a final result that repeats the final result before it adds only the new t
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
-  await result(page, "red", "red");
+  await result(page, "red", "red...");
   await expect(input).toHaveValue("red");
   await result(page, "red", "red", "red roses");
   await expect(input).toHaveValue("red roses");
@@ -989,6 +989,33 @@ test("a draft with more than one result does not repeat its words after a touch"
   await input.pressSequentially(" now");
   await result(page, "hello world", "how are...");
   await expect(input).toHaveValue("hello world how now are");
+});
+
+test("a draft that repeats the last final text does not show the repeated words", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red", "red...");
+  await expect(input).toHaveValue("red");
+  await result(page, "red", "red roses...");
+  await expect(input).toHaveValue("red roses");
+});
+
+test("a run that ends with a draft that repeats the last final text keeps the words one time", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red", "red roses...");
+  await emit(page, "end");
+  await expect(input).toHaveValue("red roses");
 });
 
 test("the field scrolls to the voice text that goes in at the cursor before other text", async ({
