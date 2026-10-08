@@ -349,6 +349,7 @@ test("screenshots", async ({ page }) => {
     main.getByRole("link", { name: "Tools" }),
     main.getByRole("heading", { name: "owner", exact: true }),
     main.getByRole("heading", { name: "plants", exact: true }),
+    main.getByText("needs you").nth(3),
   ]);
   await screenshot(page, "checkup-tools", "/settings/checkup/tools", (device) => [
     ...frame(device, release),
