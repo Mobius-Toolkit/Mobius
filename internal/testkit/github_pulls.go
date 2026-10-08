@@ -53,13 +53,28 @@ type Thread struct {
 	Comments []Comment
 }
 
-// AddReview adds a submitted review of author with state, for example "APPROVED", to the pull request.
-func (g *FakeGitHub) AddReview(repository string, number int64, author, state, body string) {
+// AddReview adds a submitted review of author with state, for example "APPROVED", to the pull request, and gives its
+// id.
+func (g *FakeGitHub) AddReview(repository string, number int64, author, state, body string) int64 {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	found := g.issues[issueKey{repository, number}]
 	g.lastReviewID++
 	found.reviews = append(found.reviews, reviewJSON{ID: g.lastReviewID, User: loginJSON{author}, CommitID: g.headOf(repository, number), Body: body, State: state, SubmittedAt: timestamp(g.tick())})
+	found.updatedAt = g.tick()
+	return g.lastReviewID
+}
+
+// DismissReview sets the state of the review id of the pull request to DISMISSED.
+func (g *FakeGitHub) DismissReview(repository string, number, id int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	found := g.issues[issueKey{repository, number}]
+	for i := range found.reviews {
+		if found.reviews[i].ID == id {
+			found.reviews[i].State = "DISMISSED"
+		}
+	}
 	found.updatedAt = g.tick()
 }
 
@@ -69,6 +84,14 @@ func (g *FakeGitHub) AddReviewComment(repository string, number, inReplyTo int64
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.reviewComment(issueKey{repository, number}, inReplyTo, author, InlineComment{"src/plan.rs", 12, body}).ID
+}
+
+// ResolveReviewThread marks the review thread that starts with the comment root as resolved. The update time of the
+// pull request does not change, as on GitHub.
+func (g *FakeGitHub) ResolveReviewThread(root int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.resolvedThreads[root] = true
 }
 
 // UnresolveReviewThread marks the review thread that starts with the comment root as not resolved.

@@ -417,3 +417,9 @@ ORDER BY i.repository, i.workstream, i.number;
 
 -- name: AddMemoryVersion :exec
 INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?);
+
+-- name: SetTaskApprovedReview :exec
+UPDATE tasks SET approved_review = ? WHERE id = ?;
+
+-- name: SetTaskRefusedReview :exec
+UPDATE tasks SET refused_review = ? WHERE id = ?;

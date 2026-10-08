@@ -592,3 +592,33 @@ func TestTheLatestReleaseOfMobiusNeedsNoToken(t *testing.T) {
 		t.Errorf("release = %d %+v", got.StatusCode, release)
 	}
 }
+
+func TestAMergeAddsOneSquashCommitToTheBaseAndRefusesAWrongHeadAndAClosedPullRequest(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddRepository("owner/shop")
+	github.PushCommit("owner/shop", "feature", "Add plans")
+	number := github.OpenPullRequest("owner/shop", "Add plans", "feature")
+	remote := github.Remote("owner/shop")
+	head := Git(t, remote, "rev-parse", "feature")
+	installation := installationToken(t, github)
+	merge := fmt.Sprintf("%s/repos/owner/shop/pulls/%d/merge", github.URL, number)
+
+	if response := send(t, http.MethodPut, merge, installation, `{"merge_method": "squash", "sha": "0000000000000000000000000000000000000000"}`, nil); response.StatusCode != http.StatusConflict {
+		t.Errorf("status = %d", response.StatusCode)
+	}
+	if response := send(t, http.MethodPut, merge, installation, fmt.Sprintf(`{"merge_method": "squash", "sha": %q}`, head), nil); response.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", response.StatusCode)
+	}
+	if got, want := Git(t, remote, "rev-parse", "main^{tree}"), Git(t, remote, "rev-parse", head+"^{tree}"); got != want {
+		t.Errorf("tree of main = %s, want %s", got, want)
+	}
+	if got := Git(t, remote, "log", "--format=%s", "main"); got != "Add plans\nStart" {
+		t.Errorf("log = %q", got)
+	}
+	if response := send(t, http.MethodPut, merge, installation, fmt.Sprintf(`{"merge_method": "squash", "sha": %q}`, head), nil); response.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d", response.StatusCode)
+	}
+	if got := github.MergeCalls(); got != 3 {
+		t.Errorf("merge calls = %d", got)
+	}
+}

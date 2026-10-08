@@ -107,6 +107,8 @@ type Task struct {
 	ReviewRounds   int64
 	ReviewComment  sql.NullInt64
 	CheckHead      sql.NullString
+	ApprovedReview sql.NullString
+	RefusedReview  sql.NullString
 }
 
 type Transcript struct {

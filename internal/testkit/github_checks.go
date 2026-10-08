@@ -103,6 +103,28 @@ func (g *FakeGitHub) MergePullRequest(repository string, number int64) {
 	found.updatedAt = now
 }
 
+// RefuseMerge makes the pull request refuse a merge with reason, for example for a rule of the base branch. An empty
+// reason lifts the refusal.
+func (g *FakeGitHub) RefuseMerge(repository string, number int64, reason string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.mergeRefusals[issueKey{repository, number}] = reason
+}
+
+// MergeCalls gives the number of requests to merge a pull request.
+func (g *FakeGitHub) MergeCalls() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.mergeCalls
+}
+
+// CheckRunReads gives the number of requests for the check runs of a commit.
+func (g *FakeGitHub) CheckRunReads() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.checkRunReads
+}
+
 // SetCreatedAt sets the creation time of the pull request to seconds after the Unix epoch.
 func (g *FakeGitHub) SetCreatedAt(repository string, number, seconds int64) {
 	g.mu.Lock()
@@ -284,6 +306,57 @@ func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, g.pullRequestJSON(repository(r), number))
 }
 
+// mergePullRequest squash merges the pull request into its base branch: it adds one commit with the merge tree of the
+// base and the head, and sets the pull request to merged. It refuses with status 409 a sha that is not the head, and
+// with status 405 a pull request that is closed, a draft, in conflict, or set to refuse by RefuseMerge.
+func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		SHA           string `json:"sha"`
+		MergeMethod   string `json:"merge_method"`
+		CommitTitle   string `json:"commit_title"`
+		CommitMessage string `json:"commit_message"`
+	}
+	if !decode(w, r, &request) {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.mergeCalls++
+	key, ok := g.issue(w, r)
+	if !ok {
+		return
+	}
+	pull := g.pullRequests[slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == key.repository && pull.Number == key.number })]
+	found := g.issues[key]
+	remote := g.Remote(key.repository)
+	tree, treeErr := gitCommand(remote, "merge-tree", "--write-tree", pull.Base, pull.Head).Output()
+	switch {
+	case request.SHA != g.headOf(key.repository, key.number):
+		message(w, http.StatusConflict, "Head branch was modified. Review and try the merge again.")
+		return
+	case g.mergeRefusals[key] != "":
+		message(w, http.StatusMethodNotAllowed, g.mergeRefusals[key])
+		return
+	case found.state != "open" || pull.Draft || treeErr != nil:
+		message(w, http.StatusMethodNotAllowed, "Pull Request is not mergeable")
+		return
+	}
+	if request.MergeMethod != "squash" {
+		message(w, http.StatusBadRequest, "The fake GitHub merges with merge_method squash only")
+		return
+	}
+	squash, err := gitCommand(remote, "commit-tree", strings.Fields(string(tree))[0], "-p", pull.Base, "-m", pull.Title).Output()
+	if err != nil {
+		g.t.Errorf("commit-tree: %v", err)
+	}
+	sha := strings.TrimSpace(string(squash))
+	g.git(remote, "update-ref", "refs/heads/"+pull.Base, sha)
+	found.state = "closed"
+	found.merged = true
+	found.updatedAt = g.tick()
+	writeJSON(w, http.StatusOK, map[string]any{"sha": sha, "merged": true, "message": "Pull Request successfully merged"})
+}
+
 // markReadyForReview answers the GraphQL mutation markPullRequestReadyForReview. The caller must hold the lock.
 func (g *FakeGitHub) markReadyForReview(w http.ResponseWriter, id string) {
 	index := slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return fmt.Sprintf("PR_%d", pull.Number) == id })
@@ -357,6 +430,7 @@ func (g *FakeGitHub) updateCheckRun(w http.ResponseWriter, r *http.Request) {
 func (g *FakeGitHub) commitCheckRuns(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.checkRunReads++
 	runs := []map[string]any{}
 	for index, run := range g.checkRuns {
 		if run.repository != repository(r) || run.HeadSHA != r.PathValue("sha") {
