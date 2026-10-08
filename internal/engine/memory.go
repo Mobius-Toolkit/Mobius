@@ -28,9 +28,9 @@ func (e *Engine) readMemory(repository string) (string, error) {
 	return string(data), err
 }
 
-// SaveMemory writes text to the memory file of the repository and adds a version with author. It refuses a text of
-// more than maxMemoryLines lines. It does nothing when text is the text of the file.
-func (e *Engine) SaveMemory(ctx context.Context, repository, author, text string) error {
+// SaveMemory writes text to the memory file of the repository and adds a version with author and reason. It refuses a
+// text of more than maxMemoryLines lines. It does nothing when text is the text of the file.
+func (e *Engine) SaveMemory(ctx context.Context, repository, author, reason, text string) error {
 	if lines := strings.Count(strings.TrimSuffix(text, "\n"), "\n") + 1; lines > maxMemoryLines {
 		return fmt.Errorf("memory of %s has %d lines, the maximum is %d", repository, lines, maxMemoryLines)
 	}
@@ -39,7 +39,7 @@ func (e *Engine) SaveMemory(ctx context.Context, repository, author, text string
 		return err
 	}
 	return e.inTx(ctx, func(queries *store.Queries) error {
-		err := queries.AddMemoryVersion(ctx, store.AddMemoryVersionParams{Repository: repository, Time: now(), Author: author, Text: text})
+		err := queries.AddMemoryVersion(ctx, store.AddMemoryVersionParams{Repository: repository, Time: now(), Author: author, Reason: reason, Text: text})
 		if err != nil {
 			return err
 		}

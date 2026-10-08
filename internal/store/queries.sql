@@ -416,7 +416,10 @@ WHERE EXISTS (
 ORDER BY i.repository, i.workstream, i.number;
 
 -- name: AddMemoryVersion :exec
-INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?);
+INSERT INTO memory_versions (repository, time, author, reason, text) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListRecentMemoryVersions :many
+SELECT time, author, reason FROM memory_versions WHERE repository = ? ORDER BY id DESC LIMIT 20;
 
 -- name: CountSessionsEndedSinceCurator :one
 SELECT count(*) FROM sessions s

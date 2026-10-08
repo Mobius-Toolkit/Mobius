@@ -319,13 +319,14 @@ func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) erro
 }
 
 const addMemoryVersion = `-- name: AddMemoryVersion :exec
-INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?)
+INSERT INTO memory_versions (repository, time, author, reason, text) VALUES (?, ?, ?, ?, ?)
 `
 
 type AddMemoryVersionParams struct {
 	Repository string
 	Time       string
 	Author     string
+	Reason     string
 	Text       string
 }
 
@@ -334,6 +335,7 @@ func (q *Queries) AddMemoryVersion(ctx context.Context, arg AddMemoryVersionPara
 		arg.Repository,
 		arg.Time,
 		arg.Author,
+		arg.Reason,
 		arg.Text,
 	)
 	return err
@@ -2090,6 +2092,39 @@ func (q *Queries) ListReadyLeadEvents(ctx context.Context, arg ListReadyLeadEven
 			&i.Issue,
 			&i.Held,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecentMemoryVersions = `-- name: ListRecentMemoryVersions :many
+SELECT time, author, reason FROM memory_versions WHERE repository = ? ORDER BY id DESC LIMIT 20
+`
+
+type ListRecentMemoryVersionsRow struct {
+	Time   string
+	Author string
+	Reason string
+}
+
+func (q *Queries) ListRecentMemoryVersions(ctx context.Context, repository string) ([]ListRecentMemoryVersionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRecentMemoryVersions, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecentMemoryVersionsRow
+	for rows.Next() {
+		var i ListRecentMemoryVersionsRow
+		if err := rows.Scan(&i.Time, &i.Author, &i.Reason); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

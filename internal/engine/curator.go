@@ -25,8 +25,9 @@ const curatorEvery = 10
 type curatorKey int64
 
 type editMemoryInput struct {
-	Old string `json:"old"`
-	New string `json:"new"`
+	Old    string `json:"old"`
+	New    string `json:"new"`
+	Reason string `json:"reason"`
 }
 
 // startCuratorAfterEnds starts a Curator for repository when curatorEvery sessions of the repository ended since the
@@ -134,10 +135,29 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent) error {
 	if err != nil {
 		return err
 	}
+	versions, err := e.memoryHistory(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	return a.Prompt(ctx, curatorPrompt+"\n"+sections+leads, nil)
+	return a.Prompt(ctx, curatorPrompt+"\n"+sections+versions+leads, nil)
+}
+
+// memoryHistory gives the last versions of the memory file of repository as a prompt section, newest first.
+func (e *Engine) memoryHistory(ctx context.Context, repository string) (string, error) {
+	versions, err := e.queries.ListRecentMemoryVersions(ctx, repository)
+	if err != nil || len(versions) == 0 {
+		return "", err
+	}
+	var section strings.Builder
+	section.WriteString("# Last versions of the memory file\n\nThe time, the author and the reason of each version, newest first.\n\n")
+	for _, version := range versions {
+		fmt.Fprintf(&section, "- %s, %s: %s\n", version.Time, version.Author, version.Reason)
+	}
+	section.WriteString("\n")
+	return section.String(), nil
 }
 
 // leadMemories gives the MEMORY.md of each Lead of repository as prompt sections.
@@ -167,8 +187,11 @@ func (e *Engine) leadMemories(repository string) (string, error) {
 }
 
 // editMemory replaces the one occurrence of input.Old in the memory file of the repository of c with input.New. An
-// empty input.Old adds input.New at the end of the file.
+// empty input.Old adds input.New at the end of the file. It saves input.Reason in the version.
 func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, input editMemoryInput) (string, error) {
+	if strings.TrimSpace(input.Reason) == "" {
+		return "", refuse("The reason is empty. Name the type of change and the evidence.")
+	}
 	text, err := e.readMemory(c.repository)
 	if err != nil {
 		return "", err
@@ -188,7 +211,7 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 		}
 		text = strings.Replace(text, input.Old, input.New, 1)
 	}
-	if err := e.SaveMemory(ctx, c.repository, "curator", text); err != nil {
+	if err := e.SaveMemory(ctx, c.repository, "curator", input.Reason, text); err != nil {
 		return "", err
 	}
 	return "Saved the memory file.", nil

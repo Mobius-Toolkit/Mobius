@@ -18,7 +18,7 @@ func TestEachRoleGetsTheSameMemorySectionAfterTheRoleInstructions(t *testing.T) 
 	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+"[[prompts]]\nreply = [\"Plans store the price in cents.\"]\n")
 	fake.CommitFile(shop, ".mobius/roles/implementer.md", "Commit small steps.", "Add the role file")
 	fake.CommitFile(shop, ".mobius/roles/researcher.md", "Name each source.", "Add the role file")
-	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", lesson+"\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", lesson+"\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -69,7 +69,7 @@ func TestASaveAddsOneVersionAndASaveOfTheSameTextAddsNone(t *testing.T) {
 	}
 
 	for _, author := range []string{"curator", "owner"} {
-		if err := server.Engine.SaveMemory(t.Context(), shop, author, lesson); err != nil {
+		if err := server.Engine.SaveMemory(t.Context(), shop, author, "", lesson); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -83,10 +83,10 @@ func TestASaveAddsOneVersionAndASaveOfTheSameTextAddsNone(t *testing.T) {
 func TestASaveRefusesATextOf201Lines(t *testing.T) {
 	server, dataDir := connect(t, testkit.NewFakeGitHub(t), "")
 
-	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", strings.Repeat("A lesson.\n", 200)); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", strings.Repeat("A lesson.\n", 200)); err != nil {
 		t.Fatal(err)
 	}
-	err := server.Engine.SaveMemory(t.Context(), shop, "curator", strings.Repeat("A lesson.\n", 201))
+	err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", strings.Repeat("A lesson.\n", 201))
 
 	var count int
 	if scanErr := server.DB.QueryRow("SELECT count(*) FROM memory_versions").Scan(&count); scanErr != nil {

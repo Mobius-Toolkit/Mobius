@@ -27,19 +27,23 @@ reply = ["Hello"]
 
 [[prompts]]
 when = "Add the lesson"
-call = { tool = "edit_memory", arguments = { old = "", new = "Run make fmt before each commit.\n" } }
+call = { tool = "edit_memory", arguments = { old = "", new = "Run make fmt before each commit.\n", reason = "Add: Workstream 12 repeats the format failure." } }
 
 [[prompts]]
 when = "Edit a missing text"
-call = { tool = "edit_memory", arguments = { old = "Absent.", new = "Present.\n" } }
+call = { tool = "edit_memory", arguments = { old = "Absent.", new = "Present.\n", reason = "Change: issue 41." } }
 
 [[prompts]]
 when = "Edit a repeated text"
-call = { tool = "edit_memory", arguments = { old = "Same.", new = "Different." } }
+call = { tool = "edit_memory", arguments = { old = "Same.", new = "Different.", reason = "Change: issue 41." } }
+
+[[prompts]]
+when = "Add without a reason"
+call = { tool = "edit_memory", arguments = { old = "", new = "No reason.\n", reason = " " } }
 
 [[prompts]]
 when = "Add a line"
-call = { tool = "edit_memory", arguments = { old = "", new = "One more.\n" } }
+call = { tool = "edit_memory", arguments = { old = "", new = "One more.\n", reason = "Add: issue 41." } }
 `
 
 func curatorSessions(t *testing.T, server *testserver.Server) []store.Session {
@@ -73,6 +77,23 @@ func endLeads(t *testing.T, server *testserver.Server, count int) {
 	for range count {
 		end(t, start(t, server, leadSpec(t)), "done")
 	}
+}
+
+func memoryReasons(t *testing.T, server *testserver.Server) (reasons []string) {
+	t.Helper()
+	rows, err := server.DB.Query("SELECT reason FROM memory_versions WHERE repository = ? ORDER BY id", shop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var reason string
+		if err := rows.Scan(&reason); err != nil {
+			t.Fatal(err)
+		}
+		reasons = append(reasons, reason)
+	}
+	return reasons
 }
 
 func memoryVersions(t *testing.T, server *testserver.Server) (authors []string) {
@@ -138,7 +159,7 @@ func TestTheCloseOfAWorkstreamStartsACurator(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(lead, "MEMORY.md"), []byte(leadNote+"\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := server.Engine.SaveMemory(t.Context(), shop, "owner", lesson+"\n"); err != nil {
+			if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", lesson+"\n"); err != nil {
 				t.Fatal(err)
 			}
 
@@ -183,6 +204,9 @@ func TestAnEditMemoryCallAddsAVersionOfTheCuratorAndTheNextAgentGetsTheText(t *t
 	if got := memoryVersions(t, server); err != nil || string(data) != lesson+"\n" || len(got) != 1 || got[0] != "curator" {
 		t.Errorf("file = %q, %v, versions = %v", data, err, got)
 	}
+	if got := memoryReasons(t, server); len(got) != 1 || got[0] != "Add: Workstream 12 repeats the format failure." {
+		t.Errorf("reasons = %q", got)
+	}
 	if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != "Saved the memory file." {
 		t.Errorf("calls = %v", calls)
 	}
@@ -195,15 +219,16 @@ func TestAnEditMemoryCallAddsAVersionOfTheCuratorAndTheNextAgentGetsTheText(t *t
 
 func TestAnEditMemoryCallRefusesAnOldTextThatDoesNotOccurOneTimeAndAResultOfMoreThan200Lines(t *testing.T) {
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
-	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "Same.\nSame.\n"+strings.Repeat("A lesson.\n", 198)); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", "Same.\nSame.\n"+strings.Repeat("A lesson.\n", 198)); err != nil {
 		t.Fatal(err)
 	}
 
-	session := run(t, server, roleSpec(t, engine.CuratorRole), "Edit a missing text", "Edit a repeated text", "Add a line")
+	session := run(t, server, roleSpec(t, engine.CuratorRole), "Edit a missing text", "Edit a repeated text", "Add without a reason", "Add a line")
 
 	want := []string{
 		"The old text does not occur in the memory file.",
 		"The old text occurs 2 times in the memory file. Make it longer, so that it occurs one time.",
+		"The reason is empty. Name the type of change and the evidence.",
 		"memory of owner/shop has 201 lines, the maximum is 200",
 	}
 	calls := mcpCalls(t, server, session)
@@ -217,6 +242,30 @@ func TestAnEditMemoryCallRefusesAnOldTextThatDoesNotOccurOneTimeAndAResultOfMore
 	}
 	if got := memoryVersions(t, server); len(got) != 1 || got[0] != "owner" {
 		t.Errorf("versions = %v", got)
+	}
+}
+
+func TestThePromptOfTheCuratorHasTheLastVersionsWithTheirAuthorAndReason(t *testing.T) {
+	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", lesson+"\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "Add: issue 41.", lesson+"\nA second lesson.\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	endLeads(t, server, 10)
+
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := curatorSessions(t, server)
+		return sessions[0], len(sessions) == 1 && sessions[0].EndedAt.Valid
+	})
+	prompt := promptTexts(t, server, session.ID)[0]
+	_, versions, found := strings.Cut(prompt, "newest first.\n\n")
+	versions, _, _ = strings.Cut(versions, "\n\n")
+	lines := strings.Split(versions, "\n")
+	if !found || len(lines) != 2 || !strings.HasSuffix(lines[0], ", curator: Add: issue 41.") || !strings.HasSuffix(lines[1], ", owner: ") {
+		t.Errorf("versions = %q", versions)
 	}
 }
 
