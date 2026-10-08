@@ -36,6 +36,7 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 			work[task.ID] = found
 		}
 	}
+	e.forgetPulls(repository, tasks)
 	return nil
 }
 

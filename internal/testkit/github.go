@@ -94,7 +94,11 @@ type FakeGitHub struct {
 	// commentsAfterList holds the comments that the next issue list adds after it builds its page.
 	commentsAfterList []listedComment
 	// The comment ids of all issues are different, as on GitHub.
-	lastCommentID    int64
+	lastCommentID int64
+	lastReviewID  int64
+	// graphqlPageSize is the most nodes in a page of a GraphQL connection, or 0 for no limit.
+	graphqlPageSize  int
+	pullRequestReads int
 	repositoryLabels map[labelKey]Label
 	labelPatches     []labelKey
 	notModified      int
@@ -107,7 +111,7 @@ type FakeGitHub struct {
 	latestRelease   *releaseJSON
 	comparedCommits []string
 	holds           map[issueKey]*hold
-	threadHolds     map[issueKey]*hold
+	threadHolds     map[issueKey][]*hold
 	issueHolds      map[issueKey]*hold
 	pullRequests    []pullRequest
 	// createdAt holds the creation time of each pull request, in seconds after the Unix epoch.
@@ -167,7 +171,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedCloses:            map[issueKey]bool{},
 		failedSubIssues:         map[issueKey]bool{},
 		holds:                   map[issueKey]*hold{},
-		threadHolds:             map[issueKey]*hold{},
+		threadHolds:             map[issueKey][]*hold{},
 		issueHolds:              map[issueKey]*hold{},
 		createdAt:               map[issueKey]int64{},
 		behind:                  map[issueKey]bool{},

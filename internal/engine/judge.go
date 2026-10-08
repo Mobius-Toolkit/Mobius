@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -40,6 +41,10 @@ type judgeItem struct {
 	bot  bool
 	text string
 	at   time.Time
+	// comment is the id of the newest comment of a trusted user or bot in the item.
+	comment int64
+	// thread is the GraphQL node id of the review thread, or "" for a conversation comment.
+	thread string
 }
 
 // itemVerdicts are the actions of the Judge for one item.
@@ -88,6 +93,10 @@ type quietItem struct {
 // reviewed or needs_human, after review_quiet_period with no newer item. A task that waits for a human gets a Judge
 // only for an item of a trusted user. With no new item, a reviewed task with no open thread waits for CI.
 //
+// The items come from what the poll read. GitHub does not document that a resolve of a review thread changes the
+// update time of the pull request. Thus the pull request is read again before the Judge starts, and in each poll for
+// a reviewed task with no new item. A change of the items at the read gives the next poll the decision.
+//
 // It gives true when the task has work for the Judge and does not wait for a human. With no new item, it gives
 // otherWork when the task leaves the state reviewed. The drain holds each new Judge, also a Judge whose Worker starts
 // after the start of the drain, and the next poll after a cancel starts it.
@@ -120,12 +129,23 @@ func (e *Engine) judge(ctx context.Context, repository github.Repository, task s
 	if time.Since(seen.since) < e.config.ReviewQuietPeriod {
 		return work, nil
 	}
+	number := int64(pullRequest.GetNumber())
+	if err := e.readPullRequests(ctx, repository, []int64{number}); err != nil {
+		return false, err
+	}
+	fresh, err := e.newItems(ctx, repository, task, number)
+	if err != nil {
+		return false, err
+	}
+	if !slices.EqualFunc(items, fresh, func(a, b judgeItem) bool { return a.id == b.id && a.at.Equal(b.at) }) {
+		return work, nil
+	}
 	delete(e.quiet, task.ID)
 	issue, err := existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return false, err
 	}
-	j := judgeJob{task: task, title: issue.GetTitle(), body: issue.GetBody(), from: task.State, pullRequest: pullRequest, items: items}
+	j := judgeJob{task: task, title: issue.GetTitle(), body: issue.GetBody(), from: task.State, pullRequest: pullRequest, items: fresh}
 	e.startWorker(task.ID, func(ctx context.Context) { e.runJudge(ctx, j) })
 	return work, nil
 }
@@ -142,7 +162,7 @@ func newestItem(items []judgeItem) time.Time {
 
 // newItems gives the open review threads and the conversation comments of the pull request number of the task whose
 // newest comment of a trusted user or bot is newer than the last items of the Judge. A comment of the Mobius App is
-// no item.
+// no item. The first call for a pull request after the start of the server reads the pull request in full.
 func (e *Engine) newItems(ctx context.Context, repository github.Repository, task store.Task, number int64) ([]judgeItem, error) {
 	var judgedAt time.Time
 	if task.JudgedAt.Valid {
@@ -150,6 +170,20 @@ func (e *Engine) newItems(ctx context.Context, repository github.Repository, tas
 		if judgedAt, err = time.Parse(time.RFC3339Nano, task.JudgedAt.String); err != nil {
 			return nil, err
 		}
+	}
+	state := e.pull(repository, number)
+	if !state.read {
+		comments, err := repository.Comments(ctx, number)
+		if err != nil {
+			return nil, err
+		}
+		if err := e.readPullRequests(ctx, repository, []int64{number}); err != nil {
+			return nil, err
+		}
+		for _, comment := range comments {
+			state.conversation[comment.GetID()] = comment
+		}
+		state.read = true
 	}
 	app := appLogin(repository.AppSlug)
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
@@ -159,57 +193,55 @@ func (e *Engine) newItems(ctx context.Context, repository github.Repository, tas
 	isNew := func(login string, at time.Time) bool {
 		return trusted(login) && !strings.EqualFold(login, app) && at.After(judgedAt)
 	}
-	comments, err := repository.ReviewComments(ctx, number)
-	if err != nil {
-		return nil, err
-	}
-	reviewThreads, err := repository.ReviewThreads(ctx, number)
-	if err != nil {
-		return nil, err
-	}
 	var items []judgeItem
-	for _, open := range reviewThreads {
+	for _, open := range state.Threads {
 		if !openThread(open, trusted, app) {
 			continue
 		}
-		index := slices.IndexFunc(comments, func(comment *gh.PullRequestComment) bool { return comment.GetID() == open.Comment })
-		if index < 0 {
-			continue
-		}
-		root := comments[index]
-		var newest *gh.PullRequestComment
-		for _, comment := range comments {
-			inThread := comment.GetID() == root.GetID() || comment.GetInReplyTo() == root.GetID()
-			if inThread && trusted(comment.GetUser().GetLogin()) && (newest == nil || !comment.GetCreatedAt().Before(newest.GetCreatedAt().Time)) {
-				newest = comment
+		var newest *github.ThreadComment
+		for i, comment := range open.Comments {
+			if trusted(comment.Author) && (newest == nil || !comment.CreatedAt.Before(newest.CreatedAt)) {
+				newest = &open.Comments[i]
 			}
 		}
-		if newest != nil && isNew(newest.GetUser().GetLogin(), newest.GetCreatedAt().Time) {
-			items = append(items, judgeItem{root.GetID(), bot(newest.GetUser().GetLogin()), thread(comments, root, trusted), newest.GetCreatedAt().Time})
+		if newest != nil && isNew(newest.Author, newest.CreatedAt) {
+			items = append(items, judgeItem{id: open.Comment, bot: bot(newest.Author), text: threadText(open, trusted), at: newest.CreatedAt, comment: newest.ID, thread: open.ID})
 		}
 	}
-	conversation, err := repository.Comments(ctx, number)
-	if err != nil {
-		return nil, err
-	}
-	for _, comment := range conversation {
+	for _, id := range slices.Sorted(maps.Keys(state.conversation)) {
+		comment := state.conversation[id]
 		login, at := comment.GetUser().GetLogin(), comment.GetCreatedAt().Time
 		if isNew(login, at) {
-			items = append(items, judgeItem{comment.GetID(), bot(login), fmt.Sprintf("\nComment %d:\n%s", comment.GetID(), entry(login, at, "", comment.GetBody())), at})
+			items = append(items, judgeItem{id: id, bot: bot(login), text: fmt.Sprintf("\nComment %d:\n%s", id, entry(login, at, "", comment.GetBody())), at: at, comment: id})
 		}
 	}
 	return items, nil
+}
+
+// threadText gives the text of the review thread: the comments of trusted authors.
+func threadText(thread github.ReviewThread, trusted func(string) bool) string {
+	line := ""
+	if thread.Line != 0 {
+		line = fmt.Sprintf(" line %d", thread.Line)
+	}
+	text := fmt.Sprintf("\nThread %d, %s%s:\n", thread.Comment, thread.Path, line)
+	for _, comment := range thread.Comments {
+		if trusted(comment.Author) {
+			text += entry(comment.Author, comment.CreatedAt, "", comment.Body)
+		}
+	}
+	return text
 }
 
 // judgeReady moves the reviewed task to checks when its pull request has no open thread, with a new Mobius check run on
 // the head. It gives true when the task left the state reviewed.
 func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
-	reviewThreads, err := repository.ReviewThreads(ctx, int64(pullRequest.GetNumber()))
-	if err != nil {
+	number := int64(pullRequest.GetNumber())
+	if err := e.readPullRequests(ctx, repository, []int64{number}); err != nil {
 		return false, err
 	}
-	if slices.ContainsFunc(reviewThreads, func(thread github.ReviewThread) bool {
+	if slices.ContainsFunc(e.pull(repository, number).Threads, func(thread github.ReviewThread) bool {
 		return openThread(thread, trusted, appLogin(repository.AppSlug))
 	}) {
 		return false, nil
@@ -217,7 +249,7 @@ func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, t
 	if _, err := repository.CreateCheckRun(ctx, checkRunName, pullRequest.GetHead().GetSHA(), "in_progress"); err != nil {
 		return false, err
 	}
-	_, err = e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "reviewed"})
+	_, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "reviewed"})
 	return true, err
 }
 
