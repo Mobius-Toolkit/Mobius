@@ -57,9 +57,11 @@ type eventJSON struct {
 
 type commentJSON struct {
 	ID        int64     `json:"id"`
+	IssueURL  string    `json:"issue_url"`
 	User      loginJSON `json:"user"`
 	Body      string    `json:"body"`
 	CreatedAt string    `json:"created_at"`
+	UpdatedAt string    `json:"updated_at"`
 	// PerformedViaGitHubApp is the App of a comment that a user wrote through that App, for example the Lead as the Owner.
 	PerformedViaGitHubApp *slugJSON `json:"performed_via_github_app,omitempty"`
 }
@@ -271,10 +273,37 @@ func (g *FakeGitHub) AddComment(repository string, number int64, author, body st
 	return g.comment(issueKey{repository, number}, author, body).ID
 }
 
-// listedComment is a comment that the next issue list with its issue adds after it builds its page.
+// AddCommentInLastSecond adds a comment of author to the issue with the time of the last write, and gives the id of
+// the comment. GitHub writes two comments in one second, and `since` has a resolution of one second.
+func (g *FakeGitHub) AddCommentInLastSecond(repository string, number int64, author, body string) int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.commentAt(issueKey{repository, number}, author, body, g.clock).ID
+}
+
+// EditComment replaces the body of the comment id of an issue of the repository. It gives false when the repository
+// has no such comment.
+func (g *FakeGitHub) EditComment(repository string, id int64, body string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	_, ok := g.editComment(repository, id, body)
+	return ok
+}
+
+// CommentReads gives the number of reads of the comments of one issue or pull request, and the number of reads of the
+// comments of a whole repository.
+func (g *FakeGitHub) CommentReads() (single, repositories int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.singleCommentReads, g.repositoryCommentReads
+}
+
+// listedComment is a comment that the next issue list adds after it builds its page. The list must have the issue of
+// the comment, or it must be the next list of the repository when anyList is true.
 type listedComment struct {
 	key          issueKey
 	author, body string
+	anyList      bool
 }
 
 // AddCommentAfterList adds a comment to the issue number after the next issue list that has the issue. The page of
@@ -282,7 +311,15 @@ type listedComment struct {
 func (g *FakeGitHub) AddCommentAfterList(repository string, number int64, author, body string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.commentsAfterList = append(g.commentsAfterList, listedComment{issueKey{repository, number}, author, body})
+	g.commentsAfterList = append(g.commentsAfterList, listedComment{key: issueKey{repository, number}, author: author, body: body})
+}
+
+// AddCommentAfterNextList adds a comment to the issue number after the next issue list of the repository, also when
+// the page of that list has no such issue.
+func (g *FakeGitHub) AddCommentAfterNextList(repository string, number int64, author, body string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.commentsAfterList = append(g.commentsAfterList, listedComment{key: issueKey{repository, number}, author: author, body: body, anyList: true})
 }
 
 // AddAppComment adds a comment with body of author to the issue number, written through the Mobius App, as the gh of
@@ -472,7 +509,7 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.commentsAfterList = slices.DeleteFunc(g.commentsAfterList, func(pending listedComment) bool {
-		if !slices.Contains(keys, pending.key) {
+		if !pending.anyList && !slices.Contains(keys, pending.key) || pending.key.repository != repository(r) {
 			return false
 		}
 		g.comment(pending.key, pending.author, pending.body)
@@ -708,9 +745,51 @@ func (g *FakeGitHub) issueEvents(w http.ResponseWriter, r *http.Request) {
 func (g *FakeGitHub) issueComments(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.singleCommentReads++
 	if key, ok := g.issue(w, r); ok {
 		writeJSON(w, http.StatusOK, page(w, r, g.issues[key].comments))
 	}
+}
+
+// repositoryIssueComments lists the comments of all issues and pull requests of the repository that changed at or
+// after `since`.
+func (g *FakeGitHub) repositoryIssueComments(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.repositoryCommentReads++
+	comments := []commentJSON{}
+	for key, found := range g.issues {
+		if key.repository == repository(r) {
+			comments = append(comments, found.comments...)
+		}
+	}
+	comments = changedComments(r, comments, func(comment commentJSON) (int64, string) { return comment.ID, comment.UpdatedAt })
+	writeJSON(w, http.StatusOK, page(w, r, comments))
+}
+
+// changedComments keeps the comments with an update time at or after `since`, and sorts them by `sort` and `direction`.
+// The default sort is created, and the default direction is asc, as on GitHub. fields gives the id and the update time
+// of a comment.
+func changedComments[T any](r *http.Request, comments []T, fields func(T) (int64, string)) []T {
+	query := r.URL.Query()
+	if since := query.Get("since"); since != "" {
+		comments = slices.DeleteFunc(comments, func(comment T) bool {
+			_, updatedAt := fields(comment)
+			return updatedAt < since
+		})
+	}
+	slices.SortFunc(comments, func(a, b T) int {
+		aID, aUpdatedAt := fields(a)
+		bID, bUpdatedAt := fields(b)
+		if query.Get("sort") == "updated" {
+			return cmp.Or(cmp.Compare(aUpdatedAt, bUpdatedAt), cmp.Compare(aID, bID))
+		}
+		return cmp.Compare(aID, bID)
+	})
+	if query.Get("direction") == "desc" {
+		slices.Reverse(comments)
+	}
+	return comments
 }
 
 // addComment adds the comment as the token owner: the user of a user token, or the App bot of an installation token.
@@ -742,28 +821,51 @@ func (g *FakeGitHub) updateComment(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	for key, found := range g.issues {
-		if key.repository != repository(r) {
-			continue
-		}
-		for i := range found.comments {
-			if found.comments[i].ID == id {
-				found.comments[i].Body = request.Body
-				found.updatedAt = g.tick()
-				writeJSON(w, http.StatusOK, found.comments[i])
-				return
-			}
-		}
+	if comment, ok := g.editComment(repository(r), id, request.Body); ok {
+		writeJSON(w, http.StatusOK, comment)
+		return
 	}
 	notFound(w)
 }
 
+// editComment replaces the body of the comment id of an issue of the repository, and sets its update time. The caller
+// must hold the lock.
+func (g *FakeGitHub) editComment(repository string, id int64, body string) (commentJSON, bool) {
+	for key, found := range g.issues {
+		if key.repository != repository {
+			continue
+		}
+		for i := range found.comments {
+			if found.comments[i].ID == id {
+				now := g.tick()
+				found.comments[i].Body = body
+				found.comments[i].UpdatedAt = timestamp(now)
+				found.updatedAt = now
+				return found.comments[i], true
+			}
+		}
+	}
+	return commentJSON{}, false
+}
+
 // comment adds a comment of author to the issue. The caller must hold the lock.
 func (g *FakeGitHub) comment(key issueKey, author, body string) commentJSON {
-	now := g.tick()
+	return g.commentAt(key, author, body, g.tick())
+}
+
+// commentAt adds a comment of author to the issue at the time now, in seconds after the Unix epoch. The caller must
+// hold the lock.
+func (g *FakeGitHub) commentAt(key issueKey, author, body string, now int64) commentJSON {
 	found := g.issues[key]
 	g.lastCommentID++
-	comment := commentJSON{ID: g.lastCommentID, User: loginJSON{author}, Body: body, CreatedAt: timestamp(now)}
+	comment := commentJSON{
+		ID:        g.lastCommentID,
+		IssueURL:  fmt.Sprintf("https://api.github.com/repos/%s/issues/%d", key.repository, key.number),
+		User:      loginJSON{author},
+		Body:      body,
+		CreatedAt: timestamp(now),
+		UpdatedAt: timestamp(now),
+	}
 	found.comments = append(found.comments, comment)
 	found.updatedAt = now
 	return comment

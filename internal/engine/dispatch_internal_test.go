@@ -99,7 +99,7 @@ func TestACommentOfTheLeadABotOrAStrangerIsNoEvent(t *testing.T) {
 func TestAReplyAfterTheLastCommentOfTheMobiusAppAnswersIt(t *testing.T) {
 	comments := []*gh.IssueComment{comment("owner", "", 1), comment(app, "", 2), comment("owner", "", 3)}
 
-	replies, answered := trustingEngine().replies("mobius-app", comments, time.Time{})
+	replies, answered := trustingEngine().replies("mobius-app", comments)
 
 	if len(replies) != 2 || !answered {
 		t.Errorf("replies = %d, answered = %t", len(replies), answered)
@@ -109,38 +109,25 @@ func TestAReplyAfterTheLastCommentOfTheMobiusAppAnswersIt(t *testing.T) {
 func TestAReplyBeforeTheLastCommentOfTheMobiusAppDoesNotAnswerIt(t *testing.T) {
 	comments := []*gh.IssueComment{comment("owner", "", 1), comment(app, "", 2), comment("mallory", "", 3)}
 
-	replies, answered := trustingEngine().replies("mobius-app", comments, time.Time{})
+	replies, answered := trustingEngine().replies("mobius-app", comments)
 
 	if len(replies) != 1 || answered {
 		t.Errorf("replies = %d, answered = %t", len(replies), answered)
 	}
 }
 
-func TestOnlyACommentAfterTheCursorIsAReply(t *testing.T) {
-	comments := []*gh.IssueComment{comment("owner", "", 1), comment("owner", "", 3)}
-
-	replies, answered := trustingEngine().replies("mobius-app", comments, time.Unix(2, 0))
-
-	if len(replies) != 1 || replies[0].GetCreatedAt().Unix() != 3 || !answered {
-		t.Errorf("replies = %v, answered = %t", replies, answered)
+func TestACommentOfATrustedUserCounts(t *testing.T) {
+	e := trustingEngine()
+	if !e.trustedUser("Owner") || !e.trustedUser("owner") {
+		t.Error("the user is not trusted")
 	}
 }
 
-func TestANewCommentOfATrustedUserCounts(t *testing.T) {
+func TestACommentOfABotOrAStrangerDoesNotCount(t *testing.T) {
 	e := trustingEngine()
-	if !e.newUserComment("Owner", time.Unix(3, 0), time.Unix(2, 0)) || !e.newUserComment("owner", time.Unix(1, 0), time.Time{}) {
-		t.Error("the comment does not count")
-	}
-}
-
-func TestAnOldCommentOrACommentOfABotOrAStrangerDoesNotCount(t *testing.T) {
-	e := trustingEngine()
-	for _, c := range []struct {
-		login   string
-		seconds int64
-	}{{"owner", 2}, {"coderabbitai[bot]", 3}, {app, 3}, {"mallory", 3}} {
-		if e.newUserComment(c.login, time.Unix(c.seconds, 0), time.Unix(2, 0)) {
-			t.Errorf("the comment of %s counts", c.login)
+	for _, login := range []string{"coderabbitai[bot]", app, "mallory"} {
+		if e.trustedUser(login) {
+			t.Errorf("%s is trusted", login)
 		}
 	}
 }
