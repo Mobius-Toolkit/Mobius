@@ -40,6 +40,14 @@ reply = ["Noted."]
 reply = ["Noted."]
 `
 
+// The first prompt of Claude Code sends the reset time in a usage update and then hits the usage limit with another
+// reset time in the text. 4102444800 is 2100-01-01 00:00:00 UTC.
+const claudeCodeLimitWithResetTime = `
+[[prompts]]
+updates = ['{"sessionUpdate": "usage_update", "used": 78345, "size": 1000000, "_meta": {"_claude/rateLimit": {"status": "rejected", "resetsAt": 4102444800}}}']
+error = { code = -32603, message = "You've hit your session limit · resets 5:10pm (Europe/Warsaw)", data = { errorKind = "rate_limit" } }
+`
+
 // seed runs the SQL statements on the database in dataDir, as a server of an earlier run.
 func seed(t *testing.T, dataDir string, statements ...string) {
 	t.Helper()
@@ -421,5 +429,21 @@ func TestAnEventForAPausedLeadGoesToThatLeadAfterThePause(t *testing.T) {
 	}
 	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 1 {
 		t.Errorf("sessions = %+v", got)
+	}
+}
+
+func TestAClaudeCodePauseEndsAtTheResetTimeOfTheUsageUpdate(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, claudeCodeLimitWithResetTime, keepSessionOpen)
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	until := testkit.WaitForValue(t, func() (string, bool) {
+		var until string
+		err := server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'claude-code'").Scan(&until)
+		return until, err == nil
+	})
+	if got := parseTime(t, until); !got.Equal(time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("until = %v", got)
 	}
 }
