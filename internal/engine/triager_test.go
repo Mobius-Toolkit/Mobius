@@ -161,7 +161,7 @@ func TestARemovalOfTheLabelStopsTheTriagerAndAProposalGoesToTheIssue(t *testing.
 	}
 }
 
-func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheComments(t *testing.T) {
+func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheCommentsOfTrustedAuthors(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 53, "Add points")
@@ -182,11 +182,13 @@ func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheComments(t *testing.T
 	}
 	inOrder(t, prompts[0],
 		"# Issue\n\n#53 Add points",
-		"# Comments\n\n@stranger, ",
-		":\nI want this too.\n\n@mobius-test[bot], ",
+		"# Comments\n\n@mobius-test[bot], ",
 		":\nFirst proposal.\n\n@owner, ",
 		":\nPlease use points.\n",
 	)
+	if strings.Contains(prompts[0], "I want this too.") {
+		t.Errorf("prompt = %q", prompts[0])
+	}
 	if got := fake.Labels(shop, 53); !slices.Equal(got, []string{"mobius:no-workstream"}) {
 		t.Errorf("labels = %v", got)
 	}

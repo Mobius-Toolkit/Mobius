@@ -156,6 +156,9 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		return a.Fail(ended, err)
 	}
 	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n#%d %s\n\n%s", triagerPrompt, workstreams, number, issue.GetTitle(), issue.GetBody())
+	comments = slices.DeleteFunc(comments, func(comment *gh.IssueComment) bool {
+		return !e.TrustedAuthor(repository.AppSlug, comment.GetUser().GetLogin())
+	})
 	if len(comments) > 0 {
 		prompt += "\n\n# Comments\n"
 		for _, comment := range comments {
