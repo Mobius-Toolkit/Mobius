@@ -132,6 +132,9 @@ type Node struct {
 	Name string
 	// Title tells what the session works on, for example "chat session". It can be empty.
 	Title string
+	// Working is true while an open session works: a chat session has a turn that runs, and another session does not
+	// wait for a slot or a pause.
+	Working bool
 }
 
 // Change is a change for the live event stream: a new, changed or ended session, a new or changed Transcript line,
@@ -158,6 +161,8 @@ type Created struct {
 	Repository string
 	Number     int64
 }
+
+const checkRunsReason = "runs .mobius/check"
 
 func now() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
@@ -240,7 +245,7 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		}
 		return nil, err
 	}
-	e.publish(Change{Node: new(node(session))})
+	e.publish(Change{Node: new(e.node(session))})
 	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
 }
 
@@ -261,7 +266,7 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 	if err != nil {
 		return a.Fail(ended, err)
 	}
-	e.publish(Change{Node: new(node(started))})
+	e.publish(Change{Node: new(e.node(started))})
 	return nil
 }
 
@@ -511,7 +516,7 @@ func (a *Agent) End(ctx context.Context, reason string) error {
 	if err != nil {
 		return err
 	}
-	a.engine.publish(Change{Node: new(node(session))})
+	a.engine.publish(Change{Node: new(a.engine.node(session))})
 	return nil
 }
 
@@ -650,16 +655,34 @@ func (e *Engine) publishRow(row store.Transcript, folded bool) error {
 	return nil
 }
 
-func node(session store.Session) Node {
+func (e *Engine) node(session store.Session) Node {
+	var n Node
 	switch {
 	case session.Role == LeadRole:
-		return Node{Session: session, Name: "Lead", Title: "chat session"}
+		n = Node{Session: session, Name: "Lead", Title: "chat session"}
 	case session.Role == TriagerRole && session.Repository == "":
-		return Node{Session: session, Name: "Triager", Title: "chat session"}
+		n = Node{Session: session, Name: "Triager", Title: "chat session"}
 	case session.Role == TriagerRole:
-		return Node{Session: session, Name: "Triager", Title: session.Repository}
+		n = Node{Session: session, Name: "Triager", Title: session.Repository}
+	default:
+		n = Node{Session: session, Name: session.Role}
 	}
-	return Node{Session: session, Name: session.Role}
+	n.Working = e.working(n)
+	return n
+}
+
+func (e *Engine) working(n Node) bool {
+	session := n.Session
+	switch {
+	case session.EndedAt.Valid:
+		return false
+	case n.Title == "chat session":
+		e.chatsMu.Lock()
+		defer e.chatsMu.Unlock()
+		c, ok := e.chats[ChatKey{session.Organization, session.Repository, session.Workstream}]
+		return ok && c.writing && session.QueueReason.String == ""
+	}
+	return session.QueueReason.String == "" || session.QueueReason.String == checkRunsReason
 }
 
 // Tree gives the sessions of the Workstream of repository, the oldest first.
@@ -671,7 +694,7 @@ func (e *Engine) Tree(ctx context.Context, repository string, workstream int64) 
 	}
 	nodes := make([]Node, 0, len(sessions))
 	for _, session := range sessions {
-		nodes = append(nodes, node(session))
+		nodes = append(nodes, e.node(session))
 	}
 	return nodes, nil
 }
@@ -717,7 +740,7 @@ func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 		if _, ok := roleBinding(e.config, role); !ok {
 			continue
 		}
-		agents[role] = append(agents[role], ActiveAgent{node(row.Session), row.WorkstreamTitle, row.IssueTitle, row.PullRequest})
+		agents[role] = append(agents[role], ActiveAgent{e.node(row.Session), row.WorkstreamTitle, row.IssueTitle, row.PullRequest})
 	}
 	active := ActiveAgents{Max: e.config.MaxAgents}
 	for _, g := range groups {

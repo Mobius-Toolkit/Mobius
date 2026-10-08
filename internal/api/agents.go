@@ -39,6 +39,9 @@ type Agent struct {
 	EndReason string `gork:"endReason"`
 	// QueueReason tells why the session waits, for example for a slot or for the end of a usage limit. It is empty while the session does not wait
 	QueueReason string `gork:"queueReason"`
+	// Working is true while the session works. A chat session works while a turn runs. Another open session works
+	// while it does not wait for a slot, for a check slot or for the end of a usage limit
+	Working bool `gork:"working"`
 }
 
 // TranscriptLine is a row of the Transcript of a session.
@@ -212,6 +215,7 @@ func agentOf(node engine.Node) (Agent, error) {
 		Workstream:   session.Workstream,
 		EndReason:    session.EndReason.String,
 		QueueReason:  session.QueueReason.String,
+		Working:      node.Working,
 	}
 	if session.Issue.Valid {
 		agent.Issue = &session.Issue.Int64

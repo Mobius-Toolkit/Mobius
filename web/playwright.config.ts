@@ -23,6 +23,8 @@ export default defineConfig({
       dependencies: ["navigation"],
     },
     { name: "agents", testMatch: "agents.spec.ts", dependencies: ["installations"] },
+    // The Checkup tests give their own data with page.route, and they need the Apps of the screenshots test.
+    { name: "checkup", testMatch: "checkup.spec.ts", dependencies: ["agents"] },
   ],
   use: {
     baseURL: `http://${addr}`,

@@ -96,6 +96,7 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain),
     main.getByText("Seasonal prices"),
     main.getByRole("img", { name: "Autopilot" }),
+    main.getByRole("img", { name: "Agent running" }),
     main.getByRole("img", { name: "Ready to merge" }),
     main.getByText("done"),
     main.getByText("needs you"),
@@ -350,6 +351,7 @@ test("screenshots", async ({ page }) => {
     main.getByRole("link", { name: "Tools" }),
     main.getByRole("heading", { name: "owner", exact: true }),
     main.getByRole("heading", { name: "plants", exact: true }),
+    main.getByText("needs you").nth(3),
   ]);
   await screenshot(page, "checkup-tools", "/settings/checkup/tools", (device) => [
     ...frame(device, release),
