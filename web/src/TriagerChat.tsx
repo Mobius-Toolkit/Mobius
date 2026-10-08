@@ -17,7 +17,7 @@ export function TriagerChat({
     return (
       <>
         <TopBar title="Chat" />
-        <div className="grid grow content-start gap-6 p-4 md:p-6">
+        <div className="grid grow content-start gap-6 p-4 md:mx-auto md:my-6 md:w-[min(48rem,calc(100%-3rem))] md:grow-0 md:self-start md:rounded-xl md:border md:bg-card md:p-6">
           <PageHeader title="Chat" />
           <p className="text-muted-foreground">
             Mobius reads the repositories from GitHub. The Triager chat opens after this step.
