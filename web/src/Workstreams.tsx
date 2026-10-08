@@ -10,6 +10,7 @@ import {
   workstreamKey,
   type Workstreams as WorkstreamLists,
 } from "@/lib/workstreams";
+import { TopBar } from "./TopBar";
 
 export function WorkstreamBadges({
   workstream,
@@ -64,34 +65,37 @@ export function Workstreams({
 }) {
   const shown = organizationWorkstreams(workstreams, organization);
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Workstreams</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {workstreams.error && <Badge variant="destructive">{workstreams.error}</Badge>}
-        {shown?.length === 0 && (
-          <p className="text-muted-foreground">This organization has no open Workstream.</p>
-        )}
-        <ul className="divide-y">
-          {shown?.map((workstream) => (
-            <li key={`${workstream.repository}#${workstream.number}`}>
-              <Link
-                to="/workstreams/$owner/$name/$number"
-                params={chatParams(workstream)}
-                className="-mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-2 hover:bg-muted"
-              >
-                <span>{workstream.title}</span>
-                <WorkstreamBadges
-                  workstream={workstream}
-                  workstreams={workstreams}
-                  unread={unread}
-                />
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </CardContent>
-    </Card>
+    <>
+      <TopBar title="Workstreams" />
+      <Card>
+        <CardHeader className="max-md:hidden">
+          <CardTitle>Workstreams</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {workstreams.error && <Badge variant="destructive">{workstreams.error}</Badge>}
+          {shown?.length === 0 && (
+            <p className="text-muted-foreground">This organization has no open Workstream.</p>
+          )}
+          <ul className="divide-y">
+            {shown?.map((workstream) => (
+              <li key={`${workstream.repository}#${workstream.number}`}>
+                <Link
+                  to="/workstreams/$owner/$name/$number"
+                  params={chatParams(workstream)}
+                  className="-mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-2 hover:bg-muted"
+                >
+                  <span>{workstream.title}</span>
+                  <WorkstreamBadges
+                    workstream={workstream}
+                    workstreams={workstreams}
+                    unread={unread}
+                  />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+    </>
   );
 }

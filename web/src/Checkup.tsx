@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item";
 import { LoginContext } from "@/lib/login";
-import { BackButton } from "./BackButton";
+import { TopBar } from "./TopBar";
 
 const fixButton = { create: "Create labels", fix: "Fix labels" };
 
@@ -121,16 +121,16 @@ function CheckupCard({
   children: ReactNode;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BackButton parent="/settings/checkup" />
-          {title}
-        </CardTitle>
-        {action && <CardAction>{action}</CardAction>}
-      </CardHeader>
-      <CardContent className="grid gap-6">{children}</CardContent>
-    </Card>
+    <>
+      <TopBar title={title} back="/settings/checkup" />
+      <Card>
+        <CardHeader>
+          <CardTitle className="max-md:hidden">{title}</CardTitle>
+          {action && <CardAction>{action}</CardAction>}
+        </CardHeader>
+        <CardContent className="grid gap-6">{children}</CardContent>
+      </Card>
+    </>
   );
 }
 
@@ -202,26 +202,26 @@ export function Checkup({ organizations }: { organizations: string[] }) {
   const { tools } = useTools();
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BackButton parent="/settings" />
-          Checkup
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <ItemGroup className="gap-1">
-          <CheckupLink
-            link={{ to: "/settings/checkup/tools" }}
-            title="Tools"
-            needsYou={!!tools?.some((tool) => tool.status !== "")}
-          />
-        </ItemGroup>
-        {organizations.map((organization) => (
-          <CheckupOrganization key={organization} organization={organization} />
-        ))}
-      </CardContent>
-    </Card>
+    <>
+      <TopBar title="Checkup" back="/settings" />
+      <Card>
+        <CardHeader className="max-md:hidden">
+          <CardTitle>Checkup</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <ItemGroup className="gap-1">
+            <CheckupLink
+              link={{ to: "/settings/checkup/tools" }}
+              title="Tools"
+              needsYou={!!tools?.some((tool) => tool.status !== "")}
+            />
+          </ItemGroup>
+          {organizations.map((organization) => (
+            <CheckupOrganization key={organization} organization={organization} />
+          ))}
+        </CardContent>
+      </Card>
+    </>
   );
 }
 

@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { LoginContext } from "@/lib/login";
-import { BackButton } from "./BackButton";
+import { cn } from "@/lib/utils";
+import { TopBar } from "./TopBar";
 
 function postToGitHub(form: ManifestForm) {
   const element = document.createElement("form");
@@ -47,10 +48,8 @@ export function GitHub({ apps, back }: { apps: GitHubApp[]; back?: boolean }) {
   return (
     <Card className="w-full max-w-lg">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          {back && <BackButton parent="/settings" />}
-          Connect GitHub
-        </CardTitle>
+        {back && <TopBar title="Connect GitHub" back="/settings" />}
+        <CardTitle className={cn(back && "max-md:hidden")}>Connect GitHub</CardTitle>
         {apps.length > 0 && (
           <CardDescription>
             Install each App on the repositories of its organization.

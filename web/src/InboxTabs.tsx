@@ -1,12 +1,14 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TopBar } from "./TopBar";
 
 export function InboxTabs({ count }: { count: number }) {
   const { pathname } = useLocation();
   return (
     <>
-      <h2 className="leading-none font-semibold">Inbox</h2>
+      <TopBar title="Inbox" />
+      <h2 className="leading-none font-semibold max-md:hidden">Inbox</h2>
       <Tabs value={pathname === "/inbox/activity" ? "activity" : "todo"}>
         <TabsList className="w-full">
           <TabsTrigger value="todo" asChild>

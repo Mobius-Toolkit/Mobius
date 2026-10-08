@@ -159,7 +159,7 @@ const routeTree = rootRoute.addChildren([
   githubRoute,
 ]);
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({ routeTree, scrollToTopSelectors: ["#content"] });
 
 declare module "@tanstack/react-router" {
   interface Register {

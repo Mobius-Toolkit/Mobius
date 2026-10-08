@@ -128,7 +128,7 @@ test("a click on a link of the app opens its page with no page load", async ({ p
   await expect(page).toHaveURL("/settings");
   await link("/settings/checkup").click();
   await expect(page).toHaveURL("/settings/checkup");
-  await expect(main.getByText("Checkup", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Checkup" })).toBeVisible();
   await link("/workstreams").click();
   await expect(page).toHaveURL("/workstreams");
   await link("/workstreams/plants/garden/17").click();
@@ -140,7 +140,7 @@ test("a click on a link of the app opens its page with no page load", async ({ p
   await expect(page).toHaveURL("/workstreams");
   await page.goBack();
   await expect(page).toHaveURL("/settings/checkup");
-  await expect(main.getByText("Checkup", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Checkup" })).toBeVisible();
   await page.goBack();
   await expect(page).toHaveURL("/settings");
   expect(await loaded()).toBe(true);
@@ -176,7 +176,7 @@ test("a long list of release changes scrolls inside the upgrade dialog on a phon
   const changes = Array.from({ length: 60 }, (_, index) => `Change number ${index + 1}`);
   await page.route("/api/release/changes", (route) => route.fulfill({ json: { data: changes } }));
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/workstreams");
+  await page.goto("/settings");
   await page.getByRole("button", { name: "Upgrade v0.1.4" }).filter({ visible: true }).click();
 
   const dialog = page.getByRole("dialog");
@@ -219,18 +219,20 @@ test("the upgrade dialog shows the newest release when it opens", async ({ page 
   ).toBeVisible();
 });
 
+const scrollTop = (page: Page) => page.evaluate("document.getElementById('content').scrollTop");
+
 test("a new page starts at the top", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 200 });
   await page.goto("/workstreams");
-  await expect(page.getByRole("main").getByText("Workstreams")).toBeVisible();
-  await page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
-  expect(await page.evaluate("window.scrollY")).toBeGreaterThan(0);
+  await expect(page.getByRole("banner").getByText("Workstreams")).toBeVisible();
+  await page.evaluate("document.getElementById('content').scrollTo(0, 10000)");
+  expect(await scrollTop(page)).toBeGreaterThan(0);
   await page.getByRole("link", { name: "Inbox" }).filter({ visible: true }).click();
   await expect(page).toHaveURL("/inbox");
-  expect(await page.evaluate("window.scrollY")).toBe(0);
+  expect(await scrollTop(page)).toBe(0);
 });
 
-const back = (page: Page) => page.getByRole("button", { name: "Back" });
+const back = (page: Page) => page.getByRole("banner").getByRole("button", { name: "Back" });
 
 test.describe("the back button of a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
@@ -413,4 +415,134 @@ test("the agents screen shows a status that changed while the page was hidden", 
   await expect(ticket.getByText("waits for the Owner")).toBeVisible();
   const reset = await page.request.put("/e2e/agents/41/queue-reason?reason=");
   expect(reset.ok()).toBe(true);
+});
+
+const topBar = (page: Page) => page.getByRole("banner");
+const tabBar = (page: Page) => page.getByRole("navigation").last();
+
+async function expectPinned(page: Page) {
+  const top = await topBar(page).boundingBox();
+  const bottom = await tabBar(page).boundingBox();
+  expect(top?.y).toBe(0);
+  expect((bottom?.y ?? 0) + (bottom?.height ?? 0)).toBe(844);
+  expect(await page.evaluate("document.documentElement.scrollHeight")).toBe(844);
+  expect(await page.evaluate("window.scrollY")).toBe(0);
+}
+
+test.describe("the bars of a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("stay in position with short content and with long content", async ({ page }) => {
+    const items = Array.from({ length: 40 }, (_, index) => ({
+      dismissedAt: null,
+      id: index + 1,
+      issue: 40,
+      kind: "question",
+      link: "",
+      organization: "owner",
+      repository: "owner/shop",
+      text: `Question number ${index + 1}`,
+      time: "2026-09-27T10:00:00Z",
+      workstream: 12,
+    }));
+    const logins = Array.from({ length: 40 }, (_, index) => ({
+      id: index + 1,
+      userAgent: `Device number ${index + 1}`,
+      createdAt: "2026-09-27T10:00:00Z",
+    }));
+    await page.route("**/api/inbox", (route) => route.fulfill({ json: { data: items } }));
+    await page.route("**/api/devices", (route) =>
+      route.fulfill({ json: { data: { logins, thisDevice: 1 } } }),
+    );
+
+    await page.goto("/settings");
+    await expect(topBar(page).getByRole("heading", { name: "Settings" })).toBeVisible();
+    await expectPinned(page);
+    expect(await scrollTop(page)).toBe(0);
+
+    for (const [path, title, text] of [
+      ["/inbox", "Inbox", "Question number 1"],
+      ["/devices", "Devices", "Device number 40"],
+    ]) {
+      await page.goto(path);
+      await expect(topBar(page).getByRole("heading", { name: title })).toBeVisible();
+      await expectPinned(page);
+      await expect(page.getByText(text, { exact: true })).not.toBeInViewport();
+      await page.evaluate("document.getElementById('content').scrollTo(0, 100000)");
+      await expect(page.getByText(text, { exact: true })).toBeInViewport();
+      expect(await scrollTop(page)).toBeGreaterThan(0);
+      await expectPinned(page);
+      await expect(topBar(page)).toBeInViewport({ ratio: 1 });
+      await expect(tabBar(page)).toBeInViewport({ ratio: 1 });
+    }
+  });
+
+  test("end the Lead chat input at the tab bar", async ({ page }) => {
+    await page.goto("/workstreams/owner/shop/12");
+    await expect(page.getByLabel("Message to the Lead")).toBeVisible();
+    await expectPinned(page);
+    const form = await page
+      .getByLabel("Message to the Lead")
+      .locator("xpath=ancestor::form")
+      .boundingBox();
+    const bar = await tabBar(page).boundingBox();
+    expect((form?.y ?? 0) + (form?.height ?? 0)).toBe(bar?.y);
+  });
+
+  test("show the title of the Lead chat with the Autopilot switch and the Agents button", async ({
+    page,
+  }) => {
+    await page.goto("/workstreams/owner/shop/12");
+    const bar = topBar(page);
+    await expect(bar.getByRole("button", { name: "Back" })).toBeVisible();
+    await expect(bar.getByRole("heading")).toHaveText("Integrate loyalty plans");
+    await expect(bar).toContainText("#12");
+    await expect(bar.getByRole("switch", { name: "Autopilot" })).toBeVisible();
+    await expect(bar.getByRole("button", { name: "Agents" })).toBeVisible();
+    await expect(bar).not.toContainText("Lead:");
+  });
+
+  test("show the organization switch at the top of the content of Workstreams and Inbox", async ({
+    page,
+  }) => {
+    const content = page.locator("#content");
+    const organization = content.getByRole("button", { name: "owner" });
+
+    for (const path of ["/workstreams", "/inbox"]) {
+      await page.goto(path);
+      await expect(organization).toBeVisible();
+      await expect(topBar(page).getByRole("button")).toHaveCount(0);
+    }
+    await page.goto("/settings");
+    await expect(page.getByRole("link", { name: "Devices" })).toBeVisible();
+    await expect(organization).toHaveCount(0);
+  });
+
+  test("show the upgrade controls on the Settings page and the badge on the Settings tab", async ({
+    page,
+  }) => {
+    const settingsTab = tabBar(page).getByRole("link", { name: /^Settings/ });
+    const badge = settingsTab.getByLabel("Upgrade available");
+    let version = "v0.2.0";
+    await page.route("**/api/release", (route) => route.fulfill({ json: { data: { version } } }));
+
+    await page.goto("/workstreams");
+    await expect(badge).toBeVisible();
+    await expect(settingsTab).toHaveText(/^Settings$/);
+    await expect(page.getByRole("button", { name: "Upgrade v0.2.0" })).toHaveCount(0);
+
+    await settingsTab.click();
+    await expect(page).toHaveURL("/settings");
+    await expect(page.getByRole("button", { name: "Upgrade v0.2.0" })).toBeVisible();
+    await expect(topBar(page).getByRole("button")).toHaveCount(0);
+    await page.getByRole("button", { name: "Upgrade v0.2.0" }).click();
+    await expect(page.getByRole("dialog").getByRole("button", { name: "Upgrade" })).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+
+    version = "";
+    await page.reload();
+    await expect(settingsTab).toBeVisible();
+    await expect(badge).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Upgrade/ })).toHaveCount(0);
+  });
 });

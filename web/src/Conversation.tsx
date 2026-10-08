@@ -154,7 +154,6 @@ export function Conversation({
   source,
   unread,
   head,
-  tail,
   brief,
   note,
   footer,
@@ -166,7 +165,6 @@ export function Conversation({
   source?: EventSource;
   unread?: number;
   head: ReactNode;
-  tail?: ReactNode;
   brief?: Workstream;
   note?: ReactNode;
   footer?: ReactNode;
@@ -401,7 +399,7 @@ export function Conversation({
 
   return (
     <section className="flex min-h-0 min-w-0 grow flex-col">
-      <header className="flex min-h-14 items-center gap-2 border-b px-4 py-2">
+      <header className="hidden min-h-14 items-center gap-2 border-b px-4 py-2 md:flex">
         {head}
         <span className="grow" />
         {harness && (
@@ -409,7 +407,6 @@ export function Conversation({
             {agent}: {harness}
           </span>
         )}
-        {tail}
       </header>
       {brief && (
         <Collapsible

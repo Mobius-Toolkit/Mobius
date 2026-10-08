@@ -14,7 +14,7 @@ export function BackButton({ parent }: { parent: LinkProps["to"] }) {
   }
 
   return (
-    <Button variant="ghost" size="icon" aria-label="Back" className="md:hidden" onClick={back}>
+    <Button variant="ghost" size="icon" aria-label="Back" onClick={back}>
       <ArrowLeftIcon />
     </Button>
   );
