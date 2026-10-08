@@ -7,6 +7,7 @@ import (
 	gh "github.com/google/go-github/v92/github"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // The reactions that show a user if Mobius acts on a comment.
@@ -27,7 +28,7 @@ const (
 // acknowledge adds the reaction of an agent that gets the conversation comments.
 func acknowledge(ctx context.Context, repository github.Repository, comments []*gh.IssueComment) error {
 	for _, comment := range comments {
-		if _, err := repository.ReactToComment(ctx, comment.GetID(), gotReaction); err != nil {
+		if err := repository.ReactToComment(ctx, comment.GetID(), gotReaction); err != nil {
 			return err
 		}
 	}
@@ -35,34 +36,55 @@ func acknowledge(ctx context.Context, repository github.Repository, comments []*
 }
 
 // declineComments adds the reaction of a refusal to each conversation comment, and replies with reply on the issue or the pull
-// request number. A comment that already has the reaction gets no second reply.
-func declineComments(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment, reply string) error {
+// request number. The store holds the comments that have a reply, so a poll that runs again writes no second reply.
+func (e *Engine) declineComments(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment, reply string) error {
 	for _, comment := range comments {
-		added, err := repository.ReactToComment(ctx, comment.GetID(), declinedReaction)
+		if err := repository.ReactToComment(ctx, comment.GetID(), declinedReaction); err != nil {
+			return err
+		}
+		answered, err := e.commentAnswered(ctx, repository, false, comment.GetID())
 		if err != nil {
 			return err
 		}
-		if !added {
+		if answered {
 			continue
 		}
 		if _, err := repository.AddComment(ctx, number, reply); err != nil {
+			return err
+		}
+		if err := e.markCommentAnswered(ctx, repository, false, comment.GetID()); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// declineReviewComment adds the reaction of a refusal to the review comment, and replies with reply in its thread.
-func declineReviewComment(ctx context.Context, repository github.Repository, number int64, comment *gh.PullRequestComment, reply string) error {
-	added, err := repository.ReactToReviewComment(ctx, comment.GetID(), declinedReaction)
-	if err != nil || !added {
+// declineReviewComment adds the reaction of a refusal to the review comment, and replies with reply in its thread. The
+// store holds the comments that have a reply, so a poll that runs again writes no second reply.
+func (e *Engine) declineReviewComment(ctx context.Context, repository github.Repository, number int64, comment *gh.PullRequestComment, reply string) error {
+	if err := repository.ReactToReviewComment(ctx, comment.GetID(), declinedReaction); err != nil {
+		return err
+	}
+	answered, err := e.commentAnswered(ctx, repository, true, comment.GetID())
+	if err != nil || answered {
 		return err
 	}
 	root := comment.GetInReplyTo()
 	if root == 0 {
 		root = comment.GetID()
 	}
-	return repository.ReplyToReviewComment(ctx, number, root, reply)
+	if err := repository.ReplyToReviewComment(ctx, number, root, reply); err != nil {
+		return err
+	}
+	return e.markCommentAnswered(ctx, repository, true, comment.GetID())
+}
+
+func (e *Engine) commentAnswered(ctx context.Context, repository github.Repository, review bool, id int64) (bool, error) {
+	return e.queries.IsCommentAnswered(ctx, store.IsCommentAnsweredParams{Repository: repository.FullName, Review: review, Comment: id})
+}
+
+func (e *Engine) markCommentAnswered(ctx context.Context, repository github.Repository, review bool, id int64) error {
+	return e.queries.MarkCommentAnswered(ctx, store.MarkCommentAnsweredParams{Repository: repository.FullName, Review: review, Comment: id})
 }
 
 // answerReviewComments reacts to each review comment of a trusted user: the Judge gets the comments of an open
@@ -78,12 +100,12 @@ func (e *Engine) answerReviewComments(ctx context.Context, repository github.Rep
 				slices.ContainsFunc(thread.Comments, func(inThread github.ThreadComment) bool { return inThread.ID == comment.GetID() })
 		})
 		if !open {
-			if err := declineReviewComment(ctx, repository, number, comment, closedThreadReply); err != nil {
+			if err := e.declineReviewComment(ctx, repository, number, comment, closedThreadReply); err != nil {
 				return err
 			}
 			continue
 		}
-		if _, err := repository.ReactToReviewComment(ctx, comment.GetID(), gotReaction); err != nil {
+		if err := repository.ReactToReviewComment(ctx, comment.GetID(), gotReaction); err != nil {
 			return err
 		}
 	}

@@ -157,23 +157,16 @@ func (r Repository) AddComment(ctx context.Context, number int64, body string) (
 	return comment.GetID(), err
 }
 
-// ReactToComment adds the reaction content, for example "eyes", to the conversation comment id. It tells if the
-// reaction is new: GitHub gives status 200 for a reaction that already exists.
-func (r Repository) ReactToComment(ctx context.Context, id int64, content string) (bool, error) {
-	_, response, err := r.Client.Reactions.CreateIssueCommentReaction(ctx, r.Owner(), r.Name(), id, content)
-	if err != nil {
-		return false, err
-	}
-	return response.StatusCode == http.StatusCreated, nil
+// ReactToComment adds the reaction content, for example "eyes", to the conversation comment id.
+func (r Repository) ReactToComment(ctx context.Context, id int64, content string) error {
+	_, _, err := r.Client.Reactions.CreateIssueCommentReaction(ctx, r.Owner(), r.Name(), id, content)
+	return err
 }
 
-// ReactToReviewComment adds the reaction content to the review comment id. It tells if the reaction is new.
-func (r Repository) ReactToReviewComment(ctx context.Context, id int64, content string) (bool, error) {
-	_, response, err := r.Client.Reactions.CreatePullRequestCommentReaction(ctx, r.Owner(), r.Name(), id, content)
-	if err != nil {
-		return false, err
-	}
-	return response.StatusCode == http.StatusCreated, nil
+// ReactToReviewComment adds the reaction content to the review comment id.
+func (r Repository) ReactToReviewComment(ctx context.Context, id int64, content string) error {
+	_, _, err := r.Client.Reactions.CreatePullRequestCommentReaction(ctx, r.Owner(), r.Name(), id, content)
+	return err
 }
 
 // ReplyToReviewComment adds a reply with body to the review thread that starts with the comment root of the pull

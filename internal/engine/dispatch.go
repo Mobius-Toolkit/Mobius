@@ -228,7 +228,7 @@ func (e *Engine) commentsWithoutTask(ctx context.Context, repository github.Repo
 	}
 	switch {
 	case issue.GetState() != "open":
-		return declineComments(ctx, repository, int64(issue.GetNumber()), events, closedIssueReply)
+		return e.declineComments(ctx, repository, int64(issue.GetNumber()), events, closedIssueReply)
 	case hasLabel(issue, noWorkstreamLabel):
 		return e.retriage(ctx, repository, issue, events)
 	}
@@ -249,7 +249,7 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 		return acknowledge(ctx, repository, events)
 	}
 	if workstream == 0 {
-		return declineComments(ctx, repository, number, events, noWorkstreamReply)
+		return e.declineComments(ctx, repository, number, events, noWorkstreamReply)
 	}
 	eventIssue := sql.NullInt64{Int64: number, Valid: workstream != number}
 	for _, comment := range events {
@@ -340,14 +340,14 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 // on the pull request number with no live task.
 func (e *Engine) declineOnPullRequest(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment, reviewComments []*gh.PullRequestComment) error {
 	events, _ := e.replies(repository.AppSlug, comments)
-	if err := declineComments(ctx, repository, number, events, noTaskReply); err != nil {
+	if err := e.declineComments(ctx, repository, number, events, noTaskReply); err != nil {
 		return err
 	}
 	for _, comment := range reviewComments {
 		if !e.trustedUser(comment.GetUser().GetLogin()) {
 			continue
 		}
-		if err := declineReviewComment(ctx, repository, number, comment, noTaskReply); err != nil {
+		if err := e.declineReviewComment(ctx, repository, number, comment, noTaskReply); err != nil {
 			return err
 		}
 	}

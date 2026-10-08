@@ -107,6 +107,7 @@ type FakeGitHub struct {
 	failedCloses                               map[issueKey]bool
 	failedSubIssues                            map[issueKey]bool
 	failedParents                              map[issueKey]bool
+	failedComments                             map[issueKey]bool
 	reactions                                  map[reactionKey][]Reaction
 	// The ids of the first comments of the resolved review threads.
 	resolvedThreads map[int64]bool
@@ -174,6 +175,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedCloses:            map[issueKey]bool{},
 		failedSubIssues:         map[issueKey]bool{},
 		failedParents:           map[issueKey]bool{},
+		failedComments:          map[issueKey]bool{},
 		holds:                   map[issueKey]*hold{},
 		threadHolds:             map[issueKey][]*hold{},
 		issueHolds:              map[issueKey]*hold{},

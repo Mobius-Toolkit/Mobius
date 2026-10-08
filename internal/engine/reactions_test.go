@@ -138,6 +138,24 @@ func TestAFailedPollAfterADeclineDoesNotWriteASecondReply(t *testing.T) {
 	}
 }
 
+func TestAFailedReplyToADeclinedCommentIsWrittenOnTheNextPoll(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	connectSeen(t, fake)
+	fake.AddIssue(shop, 60, "Fix the footer")
+	waitForPolls(t, fake)
+	fake.FailAddComment(shop, 60, true)
+
+	id := fake.AddComment(shop, 60, "owner", "Use a smaller font.")
+	waitForReactions(t, fake, id, reactions("confused"))
+	fake.FailAddComment(shop, 60, false)
+
+	testkit.WaitFor(t, func() bool { return len(replies(fake, 60)) == 1 })
+	waitForPolls(t, fake)
+	if got := replies(fake, 60); len(got) != 1 {
+		t.Errorf("replies = %q", got)
+	}
+}
+
 func TestACommentOnAClosedIssueGetsConfusedAndOneReply(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)
