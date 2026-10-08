@@ -122,6 +122,8 @@ type FakeGitHub struct {
 	// mergeCalls and checkRunReads are the numbers of requests to merge a pull request and to list the check runs of a
 	// commit.
 	mergeCalls, checkRunReads int
+	// afterCheckRunRead runs once at the end of the next request for the check runs of a commit.
+	afterCheckRunRead func()
 	// unknownMergeable holds the pull requests whose mergeable GitHub still calculates.
 	unknownMergeable map[issueKey]bool
 	// The id of a check run is its index plus 1.

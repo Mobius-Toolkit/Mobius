@@ -125,6 +125,14 @@ func (g *FakeGitHub) CheckRunReads() int {
 	return g.checkRunReads
 }
 
+// AfterNextCheckRunRead makes the fake run f once, at the end of the next request for the check runs of a commit. The
+// function must not call a method that takes the lock of the fake.
+func (g *FakeGitHub) AfterNextCheckRunRead(f func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.afterCheckRunRead = f
+}
+
 // SetCreatedAt sets the creation time of the pull request to seconds after the Unix epoch.
 func (g *FakeGitHub) SetCreatedAt(repository string, number, seconds int64) {
 	g.mu.Lock()
@@ -431,6 +439,12 @@ func (g *FakeGitHub) commitCheckRuns(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.checkRunReads++
+	defer func() {
+		if g.afterCheckRunRead != nil {
+			g.afterCheckRunRead()
+			g.afterCheckRunRead = nil
+		}
+	}()
 	runs := []map[string]any{}
 	for index, run := range g.checkRuns {
 		if run.repository != repository(r) || run.HeadSHA != r.PathValue("sha") {

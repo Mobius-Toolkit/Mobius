@@ -136,6 +136,9 @@ func (r Repository) JobLog(ctx context.Context, id int64) (string, error) {
 func (r Repository) MergePullRequest(ctx context.Context, number int64, sha string) (string, error) {
 	_, _, err := r.Client.PullRequests.Merge(ctx, r.Owner(), r.Name(), int(number), "", &gh.PullRequestOptions{MergeMethod: "squash", SHA: sha})
 	var response *gh.ErrorResponse
+	if errors.As(err, &response) && response.Response.StatusCode == http.StatusConflict {
+		return "", nil
+	}
 	if errors.As(err, &response) && (response.Response.StatusCode == http.StatusMethodNotAllowed || response.Response.StatusCode == http.StatusUnprocessableEntity) {
 		return response.Message, nil
 	}
