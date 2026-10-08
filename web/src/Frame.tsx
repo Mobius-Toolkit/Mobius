@@ -143,7 +143,10 @@ export function Frame({
         </header>
         <div
           id="content"
-          className="flex min-h-0 grow flex-col overflow-y-auto md:overflow-visible"
+          className={cn(
+            "flex min-h-0 grow flex-col overflow-y-auto md:overflow-visible",
+            !fill && "md:p-6",
+          )}
         >
           <div className="grid gap-2 px-4 pt-4 empty:hidden md:hidden">
             {(path === "/chat" ||
@@ -155,7 +158,9 @@ export function Frame({
           </div>
           <main
             className={cn(
-              fill ? "flex min-h-0 grow" : "grid w-full content-start gap-6 py-4 md:p-6",
+              fill
+                ? "flex min-h-0 grow"
+                : "grid w-full content-start gap-6 py-4 md:mx-auto md:max-w-3xl md:rounded-xl md:border md:bg-card md:p-6",
             )}
           >
             <TopBarContext value={topBar}>{children}</TopBarContext>

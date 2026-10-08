@@ -318,7 +318,7 @@ export function Agents({ source }: { source?: EventSource }) {
             source={source}
             className={cn(
               inset,
-              "max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-6.75rem)]",
+              "max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-9.875rem)]",
             )}
           />
         </>
