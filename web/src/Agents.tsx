@@ -316,7 +316,10 @@ export function Agents({ source }: { source?: EventSource }) {
           <TranscriptLog
             agent={selected}
             source={source}
-            className={cn(inset, "max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-3rem)]")}
+            className={cn(
+              inset,
+              "max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-6.75rem)]",
+            )}
           />
         </>
       ) : (
