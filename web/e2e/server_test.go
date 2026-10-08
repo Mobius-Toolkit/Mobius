@@ -431,16 +431,12 @@ func TestServer(t *testing.T) {
 		VALUES ('owner/shop', 40, 14, 'ready_for_review', ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
-	for i, text := range []string{
-		"Run make fmt before each commit.\nUse pnpm for the frontend.\n",
-		"Run make fmt before each commit.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\n",
-		"Run make fmt before each commit and each push.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\nWrite each message in Simplified Technical English.\n",
+	for _, version := range []struct{ author, reason, text string }{
+		{"curator", "Add: two Implementer sessions used npm and not pnpm", "Run make fmt before each commit.\nUse pnpm for the frontend.\n"},
+		{"curator", "Add: three fix rounds repeated the same wait with a fixed sleep in tests", "Run make fmt before each commit.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\n"},
+		{"owner", "", "Run make fmt before each commit and each push.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\nWrite each message in Simplified Technical English.\n"},
 	} {
-		author := "curator"
-		if i == 2 {
-			author = "owner"
-		}
-		if err := server.Engine.SaveMemory(ctx, "owner/shop", author, "", text); err != nil {
+		if err := server.Engine.SaveMemory(ctx, "owner/shop", version.author, version.reason, version.text); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -2043,13 +2043,14 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 }
 
 const listMemoryVersions = `-- name: ListMemoryVersions :many
-SELECT id, time, author, text FROM memory_versions WHERE repository = ? ORDER BY id DESC
+SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? ORDER BY id DESC
 `
 
 type ListMemoryVersionsRow struct {
 	ID     int64
 	Time   string
 	Author string
+	Reason string
 	Text   string
 }
 
@@ -2066,6 +2067,7 @@ func (q *Queries) ListMemoryVersions(ctx context.Context, repository string) ([]
 			&i.ID,
 			&i.Time,
 			&i.Author,
+			&i.Reason,
 			&i.Text,
 		); err != nil {
 			return nil, err

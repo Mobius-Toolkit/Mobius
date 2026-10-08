@@ -220,6 +220,7 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
                       Revert
                     </Button>
                   </div>
+                  {version.reason && <p className="text-sm break-words">{version.reason}</p>}
                   {!version.revertible && (
                     <p className="text-sm text-muted-foreground">{version.revert_problem}</p>
                   )}
