@@ -146,7 +146,7 @@ const question = "What is the state of the plans? The full report is at " +
 // Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, and
 // the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55. The
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
-// POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub.
+// The Workstream owner/shop#12 has two closed tasks. POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -188,6 +188,10 @@ func TestServer(t *testing.T) {
 	github.AddSubIssueOf("owner/shop", 12, 45, "Pick the plan limits")
 	github.AddSubIssueOf("owner/shop", 13, 43, "Add season table")
 	github.CloseIssue("owner/shop", 43)
+	github.AddSubIssueOf("owner/shop", 41, 36, "Rename the plan table")
+	github.AddSubIssueOf("owner/shop", 12, 37, "Remove the old plan page")
+	github.CloseIssue("owner/shop", 36)
+	github.CloseIssue("owner/shop", 37)
 	github.SetBody("owner/shop", 12, "Reward repeat customers.\n\n- Points on every order\n- One **free** plan for staff")
 	github.SetBody("owner/shop", 13, "Change the prices for each season.")
 	github.SetBody("owner/shop", 45, "Each plan has a limit of seats.")
@@ -416,6 +420,17 @@ func TestServer(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
 	held := implementerSpec(t, server, 42)
 	go func() { _, _ = server.Engine.Start(ctx, held) }()
+	testkit.WaitFor(t, func() bool {
+		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_reason <> ''", "2026-09-28T09:30:00Z")
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed, err := result.RowsAffected()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return changed > 0
+	})
 	<-ctx.Done()
 	_ = srv.Close()
 }

@@ -250,3 +250,13 @@ test("a Workstream with Autopilot on shows the Autopilot icon", async ({ page })
     0,
   );
 });
+
+test("the agents page shows the start time of an agent after the repository", async ({ page }) => {
+  await page.goto("/agents");
+  await expect(
+    page
+      .getByRole("main")
+      .getByRole("button", { name: /Ticket #41 Add plan model/ })
+      .getByText(/owner\/shop · Sep \d+, \d\d:\d\d [AP]M$/),
+  ).toBeVisible();
+});
