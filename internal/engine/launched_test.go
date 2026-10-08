@@ -115,6 +115,24 @@ func TestACommentOfATrustedUserGetsARocketWhenTheJudgeSessionStarts(t *testing.T
 	}
 }
 
+func TestEachNewCommentOfATrustedUserInAThreadGetsARocketWhenTheJudgeSessionStarts(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	connectJudge(t, fake, "shell = \"true\"\n", "", func(cfg *config.Config) { cfg.ReviewQuietPeriod = 2 * time.Second })
+
+	first := fake.AddReviewComment(shop, 42, 0, "owner", "Use price_cents.")
+	second := fake.AddReviewComment(shop, 42, first, "owner", "Also rename plan to tier.")
+	fromBot := fake.AddReviewComment(shop, 42, first, bot, "Rename plan to tier.")
+
+	waitForReactions(t, fake, first, reactions("eyes"))
+	waitForReactions(t, fake, second, reactions("eyes"))
+
+	waitForReactions(t, fake, first, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, second, reactions("eyes", "rocket"))
+	if got := fake.Reactions(shop, fromBot); len(got) != 0 {
+		t.Errorf("reactions of the comment of the bot = %+v", got)
+	}
+}
+
 func TestACommentThatTheDrainHeldGetsARocketWhenTheTriagerStarts(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)

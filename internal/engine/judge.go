@@ -41,8 +41,8 @@ type judgeItem struct {
 	bot  bool
 	text string
 	at   time.Time
-	// comment is the id of the newest comment of a trusted user or bot in the item.
-	comment int64
+	// comments are the ids of the new comments of trusted users in the item. A comment of a bot is not one of them.
+	comments []int64
 	// thread is the GraphQL node id of the review thread, or "" for a conversation comment.
 	thread string
 }
@@ -192,20 +192,28 @@ func (e *Engine) newItems(ctx context.Context, repository github.Repository, tas
 			continue
 		}
 		var newest *github.ThreadComment
+		var comments []int64
 		for i, comment := range open.Comments {
 			if trusted(comment.Author) && (newest == nil || !comment.CreatedAt.Before(newest.CreatedAt)) {
 				newest = &open.Comments[i]
 			}
+			if isNew(comment.Author, comment.CreatedAt) && !bot(comment.Author) {
+				comments = append(comments, comment.ID)
+			}
 		}
 		if newest != nil && isNew(newest.Author, newest.CreatedAt) {
-			items = append(items, judgeItem{id: open.Comment, bot: bot(newest.Author), text: threadText(open, trusted), at: newest.CreatedAt, comment: newest.ID, thread: open.ID})
+			items = append(items, judgeItem{id: open.Comment, bot: bot(newest.Author), text: threadText(open, trusted), at: newest.CreatedAt, comments: comments, thread: open.ID})
 		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(state.conversation)) {
 		comment := state.conversation[id]
 		login, at := comment.GetUser().GetLogin(), comment.GetCreatedAt().Time
 		if isNew(login, at) {
-			items = append(items, judgeItem{id: id, bot: bot(login), text: fmt.Sprintf("\nComment %d:\n%s", id, entry(login, at, "", comment.GetBody())), at: at, comment: id})
+			var comments []int64
+			if !bot(login) {
+				comments = []int64{id}
+			}
+			items = append(items, judgeItem{id: id, bot: bot(login), text: fmt.Sprintf("\nComment %d:\n%s", id, entry(login, at, "", comment.GetBody())), at: at, comments: comments})
 		}
 	}
 	return items, nil
@@ -390,8 +398,8 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 		return err
 	}
 	for _, item := range j.items {
-		if !item.bot {
-			launched(ctx, repository, item.thread != "", item.comment)
+		for _, id := range item.comments {
+			launched(ctx, repository, item.thread != "", id)
 		}
 	}
 	return a.Prompt(ctx, prompt, nil)
