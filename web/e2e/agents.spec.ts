@@ -40,6 +40,26 @@ test("the Agents tab of a Workstream shows the state of each agent with a queue 
   }
 });
 
+test.describe("the transcript of an agent on a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("has the agent name and the back button in the top bar, and the back button closes it", async ({
+    page,
+  }) => {
+    await page.goto("/agents");
+    await page
+      .getByRole("main")
+      .getByRole("button", { name: /Ticket #41 Add plan model/ })
+      .click();
+    const bar = page.getByRole("banner");
+    await expect(bar.getByRole("heading")).not.toHaveText("Agents");
+    await expect(page.getByRole("main").getByRole("button", { name: "Agents" })).toBeHidden();
+    await bar.getByRole("button", { name: "Back" }).click();
+    await expect(page).toHaveURL("/agents");
+    await expect(bar.getByRole("heading")).toHaveText("Agents");
+  });
+});
+
 // The log of the Implementer of #41 has 30 entries, and a new entry comes as a server-sent event. The tests have no DOM
 // types, so the checks are scripts.
 const entry = (id: number) => ({
@@ -119,7 +139,7 @@ const places = [
     path: "/workstreams/owner/shop/12",
     open: async (page: Page) => {
       if (page.viewportSize()!.width < 768) {
-        await page.getByRole("main").getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
       }
       await page
         .getByRole("button", { name: /^implementer devin · swe-1.5 · Sep \d+,/ })
@@ -141,8 +161,11 @@ for (const { name: place, path, open } of places) {
       test("opens at the last entry and keeps the header in view", async ({ page }) => {
         await openLog(page, path, open);
         await expect.poll(() => page.evaluate(gap)).toBeLessThan(5);
+        const phonePage = path === "/agents" && size.width < 768;
         await expect(
-          page.getByRole("button", { name: "Agents", exact: true }).filter({ visible: true }),
+          phonePage
+            ? page.getByRole("banner").getByRole("button", { name: "Back" })
+            : page.getByRole("button", { name: "Agents", exact: true }).filter({ visible: true }),
         ).toBeInViewport();
         await expect(button(page)).toBeHidden();
       });

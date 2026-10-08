@@ -66,10 +66,11 @@ test("screenshots", async ({ page }) => {
   await createApp("owner", "mobius-test");
   const release = page.getByText("v0.1.4").filter({ visible: true }).first();
   // The server adds the repositories after the second App, so Mobius knows no organization.
-  await screenshot(page, "chat-no-organization", "/chat", () => [
-    release,
+  await screenshot(page, "chat-no-organization", "/chat", (device) => [
+    device === "desktop" ? release : page.getByLabel("Upgrade available"),
     main.getByText("Mobius reads the repositories from GitHub."),
   ]);
+  await page.setViewportSize(viewports.desktop);
   await page.goto("/github");
   await createApp("plants", "mobius-second");
   // The organization switch shows when the poll has the repositories of both Apps.
@@ -82,18 +83,33 @@ test("screenshots", async ({ page }) => {
 
   await page.goto("/");
   await expect(page).toHaveURL("/chat");
-  // The side bar and the header of the phone have the same controls, and only one of them shows.
+  // The side bar of a desktop and the Settings page of a phone have the same upgrade controls, and only one of them shows.
   const shown = (name: string) => page.getByRole("button", { name }).filter({ visible: true });
   const drain = page.getByText("Upgrade waits for 2 agents").filter({ visible: true });
   // The server starts the drain after the chats of the fake agents end.
   await expect(drain).toBeVisible({ timeout: 60_000 });
   // The frame shows its data after the live connection opens. Only the side bar of a desktop shows the Workstreams.
-  const frame = (device: string, upgrade: Locator) => [
-    upgrade,
-    page.getByLabel("Work in another organization").filter({ visible: true }),
-    page.locator('nav a[href="/inbox"]').filter({ visible: true }).getByText("2", { exact: true }),
-    ...(device === "desktop" ? [page.locator("nav").first().getByText("needs you")] : []),
-  ];
+  // A phone shows the upgrade controls only on the Settings page, and the organization switch only on the Workstreams
+  // and Inbox pages.
+  const frame = (
+    device: string,
+    upgrade: Locator,
+    phone: { upgrade?: boolean; organizations?: boolean } = {},
+  ) => {
+    const desktop = device === "desktop";
+    return [
+      ...(desktop || phone.upgrade ? [upgrade] : []),
+      ...(desktop ? [] : [page.getByLabel("Upgrade available")]),
+      ...(desktop || phone.organizations
+        ? [page.getByLabel("Work in another organization").filter({ visible: true })]
+        : []),
+      page
+        .locator('nav a[href="/inbox"]')
+        .filter({ visible: true })
+        .getByText("2", { exact: true }),
+      ...(desktop ? [page.locator("nav").first().getByText("needs you")] : []),
+    ];
+  };
   // Each test that opens the Triager chat of owner marks its messages as seen. Thus the screenshots get a fixed count.
   await page.route("/api/unread", async (route) => {
     const response = await route.fetch();
@@ -112,7 +128,7 @@ test("screenshots", async ({ page }) => {
     .getByText("1", { exact: true });
   await screenshot(page, "workstreams", "/workstreams", (device) => [
     chatCount,
-    ...frame(device, drain),
+    ...frame(device, drain, { organizations: true }),
     main.getByText("Seasonal prices"),
     main.getByRole("img", { name: "Autopilot" }),
     main.getByRole("img", { name: "Agent running" }),
@@ -188,7 +204,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await main.getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
       }
     },
   );
@@ -204,7 +220,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await main.getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
@@ -223,7 +239,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await main.getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
       await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
@@ -235,16 +251,18 @@ test("screenshots", async ({ page }) => {
     "chat-tasks-start",
     "/workstreams/plants/garden/19",
     (device) => [
-      drain,
-      page.getByLabel("Work in another organization").filter({ visible: true }),
       ...(device === "desktop"
-        ? [page.locator('nav a[href="/workstreams/plants/garden/19"]')]
-        : []),
+        ? [
+            drain,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/19"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
       page.getByRole("button", { name: "Start #70" }).filter({ visible: true }),
     ],
     async (device) => {
       if (device === "phone") {
-        await main.getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
     },
@@ -261,7 +279,7 @@ test("screenshots", async ({ page }) => {
   ]);
   await screenshot(page, "inbox", "/inbox", (device) => [
     chatCount,
-    ...frame(device, drain),
+    ...frame(device, drain, { organizations: true }),
     main.getByRole("tab", { name: "To do 2" }),
     main.getByText("#45 needs a decision"),
     main.getByText("Integrate loyalty plans ·"),
@@ -269,7 +287,7 @@ test("screenshots", async ({ page }) => {
   ]);
   await screenshot(page, "inbox-activity", "/inbox/activity", (device) => [
     chatCount,
-    ...frame(device, drain),
+    ...frame(device, drain, { organizations: true }),
     main.getByText('Dispatched "Pick the plan limits"'),
     main.getByRole("button", { name: "Integrate loyalty plans" }),
   ]);
@@ -305,7 +323,7 @@ test("screenshots", async ({ page }) => {
     ],
     async (device) => {
       if (device === "phone") {
-        await main.getByRole("button", { name: "Agents" }).click();
+        await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
       }
       await page
         .getByRole("button", { name: /^implementer devin · swe-1.5 · Sep \d+, \d\d:\d\d [AP]M$/ })
@@ -326,33 +344,37 @@ test("screenshots", async ({ page }) => {
     () => main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click(),
   );
 
+  await page.setViewportSize(viewports.desktop);
   await shown("Cancel upgrade").click();
   await screenshot(
     page,
     "upgrade",
-    "/workstreams",
+    "/settings",
     (device) => [
-      ...frame(device, release),
+      ...frame(device, release, { upgrade: true }),
       page.getByText("Show the release changes in a modal before the upgrade (#320)"),
     ],
     () => shown("Upgrade v0.1.4").click(),
   );
   await page.route("/ui-version", (route) => route.fulfill({ body: "a new build" }));
-  await screenshot(page, "new-version", "/workstreams", (device) => [
-    ...frame(device, release),
+  await screenshot(page, "new-version", "/settings", (device) => [
+    ...frame(device, release, { upgrade: true }),
     shown("New version"),
   ]);
   await page.unroute("/ui-version");
 
   await screenshot(page, "settings", "/settings", (device) => [
-    ...frame(device, release),
+    ...frame(device, release, { upgrade: true }),
     main.getByRole("link", { name: "Devices" }),
   ]);
   await screenshot(
     page,
     "organizations",
-    "/settings",
-    (device) => [...frame(device, release), page.getByRole("menuitemradio", { name: "plants" })],
+    "/workstreams",
+    (device) => [
+      ...frame(device, release, { organizations: true }),
+      page.getByRole("menuitemradio", { name: "plants" }),
+    ],
     () => page.getByRole("button", { name: "owner" }).click(),
   );
   await screenshot(page, "github", "/github", (device) => [
@@ -414,7 +436,7 @@ test("screenshots", async ({ page }) => {
   ]);
   await screenshot(page, "memory", "/settings/memory/owner/shop", (device) => [
     ...frame(device, release),
-    main.getByText("Memory of owner/shop"),
+    page.getByText("Memory of owner/shop").filter({ visible: true }),
     main.getByText("+ Run make fmt before each commit and each push."),
     main.getByText("+ Write each message in Simplified Technical English."),
     main.getByText("- Run make fmt before each commit."),
@@ -436,11 +458,13 @@ test("screenshots", async ({ page }) => {
     "chat-history-images",
     "/workstreams/plants/garden/25",
     (device) => [
-      release,
-      page.getByLabel("Work in another organization").filter({ visible: true }),
       ...(device === "desktop"
-        ? [page.locator('nav a[href="/workstreams/plants/garden/25"]')]
-        : []),
+        ? [
+            release,
+            page.getByLabel("Work in another organization"),
+            page.locator('nav a[href="/workstreams/plants/garden/25"]'),
+          ]
+        : [page.getByLabel("Upgrade available")]),
       main.getByText("This is the new plan page."),
       pictures.last(),
     ],
