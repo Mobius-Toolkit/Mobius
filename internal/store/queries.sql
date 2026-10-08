@@ -420,13 +420,12 @@ ORDER BY i.repository, i.workstream, i.number;
 -- name: AddMemoryVersion :exec
 INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?);
 
-<<<<<<< HEAD
 -- name: SetTaskApprovedReview :exec
 UPDATE tasks SET approved_review = ? WHERE id = ?;
 
 -- name: SetTaskRefusedReview :exec
 UPDATE tasks SET refused_review = ? WHERE id = ?;
-=======
+
 -- name: HoldTriager :exec
 INSERT INTO held_triagers (repository, issue) VALUES (?, ?)
 ON CONFLICT (repository, issue) DO NOTHING;
@@ -436,7 +435,6 @@ SELECT issue FROM held_triagers WHERE repository = ? ORDER BY issue;
 
 -- name: ReleaseTriager :exec
 DELETE FROM held_triagers WHERE repository = ? AND issue = ?;
->>>>>>> origin/main
 
 -- name: ListMemoryVersions :many
 SELECT id, time, author, text FROM memory_versions WHERE repository = ? ORDER BY id DESC;
