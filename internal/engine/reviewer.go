@@ -285,7 +285,7 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 		if err := e.endRound(ctx, repository, j, task, comment, "No open findings. Mobius waits for CI.", open); err != nil {
 			return err
 		}
-		_, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "working"})
+		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "working"})
 		return err
 	}
 	// A finding of the Reviewer has only comments of the Mobius App.
@@ -299,7 +299,7 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 		if err := e.endRound(ctx, repository, j, task, comment, "The Judge takes the open threads.", open); err != nil {
 			return err
 		}
-		_, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "reviewed", ID: task.ID, FromState: "working"})
+		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "reviewed", ID: task.ID, FromState: "working"})
 		return err
 	}
 	reviewLimit := !afterConflictRound(task) && task.ReviewRounds+1 >= limit

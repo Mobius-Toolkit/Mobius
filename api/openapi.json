@@ -4526,6 +4526,10 @@
             "type": "integer",
             "description": "Number is the number of the Workstream issue"
           },
+          "readyToMerge": {
+            "type": "boolean",
+            "description": "ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository of the Workstream issue, as \"owner/name\""
@@ -4541,7 +4545,8 @@
           "title",
           "brief",
           "autopilot",
-          "allTasksClosed"
+          "allTasksClosed",
+          "readyToMerge"
         ],
         "description": "Workstream is an open Workstream of a managed repository."
       },

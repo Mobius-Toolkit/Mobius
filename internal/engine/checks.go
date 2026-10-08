@@ -99,12 +99,12 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	if err != nil {
 		return false, err
 	}
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
 	if err != nil || moved == 0 {
 		return true, err
 	}
 	if err := e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items.String(), parent: parent, failedCheck: true}); err != nil {
-		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "working"})
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "working"})
 		return false, errors.Join(err, stateErr)
 	}
 	return true, e.queries.SetTaskCheckHead(ctx, store.SetTaskCheckHeadParams{CheckHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
@@ -147,7 +147,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 			return err
 		}
 	}
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "checks"})
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "checks"})
 	if err != nil || moved == 0 {
 		return err
 	}

@@ -101,6 +101,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			if err := e.queries.EndTask(ctx, task.ID); err != nil {
 				return err
 			}
+			e.publish(Change{Workstreams: true})
 		}
 		if err := e.dispatch(ctx, repository, issue, workstream, actor); err != nil {
 			return err
@@ -513,7 +514,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		}
 	}
 	from := task.State
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: to, ID: task.ID, FromState: from})
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: to, ID: task.ID, FromState: from})
 	if err != nil || moved == 0 {
 		return err
 	}
@@ -527,7 +528,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		_, err = e.startImplementer(ctx, repository, task.Workstream, number, issue.GetBody(), parent)
 	}
 	if err != nil {
-		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: from, ID: task.ID, FromState: to})
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: from, ID: task.ID, FromState: to})
 		return errors.Join(err, stateErr)
 	}
 	if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
