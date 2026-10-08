@@ -8,6 +8,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
+	"github.com/coder/acp-go-sdk"
 )
 
 // turnUsage is the usage data of one turn. A value that the Harness did not send is not valid.
@@ -115,12 +116,14 @@ func nullInt(value *int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: *value, Valid: true}
 }
 
-// addUsage adds the usage row of the turn that ended with result. A turn with no tokens and no cost has no row.
+// addUsage adds the usage row of the turn that ended with result and promptErr. A turn that ends with no error and
+// no cancel always has a row, also when all the tokens and the cost are NULL. A turn that ends with an error or a
+// cancel has a row only if it has tokens or a cost.
 //
 // The cost total of the session is the total of the Harness, so the cost of the turn is the difference to the total
 // at the end of the last turn with a cost. A total that fell belongs to a new process of the session, so the cost
 // of the turn is the new total.
-func (a *Agent) addUsage(ctx context.Context, result runner.PromptResult) error {
+func (a *Agent) addUsage(ctx context.Context, result runner.PromptResult, promptErr error) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	usage := a.turnUsage
@@ -133,7 +136,9 @@ func (a *Agent) addUsage(ctx context.Context, result runner.PromptResult) error 
 		}
 		a.costBase = a.costTotal
 	}
-	if !usage.input.Valid && !usage.output.Valid && !usage.cacheRead.Valid && !usage.cacheWrite.Valid && !cost.Valid {
+	hasData := usage.input.Valid || usage.output.Valid || usage.cacheRead.Valid || usage.cacheWrite.Valid || cost.Valid
+	ended := promptErr == nil && result.StopReason != acp.StopReasonCancelled
+	if !hasData && !ended {
 		return nil
 	}
 	spec := a.spec

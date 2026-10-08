@@ -60,7 +60,7 @@ func (a *Agent) sendPrompt(ctx context.Context, text string, images []Image) err
 	go func() { hung <- a.watch(promptCtx, stop) }()
 	go func() { absorbed <- a.watchAbsorbed(promptCtx) }()
 	result, err := a.session.Prompt(promptCtx, text, images)
-	if usageErr := a.addUsage(context.WithoutCancel(ctx), result); usageErr != nil {
+	if usageErr := a.addUsage(context.WithoutCancel(ctx), result, err); usageErr != nil {
 		log.Printf("add the usage of the session %d: %v", a.id, usageErr)
 	}
 	stop()

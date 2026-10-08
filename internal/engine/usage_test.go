@@ -131,7 +131,7 @@ usage = '{"inputTokens": 5, "outputTokens": 6}'
 	}
 }
 
-func TestATurnWithNoDataHasNoUsageRow(t *testing.T) {
+func TestATurnWithNoDataHasAUsageRowWithNullValues(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, `
 [[prompts]]
@@ -140,7 +140,29 @@ reply = ["Done."]
 
 	session := run(t, server, leadSpec(t), "One")
 
-	if rows := usageRows(t, server, session); len(rows) != 0 {
+	rows := usageRows(t, server, session)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	row := rows[0]
+	if row.Input.Valid || row.Output.Valid || row.CacheRead.Valid || row.CacheWrite.Valid || row.Cost.Valid || row.ReportedModel.Valid {
+		t.Errorf("row = %+v", row)
+	}
+}
+
+func TestATurnThatEndsWithAnErrorAndHasNoDataHasNoUsageRow(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, `
+[[prompts]]
+error = { code = -32603, message = "Internal error" }
+`)
+	agent := start(t, server, leadSpec(t))
+
+	if err := agent.Prompt(t.Context(), "One", nil); err == nil {
+		t.Fatal("the prompt gave no error")
+	}
+
+	if rows := usageRows(t, server, agent.ID()); len(rows) != 0 {
 		t.Errorf("rows = %+v", rows)
 	}
 }
