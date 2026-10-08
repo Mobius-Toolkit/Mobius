@@ -448,7 +448,7 @@ export function Conversation({
             scrollToEnd(event.currentTarget);
           }
         }}
-        className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto bg-muted/40 p-4"
+        className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4"
       >
         {error && <Badge variant="destructive">{error}</Badge>}
         {loaded && messages.length === 0 && (
@@ -518,6 +518,8 @@ export function Conversation({
             placeholder={`Write to the ${agent}`}
             value={text}
             onChange={(event) => setText(event.target.value)}
+            // Safari on iOS scrolls the page when the keyboard opens, and it can keep that offset after the keyboard closes.
+            onBlur={() => window.scrollTo(0, 0)}
             onPaste={(event) => {
               const pasted = [...event.clipboardData.files].filter((file) =>
                 file.type.startsWith("image/"),
