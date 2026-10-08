@@ -235,6 +235,47 @@ func TestListCopiedWorkstreams(t *testing.T) {
 	}
 }
 
+func TestOnlyACuratorThatDidWorkResetsTheCountOfEndedSessions(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	_, err = db.Exec(`
+		INSERT INTO sessions (role, harness, model, repository, workstream, started_at, ended_at, end_reason) VALUES
+			('lead', 'h', 'm', 'o/a', 1, '2026-10-01T00:00:00Z', '2026-10-01T01:00:00Z', 'done'),
+			('lead', 'h', 'm', 'o/a', 1, '2026-10-01T00:00:00Z', '2026-10-01T02:00:00Z', 'done'),
+			('curator', 'h', 'm', 'o/a', 0, '2026-10-02T00:00:00Z', '2026-10-02T01:00:00Z', 'declined'),
+			('curator', 'h', 'm', 'o/a', 0, '2026-10-02T02:00:00Z', '2026-10-02T03:00:00Z', 'stopped'),
+			('curator', 'h', 'm', 'o/a', 0, '2026-10-02T04:00:00Z', '2026-10-02T05:00:00Z', 'restart'),
+			('curator', 'h', 'm', 'o/a', 0, '2026-10-02T06:00:00Z', '2026-10-02T07:00:00Z', 'failed');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := func() int64 {
+		t.Helper()
+		n, err := New(db).CountSessionsEndedSinceCurator(ctx, "o/a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(); n != 2 {
+		t.Fatalf("count after Curators that did no work = %d, want 2", n)
+	}
+
+	_, err = db.Exec(`INSERT INTO sessions (role, harness, model, repository, workstream, started_at) VALUES
+		('curator', 'h', 'm', 'o/a', 0, '2026-10-03T00:00:00Z')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := count(); n != 0 {
+		t.Errorf("count with an open Curator = %d, want 0", n)
+	}
+}
+
 func TestAWriteWaitsForTheWriteOfAnotherConnection(t *testing.T) {
 	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
 	if err != nil {
