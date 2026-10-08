@@ -1680,6 +1680,234 @@
         ]
       }
     },
+    "/api/repositories/{owner}/{name}/memory": {
+      "get": {
+        "description": "ListMemoryVersions returns the versions of the memory file of the repository, the newest first. The first version is the current text of the file. It returns 404 when the repository is not a repository of Mobius.",
+        "operationId": "ListMemoryVersions",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_MemoryVersion"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "memory"
+        ]
+      },
+      "put": {
+        "description": "SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, and 422 when the text has more than 200 lines.",
+        "operationId": "SaveMemory",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveMemoryBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "memory"
+        ]
+      }
+    },
+    "/api/repositories/{owner}/{name}/memory/{id}/revert": {
+      "post": {
+        "description": "RevertMemory saves the text of the version before the version as a new version with the author owner. The text before the first version is empty. It returns 404 when the repository is not a repository of Mobius, or when the version does not exist or belongs to another repository.",
+        "operationId": "RevertMemory",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ID is the id of the version to revert",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "memory"
+        ]
+      }
+    },
     "/api/unread": {
       "get": {
         "description": "ListUnread returns each chat with unread messages.",
@@ -3008,6 +3236,24 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Array_MemoryVersion": {
+        "type": "object",
+        "title": "Envelope_Array_MemoryVersion",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]MemoryVersion",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/MemoryVersion"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Array_NeedsHuman": {
         "type": "object",
         "title": "Envelope_Array_NeedsHuman",
@@ -3763,6 +4009,39 @@
         ],
         "description": "ManifestForm is the form that the browser posts to GitHub to create a Mobius App."
       },
+      "MemoryVersion": {
+        "type": "object",
+        "title": "MemoryVersion",
+        "properties": {
+          "author": {
+            "type": "string",
+            "description": "Author is curator or owner",
+            "enum": [
+              "curator",
+              "owner"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "description": "ID is the id of the version"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text is the text of the memory file in this version"
+          },
+          "time": {
+            "type": "string",
+            "description": "Time is the time when Mobius saved the version, in RFC 3339 format"
+          }
+        },
+        "required": [
+          "id",
+          "time",
+          "author",
+          "text"
+        ],
+        "description": "MemoryVersion is a version of the memory file of a repository."
+      },
       "NeedsHuman": {
         "type": "object",
         "title": "NeedsHuman",
@@ -3883,6 +4162,16 @@
           "labels"
         ],
         "description": "RepositoryCheckup is the status of each Mobius label in a repository."
+      },
+      "SaveMemoryBody": {
+        "type": "object",
+        "title": "SaveMemoryBody",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Text is the new text of the memory file"
+          }
+        }
       },
       "SeeChatBody": {
         "type": "object",

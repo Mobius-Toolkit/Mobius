@@ -72,6 +72,14 @@ type LeadEvent struct {
 	Held        int64
 }
 
+type MemoryVersion struct {
+	ID         int64
+	Repository string
+	Time       string
+	Author     string
+	Text       string
+}
+
 type Session struct {
 	ID           int64
 	Role         string

@@ -411,6 +411,19 @@ func TestServer(t *testing.T) {
 		}
 		github.AddLabel("owner/shop", number, "mobius:working", testkit.AppSlug+"[bot]")
 	}
+	for i, text := range []string{
+		"Run make fmt before each commit.\nUse pnpm for the frontend.\n",
+		"Run make fmt before each commit.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\n",
+		"Run make fmt before each commit.\nUse pnpm for the frontend, not npm.\nWait for a condition with testkit.WaitFor.\nWrite each message in Simplified Technical English.\n",
+	} {
+		author := "curator"
+		if i == 2 {
+			author = "owner"
+		}
+		if err := server.Engine.SaveMemory(ctx, "owner/shop", author, text); err != nil {
+			t.Fatal(err)
+		}
+	}
 	fixTimes(t, server)
 	go func() { _, _ = server.Engine.Drain(ctx) }()
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
@@ -487,6 +500,7 @@ func fixTimes(t *testing.T, server *testserver.Server) {
 		"UPDATE transcript SET time = ?1",
 		"UPDATE chat_messages SET time = ?1",
 		"UPDATE inbox_items SET time = ?1",
+		"UPDATE memory_versions SET time = ?1",
 	} {
 		if _, err := server.DB.Exec(query, "2026-09-28T09:30:00Z"); err != nil {
 			t.Fatal(err)
