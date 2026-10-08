@@ -238,6 +238,19 @@ test("a switch to another organization leaves the chat of the old organization",
   await expect(page).toHaveURL("/inbox");
 });
 
+test("a Workstream with Autopilot on shows the Autopilot icon", async ({ page }) => {
+  const main = page.getByRole("main");
+  const row = (title: string) => main.getByRole("link").filter({ hasText: title });
+
+  await page.goto("/workstreams");
+  await expect(row("Early renewals").getByRole("img", { name: "Autopilot" })).toBeVisible();
+  await expect(row("Early renewals")).toContainText("#14");
+  await expect(row("Integrate loyalty plans")).toContainText("#12");
+  await expect(row("Integrate loyalty plans").getByRole("img", { name: "Autopilot" })).toHaveCount(
+    0,
+  );
+});
+
 test("the agents page shows the start time of an agent after the repository", async ({ page }) => {
   await page.goto("/agents");
   await expect(
