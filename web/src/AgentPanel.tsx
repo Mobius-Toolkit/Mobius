@@ -311,7 +311,7 @@ function Tasks({
       {shown?.length === 0 && <p className="px-2 text-sm text-muted-foreground">No tasks.</p>}
       <ul>
         {shown?.map((line) => (
-          <TaskEntry key={line.url} owner={owner} name={name} line={line} />
+          <TaskEntry key={`${line.url} ${line.state}`} owner={owner} name={name} line={line} />
         ))}
       </ul>
     </div>
