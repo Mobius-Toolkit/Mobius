@@ -592,3 +592,28 @@ func TestTheLatestReleaseOfMobiusNeedsNoToken(t *testing.T) {
 		t.Errorf("release = %d %+v", got.StatusCode, release)
 	}
 }
+
+func TestAReactionGoesToAConversationCommentOrAReviewCommentOnceForEachContent(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+	github.AddIssue("owner/shop", 42, "Add plan model")
+	conversation := github.AddComment("owner/shop", 12, "owner", "Start with the model.")
+	review := github.AddReviewComment("owner/shop", 42, 0, "owner", "Rename plan to tier.")
+	token := installationToken(t, github)
+	base := github.URL + "/repos/owner/shop"
+
+	first := send(t, http.MethodPost, fmt.Sprintf("%s/issues/comments/%d/reactions", base, conversation), token, `{"content": "eyes"}`, nil)
+	second := send(t, http.MethodPost, fmt.Sprintf("%s/issues/comments/%d/reactions", base, conversation), token, `{"content": "eyes"}`, nil)
+	send(t, http.MethodPost, fmt.Sprintf("%s/pulls/comments/%d/reactions", base, review), token, `{"content": "confused"}`, nil)
+	wrongKind := send(t, http.MethodPost, fmt.Sprintf("%s/pulls/comments/%d/reactions", base, conversation), token, `{"content": "eyes"}`, nil)
+
+	if first.StatusCode != http.StatusCreated || second.StatusCode != http.StatusOK || wrongKind.StatusCode != http.StatusNotFound {
+		t.Errorf("statuses = %d, %d, %d", first.StatusCode, second.StatusCode, wrongKind.StatusCode)
+	}
+	if got := github.Reactions("owner/shop", conversation); !reflect.DeepEqual(got, []Reaction{{"mobius-test[bot]", "eyes"}}) {
+		t.Errorf("reactions = %+v", got)
+	}
+	if got := github.Reactions("owner/shop", review); !reflect.DeepEqual(got, []Reaction{{"mobius-test[bot]", "confused"}}) {
+		t.Errorf("reactions = %+v", got)
+	}
+}

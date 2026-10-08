@@ -441,3 +441,10 @@ SELECT text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DES
 
 -- name: GetNewestMemoryVersionID :one
 SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ?;
+
+-- name: IsCommentAnswered :one
+SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review = ? AND comment = ?);
+
+-- name: MarkCommentAnswered :exec
+INSERT INTO answered_comments (repository, review, comment) VALUES (?, ?, ?)
+ON CONFLICT (repository, review, comment) DO NOTHING;

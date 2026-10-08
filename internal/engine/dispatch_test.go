@@ -352,6 +352,29 @@ func TestACommentOnTheIssueOfAStoppedTaskGoesToTheLead(t *testing.T) {
 	})
 }
 
+func TestAReviewCommentAndALaterCommentOnThePullRequestOfAStoppedTaskGoToTheLead(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithStoppedTask(t, fake)
+
+	review := fake.AddReviewComment(shop, 42, 0, "owner", "Rename plan to tier.")
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool {
+			return strings.Contains(prompt, ` review comment on #42 "Add plan model" by @owner:`+"\n\n> Rename plan to tier.\n\nThe state of the task of #41 is stopped.")
+		})
+	})
+	waitForReactions(t, fake, review, reactions("eyes"))
+	fake.AddComment(shop, 42, "owner", "Halo")
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool {
+			return strings.Contains(prompt, ` comment on #42 "Add plan model" by @owner:`+"\n\n> Halo\n\nThe state of the task of #41 is stopped.")
+		})
+	})
+	if task := liveTaskOf(t, server, 41); !task.JudgedAt.Valid {
+		t.Errorf("task = %+v", task)
+	}
+}
+
 func TestAReviewCommentOfATrustedUserResetsTheCountersOfTheTask(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
