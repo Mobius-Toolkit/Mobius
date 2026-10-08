@@ -132,7 +132,7 @@ type ActiveAgents struct {
 	Count int64 `gork:"count"`
 	// Max is max_agents
 	Max int64 `gork:"max"`
-	// Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge
+	// Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge, Curator
 	Groups []AgentGroup `gork:"groups"`
 }
 

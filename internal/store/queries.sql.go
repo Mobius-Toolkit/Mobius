@@ -319,13 +319,14 @@ func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) erro
 }
 
 const addMemoryVersion = `-- name: AddMemoryVersion :exec
-INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?)
+INSERT INTO memory_versions (repository, time, author, reason, text) VALUES (?, ?, ?, ?, ?)
 `
 
 type AddMemoryVersionParams struct {
 	Repository string
 	Time       string
 	Author     string
+	Reason     string
 	Text       string
 }
 
@@ -334,6 +335,7 @@ func (q *Queries) AddMemoryVersion(ctx context.Context, arg AddMemoryVersionPara
 		arg.Repository,
 		arg.Time,
 		arg.Author,
+		arg.Reason,
 		arg.Text,
 	)
 	return err
@@ -547,6 +549,22 @@ SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working')
 
 func (q *Queries) CountActiveTasks(ctx context.Context) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countActiveTasks)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countSessionsEndedSinceCurator = `-- name: CountSessionsEndedSinceCurator :one
+SELECT count(*) FROM sessions s
+WHERE s.repository = ?1 AND s.role <> 'curator' AND s.ended_at IS NOT NULL
+  AND julianday(s.ended_at) > coalesce((
+      SELECT max(julianday(c.started_at)) FROM sessions c
+      WHERE c.repository = s.repository AND c.role = 'curator' AND (c.ended_at IS NULL OR c.end_reason IN ('done', 'failed', 'hung'))
+  ), 0)
+`
+
+func (q *Queries) CountSessionsEndedSinceCurator(ctx context.Context, repository string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countSessionsEndedSinceCurator, repository)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -936,6 +954,19 @@ func (q *Queries) GetHarnessPause(ctx context.Context, harness string) (HarnessP
 	return i, err
 }
 
+const getLastDoneCuratorStart = `-- name: GetLastDoneCuratorStart :one
+SELECT started_at FROM sessions
+WHERE repository = ? AND role = 'curator' AND end_reason = 'done'
+ORDER BY julianday(started_at) DESC LIMIT 1
+`
+
+func (q *Queries) GetLastDoneCuratorStart(ctx context.Context, repository string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getLastDoneCuratorStart, repository)
+	var started_at string
+	err := row.Scan(&started_at)
+	return started_at, err
+}
+
 const getLiveTask = `-- name: GetLiveTask :one
 SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
 `
@@ -1012,9 +1043,17 @@ const getMemoryVersion = `-- name: GetMemoryVersion :one
 SELECT id, repository, time, author, text FROM memory_versions WHERE id = ?
 `
 
-func (q *Queries) GetMemoryVersion(ctx context.Context, id int64) (MemoryVersion, error) {
+type GetMemoryVersionRow struct {
+	ID         int64
+	Repository string
+	Time       string
+	Author     string
+	Text       string
+}
+
+func (q *Queries) GetMemoryVersion(ctx context.Context, id int64) (GetMemoryVersionRow, error) {
 	row := q.db.QueryRowContext(ctx, getMemoryVersion, id)
-	var i MemoryVersion
+	var i GetMemoryVersionRow
 	err := row.Scan(
 		&i.ID,
 		&i.Repository,
@@ -2231,6 +2270,39 @@ func (q *Queries) ListReadyLeadEvents(ctx context.Context, arg ListReadyLeadEven
 			&i.Issue,
 			&i.Held,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecentMemoryVersions = `-- name: ListRecentMemoryVersions :many
+SELECT time, author, reason FROM memory_versions WHERE repository = ? ORDER BY id DESC LIMIT 20
+`
+
+type ListRecentMemoryVersionsRow struct {
+	Time   string
+	Author string
+	Reason string
+}
+
+func (q *Queries) ListRecentMemoryVersions(ctx context.Context, repository string) ([]ListRecentMemoryVersionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRecentMemoryVersions, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecentMemoryVersionsRow
+	for rows.Next() {
+		var i ListRecentMemoryVersionsRow
+		if err := rows.Scan(&i.Time, &i.Author, &i.Reason); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

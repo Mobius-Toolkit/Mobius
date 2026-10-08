@@ -151,11 +151,7 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 	a.closeHarness()
 	stopped := e.leave(ctx, a.id)
 	ended := context.WithoutCancel(ctx)
-	e.gitMu.Lock()
-	if _, statErr := os.Stat(a.spec.Dir); !errors.Is(statErr, fs.ErrNotExist) {
-		err = errors.Join(err, runner.RemoveWorktree(ended, e.config.DataDir, repository.FullName, a.spec.Dir))
-	}
-	e.gitMu.Unlock()
+	err = errors.Join(err, e.removeCopy(ended, repository.FullName, a.spec.Dir))
 	switch {
 	case stopped:
 		return a.End(ended, "stopped")
@@ -186,17 +182,7 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 	if err != nil {
 		return "", err
 	}
-	token, err := repository.Token(ctx)
-	if err != nil {
-		return "", err
-	}
-	e.gitMu.Lock()
-	err = runner.Fetch(ctx, e.config.DataDir, repository.FullName, repository.CloneURL, token)
-	if err == nil {
-		err = runner.AddDetachedWorktree(ctx, e.config.DataDir, repository.FullName, a.spec.Dir, "origin/"+repository.DefaultBranch)
-	}
-	e.gitMu.Unlock()
-	if err != nil {
+	if err := e.addCopy(ctx, repository, a.spec.Dir); err != nil {
 		return "", err
 	}
 	briefSection := ""
@@ -229,4 +215,28 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 func (e *Engine) deliverReport(ctx context.Context, c caller, id int64, question, report string) error {
 	text := fmt.Sprintf("Report of the Researcher %d on \"%s\":\n\n%s", id, question, report)
 	return e.postChat(ctx, ChatKey{c.organization, c.repository, c.workstream}, researcherAuthor, text, nil)
+}
+
+// addCopy adds the worktree dir of repository, detached at the default branch.
+func (e *Engine) addCopy(ctx context.Context, repository github.Repository, dir string) error {
+	token, err := repository.Token(ctx)
+	if err != nil {
+		return err
+	}
+	e.gitMu.Lock()
+	defer e.gitMu.Unlock()
+	if err := runner.Fetch(ctx, e.config.DataDir, repository.FullName, repository.CloneURL, token); err != nil {
+		return err
+	}
+	return runner.AddDetachedWorktree(ctx, e.config.DataDir, repository.FullName, dir, "origin/"+repository.DefaultBranch)
+}
+
+// removeCopy removes the worktree dir of repository, when it exists.
+func (e *Engine) removeCopy(ctx context.Context, repository, dir string) error {
+	e.gitMu.Lock()
+	defer e.gitMu.Unlock()
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return runner.RemoveWorktree(ctx, e.config.DataDir, repository, dir)
 }

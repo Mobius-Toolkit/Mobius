@@ -41,16 +41,16 @@ func (e *Engine) readMemory(repository string) (string, error) {
 	return string(data), err
 }
 
-// SaveMemory writes text to the memory file of the repository and adds a version with author. It refuses a text of
-// more than maxMemoryLines lines. It does nothing when text is the text of the file.
-func (e *Engine) SaveMemory(ctx context.Context, repository, author, text string) error {
+// SaveMemory writes text to the memory file of the repository and adds a version with author and reason. It refuses a
+// text of more than maxMemoryLines lines. It does nothing when text is the text of the file.
+func (e *Engine) SaveMemory(ctx context.Context, repository, author, reason, text string) error {
 	e.memoryMu.Lock()
 	defer e.memoryMu.Unlock()
-	return e.saveMemory(ctx, repository, author, text)
+	return e.saveMemory(ctx, repository, author, reason, text)
 }
 
 // saveMemory is SaveMemory for a caller that holds memoryMu.
-func (e *Engine) saveMemory(ctx context.Context, repository, author, text string) error {
+func (e *Engine) saveMemory(ctx context.Context, repository, author, reason, text string) error {
 	if lines := countLines(text); lines > maxMemoryLines {
 		return fmt.Errorf("%w: the text has %d lines and the maximum is %d", ErrMemoryTooLong, lines, maxMemoryLines)
 	}
@@ -59,7 +59,7 @@ func (e *Engine) saveMemory(ctx context.Context, repository, author, text string
 		return err
 	}
 	return e.inTx(ctx, func(queries *store.Queries) error {
-		err := queries.AddMemoryVersion(ctx, store.AddMemoryVersionParams{Repository: repository, Time: now(), Author: author, Text: text})
+		err := queries.AddMemoryVersion(ctx, store.AddMemoryVersionParams{Repository: repository, Time: now(), Author: author, Reason: reason, Text: text})
 		if err != nil {
 			return err
 		}
@@ -83,7 +83,7 @@ func (e *Engine) EditMemory(ctx context.Context, repository string, base int64, 
 	if newest != base {
 		return refuse("The memory file changed after the start of your edit. Copy your text, then load the file again.")
 	}
-	return e.saveMemory(ctx, repository, "owner", text)
+	return e.saveMemory(ctx, repository, "owner", "", text)
 }
 
 // splitLines gives the lines of text with their line ends.
@@ -181,5 +181,5 @@ func (e *Engine) RevertMemory(ctx context.Context, repository string, id int64) 
 	if err != nil {
 		return err
 	}
-	return e.saveMemory(ctx, repository, "owner", text)
+	return e.saveMemory(ctx, repository, "owner", fmt.Sprintf("Revert of version %d", id), text)
 }

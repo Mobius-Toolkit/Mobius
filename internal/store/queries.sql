@@ -418,7 +418,7 @@ WHERE EXISTS (
 ORDER BY i.repository, i.workstream, i.number;
 
 -- name: AddMemoryVersion :exec
-INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?);
+INSERT INTO memory_versions (repository, time, author, reason, text) VALUES (?, ?, ?, ?, ?);
 
 -- name: SetTaskApprovedReview :exec
 UPDATE tasks SET approved_review = ? WHERE id = ?;
@@ -447,6 +447,22 @@ SELECT text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DES
 
 -- name: GetNewestMemoryVersionID :one
 SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ?;
+
+-- name: ListRecentMemoryVersions :many
+SELECT time, author, reason FROM memory_versions WHERE repository = ? ORDER BY id DESC LIMIT 20;
+
+-- name: CountSessionsEndedSinceCurator :one
+SELECT count(*) FROM sessions s
+WHERE s.repository = sqlc.arg(repository) AND s.role <> 'curator' AND s.ended_at IS NOT NULL
+  AND julianday(s.ended_at) > coalesce((
+      SELECT max(julianday(c.started_at)) FROM sessions c
+      WHERE c.repository = s.repository AND c.role = 'curator' AND (c.ended_at IS NULL OR c.end_reason IN ('done', 'failed', 'hung'))
+  ), 0);
+
+-- name: GetLastDoneCuratorStart :one
+SELECT started_at FROM sessions
+WHERE repository = ? AND role = 'curator' AND end_reason = 'done'
+ORDER BY julianday(started_at) DESC LIMIT 1;
 
 -- name: IsCommentAnswered :one
 SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review = ? AND comment = ?);

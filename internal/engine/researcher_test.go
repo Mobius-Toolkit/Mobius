@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -50,7 +51,9 @@ func connectResearcher(t *testing.T, fake *testkit.FakeGitHub, lead, researcher 
 	dataDir := t.TempDir()
 	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options+lead)
 	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+researcher)
-	server := startServerWith(t, fake, testserver.Config(t, dataDir), "")
+	cfg := testserver.Config(t, dataDir)
+	cfg.LeadIdleTimeout = 30 * time.Second
+	server := startServerWith(t, fake, cfg, "")
 	server.WaitForFirstPoll(t, shop)
 	return server, dataDir
 }

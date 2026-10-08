@@ -20,6 +20,7 @@ implementer = { harness = "devin",       model = "swe-1.5", effort = "high" }
 researcher  = { harness = "antigravity", model = "gemini-3-pro" }
 reviewer    = { harness = "claude-code", model = "opus",    effort = "high" }
 judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
+curator     = { harness = "claude-code", model = "sonnet",  effort = "medium" }
 `
 
 func parse(t *testing.T, text string) *Config {
@@ -158,6 +159,17 @@ func TestParseRefusesAnUnknownKey(t *testing.T) {
 	}
 }
 
+func TestParseReadsTheCuratorRole(t *testing.T) {
+	config := parse(t, strings.Replace(valid,
+		`curator     = { harness = "claude-code", model = "sonnet",  effort = "medium" }`,
+		`curator     = { harness = "devin", model = "swe-1.5", effort = "high", max = 1, counts_in_max_agents = false }`, 1))
+
+	want := RoleBinding{Harness: Devin, Model: "swe-1.5", Effort: "high", Max: 1}
+	if config.Roles.Curator != want {
+		t.Errorf("roles.curator = %+v, want %+v", config.Roles.Curator, want)
+	}
+}
+
 func TestParseRefusesAWrongValue(t *testing.T) {
 	got := parseError(t, "max_checks = \"one\"\n"+valid)
 	if !strings.HasPrefix(got, "line 1: toml: cannot decode TOML string into struct field") {
@@ -171,7 +183,7 @@ func TestParseRefusesAWrongValue(t *testing.T) {
 
 func TestParseRefusesASyntaxError(t *testing.T) {
 	got := parseError(t, valid+"\n[roles")
-	if want := "line 13: toml: expected ']' to close table name"; got != want {
+	if want := "line 14: toml: expected ']' to close table name"; got != want {
 		t.Errorf("error = %q, want %q", got, want)
 	}
 }
@@ -186,6 +198,8 @@ func TestParseRefusesAWrongRoleOrPassword(t *testing.T) {
 			"trusted_users: must not be empty"},
 		{strings.Replace(valid, "judge ", "#judge ", 1),
 			"roles.judge.harness: must be claude-code, antigravity or devin"},
+		{strings.Replace(valid, "curator ", "#curator ", 1),
+			"roles.curator.harness: must be claude-code, antigravity or devin"},
 		{strings.Replace(valid, `"devin"`, `"codex"`, 1),
 			"roles.implementer.harness: must be claude-code, antigravity or devin"},
 		{strings.Replace(valid, `model = "haiku",`, "", 1),

@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -39,7 +40,7 @@ func listMemory(t *testing.T, server *testserver.Server, repository string) []me
 func saveMemory(t *testing.T, server *testserver.Server, texts ...string) {
 	t.Helper()
 	for _, text := range texts {
-		if err := server.Engine.SaveMemory(t.Context(), shop, "curator", text); err != nil {
+		if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", text); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -74,7 +75,7 @@ func texts(versions []memoryVersion) []string {
 
 func TestTheMemoryRouteGivesTheVersionsNewestFirst(t *testing.T) {
 	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
-	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "Run make fmt.\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", "Run make fmt.\n"); err != nil {
 		t.Fatal(err)
 	}
 	base := listMemory(t, server, shop)[0].ID
@@ -135,6 +136,10 @@ func TestTheRevertRouteUndoesOnlyTheChangeOfTheVersionAndKeepsTheLaterChanges(t 
 	got := listMemory(t, server, shop)
 	if len(got) != 4 || got[0].Author != "owner" || got[0].Text != "One.\nTwo.\nFour.\n" {
 		t.Errorf("versions = %q", texts(got))
+	}
+	var reason string
+	if err := server.DB.QueryRow("SELECT reason FROM memory_versions ORDER BY id DESC LIMIT 1").Scan(&reason); err != nil || reason != fmt.Sprintf("Revert of version %d", versions[1].ID) {
+		t.Errorf("reason = %q, %v", reason, err)
 	}
 }
 
@@ -258,7 +263,7 @@ func TestTheRevertRouteGivesNotFoundForAnUnknownVersionAndForAVersionOfAnotherRe
 	github.AddRepository("owner/cafe")
 	server := startWithApp(t, github, "User")
 	testkit.WaitFor(t, func() bool { return len(github.RepositoryLabels("owner/cafe")) > 0 })
-	if err := server.Engine.SaveMemory(t.Context(), "owner/cafe", "curator", "One.\n"); err != nil {
+	if err := server.Engine.SaveMemory(t.Context(), "owner/cafe", "curator", "", "One.\n"); err != nil {
 		t.Fatal(err)
 	}
 	other := listMemory(t, server, "owner/cafe")[0]

@@ -87,7 +87,7 @@ func TestTheAgentsPageCountsTheOpenSessionsOfEachRoleAgainstItsLimit(t *testing.
 	for _, g := range got.Groups {
 		groups = append(groups, group{g.Name, g.Count, g.Max, len(g.Agents)})
 	}
-	want := []group{{"Lead", 1, 8, 1}, {"Triager", 0, 2, 0}, {"Implementer", 1, 3, 1}, {"Researcher", 1, 1, 2}, {"Reviewer", 0, 2, 0}, {"Judge", 0, 2, 0}}
+	want := []group{{"Lead", 1, 8, 1}, {"Triager", 0, 2, 0}, {"Implementer", 1, 3, 1}, {"Researcher", 1, 1, 2}, {"Reviewer", 0, 2, 0}, {"Judge", 0, 2, 0}, {"Curator", 0, 2, 0}}
 	if got.Count != 2 || got.Max != 5 || !reflect.DeepEqual(groups, want) {
 		t.Fatalf("overview = %d/%d %+v", got.Count, got.Max, groups)
 	}
