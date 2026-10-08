@@ -89,6 +89,7 @@ type Session struct {
 	Organization string
 	Issue        sql.NullInt64
 	Parent       sql.NullInt64
+	Effort       sql.NullString
 }
 
 type Task struct {

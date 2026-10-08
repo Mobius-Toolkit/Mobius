@@ -20,6 +20,8 @@
 //	                        # calls the tool of the Mobius MCP server; the reply gets the text of the result,
 //	                        # after "error: " for an error result; {shell} becomes the trimmed stdout of shell
 //	list_tools = true       # the reply gets the JSON of the tool list of the Mobius MCP server
+//	usage = '{"inputTokens": 10, "outputTokens": 2}'  # the usage field of the response
+//	meta = '{"quota": {}}'  # the _meta field of the response
 //	error = { code = -32000, message = "Usage limit", data = "..." }  # the turn ends with this error
 //	hang = true             # the turn ends only at session/cancel
 //	busy = "300ms"          # before the reply, the agent sends a tool_call_update every 10 ms for this long
@@ -84,7 +86,15 @@ type prompt struct {
 	Call      *call        `toml:"call"`
 	Shell     string       `toml:"shell"`
 	Error     *scriptError `toml:"error"`
+	Usage     string       `toml:"usage"`
+	Meta      string       `toml:"meta"`
 	Later     *later       `toml:"later"`
+}
+
+type promptResult struct {
+	StopReason acp.StopReason  `json:"stopReason"`
+	Usage      json.RawMessage `json:"usage,omitempty"`
+	Meta       json.RawMessage `json:"_meta,omitempty"`
 }
 
 type later struct {
@@ -398,7 +408,14 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 			return nil, acp.NewInternalError(err.Error())
 		}
 	}
-	return acp.PromptResponse{StopReason: stopReason}, nil
+	result := promptResult{StopReason: stopReason}
+	if turn.Usage != "" {
+		result.Usage = json.RawMessage(turn.Usage)
+	}
+	if turn.Meta != "" {
+		result.Meta = json.RawMessage(turn.Meta)
+	}
+	return result, nil
 }
 
 // absorb gives the channel that closes at a session/cancel, and the later with absorb that waited for this prompt, or nil.

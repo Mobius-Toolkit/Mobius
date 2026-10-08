@@ -151,13 +151,13 @@ func TestSessionGivesTheMCPServerSetsTheOptionsAndAllowsTools(t *testing.T) {
 	if err := session.Configure(ctx, "sonnet", "low"); err != nil {
 		t.Fatal(err)
 	}
-	stopReason, err := session.Prompt(ctx, "Call list_tasks.", nil)
+	result, err := session.Prompt(ctx, "Call list_tasks.", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if stopReason != acp.StopReasonEndTurn {
-		t.Errorf("stop reason = %s", stopReason)
+	if result.StopReason != acp.StopReasonEndTurn {
+		t.Errorf("stop reason = %s", result.StopReason)
 	}
 	want := `mcp [{"headers":[],"name":"mobius","type":"http","url":"http://127.0.0.1:1/mcp/key"}]; set model=sonnet effort=low mode=bypassPermissions; permission always`
 	if message.String() != want {
