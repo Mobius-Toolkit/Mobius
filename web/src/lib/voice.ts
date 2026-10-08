@@ -51,6 +51,9 @@ const state = {
   canRestart: false,
   // The result list of a run has all final results of the run. The new run starts a new list.
   added: 0,
+  // True after a new recording starts while the old run still runs. The results of the old run belong to the old
+  // recording.
+  stale: false,
   // Chrome on Android adds a final result that repeats the text of the final result before it.
   lastFinal: "",
   // The voice text of one recording is the final texts of all its runs and the draft of the last run.
@@ -99,6 +102,7 @@ const begin = (live: Recognition) => {
   live.lang = navigator.language;
   state.owner = state.mounted;
   state.added = 0;
+  state.stale = false;
   state.lastFinal = "";
   state.canRestart = false;
   try {
@@ -116,6 +120,9 @@ const create = (Ctor: new () => Recognition) => {
   const live = new Ctor();
   live.continuous = true;
   live.addEventListener("result", (event) => {
+    if (state.stale) {
+      return;
+    }
     while (state.added < event.results.length && event.results[state.added].isFinal) {
       const transcript = event.results[state.added][0].transcript.trim();
       if (transcript !== state.lastFinal) {
@@ -226,6 +233,7 @@ export function useVoice(onText: (text: string, first: boolean) => void) {
     setError("");
     setListening(true);
     if (state.running) {
+      state.stale = true;
       state.canRestart = true;
     } else {
       begin(state.recognition);

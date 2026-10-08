@@ -1025,6 +1025,26 @@ test("Send stops a voice input that the voice button stopped", async ({ page }) 
   expect(await page.evaluate("calls")).toEqual(["start", "stop", "abort"]);
 });
 
+test("a result of the old run after a new start does not come into the new recording", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "hello world...");
+  await expect(input).toHaveValue("hello world");
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "hello world");
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "stop", "start"]);
+  await expect(input).toHaveValue("hello world");
+  await result(page, "again");
+  await expect(input).toHaveValue("hello world again");
+});
+
 test("the voice button lets a new voice input start after the end of the old run", async ({
   page,
 }) => {
