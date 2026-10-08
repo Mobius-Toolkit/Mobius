@@ -76,14 +76,15 @@ func Prepare(dataDir string) error {
 func Missing(path string, programs ...string) []string {
 	var missing []string
 	for _, program := range programs {
-		if find(program, path) == "" {
+		if Find(program, path) == "" {
 			missing = append(missing, program)
 		}
 	}
 	return missing
 }
 
-func find(program, path string) string {
+// Find gives the first executable file of program on path, or "" when path has no such file.
+func Find(program, path string) string {
 	for _, dir := range filepath.SplitList(path) {
 		file := filepath.Join(dir, program)
 		if info, err := os.Stat(file); err == nil && executable(info) {
@@ -117,6 +118,11 @@ func FindGH(path string) string {
 	return ""
 }
 
+// AgentPath gives the PATH of an agent process: the bin of the agent environment in dataDir, then path.
+func AgentPath(dataDir, path string) string {
+	return filepath.Join(agentEnv(dataDir), "bin") + string(filepath.ListSeparator) + path
+}
+
 func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL string) *exec.Cmd {
 	agentEnv := agentEnv(dataDir)
 	cmd := exec.CommandContext(ctx, file)
@@ -128,7 +134,7 @@ func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL string) *
 		"GH_CONFIG_DIR="+filepath.Join(agentEnv, "gh-config"),
 		"GIT_CONFIG_GLOBAL="+filepath.Join(agentEnv, "gitconfig"),
 		"GIT_TERMINAL_PROMPT=0",
-		"PATH="+filepath.Join(agentEnv, "bin")+string(filepath.ListSeparator)+path,
+		"PATH="+AgentPath(dataDir, path),
 	)
 	if ghTokenURL != "" {
 		cmd.Env = append(cmd.Env, ghURLEnv+"="+ghTokenURL)
@@ -155,7 +161,7 @@ type Image struct {
 
 func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, path, ghTokenURL string) (*exec.Cmd, error) {
 	program := Program(harness)
-	file := find(program, path)
+	file := Find(program, path)
 	if file == "" {
 		return nil, fmt.Errorf("%s is not on PATH", program)
 	}

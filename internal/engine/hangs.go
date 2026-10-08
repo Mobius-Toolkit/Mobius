@@ -35,17 +35,37 @@ func retryText(role string) string {
 	return fmt.Sprintf(retryPrompt, retryAdvice)
 }
 
+// retryHang counts a hang and gives the retry prompt. After the last retry, it adds a note and gives errHung.
+func (a *Agent) retryHang(ctx context.Context) (string, error) {
+	if a.retries >= maxRetries {
+		return "", errors.Join(errHung, a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s after %d retries. Mobius stops the session.", hangTimeout, maxRetries)))
+	}
+	a.retries++
+	if err := a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s. Mobius stopped the turn and sends retry %d of %d.", hangTimeout, a.retries, maxRetries)); err != nil {
+		return "", err
+	}
+	return retryText(a.spec.Role), nil
+}
+
 // sendPrompt sends text and images and holds until the response of the agent. When the turn has no activity for hangTimeout,
-// sendPrompt sends the cancel, stops the wait for the response, and gives errHung.
+// sendPrompt sends the cancel, stops the wait for the response, and gives errHung. When the Harness absorbed the
+// prompt into an autonomous turn, the cancel ends the prompt, and sendPrompt adds a note and gives nil: the
+// autonomous turn did the work.
 func (a *Agent) sendPrompt(ctx context.Context, text string, images []Image) error {
 	promptCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	hung := make(chan bool, 1)
+	absorbed := make(chan bool, 1)
 	go func() { hung <- a.watch(promptCtx, stop) }()
+	go func() { absorbed <- a.watchAbsorbed(promptCtx) }()
 	_, err := a.session.Prompt(promptCtx, text, images)
 	stop()
 	if <-hung {
+		<-absorbed
 		return errHung
+	}
+	if <-absorbed {
+		return a.addNote(ctx, fmt.Sprintf("The agent ended an autonomous turn and had no more work for %s, so the prompt had no response. Mobius cancelled the prompt and counts the turn as complete.", absorbTimeout))
 	}
 	return err
 }

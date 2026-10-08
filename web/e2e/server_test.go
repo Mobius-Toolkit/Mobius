@@ -2,14 +2,19 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -37,6 +42,26 @@ const script = `
 model = ["sonnet", "opus", "haiku", "swe-1.5", "gemini-3-pro"]
 thought_level = ["low", "medium", "high"]
 mode = ["default", "bypassPermissions", "yolo"]
+
+[[prompts]]
+when = "Which lilies sell best?"
+reply = ["Pink lilies sell best."]
+busy = "3s"
+
+[[prompts]]
+when = "Which poppies sell best?"
+reply = ["Orange poppies sell best."]
+busy = "3s"
+
+[[prompts]]
+when = "Which daisies sell best?"
+reply = ["White daisies sell best."]
+busy = "2s"
+
+[[prompts]]
+when = "Which tulips sell best?"
+reply = ["Yellow tulips sell best."]
+busy = "2s"
 
 [[prompts]]
 when = "What is the state of the plans?"
@@ -111,13 +136,18 @@ const question = "What is the state of the plans? The full report is at " +
 // the next step. Then an Implementer and a Lead run, a drain waits for them, and the drain holds a second
 // Implementer. The parent of the first Implementer is a Lead session that ended. Release v0.1.4 of Mobius is newer
 // than this server. The Inbox has an item of a usage limit of claude-code, with no Workstream and no issue. The
-// table of the pauses has no row, because a pause stops the fake agents.
+// table of the pauses has no row, because a pause stops the fake agents. The tools of the Checkup page have fixed
+// paths and versions, and tar gives no version.
+//
+// The Workstream owner/shop#14 has Autopilot on and no task.
 //
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
 // unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
 // Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, and
 // the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55. The
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
+// The Workstream owner/shop#12 has two closed tasks. It also has four Implementer sessions with the queue reasons of a
+// check that runs, a check that waits for a slot, a pause, and a full Role.
 // POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
 // /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event.
 func TestServer(t *testing.T) {
@@ -138,6 +168,7 @@ func TestServer(t *testing.T) {
 	}{
 		{"owner/shop", 12, "Integrate loyalty plans"},
 		{"owner/shop", 13, "Seasonal prices"},
+		{"owner/shop", 14, "Early renewals"},
 		{"plants/garden", 12, "Plant roses"},
 		{"plants/garden", 14, "Water the roses"},
 		{"plants/garden", 15, "Feed the roses"},
@@ -154,11 +185,16 @@ func TestServer(t *testing.T) {
 		github.AddIssue(workstream.repository, workstream.number, workstream.title)
 		github.AddLabel(workstream.repository, workstream.number, "mobius:workstream", "owner")
 	}
+	github.AddLabel("owner/shop", 14, "mobius:autopilot", "owner")
 	github.AddSubIssueOf("owner/shop", 12, 41, "Add plan model")
 	github.AddSubIssueOf("owner/shop", 12, 42, "Let customers change plans")
 	github.AddSubIssueOf("owner/shop", 12, 45, "Pick the plan limits")
 	github.AddSubIssueOf("owner/shop", 13, 43, "Add season table")
 	github.CloseIssue("owner/shop", 43)
+	github.AddSubIssueOf("owner/shop", 41, 36, "Rename the plan table")
+	github.AddSubIssueOf("owner/shop", 12, 37, "Remove the old plan page")
+	github.CloseIssue("owner/shop", 36)
+	github.CloseIssue("owner/shop", 37)
 	github.SetBody("owner/shop", 12, "Reward repeat customers.\n\n- Points on every order\n- One **free** plan for staff")
 	github.SetBody("owner/shop", 13, "Change the prices for each season.")
 	github.SetBody("owner/shop", 45, "Each plan has a limit of seats.")
@@ -198,8 +234,14 @@ func TestServer(t *testing.T) {
 		"Keep a Workstream in the list when its sub-issues cannot be read (#314)",
 		"Show the release changes in a modal before the upgrade (#320)",
 	)
-	dataDir := t.TempDir()
+	// The Checkup page shows the path of each tool, so the data directory has the same path in each run.
+	const dataDir = "/tmp/mobius-e2e"
+	if err := os.RemoveAll(dataDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dataDir) })
 	testkit.InstallFakeAgent(t, dataDir, script)
+	fixTools(t, dataDir)
 	server := testserver.Start(t, dataDir, github.URL)
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
@@ -303,6 +345,44 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, message := range []struct {
+		text   string
+		colors []color.RGBA
+	}{
+		{"This is the new plan page.", []color.RGBA{{37, 99, 235, 255}, {22, 163, 74, 255}}},
+		{"", []color.RGBA{{220, 38, 38, 255}}},
+	} {
+		added, err := queries.AddChatMessage(ctx, store.AddChatMessageParams{
+			Organization: "plants",
+			Repository:   "plants/garden",
+			Workstream:   25,
+			Author:       "Owner",
+			Time:         time.Now().UTC().Format(time.RFC3339Nano),
+			Text:         message.text,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := filepath.Join(dataDir, "images", fmt.Sprint(added.ID))
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		for position, fill := range message.colors {
+			picture := image.NewRGBA(image.Rect(0, 0, 200, 150))
+			for y := range 150 {
+				for x := range 200 {
+					picture.SetRGBA(x, y, fill)
+				}
+			}
+			var data bytes.Buffer
+			if err := png.Encode(&data, picture); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%d.png", position)), data.Bytes(), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 
 	spec := implementerSpec(t, server, 41)
 	if err := server.DB.QueryRow("SELECT MIN(id) FROM sessions WHERE role = ?", engine.LeadRole).Scan(&spec.Parent); err != nil {
@@ -344,11 +424,37 @@ func TestServer(t *testing.T) {
 		}
 		github.AddLabel("owner/shop", number, "mobius:working", testkit.AppSlug+"[bot]")
 	}
+	for _, session := range []struct {
+		number int64
+		reason string
+	}{
+		{38, "runs .mobius/check"},
+		{39, "waits for a check slot"},
+		{45, "paused until 2026-09-28 12:00 UTC"},
+		{42, "no free Implementer slot (2/2)"},
+	} {
+		if _, err := server.DB.Exec(`INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, started_at, queue_reason)
+			VALUES (?, 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, ?, ?, ?)`,
+			engine.ImplementerRole, session.number, time.Now().UTC().Format(time.RFC3339Nano), session.reason); err != nil {
+			t.Fatal(err)
+		}
+	}
 	fixTimes(t, server)
 	go func() { _, _ = server.Engine.Drain(ctx) }()
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
 	held := implementerSpec(t, server, 42)
 	go func() { _, _ = server.Engine.Start(ctx, held) }()
+	testkit.WaitFor(t, func() bool {
+		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_reason = 'Mobius prepares an upgrade'", "2026-09-28T09:30:00Z")
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed, err := result.RowsAffected()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return changed > 0
+	})
 	<-ctx.Done()
 	_ = srv.Close()
 }
@@ -379,6 +485,23 @@ func waitForChat(t *testing.T, server *testserver.Server, key engine.ChatKey, au
 		}
 		return open == 0
 	})
+}
+
+// fixTools makes each tool of the Checkup page give the same path and version in each run. The directory of the fake
+// Harness commands comes first in the PATH of the agents, so the programs there hide the programs of the machine.
+// tar gives no version.
+func fixTools(t *testing.T, dataDir string) {
+	t.Helper()
+	harnesses := filepath.Join(dataDir, "harnesses")
+	for program, output := range map[string]string{
+		"git":    "git version 2.50.1\n",
+		"curl":   "curl 8.14.1 (x86_64-pc-linux-gnu)\n",
+		"tar":    "",
+		"claude": "2.1.284 (Claude Code)\n",
+	} {
+		testkit.InstallFakeProgram(t, harnesses, program, output)
+	}
+	t.Setenv("CLAUDE_CODE_EXECUTABLE", filepath.Join(harnesses, "claude"))
 }
 
 // fixTimes gives one fixed time to each time that the UI shows, so each run gives the same screenshots. An event text

@@ -23,6 +23,15 @@
 //	error = { code = -32000, message = "Usage limit", data = "..." }  # the turn ends with this error
 //	hang = true             # the turn ends only at session/cancel
 //	busy = "300ms"          # before the reply, the agent sends a tool_call_update every 10 ms for this long
+//	later = { after = "100ms", updates = ['{"sessionUpdate": "plan", "entries": []}'] }
+//	                        # after the response, the agent waits for after and then sends the updates, as Claude Code
+//	                        # does for a turn that it starts alone
+//	later = { after = "100ms", call = { tool = "cannot_do", arguments = { reason = "No." } } }
+//	                        # with call, the agent calls the tool of the Mobius MCP server before it sends the updates
+//	later = { updates = ['{"sessionUpdate": "plan", "entries": []}'], absorb = true }
+//	                        # with absorb, the agent sends the updates when the next session/prompt arrives, and that
+//	                        # prompt gets no response before session/cancel, which ends it as cancelled, as Claude
+//	                        # Code does when it takes a prompt into a turn that it started alone
 //
 // The reply has the texts of reply, then one text "image <MIME type> <base64 data>" for each image block of the
 // prompt, then the text of call or list_tools, then the text of shell.
@@ -75,6 +84,14 @@ type prompt struct {
 	Call      *call        `toml:"call"`
 	Shell     string       `toml:"shell"`
 	Error     *scriptError `toml:"error"`
+	Later     *later       `toml:"later"`
+}
+
+type later struct {
+	After   string   `toml:"after"`
+	Updates []string `toml:"updates"`
+	Absorb  bool     `toml:"absorb"`
+	Call    *call    `toml:"call"`
 }
 
 type call struct {
@@ -113,6 +130,8 @@ type agent struct {
 	mcpURL      string
 	// cancel closes at a session/cancel. It is nil when no turn runs.
 	cancel chan struct{}
+	// absorbed is the later with absorb that waits for the next session/prompt, or nil.
+	absorbed *later
 }
 
 // Run is the main function of the fake agent program, with the script at path.
@@ -350,6 +369,19 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 			images = append(images, "image "+block.MIMEType+" "+block.Data)
 		}
 	}
+	if cancel, absorbed := a.absorb(); absorbed != nil {
+		for _, update := range absorbed.Updates {
+			if err := a.send(ctx, request.SessionID, json.RawMessage(update)); err != nil {
+				return nil, acp.NewInternalError(err.Error())
+			}
+		}
+		select {
+		case <-cancel:
+			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
+		case <-ctx.Done():
+			return nil, acp.NewRequestCancelled(nil)
+		}
+	}
 	turn, mcpURL, cancel := a.next(text.String())
 	turn.Reply = append(slices.Clone(turn.Reply), images...)
 	stopReason, err := a.play(ctx, request.SessionID, turn, mcpURL, cancel)
@@ -361,7 +393,54 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 	if err != nil {
 		return nil, err
 	}
+	if turn.Later != nil {
+		if err := a.startLater(request.SessionID, mcpURL, *turn.Later); err != nil {
+			return nil, acp.NewInternalError(err.Error())
+		}
+	}
 	return acp.PromptResponse{StopReason: stopReason}, nil
+}
+
+// absorb gives the channel that closes at a session/cancel, and the later with absorb that waited for this prompt, or nil.
+func (a *agent) absorb() (chan struct{}, *later) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	absorbed := a.absorbed
+	if absorbed == nil {
+		return nil, nil
+	}
+	a.absorbed = nil
+	a.cancel = make(chan struct{})
+	return a.cancel, absorbed
+}
+
+// startLater sends the updates of l in the background after the response of the prompt, or holds a later with
+// absorb for the next prompt.
+func (a *agent) startLater(sessionID, mcpURL string, l later) error {
+	if l.Absorb {
+		a.mu.Lock()
+		a.absorbed = &l
+		a.mu.Unlock()
+		return nil
+	}
+	after, err := time.ParseDuration(l.After)
+	if err != nil {
+		return err
+	}
+	go func() {
+		time.Sleep(after)
+		if l.Call != nil {
+			if _, err := mobiusReply(context.Background(), mcpURL, prompt{Call: l.Call}, ""); err != nil {
+				return
+			}
+		}
+		for _, update := range l.Updates {
+			if err := a.send(context.Background(), sessionID, json.RawMessage(update)); err != nil {
+				break
+			}
+		}
+	}()
+	return nil
 }
 
 func (a *agent) play(ctx context.Context, sessionID string, turn prompt, mcpURL string, cancel chan struct{}) (acp.StopReason, *acp.RequestError) {

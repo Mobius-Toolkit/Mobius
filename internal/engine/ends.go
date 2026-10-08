@@ -20,10 +20,21 @@ import (
 )
 
 // checkTasks checks each live task of the repository, and adds the pull request of each task with work for an agent
-// to work. A task that fails to check keeps its entry of the last poll.
+// to work. A task that fails to check keeps its entry of the last poll. It first reads the pull requests of the
+// reviewed tasks with one call, because GitHub does not document that a resolve of a review thread changes the update
+// time of the pull request.
 func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, work map[int64]Work) error {
 	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
 	if err != nil {
+		return err
+	}
+	var reviewed []int64
+	for _, task := range tasks {
+		if task.State == "reviewed" && task.PullRequest.Valid {
+			reviewed = append(reviewed, task.PullRequest.Int64)
+		}
+	}
+	if err := e.readPullRequests(ctx, repository, reviewed); err != nil {
 		return err
 	}
 	for _, task := range tasks {
@@ -36,6 +47,7 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 			work[task.ID] = found
 		}
 	}
+	e.forgetPulls(repository, tasks)
 	return nil
 }
 
@@ -43,8 +55,9 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 // has work for an agent: the round that the task queues or runs, or the round that the check starts.
 //   - A task whose issue is gone, or whose issue closed with no pull request, ends.
 //   - A merged or closed pull request ends the task, and a merge closes the open issue (Mobius-rust#226).
-//   - A removal of mobius:working by a person stops the task. A Judge that runs from needs_human has no
-//     mobius:working.
+//   - A removal of the label that the state needs by a person stops the task: mobius:review for a task in ready_for_review,
+//     and mobius:working for a task in another state. A Judge that runs from ready_for_review needs mobius:review, and a
+//     Judge that runs from needs_human needs no label.
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
 //     conflict round. A failed check run of another App on its head gets a fix round.
 //   - Else a task in checks moves to approval when the CI of the head passed (onChecks).
@@ -71,8 +84,12 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 		return Work{}, false, e.endTask(ctx, repository, task)
 	}
 	judgeOfHuman := task.Worker.String == JudgeRole && task.WorkerInput.String == "needs_human"
-	if task.State != "stopped" && task.State != "needs_human" && !judgeOfHuman && !hasLabel(issue, workingLabel) {
-		return Work{}, false, e.workingRemoved(ctx, repository, task, issue)
+	needed := workingLabel
+	if task.State == "ready_for_review" || task.Worker.String == JudgeRole && task.WorkerInput.String == "ready_for_review" {
+		needed = reviewLabel
+	}
+	if task.State != "stopped" && task.State != "needs_human" && !judgeOfHuman && !hasLabel(issue, needed) {
+		return Work{}, false, e.labelRemoved(ctx, repository, task, issue, needed)
 	}
 	if pullRequest == nil {
 		return Work{}, false, nil
@@ -135,16 +152,16 @@ func (e *Engine) endPullRequest(ctx context.Context, repository github.Repositor
 	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "end", text)
 }
 
-// workingRemoved stops the task when a person removed mobius:working from its issue. The pull request and the branch
+// labelRemoved stops the task when a person removed label from its issue. The pull request and the branch
 // stay, and the head of the pull request gets a failed Mobius check.
-func (e *Engine) workingRemoved(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue) error {
+func (e *Engine) labelRemoved(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, label string) error {
 	events, err := repository.IssueEvents(ctx, task.Issue)
 	if err != nil {
 		return err
 	}
 	var actor string
 	for _, event := range slices.Backward(events) {
-		if event.GetEvent() == "unlabeled" && event.GetLabel().GetName() == workingLabel {
+		if event.GetEvent() == "unlabeled" && event.GetLabel().GetName() == label {
 			actor = event.GetActor().GetLogin()
 			break
 		}
@@ -152,10 +169,10 @@ func (e *Engine) workingRemoved(ctx context.Context, repository github.Repositor
 	if actor == "" || strings.EqualFold(actor, appLogin(repository.AppSlug)) {
 		return nil
 	}
-	return e.stopTask(ctx, repository, task, issue, actor, "Stopped by a label removal.", fmt.Sprintf("Stopped \"%s\" after a removal of %s", issue.GetTitle(), workingLabel))
+	return e.stopTask(ctx, repository, task, issue, actor, "Stopped by a label removal.", fmt.Sprintf("Stopped \"%s\" after a removal of %s", issue.GetTitle(), label))
 }
 
-// stopTask stops the task and its Worker, and removes mobius:working and mobius:needs-human from its issue. The head
+// stopTask stops the task and its Worker, and removes the Mobius state labels from its issue. The head
 // of its pull request gets a failed Mobius check with summary, and the activity feed gets text. A task that is already
 // stopped or ended stays as it is.
 func (e *Engine) stopTask(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, actor, summary, text string) error {
@@ -170,6 +187,9 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 		return err
 	}
 	if err := repository.RemoveLabel(ctx, task.Issue, needsHumanLabel); err != nil {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
 		return err
 	}
 	if task.PullRequest.Valid {
@@ -210,7 +230,7 @@ func (e *Engine) lostAccess(ctx context.Context, repositories []github.Repositor
 	return nil
 }
 
-// endTask ends the task, stops its Worker, and removes mobius:working and mobius:needs-human from its issue. A queued
+// endTask ends the task, stops its Worker, and removes the Mobius state labels from its issue. A queued
 // Worker of the task leaves the queue. The branch stays.
 func (e *Engine) endTask(ctx context.Context, repository github.Repository, task store.Task) error {
 	if err := e.queries.EndTask(ctx, task.ID); err != nil {
@@ -222,7 +242,10 @@ func (e *Engine) endTask(ctx context.Context, repository github.Repository, task
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
-	return repository.RemoveLabel(ctx, task.Issue, needsHumanLabel)
+	if err := repository.RemoveLabel(ctx, task.Issue, needsHumanLabel); err != nil {
+		return err
+	}
+	return repository.RemoveLabel(ctx, task.Issue, reviewLabel)
 }
 
 // stopWorkersOf stops the Worker of the task, wakes the queue, and removes the worktree of the task.

@@ -23,7 +23,7 @@ func Check(ctx context.Context, dataDir, worktree, path string, timeout time.Dur
 		return "", true, nil
 	}
 	cmd := command(context.Background(), "/bin/sh", worktree, dataDir, path, "")
-	cmd.Args = append(cmd.Args, "-c", "exec ./.mobius/check 2>&1")
+	cmd.Args = append(cmd.Args, "-c", "exec nice -n 10 ./.mobius/check 2>&1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -78,7 +78,7 @@ func Check(ctx context.Context, dataDir, worktree, path string, timeout time.Dur
 
 // FreeSpace gives the free space of the file system of dataDir in bytes. The program df comes from path.
 func FreeSpace(ctx context.Context, dataDir, path string) (uint64, error) {
-	df := find("df", path)
+	df := Find("df", path)
 	if df == "" {
 		return 0, errors.New("df is not on PATH")
 	}

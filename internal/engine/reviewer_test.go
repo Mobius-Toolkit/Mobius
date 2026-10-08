@@ -291,7 +291,6 @@ func TestAQueuedReviewerGetsTheEarlierThreadsOfTrustedAuthors(t *testing.T) {
 
 	endedReviewers(t, server, 2)
 	waitForState(t, server, 43, "approval")
-	waitForState(t, server, 41, "reviewed")
 	prompts := promptTexts(t, server, queued.ID)
 	if len(prompts) != 1 {
 		t.Fatalf("prompts = %q", prompts)
@@ -307,6 +306,12 @@ func TestAQueuedReviewerGetsTheEarlierThreadsOfTrustedAuthors(t *testing.T) {
 	if !fake.PullRequests(shop)[1].Draft {
 		t.Error("the pull request of #41 is ready for review")
 	}
+	// The state reviewed lasts only until the Judge starts, so the round comment proves it.
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(fake.Comments(shop, number), func(comment testkit.Comment) bool {
+			return comment.Author == app && strings.Contains(comment.Body, "Result: The Judge takes the open threads.")
+		})
+	})
 }
 
 func TestStartFixRoundSendsTheFindingsOfTheLeadToAFixRound(t *testing.T) {
@@ -363,7 +368,7 @@ func TestAFixRoundOfTheLeadMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t
 	}
 }
 
-func TestStartFixRoundRefusesATaskThatNeitherWaitsForTheLeadNorIsReadyForReview(t *testing.T) {
+func TestStartFixRoundRefusesATaskThatDoesNotWaitAndIsNotReadyForReview(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, finding+leadFindings+leadStarts, commits, func(cfg *config.Config) { cfg.MaxFixRounds = 0 })
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -371,7 +376,7 @@ func TestStartFixRoundRefusesATaskThatNeitherWaitsForTheLeadNorIsReadyForReview(
 
 	sendChat(t, server, leadChat, "Send the findings to #41")
 
-	waitForChat(t, server, leadChat, "Lead", "error: The task of #41 is needs_human, not approval or ready_for_review.")
+	waitForChat(t, server, leadChat, "Lead", "error: The task of #41 is needs_human, not checks, approval or ready_for_review.")
 	if task := liveTask(t, server, 41); task.State != "needs_human" || task.FixRounds != 0 {
 		t.Errorf("task = %+v", task)
 	}

@@ -6,8 +6,10 @@ export default defineConfig({
   testDir: "e2e",
   projects: [
     { name: "screenshots", testMatch: "screenshots.spec.ts" },
+    // The pending tests need the Apps of the screenshots test. They use the data that the chat tests change.
+    { name: "pending", testMatch: "pending.spec.ts", dependencies: ["screenshots"] },
     // The chat tests need the Apps of the screenshots test, and they change the data of the screenshots.
-    { name: "chat", testMatch: "chat.spec.ts", dependencies: ["screenshots"] },
+    { name: "chat", testMatch: "chat.spec.ts", dependencies: ["pending"] },
     // The navigation tests open the chats of the chat tests, and the page marks the messages of an open chat as seen.
     {
       name: "navigation",
@@ -20,6 +22,9 @@ export default defineConfig({
       testMatch: "installations.spec.ts",
       dependencies: ["navigation"],
     },
+    { name: "agents", testMatch: "agents.spec.ts", dependencies: ["installations"] },
+    // The Checkup tests give their own data with page.route, and they need the Apps of the screenshots test.
+    { name: "checkup", testMatch: "checkup.spec.ts", dependencies: ["agents"] },
   ],
   use: {
     baseURL: `http://${addr}`,

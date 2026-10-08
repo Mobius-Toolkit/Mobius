@@ -83,6 +83,17 @@ type Agent struct {
 	turn bool
 	// activity is the time of the last activity of the agent, or of the last prompt.
 	activity time.Time
+	// subagent tells that the current prompt started a background subagent.
+	subagent bool
+	// autonomous tells that a turn runs that no prompt of Mobius started.
+	autonomous bool
+	// autonomousEnd is the time of the end of an autonomous turn while a prompt runs, until the next work update.
+	// Otherwise it is zero.
+	autonomousEnd time.Time
+	// ended gets a value at each autonomousEnd.
+	ended chan struct{}
+	// stopRequested tells that a stop came while no turn ran. Prompt takes it before it sends its text.
+	stopRequested bool
 	// retries is the number of retry prompts that Prompt sent in the session.
 	retries int
 	// details are the new details from the Owner that the next prompt of the Implementer or the Researcher carries.
@@ -121,6 +132,9 @@ type Node struct {
 	Name string
 	// Title tells what the session works on, for example "chat session". It can be empty.
 	Title string
+	// Working is true while an open session works: a chat session has a turn that runs, and another session does not
+	// wait for a slot or a pause.
+	Working bool
 }
 
 // Change is a change for the live event stream: a new, changed or ended session, a new or changed Transcript line,
@@ -147,6 +161,8 @@ type Created struct {
 	Repository string
 	Number     int64
 }
+
+const checkRunsReason = "runs .mobius/check"
 
 func now() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
@@ -229,8 +245,8 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		}
 		return nil, err
 	}
-	e.publish(Change{Node: new(node(session))})
-	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1)}, nil
+	e.publish(Change{Node: new(e.node(session))})
+	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
 }
 
 // waitForSlot waits for a slot of the Role of a, and starts the session. A failed wait ends the session, like Start.
@@ -250,7 +266,7 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 	if err != nil {
 		return a.Fail(ended, err)
 	}
-	e.publish(Change{Node: new(node(started))})
+	e.publish(Change{Node: new(e.node(started))})
 	return nil
 }
 
@@ -342,19 +358,27 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		text += imagesNote(text, len(images))
 		images = nil
 	}
+	retrying := false
 	for {
-		row, err := compact(promptRow(text, images))
-		if err != nil {
-			return err
+		if !retrying {
+			err := a.waitQuiet(ctx)
+			if errors.Is(err, errStopped) {
+				a.takeStop()
+				return nil
+			}
+			if errors.Is(err, errCannotDone) {
+				return nil
+			}
+			if errors.Is(err, errHung) {
+				var retry string
+				retry, err = a.retryHang(ctx)
+				text = retry + "\n\n" + text
+			}
+			if err != nil {
+				return err
+			}
 		}
-		a.mu.Lock()
-		err = a.engine.addRow(ctx, a.id, "prompt", row, !a.prompted)
-		a.prompted = true
-		a.chunk = nil
-		a.message = 0
-		a.reply.Reset()
-		a.cannotDo = ""
-		a.mu.Unlock()
+		row, err := compact(promptRow(text, images))
 		if err != nil {
 			return err
 		}
@@ -363,7 +387,24 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 			return err
 		}
 		a.mu.Lock()
+		if a.stopRequested {
+			a.stopRequested = false
+			a.mu.Unlock()
+			return nil
+		}
+		err = a.engine.addRow(ctx, a.id, "prompt", row, !a.prompted)
+		a.prompted = true
+		a.chunk = nil
+		a.message = 0
+		a.reply.Reset()
+		a.cannotDo = ""
+		if err != nil {
+			a.mu.Unlock()
+			return err
+		}
 		a.turn = true
+		a.subagent = false
+		a.autonomousEnd = time.Time{}
 		a.activity = time.Now()
 		a.mu.Unlock()
 		resendCtx, stopResend := context.WithCancel(ctx)
@@ -375,21 +416,21 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		err = a.sendPrompt(ctx, text, images)
 		stopResend()
 		<-resent
-		a.mu.Lock()
-		a.turn = false
-		a.mu.Unlock()
+		// While a retry runs, turn stays true, so a late update of the hung turn is no autonomous turn.
+		retrying = errors.Is(err, errHung) && a.retries < maxRetries
+		if !retrying {
+			a.mu.Lock()
+			a.turn = false
+			a.mu.Unlock()
+		}
 		if err == nil {
 			return a.engine.endPauseSince(ctx, paused)
 		}
 		if errors.Is(err, errHung) {
-			if a.retries == maxRetries {
-				return errors.Join(err, a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s after %d retries. Mobius stops the session.", hangTimeout, maxRetries)))
-			}
-			a.retries++
-			if err := a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s. Mobius stopped the turn and sends retry %d of %d.", hangTimeout, a.retries, maxRetries)); err != nil {
+			if text, err = a.retryHang(ctx); err != nil {
 				return err
 			}
-			text, images = retryText(a.spec.Role), nil
+			images = nil
 			continue
 		}
 		limited, waitErr := a.waitOutLimit(ctx, err)
@@ -400,6 +441,26 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 			return err
 		}
 	}
+}
+
+// stop asks the agent to end the turn that runs. While no turn runs, stop only sets stopRequested, so Prompt sends
+// no prompt and no cancel reaches an autonomous turn.
+func (a *Agent) stop(ctx context.Context) error {
+	a.mu.Lock()
+	if !a.turn {
+		a.stopRequested = true
+		a.mu.Unlock()
+		return nil
+	}
+	a.mu.Unlock()
+	return a.cancel(ctx)
+}
+
+// takeStop clears stopRequested.
+func (a *Agent) takeStop() {
+	a.mu.Lock()
+	a.stopRequested = false
+	a.mu.Unlock()
 }
 
 // cancel asks the agent to end the turn that runs.
@@ -455,7 +516,7 @@ func (a *Agent) End(ctx context.Context, reason string) error {
 	if err != nil {
 		return err
 	}
-	a.engine.publish(Change{Node: new(node(session))})
+	a.engine.publish(Change{Node: new(a.engine.node(session))})
 	return nil
 }
 
@@ -509,10 +570,7 @@ func (a *Agent) record(params json.RawMessage) error {
 	ctx := context.Background()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	switch kind {
-	case "agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update", "plan":
-		a.activity = time.Now()
-	}
+	a.track(notification, kind)
 	// The unit of resetsAt is Unix seconds.
 	if resetsAt, ok := field(notification, "update", "_meta", "_claude/rateLimit", "resetsAt").(float64); ok {
 		a.resetHint = time.Unix(int64(resetsAt), 0)
@@ -597,16 +655,34 @@ func (e *Engine) publishRow(row store.Transcript, folded bool) error {
 	return nil
 }
 
-func node(session store.Session) Node {
+func (e *Engine) node(session store.Session) Node {
+	var n Node
 	switch {
 	case session.Role == LeadRole:
-		return Node{Session: session, Name: "Lead", Title: "chat session"}
+		n = Node{Session: session, Name: "Lead", Title: "chat session"}
 	case session.Role == TriagerRole && session.Repository == "":
-		return Node{Session: session, Name: "Triager", Title: "chat session"}
+		n = Node{Session: session, Name: "Triager", Title: "chat session"}
 	case session.Role == TriagerRole:
-		return Node{Session: session, Name: "Triager", Title: session.Repository}
+		n = Node{Session: session, Name: "Triager", Title: session.Repository}
+	default:
+		n = Node{Session: session, Name: session.Role}
 	}
-	return Node{Session: session, Name: session.Role}
+	n.Working = e.working(n)
+	return n
+}
+
+func (e *Engine) working(n Node) bool {
+	session := n.Session
+	switch {
+	case session.EndedAt.Valid:
+		return false
+	case n.Title == "chat session":
+		e.chatsMu.Lock()
+		defer e.chatsMu.Unlock()
+		c, ok := e.chats[ChatKey{session.Organization, session.Repository, session.Workstream}]
+		return ok && c.writing && session.QueueReason.String == ""
+	}
+	return session.QueueReason.String == "" || session.QueueReason.String == checkRunsReason
 }
 
 // Tree gives the sessions of the Workstream of repository, the oldest first.
@@ -618,7 +694,7 @@ func (e *Engine) Tree(ctx context.Context, repository string, workstream int64) 
 	}
 	nodes := make([]Node, 0, len(sessions))
 	for _, session := range sessions {
-		nodes = append(nodes, node(session))
+		nodes = append(nodes, e.node(session))
 	}
 	return nodes, nil
 }
@@ -664,7 +740,7 @@ func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 		if _, ok := roleBinding(e.config, role); !ok {
 			continue
 		}
-		agents[role] = append(agents[role], ActiveAgent{node(row.Session), row.WorkstreamTitle, row.IssueTitle, row.PullRequest})
+		agents[role] = append(agents[role], ActiveAgent{e.node(row.Session), row.WorkstreamTitle, row.IssueTitle, row.PullRequest})
 	}
 	active := ActiveAgents{Max: e.config.MaxAgents}
 	for _, g := range groups {

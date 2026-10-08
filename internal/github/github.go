@@ -45,7 +45,7 @@ var RequiredPermissions = []Permission{
 	{"contents", "write"},
 	{"checks", "write"},
 	{"workflows", "write"},
-	{"actions", "read"},
+	{"actions", "write"},
 	{"metadata", "read"},
 }
 

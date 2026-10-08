@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { pasteImage, png } from "./images.js";
 
 const phone = { width: 390, height: 844 };
 const shop = "/workstreams/owner/shop/12";
@@ -32,6 +33,17 @@ async function sent(page: Page) {
     .map((message) => message.text);
 }
 
+// The image counts of the Owner messages that the server has in the Lead chat of owner/shop#12, with their texts.
+async function sentImages(page: Page) {
+  const chat = await get<{ messages: { author: string; text: string; images: number }[] }>(
+    page,
+    "/api/chat?organization=owner&repository=owner/shop&workstream=12",
+  );
+  return chat.messages
+    .filter((message) => message.author === "Owner")
+    .map((message) => `${message.text}:${message.images}`);
+}
+
 async function unread(page: Page, workstream: number) {
   const chats = await get<{ repository: string; workstream: number; count: number }[]>(
     page,
@@ -58,6 +70,122 @@ const shows = (text: string, place: "top" | "end") => `(() => {
   }
 })()`;
 
+async function say(page: Page, text: string) {
+  await page.evaluate(`(() => {
+    const form = new FormData()
+    form.append('organization', 'owner')
+    form.append('repository', 'owner/shop')
+    form.append('workstream', '13')
+    form.append('text', ${JSON.stringify(text)})
+    return fetch('/api/chat/messages', { method: 'POST', body: form })
+  })()`);
+}
+
+const runningLeads = async (page: Page) =>
+  (
+    await get<{ role: string; endedAt: string | null }[]>(
+      page,
+      "/api/workstreams/owner/shop/13/agents",
+    )
+  ).filter((agent) => agent.role === "lead_chat" && agent.endedAt === null).length;
+
+const leadRow = (page: Page) =>
+  page.getByRole("main").getByRole("button", { name: /Lead chat session/ });
+
+// The fake agent is busy for some seconds before its reply, so the new Lead session of owner/shop#13 runs while the
+// log opens. The Lead session of a test ends before the next test starts. These tests come first, because the later
+// tests leave Lead sessions that run, and no slot is free for a new Lead.
+test.describe("the agent log of a running Lead", () => {
+  const seasonal = "/workstreams/owner/shop/13";
+  test.afterEach(async ({ page }) => {
+    await expect.poll(() => runningLeads(page), { timeout: 15_000 }).toBe(0);
+  });
+
+  test("the side panel shows a new entry with no reload", async ({ page }) => {
+    await page.goto(seasonal);
+    const tree = page.getByRole("complementary");
+    await say(page, "Which tulips sell best?");
+    await tree
+      .getByRole("button", { name: /Lead chat session/ })
+      .filter({ hasNotText: "stopped" })
+      .click();
+    await page.evaluate("window.sameDocument = true");
+    await expect(tree.getByText("Yellow tulips sell best.")).toBeVisible({ timeout: 15_000 });
+    expect(await page.evaluate("window.sameDocument")).toBe(true);
+  });
+
+  test("the agents page shows a new entry with no reload", async ({ page }) => {
+    await page.goto("/agents");
+    await say(page, "Which daisies sell best?");
+    await leadRow(page).filter({ hasText: "Workstream #13" }).click();
+    await page.evaluate("window.sameDocument = true");
+    await expect(page.getByRole("main").getByText("White daisies sell best.")).toBeVisible({
+      timeout: 15_000,
+    });
+    expect(await page.evaluate("window.sameDocument")).toBe(true);
+  });
+
+  test("the log shows the entries that arrived while the same live connection was down", async ({
+    page,
+  }) => {
+    await page.addInitScript(`
+      window.lostTranscripts = false;
+      window.sources = [];
+      const add = EventSource.prototype.addEventListener;
+      EventSource.prototype.addEventListener = function (type, listener, options) {
+        if (this.url.endsWith('/api/events') && !window.sources.includes(this)) {
+          window.sources.push(this);
+        }
+        if (type === 'transcript') {
+          return add.call(this, type, (event) => {
+            if (!window.lostTranscripts) {
+              listener(event);
+            }
+          }, options);
+        }
+        return add.call(this, type, listener, options);
+      };
+    `);
+    await page.goto("/agents");
+    const main = page.getByRole("main");
+    await say(page, "Which poppies sell best?");
+    await leadRow(page).filter({ hasText: "Workstream #13" }).click();
+    await page.evaluate("window.lostTranscripts = true");
+
+    await expect.poll(() => runningLeads(page), { timeout: 15_000 }).toBe(0);
+    await expect(main.getByText("Orange poppies sell best.")).toBeHidden();
+
+    await page.evaluate(`window.lostTranscripts = false;
+      window.sources.forEach((source) => source.dispatchEvent(new Event('open')))`);
+    await expect(main.getByText("Orange poppies sell best.")).toBeVisible();
+  });
+
+  test("the log shows the entries that arrived while the live connection was down", async ({
+    page,
+  }) => {
+    await page.goto("/agents");
+    const main = page.getByRole("main");
+    await say(page, "Which lilies sell best?");
+    await leadRow(page).filter({ hasText: "Workstream #13" }).click();
+    await page.evaluate("window.sameDocument = true");
+    let refused = 0;
+    await page.route("/api/events", (route) => {
+      refused++;
+      return route.abort();
+    });
+    await page.evaluate("window.dispatchEvent(new Event('online'))");
+    await expect.poll(() => refused).toBeGreaterThan(0);
+
+    await expect.poll(() => runningLeads(page), { timeout: 15_000 }).toBe(0);
+    await expect(main.getByText("Pink lilies sell best.")).toBeHidden();
+
+    await page.unroute("/api/events");
+    await page.evaluate("window.dispatchEvent(new Event('online'))");
+    await expect(main.getByText("Pink lilies sell best.")).toBeVisible();
+    expect(await page.evaluate("window.sameDocument")).toBe(true);
+  });
+});
+
 test("Enter sends, and Shift+Enter adds a line on a desktop", async ({ page }) => {
   await page.goto(shop);
   const input = page.getByLabel("Message to the Lead");
@@ -67,6 +195,170 @@ test("Enter sends, and Shift+Enter adds a line on a desktop", async ({ page }) =
   await input.press("Enter");
   await expect.poll(() => sent(page)).toContain("one\ntwo");
   await expect(input).toHaveValue("");
+});
+
+test.describe("images", () => {
+  test("a pasted image and an uploaded image show, and the Owner removes one", async ({ page }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    await pasteImage(page, await png(page, 40, 30, "red"));
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
+    await main.locator("input[type=file]").setInputFiles({
+      name: "photo.png",
+      mimeType: "image/png",
+      buffer: await png(page, 40, 30, "blue"),
+    });
+    await expect(main.getByRole("img", { name: "Image 2" })).toBeVisible();
+    await main.getByRole("button", { name: "Remove image 1" }).click();
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 2" })).toBeHidden();
+  });
+
+  test("a message with an image and a message with only an image reach the server", async ({
+    page,
+  }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const input = page.getByLabel("Message to the Lead");
+    await input.fill("with image");
+    await pasteImage(page, await png(page, 40, 30, "red"));
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
+    await main.getByRole("button", { name: "Send" }).click();
+    await expect.poll(() => sentImages(page)).toContain("with image:1");
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeHidden();
+
+    const image = await png(page, 40, 30, "green");
+    await main.locator("input[type=file]").setInputFiles([
+      { name: "one.png", mimeType: "image/png", buffer: image },
+      { name: "two.png", mimeType: "image/png", buffer: image },
+    ]);
+    await expect(main.getByRole("img", { name: "Image 2" })).toBeVisible();
+    await main.getByRole("button", { name: "Send" }).click();
+    await expect.poll(() => sentImages(page)).toContain(":2");
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeHidden();
+  });
+
+  test("the history shows the images of a message after a reload", async ({ page }) => {
+    await page.goto("/workstreams/plants/garden/25");
+    const main = page.getByRole("main");
+    const withText = main.locator("[data-message]", { hasText: "This is the new plan page." });
+    const onlyImage = main
+      .locator("[data-message]")
+      .filter({ has: page.getByRole("img") })
+      .last();
+    for (const [message, count] of [
+      [withText, 2],
+      [onlyImage, 1],
+    ] as const) {
+      const pictures = message.getByRole("img");
+      await expect(pictures).toHaveCount(count);
+      for (let position = 0; position < count; position++) {
+        await expect(pictures.nth(position)).toHaveJSProperty("naturalWidth", 200);
+      }
+    }
+    await expect(onlyImage.locator(":scope > *")).toHaveCount(2);
+    await page.reload();
+    await expect(withText.getByRole("img")).toHaveCount(2);
+    await expect(withText.getByRole("img").first()).toHaveJSProperty("naturalWidth", 200);
+  });
+
+  test("a sent message shows its images in the history with no reload", async ({ page }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    await main.getByLabel("Message to the Lead").fill("Live images");
+    await pasteImage(page, await png(page, 40, 30, "red"));
+    await pasteImage(page, await png(page, 40, 30, "green"));
+    await expect(main.getByRole("img", { name: "Image 2" })).toBeVisible();
+    await main.getByRole("button", { name: "Send" }).click();
+    const message = main.locator("[data-message]", { hasText: "Live images" });
+    const pictures = message.getByRole("img");
+    await expect(pictures).toHaveCount(2);
+    await expect(pictures.first()).toHaveJSProperty("naturalWidth", 40);
+    await expect(pictures.last()).toHaveJSProperty("naturalWidth", 40);
+  });
+
+  test("the images stay in the input when the server refuses the message", async ({ page }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    await page.route("/api/chat/messages", (route) =>
+      route.fulfill({ status: 400, json: { error: "The image is too large." } }),
+    );
+    await pasteImage(page, await png(page, 40, 30, "red"));
+    await main.getByRole("button", { name: "Send" }).click();
+    await expect(main.getByText("The image is too large.")).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
+  });
+
+  test("a paste with text and an image keeps the default paste", async ({ page }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const notCanceled = await pasteImage(page, await png(page, 40, 30, "red"), "cells");
+    expect(notCanceled).toBe(true);
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeHidden();
+  });
+
+  test("a second add while the first scales an image still gets the error at 4 images", async ({
+    page,
+  }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const image = await png(page, 40, 30, "red");
+    const files = [1, 2, 3].map((n) => ({
+      name: `${n}.png`,
+      mimeType: "image/png",
+      buffer: image,
+    }));
+    await main.locator("input[type=file]").setInputFiles(files);
+    await expect(main.getByRole("img", { name: "Image 3" })).toBeVisible();
+    await main.locator("input[type=file]").setInputFiles({
+      name: "large.png",
+      mimeType: "image/png",
+      buffer: await png(page, 3136, 1000, "red"),
+    });
+    await pasteImage(page, image);
+    await expect(main.getByRole("img", { name: "Image 4" })).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 5" })).toBeHidden();
+    await expect(main.getByText("A message has at most 4 images.")).toBeVisible();
+  });
+
+  test("a message has at most 4 images", async ({ page }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const image = await png(page, 40, 30, "red");
+    const files = [1, 2, 3, 4, 5].map((n) => ({
+      name: `${n}.png`,
+      mimeType: "image/png",
+      buffer: image,
+    }));
+    await main.locator("input[type=file]").setInputFiles(files);
+    await expect(main.getByText("A message has at most 4 images.")).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 4" })).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 5" })).toBeHidden();
+    await pasteImage(page, image);
+    await expect(main.getByText("A message has at most 4 images.")).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 5" })).toBeHidden();
+  });
+
+  test("an image of another type gets an error, and a large image is scaled down", async ({
+    page,
+  }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    await main.locator("input[type=file]").setInputFiles({
+      name: "notes.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("notes"),
+    });
+    await expect(main.getByText("notes.txt is not a PNG, JPEG, GIF or WebP image.")).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeHidden();
+
+    await main.locator("input[type=file]").setInputFiles({
+      name: "large.png",
+      mimeType: "image/png",
+      buffer: await png(page, 3136, 1000, "red"),
+    });
+    await expect(main.getByRole("img", { name: "Image 1" })).toHaveJSProperty("naturalWidth", 1568);
+  });
 });
 
 test.describe("on a touch screen", () => {
@@ -105,7 +397,7 @@ test.describe("on a touch screen", () => {
         const buttons = [...document.querySelectorAll('main form button')]
         return buttons.length > 0 && buttons.every((button) => {
           const box = button.getBoundingClientRect()
-          return box.height >= 40 && (box.left >= field.right || box.right <= field.left)
+          return box.height >= 40 && box.top >= field.bottom
         })
       })()`),
     ).toBe(true);
@@ -165,11 +457,12 @@ test("a new message scrolls the chat to its end", async ({ page }) => {
     await expect(page.getByText("What is the state of the plans?").first()).toBeVisible();
     await page.evaluate(`(async () => {
       for (let n = 0; n < 20; n++) {
-        await fetch('/api/chat/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ organization: 'owner', repository: 'owner/shop', workstream: 12, text: 'spam ${device} ' + n + ' ' + 'word '.repeat(40) }),
-        })
+        const form = new FormData()
+        form.append('organization', 'owner')
+        form.append('repository', 'owner/shop')
+        form.append('workstream', '12')
+        form.append('text', 'spam ${device} ' + n + ' ' + 'word '.repeat(40))
+        await fetch('/api/chat/messages', { method: 'POST', body: form })
       }
     })()`);
     await expect.poll(() => page.evaluate(shows(`spam ${device} 19 `, "end"))).toBe(true);
@@ -401,6 +694,28 @@ test("Start gives only an open task with no blocker a button, and the row shows 
   await start.click();
   await expect(rows.filter({ hasText: "#70 Order the bark" }).getByText("ready")).toBeVisible();
   await expect(start).toHaveCount(0);
+});
+
+test("the Tasks tab shows the closed tasks muted, with no Start button, when the switch is on", async ({
+  page,
+}) => {
+  await page.goto("/workstreams/owner/shop/12");
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const rows = page.getByRole("listitem");
+  const closed = rows.filter({ hasText: "#37 Remove the old plan page" });
+  await expect(rows.filter({ hasText: "#41 Add plan model" })).toBeVisible();
+  await expect(closed).toBeHidden();
+
+  await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
+  await expect(closed.getByText("closed", { exact: true })).toBeVisible();
+  await expect(closed.getByText("#37 Remove the old plan page")).toHaveClass(
+    /text-muted-foreground/,
+  );
+  await expect(closed.getByRole("button")).toHaveCount(0);
+  await expect(rows.filter({ hasText: "#36 Rename the plan table" })).toBeVisible();
+
+  await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
+  await expect(closed).toBeHidden();
 });
 
 test("the voice button adds the spoken text to the message", async ({ page }) => {
@@ -973,10 +1288,146 @@ test("the voice button shows an icon, a name and its state", async ({ page }) =>
   await expect(start).toHaveAttribute("aria-pressed", "false");
 });
 
+const writingNow = (page: Page) =>
+  page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { writing: boolean } };
+    body.data.writing = true;
+    await route.fulfill({ response, json: body });
+  });
+
+test("the send button follows the text and the writing agent", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await writingNow(page);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const send = main.getByRole("button", { name: "Send", exact: true });
+  const stop = main.getByRole("button", { name: "Stop the reply", exact: true });
+
+  await expect(stop).toBeEnabled();
+  await expect(stop).toHaveAttribute("title", "Stop the reply");
+  await expect(send).toHaveCount(0);
+  await input.fill("   ");
+  await expect(stop).toBeEnabled();
+  await input.fill("Add a plan");
+  await expect(send).toBeEnabled();
+  await expect(send).toHaveAttribute("title", "Send");
+  await expect(stop).toHaveCount(0);
+
+  await input.fill("");
+  const stopped = page.waitForRequest((request) => request.url().endsWith("/api/chat/stop"));
+  await stop.click();
+  await stopped;
+});
+
+test("the send button is disabled with no text while the agent does not write", async ({
+  page,
+}) => {
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const send = main.getByRole("button", { name: "Send", exact: true });
+  await expect(send).toBeDisabled();
+  await expect(main.getByRole("button", { name: "Stop the reply" })).toHaveCount(0);
+  await input.fill("  ");
+  await expect(send).toBeDisabled();
+  await input.fill("Add a plan");
+  await expect(send).toBeEnabled();
+});
+
+test("the box holds the text area, the attach button, the voice button and the send button", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const box = input.locator("..");
+  const attach = main.getByRole("button", { name: "Attach images", exact: true });
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  const send = main.getByRole("button", { name: "Send", exact: true });
+  await expect(input).toHaveCSS("border-top-width", "0px");
+  await expect(box).toHaveCSS("border-top-width", "1px");
+  const frame = (await box.boundingBox())!;
+  const field = (await input.boundingBox())!;
+  const attachBox = (await attach.boundingBox())!;
+  const micBox = (await mic.boundingBox())!;
+  const sendBox = (await send.boundingBox())!;
+  for (const button of [attachBox, micBox, sendBox]) {
+    expect(button.x).toBeGreaterThanOrEqual(frame.x);
+    expect(button.x + button.width).toBeLessThanOrEqual(frame.x + frame.width);
+    expect(button.y).toBeGreaterThanOrEqual(frame.y);
+    expect(button.y + button.height).toBeLessThanOrEqual(frame.y + frame.height);
+    expect(button.y).toBeGreaterThanOrEqual(field.y + field.height);
+  }
+  expect(field.width).toBeGreaterThan(frame.width - 24);
+  expect(attachBox.x).toBeLessThan(micBox.x);
+  expect(micBox.x + micBox.width).toBeLessThanOrEqual(sendBox.x);
+  expect(attachBox.x).toBeLessThan(frame.x + 16);
+  expect(sendBox.x + sendBox.width).toBeGreaterThan(frame.x + frame.width - 16);
+  for (const button of [attach, mic, send]) {
+    await expect(button).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+  }
+  await expect(send).toHaveCSS("border-top-left-radius", /e\+07px$/);
+
+  const border = (await page.evaluate(
+    "getComputedStyle(document.querySelector('main form textarea').parentElement).borderTopColor",
+  )) as string;
+  await input.focus();
+  await expect(box).not.toHaveCSS("border-top-color", border);
+  await expect(box).toHaveCSS("box-shadow", "none");
+});
+
+for (const [device, size] of [
+  ["desktop", undefined],
+  ["phone", phone],
+] as const) {
+  test(`a long text grows the box and stays above the buttons on a ${device}`, async ({ page }) => {
+    await page.addInitScript(fakeRecognition);
+    if (size) {
+      await page.setViewportSize(size);
+    }
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const input = main.getByLabel("Message to the Lead");
+    const attach = main.getByRole("button", { name: "Attach images", exact: true });
+    const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+    const send = main.getByRole("button", { name: "Send", exact: true });
+    const short = (await input.boundingBox())!.height;
+    await input.fill("A long line without a break. ".repeat(80));
+    const long = (await input.boundingBox())!;
+    expect(long.height).toBeGreaterThan(short);
+    expect(long.height).toBeLessThanOrEqual(160);
+    expect(await input.evaluate((field) => field.scrollHeight > field.clientHeight)).toBe(true);
+    for (const button of [attach, mic, send]) {
+      const buttonBox = (await button.boundingBox())!;
+      expect(buttonBox.y).toBeGreaterThanOrEqual(long.y + long.height);
+      if (size) {
+        expect(buttonBox.width).toBeGreaterThanOrEqual(44);
+        expect(buttonBox.height).toBeGreaterThanOrEqual(44);
+      }
+    }
+  });
+}
+
+test("the voice button in the listening state has a red background", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  await expect(mic).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await mic.click();
+  const listening = main.getByRole("button", { name: "Stop voice input", exact: true });
+  await expect(listening).toBeVisible();
+  await expect(listening).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(listening).toHaveAttribute("aria-pressed", "true");
+});
+
 test.describe("on a phone", () => {
   test.use({ viewport: phone });
 
-  test("the textarea stays wide with the Stop, voice and Send buttons", async ({ page }) => {
+  test("the textarea stays wide with the voice button and the Stop button", async ({ page }) => {
     await page.addInitScript(fakeRecognition);
     await page.route("**/api/chat?*", async (route) => {
       const response = await route.fetch();
@@ -986,9 +1437,8 @@ test.describe("on a phone", () => {
     });
     await page.goto(shop);
     const main = page.getByRole("main");
-    await expect(main.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+    await expect(main.getByRole("button", { name: "Stop the reply", exact: true })).toBeVisible();
     await expect(main.getByRole("button", { name: "Start voice input" })).toBeVisible();
-    await expect(main.getByRole("button", { name: "Send" })).toBeVisible();
     const width = await page.evaluate("document.querySelector('textarea').clientWidth");
     expect(width).toBeGreaterThanOrEqual(120);
     expect(

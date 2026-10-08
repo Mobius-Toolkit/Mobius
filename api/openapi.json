@@ -182,11 +182,11 @@
     },
     "/api/chat/messages": {
       "post": {
-        "description": "SendChat adds a message of the Owner to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.",
+        "description": "SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. It returns 400 when the request is larger than 4 images of 5 MB with the text. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.",
         "operationId": "SendChat",
         "requestBody": {
           "content": {
-            "application/json": {
+            "multipart/form-data": {
               "schema": {
                 "$ref": "#/components/schemas/SendChatBody"
               }
@@ -220,6 +220,100 @@
               }
             },
             "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/api/chat/messages/{id}/images/{position}": {
+      "get": {
+        "description": "GetChatImage returns an image of a message. It returns 404 when the message has no such image.",
+        "operationId": "GetChatImage",
+        "parameters": [
+          {
+            "description": "ID is the id of the message",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Position is the position of the image in the message, from 0",
+            "in": "path",
+            "name": "position",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "image/gif": {
+                "schema": {
+                  "contentMediaType": "image/gif",
+                  "type": "string"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "contentMediaType": "image/jpeg",
+                  "type": "string"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "contentMediaType": "image/png",
+                  "type": "string"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "contentMediaType": "image/webp",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
@@ -407,6 +501,51 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "checkup"
+        ]
+      }
+    },
+    "/api/checkup/tools": {
+      "get": {
+        "description": "GetCheckupTools returns the path and the version of each program that Mobius runs for its agents and its work.",
+        "operationId": "GetCheckupTools",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_ToolCheck"
+                }
+              }
+            },
+            "description": "Success"
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -1890,6 +2029,167 @@
         ]
       }
     },
+    "/api/workstreams/{owner}/{name}/{number}/close": {
+      "post": {
+        "description": "CloseWorkstream closes the Workstream as \"won't do\", also when it has open issues. For each item of WorkstreamClosure, Mobius adds a comment and mobius:wont-do, and closes the item. It closes the Workstream issue last. It returns 409 when the issue is not an open Workstream.",
+        "operationId": "CloseWorkstream",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the Workstream issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      }
+    },
+    "/api/workstreams/{owner}/{name}/{number}/closure": {
+      "get": {
+        "description": "WorkstreamClosure returns the items that CloseWorkstream closes, in the order of the close: the open pull requests of the tasks, the open task issues, and the Workstream issue. It reads the state from GitHub. It returns 409 when the issue is not an open Workstream.",
+        "operationId": "WorkstreamClosure",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the Workstream issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_ClosureItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      }
+    },
     "/api/workstreams/{owner}/{name}/{number}/complete": {
       "post": {
         "description": "CompleteWorkstream closes the Workstream issue as completed. Then Mobius ends the work of the Workstream, closes the open pull requests of its tasks, and closes the open issues below it. It returns 409 when the issue is not an open Workstream, or when the Workstream has no task or an open task.",
@@ -1969,7 +2269,7 @@
     },
     "/api/workstreams/{owner}/{name}/{number}/tasks": {
       "get": {
-        "description": "ListTasks returns the open tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.",
+        "description": "ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.",
         "operationId": "ListTasks",
         "parameters": [
           {
@@ -2241,6 +2541,10 @@
             "type": "string",
             "description": "Title tells what the session works on, for example \"chat session\". It can be empty"
           },
+          "working": {
+            "type": "boolean",
+            "description": "Working is true while the session works. A chat session works while a turn runs. Another open session works while it does not wait for a slot, for a check slot or for the end of a usage limit"
+          },
           "workstream": {
             "type": "integer",
             "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager"
@@ -2261,7 +2565,8 @@
           "startedAt",
           "endedAt",
           "endReason",
-          "queueReason"
+          "queueReason",
+          "working"
         ],
         "description": "Agent is the session of an agent."
       },
@@ -2368,6 +2673,10 @@
             "type": "integer",
             "description": "ID increases with each new message of all chats"
           },
+          "images": {
+            "type": "integer",
+            "description": "Images is the number of images of the message. GetChatImage gives each image by its position, from 0"
+          },
           "organization": {
             "type": "string",
             "description": "Organization is the owner of the repository, or the organization of the Triager chat"
@@ -2397,7 +2706,8 @@
           "workstream",
           "author",
           "time",
-          "text"
+          "text",
+          "images"
         ],
         "description": "ChatMessage is a message of a Lead chat or of the Triager chat."
       },
@@ -2476,6 +2786,39 @@
           "labelFix"
         ],
         "description": "Checkup is the status of the App permissions and of the Mobius labels in an organization."
+      },
+      "ClosureItem": {
+        "type": "object",
+        "title": "ClosureItem",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "Kind is issue or pullRequest",
+            "enum": [
+              "issue",
+              "pullRequest"
+            ]
+          },
+          "number": {
+            "type": "integer",
+            "description": "Number is the number of the issue or the pull request"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title is the title of the issue or the pull request"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL is the web address of the issue or the pull request on GitHub"
+          }
+        },
+        "required": [
+          "kind",
+          "number",
+          "title",
+          "url"
+        ],
+        "description": "ClosureItem is an issue or a pull request that the close of a Workstream as \"won't do\" closes."
       },
       "CreateManifestFormBody": {
         "type": "object",
@@ -2616,6 +2959,24 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Array_ClosureItem": {
+        "type": "object",
+        "title": "Envelope_Array_ClosureItem",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]ClosureItem",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/ClosureItem"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Array_GitHubApp": {
         "type": "object",
         "title": "Envelope_Array_GitHubApp",
@@ -2680,6 +3041,24 @@
             "description": "Data is the payload of the response",
             "items": {
               "$ref": "#/components/schemas/TaskLine"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_Array_ToolCheck": {
+        "type": "object",
+        "title": "Envelope_Array_ToolCheck",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]ToolCheck",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/ToolCheck"
             }
           }
         },
@@ -3536,6 +3915,14 @@
         "type": "object",
         "title": "SendChatBody",
         "properties": {
+          "images": {
+            "type": "array",
+            "description": "Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB",
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            }
+          },
           "organization": {
             "type": "string",
             "description": "Organization is the owner of the repository, or the organization of the Triager chat"
@@ -3546,7 +3933,7 @@
           },
           "text": {
             "type": "string",
-            "description": "Text is the message of the Owner"
+            "description": "Text is the message of the Owner. It is required when the message has no image"
           },
           "workstream": {
             "type": "integer",
@@ -3611,7 +3998,7 @@
           },
           "state": {
             "type": "string",
-            "description": "State is the Mobius label of the issue with no \"mobius:\", or open. A task that waits for a slot shows \"queued\". A task that waits for CI shows \"waits for CI\". A task that waits for the Lead shows \"waits for Lead\"."
+            "description": "State is the Mobius label of the issue with no \"mobius:\", or open, or closed for a closed issue. A task that waits for a slot shows \"queued\". A task that waits for CI shows \"waits for CI\". A task that waits for the Lead shows \"waits for Lead\"."
           },
           "title": {
             "type": "string",
@@ -3632,6 +4019,35 @@
           "blockedBy"
         ],
         "description": "TaskLine is a task of a Workstream."
+      },
+      "ToolCheck": {
+        "type": "object",
+        "title": "ToolCheck",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name is the name of the program"
+          },
+          "path": {
+            "type": "string",
+            "description": "Path is the file that Mobius runs. It is empty when Mobius cannot find the program, and for the Claude Code CLI that is built in the adapter"
+          },
+          "status": {
+            "type": "string",
+            "description": "Status is not-found for a program that Mobius cannot find, and no-version for a program that gives no version. It is empty for a program with a version"
+          },
+          "version": {
+            "type": "string",
+            "description": "Version is the first line of the version output. It is empty when Status is not empty"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "version",
+          "status"
+        ],
+        "description": "ToolCheck is the path and the version of a program that Mobius runs."
       },
       "TranscriptLine": {
         "type": "object",

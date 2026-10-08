@@ -217,9 +217,11 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, text string,
 func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	e.chatsMu.Lock()
 	c, ok := e.chats[key]
+	var agent *Agent
 	if ok {
 		c.queue = append(c.queue, items...)
 		c.writing = true
+		agent = c.agent
 		c.notify()
 		if tracked {
 			e.untrack()
@@ -233,6 +235,20 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	}
 	e.chatsMu.Unlock()
 	e.publish(Change{Chat: &ChatState{Key: key, Writing: true}})
+	e.publishSession(agent)
+}
+
+// publishSession sends the session of agent, so the clients read its working state again. It does nothing for nil.
+func (e *Engine) publishSession(agent *Agent) {
+	if agent == nil {
+		return
+	}
+	session, err := e.queries.GetSession(context.Background(), agent.id)
+	if err != nil {
+		log.Printf("read the chat session %d: %v", agent.id, err)
+		return
+	}
+	e.publish(Change{Node: new(e.node(session))})
 }
 
 // addLeadEvent adds an event of kind about the issue for the Lead of the Workstream, with its entry in the chat, and
@@ -322,7 +338,7 @@ func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 		c.stopWait()
 		return nil
 	case c.stoppable:
-		return c.agent.cancel(ctx)
+		return c.agent.stop(ctx)
 	}
 	return nil
 }
@@ -638,14 +654,18 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 // next takes the next queued item. With no item, the chat is not writing.
 func (e *Engine) next(c *chat) (item, bool) {
 	e.chatsMu.Lock()
-	defer e.chatsMu.Unlock()
 	if len(c.queue) == 0 {
-		if c.writing {
-			c.writing = false
+		stopped := c.writing
+		c.writing = false
+		agent := c.agent
+		e.chatsMu.Unlock()
+		if stopped {
 			e.publish(Change{Chat: &ChatState{Key: c.key}})
+			e.publishSession(agent)
 		}
 		return item{}, false
 	}
+	defer e.chatsMu.Unlock()
 	next := c.queue[0]
 	c.queue = c.queue[1:]
 	return next, true
@@ -684,7 +704,7 @@ func (e *Engine) pending(ctx context.Context, event *store.LeadEvent) (bool, err
 
 // itemTurn runs the turn of the item, and then ends the turn. The reply text of a turn for an event goes only to the
 // Transcript, and a stop does not cancel that turn: the Owner cannot see it. The Lead uses tell_owner to write to the
-// Owner.
+// Owner. After a tell_owner call, the reply text of a turn for a message goes only to the Transcript.
 func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images []Image) error {
 	e.chatsMu.Lock()
 	c.current = &current
@@ -711,6 +731,7 @@ func (e *Engine) turn(c *chat, a *Agent, prompt string, images []Image, stoppabl
 	defer func() {
 		e.chatsMu.Lock()
 		c.stoppable = false
+		a.takeStop()
 		e.chatsMu.Unlock()
 	}()
 	return a.Prompt(c.ctx, prompt, images)
@@ -770,7 +791,8 @@ func (e *Engine) holdEvent(_ context.Context, c caller, _ github.Repository, _ n
 	return "Mobius holds the event. It sends the event again after your next reply to the Owner.", nil
 }
 
-// tellOwner adds text to the Lead chat as a message of the Lead to the Owner, and adds an Inbox item.
+// tellOwner adds text to the Lead chat as a message of the Lead to the Owner, and adds an Inbox item. The reply text
+// after the call, in the same turn, goes only to the Transcript.
 func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repository, input tellInput) (string, error) {
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
@@ -785,6 +807,7 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repo
 	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text, ""); err != nil {
 		return "", err
 	}
+	c.agent.setAuthor("")
 	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         leadKind,
 		Organization: c.organization,
