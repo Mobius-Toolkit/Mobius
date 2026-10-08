@@ -451,6 +451,18 @@ SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE reposito
 -- name: ListCuratorReasonsAfter :many
 SELECT reason FROM memory_versions WHERE repository = ? AND author = 'curator' AND id > ? ORDER BY id;
 
+-- name: AddCuratorRequest :one
+INSERT INTO curator_requests (repository, text) VALUES (?, ?) RETURNING id;
+
+-- name: ListCuratorRequests :many
+SELECT id, text FROM curator_requests WHERE repository = ? ORDER BY id;
+
+-- name: DeleteCuratorRequestsUpTo :exec
+DELETE FROM curator_requests WHERE repository = ? AND id <= ?;
+
+-- name: DeleteCuratorRequest :exec
+DELETE FROM curator_requests WHERE id = ?;
+
 -- name: ListRecentMemoryVersions :many
 SELECT time, author, reason FROM memory_versions WHERE repository = ? ORDER BY id DESC LIMIT 20;
 

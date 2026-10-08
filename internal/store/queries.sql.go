@@ -156,6 +156,22 @@ func (q *Queries) AddCopiedWorkstream(ctx context.Context, arg AddCopiedWorkstre
 	return err
 }
 
+const addCuratorRequest = `-- name: AddCuratorRequest :one
+INSERT INTO curator_requests (repository, text) VALUES (?, ?) RETURNING id
+`
+
+type AddCuratorRequestParams struct {
+	Repository string
+	Text       string
+}
+
+func (q *Queries) AddCuratorRequest(ctx context.Context, arg AddCuratorRequestParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, addCuratorRequest, arg.Repository, arg.Text)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const addDeviceLogin = `-- name: AddDeviceLogin :exec
 INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)
 VALUES (?, ?, ?, ?)
@@ -725,6 +741,29 @@ DELETE FROM copied_workstreams WHERE repository = ?
 
 func (q *Queries) DeleteCopiedWorkstreamsOf(ctx context.Context, repository string) error {
 	_, err := q.db.ExecContext(ctx, deleteCopiedWorkstreamsOf, repository)
+	return err
+}
+
+const deleteCuratorRequest = `-- name: DeleteCuratorRequest :exec
+DELETE FROM curator_requests WHERE id = ?
+`
+
+func (q *Queries) DeleteCuratorRequest(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteCuratorRequest, id)
+	return err
+}
+
+const deleteCuratorRequestsUpTo = `-- name: DeleteCuratorRequestsUpTo :exec
+DELETE FROM curator_requests WHERE repository = ? AND id <= ?
+`
+
+type DeleteCuratorRequestsUpToParams struct {
+	Repository string
+	ID         int64
+}
+
+func (q *Queries) DeleteCuratorRequestsUpTo(ctx context.Context, arg DeleteCuratorRequestsUpToParams) error {
+	_, err := q.db.ExecContext(ctx, deleteCuratorRequestsUpTo, arg.Repository, arg.ID)
 	return err
 }
 
@@ -1795,6 +1834,38 @@ func (q *Queries) ListCuratorReasonsAfter(ctx context.Context, arg ListCuratorRe
 			return nil, err
 		}
 		items = append(items, reason)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCuratorRequests = `-- name: ListCuratorRequests :many
+SELECT id, text FROM curator_requests WHERE repository = ? ORDER BY id
+`
+
+type ListCuratorRequestsRow struct {
+	ID   int64
+	Text string
+}
+
+func (q *Queries) ListCuratorRequests(ctx context.Context, repository string) ([]ListCuratorRequestsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCuratorRequests, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCuratorRequestsRow
+	for rows.Next() {
+		var i ListCuratorRequestsRow
+		if err := rows.Scan(&i.ID, &i.Text); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

@@ -92,7 +92,8 @@ func repositoryKeys(repositories []github.Repository) []string {
 }
 
 // recover hands the lost tasks of repository to a human, gives the events that wait from the earlier run of the
-// server to the Leads, and starts each Worker of the earlier run again. The Workers start only one time.
+// server to the Leads, starts a Curator for the requests of the Owner that wait, and starts each Worker of the earlier
+// run again. The Workers start only one time.
 func (e *Engine) recover(ctx context.Context, repository github.Repository) error {
 	if err := e.handLostTasks(ctx, repository); err != nil {
 		return err
@@ -106,6 +107,15 @@ func (e *Engine) recover(ctx context.Context, repository github.Repository) erro
 			continue
 		}
 		if err := e.wakeEvents(ctx, workstream.Repository, workstream.Workstream); err != nil {
+			return err
+		}
+	}
+	requests, err := e.queries.ListCuratorRequests(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	if len(requests) > 0 {
+		if err := e.startCurator(ctx, repository.FullName); err != nil {
 			return err
 		}
 	}

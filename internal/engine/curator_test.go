@@ -512,3 +512,68 @@ reply = ["The memory file is up to date."]
 		t.Errorf("prompt of the second Curator = %s", second)
 	}
 }
+
+const requestReplies = `
+[[prompts]]
+when = "# Curator message"
+reply = ["I told the Owner."]
+
+[[prompts]]
+when = "# Requests of the Owner"
+reply = ["The memory file is up to date."]
+`
+
+func requestCount(t *testing.T, server *testserver.Server) int {
+	t.Helper()
+	var count int
+	if err := server.DB.QueryRow("SELECT count(*) FROM curator_requests").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
+func TestARestartStartsACuratorForTheRequestsThatWaitAndTheResultGoesToTheTriagerChat(t *testing.T) {
+	server, _ := connectWith(t, testkit.NewFakeGitHub(t), requestReplies, func(cfg *config.Config) {
+		seed(t, cfg.DataDir, `INSERT INTO curator_requests (repository, text) VALUES ('owner/shop', 'Add the lesson.')`)
+	})
+
+	curator := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := curatorSessions(t, server)
+		if len(sessions) != 1 {
+			return store.Session{}, false
+		}
+		return sessions[0], sessions[0].EndedAt.Valid
+	})
+	prompts := promptTexts(t, server, curator.ID)
+	if len(prompts) != 1 || !strings.Contains(prompts[0], "# Requests of the Owner\n\n## Request 1\n\nAdd the lesson.\n\n") {
+		t.Errorf("prompts = %q", prompts)
+	}
+	waitForChat(t, server, triagerChat, "Triager", "I told the Owner.")
+	if got := requestCount(t, server); got != 0 {
+		t.Errorf("requests = %d", got)
+	}
+}
+
+func TestACuratorThatFailsToGetASlotSendsTheFailureToTheTriagerChat(t *testing.T) {
+	server, _ := connectWith(t, testkit.NewFakeGitHub(t), requestReplies+call("tell_curator", `{ repository = "owner/shop", text = "Add the lesson." }`), func(cfg *config.Config) {
+		seed(t, cfg.DataDir, `CREATE TRIGGER no_start BEFORE UPDATE OF started_at ON sessions WHEN NEW.role = 'curator'
+			BEGIN SELECT RAISE(ABORT, 'no start'); END`)
+	})
+	chat := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()}
+
+	run(t, server, chat, "Remember the format rule.")
+
+	testkit.WaitFor(t, func() bool {
+		for _, session := range chatSessions(t, server, triagerChat, engine.TriagerRole) {
+			if slices.ContainsFunc(promptTexts(t, server, session.ID), func(prompt string) bool {
+				return strings.Contains(prompt, "- Add the lesson.\n\nThe Curator did not change the memory file.\n\nThe Curator failed:")
+			}) {
+				return true
+			}
+		}
+		return false
+	})
+	if got := requestCount(t, server); got != 0 {
+		t.Errorf("requests = %d", got)
+	}
+}
