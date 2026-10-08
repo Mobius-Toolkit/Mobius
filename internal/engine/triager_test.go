@@ -38,6 +38,10 @@ when = "# Issue\n\n#56 "
 reply = ["First proposal."]
 
 [[prompts]]
+when = "# Issue\n\n#57 "
+reply = ["First proposal."]
+
+[[prompts]]
 when = "# Issue\n\n#55 "
 hang = true
 

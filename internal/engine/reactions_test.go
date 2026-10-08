@@ -8,14 +8,27 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
-func reactions(content string) []testkit.Reaction {
-	return []testkit.Reaction{{User: testkit.AppSlug + "[bot]", Content: content}}
+func reactions(contents ...string) []testkit.Reaction {
+	var got []testkit.Reaction
+	for _, content := range contents {
+		got = append(got, testkit.Reaction{User: testkit.AppSlug + "[bot]", Content: content})
+	}
+	return got
 }
 
 // waitForReactions waits until the comment id has exactly the reactions want.
 func waitForReactions(t *testing.T, fake *testkit.FakeGitHub, id int64, want []testkit.Reaction) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool { return slices.Equal(fake.Reactions(shop, id), want) })
+}
+
+// waitForEyes waits until the first reaction of the comment id is eyes. An agent that starts its work later adds
+// the reaction rocket.
+func waitForEyes(t *testing.T, fake *testkit.FakeGitHub, id int64) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		return len(fake.Reactions(shop, id)) > 0 && fake.Reactions(shop, id)[0] == reactions("eyes")[0]
+	})
 }
 
 // replies gives the bodies of the comments of the Mobius App on the issue or the pull request number.
@@ -42,9 +55,9 @@ func TestACommentOnAWorkstreamIssueGetsEyes(t *testing.T) {
 
 	id := fake.AddComment(shop, 12, "owner", "Add the tiers too.")
 
-	waitForReactions(t, fake, id, reactions("eyes"))
+	waitForReactions(t, fake, id, reactions("eyes", "rocket"))
 	waitForPolls(t, fake)
-	if got := fake.Reactions(shop, id); !slices.Equal(got, reactions("eyes")) {
+	if got := fake.Reactions(shop, id); !slices.Equal(got, reactions("eyes", "rocket")) {
 		t.Errorf("reactions = %+v", got)
 	}
 }
@@ -58,7 +71,7 @@ func TestACommentOnASubIssueWithNoLiveTaskGetsEyes(t *testing.T) {
 
 	id := fake.AddComment(shop, 50, "owner", "Use three tiers.")
 
-	waitForReactions(t, fake, id, reactions("eyes"))
+	waitForEyes(t, fake, id)
 }
 
 func TestACommentOnTheIssueOfALiveTaskGetsEyes(t *testing.T) {
@@ -67,7 +80,7 @@ func TestACommentOnTheIssueOfALiveTaskGetsEyes(t *testing.T) {
 
 	id := fake.AddComment(shop, 41, "owner", "Round down.")
 
-	waitForReactions(t, fake, id, reactions("eyes"))
+	waitForEyes(t, fake, id)
 }
 
 func TestACommentOfAnUntrustedUserABotOrTheAppGetsNoReaction(t *testing.T) {
@@ -87,7 +100,7 @@ func TestACommentOfAnUntrustedUserABotOrTheAppGetsNoReaction(t *testing.T) {
 	}
 	last := fake.AddComment(shop, 12, "owner", "Round down.")
 
-	waitForReactions(t, fake, last, reactions("eyes"))
+	waitForEyes(t, fake, last)
 	waitForPolls(t, fake)
 	for _, id := range ids {
 		if got := fake.Reactions(shop, id); len(got) != 0 {
@@ -202,7 +215,7 @@ func TestACommentThatStartsTheTriagerAgainGetsEyes(t *testing.T) {
 
 	id := fake.AddComment(shop, 53, "owner", "Please use points.")
 
-	waitForReactions(t, fake, id, reactions("eyes"))
+	waitForEyes(t, fake, id)
 }
 
 func TestACommentOnAPullRequestWithNoLiveTaskGetsConfusedAndOneReplyInTheThread(t *testing.T) {
@@ -234,8 +247,8 @@ func TestACommentOnThePullRequestOfAStoppedTaskGetsEyes(t *testing.T) {
 	conversation := fake.AddComment(shop, 42, "owner", "Why cents?")
 	root := fake.AddReviewComment(shop, 42, 0, "owner", "Rename plan to tier.")
 
-	waitForReactions(t, fake, conversation, reactions("eyes"))
-	waitForReactions(t, fake, root, reactions("eyes"))
+	waitForEyes(t, fake, conversation)
+	waitForEyes(t, fake, root)
 }
 
 func TestACommentOnThePullRequestOfATaskInApprovalGetsEyes(t *testing.T) {
@@ -245,8 +258,8 @@ func TestACommentOnThePullRequestOfATaskInApprovalGetsEyes(t *testing.T) {
 	conversation := fake.AddComment(shop, 42, "owner", "Why cents?")
 	root := fake.AddReviewComment(shop, 42, 0, "owner", "Rename plan to tier.")
 
-	waitForReactions(t, fake, conversation, reactions("eyes"))
-	waitForReactions(t, fake, root, reactions("eyes"))
+	waitForEyes(t, fake, conversation)
+	waitForEyes(t, fake, root)
 }
 
 func TestAReviewCommentInAResolvedThreadGetsConfusedAndOneReplyInTheThread(t *testing.T) {
@@ -279,7 +292,7 @@ func TestAReviewCommentWrittenAgainInAnUnresolvedThreadGetsEyes(t *testing.T) {
 	fake.UnresolveReviewThread(root)
 	again := fake.AddReviewComment(shop, 42, root, "owner", "Rename it anyway.")
 
-	waitForReactions(t, fake, again, reactions("eyes"))
+	waitForEyes(t, fake, again)
 }
 
 func TestACommentOfAnUntrustedUserOrOfATrustedBotOnAPullRequestGetsNoReaction(t *testing.T) {
@@ -294,7 +307,7 @@ func TestACommentOfAnUntrustedUserOrOfATrustedBotOnAPullRequestGetsNoReaction(t 
 	)
 	last := fake.AddComment(shop, 42, "owner", "Why cents?")
 
-	waitForReactions(t, fake, last, reactions("eyes"))
+	waitForEyes(t, fake, last)
 	waitForPolls(t, fake)
 	for _, id := range ids {
 		if got := fake.Reactions(shop, id); len(got) != 0 {
