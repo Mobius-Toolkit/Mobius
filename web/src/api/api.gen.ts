@@ -45,6 +45,8 @@ export interface Agent {
   startedAt: string;
   /** Title tells what the session works on, for example "chat session". It can be empty */
   title: string;
+  /** Working is true while the session works. A chat session works while a turn runs. Another open session works while it does not wait for a slot, for a check slot or for the end of a usage limit */
+  working: boolean;
   /** Workstream is the number of the Workstream issue. It is 0 for the Triager */
   workstream: number;
 }

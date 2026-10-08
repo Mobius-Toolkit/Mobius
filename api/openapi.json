@@ -2541,6 +2541,10 @@
             "type": "string",
             "description": "Title tells what the session works on, for example \"chat session\". It can be empty"
           },
+          "working": {
+            "type": "boolean",
+            "description": "Working is true while the session works. A chat session works while a turn runs. Another open session works while it does not wait for a slot, for a check slot or for the end of a usage limit"
+          },
           "workstream": {
             "type": "integer",
             "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager"
@@ -2561,7 +2565,8 @@
           "startedAt",
           "endedAt",
           "endReason",
-          "queueReason"
+          "queueReason",
+          "working"
         ],
         "description": "Agent is the session of an agent."
       },
