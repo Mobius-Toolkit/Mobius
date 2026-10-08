@@ -1,10 +1,14 @@
 package engine_test
 
 import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -375,5 +379,173 @@ func TestThePromptOfTheCuratorHasTheNotesOfTheLeadsThatChangedAfterTheLastDoneCu
 	}
 	if strings.Contains(second, "Workstream 12") {
 		t.Errorf("the notes of a Workstream with no change are in %s", second)
+	}
+}
+
+func stamp(at time.Time) string {
+	return at.UTC().Format(time.RFC3339Nano)
+}
+
+// addSession adds a session of role in the Workstream #12 that starts at startedAt. A session with a reason ends one
+// second later. An issue of 0 is no issue.
+func addSession(t *testing.T, server *testserver.Server, role string, issue int64, startedAt time.Time, reason string) int64 {
+	t.Helper()
+	var endedAt, endReason sql.NullString
+	if reason != "" {
+		endedAt = sql.NullString{String: stamp(startedAt.Add(time.Second)), Valid: true}
+		endReason = sql.NullString{String: reason, Valid: true}
+	}
+	result, err := server.DB.Exec(
+		"INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, started_at, ended_at, end_reason) VALUES (?, 'fake', 'fake', 'owner', ?, 12, ?, ?, ?, ?)",
+		role, shop, sql.NullInt64{Int64: issue, Valid: issue != 0}, stamp(startedAt), endedAt, endReason)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func addTranscript(t *testing.T, server *testserver.Server, session int64, at time.Time, kind string, row any) {
+	t.Helper()
+	data, err := json.Marshal(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.DB.Exec("INSERT INTO transcript (session, time, kind, json) VALUES (?, ?, ?, ?)", session, stamp(at), kind, string(data)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func addCall(t *testing.T, server *testserver.Server, session int64, at time.Time, tool string, arguments any) {
+	t.Helper()
+	addTranscript(t, server, session, at, "mcp_call", map[string]any{"tool": tool, "arguments": arguments, "result": "ok"})
+}
+
+func addChat(t *testing.T, server *testserver.Server, author, text string, at time.Time) {
+	t.Helper()
+	if _, err := server.DB.Exec("INSERT INTO chat_messages (organization, repository, workstream, author, time, text) VALUES ('owner', ?, 12, ?, ?, ?)", shop, author, stamp(at), text); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// addProblems adds one item of each kind at the time at: an Owner message after a Lead reply, a cannot_do, a hung
+// session with a retry prompt, a task with two fix rounds, and a review with findings. The texts have the marker.
+func addProblems(t *testing.T, server *testserver.Server, marker string, at time.Time) {
+	t.Helper()
+	addChat(t, server, "Lead", "Lead reply "+marker, at)
+	addChat(t, server, "Owner", "Owner correction "+marker, at.Add(time.Second))
+	implementer := addSession(t, server, engine.ImplementerRole, 41, at, "hung")
+	addCall(t, server, implementer, at, "cannot_do", map[string]string{"reason": "Cannot do " + marker})
+	addTranscript(t, server, implementer, at, "prompt", map[string]string{"text": "You had no activity for 15 minutes. You are probably stuck.\n\nRetry " + marker})
+	lead := addSession(t, server, engine.LeadRole, 0, at, "done")
+	for round := 1; round <= 2; round++ {
+		addCall(t, server, lead, at, "start_fix_round", map[string]any{"n": 41, "findings": fmt.Sprintf("Fix round %d %s", round, marker)})
+	}
+	reviewer := addSession(t, server, engine.ReviewerRole, 41, at, "done")
+	addCall(t, server, reviewer, at, "submit_review", map[string]any{
+		"body":     "Review summary " + marker,
+		"comments": []map[string]any{{"path": "plan.go", "line": 7, "body": "Finding " + marker}},
+	})
+	queuedAt := stamp(at)
+	if _, err := server.DB.Exec("INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, queued_at, fix_rounds) VALUES (?, 41, 12, 'ended', ?, ?, 2)", shop, queuedAt, queuedAt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// nextCuratorPrompt ends 10 Lead sessions, waits for the count-th Curator session to end, and gives its first prompt.
+func nextCuratorPrompt(t *testing.T, server *testserver.Server, count int) string {
+	t.Helper()
+	endLeads(t, server, 10)
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := curatorSessions(t, server)
+		return sessions[count-1], len(sessions) >= count && sessions[count-1].EndedAt.Valid
+	})
+	return promptTexts(t, server, session.ID)[0]
+}
+
+func TestThePromptOfTheCuratorHasEachKindOfItemOfTheSessionsOfTheRepository(t *testing.T) {
+	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+	addProblems(t, server, "alpha", time.Now().Add(-time.Hour))
+
+	prompt := nextCuratorPrompt(t, server, 1)
+
+	for _, part := range []string{
+		"# Messages of the Owner in the Lead chats",
+		"Lead:\nLead reply alpha\n\nOwner:\nOwner correction alpha",
+		"# Results of cannot_do",
+		"implementer, issue #41, ",
+		"Cannot do alpha",
+		"# Hung sessions",
+		"Session ",
+		"# Retry prompts after a hang",
+		"Retry alpha",
+		"# Fix rounds that repeat",
+		"Issue #41, 2 fix rounds",
+		"Findings of the Lead, ",
+		"Fix round 1 alpha",
+		"Fix round 2 alpha",
+		"# Review findings",
+		"Review summary alpha\n- plan.go:7: Finding alpha",
+	} {
+		if !strings.Contains(prompt, part) {
+			t.Errorf("%q is not in %s", part, prompt)
+		}
+	}
+}
+
+func TestThePromptOfTheCuratorHasNoItemOfASessionBeforeTheLastDoneCurator(t *testing.T) {
+	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+	now := time.Now()
+	addProblems(t, server, "stale", now.Add(-3*time.Hour))
+	addSession(t, server, engine.CuratorRole, 0, now.Add(-2*time.Hour), "done")
+	addProblems(t, server, "new", now.Add(-time.Hour))
+
+	prompt := nextCuratorPrompt(t, server, 2)
+
+	if !strings.Contains(prompt, "Owner correction new") {
+		t.Errorf("the items after the Curator are not in %s", prompt)
+	}
+	if strings.Contains(prompt, "stale") {
+		t.Errorf("an item before the Curator is in %s", prompt)
+	}
+}
+
+func TestAFailedCuratorDoesNotHideTheItemsFromTheNextCurator(t *testing.T) {
+	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+	now := time.Now()
+	addProblems(t, server, "stale", now.Add(-5*time.Hour))
+	addSession(t, server, engine.CuratorRole, 0, now.Add(-4*time.Hour), "done")
+	addProblems(t, server, "between", now.Add(-3*time.Hour))
+	addSession(t, server, engine.CuratorRole, 0, now.Add(-2*time.Hour), "failed")
+
+	prompt := nextCuratorPrompt(t, server, 3)
+
+	if !strings.Contains(prompt, "Owner correction between") {
+		t.Errorf("the items between the done Curator and the failed Curator are not in %s", prompt)
+	}
+	if strings.Contains(prompt, "stale") {
+		t.Errorf("an item before the done Curator is in %s", prompt)
+	}
+}
+
+func TestThePromptOfTheCuratorCutsALongTextAndLeavesOutTheOldestItems(t *testing.T) {
+	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+	now := time.Now().Add(-time.Hour)
+	addChat(t, server, "Owner", strings.Repeat("a", 1000)+"b", now)
+	implementer := addSession(t, server, engine.ImplementerRole, 41, now, "done")
+	for i := range 21 {
+		addCall(t, server, implementer, now.Add(time.Duration(i)*time.Second), "cannot_do", map[string]string{"reason": fmt.Sprintf("Reason %02d", i)})
+	}
+
+	prompt := nextCuratorPrompt(t, server, 1)
+
+	if !strings.Contains(prompt, "Owner:\n"+strings.Repeat("a", 1000)+" (cut)\n") {
+		t.Errorf("the long text is not cut in %s", prompt)
+	}
+	if !strings.Contains(prompt, "Mobius left out the 1 oldest items.") || strings.Contains(prompt, "Reason 00") || !strings.Contains(prompt, "Reason 20") {
+		t.Errorf("the oldest item is not left out in %s", prompt)
 	}
 }
