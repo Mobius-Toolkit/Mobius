@@ -467,6 +467,7 @@ func nextCuratorPrompt(t *testing.T, server *testserver.Server, count int) strin
 }
 
 func TestThePromptOfTheCuratorHasEachKindOfItemOfTheSessionsOfTheRepository(t *testing.T) {
+	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	addProblems(t, server, "alpha", time.Now().Add(-time.Hour))
 
@@ -497,6 +498,7 @@ func TestThePromptOfTheCuratorHasEachKindOfItemOfTheSessionsOfTheRepository(t *t
 }
 
 func TestThePromptOfTheCuratorHasNoItemOfASessionBeforeTheLastDoneCurator(t *testing.T) {
+	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	now := time.Now()
 	addProblems(t, server, "stale", now.Add(-3*time.Hour))
@@ -514,6 +516,7 @@ func TestThePromptOfTheCuratorHasNoItemOfASessionBeforeTheLastDoneCurator(t *tes
 }
 
 func TestAFailedCuratorDoesNotHideTheItemsFromTheNextCurator(t *testing.T) {
+	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	now := time.Now()
 	addProblems(t, server, "stale", now.Add(-5*time.Hour))
@@ -532,6 +535,7 @@ func TestAFailedCuratorDoesNotHideTheItemsFromTheNextCurator(t *testing.T) {
 }
 
 func TestThePromptOfTheCuratorCutsALongTextAndLeavesOutTheOldestItems(t *testing.T) {
+	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	now := time.Now().Add(-time.Hour)
 	addChat(t, server, "Owner", strings.Repeat("a", 1000)+"b", now)
