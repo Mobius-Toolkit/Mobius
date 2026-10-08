@@ -6,7 +6,7 @@ import {
   type GitHubApp,
   type MemoryVersion,
 } from "@/api/api.gen";
-import { inset, LinkRow, List, PageHeader } from "@/components/page";
+import { inset, LinkRow, List, PageHeader, Section } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,36 +18,43 @@ import { TopBar } from "./TopBar";
 
 export function MemoryRepositories({
   apps,
-  organization,
+  organizations,
 }: {
   apps: GitHubApp[];
-  organization: string;
+  organizations: string[];
 }) {
-  const repositories = apps
-    .flatMap((app) => app.repositories)
-    .filter((repository) => repository.startsWith(`${organization}/`));
+  const repositories = apps.flatMap((app) => app.repositories);
 
   return (
     <>
       <TopBar title="Memory" back="/settings" />
       <PageHeader title="Memory" />
-      {repositories.length === 0 && (
-        <p className={cn("text-muted-foreground", inset)}>
-          The Mobius App has no repository in this organization.
-        </p>
-      )}
-      <List>
-        {repositories.map((repository) => {
-          const [owner, name] = repository.split("/");
-          return (
-            <LinkRow
-              key={repository}
-              link={{ to: "/settings/memory/$owner/$name", params: { owner, name } }}
-              title={repository}
-            />
-          );
-        })}
-      </List>
+      {organizations.map((organization) => {
+        const organizationRepositories = repositories.filter((repository) =>
+          repository.startsWith(`${organization}/`),
+        );
+        return (
+          <Section key={organization} title={organization}>
+            {organizationRepositories.length === 0 && (
+              <p className={cn("text-muted-foreground", inset)}>
+                The Mobius App has no repository in this organization.
+              </p>
+            )}
+            <List>
+              {organizationRepositories.map((repository) => {
+                const [owner, name] = repository.split("/");
+                return (
+                  <LinkRow
+                    key={repository}
+                    link={{ to: "/settings/memory/$owner/$name", params: { owner, name } }}
+                    title={repository}
+                  />
+                );
+              })}
+            </List>
+          </Section>
+        );
+      })}
     </>
   );
 }
