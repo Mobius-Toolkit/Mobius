@@ -180,7 +180,7 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if task.State != "checks" && task.State != "approval" && task.State != "ready_for_review" {
 		return "", refuse("The task of #%d is %s, not checks, approval or ready_for_review.", input.N, task.State)
 	}
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
 	if err != nil {
 		return "", err
 	}
@@ -189,7 +189,7 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	}
 	r := round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: "\nFindings of the Lead:\n" + input.Findings + "\n", parent: sql.NullInt64{Int64: c.session, Valid: true}}
 	if err := e.fixRound(ctx, repository, r); err != nil {
-		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "working"})
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "working"})
 		return "", errors.Join(err, stateErr)
 	}
 	return fmt.Sprintf("Sent the findings to a fix round of #%d. At max_fix_rounds, Mobius stops the task instead.", input.N), nil
@@ -224,7 +224,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 		return "", err
 	}
 	if checkRun == 0 {
-		if _, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"}); err != nil {
+		if _, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"}); err != nil {
 			return "", err
 		}
 		return "", refuse("The head of the pull request of #%d changed after the CI passed. The task waits for the CI of the new head.", input.N)
@@ -233,7 +233,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if err != nil {
 		return "", err
 	}
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "approval"})
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "approval"})
 	if err != nil {
 		return "", err
 	}
@@ -241,7 +241,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 		return "", refuse("The task of #%d is not approval any more.", input.N)
 	}
 	if err := e.approve(ctx, repository, task, issue.GetTitle(), pullRequest, checkRun); err != nil {
-		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
 		return "", errors.Join(err, stateErr)
 	}
 	return fmt.Sprintf("Approved pull request #%d of #%d. The Owner got it for review.", pullRequest.GetNumber(), input.N), nil
@@ -439,6 +439,7 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err != nil || queued == 0 {
 		return err
 	}
+	e.publishReadyForReview(task.State, "queued")
 	if err := resumeWork(ctx, repository, task); err != nil {
 		return err
 	}
@@ -579,7 +580,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		return e.review(ended, j, r.pushed, a.id)
 	case cannotDo:
 		// A task that the Lead declined during the turn gets no event.
-		moved, err := e.queries.SetTaskState(ended, store.SetTaskStateParams{State: "dispatched", ID: task.ID, FromState: "working"})
+		moved, err := e.setTaskState(ended, store.SetTaskStateParams{State: "dispatched", ID: task.ID, FromState: "working"})
 		if err != nil || moved == 0 {
 			return err
 		}

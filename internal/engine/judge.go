@@ -217,7 +217,7 @@ func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, t
 	if _, err := repository.CreateCheckRun(ctx, checkRunName, pullRequest.GetHead().GetSHA(), "in_progress"); err != nil {
 		return false, err
 	}
-	_, err = e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "reviewed"})
+	_, err = e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "reviewed"})
 	return true, err
 }
 
@@ -241,6 +241,7 @@ func (e *Engine) runJudge(ctx context.Context, j judgeJob) {
 		}
 		return
 	}
+	e.publishReadyForReview(j.from, "working")
 	err = e.judgeSession(ctx, j)
 	if err == nil {
 		return
@@ -399,7 +400,7 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 		}
 	}
 	if len(routes.round) == 0 {
-		_, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: j.from, ID: j.task.ID, FromState: "working"})
+		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: j.from, ID: j.task.ID, FromState: "working"})
 		return err
 	}
 	if j.from == "needs_human" {

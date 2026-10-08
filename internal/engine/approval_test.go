@@ -433,6 +433,33 @@ func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxIte
 	}
 }
 
+func TestAWorkstreamsChangeGoesOutWhenATaskEntersAndLeavesReadyForReview(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadApproves+leadFindings+leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
+	if list := workstreams(t, server); list[0].ReadyToMerge {
+		t.Fatalf("workstreams = %+v", list)
+	}
+	changes := listen(t, server)
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	waitForWorkstreams(t, changes)
+	if list := workstreams(t, server); !list[0].ReadyToMerge {
+		t.Errorf("workstreams = %+v", list)
+	}
+	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got it for review.")
+	changes = listen(t, server)
+
+	sendChat(t, server, leadChat, "Send the findings to #41")
+
+	waitForWorkstreams(t, changes)
+	if list := workstreams(t, server); list[0].ReadyToMerge {
+		t.Errorf("workstreams = %+v", list)
+	}
+}
+
 func TestApprovePullRequestRefusesATaskInChecksAndChangesNothing(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, longGrace)

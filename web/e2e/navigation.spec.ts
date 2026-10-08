@@ -275,6 +275,20 @@ test("a Workstream with Autopilot on shows the Autopilot icon", async ({ page })
   );
 });
 
+test("a Workstream with a pull request that waits for the merge shows the merge icon", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const row = (title: string) => main.getByRole("link").filter({ hasText: title });
+
+  await page.goto("/workstreams");
+  await expect(row("Early renewals").getByRole("img", { name: "Ready to merge" })).toBeVisible();
+  await expect(row("Integrate loyalty plans")).toContainText("#12");
+  await expect(
+    row("Integrate loyalty plans").getByRole("img", { name: "Ready to merge" }),
+  ).toHaveCount(0);
+});
+
 test("the agents page shows the start time of an agent after the repository", async ({ page }) => {
   await page.goto("/agents");
   await expect(

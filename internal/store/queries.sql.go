@@ -1488,7 +1488,9 @@ SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS 
                WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number)
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
                        WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number
-                         AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed
+                         AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
+       CAST(EXISTS (SELECT 1 FROM tasks t
+               WHERE t.repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
 FROM copied_workstreams w
 ORDER BY w.repository, w.number DESC
 `
@@ -1500,6 +1502,7 @@ type ListCopiedWorkstreamsRow struct {
 	Body           string
 	Autopilot      bool
 	AllTasksClosed bool
+	ReadyToMerge   bool
 }
 
 func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkstreamsRow, error) {
@@ -1518,6 +1521,7 @@ func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkst
 			&i.Body,
 			&i.Autopilot,
 			&i.AllTasksClosed,
+			&i.ReadyToMerge,
 		); err != nil {
 			return nil, err
 		}
