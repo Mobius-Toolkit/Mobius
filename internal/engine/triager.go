@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	gh "github.com/google/go-github/v92/github"
+
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 )
 
@@ -39,6 +41,40 @@ func (e *Engine) triage(ctx context.Context, repository github.Repository, numbe
 		e.untrack()
 		return false, err
 	}
+	e.startTriager(repository, number)
+	return true, nil
+}
+
+// retriage starts the Triager of the issue number again after the comments, when the issue is open, has
+// mobius:no-workstream, and a comment is an event. A running Triager stops first, so the new run reads the comments
+// again. It starts no Triager while the drain is on.
+func (e *Engine) retriage(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
+	if issue.GetState() != "open" || !hasLabel(issue, noWorkstreamLabel) ||
+		!slices.ContainsFunc(comments, func(comment *gh.IssueComment) bool { return e.commentIsEvent(repository.AppSlug, comment) }) {
+		return nil
+	}
+	if !e.tryTrack() {
+		return nil
+	}
+	number := int64(issue.GetNumber())
+	e.triagesMu.Lock()
+	running, ok := e.triages[triageKey{repository.FullName, number}]
+	e.triagesMu.Unlock()
+	if ok {
+		running.stop()
+		select {
+		case <-running.done:
+		case <-ctx.Done():
+			e.untrack()
+			return ctx.Err()
+		}
+	}
+	e.startTriager(repository, number)
+	return nil
+}
+
+// startTriager runs the Triager of the issue number in a goroutine. The caller holds a tryTrack.
+func (e *Engine) startTriager(repository github.Repository, number int64) {
 	triageCtx, stop := context.WithCancel(context.Background())
 	key := triageKey{repository.FullName, number}
 	running := triage{stop, make(chan struct{})}
@@ -55,7 +91,6 @@ func (e *Engine) triage(ctx context.Context, repository github.Repository, numbe
 		e.triagesMu.Unlock()
 		stop()
 	}()
-	return true, nil
 }
 
 // runTriager runs the Triager session of the issue number. When the issue keeps mobius:no-workstream, the last text of
@@ -83,7 +118,17 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err != nil {
 		return a.Fail(ended, err)
 	}
+	comments, err := repository.Comments(ctx, number)
+	if err != nil {
+		return a.Fail(ended, err)
+	}
 	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n#%d %s\n\n%s", triagerPrompt, workstreams, number, issue.GetTitle(), issue.GetBody())
+	if len(comments) > 0 {
+		prompt += "\n\n# Comments\n"
+		for _, comment := range comments {
+			prompt += entry(comment.GetUser().GetLogin(), comment.GetCreatedAt().Time, "", comment.GetBody())
+		}
+	}
 	err = a.Prompt(ctx, prompt, nil)
 	switch {
 	case ctx.Err() != nil:

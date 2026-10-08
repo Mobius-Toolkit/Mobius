@@ -18,6 +18,26 @@ import (
 
 const triager = `
 [[prompts]]
+when = "Please use points."
+reply = ["Move it to the loyalty Workstream."]
+
+[[prompts]]
+when = "Please cover refunds."
+reply = ["Refunds are in the Workstream."]
+
+[[prompts]]
+when = "# Issue\n\n#53 "
+reply = ["First proposal."]
+
+[[prompts]]
+when = "# Issue\n\n#54 "
+reply = ["First proposal."]
+
+[[prompts]]
+when = "# Issue\n\n#55 "
+hang = true
+
+[[prompts]]
 when = "# Issue\n\n#50 "
 shell = "pwd"
 call = { tool = "move_issue", arguments = { n = 50, workstream = 12 } }
@@ -134,6 +154,80 @@ func TestARemovalOfTheLabelStopsTheTriagerAndAProposalGoesToTheIssue(t *testing.
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 52), proposal) })
 	if got := fake.Comments(shop, 51); len(got) != 0 {
 		t.Errorf("comments of #51 = %v", got)
+	}
+}
+
+func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheComments(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.AddIssue(shop, 53, "Add points")
+	fake.AddComment(shop, 53, "stranger", "I want this too.")
+	fake.AddLabel(shop, 53, "mobius:ready", "owner")
+	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 53)) == 2 })
+
+	fake.AddComment(shop, 53, "owner", "Please use points.")
+
+	second := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return sessions[len(sessions)-1], len(sessions) == 2 && sessions[1].EndedAt.Valid
+	})
+	prompts := promptTexts(t, server, second.ID)
+	if len(prompts) != 1 {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	inOrder(t, prompts[0],
+		"# Issue\n\n#53 Add points",
+		"# Comments\n\n@stranger, ",
+		":\nI want this too.\n\n@mobius-test[bot], ",
+		":\nFirst proposal.\n\n@owner, ",
+		":\nPlease use points.\n",
+	)
+	if got := fake.Labels(shop, 53); !slices.Equal(got, []string{"mobius:no-workstream"}) {
+		t.Errorf("labels = %v", got)
+	}
+	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Move it to the loyalty Workstream."}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 53), proposal) })
+}
+
+func TestACommentOfTheAppOrOfAnUntrustedUserDoesNotStartTheTriagerAgain(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.AddIssue(shop, 54, "Add points")
+	fake.AddLabel(shop, 54, "mobius:ready", "owner")
+	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 54)) == 1 })
+
+	fake.AddComment(shop, 54, "stranger", "Please use points.")
+	fake.AddAppComment(shop, 54, "owner", "Please use points.")
+
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 1 {
+		t.Errorf("sessions = %+v", got)
+	}
+}
+
+func TestACommentWhileTheTriagerRunsStopsItAndStartsANewRun(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.AddIssue(shop, 55, "Add refunds")
+	fake.AddLabel(shop, 55, "mobius:ready", "owner")
+	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return len(promptTexts(t, server, session.ID)) == 1 })
+
+	fake.AddComment(shop, 55, "owner", "Please cover refunds.")
+
+	sessions := testkit.WaitForValue(t, func() ([]store.Session, bool) {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return sessions, len(sessions) == 2 && sessions[0].EndedAt.Valid && sessions[1].EndedAt.Valid
+	})
+	if sessions[0].EndReason.String != "stopped" || sessions[1].EndReason.String != "done" {
+		t.Errorf("end reasons = %s, %s", sessions[0].EndReason.String, sessions[1].EndReason.String)
+	}
+	if prompts := promptTexts(t, server, sessions[1].ID); len(prompts) != 1 || !strings.Contains(prompts[0], ":\nPlease cover refunds.\n") {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if prompts := promptTexts(t, server, sessions[0].ID); len(prompts) != 1 || strings.Contains(prompts[0], "Please cover refunds.") {
+		t.Errorf("prompts = %q", prompts)
 	}
 }
 
