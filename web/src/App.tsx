@@ -18,6 +18,9 @@ import { Frame } from "./Frame";
 import { GitHub } from "./GitHub";
 import { Login } from "./Login";
 
+const retryDelay = 3000;
+const silenceLimit = 40_000;
+
 function savedOrganization() {
   try {
     return localStorage.getItem("organization") ?? "";
@@ -63,31 +66,78 @@ function App() {
     if (!live) {
       return;
     }
+    let events: EventSource;
+    let timer: ReturnType<typeof setTimeout>;
+    let stopped = false;
+    const schedule = (action: () => void, delay: number) => {
+      clearTimeout(timer);
+      timer = setTimeout(action, delay);
+    };
+    const reconnect = () => {
+      events.close();
+      events = connect();
+    };
+    // The server sends a ping each 15 s. A connection that is dead gives no error, so the page connects again when
+    // no ping comes.
+    const watch = () => schedule(reconnect, silenceLimit);
+    // The browser connects again by itself only while the source is CONNECTING. A source that is CLOSED has an
+    // answer that is not an event stream, for example from a proxy. The page cannot read the status of that answer,
+    // so a request that needs the login shows a 401.
+    const retry = () =>
+      listGitHubApps()
+        .then((res) => {
+          if (res.status === 401) {
+            setLoginShown(true);
+          } else if (!stopped) {
+            reconnect();
+          }
+        })
+        .catch(() => {
+          if (!stopped) {
+            reconnect();
+          }
+        });
     const connect = () => {
-      const events = new EventSource("/api/events");
-      events.addEventListener("open", () => setSource(events), { once: true });
+      const next = new EventSource("/api/events");
+      watch();
+      next.addEventListener("open", watch);
+      next.addEventListener("open", () => setSource(next), { once: true });
+      next.addEventListener("error", () => {
+        if (next.readyState === EventSource.CLOSED) {
+          schedule(retry, retryDelay);
+        }
+      });
+      onEvent<LiveEvents, "ping">(next, "ping", watch);
       // The server sends the latest activities when the connection opens, before the pages can listen. When the
       // browser connects again, the server sends only the activities after the last event id.
-      onEvent<LiveEvents, "activity">(events, "activity", (activity) =>
+      onEvent<LiveEvents, "activity">(next, "activity", (activity) =>
         setActivities((list) =>
           list.some((other) => other.id === activity.id) ? list : [...list, activity],
         ),
       );
-      return events;
+      return next;
     };
-    let events = connect();
+    events = connect();
     // A phone that stops the page in the background can leave a live connection open with no error. Thus the page
     // connects again when it is visible again or when the browser is online again.
     const wake = () => {
       if (!document.hidden) {
-        events.close();
-        events = connect();
+        reconnect();
+      }
+    };
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        reconnect();
       }
     };
     window.addEventListener("online", wake);
+    window.addEventListener("pageshow", restore);
     document.addEventListener("visibilitychange", wake);
     return () => {
+      stopped = true;
+      clearTimeout(timer);
       window.removeEventListener("online", wake);
+      window.removeEventListener("pageshow", restore);
       document.removeEventListener("visibilitychange", wake);
       events.close();
     };
