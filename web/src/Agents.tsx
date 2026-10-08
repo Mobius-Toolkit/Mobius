@@ -125,10 +125,12 @@ export function Transcript({
   agent,
   source,
   onClose,
+  page,
 }: {
   agent: Agent;
   source?: EventSource;
   onClose: () => void;
+  page?: boolean;
 }) {
   const showLogin = use(LoginContext);
   const [lines, setLines] = useState<TranscriptLine[]>();
@@ -168,7 +170,7 @@ export function Transcript({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className={page ? "max-md:hidden" : undefined}>
         <CardTitle className="truncate">
           {agent.name} {agent.title}
         </CardTitle>
@@ -232,7 +234,11 @@ export function Agents({ source }: { source?: EventSource }) {
 
   return (
     <>
-      <TopBar title="Agents" back="/settings">
+      <TopBar
+        title={selected ? `${selected.name} ${selected.title}` : "Agents"}
+        back="/settings"
+        onBack={selected && (() => setSelected(undefined))}
+      >
         {agents && !selected && (
           <span className="ml-auto text-muted-foreground">
             {agents.count} / {agents.max}
@@ -240,7 +246,7 @@ export function Agents({ source }: { source?: EventSource }) {
         )}
       </TopBar>
       {selected ? (
-        <Transcript agent={selected} source={source} onClose={() => setSelected(undefined)} />
+        <Transcript agent={selected} source={source} onClose={() => setSelected(undefined)} page />
       ) : (
         <Card>
           <CardHeader className="max-md:hidden">

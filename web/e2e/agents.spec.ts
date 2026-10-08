@@ -39,3 +39,23 @@ test("the Agents tab of a Workstream shows the state of each agent with a queue 
     await expect(entry.locator("span.rounded-full")).toHaveClass(dot);
   }
 });
+
+test.describe("the transcript of an agent on a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("has the agent name and the back button in the top bar, and the back button closes it", async ({
+    page,
+  }) => {
+    await page.goto("/agents");
+    await page
+      .getByRole("main")
+      .getByRole("button", { name: /Ticket #41 Add plan model/ })
+      .click();
+    const bar = page.getByRole("banner");
+    await expect(bar.getByRole("heading")).not.toHaveText("Agents");
+    await expect(page.getByRole("main").getByRole("button", { name: "Agents" })).toBeHidden();
+    await bar.getByRole("button", { name: "Back" }).click();
+    await expect(page).toHaveURL("/agents");
+    await expect(bar.getByRole("heading")).toHaveText("Agents");
+  });
+});

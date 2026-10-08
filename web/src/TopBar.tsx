@@ -4,14 +4,17 @@ import { createPortal } from "react-dom";
 import { TopBarContext } from "@/lib/topbar";
 import { BackButton } from "./BackButton";
 
+// onBack replaces the history step of the back button.
 // children are the controls of the page, after the title.
 export function TopBar({
   title,
   back,
+  onBack,
   children,
 }: {
   title: string;
   back?: LinkProps["to"];
+  onBack?: () => void;
   children?: ReactNode;
 }) {
   const topBar = use(TopBarContext);
@@ -20,7 +23,7 @@ export function TopBar({
   }
   return createPortal(
     <>
-      {back && <BackButton parent={back} />}
+      {back && <BackButton parent={back} onBack={onBack} />}
       <h1 className="min-w-0 truncate font-semibold">{title}</h1>
       {children}
     </>,
