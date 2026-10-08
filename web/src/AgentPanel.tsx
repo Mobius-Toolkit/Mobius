@@ -65,9 +65,8 @@ function shownAgents(agents: Agent[], showStopped: boolean) {
 
 function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void }) {
   const agent = row.agent;
-  const detail =
-    agent.queueReason ||
-    `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ""}`;
+  const started = `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ""}`;
+  const detail = agent.queueReason ? `${started} · ${agent.queueReason}` : started;
   return (
     <li>
       <button
@@ -90,7 +89,7 @@ function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void 
           <span>
             <span className="font-medium">{agent.name}</span> {agent.title}
           </span>
-          <span className="truncate text-sm text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             {agent.harness} · {agent.model} · {detail}
           </span>
         </span>

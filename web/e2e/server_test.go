@@ -416,6 +416,17 @@ func TestServer(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
 	held := implementerSpec(t, server, 42)
 	go func() { _, _ = server.Engine.Start(ctx, held) }()
+	testkit.WaitFor(t, func() bool {
+		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_reason <> ''", "2026-09-28T09:30:00Z")
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed, err := result.RowsAffected()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return changed > 0
+	})
 	<-ctx.Done()
 	_ = srv.Close()
 }
