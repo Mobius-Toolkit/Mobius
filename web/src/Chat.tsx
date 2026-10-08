@@ -168,7 +168,7 @@ export function Chat({
         brief={workstream}
         head={
           <>
-            <h2 className="min-w-0 truncate font-semibold">{workstream?.title}</h2>
+            <h2 className="min-w-0 truncate text-base font-semibold">{workstream?.title}</h2>
             <span className="text-sm text-muted-foreground">#{number}</span>
             {autopilot("autopilot")}
           </>

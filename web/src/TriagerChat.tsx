@@ -41,7 +41,7 @@ export function TriagerChat({
         unread={unread}
         head={
           <>
-            <h2 className="font-semibold">Chat</h2>
+            <h2 className="text-base font-semibold">Chat</h2>
           </>
         }
       />

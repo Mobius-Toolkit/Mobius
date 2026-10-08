@@ -105,7 +105,7 @@ export function Frame({
     <div className={cn("flex h-svh flex-col md:flex-row", !fill && "md:h-auto md:min-h-svh")}>
       <nav className="sticky top-0 hidden h-svh w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r bg-sidebar p-2 text-sidebar-foreground md:flex">
         <div className="px-2 py-1">
-          {organizationSwitch || <span className="font-semibold">Mobius</span>}
+          {organizationSwitch || <span className="text-base font-semibold">Mobius</span>}
         </div>
         <SideLink link={{ to: "/chat" }}>
           <span className="grow">Chat</span>

@@ -8,7 +8,7 @@ export function InboxTabs({ count }: { count: number }) {
   return (
     <>
       <TopBar title="Inbox" />
-      <h2 className="leading-none font-semibold max-md:hidden">Inbox</h2>
+      <h2 className="text-base leading-none font-semibold max-md:hidden">Inbox</h2>
       <Tabs value={pathname === "/inbox/activity" ? "activity" : "todo"}>
         <TabsList className="w-full">
           <TabsTrigger value="todo" asChild>
