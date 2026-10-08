@@ -13,18 +13,17 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
-// keepApproval keeps the id of the newest APPROVED review of a trusted user of the pull request of the task. It removes the
-// kept id when the review is DISMISSED. A review in another state does not change the kept id. It gives the task with
-// the new approval.
+// keepApproval keeps the id of the newest APPROVED or DISMISSED review of a trusted user of the pull request of the
+// task, when this review is APPROVED. A review in another state does not change the kept id. It gives the task with the
+// new approval.
 func (e *Engine) keepApproval(ctx context.Context, repository github.Repository, task store.Task) (store.Task, error) {
 	reviews := e.pull(repository, task.PullRequest.Int64).Reviews
-	approved := task.ApprovedReview.String
-	if slices.ContainsFunc(reviews, func(review github.Review) bool { return review.ID == approved && review.State == "DISMISSED" }) {
-		approved = ""
-	}
+	approved := ""
 	for _, review := range slices.Backward(reviews) {
-		if review.State == "APPROVED" && e.trustedUser(review.Author) {
-			approved = review.ID
+		if (review.State == "APPROVED" || review.State == "DISMISSED") && e.trustedUser(review.Author) {
+			if review.State == "APPROVED" {
+				approved = review.ID
+			}
 			break
 		}
 	}
