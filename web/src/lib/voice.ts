@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 // The DOM types have the events of the Web Speech API, but not the recognition. Chrome and Safari have only
 // webkitSpeechRecognition.
@@ -30,113 +30,147 @@ const errorMessages: Record<string, string> = {
   "language-not-supported": "The speech service does not support this language.",
 };
 
-// useVoice gives the text of each spoken phrase to onText. It keeps the voice input on until toggle stops it,
-// abort runs or an error occurs. It returns the error of the voice input, or '' when the voice input starts or
-// abort runs.
-export function useVoice(onText: (text: string) => void) {
-  // WebKit allows one start() for each end event. A start() before the end event throws InvalidStateError.
-  // Thus one object does all starts, and each start waits for the end event of the run before it.
-  const recognition = useRef<Recognition>(undefined);
-  const wanted = useRef(false);
-  const running = useRef(false);
-  // A run that never captured audio does not restart after its end event. This stops a loop of failed runs.
-  const canRestart = useRef(false);
-  // The result list of a run has all final results of the run. The new run starts a new list.
-  const added = useRef(0);
-  // Chrome on Android adds a final result that repeats the text of the final result before it.
-  const lastFinal = useRef("");
-  const [listening, setListening] = useState(false);
-  const [error, setError] = useState("");
+// The hook that receives the events of the run.
+type Target = {
+  onText: (text: string) => void;
+  setListening: (listening: boolean) => void;
+  setError: (error: string) => void;
+};
 
-  const begin = (live: Recognition) => {
-    live.lang = navigator.language;
-    added.current = 0;
-    lastFinal.current = "";
-    canRestart.current = false;
-    try {
-      live.start();
-    } catch {
-      wanted.current = false;
-      setListening(false);
-      setError("The voice input did not start.");
+// WebKit allows one start() for each end event, and a recognition object that a new page part makes can fail
+// silently. Thus the page has one recognition object, and each start waits for the end event of the run before it.
+// The state of the object and of its run does not belong to one mount of useVoice.
+const state = {
+  recognition: undefined as Recognition | undefined,
+  mounted: undefined as Target | undefined,
+  // The hook that started the run. An unmount clears it, so the events of the run go nowhere.
+  owner: undefined as Target | undefined,
+  wanted: false,
+  running: false,
+  // A run that never captured audio does not restart after its end event. This stops a loop of failed runs.
+  canRestart: false,
+  // The result list of a run has all final results of the run. The new run starts a new list.
+  added: 0,
+  // Chrome on Android adds a final result that repeats the text of the final result before it.
+  lastFinal: "",
+};
+
+const begin = (live: Recognition) => {
+  live.lang = navigator.language;
+  state.owner = state.mounted;
+  state.added = 0;
+  state.lastFinal = "";
+  state.canRestart = false;
+  try {
+    live.start();
+  } catch {
+    state.wanted = false;
+    state.owner?.setListening(false);
+    state.owner?.setError("The voice input did not start.");
+    return;
+  }
+  state.running = true;
+};
+
+const create = (Ctor: new () => Recognition) => {
+  const live = new Ctor();
+  live.continuous = true;
+  live.addEventListener("result", (event) => {
+    const spoken: string[] = [];
+    while (state.added < event.results.length && event.results[state.added].isFinal) {
+      const transcript = event.results[state.added][0].transcript.trim();
+      if (transcript !== state.lastFinal) {
+        spoken.push(
+          transcript.startsWith(`${state.lastFinal} `)
+            ? transcript.slice(state.lastFinal.length).trim()
+            : transcript,
+        );
+        state.lastFinal = transcript;
+      }
+      state.added++;
+    }
+    const text = spoken.join(" ").trim();
+    if (text) {
+      state.owner?.onText(text);
+    }
+  });
+  live.addEventListener("audiostart", () => {
+    state.canRestart = true;
+  });
+  live.addEventListener("error", (event) => {
+    if (!state.owner || !state.wanted || event.error === "aborted") {
       return;
     }
-    running.current = true;
-  };
+    state.wanted = false;
+    state.owner.setListening(false);
+    state.owner.setError(errorMessages[event.error] ?? `The voice input failed: ${event.error}`);
+  });
+  live.addEventListener("end", () => {
+    state.running = false;
+    if (state.wanted && state.canRestart) {
+      begin(live);
+      return;
+    }
+    state.wanted = false;
+    state.owner?.setListening(false);
+  });
+  return live;
+};
 
-  const create = (Ctor: new () => Recognition) => {
-    const live = new Ctor();
-    live.continuous = true;
-    live.addEventListener("result", (event) => {
-      const spoken: string[] = [];
-      while (added.current < event.results.length && event.results[added.current].isFinal) {
-        const transcript = event.results[added.current][0].transcript.trim();
-        if (transcript !== lastFinal.current) {
-          spoken.push(
-            transcript.startsWith(`${lastFinal.current} `)
-              ? transcript.slice(lastFinal.current.length).trim()
-              : transcript,
-          );
-          lastFinal.current = transcript;
-        }
-        added.current++;
-      }
-      const text = spoken.join(" ").trim();
-      if (text) {
-        onText(text);
-      }
-    });
-    live.addEventListener("audiostart", () => {
-      canRestart.current = true;
-    });
-    live.addEventListener("error", (event) => {
-      if (!wanted.current || event.error === "aborted") {
-        return;
-      }
-      wanted.current = false;
-      setListening(false);
-      setError(errorMessages[event.error] ?? `The voice input failed: ${event.error}`);
-    });
-    live.addEventListener("end", () => {
-      running.current = false;
-      if (wanted.current && canRestart.current) {
-        begin(live);
-        return;
-      }
-      wanted.current = false;
-      setListening(false);
-    });
-    return live;
-  };
+const abortRun = () => {
+  state.wanted = false;
+  state.recognition?.abort();
+};
 
-  // abort drops the phrase that the run still holds.
-  const abort = useCallback(() => {
-    wanted.current = false;
-    setListening(false);
-    setError("");
-    recognition.current?.abort();
+// useVoice gives the text of each spoken phrase to onText. It keeps the voice input on until toggle stops it,
+// abort runs or an error occurs. It returns the error of the voice input, or '' when the voice input starts or
+// abort runs. The unmount stops the voice input.
+export function useVoice(onText: (text: string) => void) {
+  const [listening, setListening] = useState(false);
+  const [error, setError] = useState("");
+  const latestOnText = useRef(onText);
+
+  useEffect(() => {
+    latestOnText.current = onText;
+  });
+
+  useEffect(() => {
+    const target = { onText: (text: string) => latestOnText.current(text), setListening, setError };
+    state.mounted = target;
+    return () => {
+      state.mounted = undefined;
+      if (state.owner === target) {
+        state.owner = undefined;
+      }
+      abortRun();
+    };
   }, []);
 
-  useEffect(() => abort, [abort]);
+  // abort drops the phrase that the run still holds.
+  const abort = () => {
+    setListening(false);
+    setError("");
+    abortRun();
+  };
 
   const toggle = () => {
-    if (wanted.current) {
-      wanted.current = false;
+    if (state.wanted) {
+      state.wanted = false;
       setListening(false);
-      recognition.current?.stop();
+      state.recognition?.stop();
       return;
     }
     if (!Speech) {
       return;
     }
-    recognition.current ??= create(Speech);
-    wanted.current = true;
+    state.recognition ??= create(Speech);
+    state.wanted = true;
     setError("");
     setListening(true);
-    if (running.current) {
-      canRestart.current = true;
+    if (state.running) {
+      state.canRestart = true;
     } else {
-      begin(recognition.current);
+      begin(state.recognition);
     }
   };
 

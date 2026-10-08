@@ -1082,6 +1082,123 @@ test("a session that the user stops does not restart", async ({ page }) => {
   expect(await page.evaluate("calls")).toEqual(["start", "stop"]);
 });
 
+// The history change opens the page with no reload, so the page keeps its recognition object.
+const open = (page: Page, path: string) =>
+  page.evaluate(
+    `history.pushState({}, '', '${path}'); dispatchEvent(new PopStateEvent('popstate'))`,
+  );
+
+const plants = "/workstreams/plants/garden/12";
+const seasonal = "/workstreams/owner/shop/13";
+
+test("the voice input works in each Workstream after a switch", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  const stop = main.getByRole("button", { name: "Stop voice input" });
+
+  await mic.click();
+  await result(page, "red");
+  await expect(input).toHaveValue("red");
+  await stop.click();
+  await emit(page, "end");
+  await expect(mic).toBeVisible();
+
+  await open(page, seasonal);
+  await expect(input).toHaveValue("");
+  await mic.click();
+  await result(page, "roses");
+  await expect(input).toHaveValue("roses");
+  await stop.click();
+  await emit(page, "end");
+  await expect(mic).toBeVisible();
+
+  await open(page, shop);
+  await mic.click();
+  await result(page, "today");
+  await expect(input).toHaveValue("today");
+  await stop.click();
+  await emit(page, "end");
+  await expect(mic).toBeVisible();
+
+  await open(page, plants);
+  await mic.click();
+  await result(page, "lilies");
+  await expect(input).toHaveValue("lilies");
+  expect(await page.evaluate("recognitions.length")).toBe(1);
+});
+
+test("a switch during a voice input stops it and shows the start state", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+
+  await open(page, plants);
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  expect(await page.evaluate("calls")).toEqual(["start", "abort"]);
+});
+
+test("a voice result of the old run after a switch does not go into the new field", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await open(page, seasonal);
+  await expect(input).toHaveValue("");
+
+  await result(page, "red");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "roses");
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "abort", "start"]);
+  await result(page, "today");
+  await expect(input).toHaveValue("today");
+});
+
+test("a voice button tap after a switch during a run starts after the end of the old run", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await open(page, seasonal);
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  expect(await page.evaluate("calls")).toEqual(["start", "abort"]);
+
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "abort", "start"]);
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await expect(main.getByText("The voice input did not start.")).toHaveCount(0);
+  expect(await page.evaluate("recognitions.length")).toBe(1);
+});
+
+test("a voice error of the old run after a switch does not show in the new Workstream", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await open(page, seasonal);
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'no-speech' }))",
+  );
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "abort", "start"]);
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await expect(main.getByText("The microphone did not hear speech.")).toHaveCount(0);
+});
+
 test("the voice input shows a message when it does not start", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.addInitScript("window.startError = 'InvalidStateError'");
