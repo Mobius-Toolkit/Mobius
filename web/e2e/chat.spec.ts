@@ -1741,3 +1741,101 @@ test("the chat shows one separator before the first message of each day", async 
   ]);
   await expect(main.getByRole("separator", { name: "Mon, Sep 28" })).toHaveText("Mon, Sep 28");
 });
+
+async function longHistory(page: Page) {
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { messages: unknown[] } };
+    body.data.messages = Array.from({ length: 60 }, (_, index) => ({
+      id: 900000 + index,
+      author: index % 2 === 0 ? "Owner" : "Lead",
+      text: `History ${index} ${"word ".repeat(30)}`,
+      time: "2026-10-15T08:37:00Z",
+      images: 0,
+      organization: "owner",
+      repository: "owner/shop",
+      workstream: 12,
+    }));
+    await route.fulfill({ response, json: body });
+  });
+}
+
+// The page and the content area must not scroll, and only the message list does.
+const pageScroll = `(() => ({
+  window: window.scrollY,
+  document: document.scrollingElement.scrollHeight - document.scrollingElement.clientHeight,
+  content: document.getElementById('content').scrollTop,
+  contentOverflow: document.getElementById('content').scrollHeight - document.getElementById('content').clientHeight,
+}))()`;
+
+for (const [device, size] of [
+  ["desktop", undefined],
+  ["phone", phone],
+] as const) {
+  test(`the message list scrolls and the page does not on a ${device}`, async ({ page }) => {
+    if (size) {
+      await page.setViewportSize(size);
+    }
+    await longHistory(page);
+    await page.goto(shop);
+    const list = page.locator("[data-message]").first().locator("..");
+    await expect(page.getByText("History 59 ")).toBeVisible();
+    await expect.poll(() => page.evaluate(shows("History 59 ", "end"))).toBe(true);
+
+    const end = await list.evaluate((element) => element.scrollTop);
+    expect(end).toBeGreaterThan(0);
+    await list.hover();
+    // A wheel scroll is animated, and a long one can stop before the end of the list.
+    const scrollBy = (delta: number) =>
+      expect.poll(async () => {
+        await page.mouse.wheel(0, delta);
+        return list.evaluate((element) => element.scrollTop);
+      });
+    await scrollBy(-100000).toBe(0);
+    await scrollBy(100000).toBeGreaterThanOrEqual(end);
+    await expect(list).toHaveCSS("overscroll-behavior-y", "contain");
+    expect(await page.evaluate(pageScroll)).toEqual({
+      window: 0,
+      document: 0,
+      content: 0,
+      contentOverflow: 0,
+    });
+  });
+}
+
+test.describe("on a phone with the keyboard", () => {
+  test.use({ viewport: phone, isMobile: true, hasTouch: true });
+
+  test("the input stays on the tab bar after a send and after the focus leaves", async ({
+    page,
+  }) => {
+    await longHistory(page);
+    await page.goto(shop);
+    await expect.poll(() => page.evaluate(shows("History 59 ", "end"))).toBe(true);
+    const form = page.getByRole("main").locator("form");
+    const tabBar = page.locator("nav").last();
+    const gap = async () =>
+      (await tabBar.boundingBox())!.y -
+      (await form.boundingBox())!.y -
+      (await form.boundingBox())!.height;
+    expect(await gap()).toBeCloseTo(0, 0);
+
+    const input = page.getByLabel("Message to the Lead");
+    await input.tap();
+    await page.keyboard.type("keyboard");
+    await page.getByRole("button", { name: "Send" }).tap();
+    await expect.poll(() => sent(page)).toContain("keyboard");
+    await expect.poll(() => page.evaluate(shows("keyboard", "end"))).toBe(true);
+    expect(await gap()).toBeCloseTo(0, 0);
+
+    await input.blur();
+    await page.getByRole("main").locator("[data-message]").first().tap();
+    expect(await gap()).toBeCloseTo(0, 0);
+    expect(await page.evaluate(pageScroll)).toEqual({
+      window: 0,
+      document: 0,
+      content: 0,
+      contentOverflow: 0,
+    });
+  });
+});
