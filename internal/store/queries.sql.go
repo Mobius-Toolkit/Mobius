@@ -1035,6 +1035,17 @@ func (q *Queries) GetMemoryVersionBefore(ctx context.Context, arg GetMemoryVersi
 	return text, err
 }
 
+const getNewestMemoryVersionID = `-- name: GetNewestMemoryVersionID :one
+SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ?
+`
+
+func (q *Queries) GetNewestMemoryVersionID(ctx context.Context, repository string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getNewestMemoryVersionID, repository)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getReviewComment = `-- name: GetReviewComment :one
 SELECT review_comment FROM tasks WHERE id = ?
 `

@@ -93,6 +93,7 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
   const showLogin = use(LoginContext);
   const [versions, setVersions] = useState<MemoryVersion[]>();
   const [draft, setDraft] = useState<string>();
+  const [base, setBase] = useState(0);
   const [saving, setSaving] = useState(false);
   const [reverting, setReverting] = useState<number>();
   const [error, setError] = useState<string>();
@@ -115,7 +116,7 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
 
   const save = (text: string) => {
     setSaving(true);
-    saveMemory(owner, name, { text })
+    saveMemory(owner, name, { text, base_version: base })
       .then((res) => {
         if (res.status === 401) {
           showLogin();
@@ -165,7 +166,13 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
             <div className="flex items-center justify-between gap-4">
               <h3 className="font-medium">Current text</h3>
               {draft === undefined && (
-                <Button variant="outline" onClick={() => setDraft(current)}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setBase(versions[0]?.id ?? 0);
+                    setDraft(current);
+                  }}
+                >
                   Edit
                 </Button>
               )}
@@ -217,12 +224,15 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
                     <Button
                       variant="outline"
                       pending={reverting === version.id}
-                      disabled={reverting !== undefined}
+                      disabled={!version.revertible || reverting !== undefined}
                       onClick={() => revert(version.id)}
                     >
                       Revert
                     </Button>
                   </div>
+                  {!version.revertible && (
+                    <p className="text-sm text-muted-foreground">{version.revert_problem}</p>
+                  )}
                   <Diff before={versions[i + 1]?.text ?? ""} after={version.text} />
                 </li>
               ))}

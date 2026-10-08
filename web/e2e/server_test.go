@@ -420,7 +420,7 @@ func TestServer(t *testing.T) {
 	for i, text := range []string{
 		"Run make fmt before each commit.\nUse pnpm for the frontend.\n",
 		"Run make fmt before each commit.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\n",
-		"Run make fmt before each commit.\nUse pnpm for the frontend, not npm.\nWait for a condition with testkit.WaitFor.\nWrite each message in Simplified Technical English.\n",
+		"Run make fmt before each commit and each push.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\nWrite each message in Simplified Technical English.\n",
 	} {
 		author := "curator"
 		if i == 2 {

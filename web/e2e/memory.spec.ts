@@ -27,8 +27,35 @@ test("the Owner edits the memory file, sees the 200-line error, and reverts the 
   await main.getByRole("button", { name: "Save" }).click();
   await expect(main.getByText("the maximum is 200")).toBeVisible();
   await main.getByRole("button", { name: "Cancel" }).click();
+  await expect(main.getByText("the maximum is 200")).toBeHidden();
 
-  await main.getByRole("button", { name: "Revert" }).click();
-  await expect(main.getByText("The memory file is empty.")).toBeVisible();
-  await expect(main.getByText("- Water the roses in the morning.")).toBeVisible();
+  await main.getByRole("button", { name: "Edit" }).click();
+  await main.getByLabel("Memory text").fill("Water the roses at noon.\n");
+  await main.getByRole("button", { name: "Save" }).click();
+  await expect(main.getByText("+ Water the roses at noon.")).toBeVisible();
+  await expect(main.getByText("A later version changed this part. Edit the file.")).toBeVisible();
+  const reverts = main.getByRole("button", { name: "Revert" });
+  await expect(reverts.first()).toBeEnabled();
+  await expect(reverts.last()).toBeDisabled();
+
+  await reverts.first().click();
+  await expect(main.getByText("- Water the roses at noon.")).toBeVisible();
+  await expect(main.getByText("Water the roses in the morning.").first()).toBeVisible();
+
+  await main.getByRole("button", { name: "Edit" }).click();
+  await main.getByLabel("Memory text").fill("My text.\n");
+  await page.evaluate(`(async () => {
+    const url = "/api/repositories/plants/garden/memory";
+    const listed = await fetch(url).then((response) => response.json());
+    await fetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Other text.\\n", base_version: listed.data[0].id }),
+    });
+  })()`);
+  await main.getByRole("button", { name: "Save" }).click();
+  await expect(
+    main.getByText("The memory file changed after the start of your edit."),
+  ).toBeVisible();
+  await expect(main.getByLabel("Memory text")).toHaveValue("My text.\n");
 });

@@ -489,6 +489,10 @@ export interface MemoryVersion {
   author: MemoryVersionAuthor;
   /** ID is the id of the version */
   id: number;
+  /** RevertProblem is the reason why the revert is not possible, and empty when it is possible */
+  revert_problem: string;
+  /** Revertible tells if the revert of the version is possible */
+  revertible: boolean;
   /** Text is the text of the memory file in this version */
   text: string;
   /** Time is the time when Mobius saved the version, in RFC 3339 format */
@@ -888,6 +892,8 @@ export interface LoginBody {
 }
 
 export interface SaveMemoryBody {
+  /** BaseVersion is the id of the newest version when the edit started, and 0 when the file had no version */
+  base_version?: number;
   /** Text is the new text of the memory file */
   text?: string;
 }
@@ -3096,7 +3102,7 @@ export const getListMemoryVersionsUrl = (owner: string,
 }
 
 /**
- * ListMemoryVersions returns the versions of the memory file of the repository, the newest first. The first version is the current text of the file. It returns 404 when the repository is not a repository of Mobius.
+ * ListMemoryVersions returns the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version is the current text of the file. It returns 404 when the repository is not a repository of Mobius.
  */
 export const listMemoryVersions = async (owner: string,
     name: string, ): Promise<listMemoryVersionsResponse> => {
@@ -3139,6 +3145,11 @@ export type saveMemoryResponse404 = {
   status: 404
 }
 
+export type saveMemoryResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
 export type saveMemoryResponse422 = {
   data: UnprocessableEntityResponse
   status: 422
@@ -3152,7 +3163,7 @@ export type saveMemoryResponse500 = {
 export type saveMemoryResponseSuccess = (saveMemoryResponse204) & {
   headers: Headers;
 };
-export type saveMemoryResponseError = (saveMemoryResponse400 | saveMemoryResponse401 | saveMemoryResponse404 | saveMemoryResponse422 | saveMemoryResponse500) & {
+export type saveMemoryResponseError = (saveMemoryResponse400 | saveMemoryResponse401 | saveMemoryResponse404 | saveMemoryResponse409 | saveMemoryResponse422 | saveMemoryResponse500) & {
   headers: Headers;
 };
 
@@ -3168,7 +3179,7 @@ export const getSaveMemoryUrl = (owner: string,
 }
 
 /**
- * SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, and 422 when the text has more than 200 lines.
+ * SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, 409 when a newer version exists than the base version, and 422 when the text has more than 200 lines.
  */
 export const saveMemory = async (owner: string,
     name: string,
@@ -3212,6 +3223,11 @@ export type revertMemoryResponse404 = {
   status: 404
 }
 
+export type revertMemoryResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
 export type revertMemoryResponse422 = {
   data: UnprocessableEntityResponse
   status: 422
@@ -3225,7 +3241,7 @@ export type revertMemoryResponse500 = {
 export type revertMemoryResponseSuccess = (revertMemoryResponse204) & {
   headers: Headers;
 };
-export type revertMemoryResponseError = (revertMemoryResponse400 | revertMemoryResponse401 | revertMemoryResponse404 | revertMemoryResponse422 | revertMemoryResponse500) & {
+export type revertMemoryResponseError = (revertMemoryResponse400 | revertMemoryResponse401 | revertMemoryResponse404 | revertMemoryResponse409 | revertMemoryResponse422 | revertMemoryResponse500) & {
   headers: Headers;
 };
 
@@ -3242,7 +3258,7 @@ export const getRevertMemoryUrl = (owner: string,
 }
 
 /**
- * RevertMemory saves the text of the version before the version as a new version with the author owner. The text before the first version is empty. It returns 404 when the repository is not a repository of Mobius, or when the version does not exist or belongs to another repository.
+ * RevertMemory undoes the change of the version in the current text of the memory file and saves the result as a new version with the author owner. It returns 404 when the repository is not a repository of Mobius, or when the version does not exist or belongs to another repository. It returns 409 when a later version changed the part, when the revert changes nothing, or when the result has more than 200 lines.
  */
 export const revertMemory = async (owner: string,
     name: string,

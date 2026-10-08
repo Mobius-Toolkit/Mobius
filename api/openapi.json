@@ -1682,7 +1682,7 @@
     },
     "/api/repositories/{owner}/{name}/memory": {
       "get": {
-        "description": "ListMemoryVersions returns the versions of the memory file of the repository, the newest first. The first version is the current text of the file. It returns 404 when the repository is not a repository of Mobius.",
+        "description": "ListMemoryVersions returns the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version is the current text of the file. It returns 404 when the repository is not a repository of Mobius.",
         "operationId": "ListMemoryVersions",
         "parameters": [
           {
@@ -1755,7 +1755,7 @@
         ]
       },
       "put": {
-        "description": "SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, and 422 when the text has more than 200 lines.",
+        "description": "SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, 409 when a newer version exists than the base version, and 422 when the text has more than 200 lines.",
         "operationId": "SaveMemory",
         "parameters": [
           {
@@ -1814,6 +1814,16 @@
             },
             "description": "Not Found"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
           },
@@ -1833,7 +1843,7 @@
     },
     "/api/repositories/{owner}/{name}/memory/{id}/revert": {
       "post": {
-        "description": "RevertMemory saves the text of the version before the version as a new version with the author owner. The text before the first version is empty. It returns 404 when the repository is not a repository of Mobius, or when the version does not exist or belongs to another repository.",
+        "description": "RevertMemory undoes the change of the version in the current text of the memory file and saves the result as a new version with the author owner. It returns 404 when the repository is not a repository of Mobius, or when the version does not exist or belongs to another repository. It returns 409 when a later version changed the part, when the revert changes nothing, or when the result has more than 200 lines.",
         "operationId": "RevertMemory",
         "parameters": [
           {
@@ -1890,6 +1900,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
@@ -4025,6 +4045,14 @@
             "type": "integer",
             "description": "ID is the id of the version"
           },
+          "revert_problem": {
+            "type": "string",
+            "description": "RevertProblem is the reason why the revert is not possible, and empty when it is possible"
+          },
+          "revertible": {
+            "type": "boolean",
+            "description": "Revertible tells if the revert of the version is possible"
+          },
           "text": {
             "type": "string",
             "description": "Text is the text of the memory file in this version"
@@ -4038,7 +4066,9 @@
           "id",
           "time",
           "author",
-          "text"
+          "text",
+          "revertible",
+          "revert_problem"
         ],
         "description": "MemoryVersion is a version of the memory file of a repository."
       },
@@ -4167,6 +4197,10 @@
         "type": "object",
         "title": "SaveMemoryBody",
         "properties": {
+          "base_version": {
+            "type": "integer",
+            "description": "BaseVersion is the id of the newest version when the edit started, and 0 when the file had no version"
+          },
           "text": {
             "type": "string",
             "description": "Text is the new text of the memory file"

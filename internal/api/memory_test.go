@@ -16,6 +16,9 @@ type memoryVersion struct {
 	Time   string `json:"time"`
 	Author string `json:"author"`
 	Text   string `json:"text"`
+
+	Revertible    bool   `json:"revertible"`
+	RevertProblem string `json:"revert_problem"`
 }
 
 func memoryURL(server *testserver.Server, repository string) string {
@@ -33,6 +36,34 @@ func listMemory(t *testing.T, server *testserver.Server, repository string) []me
 	return body.Data
 }
 
+func saveMemory(t *testing.T, server *testserver.Server, texts ...string) {
+	t.Helper()
+	for _, text := range texts {
+		if err := server.Engine.SaveMemory(t.Context(), shop, "curator", text); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func revertMemory(t *testing.T, server *testserver.Server, version memoryVersion) result {
+	t.Helper()
+	return call(t, server.Client, http.MethodPost, memoryURL(server, shop)+"/"+strconv.FormatInt(version.ID, 10)+"/revert", "", nil)
+}
+
+func refusedRevert(t *testing.T, server *testserver.Server, version memoryVersion) (result, string) {
+	t.Helper()
+	var failure struct {
+		Error string `json:"error"`
+	}
+	reply := call(t, server.Client, http.MethodPost, memoryURL(server, shop)+"/"+strconv.FormatInt(version.ID, 10)+"/revert", "", &failure)
+	return reply, failure.Error
+}
+
+func currentMemory(t *testing.T, server *testserver.Server) string {
+	t.Helper()
+	return listMemory(t, server, shop)[0].Text
+}
+
 func texts(versions []memoryVersion) []string {
 	found := []string{}
 	for _, version := range versions {
@@ -46,7 +77,8 @@ func TestTheMemoryRouteGivesTheVersionsNewestFirst(t *testing.T) {
 	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "Run make fmt.\n"); err != nil {
 		t.Fatal(err)
 	}
-	if reply := call(t, server.Client, http.MethodPut, memoryURL(server, shop), `{"text": "Run make fmt.\nRun make check.\n"}`, nil); reply.StatusCode != http.StatusNoContent {
+	base := listMemory(t, server, shop)[0].ID
+	if reply := call(t, server.Client, http.MethodPut, memoryURL(server, shop), `{"text": "Run make fmt.\nRun make check.\n", "base_version": `+strconv.FormatInt(base, 10)+`}`, nil); reply.StatusCode != http.StatusNoContent {
 		t.Fatalf("save: status %d", reply.StatusCode)
 	}
 
@@ -90,38 +122,134 @@ func TestTheSaveRouteRefusesATextOfMoreThan200LinesAndTellsTheLimit(t *testing.T
 	}
 }
 
-func TestTheRevertRouteSavesTheTextBeforeTheVersionAsANewVersionOfTheOwner(t *testing.T) {
+func TestTheRevertRouteUndoesOnlyTheChangeOfTheVersionAndKeepsTheLaterChanges(t *testing.T) {
 	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
-	for _, text := range []string{"One.\n", "One.\nTwo.\n", "One.\nTwo.\nThree.\n"} {
-		if err := server.Engine.SaveMemory(t.Context(), shop, "curator", text); err != nil {
-			t.Fatal(err)
-		}
-	}
+	saveMemory(t, server, "One.\nTwo.\n", "One.\nTwo.\nThree.\n", "One.\nTwo.\nThree.\nFour.\n")
 	versions := listMemory(t, server, shop)
 
-	reply := call(t, server.Client, http.MethodPost, memoryURL(server, shop)+"/"+strconv.FormatInt(versions[0].ID, 10)+"/revert", "", nil)
+	reply := revertMemory(t, server, versions[1])
 
 	if reply.StatusCode != http.StatusNoContent {
 		t.Fatalf("revert: status %d", reply.StatusCode)
 	}
 	got := listMemory(t, server, shop)
-	if len(got) != 4 || got[0].Author != "owner" || got[0].Text != "One.\nTwo.\n" {
+	if len(got) != 4 || got[0].Author != "owner" || got[0].Text != "One.\nTwo.\nFour.\n" {
 		t.Errorf("versions = %q", texts(got))
 	}
 }
 
-func TestTheRevertRouteOfTheFirstVersionSavesAnEmptyText(t *testing.T) {
+func TestTheRevertRouteOfTheFirstVersionSavesAnEmptyTextWhenNothingElseChanged(t *testing.T) {
 	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
-	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "One.\n"); err != nil {
-		t.Fatal(err)
-	}
+	saveMemory(t, server, "One.\n")
 	first := listMemory(t, server, shop)[0]
 
-	reply := call(t, server.Client, http.MethodPost, memoryURL(server, shop)+"/"+strconv.FormatInt(first.ID, 10)+"/revert", "", nil)
+	reply := revertMemory(t, server, first)
 
 	got := listMemory(t, server, shop)
 	if reply.StatusCode != http.StatusNoContent || len(got) != 2 || got[0].Author != "owner" || got[0].Text != "" {
 		t.Errorf("status %d, versions = %q", reply.StatusCode, texts(got))
+	}
+}
+
+func TestTheRevertRouteOfAVersionThatRemovedLinesPutsTheLinesBackAtTheirPlace(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	saveMemory(t, server, "One.\nTwo.\nThree.\n", "One.\nThree.\n", "One.\nThree.\nFour.\n")
+	versions := listMemory(t, server, shop)
+
+	reply := revertMemory(t, server, versions[1])
+
+	if reply.StatusCode != http.StatusNoContent {
+		t.Fatalf("revert: status %d", reply.StatusCode)
+	}
+	if got := currentMemory(t, server); got != "One.\nTwo.\nThree.\nFour.\n" {
+		t.Errorf("text = %q", got)
+	}
+}
+
+func TestTheRevertRouteGivesConflictWhenALaterVersionChangedTheSameBlock(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	saveMemory(t, server, "One.\nTwo.\nThree.\n", "One.\nZwei.\nThree.\n", "One.\nDeux.\nThree.\n")
+	versions := listMemory(t, server, shop)
+
+	reply, problem := refusedRevert(t, server, versions[1])
+
+	if reply.StatusCode != http.StatusConflict || problem != "A later version changed this part. Edit the file." {
+		t.Errorf("status %d, error %q", reply.StatusCode, problem)
+	}
+	if got := listMemory(t, server, shop); len(got) != 3 {
+		t.Errorf("versions = %q", texts(got))
+	}
+	if versions[1].Revertible || versions[1].RevertProblem != problem {
+		t.Errorf("version = %+v", versions[1])
+	}
+	if !versions[0].Revertible || versions[0].RevertProblem != "" {
+		t.Errorf("newest version = %+v", versions[0])
+	}
+}
+
+func TestTheRevertRouteGivesConflictWhenTheBlockOccursTwice(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	saveMemory(t, server, "One.\nTwo.\n", "One.\nTwo.\nOne.\nTwo.\n")
+	versions := listMemory(t, server, shop)
+
+	reply, problem := refusedRevert(t, server, versions[1])
+
+	if reply.StatusCode != http.StatusConflict || problem != "A later version changed this part. Edit the file." {
+		t.Errorf("status %d, error %q", reply.StatusCode, problem)
+	}
+}
+
+func TestTheRevertRouteGivesConflictWhenNothingChanges(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	saveMemory(t, server, "One.\n")
+	if _, err := server.DB.Exec("INSERT INTO memory_versions (repository, time, author, text) SELECT repository, time, author, text FROM memory_versions"); err != nil {
+		t.Fatal(err)
+	}
+	versions := listMemory(t, server, shop)
+
+	reply, problem := refusedRevert(t, server, versions[0])
+
+	if reply.StatusCode != http.StatusConflict || problem != "The revert changes nothing." {
+		t.Errorf("status %d, error %q", reply.StatusCode, problem)
+	}
+	if versions[0].Revertible || versions[0].RevertProblem != problem {
+		t.Errorf("version = %+v", versions[0])
+	}
+}
+
+func TestTheRevertRouteGivesConflictWhenTheResultHasMoreThan200Lines(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	filler := strings.Repeat("Filler.\n", 198)
+	saveMemory(t, server, "One.\nTwo.\n"+filler, "One.\n"+filler, "One.\n"+filler+"Three.\n")
+	versions := listMemory(t, server, shop)
+
+	reply, problem := refusedRevert(t, server, versions[1])
+
+	if reply.StatusCode != http.StatusConflict || !strings.Contains(problem, "201 lines") || !strings.Contains(problem, "maximum is 200") {
+		t.Errorf("status %d, error %q", reply.StatusCode, problem)
+	}
+}
+
+func TestTheSaveRouteGivesConflictWhenANewerVersionExistsThanTheVersionOfTheEdit(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	saveMemory(t, server, "One.\n")
+	first := listMemory(t, server, shop)[0]
+	saveMemory(t, server, "One.\nTwo.\n")
+	var failure struct {
+		Error string `json:"error"`
+	}
+
+	stale := call(t, server.Client, http.MethodPut, memoryURL(server, shop), `{"text": "Mine.\n", "base_version": `+strconv.FormatInt(first.ID, 10)+`}`, &failure)
+	none := call(t, server.Client, http.MethodPut, memoryURL(server, shop), `{"text": "Mine.\n"}`, nil)
+
+	if stale.StatusCode != http.StatusConflict || failure.Error != "The memory file changed after the start of your edit. Copy your text, then load the file again." {
+		t.Errorf("stale edit: status %d, error %q", stale.StatusCode, failure.Error)
+	}
+	if none.StatusCode != http.StatusConflict {
+		t.Errorf("edit with no base version: status %d", none.StatusCode)
+	}
+	if got := currentMemory(t, server); got != "One.\nTwo.\n" {
+		t.Errorf("text = %q", got)
 	}
 }
 

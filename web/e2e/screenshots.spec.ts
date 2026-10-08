@@ -351,10 +351,11 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "memory", "/settings/memory/owner/shop", (device) => [
     ...frame(device, release),
     main.getByText("Memory of owner/shop"),
-    main.getByText("+ Use pnpm for the frontend, not npm."),
+    main.getByText("+ Run make fmt before each commit and each push."),
     main.getByText("+ Write each message in Simplified Technical English."),
-    main.getByText("- Use pnpm for the frontend."),
+    main.getByText("- Run make fmt before each commit."),
     main.getByText("+ Wait for a condition with testkit.WaitFor."),
+    main.getByText("A later version changed this part. Edit the file."),
   ]);
 
   // The note closes a Workstream whose tasks are all closed.
