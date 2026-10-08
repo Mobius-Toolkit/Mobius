@@ -166,6 +166,10 @@ func TestTheCloseOfAWorkstreamStartsACurator(t *testing.T) {
 					t.Errorf("%q is not in %s", part, prompts[0])
 				}
 			}
+			waitForPolls(t, fake)
+			if sessions := curatorSessions(t, server); len(sessions) != 1 {
+				t.Errorf("Curators after the close = %+v", sessions)
+			}
 		})
 	}
 }

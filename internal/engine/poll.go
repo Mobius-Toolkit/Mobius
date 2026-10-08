@@ -312,7 +312,13 @@ func (e *Engine) workstreamEvent(ctx context.Context, repository github.Reposito
 		return e.stopWorkstream(ctx, repository, number)
 	// The label can go away before the poll sees the close.
 	case event.GetEvent() == "closed" && trusted:
-		return e.closeWorkstream(ctx, repository, number)
+		if err := e.closeWorkstream(ctx, repository, number); err != nil {
+			return err
+		}
+		if err := e.startCurator(ctx, repository.FullName); err != nil {
+			log.Printf("start a Curator of %s: %v", repository.FullName, err)
+		}
+		return nil
 	case event.GetEvent() == "reopened" && trusted && hasLabel(issue, workstreamLabel):
 		return e.addLeadEvent(ctx, repository.FullName, number, sql.NullInt64{}, "reopen", eventText(time.Now(), "reopen of Workstream", issue, actor, issue.GetBody()))
 	}

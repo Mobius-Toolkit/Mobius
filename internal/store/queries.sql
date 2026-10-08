@@ -421,4 +421,4 @@ INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?)
 -- name: CountSessionsEndedSinceCurator :one
 SELECT count(*) FROM sessions s
 WHERE s.repository = sqlc.arg(repository) AND s.role <> 'curator' AND s.ended_at IS NOT NULL
-  AND julianday(s.ended_at) > coalesce((SELECT max(julianday(c.started_at)) FROM sessions c WHERE c.repository = s.repository AND c.role = 'curator'), 0);
+  AND julianday(s.ended_at) > coalesce((SELECT max(julianday(c.started_at)) FROM sessions c WHERE c.repository = s.repository AND c.role = 'curator' AND coalesce(c.end_reason, '') NOT IN ('declined', 'stopped')), 0);
