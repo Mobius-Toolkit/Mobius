@@ -148,7 +148,8 @@ const question = "What is the state of the plans? The full report is at " +
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
 // The Workstream owner/shop#12 has two closed tasks. It also has four Implementer sessions with the queue reasons of a
 // check that runs, a check that waits for a slot, a pause, and a full Role.
-// POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub.
+// POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
+// /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -252,6 +253,12 @@ func TestServer(t *testing.T) {
 	})
 	server.Mux.HandleFunc("DELETE /e2e/repositories/{owner}/{name}", func(_ http.ResponseWriter, r *http.Request) {
 		github.RemoveRepository(r.PathValue("owner") + "/" + r.PathValue("name"))
+	})
+	server.Mux.HandleFunc("PUT /e2e/agents/{issue}/queue-reason", func(w http.ResponseWriter, r *http.Request) {
+		_, err := server.DB.Exec("UPDATE sessions SET queue_reason = ? WHERE issue = ? AND ended_at IS NULL", r.URL.Query().Get("reason"), r.PathValue("issue"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	})
 
 	listener, err := net.Listen("tcp", addr)
