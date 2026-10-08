@@ -10,6 +10,7 @@ export function Devices() {
   const showLogin = use(LoginContext);
   const [devices, setDevices] = useState<DeviceList>();
   const [error, setError] = useState<string>();
+  const [loggingOut, setLoggingOut] = useState<number[]>([]);
 
   const load = useCallback(() => {
     listDevices()
@@ -28,17 +29,24 @@ export function Devices() {
   useEffect(load, [load]);
 
   const logOut = (id: number) => {
+    setLoggingOut((ids) => [...ids, id]);
     logout(id)
       .then((res) => {
+        if (res.status === 204) {
+          load();
+          return;
+        }
         if (res.status === 401) {
           showLogin();
-        } else if (res.status === 204) {
-          load();
         } else {
           setError(res.data.error);
         }
+        setLoggingOut((ids) => ids.filter((other) => other !== id));
       })
-      .catch((err: unknown) => setError(String(err)));
+      .catch((err: unknown) => {
+        setError(String(err));
+        setLoggingOut((ids) => ids.filter((other) => other !== id));
+      });
   };
 
   return (
@@ -62,7 +70,11 @@ export function Devices() {
               </span>
               <span className="flex items-center gap-2">
                 {login.id === devices.thisDevice && <Badge variant="secondary">This device</Badge>}
-                <Button variant="outline" onClick={() => logOut(login.id)}>
+                <Button
+                  variant="outline"
+                  pending={loggingOut.includes(login.id)}
+                  onClick={() => logOut(login.id)}
+                >
                   Log out
                 </Button>
               </span>

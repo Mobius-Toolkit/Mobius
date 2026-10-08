@@ -292,14 +292,18 @@ func TestTheDrainHoldsAJudgeThatAPollStartedBeforeTheDrain(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.ReviewQuietPeriod = 0 })
 	waitForApproval(t, server, fake)
+	// The first read is the one of the poll that sees the comment. The second read is the one before the Judge starts.
+	reachedPoll, releasePoll := fake.HoldReviewThreads(shop, 42)
 	reached, release := fake.HoldReviewThreads(shop, 42)
-	// The poll reads the items of the Judge and waits for the review threads.
+	fake.AddComment(shop, 42, "owner", "Why cents?")
+	<-reachedPoll
+	releasePoll()
+	// The poll reads the pull request again and waits for the review threads.
 	select {
 	case <-reached:
 	case <-time.After(time.Minute):
 		t.Fatal("the poll did not read the review threads after one minute")
 	}
-	fake.AddComment(shop, 42, "owner", "Why cents?")
 	startDrain(t, server)
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
 

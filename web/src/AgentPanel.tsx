@@ -11,13 +11,15 @@ import { PlayIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { queueState } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
 import { clock, dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { paused, Transcript } from "./Agents";
+import { Transcript } from "./Agents";
 
 type Row = { agent: Agent; depth: number };
 
@@ -64,9 +66,9 @@ function shownAgents(agents: Agent[], showStopped: boolean) {
 
 function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void }) {
   const agent = row.agent;
-  const detail =
-    agent.queueReason ||
-    `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ""}`;
+  const state = queueState(agent.queueReason);
+  const started = `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ""}`;
+  const detail = agent.queueReason ? `${started} · ${agent.queueReason}` : started;
   return (
     <li>
       <button
@@ -78,27 +80,19 @@ function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void 
         <span
           className={cn(
             "size-2 shrink-0 rounded-full",
-            agent.queueReason
-              ? "bg-amber-500"
-              : agent.endedAt
-                ? "border border-muted-foreground"
-                : "bg-green-600",
+            agent.endedAt ? "border border-muted-foreground" : state.dot,
           )}
         />
         <span className="grid min-w-0 grow gap-0.5">
           <span>
             <span className="font-medium">{agent.name}</span> {agent.title}
           </span>
-          <span className="truncate text-sm text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             {agent.harness} · {agent.model} · {detail}
           </span>
         </span>
         {agent.endedAt && <Badge variant="secondary">stopped</Badge>}
-        {agent.queueReason && (
-          <Badge variant="outline">
-            {agent.queueReason.startsWith(paused) ? "paused" : "queued"}
-          </Badge>
-        )}
+        {state.badge && <Badge variant="outline">{state.badge}</Badge>}
       </button>
     </li>
   );
@@ -135,10 +129,10 @@ function AgentTree({
       .catch((err: unknown) => setError(String(err)));
   }, [owner, name, number, showLogin]);
 
-  useEffect(load, [load]);
-
-  // An agent event that comes while the connection is down is lost, so each connection reads the tree.
+  // An agent event that comes before the listener or while the connection is down is lost, so each connection reads
+  // the tree.
   useEffect(() => {
+    load();
     if (!source) {
       return;
     }
@@ -175,9 +169,11 @@ function AgentTree({
 
 function TaskEntry({ owner, name, line }: { owner: string; name: string; line: TaskLine }) {
   const [started, setStarted] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const state = started && line.state === "open" ? "ready" : line.state;
   const start = () => {
+    setStarting(true);
     startIssue(owner, name, line.number)
       .then((res) => {
         if (res.status === 204) {
@@ -187,7 +183,8 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
           setError(res.data.error);
         }
       })
-      .catch((err: unknown) => setError(String(err)));
+      .catch((err: unknown) => setError(String(err)))
+      .finally(() => setStarting(false));
   };
   return (
     <li className="grid gap-1">
@@ -199,7 +196,7 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
           style={{ paddingLeft: `${0.5 + line.depth * 1.25}rem` }}
           className="flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-1 rounded-lg py-2 pr-2 hover:bg-muted"
         >
-          <span className="grow">
+          <span className={cn("grow", state === "closed" && "text-muted-foreground")}>
             #{line.number} {line.title}
           </span>
           {line.blockedBy.map((blocker) => (
@@ -216,9 +213,10 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
             variant="ghost"
             className="shrink-0"
             aria-label={`Start #${line.number}`}
+            disabled={starting}
             onClick={start}
           >
-            <PlayIcon />
+            {starting ? <Spinner aria-hidden /> : <PlayIcon />}
           </Button>
         )}
       </div>
@@ -229,6 +227,23 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
       )}
     </li>
   );
+}
+
+// Removes the closed tasks. A sub-issue of a removed task moves up one level for each removed ancestor.
+function withoutClosed(lines: TaskLine[]): TaskLine[] {
+  const removed: number[] = [];
+  const open: TaskLine[] = [];
+  for (const line of lines) {
+    while (removed.length > 0 && removed[removed.length - 1] >= line.depth) {
+      removed.pop();
+    }
+    if (line.state === "closed") {
+      removed.push(line.depth);
+    } else {
+      open.push({ ...line, depth: line.depth - removed.length });
+    }
+  }
+  return open;
 }
 
 function Tasks({
@@ -245,6 +260,7 @@ function Tasks({
   const showLogin = use(LoginContext);
   const [lines, setLines] = useState<TaskLine[]>();
   const [error, setError] = useState<string>();
+  const [showClosed, setShowClosed] = useState(false);
 
   const load = useCallback(() => {
     listTasks(owner, name, number)
@@ -260,10 +276,10 @@ function Tasks({
       .catch((err: unknown) => setError(String(err)));
   }, [owner, name, number, showLogin]);
 
-  useEffect(load, [load]);
-
-  // The workstreams event also tells of a change of the tasks.
+  // The workstreams event also tells of a change of the tasks. An event that comes before the listener or while the
+  // connection is down is lost, so each connection reads the tasks.
   useEffect(() => {
+    load();
     if (!source) {
       return;
     }
@@ -275,12 +291,17 @@ function Tasks({
     };
   }, [source, load]);
 
+  const shown = showClosed ? lines : lines && withoutClosed(lines);
   return (
     <div className="grid gap-2">
       {error && <Badge variant="destructive">{error}</Badge>}
-      {lines?.length === 0 && <p className="px-2 text-sm text-muted-foreground">No tasks.</p>}
+      <div className="flex items-center gap-2 px-2">
+        <Switch id="closed-tasks" checked={showClosed} onCheckedChange={setShowClosed} />
+        <Label htmlFor="closed-tasks">Show closed tasks</Label>
+      </div>
+      {shown?.length === 0 && <p className="px-2 text-sm text-muted-foreground">No tasks.</p>}
       <ul>
-        {lines?.map((line) => (
+        {shown?.map((line) => (
           <TaskEntry key={line.url} owner={owner} name={name} line={line} />
         ))}
       </ul>

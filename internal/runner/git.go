@@ -202,9 +202,37 @@ func AddDetachedWorktree(ctx context.Context, dataDir, repository, dir, commit s
 	return err
 }
 
-// RemoveWorktree removes the worktree dir of the bare clone of repository, with its changes.
+// RemoveWorktree removes the worktree dir of the bare clone of repository, with its changes. It also removes a worktree
+// that a killed "git worktree add" left: git cannot remove it, and "git worktree prune" keeps its record because the
+// record is locked. Thus the fallback deletes the record that points to dir, so a new worktree can use dir again.
 func RemoveWorktree(ctx context.Context, dataDir, repository, dir string) error {
-	_, err := run(git(ctx, dataDir, bareDir(dataDir, repository), "", "worktree", "remove", "--force", dir))
+	bare := bareDir(dataDir, repository)
+	if _, err := run(git(ctx, dataDir, bare, "", "worktree", "remove", "--force", "--force", dir)); err == nil {
+		return nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(dir))
+	if err != nil {
+		return err
+	}
+	gitdirs, err := filepath.Glob(filepath.Join(bare, "worktrees", "*", "gitdir"))
+	if err != nil {
+		return err
+	}
+	for _, gitdir := range gitdirs {
+		content, err := os.ReadFile(filepath.Clean(gitdir))
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(string(content)) == filepath.Join(parent, filepath.Base(dir), ".git") {
+			if err := os.RemoveAll(filepath.Dir(gitdir)); err != nil {
+				return err
+			}
+		}
+	}
+	_, err = run(git(ctx, dataDir, bare, "", "worktree", "prune"))
 	return err
 }
 

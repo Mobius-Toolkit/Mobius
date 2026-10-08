@@ -836,7 +836,7 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job) (string, bool, err
 			}
 		}
 		started := time.Now()
-		err := a.checkPhase(ctx, "runs .mobius/check", ".mobius/check started.")
+		err := a.checkPhase(ctx, checkRunsReason, ".mobius/check started.")
 		var output string
 		var passed bool
 		if err == nil {
@@ -880,7 +880,7 @@ func (a *Agent) checkPhase(ctx context.Context, phase, text string) error {
 	if err != nil {
 		return err
 	}
-	e.publish(Change{Node: new(node(session))})
+	e.publish(Change{Node: new(e.node(session))})
 	row, err := compact(map[string]string{"text": text})
 	if err != nil {
 		return err
@@ -953,7 +953,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		return result{}, err
 	}
 	if j.pullRequest == nil {
-		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, fmt.Sprintf("Closes #%d", j.task.Issue))
+		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, fmt.Sprintf("Workstream:\n- #%d\n\nIssue:\n- #%d\n\nCloses #%d", j.task.Workstream, j.task.Issue, j.task.Issue))
 		if err != nil {
 			return result{}, err
 		}
@@ -966,7 +966,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		if err != nil {
 			return result{}, err
 		}
-		e.publish(Change{Node: new(node(session))})
+		e.publish(Change{Node: new(e.node(session))})
 	}
 	if err := a.postReplies(ctx, repository, int64(j.pullRequest.GetNumber())); err != nil {
 		return result{}, err

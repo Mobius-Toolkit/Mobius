@@ -217,9 +217,11 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, text string,
 func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	e.chatsMu.Lock()
 	c, ok := e.chats[key]
+	var agent *Agent
 	if ok {
 		c.queue = append(c.queue, items...)
 		c.writing = true
+		agent = c.agent
 		c.notify()
 		if tracked {
 			e.untrack()
@@ -233,6 +235,20 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	}
 	e.chatsMu.Unlock()
 	e.publish(Change{Chat: &ChatState{Key: key, Writing: true}})
+	e.publishSession(agent)
+}
+
+// publishSession sends the session of agent, so the clients read its working state again. It does nothing for nil.
+func (e *Engine) publishSession(agent *Agent) {
+	if agent == nil {
+		return
+	}
+	session, err := e.queries.GetSession(context.Background(), agent.id)
+	if err != nil {
+		log.Printf("read the chat session %d: %v", agent.id, err)
+		return
+	}
+	e.publish(Change{Node: new(e.node(session))})
 }
 
 // addLeadEvent adds an event of kind about the issue for the Lead of the Workstream, with its entry in the chat, and
@@ -322,7 +338,7 @@ func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 		c.stopWait()
 		return nil
 	case c.stoppable:
-		return c.agent.cancel(ctx)
+		return c.agent.stop(ctx)
 	}
 	return nil
 }
@@ -638,14 +654,18 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 // next takes the next queued item. With no item, the chat is not writing.
 func (e *Engine) next(c *chat) (item, bool) {
 	e.chatsMu.Lock()
-	defer e.chatsMu.Unlock()
 	if len(c.queue) == 0 {
-		if c.writing {
-			c.writing = false
+		stopped := c.writing
+		c.writing = false
+		agent := c.agent
+		e.chatsMu.Unlock()
+		if stopped {
 			e.publish(Change{Chat: &ChatState{Key: c.key}})
+			e.publishSession(agent)
 		}
 		return item{}, false
 	}
+	defer e.chatsMu.Unlock()
 	next := c.queue[0]
 	c.queue = c.queue[1:]
 	return next, true
@@ -711,6 +731,7 @@ func (e *Engine) turn(c *chat, a *Agent, prompt string, images []Image, stoppabl
 	defer func() {
 		e.chatsMu.Lock()
 		c.stoppable = false
+		a.takeStop()
 		e.chatsMu.Unlock()
 	}()
 	return a.Prompt(c.ctx, prompt, images)

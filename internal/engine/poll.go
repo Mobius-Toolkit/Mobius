@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"slices"
 	"time"
 
@@ -155,10 +156,11 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	return e.checkTasks(ctx, repository, work)
 }
 
-// changedIssues reads the issues and pull requests that changed at or after the `since` cursor, acts on their new
-// comments, stops a Triager, updates the copy, acts on the new events of the Workstreams, and moves the cursor to the
-// last change. The first poll of a repository has no cursor, so it reads all issues, and it cannot see which event or
-// comment is new.
+// changedIssues reads the issues and pull requests that changed at or after the `since` cursor, reads the new comments
+// of the repository with two calls, and reads the reviews and the review threads of the open pull requests with one
+// call. Then it acts on the comments, stops a Triager, updates the copy, acts on the new events of the Workstreams, and
+// moves the cursors to the last change. The first poll of a repository has no cursor, so it reads all issues, and it
+// cannot see which event is new. It reads no comment: the next poll starts each comment list at the issue cursor.
 func (e *Engine) changedIssues(ctx context.Context, repository github.Repository) error {
 	cursor, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: issuesEndpoint})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -175,16 +177,53 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		return err
 	}
 	firstPoll := since.IsZero()
+	var conversation map[int64][]*gh.IssueComment
+	var review map[int64][]*gh.PullRequestComment
+	var commentCursors []store.SetSyncCursorParams
+	if !firstPoll {
+		var conversationCursor, reviewCursor store.SetSyncCursorParams
+		conversation, conversationCursor, err = newComments(ctx, e.queries, repository, issueCommentsEndpoint, since, repository.CommentsSince, issueCommentNumber)
+		if err != nil {
+			return err
+		}
+		review, reviewCursor, err = newComments(ctx, e.queries, repository, reviewCommentsEndpoint, since, repository.ReviewCommentsSince, reviewCommentNumber)
+		if err != nil {
+			return err
+		}
+		commentCursors = []store.SetSyncCursorParams{conversationCursor, reviewCursor}
+	}
+	unrouted := map[int64]bool{}
+	for number := range conversation {
+		unrouted[number] = true
+	}
+	for number := range review {
+		unrouted[number] = true
+	}
+	for _, issue := range page.Issues {
+		delete(unrouted, int64(issue.GetNumber()))
+	}
+	// A comment that GitHub wrote after it gave the page has its issue or pull request outside the page.
+	var outside []*gh.Issue
+	for _, number := range slices.Sorted(maps.Keys(unrouted)) {
+		issue, err := repository.Issue(ctx, number)
+		if err != nil {
+			return err
+		}
+		if issue != nil {
+			outside = append(outside, issue)
+		}
+	}
+	if err := e.readPullRequests(ctx, repository, openPullRequests(slices.Concat(page.Issues, outside))); err != nil {
+		return err
+	}
 	listChanged := false
 	for _, issue := range page.Issues {
-		if issue.IsPullRequest() {
-			if err := e.pullRequestComments(ctx, repository, issue, since); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := e.commentEvents(ctx, repository, issue, since); err != nil {
+		number := int64(issue.GetNumber())
+		if err := e.routeComments(ctx, repository, issue, conversation[number], review[number]); err != nil {
 			return err
+		}
+		if issue.IsPullRequest() {
+			continue
 		}
 		if !hasLabel(issue, noWorkstreamLabel) {
 			if err := e.stopTriager(ctx, repository, int64(issue.GetNumber())); err != nil {
@@ -220,8 +259,19 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			}
 		}
 	}
+	for _, issue := range outside {
+		number := int64(issue.GetNumber())
+		if err := e.routeComments(ctx, repository, issue, conversation[number], review[number]); err != nil {
+			return err
+		}
+	}
 	if listChanged {
 		e.publish(Change{Workstreams: true})
+	}
+	for _, cursor := range commentCursors {
+		if err := e.queries.SetSyncCursor(ctx, cursor); err != nil {
+			return err
+		}
 	}
 	for _, issue := range page.Issues {
 		if issue.GetUpdatedAt().After(since) {
@@ -235,6 +285,14 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		Since: sql.NullString{String: since.UTC().Format(time.RFC3339), Valid: !since.IsZero()},
 		Etag:  sql.NullString{String: page.ETag, Valid: page.ETag != ""},
 	})
+}
+
+// routeComments gives the new comments of the issue or the pull request to the code that acts on them.
+func (e *Engine) routeComments(ctx context.Context, repository github.Repository, issue *gh.Issue, conversation []*gh.IssueComment, review []*gh.PullRequestComment) error {
+	if issue.IsPullRequest() {
+		return e.pullRequestComments(ctx, repository, issue, conversation, review)
+	}
+	return e.commentEvents(ctx, repository, issue, conversation)
 }
 
 // workstreamEvent acts on a new event of the issue. A change of mobius:autopilot makes the next poll read the ready

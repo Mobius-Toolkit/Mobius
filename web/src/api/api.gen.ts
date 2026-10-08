@@ -45,6 +45,8 @@ export interface Agent {
   startedAt: string;
   /** Title tells what the session works on, for example "chat session". It can be empty */
   title: string;
+  /** Working is true while the session works. A chat session works while a turn runs. Another open session works while it does not wait for a slot, for a check slot or for the end of a usage limit */
+  working: boolean;
   /** Workstream is the number of the Workstream issue. It is 0 for the Triager */
   workstream: number;
 }
@@ -287,6 +289,31 @@ export interface Checkup {
   repositories: RepositoryCheckup[];
 }
 
+/**
+ * Kind is issue or pullRequest
+ */
+export type ClosureItemKind = typeof ClosureItemKind[keyof typeof ClosureItemKind];
+
+
+export const ClosureItemKind = {
+  issue: 'issue',
+  pullRequest: 'pullRequest',
+} as const;
+
+/**
+ * ClosureItem is an issue or a pull request that the close of a Workstream as "won't do" closes.
+ */
+export interface ClosureItem {
+  /** Kind is issue or pullRequest */
+  kind: ClosureItemKind;
+  /** Number is the number of the issue or the pull request */
+  number: number;
+  /** Title is the title of the issue or the pull request */
+  title: string;
+  /** URL is the web address of the issue or the pull request on GitHub */
+  url: string;
+}
+
 export interface CreateManifestFormBody {
   /** Account is the GitHub user or organization that owns the new App */
   account: string;
@@ -361,6 +388,14 @@ export interface EnvelopeActiveAgents {
 export interface EnvelopeArrayAgent {
   /** Data is the payload of the response */
   data: Agent[];
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayClosureItem {
+  /** Data is the payload of the response */
+  data: ClosureItem[];
 }
 
 /**
@@ -483,7 +518,7 @@ export interface TaskLine {
   number: number;
   /** OtherRepository is true for a task in another repository than the Workstream */
   otherRepository: boolean;
-  /** State is the Mobius label of the issue with no "mobius:", or open. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". */
+  /** State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". */
   state: string;
   /** Title is the title of the task issue */
   title: string;
@@ -497,6 +532,28 @@ export interface TaskLine {
 export interface EnvelopeArrayTaskLine {
   /** Data is the payload of the response */
   data: TaskLine[];
+}
+
+/**
+ * ToolCheck is the path and the version of a program that Mobius runs.
+ */
+export interface ToolCheck {
+  /** Name is the name of the program */
+  name: string;
+  /** Path is the file that Mobius runs. It is empty when Mobius cannot find the program, and for the Claude Code CLI that is built in the adapter */
+  path: string;
+  /** Status is not-found for a program that Mobius cannot find, and no-version for a program that gives no version. It is empty for a program with a version */
+  status: string;
+  /** Version is the first line of the version output. It is empty when Status is not empty */
+  version: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayToolCheck {
+  /** Data is the payload of the response */
+  data: ToolCheck[];
 }
 
 /**
@@ -1542,6 +1599,71 @@ export const fixLabels = async (fixLabelsBody: FixLabelsBody, ): Promise<fixLabe
 
   const data: fixLabelsResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as fixLabelsResponse
+}
+
+
+
+export type getCheckupToolsResponse200 = {
+  data: EnvelopeArrayToolCheck
+  status: 200
+}
+
+export type getCheckupToolsResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getCheckupToolsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getCheckupToolsResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getCheckupToolsResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getCheckupToolsResponseSuccess = (getCheckupToolsResponse200) & {
+  headers: Headers;
+};
+export type getCheckupToolsResponseError = (getCheckupToolsResponse400 | getCheckupToolsResponse401 | getCheckupToolsResponse422 | getCheckupToolsResponse500) & {
+  headers: Headers;
+};
+
+export type getCheckupToolsResponse = (getCheckupToolsResponseSuccess | getCheckupToolsResponseError)
+
+export const getGetCheckupToolsUrl = () => {
+
+
+
+
+  return `/api/checkup/tools`
+}
+
+/**
+ * GetCheckupTools returns the path and the version of each program that Mobius runs for its agents and its work.
+ */
+export const getCheckupTools = async ( ): Promise<getCheckupToolsResponse> => {
+
+  const res = await fetch(getGetCheckupToolsUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getCheckupToolsResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getCheckupToolsResponse
 }
 
 
@@ -3298,6 +3420,154 @@ export const setAutopilot = async (owner: string,
 
 
 
+export type closeWorkstreamResponse204 = {
+  data: void
+  status: 204
+}
+
+export type closeWorkstreamResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type closeWorkstreamResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type closeWorkstreamResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type closeWorkstreamResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type closeWorkstreamResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type closeWorkstreamResponseSuccess = (closeWorkstreamResponse204) & {
+  headers: Headers;
+};
+export type closeWorkstreamResponseError = (closeWorkstreamResponse400 | closeWorkstreamResponse401 | closeWorkstreamResponse409 | closeWorkstreamResponse422 | closeWorkstreamResponse500) & {
+  headers: Headers;
+};
+
+export type closeWorkstreamResponse = (closeWorkstreamResponseSuccess | closeWorkstreamResponseError)
+
+export const getCloseWorkstreamUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/close`
+}
+
+/**
+ * CloseWorkstream closes the Workstream as "won't do", also when it has open issues. For each item of WorkstreamClosure, Mobius adds a comment and mobius:wont-do, and closes the item. It closes the Workstream issue last. It returns 409 when the issue is not an open Workstream.
+ */
+export const closeWorkstream = async (owner: string,
+    name: string,
+    number: number, ): Promise<closeWorkstreamResponse> => {
+
+  const res = await fetch(getCloseWorkstreamUrl(owner,name,number),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: closeWorkstreamResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as closeWorkstreamResponse
+}
+
+
+
+export type workstreamClosureResponse200 = {
+  data: EnvelopeArrayClosureItem
+  status: 200
+}
+
+export type workstreamClosureResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type workstreamClosureResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type workstreamClosureResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type workstreamClosureResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type workstreamClosureResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type workstreamClosureResponseSuccess = (workstreamClosureResponse200) & {
+  headers: Headers;
+};
+export type workstreamClosureResponseError = (workstreamClosureResponse400 | workstreamClosureResponse401 | workstreamClosureResponse409 | workstreamClosureResponse422 | workstreamClosureResponse500) & {
+  headers: Headers;
+};
+
+export type workstreamClosureResponse = (workstreamClosureResponseSuccess | workstreamClosureResponseError)
+
+export const getWorkstreamClosureUrl = (owner: string,
+    name: string,
+    number: number,) => {
+
+
+
+
+  return `/api/workstreams/${owner}/${name}/${number}/closure`
+}
+
+/**
+ * WorkstreamClosure returns the items that CloseWorkstream closes, in the order of the close: the open pull requests of the tasks, the open task issues, and the Workstream issue. It reads the state from GitHub. It returns 409 when the issue is not an open Workstream.
+ */
+export const workstreamClosure = async (owner: string,
+    name: string,
+    number: number, ): Promise<workstreamClosureResponse> => {
+
+  const res = await fetch(getWorkstreamClosureUrl(owner,name,number),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: workstreamClosureResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as workstreamClosureResponse
+}
+
+
+
 export type completeWorkstreamResponse204 = {
   data: void
   status: 204
@@ -3422,7 +3692,7 @@ export const getListTasksUrl = (owner: string,
 }
 
 /**
- * ListTasks returns the open tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.
+ * ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.
  */
 export const listTasks = async (owner: string,
     name: string,

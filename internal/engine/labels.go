@@ -24,6 +24,7 @@ const (
 	autopilotLabel    = "mobius:autopilot"
 	readyLabel        = "mobius:ready"
 	noWorkstreamLabel = "mobius:no-workstream"
+	wontDoLabel       = "mobius:wont-do"
 )
 
 // Labels are the Mobius labels.
@@ -35,6 +36,7 @@ var Labels = []Label{
 	{"mobius:needs-human", "D93F0B", "Mobius waits for an answer from a human"},
 	{"mobius:review", "006B75", "The pull request waits for a human review"},
 	{"mobius:no-workstream", "BFD4F2", "The Triager found no Workstream for this issue"},
+	{"mobius:wont-do", "CFD3D7", "The Owner closed the Workstream of this issue as \"won't do\""},
 }
 
 // The status values of a label check and of a permission check.

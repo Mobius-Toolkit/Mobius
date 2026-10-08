@@ -22,6 +22,7 @@ type activeAgent struct {
 		Workstream   int64  `json:"workstream"`
 		Issue        *int64 `json:"issue"`
 		QueueReason  string `json:"queueReason"`
+		Working      bool   `json:"working"`
 	} `json:"agent"`
 	WorkstreamTitle *string `json:"workstreamTitle"`
 	IssueTitle      *string `json:"issueTitle"`

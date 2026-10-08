@@ -3,13 +3,15 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 )
 
-// repositorySections gives the facts file and the instruction file of role as prompt sections. Both come from the
-// default branch, so a pull request cannot change them for its own agents.
+// repositorySections gives the facts file, the instruction file of role and the memory file as prompt sections. The
+// facts file and the instruction file come from the default branch, so a pull request cannot change them for its own
+// agents. The memory file comes from the data directory and is the same for each role.
 func (e *Engine) repositorySections(ctx context.Context, repository github.Repository, role string) (string, error) {
 	token, err := repository.Token(ctx)
 	if err != nil {
@@ -33,6 +35,13 @@ func (e *Engine) repositorySections(ctx context.Context, repository github.Repos
 		if ok {
 			sections += fmt.Sprintf("# %s\n\n%s\n\n", file.heading, text)
 		}
+	}
+	memory, err := e.readMemory(repository.FullName)
+	if err != nil {
+		return "", err
+	}
+	if memory = strings.TrimSpace(memory); memory != "" {
+		sections += fmt.Sprintf("# Memory\n\n%s\n\n", memory)
 	}
 	return sections, nil
 }

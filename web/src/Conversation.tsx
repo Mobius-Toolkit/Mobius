@@ -1,4 +1,11 @@
-import { ChevronRightIcon, MicIcon, PaperclipIcon, SquareIcon, XIcon } from "lucide-react";
+import {
+  ArrowUpIcon,
+  ChevronRightIcon,
+  MicIcon,
+  PaperclipIcon,
+  SquareIcon,
+  XIcon,
+} from "lucide-react";
 import {
   use,
   useCallback,
@@ -175,6 +182,7 @@ export function Conversation({
   const [images, setImages] = useState<File[]>([]);
   const [sendError, setSendError] = useState("");
   const [sending, setSending] = useState(false);
+  const [stopping, setStopping] = useState(false);
   // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
   // message.
   const imagesRef = useRef<File[]>([]);
@@ -219,6 +227,9 @@ export function Conversation({
           setMessages((list) => chat.messages.reduce(upsert, list));
           setHarness(chat.harness);
           setWriting(chat.writing);
+          if (!chat.writing) {
+            setStopping(false);
+          }
           setLoaded(true);
         } else {
           setError(res.data.error);
@@ -243,6 +254,9 @@ export function Conversation({
     const removeState = onEvent<LiveEvents, "chat">(source, "chat", (state) => {
       if (sameChat(state, key)) {
         setWriting(state.writing);
+        if (!state.writing) {
+          setStopping(false);
+        }
         setFailure(state.error);
       }
     });
@@ -329,8 +343,12 @@ export function Conversation({
     setSendError(problem);
   };
 
+  const empty = !text.trim() && images.length === 0;
+  const showStop = empty && writing;
+  const buttonPending = sending || (showStop && stopping);
+
   const send = () => {
-    if (inFlight.current || (!text.trim() && images.length === 0)) {
+    if (inFlight.current || empty) {
       return;
     }
     const sent = text;
@@ -367,13 +385,18 @@ export function Conversation({
   };
 
   const stop = () => {
+    setStopping(true);
     stopChat({ organization, repository, workstream })
       .then((res) => {
         if (res.status !== 204) {
           setSendError(res.data.error);
+          setStopping(false);
         }
       })
-      .catch((err: unknown) => setSendError(String(err)));
+      .catch((err: unknown) => {
+        setSendError(String(err));
+        setStopping(false);
+      });
   };
 
   return (
@@ -441,15 +464,26 @@ export function Conversation({
       </div>
       {footer}
       <form
-        className="flex items-end gap-2 border-t p-3 max-md:[&>button]:h-11"
+        className="grid gap-1 border-t p-2"
         onSubmit={(event) => {
           event.preventDefault();
           send();
         }}
       >
-        <div className="grid min-w-30 grow gap-1">
+        <input
+          ref={picker}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(event) => {
+            void addImages([...(event.target.files ?? [])]);
+            event.target.value = "";
+          }}
+        />
+        <div className="grid gap-1 rounded-2xl border border-input bg-background p-2 transition-colors has-[textarea:focus-visible]:border-ring dark:bg-input/30">
           {images.length > 0 && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 pb-1">
               {images.map((image, index) => (
                 <Thumbnail
                   key={index}
@@ -491,74 +525,77 @@ export function Conversation({
                 send();
               }
             }}
-            className="max-h-40 min-h-9 resize-none"
+            className="max-h-40 min-h-9 w-full resize-none rounded-none border-0 px-1 py-1.5 focus-visible:ring-0 dark:bg-transparent"
           />
-          {voice.error && (
-            <p role="alert" className="text-sm text-destructive">
-              {voice.error}
-            </p>
-          )}
-          {sendError && (
-            <p role="alert" className="text-sm text-destructive">
-              {sendError}
-            </p>
-          )}
+          <div className="flex items-center justify-between gap-2">
+            {/* A button that takes the focus closes the keyboard of a phone, and the button moves before the click. */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Attach images"
+              title="Attach images"
+              className="rounded-full text-muted-foreground max-md:size-11"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => picker.current?.click()}
+            >
+              <PaperclipIcon />
+            </Button>
+            <div className="flex items-center gap-1">
+              {voice.supported && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={voice.listening ? "Stop voice input" : "Start voice input"}
+                  title={voice.listening ? "Stop voice input" : "Start voice input"}
+                  aria-pressed={voice.listening}
+                  className={cn(
+                    "rounded-full text-muted-foreground max-md:size-11",
+                    voice.listening &&
+                      "bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive motion-safe:animate-pulse",
+                  )}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={voice.toggle}
+                >
+                  {voice.listening ? <SquareIcon /> : <MicIcon />}
+                </Button>
+              )}
+              <Button
+                type={showStop ? "button" : "submit"}
+                size="icon"
+                aria-label={showStop ? "Stop the reply" : "Send"}
+                title={showStop ? "Stop the reply" : "Send"}
+                pending={buttonPending}
+                disabled={empty && !writing}
+                className={cn(
+                  "rounded-full max-md:size-11",
+                  empty &&
+                    !writing &&
+                    "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
+                )}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={showStop ? stop : undefined}
+              >
+                {buttonPending ? null : showStop ? (
+                  <SquareIcon className="size-3 fill-current" />
+                ) : (
+                  <ArrowUpIcon />
+                )}
+              </Button>
+            </div>
+          </div>
         </div>
-        {/* A button that takes the focus closes the keyboard of a phone, and the button moves before the click. */}
-        {writing && (
-          <Button
-            type="button"
-            variant="destructive"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={stop}
-          >
-            Stop
-          </Button>
+        {voice.error && (
+          <p role="alert" className="text-sm text-destructive">
+            {voice.error}
+          </p>
         )}
-        <input
-          ref={picker}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(event) => {
-            void addImages([...(event.target.files ?? [])]);
-            event.target.value = "";
-          }}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          aria-label="Attach images"
-          title="Attach images"
-          className="max-md:w-11"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => picker.current?.click()}
-        >
-          <PaperclipIcon />
-        </Button>
-        {voice.supported && (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            aria-label={voice.listening ? "Stop voice input" : "Start voice input"}
-            title={voice.listening ? "Stop voice input" : "Start voice input"}
-            aria-pressed={voice.listening}
-            className={cn(
-              "max-md:w-11",
-              voice.listening && "border-destructive text-destructive motion-safe:animate-pulse",
-            )}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={voice.toggle}
-          >
-            {voice.listening ? <SquareIcon /> : <MicIcon />}
-          </Button>
+        {sendError && (
+          <p role="alert" className="text-sm text-destructive">
+            {sendError}
+          </p>
         )}
-        <Button type="submit" disabled={sending} onMouseDown={(event) => event.preventDefault()}>
-          Send
-        </Button>
       </form>
     </section>
   );

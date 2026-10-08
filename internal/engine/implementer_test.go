@@ -164,7 +164,7 @@ func TestTheImplementerCommitsAndMobiusOpensADraftPullRequest(t *testing.T) {
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	runs := approvalCheckRuns(t, server, fake)
-	if want := []testkit.PullRequest{{Number: 42, Title: "Add plan model", Body: "Closes #41", Head: "mobius/41", Base: "main", Draft: true}}; !reflect.DeepEqual(fake.PullRequests(shop), want) {
+	if want := []testkit.PullRequest{{Number: 42, Title: "Add plan model", Body: "Workstream:\n- #12\n\nIssue:\n- #41\n\nCloses #41", Head: "mobius/41", Base: "main", Draft: true}}; !reflect.DeepEqual(fake.PullRequests(shop), want) {
 		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
 	}
 	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: head(t, fake, "mobius/41"), Status: "in_progress"}}; !reflect.DeepEqual(runs, want) {

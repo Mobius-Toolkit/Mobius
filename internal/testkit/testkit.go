@@ -17,10 +17,17 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/fakedf"
 )
 
+// FakeAgentVersion is the first line that a Harness command of InstallFakeHarness gives for --version.
+const FakeAgentVersion = "fake-agent 1.0.0"
+
 // Main runs the tests of the package. When the test binary runs as a Harness command
-// of InstallFakeHarness, Main runs the fake agent in place of the tests, and as the df of SetFreeSpace, it gives the
-// free space of SetFreeSpace.
+// of InstallFakeHarness, Main runs the fake agent in place of the tests, as the df of SetFreeSpace, it gives the
+// free space of SetFreeSpace, and as a program of InstallFakeProgram, it gives its output.
 func Main(m *testing.M) {
+	if output, err := fs.ReadFile(os.DirFS(filepath.Dir(os.Args[0])), filepath.Base(os.Args[0])+".output"); err == nil {
+		fmt.Print(string(output))
+		return
+	}
 	if filepath.Base(os.Args[0]) == "df" {
 		if err := fakedf.Run(filepath.Clean(os.Args[0] + ".free")); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -29,6 +36,10 @@ func Main(m *testing.M) {
 		return
 	}
 	if slices.Contains(harnessPrograms, filepath.Base(os.Args[0])) {
+		if slices.Equal(os.Args[1:], []string{"--version"}) {
+			fmt.Println(FakeAgentVersion)
+			return
+		}
 		if err := fakeagent.Run(filepath.Clean(os.Args[0] + ".toml")); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -82,6 +93,26 @@ func SetFreeSpace(t testing.TB, dataDir string, kibibytes int64) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(executable, df); err != nil && !errors.Is(err, fs.ErrExist) {
+		t.Fatal(err)
+	}
+}
+
+// InstallFakeProgram makes the program name in dir write output to stdout, whatever its arguments. The program is a
+// link to the test binary, so the test package must call Main from its TestMain.
+func InstallFakeProgram(t testing.TB, dir, name, output string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	program := filepath.Join(dir, name)
+	if err := os.WriteFile(program+".output", []byte(output), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(executable, program); err != nil && !errors.Is(err, fs.ErrExist) {
 		t.Fatal(err)
 	}
 }

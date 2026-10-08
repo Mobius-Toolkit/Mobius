@@ -195,22 +195,17 @@ func lastEvent(events []*gh.IssueEvent, kind, label string) (int, *gh.IssueEvent
 // commentEvents acts on the new comments of the issue of a live task: a new comment of a trusted user resets the
 // counters of the task, and each new comment that is an event goes to the Lead. When the newest such comment is
 // newer than the last comment of the Mobius App, the question, it answers the question: mobius:needs-human goes away
-// unless the task waits for a human. since is zero at the first poll.
-func (e *Engine) commentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, since time.Time) error {
+// unless the task waits for a human.
+func (e *Engine) commentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
 	number := int64(issue.GetNumber())
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		return e.workstreamCommentEvents(ctx, repository, issue, comments)
 	}
 	if err != nil {
 		return err
 	}
-	comments, err := repository.Comments(ctx, number)
-	if err != nil {
-		return err
-	}
-	comments = commentsUntilUpdate(comments, issue)
-	replies, answered, err := e.newComments(ctx, repository, task, comments, since)
+	replies, answered, err := e.newComments(ctx, repository, task, comments)
 	if err != nil {
 		return err
 	}
@@ -222,12 +217,59 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 	return e.commentEventsOf(ctx, task, issue, replies)
 }
 
+// workstreamCommentEvents adds a comment event for the Lead for each new comment of a trusted user on an open Workstream
+// issue, or on an open issue below a Workstream, that has no live task. The event of the Workstream issue has no issue.
+// A comment on an issue in no Workstream has no event.
+func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
+	if issue.GetState() != "open" {
+		return nil
+	}
+	number := int64(issue.GetNumber())
+	workstream, err := e.commentWorkstream(ctx, repository, issue)
+	if err != nil || workstream == 0 {
+		return err
+	}
+	eventIssue := sql.NullInt64{Int64: number, Valid: workstream != number}
+	for _, comment := range comments {
+		if !e.commentIsEvent(repository.AppSlug, comment) {
+			continue
+		}
+		text := eventText(comment.GetCreatedAt().Time, "comment on", issue, comment.GetUser().GetLogin(), comment.GetBody())
+		if err := e.addLeadEvent(ctx, repository.FullName, workstream, eventIssue, "comment", text); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// commentWorkstream gives the number of the open Workstream of the issue, or 0 when the issue is in no open Workstream.
+// It reads the local copy of the Workstream tree first.
+func (e *Engine) commentWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue) (int64, error) {
+	number := int64(issue.GetNumber())
+	if hasLabel(issue, workstreamLabel) {
+		return number, nil
+	}
+	workstream, ok, err := e.copiedWorkstreamOf(ctx, repository.FullName, number, issue.GetRepositoryURL())
+	if err != nil || ok {
+		return workstream, err
+	}
+	workstream, err = workstreamOf(ctx, repository, number)
+	if err != nil || workstream == 0 {
+		return 0, err
+	}
+	open, err := repository.Issue(ctx, workstream)
+	if err != nil || open.GetState() != "open" {
+		return 0, err
+	}
+	return workstream, nil
+}
+
 // pullRequestComments acts on the new comments of the pull request of a live task: a new comment or review comment of
 // a trusted user resets the counters of the task. A comment goes to the Lead or to the Judge, never to both
 // (Mobius-rust#274). The Judge takes the new comments when the task is in checks, approval, ready_for_review, reviewed or needs_human,
 // also the comments from a round before that state. A stopped or dispatched task waits for a human or the Lead, so
 // each new comment that is an event goes to the Lead and becomes the last item of the Judge.
-func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repository, pullRequest *gh.Issue, since time.Time) error {
+func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repository, pullRequest *gh.Issue, comments []*gh.IssueComment, reviewComments []*gh.PullRequestComment) error {
 	number := int64(pullRequest.GetNumber())
 	task, err := e.queries.GetLiveTaskByPullRequest(ctx, store.GetLiveTaskByPullRequestParams{
 		Repository:  repository.FullName,
@@ -239,24 +281,19 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 	if err != nil {
 		return err
 	}
-	comments, err := repository.Comments(ctx, number)
-	if err != nil {
-		return err
-	}
-	comments = commentsUntilUpdate(comments, pullRequest)
-	reviewComments, err := repository.ReviewComments(ctx, number)
-	if err != nil {
-		return err
-	}
 	for _, comment := range reviewComments {
-		if e.newUserComment(comment.GetUser().GetLogin(), comment.GetCreatedAt().Time, since) {
+		if e.trustedUser(comment.GetUser().GetLogin()) {
 			if err := e.queries.ResetTaskCounters(ctx, task.ID); err != nil {
 				return err
 			}
 			break
 		}
 	}
-	replies, _, err := e.newComments(ctx, repository, task, comments, since)
+	state := e.pull(repository, number)
+	for _, comment := range comments {
+		state.conversation[comment.GetID()] = comment
+	}
+	replies, _, err := e.newComments(ctx, repository, task, comments)
 	if err != nil || task.State != "stopped" && task.State != "dispatched" || len(replies) == 0 {
 		return err
 	}
@@ -269,25 +306,17 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 	return e.commentEventsOf(ctx, task, pullRequest, replies)
 }
 
-// commentsUntilUpdate drops the comments that came after the issue was read. The cursor of the poll stops at the update
-// time of the issue, so the next poll reads these comments as new.
-func commentsUntilUpdate(comments []*gh.IssueComment, issue *gh.Issue) []*gh.IssueComment {
-	return slices.DeleteFunc(comments, func(comment *gh.IssueComment) bool {
-		return comment.GetCreatedAt().After(issue.GetUpdatedAt().Time)
-	})
-}
-
-// newComments resets the counters of the task when comments have a new comment of a trusted user. It gives the new
-// comments that are events, and true when the newest of them is newer than the last comment of the Mobius App.
-func (e *Engine) newComments(ctx context.Context, repository github.Repository, task store.Task, comments []*gh.IssueComment, since time.Time) ([]*gh.IssueComment, bool, error) {
+// newComments resets the counters of the task when comments have a comment of a trusted user. It gives the comments
+// that are events, and true when the newest of them is newer than the last comment of the Mobius App.
+func (e *Engine) newComments(ctx context.Context, repository github.Repository, task store.Task, comments []*gh.IssueComment) ([]*gh.IssueComment, bool, error) {
 	if slices.ContainsFunc(comments, func(comment *gh.IssueComment) bool {
-		return e.newUserComment(comment.GetUser().GetLogin(), comment.GetCreatedAt().Time, since)
+		return e.trustedUser(comment.GetUser().GetLogin())
 	}) {
 		if err := e.queries.ResetTaskCounters(ctx, task.ID); err != nil {
 			return nil, false, err
 		}
 	}
-	replies, answered := e.replies(repository.AppSlug, comments, since)
+	replies, answered := e.replies(repository.AppSlug, comments)
 	return replies, answered, nil
 }
 
@@ -304,14 +333,14 @@ func (e *Engine) commentEventsOf(ctx context.Context, task store.Task, issue *gh
 	return nil
 }
 
-// newUserComment tells if a comment of login at createdAt is a comment of a trusted user after since.
-func (e *Engine) newUserComment(login string, createdAt, since time.Time) bool {
-	return createdAt.After(since) && slices.ContainsFunc(e.config.TrustedUsers, func(user string) bool { return strings.EqualFold(user, login) })
+// trustedUser tells if login is a trusted user.
+func (e *Engine) trustedUser(login string) bool {
+	return slices.ContainsFunc(e.config.TrustedUsers, func(user string) bool { return strings.EqualFold(user, login) })
 }
 
-// replies gives the comments after since that are events, and true when the newest of them is newer than the last
+// replies gives the comments that are events, and true when the newest of them is newer than the last
 // comment of the Mobius App.
-func (e *Engine) replies(appSlug string, comments []*gh.IssueComment, since time.Time) ([]*gh.IssueComment, bool) {
+func (e *Engine) replies(appSlug string, comments []*gh.IssueComment) ([]*gh.IssueComment, bool) {
 	var askedAt, repliedAt time.Time
 	var replies []*gh.IssueComment
 	for _, comment := range comments {
@@ -319,7 +348,7 @@ func (e *Engine) replies(appSlug string, comments []*gh.IssueComment, since time
 		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(appSlug)) && createdAt.After(askedAt) {
 			askedAt = createdAt
 		}
-		if createdAt.After(since) && e.commentIsEvent(appSlug, comment) {
+		if e.commentIsEvent(appSlug, comment) {
 			replies = append(replies, comment)
 			if createdAt.After(repliedAt) {
 				repliedAt = createdAt
@@ -332,8 +361,7 @@ func (e *Engine) replies(appSlug string, comments []*gh.IssueComment, since time
 // commentIsEvent tells if the comment is an event for the Lead: a comment of a trusted user. A comment of the Lead
 // session has a trusted user as its author and the Mobius App in performed_via_github_app, so it is no event.
 func (e *Engine) commentIsEvent(appSlug string, comment *gh.IssueComment) bool {
-	trusted := slices.ContainsFunc(e.config.TrustedUsers, func(user string) bool { return strings.EqualFold(user, comment.GetUser().GetLogin()) })
-	return trusted && comment.GetPerformedViaGithubApp().GetSlug() != appSlug
+	return e.trustedUser(comment.GetUser().GetLogin()) && comment.GetPerformedViaGithubApp().GetSlug() != appSlug
 }
 
 // ask posts the question text on the issue of a live task of the Workstream, adds mobius:needs-human, and adds an
