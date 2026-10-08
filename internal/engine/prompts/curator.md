@@ -18,7 +18,7 @@ Mobius takes these items from its database. The items are newer than the start o
 - "Messages of the Owner in the Lead chats": each item has a message of the Owner and the reply of the Lead before it. Treat a message as a correction only when it corrects the agent. A question, a new task or an answer is not a correction. Find what the agent did wrong. Write a lesson only when the same error can happen again in the repository.
 - "Results of cannot_do": each item has the reason why an Implementer could not do its task. Find a reason that repeats. A missing fact, tool or rule of the repository can be the cause. Write a lesson that gives that fact or rule.
 - "Hung sessions" and "Retry prompts after a hang": find the role and the work that hang again and again. Write a lesson only when a durable cause is clear, for example a command that waits for input. Do not write a lesson for one hang.
-- "Fix rounds that repeat": each item is a task with two or more fix rounds, with the findings of the Lead and of the Reviewer. Find the cause that repeats across the rounds. A rule that the Implementer did not know is a good cause.
+- "Fix rounds that repeat": each item is a task with two or more fix rounds, with the findings of each round, from the Lead and from the Reviewer. Find the cause that repeats across the rounds. A rule that the Implementer did not know is a good cause.
 - "Review findings": each item is a review. Find the findings that repeat across tasks. Write a lesson for a finding that you see in more than one task.
 
 Use the evidence of the items in the same way for all sections:

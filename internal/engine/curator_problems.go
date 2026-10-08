@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -39,7 +38,7 @@ func (e *Engine) sessionProblems(ctx context.Context, repository string, since t
 		itemSection("Results of cannot_do", "Each item has the reason of an Implementer that could not do its task.", cannotDos) +
 		itemSection("Hung sessions", "Each item is a session that Mobius stopped after the last retry.", hung) +
 		itemSection("Retry prompts after a hang", "Each item is a prompt that Mobius sent to a session with no activity.", retries) +
-		itemSection("Fix rounds that repeat", "Each item is a task with two or more fix rounds. It has the findings of the Lead and of the Reviewer.", fixRounds) +
+		itemSection("Fix rounds that repeat", "Each item is a task with two or more fix rounds. It has the findings of each round, from the Lead and from the Reviewer.", fixRounds) +
 		itemSection("Review findings", "Each item is a review of the Reviewer.", reviews), nil
 }
 
@@ -66,9 +65,14 @@ func (e *Engine) toolCallItems(ctx context.Context, repository, since string) (c
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	leadFindings := map[int64][]string{}
-	reviewFindings := map[int64][]string{}
-	var fixRoundIssues []int64
+	roundFindings := map[int64][]string{}
+	var roundIssues []int64
+	addRound := func(issue int64, findings string) {
+		if _, seen := roundFindings[issue]; !seen {
+			roundIssues = append(roundIssues, issue)
+		}
+		roundFindings[issue] = append(roundFindings[issue], findings)
+	}
 	for _, call := range calls {
 		var row struct {
 			Tool      string          `json:"tool"`
@@ -96,26 +100,23 @@ func (e *Engine) toolCallItems(ctx context.Context, repository, since string) (c
 				fmt.Fprintf(&text, "\n- %s:%d: %s", comment.Path, comment.Line, comment.Body)
 			}
 			reviews = append(reviews, problemItem(heading, clip(text.String())))
-			if call.Issue.Valid {
-				reviewFindings[call.Issue.Int64] = append(reviewFindings[call.Issue.Int64], "Review of the Reviewer, "+call.Time+":\n"+clip(text.String()))
+			if call.Issue.Valid && len(input.Comments) > 0 {
+				addRound(call.Issue.Int64, "Findings of the Reviewer, "+call.Time+":\n"+clip(text.String()))
 			}
 		case "start_fix_round":
 			var input findingsInput
 			if err := json.Unmarshal(row.Arguments, &input); err != nil {
 				return nil, nil, nil, err
 			}
-			if _, seen := leadFindings[input.N]; !seen {
-				fixRoundIssues = append(fixRoundIssues, input.N)
-			}
-			leadFindings[input.N] = append(leadFindings[input.N], "Findings of the Lead, "+call.Time+":\n"+clip(input.Findings))
+			addRound(input.N, "Findings of the Lead, "+call.Time+":\n"+clip(input.Findings))
 		}
 	}
-	for _, issue := range fixRoundIssues {
-		if len(leadFindings[issue]) < curatorRepeatedFixRounds {
+	for _, issue := range roundIssues {
+		findings := roundFindings[issue]
+		if len(findings) < curatorRepeatedFixRounds {
 			continue
 		}
-		findings := slices.Concat(leadFindings[issue], reviewFindings[issue])
-		fixRounds = append(fixRounds, problemItem(fmt.Sprintf("Issue #%d, %d fix rounds", issue, len(leadFindings[issue])), strings.Join(findings, "\n\n")))
+		fixRounds = append(fixRounds, problemItem(fmt.Sprintf("Issue #%d, %d fix rounds", issue, len(findings)), strings.Join(findings, "\n\n")))
 	}
 	return cannotDos, reviews, fixRounds, nil
 }

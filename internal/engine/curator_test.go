@@ -432,7 +432,7 @@ func addChat(t *testing.T, server *testserver.Server, author, text string, at ti
 }
 
 // addProblems adds one item of each kind at the time at: an Owner message after a Lead reply, a cannot_do, a hung
-// session with a retry prompt, a task with two fix rounds, and a review with findings. The texts have the marker.
+// session with a retry prompt, a task with a fix round of the Lead and a review with findings. The texts have the marker.
 func addProblems(t *testing.T, server *testserver.Server, marker string, at time.Time) {
 	t.Helper()
 	addChat(t, server, "Lead", "Lead reply "+marker, at)
@@ -441,9 +441,7 @@ func addProblems(t *testing.T, server *testserver.Server, marker string, at time
 	addCall(t, server, implementer, at, "cannot_do", map[string]string{"reason": "Cannot do " + marker})
 	addTranscript(t, server, implementer, at, "prompt", map[string]string{"text": "You had no activity for 15 minutes. You are probably stuck.\n\nRetry " + marker})
 	lead := addSession(t, server, engine.LeadRole, 0, at, "done")
-	for round := 1; round <= 2; round++ {
-		addCall(t, server, lead, at, "start_fix_round", map[string]any{"n": 41, "findings": fmt.Sprintf("Fix round %d %s", round, marker)})
-	}
+	addCall(t, server, lead, at, "start_fix_round", map[string]any{"n": 41, "findings": "Fix round " + marker})
 	reviewer := addSession(t, server, engine.ReviewerRole, 41, at, "done")
 	addCall(t, server, reviewer, at, "submit_review", map[string]any{
 		"body":     "Review summary " + marker,
@@ -482,14 +480,43 @@ func TestThePromptOfTheCuratorHasEachKindOfItemOfTheSessionsOfTheRepository(t *t
 		"# Fix rounds that repeat",
 		"Issue #41, 2 fix rounds",
 		"Findings of the Lead, ",
-		"Fix round 1 alpha",
-		"Fix round 2 alpha",
+		"Fix round alpha",
+		"Findings of the Reviewer, ",
 		"# Review findings",
 		"Review summary alpha\n- plan.go:7: Finding alpha",
 	} {
 		if !strings.Contains(prompt, part) {
 			t.Errorf("%q is not in %s", part, prompt)
 		}
+	}
+}
+
+func TestTheFixRoundsThatRepeatCanComeOnlyFromReviews(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+	at := time.Now().Add(-time.Hour)
+	reviewer := addSession(t, server, engine.ReviewerRole, 52, at, "done")
+	for round := 1; round <= 2; round++ {
+		addCall(t, server, reviewer, at, "submit_review", map[string]any{
+			"body":     fmt.Sprintf("Review %d", round),
+			"comments": []map[string]any{{"path": "plan.go", "line": round, "body": fmt.Sprintf("Finding %d", round)}},
+		})
+	}
+	other := addSession(t, server, engine.ReviewerRole, 53, at, "done")
+	addCall(t, server, other, at, "submit_review", map[string]any{
+		"body":     "Review of the other issue",
+		"comments": []map[string]any{{"path": "plan.go", "line": 1, "body": "Other finding"}},
+	})
+
+	prompt := nextCuratorPrompt(t, server, 1)
+
+	for _, part := range []string{"Issue #52, 2 fix rounds", "- plan.go:1: Finding 1", "- plan.go:2: Finding 2"} {
+		if !strings.Contains(prompt, part) {
+			t.Errorf("%q is not in %s", part, prompt)
+		}
+	}
+	if strings.Contains(prompt, "Issue #53, ") {
+		t.Errorf("a task with one fix round is in %s", prompt)
 	}
 }
 
