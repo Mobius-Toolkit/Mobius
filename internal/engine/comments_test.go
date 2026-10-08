@@ -239,3 +239,20 @@ func TestACommentOnAnIssueInNoWorkstreamGivesNoEvent(t *testing.T) {
 		t.Errorf("events = %+v", events)
 	}
 }
+
+func TestACommentOnASubIssueOfAClosedWorkstreamGivesNoEvent(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := connectSeen(t, fake)
+	fake.AddIssue(shop, 50, "Plan the tiers")
+	fake.AddSubIssue(shop, 12, 50)
+	waitForPolls(t, fake)
+	fake.CloseIssue(shop, 12)
+	waitForPolls(t, fake)
+
+	fake.AddComment(shop, 50, "owner", "Use three tiers.")
+
+	waitForPolls(t, fake)
+	if events := commentEvents(t, server); len(events) != 0 {
+		t.Errorf("events = %+v", events)
+	}
+}

@@ -242,8 +242,8 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 	return nil
 }
 
-// commentWorkstream gives the number of the Workstream of the issue, or 0 when the issue is in no Workstream. It reads
-// the local copy of the Workstream tree first.
+// commentWorkstream gives the number of the open Workstream of the issue, or 0 when the issue is in no open Workstream.
+// It reads the local copy of the Workstream tree first.
 func (e *Engine) commentWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue) (int64, error) {
 	number := int64(issue.GetNumber())
 	if hasLabel(issue, workstreamLabel) {
@@ -253,7 +253,15 @@ func (e *Engine) commentWorkstream(ctx context.Context, repository github.Reposi
 	if err != nil || ok {
 		return workstream, err
 	}
-	return workstreamOf(ctx, repository, number)
+	workstream, err = workstreamOf(ctx, repository, number)
+	if err != nil || workstream == 0 {
+		return 0, err
+	}
+	open, err := repository.Issue(ctx, workstream)
+	if err != nil || open.GetState() != "open" {
+		return 0, err
+	}
+	return workstream, nil
 }
 
 // pullRequestComments acts on the new comments of the pull request of a live task: a new comment or review comment of
