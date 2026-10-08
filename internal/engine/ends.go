@@ -22,7 +22,8 @@ import (
 // checkTasks checks each live task of the repository, and adds the pull request of each task with work for an agent
 // to work. A task that fails to check keeps its entry of the last poll. It first reads the pull requests of the
 // reviewed tasks with one call, because GitHub does not document that a resolve of a review thread changes the update
-// time of the pull request.
+// time of the pull request. It reads the pull requests of the tasks with an approval in the same call, because the
+// approval needs the open threads and the dismissals.
 func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, work map[int64]Work) error {
 	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
 	if err != nil {
@@ -30,7 +31,7 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 	}
 	var reviewed []int64
 	for _, task := range tasks {
-		if task.State == "reviewed" && task.PullRequest.Valid {
+		if (task.State == "reviewed" || awaitsMerge(task)) && task.PullRequest.Valid {
 			reviewed = append(reviewed, task.PullRequest.Int64)
 		}
 	}
@@ -61,6 +62,8 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
 //     conflict round. A failed check run of another App on its head gets a fix round.
 //   - Else a task in checks moves to approval when the CI of the head passed (onChecks).
+//   - Else a pull request with the approval of a trusted user gets a squash merge when its head agrees with the
+//     conditions (mergeApproved), and the next poll ends the task.
 //   - Else the new comments of the pull request of a task in checks, approval, ready_for_review, reviewed or needs_human
 //     go to the Judge.
 func (e *Engine) checkTask(ctx context.Context, repository github.Repository, task store.Task) (Work, bool, error) {
@@ -94,6 +97,9 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	if pullRequest == nil {
 		return Work{}, false, nil
 	}
+	if task, err = e.keepApproval(ctx, repository, task); err != nil {
+		return Work{}, false, err
+	}
 	work := pullRequestWork(repository, pullRequest)
 	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest)
 	switch {
@@ -114,6 +120,9 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 				return Work{}, false, err
 			}
 		}
+	}
+	if merged, err := e.mergeApproved(ctx, repository, task, pullRequest); err != nil || merged {
+		return Work{}, false, err
 	}
 	waiting := false
 	if task.State == "reviewed" {

@@ -120,6 +120,15 @@ type FakeGitHub struct {
 	// createdAt holds the creation time of each pull request, in seconds after the Unix epoch.
 	createdAt map[issueKey]int64
 	behind    map[issueKey]bool
+	// mergeRefusals holds the reason that the merge of a pull request gets, for each pull request that refuses a merge.
+	mergeRefusals map[issueKey]string
+	// mergeCalls and checkRunReads are the numbers of requests to merge a pull request and to list the check runs of a
+	// commit.
+	mergeCalls, checkRunReads int
+	// afterCheckRunRead runs once at the end of the first request for the check runs of a commit after a GraphQL answer
+	// gave a review of a pull request. reviewRead tells if such an answer was given.
+	afterCheckRunRead func()
+	reviewRead        bool
 	// unknownMergeable holds the pull requests whose mergeable GitHub still calculates.
 	unknownMergeable map[issueKey]bool
 	// The id of a check run is its index plus 1.
@@ -181,6 +190,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		issueHolds:              map[issueKey]*hold{},
 		createdAt:               map[issueKey]int64{},
 		behind:                  map[issueKey]bool{},
+		mergeRefusals:           map[issueKey]string{},
 		unknownMergeable:        map[issueKey]bool{},
 		annotations:             map[int64][]annotationJSON{},
 		checkRunApps:            map[int64]string{},
@@ -227,6 +237,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls", g.withToken(g.createPullRequest))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.getPullRequest))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.closeIssue))
+	mux.HandleFunc("PUT /repos/{owner}/{repo}/pulls/{number}/merge", g.withToken(g.mergePullRequest))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/reviews", g.withToken(g.reviews))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/{number}/reviews", g.withToken(g.submitReview))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/comments", g.withToken(g.repositoryReviewComments))

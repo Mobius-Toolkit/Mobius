@@ -16,7 +16,7 @@ type reviewJSON struct {
 	CommitID    string    `json:"commit_id"`
 	Body        string    `json:"body"`
 	State       string    `json:"state"`
-	SubmittedAt string    `json:"submitted_at"`
+	SubmittedAt string    `json:"submitted_at,omitempty"`
 }
 
 type reviewCommentJSON struct {
@@ -53,13 +53,55 @@ type Thread struct {
 	Comments []Comment
 }
 
-// AddReview adds a submitted review of author with state, for example "APPROVED", to the pull request.
-func (g *FakeGitHub) AddReview(repository string, number int64, author, state, body string) {
+// AddReview adds a submitted review of author with state, for example "APPROVED", to the pull request, and gives its
+// id.
+func (g *FakeGitHub) AddReview(repository string, number int64, author, state, body string) int64 {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	found := g.issues[issueKey{repository, number}]
 	g.lastReviewID++
 	found.reviews = append(found.reviews, reviewJSON{ID: g.lastReviewID, User: loginJSON{author}, CommitID: g.headOf(repository, number), Body: body, State: state, SubmittedAt: timestamp(g.tick())})
+	found.updatedAt = g.tick()
+	return g.lastReviewID
+}
+
+// StartReview adds a pending review of author to the pull request, and gives its id. A pending review has no submit
+// time.
+func (g *FakeGitHub) StartReview(repository string, number int64, author string) int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	found := g.issues[issueKey{repository, number}]
+	g.lastReviewID++
+	found.reviews = append(found.reviews, reviewJSON{ID: g.lastReviewID, User: loginJSON{author}, CommitID: g.headOf(repository, number), State: "PENDING"})
+	found.updatedAt = g.tick()
+	return g.lastReviewID
+}
+
+// SubmitStartedReview gives the pending review id of the pull request the state, for example "APPROVED", and a submit time.
+// The review keeps its place in the list.
+func (g *FakeGitHub) SubmitStartedReview(repository string, number, id int64, state string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	found := g.issues[issueKey{repository, number}]
+	for i := range found.reviews {
+		if found.reviews[i].ID == id {
+			found.reviews[i].State = state
+			found.reviews[i].SubmittedAt = timestamp(g.tick())
+		}
+	}
+	found.updatedAt = g.tick()
+}
+
+// DismissReview sets the state of the review id of the pull request to DISMISSED.
+func (g *FakeGitHub) DismissReview(repository string, number, id int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	found := g.issues[issueKey{repository, number}]
+	for i := range found.reviews {
+		if found.reviews[i].ID == id {
+			found.reviews[i].State = "DISMISSED"
+		}
+	}
 	found.updatedAt = g.tick()
 }
 
@@ -71,7 +113,8 @@ func (g *FakeGitHub) AddReviewComment(repository string, number, inReplyTo int64
 	return g.reviewComment(issueKey{repository, number}, inReplyTo, author, InlineComment{"src/plan.rs", 12, body}).ID
 }
 
-// ResolveReviewThread marks the review thread that starts with the comment root as resolved.
+// ResolveReviewThread marks the review thread that starts with the comment root as resolved. The update time of the
+// pull request does not change, as on GitHub.
 func (g *FakeGitHub) ResolveReviewThread(root int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -309,7 +352,11 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 		pulls := map[string]any{}
 		for _, alias := range aliases {
 			number, _ := strconv.ParseInt(alias[2], 10, 64)
-			pulls["pr"+alias[1]] = g.pullRequestNode(issueKey{repository, number})
+			key := issueKey{repository, number}
+			pulls["pr"+alias[1]] = g.pullRequestNode(key)
+			if found, ok := g.issues[key]; ok && len(found.reviews) > 0 {
+				g.reviewRead = true
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": pulls}})
 	}
@@ -384,7 +431,7 @@ func (g *FakeGitHub) reviewNodes(found *issue) []map[string]any {
 			"state":       review.State,
 			"author":      graphqlActor(review.User.Login),
 			"commit":      map[string]string{"oid": review.CommitID},
-			"submittedAt": review.SubmittedAt,
+			"submittedAt": submittedAt(review),
 		})
 	}
 	return nodes
@@ -419,4 +466,11 @@ func graphqlActor(login string) map[string]string {
 		return map[string]string{"__typename": "Bot", "login": bot}
 	}
 	return map[string]string{"__typename": "User", "login": login}
+}
+
+func submittedAt(review reviewJSON) any {
+	if review.SubmittedAt == "" {
+		return nil
+	}
+	return review.SubmittedAt
 }
