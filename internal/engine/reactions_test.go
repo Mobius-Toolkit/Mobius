@@ -118,6 +118,26 @@ func TestACommentOnAnIssueInNoWorkstreamGetsConfusedAndOneReply(t *testing.T) {
 	}
 }
 
+func TestAFailedPollAfterADeclineDoesNotWriteASecondReply(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	connectSeen(t, fake)
+	fake.AddIssue(shop, 60, "Fix the footer")
+	fake.AddIssue(shop, 61, "Fix the header")
+	waitForPolls(t, fake)
+	fake.FailParents(shop, 61, true)
+
+	id := fake.AddComment(shop, 60, "owner", "Use a smaller font.")
+	fake.AddComment(shop, 61, "owner", "Use a larger font.")
+	waitForReactions(t, fake, id, reactions("confused"))
+	fake.FailParents(shop, 61, false)
+
+	testkit.WaitFor(t, func() bool { return len(replies(fake, 61)) == 1 })
+	waitForPolls(t, fake)
+	if got := replies(fake, 60); len(got) != 1 {
+		t.Errorf("replies = %q", got)
+	}
+}
+
 func TestACommentOnAClosedIssueGetsConfusedAndOneReply(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)

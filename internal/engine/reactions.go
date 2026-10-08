@@ -27,7 +27,7 @@ const (
 // acknowledge adds the reaction of an agent that gets the conversation comments.
 func acknowledge(ctx context.Context, repository github.Repository, comments []*gh.IssueComment) error {
 	for _, comment := range comments {
-		if err := repository.ReactToComment(ctx, comment.GetID(), gotReaction); err != nil {
+		if _, err := repository.ReactToComment(ctx, comment.GetID(), gotReaction); err != nil {
 			return err
 		}
 	}
@@ -35,11 +35,15 @@ func acknowledge(ctx context.Context, repository github.Repository, comments []*
 }
 
 // declineComments adds the reaction of a refusal to each conversation comment, and replies with reply on the issue or the pull
-// request number.
+// request number. A comment that already has the reaction gets no second reply.
 func declineComments(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment, reply string) error {
 	for _, comment := range comments {
-		if err := repository.ReactToComment(ctx, comment.GetID(), declinedReaction); err != nil {
+		added, err := repository.ReactToComment(ctx, comment.GetID(), declinedReaction)
+		if err != nil {
 			return err
+		}
+		if !added {
+			continue
 		}
 		if _, err := repository.AddComment(ctx, number, reply); err != nil {
 			return err
@@ -50,7 +54,8 @@ func declineComments(ctx context.Context, repository github.Repository, number i
 
 // declineReviewComment adds the reaction of a refusal to the review comment, and replies with reply in its thread.
 func declineReviewComment(ctx context.Context, repository github.Repository, number int64, comment *gh.PullRequestComment, reply string) error {
-	if err := repository.ReactToReviewComment(ctx, comment.GetID(), declinedReaction); err != nil {
+	added, err := repository.ReactToReviewComment(ctx, comment.GetID(), declinedReaction)
+	if err != nil || !added {
 		return err
 	}
 	root := comment.GetInReplyTo()
@@ -78,7 +83,7 @@ func (e *Engine) answerReviewComments(ctx context.Context, repository github.Rep
 			}
 			continue
 		}
-		if err := repository.ReactToReviewComment(ctx, comment.GetID(), gotReaction); err != nil {
+		if _, err := repository.ReactToReviewComment(ctx, comment.GetID(), gotReaction); err != nil {
 			return err
 		}
 	}
