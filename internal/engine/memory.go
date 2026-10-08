@@ -44,6 +44,13 @@ func (e *Engine) readMemory(repository string) (string, error) {
 // SaveMemory writes text to the memory file of the repository and adds a version with author. It refuses a text of
 // more than maxMemoryLines lines. It does nothing when text is the text of the file.
 func (e *Engine) SaveMemory(ctx context.Context, repository, author, text string) error {
+	e.memoryMu.Lock()
+	defer e.memoryMu.Unlock()
+	return e.saveMemory(ctx, repository, author, text)
+}
+
+// saveMemory is SaveMemory for a caller that holds memoryMu.
+func (e *Engine) saveMemory(ctx context.Context, repository, author, text string) error {
 	if lines := countLines(text); lines > maxMemoryLines {
 		return fmt.Errorf("%w: the text has %d lines and the maximum is %d", ErrMemoryTooLong, lines, maxMemoryLines)
 	}
@@ -67,6 +74,8 @@ func (e *Engine) SaveMemory(ctx context.Context, repository, author, text string
 // EditMemory saves text like SaveMemory with the author owner, for an edit that started from the version base (0 when
 // the file had no version). It refuses the edit when the newest version of the repository is another version.
 func (e *Engine) EditMemory(ctx context.Context, repository string, base int64, text string) error {
+	e.memoryMu.Lock()
+	defer e.memoryMu.Unlock()
 	newest, err := e.queries.GetNewestMemoryVersionID(ctx, repository)
 	if err != nil {
 		return err
@@ -74,7 +83,7 @@ func (e *Engine) EditMemory(ctx context.Context, repository string, base int64, 
 	if newest != base {
 		return refuse("The memory file changed after the start of your edit. Copy your text, then load the file again.")
 	}
-	return e.SaveMemory(ctx, repository, "owner", text)
+	return e.saveMemory(ctx, repository, "owner", text)
 }
 
 // splitLines gives the lines of text with their line ends.
@@ -166,9 +175,11 @@ func (e *Engine) MemoryRevertProblem(ctx context.Context, repository string, id 
 // new version of the author owner. It returns ErrNoMemoryVersion for an unknown version and for a version of another
 // repository, and a refusal when the change cannot be undone.
 func (e *Engine) RevertMemory(ctx context.Context, repository string, id int64) error {
+	e.memoryMu.Lock()
+	defer e.memoryMu.Unlock()
 	text, err := e.revertedMemory(ctx, repository, id)
 	if err != nil {
 		return err
 	}
-	return e.SaveMemory(ctx, repository, "owner", text)
+	return e.saveMemory(ctx, repository, "owner", text)
 }
