@@ -147,6 +147,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.changedIssues(ctx, repository); err != nil {
 		return err
 	}
+	if err := e.startHeldTriagers(ctx, repository); err != nil {
+		return err
+	}
 	if err := e.dispatchReady(ctx, repository); err != nil {
 		return err
 	}

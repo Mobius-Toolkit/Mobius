@@ -1102,6 +1102,21 @@ func (q *Queries) HoldLeadEvent(ctx context.Context, id int64) error {
 	return err
 }
 
+const holdTriager = `-- name: HoldTriager :exec
+INSERT INTO held_triagers (repository, issue) VALUES (?, ?)
+ON CONFLICT (repository, issue) DO NOTHING
+`
+
+type HoldTriagerParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) HoldTriager(ctx context.Context, arg HoldTriagerParams) error {
+	_, err := q.db.ExecContext(ctx, holdTriager, arg.Repository, arg.Issue)
+	return err
+}
+
 const listChatMessages = `-- name: ListChatMessages :many
 SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Researcher'
@@ -1774,6 +1789,33 @@ func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error)
 	return items, nil
 }
 
+const listHeldTriagers = `-- name: ListHeldTriagers :many
+SELECT issue FROM held_triagers WHERE repository = ? ORDER BY issue
+`
+
+func (q *Queries) ListHeldTriagers(ctx context.Context, repository string) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listHeldTriagers, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var issue int64
+		if err := rows.Scan(&issue); err != nil {
+			return nil, err
+		}
+		items = append(items, issue)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLatestEvents = `-- name: ListLatestEvents :many
 SELECT id, time, repository, workstream, issue, actor, text, link FROM events ORDER BY id DESC LIMIT ?
 `
@@ -2339,6 +2381,20 @@ func (q *Queries) QueueTask(ctx context.Context, arg QueueTaskParams) (int64, er
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const releaseTriager = `-- name: ReleaseTriager :exec
+DELETE FROM held_triagers WHERE repository = ? AND issue = ?
+`
+
+type ReleaseTriagerParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) ReleaseTriager(ctx context.Context, arg ReleaseTriagerParams) error {
+	_, err := q.db.ExecContext(ctx, releaseTriager, arg.Repository, arg.Issue)
+	return err
 }
 
 const reopenInboxItem = `-- name: ReopenInboxItem :one

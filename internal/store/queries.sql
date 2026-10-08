@@ -417,3 +417,13 @@ ORDER BY i.repository, i.workstream, i.number;
 
 -- name: AddMemoryVersion :exec
 INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?);
+
+-- name: HoldTriager :exec
+INSERT INTO held_triagers (repository, issue) VALUES (?, ?)
+ON CONFLICT (repository, issue) DO NOTHING;
+
+-- name: ListHeldTriagers :many
+SELECT issue FROM held_triagers WHERE repository = ? ORDER BY issue;
+
+-- name: ReleaseTriager :exec
+DELETE FROM held_triagers WHERE repository = ? AND issue = ?;

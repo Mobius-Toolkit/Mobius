@@ -12,6 +12,7 @@ import (
 	gh "github.com/google/go-github/v92/github"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // triageKey names the Triager session of one issue.
@@ -45,18 +46,22 @@ func (e *Engine) triage(ctx context.Context, repository github.Repository, numbe
 	return true, nil
 }
 
-// retriage starts the Triager of the issue number again after the comments, when the issue is open, has
-// mobius:no-workstream, and a comment is an event. A running Triager stops first, so the new run reads the comments
-// again. It starts no Triager while the drain is on.
+// retriage starts the Triager of the issue again after the comments, when the issue is open, has mobius:no-workstream,
+// and a comment is an event.
 func (e *Engine) retriage(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
 	if issue.GetState() != "open" || !hasLabel(issue, noWorkstreamLabel) ||
 		!slices.ContainsFunc(comments, func(comment *gh.IssueComment) bool { return e.commentIsEvent(repository.AppSlug, comment) }) {
 		return nil
 	}
+	return e.restartTriager(ctx, repository, int64(issue.GetNumber()))
+}
+
+// restartTriager starts the Triager of the issue number again. A running Triager stops first, so the new run reads the
+// comments again. While the drain is on, the database keeps the issue for startHeldTriagers.
+func (e *Engine) restartTriager(ctx context.Context, repository github.Repository, number int64) error {
 	if !e.tryTrack() {
-		return nil
+		return e.queries.HoldTriager(ctx, store.HoldTriagerParams{Repository: repository.FullName, Issue: number})
 	}
-	number := int64(issue.GetNumber())
 	e.triagesMu.Lock()
 	running, ok := e.triages[triageKey{repository.FullName, number}]
 	e.triagesMu.Unlock()
@@ -70,6 +75,34 @@ func (e *Engine) retriage(ctx context.Context, repository github.Repository, iss
 		}
 	}
 	e.startTriager(repository, number)
+	return nil
+}
+
+// startHeldTriagers starts the Triagers that the drain held, when the issue is still open and has
+// mobius:no-workstream. It starts none while the drain is on.
+func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Repository) error {
+	if e.draining() {
+		return nil
+	}
+	numbers, err := e.queries.ListHeldTriagers(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	for _, number := range numbers {
+		if err := e.queries.ReleaseTriager(ctx, store.ReleaseTriagerParams{Repository: repository.FullName, Issue: number}); err != nil {
+			return err
+		}
+		issue, err := repository.Issue(ctx, number)
+		if err != nil {
+			return err
+		}
+		if issue == nil || issue.GetState() != "open" || !hasLabel(issue, noWorkstreamLabel) {
+			continue
+		}
+		if err := e.restartTriager(ctx, repository, number); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

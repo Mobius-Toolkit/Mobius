@@ -34,6 +34,10 @@ when = "# Issue\n\n#54 "
 reply = ["First proposal."]
 
 [[prompts]]
+when = "# Issue\n\n#56 "
+reply = ["First proposal."]
+
+[[prompts]]
 when = "# Issue\n\n#55 "
 hang = true
 
@@ -204,6 +208,35 @@ func TestACommentOfTheAppOrOfAnUntrustedUserDoesNotStartTheTriagerAgain(t *testi
 	waitForPolls(t, fake)
 	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 1 {
 		t.Errorf("sessions = %+v", got)
+	}
+}
+
+func TestACommentThatTheDrainHeldStartsTheTriagerAgainAfterACancel(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.AddIssue(shop, 56, "Add points")
+	fake.AddLabel(shop, 56, "mobius:ready", "owner")
+	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 56)) == 1 })
+	if end := <-startDrain(t, server); end != "drained" {
+		t.Fatalf("end = %s", end)
+	}
+
+	fake.AddComment(shop, 56, "owner", "Please use points.")
+
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 1 {
+		t.Errorf("sessions = %+v", got)
+	}
+
+	cancelDrain(t, server)
+
+	second := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return sessions[len(sessions)-1], len(sessions) == 2 && sessions[1].EndedAt.Valid
+	})
+	if prompts := promptTexts(t, server, second.ID); len(prompts) != 1 || !strings.Contains(prompts[0], ":\nPlease use points.\n") {
+		t.Errorf("prompts = %q", prompts)
 	}
 }
 
