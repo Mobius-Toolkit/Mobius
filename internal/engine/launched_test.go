@@ -133,6 +133,20 @@ func TestEachNewCommentOfATrustedUserInAThreadGetsARocketWhenTheJudgeSessionStar
 	}
 }
 
+func TestACommentThatTheLeadWroteThroughTheAppGetsNoRocketWhenTheJudgeSessionStarts(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	connectJudge(t, fake, "shell = \"true\"\n", "", func(cfg *config.Config) { cfg.ReviewQuietPeriod = 2 * time.Second })
+
+	fromLead := fake.AddAppComment(shop, 42, "owner", "I asked the Lead in the chat.")
+	conversation := fake.AddComment(shop, 42, "owner", "Why cents?")
+
+	waitForReactions(t, fake, conversation, reactions("eyes"))
+	waitForReactions(t, fake, conversation, reactions("eyes", "rocket"))
+	if got := fake.Reactions(shop, fromLead); len(got) != 0 {
+		t.Errorf("reactions of the comment of the Lead = %+v", got)
+	}
+}
+
 func TestACommentThatTheDrainHeldGetsARocketWhenTheTriagerStarts(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
