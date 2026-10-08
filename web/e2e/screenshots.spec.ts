@@ -30,6 +30,13 @@ async function screenshot(
   }
 }
 
+const queueReasons = [
+  "runs .mobius/check",
+  "waits for a check slot",
+  "paused until 2026-09-28 12:00 UTC",
+  "no free Implementer slot (2/2)",
+];
+
 // The tests have no DOM types, so the check is a script.
 const wide = (selector: string) =>
   `(document.querySelector('${selector}')?.scrollWidth ?? 0) > (document.querySelector('${selector}')?.clientWidth ?? 0)`;
@@ -88,6 +95,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "workstreams", "/workstreams", (device) => [
     ...frame(device, drain),
     main.getByText("Seasonal prices"),
+    main.getByRole("img", { name: "Autopilot" }),
     main.getByText("done"),
     main.getByText("needs you"),
   ]);
@@ -137,6 +145,7 @@ test("screenshots", async ({ page }) => {
       page
         .getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/)
         .filter({ visible: true }),
+      ...queueReasons.map((reason) => page.getByText(reason).filter({ visible: true })),
     ],
     async (device) => {
       if (device === "phone") {
@@ -244,6 +253,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "agents", "/agents", (device) => [
     ...frame(device, drain),
     main.getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/),
+    ...queueReasons.map((reason) => main.getByText(reason)),
   ]);
   await screenshot(
     page,

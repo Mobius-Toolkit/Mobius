@@ -139,12 +139,16 @@ const question = "What is the state of the plans? The full report is at " +
 // table of the pauses has no row, because a pause stops the fake agents. The tools of the Checkup page have fixed
 // paths and versions, and tar gives no version.
 //
+// The Workstream owner/shop#14 has Autopilot on and no task.
+//
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
 // unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
 // Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, and
 // the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55. The
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
-// The Workstream owner/shop#12 has two closed tasks. POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub.
+// The Workstream owner/shop#12 has two closed tasks. It also has four Implementer sessions with the queue reasons of a
+// check that runs, a check that waits for a slot, a pause, and a full Role.
+// POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -163,6 +167,7 @@ func TestServer(t *testing.T) {
 	}{
 		{"owner/shop", 12, "Integrate loyalty plans"},
 		{"owner/shop", 13, "Seasonal prices"},
+		{"owner/shop", 14, "Early renewals"},
 		{"plants/garden", 12, "Plant roses"},
 		{"plants/garden", 14, "Water the roses"},
 		{"plants/garden", 15, "Feed the roses"},
@@ -179,6 +184,7 @@ func TestServer(t *testing.T) {
 		github.AddIssue(workstream.repository, workstream.number, workstream.title)
 		github.AddLabel(workstream.repository, workstream.number, "mobius:workstream", "owner")
 	}
+	github.AddLabel("owner/shop", 14, "mobius:autopilot", "owner")
 	github.AddSubIssueOf("owner/shop", 12, 41, "Add plan model")
 	github.AddSubIssueOf("owner/shop", 12, 42, "Let customers change plans")
 	github.AddSubIssueOf("owner/shop", 12, 45, "Pick the plan limits")
@@ -424,13 +430,28 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	for _, session := range []struct {
+		number int64
+		reason string
+	}{
+		{38, "runs .mobius/check"},
+		{39, "waits for a check slot"},
+		{45, "paused until 2026-09-28 12:00 UTC"},
+		{42, "no free Implementer slot (2/2)"},
+	} {
+		if _, err := server.DB.Exec(`INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, started_at, queue_reason)
+			VALUES (?, 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, ?, ?, ?)`,
+			engine.ImplementerRole, session.number, time.Now().UTC().Format(time.RFC3339Nano), session.reason); err != nil {
+			t.Fatal(err)
+		}
+	}
 	fixTimes(t, server)
 	go func() { _, _ = server.Engine.Drain(ctx) }()
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
 	held := implementerSpec(t, server, 42)
 	go func() { _, _ = server.Engine.Start(ctx, held) }()
 	testkit.WaitFor(t, func() bool {
-		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_reason <> ''", "2026-09-28T09:30:00Z")
+		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_reason = 'Mobius prepares an upgrade'", "2026-09-28T09:30:00Z")
 		if err != nil {
 			t.Fatal(err)
 		}

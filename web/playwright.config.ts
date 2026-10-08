@@ -24,6 +24,7 @@ export default defineConfig({
     },
     // The memory test edits the memory file of plants/garden and reverts the edit.
     { name: "memory", testMatch: "memory.spec.ts", dependencies: ["installations"] },
+    { name: "agents", testMatch: "agents.spec.ts", dependencies: ["installations"] },
   ],
   use: {
     baseURL: `http://${addr}`,

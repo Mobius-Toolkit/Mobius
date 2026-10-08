@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { PlusIcon } from "lucide-react";
+import { PlaneIcon, PlusIcon } from "lucide-react";
 import type { Unread, Workstream } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,11 @@ export function WorkstreamBadges({
   });
   return (
     <span className="flex shrink-0 items-center gap-1.5">
+      {workstream.autopilot && (
+        <span role="img" aria-label="Autopilot" title="Autopilot" className="text-muted-foreground">
+          <PlaneIcon className="size-3.5" />
+        </span>
+      )}
       <span className="text-muted-foreground">#{workstream.number}</span>
       {workstream.allTasksClosed && <Badge variant="secondary">done</Badge>}
       {needsHuman && (
