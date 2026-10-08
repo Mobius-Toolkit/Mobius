@@ -13,6 +13,7 @@ async function screenshot(
   path: string,
   ready: (device: string) => Locator | Locator[],
   open?: (device: string) => Promise<void>,
+  close?: () => Promise<void>,
 ) {
   for (const [device, size] of Object.entries(viewports)) {
     await page.setViewportSize(size);
@@ -25,8 +26,16 @@ async function screenshot(
       path: `screenshots/${name}-${device}.png`,
       animations: "disabled",
     });
+    await close?.();
   }
 }
+
+const queueReasons = [
+  "runs .mobius/check",
+  "waits for a check slot",
+  "paused until 2026-09-28 12:00 UTC",
+  "no free Implementer slot (2/2)",
+];
 
 // The tests have no DOM types, so the check is a script.
 const wide = (selector: string) =>
@@ -103,6 +112,8 @@ test("screenshots", async ({ page }) => {
     chatCount,
     ...frame(device, drain),
     main.getByText("Seasonal prices"),
+    main.getByRole("img", { name: "Autopilot" }),
+    main.getByRole("img", { name: "Agent running" }),
     main.getByText("done"),
     main.getByText("needs you"),
   ]);
@@ -122,6 +133,24 @@ test("screenshots", async ({ page }) => {
     (device) => [...chatReady(device), main.getByRole("button", { name: "Stop voice input" })],
     () => main.getByRole("button", { name: "Start voice input" }).click(),
   );
+  await screenshot(
+    page,
+    "chat-typing",
+    "/workstreams/owner/shop/12",
+    (device) => [...chatReady(device), main.getByRole("button", { name: "Send", exact: true })],
+    () => main.getByLabel("Message to the Lead").fill("Show the prices of the roses first."),
+  );
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { writing: boolean } };
+    body.data.writing = true;
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(page, "chat-writing", "/workstreams/owner/shop/12", (device) => [
+    ...chatReady(device),
+    main.getByRole("button", { name: "Stop the reply" }),
+  ]);
+  await page.unroute("**/api/chat?*");
   const photos = [
     { name: "plan.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#2563eb") },
     { name: "cart.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#16a34a") },
@@ -145,6 +174,23 @@ test("screenshots", async ({ page }) => {
   );
   await screenshot(
     page,
+    "chat-agents",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      page
+        .getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/)
+        .filter({ visible: true }),
+      ...queueReasons.map((reason) => page.getByText(reason).filter({ visible: true })),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await main.getByRole("button", { name: "Agents" }).click();
+      }
+    },
+  );
+  await screenshot(
+    page,
     "chat-tasks",
     "/workstreams/owner/shop/12",
     (device) => [
@@ -158,6 +204,26 @@ test("screenshots", async ({ page }) => {
         await main.getByRole("button", { name: "Agents" }).click();
       }
       await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+    },
+  );
+  await screenshot(
+    page,
+    "chat-tasks-closed",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      page.getByText("#45 Pick the plan limits").filter({ visible: true }),
+      page.getByText("waits for CI").filter({ visible: true }),
+      page.getByText("waits for Lead").filter({ visible: true }),
+      page.getByText("#36 Rename the plan table").filter({ visible: true }),
+      page.getByText("#37 Remove the old plan page").filter({ visible: true }),
+    ],
+    async (device) => {
+      if (device === "phone") {
+        await main.getByRole("button", { name: "Agents" }).click();
+      }
+      await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+      await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
     },
   );
   // The Inbox of the organization plants has no item, so the frame has no Inbox count.
@@ -228,7 +294,8 @@ test("screenshots", async ({ page }) => {
   ).toBe(true);
   await screenshot(page, "agents", "/agents", (device) => [
     ...frame(device, drain),
-    main.getByText("Mobius prepares an upgrade"),
+    main.getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/),
+    ...queueReasons.map((reason) => main.getByText(reason)),
   ]);
   await screenshot(
     page,
@@ -275,11 +342,38 @@ test("screenshots", async ({ page }) => {
     ...frame(device, release),
     main.getByText("This device"),
   ]);
+  const logOut = main
+    .getByRole("listitem")
+    .filter({ hasText: "This device" })
+    .getByRole("button", { name: "Log out" });
+  // The route holds the request until the screenshot is done, and then it answers with an error, so the server keeps
+  // the login.
+  let endLogOut!: () => void;
+  await screenshot(
+    page,
+    "devices-log-out",
+    "/devices",
+    (device) => [...frame(device, release), logOut.locator('[data-slot="spinner"]')],
+    async () => {
+      const ends = new Promise<void>((resolve) => (endLogOut = resolve));
+      await page.route("**/api/devices/*", async (route) => {
+        await ends;
+        await route.fulfill({ status: 500, json: { error: "The server failed." } });
+      });
+      await logOut.click();
+    },
+    async () => {
+      endLogOut();
+      await expect(logOut).toBeEnabled();
+      await page.unroute("**/api/devices/*");
+    },
+  );
   await screenshot(page, "checkup", "/settings/checkup", (device) => [
     ...frame(device, release),
     main.getByRole("link", { name: "Tools" }),
     main.getByRole("heading", { name: "owner", exact: true }),
     main.getByRole("heading", { name: "plants", exact: true }),
+    main.getByText("needs you").nth(3),
   ]);
   await screenshot(page, "checkup-tools", "/settings/checkup/tools", (device) => [
     ...frame(device, release),
@@ -292,6 +386,19 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "checkup-labels", "/settings/checkup/owner/labels", (device) => [
     ...frame(device, release),
     main.getByText("wrong color: #ededed"),
+  ]);
+  await screenshot(page, "memory-repositories", "/settings/memory", (device) => [
+    ...frame(device, release),
+    main.getByRole("link", { name: "owner/shop" }),
+  ]);
+  await screenshot(page, "memory", "/settings/memory/owner/shop", (device) => [
+    ...frame(device, release),
+    main.getByText("Memory of owner/shop"),
+    main.getByText("+ Run make fmt before each commit and each push."),
+    main.getByText("+ Write each message in Simplified Technical English."),
+    main.getByText("- Run make fmt before each commit."),
+    main.getByText("+ Wait for a condition with testkit.WaitFor."),
+    main.getByText("A later version changed this part. Edit the file."),
   ]);
 
   // The note closes a Workstream whose tasks are all closed.

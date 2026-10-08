@@ -12,6 +12,8 @@ import {
   GitHubPage,
   InboxPage,
   InboxLayoutPage,
+  MemoryPage,
+  MemoryRepositoriesPage,
   TriagerChatPage,
   WorkstreamsPage,
 } from "./pages";
@@ -114,6 +116,18 @@ const checkupLabelsRoute = createRoute({
   component: CheckupLabelsPage,
 });
 
+const memoryRepositoriesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/memory",
+  component: MemoryRepositoriesPage,
+});
+
+const memoryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/memory/$owner/$name",
+  component: MemoryPage,
+});
+
 const devicesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/devices",
@@ -139,6 +153,8 @@ const routeTree = rootRoute.addChildren([
   checkupToolsRoute,
   checkupPermissionsRoute,
   checkupLabelsRoute,
+  memoryRepositoriesRoute,
+  memoryRoute,
   devicesRoute,
   githubRoute,
 ]);

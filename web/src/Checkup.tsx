@@ -89,6 +89,28 @@ function useCheckup(organization: string) {
   return { checkup, error, setError, load };
 }
 
+function useTools() {
+  const showLogin = use(LoginContext);
+  const [tools, setTools] = useState<ToolCheck[]>();
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    getCheckupTools()
+      .then((res) => {
+        if (res.status === 401) {
+          showLogin();
+        } else if (res.status === 200) {
+          setTools(res.data.data);
+        } else {
+          setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => setError(String(err)));
+  }, [showLogin]);
+
+  return { tools, error };
+}
+
 function CheckupCard({
   title,
   action,
@@ -112,7 +134,15 @@ function CheckupCard({
   );
 }
 
-function CheckupLink({ link, title }: { link: LinkProps; title: string }) {
+function CheckupLink({
+  link,
+  title,
+  needsYou,
+}: {
+  link: LinkProps;
+  title: string;
+  needsYou: boolean;
+}) {
   return (
     <Item asChild>
       <Link {...link}>
@@ -120,6 +150,9 @@ function CheckupLink({ link, title }: { link: LinkProps; title: string }) {
           <ItemTitle>{title}</ItemTitle>
         </ItemContent>
         <ItemActions>
+          {needsYou && (
+            <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400">needs you</Badge>
+          )}
           <ChevronRightIcon className="size-4" />
         </ItemActions>
       </Link>
@@ -127,7 +160,47 @@ function CheckupLink({ link, title }: { link: LinkProps; title: string }) {
   );
 }
 
+function CheckupOrganization({ organization }: { organization: string }) {
+  const { checkup } = useCheckup(organization);
+
+  return (
+    <section className="grid gap-2">
+      <h3 className="font-medium">{organization}</h3>
+      <ItemGroup className="gap-1">
+        <CheckupLink
+          link={{
+            to: "/settings/checkup/$organization/permissions",
+            params: { organization },
+          }}
+          title="App permissions"
+          needsYou={
+            !!checkup &&
+            (checkup.permissionsError !== "" ||
+              checkup.permissions.some((permission) => permission.status !== "present"))
+          }
+        />
+        <CheckupLink
+          link={{
+            to: "/settings/checkup/$organization/labels",
+            params: { organization },
+          }}
+          title="Labels"
+          needsYou={
+            !!checkup &&
+            (checkup.labelFix !== "none" ||
+              checkup.repositories.some((repository) =>
+                repository.labels.some((label) => label.status !== "present"),
+              ))
+          }
+        />
+      </ItemGroup>
+    </section>
+  );
+}
+
 export function Checkup({ organizations }: { organizations: string[] }) {
+  const { tools } = useTools();
+
   return (
     <Card>
       <CardHeader>
@@ -138,28 +211,14 @@ export function Checkup({ organizations }: { organizations: string[] }) {
       </CardHeader>
       <CardContent className="grid gap-4">
         <ItemGroup className="gap-1">
-          <CheckupLink link={{ to: "/settings/checkup/tools" }} title="Tools" />
+          <CheckupLink
+            link={{ to: "/settings/checkup/tools" }}
+            title="Tools"
+            needsYou={!!tools?.some((tool) => tool.status !== "")}
+          />
         </ItemGroup>
         {organizations.map((organization) => (
-          <section key={organization} className="grid gap-2">
-            <h3 className="font-medium">{organization}</h3>
-            <ItemGroup className="gap-1">
-              <CheckupLink
-                link={{
-                  to: "/settings/checkup/$organization/permissions",
-                  params: { organization },
-                }}
-                title="App permissions"
-              />
-              <CheckupLink
-                link={{
-                  to: "/settings/checkup/$organization/labels",
-                  params: { organization },
-                }}
-                title="Labels"
-              />
-            </ItemGroup>
-          </section>
+          <CheckupOrganization key={organization} organization={organization} />
         ))}
       </CardContent>
     </Card>
@@ -167,23 +226,7 @@ export function Checkup({ organizations }: { organizations: string[] }) {
 }
 
 export function CheckupTools() {
-  const showLogin = use(LoginContext);
-  const [tools, setTools] = useState<ToolCheck[]>();
-  const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    getCheckupTools()
-      .then((res) => {
-        if (res.status === 401) {
-          showLogin();
-        } else if (res.status === 200) {
-          setTools(res.data.data);
-        } else {
-          setError(res.data.error);
-        }
-      })
-      .catch((err: unknown) => setError(String(err)));
-  }, [showLogin]);
+  const { tools, error } = useTools();
 
   return (
     <CheckupCard title="Tools">
@@ -261,7 +304,7 @@ export function CheckupLabels({ organization }: { organization: string }) {
       action={
         checkup &&
         checkup.labelFix !== "none" && (
-          <Button disabled={fixing} onClick={fix}>
+          <Button pending={fixing} onClick={fix}>
             {fixButton[checkup.labelFix]}
           </Button>
         )

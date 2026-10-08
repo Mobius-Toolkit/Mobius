@@ -134,7 +134,9 @@ func TestAFixRoundOfTheLeadFromReadyForReviewPutsTheWorkingLabelBack(t *testing.
 
 func TestAConflictRoundFromReadyForReviewPutsTheWorkingLabelBack(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server := approved(t, fake, "", mergesCents, noChange)
+	// A new Lead session has the chat history in its first prompt, and the history has "Approve #41". Thus the session
+	// stays open, or the Lead approves the pull request again at the second event.
+	server := approved(t, fake, "", mergesCents, keepSessionOpen)
 
 	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 

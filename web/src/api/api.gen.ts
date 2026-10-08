@@ -45,6 +45,8 @@ export interface Agent {
   startedAt: string;
   /** Title tells what the session works on, for example "chat session". It can be empty */
   title: string;
+  /** Working is true while the session works. A chat session works while a turn runs. Another open session works while it does not wait for a slot, for a check slot or for the end of a usage limit */
+  working: boolean;
   /** Workstream is the number of the Workstream issue. It is 0 for the Triager */
   workstream: number;
 }
@@ -471,6 +473,43 @@ export interface EnvelopeArrayInboxItem {
 }
 
 /**
+ * Author is curator or owner
+ */
+export type MemoryVersionAuthor = typeof MemoryVersionAuthor[keyof typeof MemoryVersionAuthor];
+
+
+export const MemoryVersionAuthor = {
+  curator: 'curator',
+  owner: 'owner',
+} as const;
+
+/**
+ * MemoryVersion is a version of the memory file of a repository.
+ */
+export interface MemoryVersion {
+  /** Author is curator or owner */
+  author: MemoryVersionAuthor;
+  /** ID is the id of the version */
+  id: number;
+  /** RevertProblem is the reason why the revert is not possible, and empty when it is possible */
+  revert_problem: string;
+  /** Revertible tells if the revert of the version is possible */
+  revertible: boolean;
+  /** Text is the text of the memory file in this version */
+  text: string;
+  /** Time is the time when Mobius saved the version, in RFC 3339 format */
+  time: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayMemoryVersion {
+  /** Data is the payload of the response */
+  data: MemoryVersion[];
+}
+
+/**
  * NeedsHuman is an open task issue with mobius:needs-human.
  */
 export interface NeedsHuman {
@@ -516,7 +555,7 @@ export interface TaskLine {
   number: number;
   /** OtherRepository is true for a task in another repository than the Workstream */
   otherRepository: boolean;
-  /** State is the Mobius label of the issue with no "mobius:", or open. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". */
+  /** State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". */
   state: string;
   /** Title is the title of the task issue */
   title: string;
@@ -852,6 +891,13 @@ export type LiveEvents = {
 export interface LoginBody {
   /** Password is the access password */
   password: string;
+}
+
+export interface SaveMemoryBody {
+  /** BaseVersion is the id of the newest version when the edit started, and 0 when the file had no version */
+  base_version?: number;
+  /** Text is the new text of the memory file */
+  text?: string;
 }
 
 export interface SeeChatBody {
@@ -3009,6 +3055,235 @@ export const startIssue = async (owner: string,
 
 
 
+export type listMemoryVersionsResponse200 = {
+  data: EnvelopeArrayMemoryVersion
+  status: 200
+}
+
+export type listMemoryVersionsResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listMemoryVersionsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listMemoryVersionsResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type listMemoryVersionsResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listMemoryVersionsResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listMemoryVersionsResponseSuccess = (listMemoryVersionsResponse200) & {
+  headers: Headers;
+};
+export type listMemoryVersionsResponseError = (listMemoryVersionsResponse400 | listMemoryVersionsResponse401 | listMemoryVersionsResponse404 | listMemoryVersionsResponse422 | listMemoryVersionsResponse500) & {
+  headers: Headers;
+};
+
+export type listMemoryVersionsResponse = (listMemoryVersionsResponseSuccess | listMemoryVersionsResponseError)
+
+export const getListMemoryVersionsUrl = (owner: string,
+    name: string,) => {
+
+
+
+
+  return `/api/repositories/${owner}/${name}/memory`
+}
+
+/**
+ * ListMemoryVersions returns the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version is the current text of the file. It returns 404 when the repository is not a repository of Mobius.
+ */
+export const listMemoryVersions = async (owner: string,
+    name: string, ): Promise<listMemoryVersionsResponse> => {
+
+  const res = await fetch(getListMemoryVersionsUrl(owner,name),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listMemoryVersionsResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listMemoryVersionsResponse
+}
+
+
+
+export type saveMemoryResponse204 = {
+  data: void
+  status: 204
+}
+
+export type saveMemoryResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type saveMemoryResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type saveMemoryResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type saveMemoryResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type saveMemoryResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type saveMemoryResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type saveMemoryResponseSuccess = (saveMemoryResponse204) & {
+  headers: Headers;
+};
+export type saveMemoryResponseError = (saveMemoryResponse400 | saveMemoryResponse401 | saveMemoryResponse404 | saveMemoryResponse409 | saveMemoryResponse422 | saveMemoryResponse500) & {
+  headers: Headers;
+};
+
+export type saveMemoryResponse = (saveMemoryResponseSuccess | saveMemoryResponseError)
+
+export const getSaveMemoryUrl = (owner: string,
+    name: string,) => {
+
+
+
+
+  return `/api/repositories/${owner}/${name}/memory`
+}
+
+/**
+ * SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, 409 when a newer version exists than the base version, and 422 when the text has more than 200 lines.
+ */
+export const saveMemory = async (owner: string,
+    name: string,
+    saveMemoryBody: SaveMemoryBody, ): Promise<saveMemoryResponse> => {
+
+  const res = await fetch(getSaveMemoryUrl(owner,name),
+  {
+
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(saveMemoryBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: saveMemoryResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as saveMemoryResponse
+}
+
+
+
+export type revertMemoryResponse204 = {
+  data: void
+  status: 204
+}
+
+export type revertMemoryResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type revertMemoryResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type revertMemoryResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type revertMemoryResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type revertMemoryResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type revertMemoryResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type revertMemoryResponseSuccess = (revertMemoryResponse204) & {
+  headers: Headers;
+};
+export type revertMemoryResponseError = (revertMemoryResponse400 | revertMemoryResponse401 | revertMemoryResponse404 | revertMemoryResponse409 | revertMemoryResponse422 | revertMemoryResponse500) & {
+  headers: Headers;
+};
+
+export type revertMemoryResponse = (revertMemoryResponseSuccess | revertMemoryResponseError)
+
+export const getRevertMemoryUrl = (owner: string,
+    name: string,
+    id: number,) => {
+
+
+
+
+  return `/api/repositories/${owner}/${name}/memory/${id}/revert`
+}
+
+/**
+ * RevertMemory undoes the change of the version in the current text of the memory file and saves the result as a new version with the author owner. It returns 404 when the repository is not a repository of Mobius, or when the version does not exist or belongs to another repository. It returns 409 when a later version changed the part, when the revert changes nothing, or when the result has more than 200 lines.
+ */
+export const revertMemory = async (owner: string,
+    name: string,
+    id: number, ): Promise<revertMemoryResponse> => {
+
+  const res = await fetch(getRevertMemoryUrl(owner,name,id),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: revertMemoryResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as revertMemoryResponse
+}
+
+
+
 export type listUnreadResponse200 = {
   data: EnvelopeArrayUnread
   status: 200
@@ -3690,7 +3965,7 @@ export const getListTasksUrl = (owner: string,
 }
 
 /**
- * ListTasks returns the open tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.
+ * ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.
  */
 export const listTasks = async (owner: string,
     name: string,

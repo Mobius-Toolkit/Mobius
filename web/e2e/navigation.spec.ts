@@ -195,6 +195,30 @@ test("a long list of release changes scrolls inside the upgrade dialog on a phon
   await expect(dialog).toBeHidden();
 });
 
+test("the upgrade dialog shows the newest release when it opens", async ({ page }) => {
+  let version = "v0.1.4";
+  await page.route("**/api/release", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { version: string } };
+    body.data.version = version;
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/workstreams");
+  const button = page.getByRole("button", { name: "Upgrade v0.1.4" }).filter({ visible: true });
+  await expect(button).toBeVisible();
+
+  version = "v0.1.5";
+  await button.click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Upgrade to v0.1.5" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Upgrade v0.1.5" }).filter({ visible: true }),
+  ).toBeVisible();
+});
+
 test("a new page starts at the top", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 200 });
   await page.goto("/workstreams");
@@ -292,4 +316,101 @@ test("a switch to another organization leaves the chat of the old organization",
   await organization("owner").click();
   await page.getByRole("menuitemradio", { name: "plants" }).click();
   await expect(page).toHaveURL("/inbox");
+});
+
+test("a Workstream with Autopilot on shows the Autopilot icon", async ({ page }) => {
+  const main = page.getByRole("main");
+  const row = (title: string) => main.getByRole("link").filter({ hasText: title });
+
+  await page.goto("/workstreams");
+  await expect(row("Early renewals").getByRole("img", { name: "Autopilot" })).toBeVisible();
+  await expect(row("Early renewals")).toContainText("#14");
+  await expect(row("Integrate loyalty plans")).toContainText("#12");
+  await expect(row("Integrate loyalty plans").getByRole("img", { name: "Autopilot" })).toHaveCount(
+    0,
+  );
+});
+
+test("a Workstream with an agent that works shows the dot, and a Workstream with no agent does not", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const row = (title: string) => main.getByRole("link").filter({ hasText: title });
+  const dot = (title: string) => row(title).getByRole("img", { name: "Agent running" });
+
+  await page.goto("/workstreams");
+  await expect(dot("Integrate loyalty plans")).toBeVisible();
+  await expect(row("Early renewals")).toBeVisible();
+  await expect(dot("Early renewals")).toHaveCount(0);
+});
+
+test("a Workstream with only a paused agent shows no dot", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.route("**/api/agents", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          count: 1,
+          max: 8,
+          groups: [
+            {
+              name: "Implementer",
+              count: 1,
+              max: 3,
+              agents: [
+                {
+                  agent: {
+                    repository: "owner/shop",
+                    workstream: 14,
+                    queueReason: "paused until 2026-09-28 12:00 UTC",
+                    working: false,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    }),
+  );
+
+  await page.goto("/workstreams");
+  await expect(main.getByRole("link").filter({ hasText: "Early renewals" })).toBeVisible();
+  await expect(main.getByRole("img", { name: "Agent running" })).toHaveCount(0);
+});
+
+test("the agents page shows the start time of an agent after the repository", async ({ page }) => {
+  await page.goto("/agents");
+  await expect(
+    page
+      .getByRole("main")
+      .getByRole("button", { name: /Ticket #41 Add plan model/ })
+      .getByText(/owner\/shop · Sep \d+, \d\d:\d\d [AP]M$/),
+  ).toBeVisible();
+});
+
+test("the agents screen shows a status that changed while the page was hidden", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const ticket = main.getByRole("button", { name: /Ticket #41 Add plan model/ });
+  const setVisibility = (state: "hidden" | "visible") =>
+    page.evaluate(`(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => ${state === "hidden"} })
+      document.dispatchEvent(new Event('visibilitychange'))
+    })()`);
+
+  await page.goto("/agents");
+  await expect(ticket).toBeVisible();
+  await expect(ticket.getByText("waits for the Owner")).toHaveCount(0);
+
+  await setVisibility("hidden");
+  const res = await page.request.put(
+    "/e2e/agents/41/queue-reason?reason=waits%20for%20the%20Owner",
+  );
+  expect(res.ok()).toBe(true);
+  await setVisibility("visible");
+  await expect(ticket.getByText("waits for the Owner")).toBeVisible();
+  const reset = await page.request.put("/e2e/agents/41/queue-reason?reason=");
+  expect(reset.ok()).toBe(true);
 });

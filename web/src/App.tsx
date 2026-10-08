@@ -130,9 +130,16 @@ function App() {
   }, [loginShown, load]);
 
   useEffect(() => {
-    if (source) {
-      return onEvent<LiveEvents, "repositories">(source, "repositories", load);
+    if (!source) {
+      return;
     }
+    load();
+    source.addEventListener("open", load);
+    const remove = onEvent<LiveEvents, "repositories">(source, "repositories", load);
+    return () => {
+      source.removeEventListener("open", load);
+      remove();
+    };
   }, [source, load]);
 
   const selectOrganization = (name: string) => {

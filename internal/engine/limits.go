@@ -339,7 +339,7 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			e.publish(Change{Node: new(node(cleared))})
+			e.publish(Change{Node: new(e.node(cleared))})
 			return nil
 		}
 		if err != nil {
@@ -354,7 +354,7 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			e.publish(Change{Node: new(node(queued))})
+			e.publish(Change{Node: new(e.node(queued))})
 			shown = true
 		}
 		a.setUncounted(e.draining())

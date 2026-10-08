@@ -8,6 +8,7 @@ import { Checkup, CheckupLabels, CheckupPermissions, CheckupTools } from "./Chec
 import { GitHub } from "./GitHub";
 import { Inbox } from "./Inbox";
 import { InboxTabs } from "./InboxTabs";
+import { Memory, MemoryRepositories } from "./Memory";
 import { TriagerChat } from "./TriagerChat";
 import { Workstreams } from "./Workstreams";
 
@@ -99,4 +100,14 @@ export function CheckupLabelsPage() {
 export function GitHubPage() {
   const { apps } = useShell();
   return <GitHub apps={apps} back />;
+}
+
+export function MemoryRepositoriesPage() {
+  const { apps, organization } = useShell();
+  return <MemoryRepositories apps={apps} organization={organization} />;
+}
+
+export function MemoryPage() {
+  const { owner, name } = useParams({ from: "/settings/memory/$owner/$name" });
+  return <Memory key={`${owner}/${name}`} owner={owner} name={name} />;
 }

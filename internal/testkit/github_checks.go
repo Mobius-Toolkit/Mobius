@@ -236,10 +236,6 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 	pull := g.pullRequests[index]
 	remote := g.Remote(repository)
 	mergeable := gitCommand(remote, "merge-tree", "--write-tree", pull.Base, pull.Head).Run() == nil
-	head, err := gitCommand(remote, "rev-parse", pull.Head).Output()
-	if err != nil {
-		g.t.Errorf("rev-parse %s: %v", pull.Head, err)
-	}
 	state := "clean"
 	if g.behind[key] && gitCommand(remote, "merge-base", "--is-ancestor", pull.Base, pull.Head).Run() != nil {
 		state = "behind"
@@ -255,12 +251,26 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		"html_url":        fmt.Sprintf("https://github.com/%s/pull/%d", repository, number),
 		"state":           found.state,
 		"merged":          found.merged,
-		"head":            map[string]string{"sha": strings.TrimSpace(string(head)), "ref": pull.Head},
+		"head":            map[string]string{"sha": g.headOf(repository, number), "ref": pull.Head},
 		"draft":           pull.Draft,
 		"mergeable":       mergeableValue,
 		"mergeable_state": state,
 		"created_at":      timestamp(g.createdAt[key]),
 	}
+}
+
+// headOf gives the id of the head commit of the pull request, or "" for a pull request with no branch. The caller must
+// hold the lock.
+func (g *FakeGitHub) headOf(repository string, number int64) string {
+	index := slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == repository && pull.Number == number })
+	if index < 0 {
+		return ""
+	}
+	head, err := gitCommand(g.Remote(repository), "rev-parse", g.pullRequests[index].Head).Output()
+	if err != nil {
+		g.t.Errorf("rev-parse %s: %v", g.pullRequests[index].Head, err)
+	}
+	return strings.TrimSpace(string(head))
 }
 
 func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {

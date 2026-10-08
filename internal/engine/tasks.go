@@ -145,7 +145,7 @@ func taskText(lines []taskLine) string {
 type TaskLine struct {
 	Number int64
 	Title  string
-	// State is the Mobius label with no "mobius:", or open. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead".
+	// State is the Mobius label with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead".
 	State string
 	URL   string
 	// Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below.
@@ -163,9 +163,9 @@ type Blocker struct {
 	WorkstreamTitle string
 }
 
-// Tasks gives a line for each open issue of a trusted author below the Workstream number of repositoryName, from the
-// local copy, depth first. The sub-issues of a closed or untrusted issue take the depth of that issue, so a nested
-// task does not move below an unrelated sibling. An issue in another repository has no blockers and no sub-issues
+// Tasks gives a line for each issue of a trusted author below the Workstream number of repositoryName, from the
+// local copy, depth first. A closed issue has the state closed, and no blockers. The sub-issues of an untrusted
+// issue take the depth of that issue, so a nested task does not move below an unrelated sibling. An issue in another repository has no blockers and no sub-issues
 // here, because its number names a different issue in this repository.
 func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream int64) ([]TaskLine, error) {
 	repository, err := e.repository(repositoryName)
@@ -205,10 +205,12 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 		}
 		depth := depths[row.Parent]
 		own := !otherRepository(row.RepositoryUrl, repositoryName)
-		visible := row.State == "open" && e.TrustedAuthor(repository.AppSlug, row.Author)
+		visible := e.TrustedAuthor(repository.AppSlug, row.Author)
 		if visible {
 			line := TaskLine{Number: row.Number, Title: row.Title, State: labelState(labels[row.Position]), URL: row.HtmlUrl, Depth: depth, OtherRepository: !own, BlockedBy: []Blocker{}}
-			if own {
+			if row.State != "open" {
+				line.State = "closed"
+			} else if own {
 				line.BlockedBy = append(line.BlockedBy, blockers[row.Position]...)
 				if line.State == "working" {
 					task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repositoryName, Issue: row.Number})
