@@ -125,9 +125,10 @@ func (g *FakeGitHub) CheckRunReads() int {
 	return g.checkRunReads
 }
 
-// AfterNextCheckRunRead makes the fake run f once, at the end of the next request for the check runs of a commit. The
-// function must not call a method that takes the lock of the fake.
-func (g *FakeGitHub) AfterNextCheckRunRead(f func()) {
+// AfterNextReviewedCheckRunRead makes the fake run f once, at the end of the first request for the check runs of a
+// commit after a pull request of the repository got a review. The function must not call a method that takes the lock
+// of the fake.
+func (g *FakeGitHub) AfterNextReviewedCheckRunRead(f func()) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.afterCheckRunRead = f
@@ -435,12 +436,21 @@ func (g *FakeGitHub) updateCheckRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": index + 1})
 }
 
+func (g *FakeGitHub) hasReview(repository string) bool {
+	for key, found := range g.issues {
+		if key.repository == repository && len(found.reviews) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *FakeGitHub) commitCheckRuns(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.checkRunReads++
 	defer func() {
-		if g.afterCheckRunRead != nil {
+		if g.afterCheckRunRead != nil && g.hasReview(repository(r)) {
 			g.afterCheckRunRead()
 			g.afterCheckRunRead = nil
 		}

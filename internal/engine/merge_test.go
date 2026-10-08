@@ -314,7 +314,7 @@ func TestAPushAfterTheCheckRunReadGivesNoLeadEventAndTheNextPollMergesTheNewHead
 	server, sha := seedWaiting(t, fake, "approval")
 	passMobius(fake, sha)
 	var next string
-	fake.AfterNextCheckRunRead(func() {
+	fake.AfterNextReviewedCheckRunRead(func() {
 		work := t.TempDir()
 		testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
 		testkit.Git(t, work, "commit", "--allow-empty", "-m", "Second change")
