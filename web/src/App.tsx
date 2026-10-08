@@ -1,5 +1,5 @@
 import { Outlet, useLocation, useMatch, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   listGitHubApps,
   listOrganizations,
@@ -19,7 +19,19 @@ import { GitHub } from "./GitHub";
 import { Login } from "./Login";
 
 const retryDelay = 3000;
-const silenceLimit = 40_000;
+const silenceLimit = 35_000;
+const startLimit = 3000;
+
+type Link = "starting" | "connected" | "connecting";
+
+function subscribeOnline(listener: () => void) {
+  window.addEventListener("online", listener);
+  window.addEventListener("offline", listener);
+  return () => {
+    window.removeEventListener("online", listener);
+    window.removeEventListener("offline", listener);
+  };
+}
 
 function savedOrganization() {
   try {
@@ -51,6 +63,8 @@ function App() {
   const [organization, setOrganization] = useState("");
   const [error, setError] = useState<string>();
   const [source, setSource] = useState<EventSource>();
+  const [link, setLink] = useState<Link>("starting");
+  const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine);
   const [activities, setActivities] = useState<ActivityRow[]>([]);
   const live = !loginShown && apps !== undefined && apps.length > 0;
   const showLogin = useCallback(() => setLoginShown(true), []);
@@ -77,9 +91,19 @@ function App() {
       events.close();
       events = connect();
     };
+    const lose = () => setLink((current) => (current === "starting" ? current : "connecting"));
+    const starting = setTimeout(lose, startLimit);
     // The server sends a ping each 15 s. A connection that is dead gives no error, so the page connects again when
     // no ping comes.
-    const watch = () => schedule(reconnect, silenceLimit);
+    const watch = () =>
+      schedule(() => {
+        setLink("connecting");
+        reconnect();
+      }, silenceLimit);
+    const connected = () => {
+      setLink("connected");
+      watch();
+    };
     // The browser connects again by itself only while the source is CONNECTING. A source that is CLOSED has an
     // answer that is not an event stream, for example from a proxy. The page cannot read the status of that answer,
     // so a request that needs the login shows a 401.
@@ -100,14 +124,15 @@ function App() {
     const connect = () => {
       const next = new EventSource("/api/events");
       watch();
-      next.addEventListener("open", watch);
+      next.addEventListener("open", connected);
       next.addEventListener("open", () => setSource(next), { once: true });
       next.addEventListener("error", () => {
+        lose();
         if (next.readyState === EventSource.CLOSED) {
           schedule(retry, retryDelay);
         }
       });
-      onEvent<LiveEvents, "ping">(next, "ping", watch);
+      onEvent<LiveEvents, "ping">(next, "ping", connected);
       // The server sends the latest activities when the connection opens, before the pages can listen. When the
       // browser connects again, the server sends only the activities after the last event id.
       onEvent<LiveEvents, "activity">(next, "activity", (activity) =>
@@ -135,6 +160,7 @@ function App() {
     document.addEventListener("visibilitychange", wake);
     return () => {
       stopped = true;
+      clearTimeout(starting);
       clearTimeout(timer);
       window.removeEventListener("online", wake);
       window.removeEventListener("pageshow", restore);
@@ -234,6 +260,7 @@ function App() {
         unread={unread ?? []}
         inbox={inbox}
         fill={chat !== undefined || pathname === "/chat"}
+        connection={!online ? "offline" : link === "connecting" ? "connecting" : "connected"}
       >
         <ShellContext
           value={{
