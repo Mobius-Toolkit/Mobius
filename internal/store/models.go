@@ -70,14 +70,8 @@ type LeadEvent struct {
 	ChatMessage sql.NullInt64
 	Issue       sql.NullInt64
 	Held        int64
-}
-
-type MemoryVersion struct {
-	ID         int64
-	Repository string
-	Time       string
-	Author     string
-	Text       string
+	Comment     sql.NullInt64
+	Review      sql.NullBool
 }
 
 type Session struct {

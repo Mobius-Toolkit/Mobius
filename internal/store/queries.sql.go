@@ -291,8 +291,8 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 }
 
 const addLeadEvent = `-- name: AddLeadEvent :exec
-INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message, comment, review)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type AddLeadEventParams struct {
@@ -303,6 +303,8 @@ type AddLeadEventParams struct {
 	Payload     string
 	Time        string
 	ChatMessage sql.NullInt64
+	Comment     sql.NullInt64
+	Review      sql.NullBool
 }
 
 func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) error {
@@ -314,18 +316,21 @@ func (q *Queries) AddLeadEvent(ctx context.Context, arg AddLeadEventParams) erro
 		arg.Payload,
 		arg.Time,
 		arg.ChatMessage,
+		arg.Comment,
+		arg.Review,
 	)
 	return err
 }
 
 const addMemoryVersion = `-- name: AddMemoryVersion :exec
-INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?)
+INSERT INTO memory_versions (repository, time, author, reason, text) VALUES (?, ?, ?, ?, ?)
 `
 
 type AddMemoryVersionParams struct {
 	Repository string
 	Time       string
 	Author     string
+	Reason     string
 	Text       string
 }
 
@@ -334,6 +339,7 @@ func (q *Queries) AddMemoryVersion(ctx context.Context, arg AddMemoryVersionPara
 		arg.Repository,
 		arg.Time,
 		arg.Author,
+		arg.Reason,
 		arg.Text,
 	)
 	return err
@@ -547,6 +553,22 @@ SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working')
 
 func (q *Queries) CountActiveTasks(ctx context.Context) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countActiveTasks)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countSessionsEndedSinceCurator = `-- name: CountSessionsEndedSinceCurator :one
+SELECT count(*) FROM sessions s
+WHERE s.repository = ?1 AND s.role <> 'curator' AND s.ended_at IS NOT NULL
+  AND julianday(s.ended_at) > coalesce((
+      SELECT max(julianday(c.started_at)) FROM sessions c
+      WHERE c.repository = s.repository AND c.role = 'curator' AND (c.ended_at IS NULL OR c.end_reason IN ('done', 'failed', 'hung'))
+  ), 0)
+`
+
+func (q *Queries) CountSessionsEndedSinceCurator(ctx context.Context, repository string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countSessionsEndedSinceCurator, repository)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -845,7 +867,7 @@ func (q *Queries) FindDeviceLogin(ctx context.Context, tokenHash []byte) (int64,
 
 const freeLeadEvents = `-- name: FreeLeadEvents :many
 UPDATE lead_events SET held = 0 WHERE repository = ? AND workstream = ? AND held = 1
-RETURNING id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held
+RETURNING id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review
 `
 
 type FreeLeadEventsParams struct {
@@ -873,6 +895,8 @@ func (q *Queries) FreeLeadEvents(ctx context.Context, arg FreeLeadEventsParams) 
 			&i.ChatMessage,
 			&i.Issue,
 			&i.Held,
+			&i.Comment,
+			&i.Review,
 		); err != nil {
 			return nil, err
 		}
@@ -934,6 +958,19 @@ func (q *Queries) GetHarnessPause(ctx context.Context, harness string) (HarnessP
 	var i HarnessPause
 	err := row.Scan(&i.Harness, &i.PausedUntil, &i.InboxItem)
 	return i, err
+}
+
+const getLastDoneCuratorStart = `-- name: GetLastDoneCuratorStart :one
+SELECT started_at FROM sessions
+WHERE repository = ? AND role = 'curator' AND end_reason = 'done'
+ORDER BY julianday(started_at) DESC LIMIT 1
+`
+
+func (q *Queries) GetLastDoneCuratorStart(ctx context.Context, repository string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getLastDoneCuratorStart, repository)
+	var started_at string
+	err := row.Scan(&started_at)
+	return started_at, err
 }
 
 const getLiveTask = `-- name: GetLiveTask :one
@@ -1012,9 +1049,17 @@ const getMemoryVersion = `-- name: GetMemoryVersion :one
 SELECT id, repository, time, author, text FROM memory_versions WHERE id = ?
 `
 
-func (q *Queries) GetMemoryVersion(ctx context.Context, id int64) (MemoryVersion, error) {
+type GetMemoryVersionRow struct {
+	ID         int64
+	Repository string
+	Time       string
+	Author     string
+	Text       string
+}
+
+func (q *Queries) GetMemoryVersion(ctx context.Context, id int64) (GetMemoryVersionRow, error) {
 	row := q.db.QueryRowContext(ctx, getMemoryVersion, id)
-	var i MemoryVersion
+	var i GetMemoryVersionRow
 	err := row.Scan(
 		&i.ID,
 		&i.Repository,
@@ -2194,7 +2239,7 @@ func (q *Queries) ListQueuedTasks(ctx context.Context) ([]ListQueuedTasksRow, er
 }
 
 const listReadyLeadEvents = `-- name: ListReadyLeadEvents :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held FROM lead_events AS event
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events AS event
 WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NULL AND event.held = 0
   AND NOT EXISTS (
       SELECT 1 FROM lead_events AS earlier
@@ -2230,7 +2275,42 @@ func (q *Queries) ListReadyLeadEvents(ctx context.Context, arg ListReadyLeadEven
 			&i.ChatMessage,
 			&i.Issue,
 			&i.Held,
+			&i.Comment,
+			&i.Review,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecentMemoryVersions = `-- name: ListRecentMemoryVersions :many
+SELECT time, author, reason FROM memory_versions WHERE repository = ? ORDER BY id DESC LIMIT 20
+`
+
+type ListRecentMemoryVersionsRow struct {
+	Time   string
+	Author string
+	Reason string
+}
+
+func (q *Queries) ListRecentMemoryVersions(ctx context.Context, repository string) ([]ListRecentMemoryVersionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRecentMemoryVersions, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRecentMemoryVersionsRow
+	for rows.Next() {
+		var i ListRecentMemoryVersionsRow
+		if err := rows.Scan(&i.Time, &i.Author, &i.Reason); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2358,7 +2438,7 @@ func (q *Queries) ListTranscript(ctx context.Context, session int64) ([]Transcri
 }
 
 const listUndeliveredLeadEvents = `-- name: ListUndeliveredLeadEvents :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id
 `
 
 type ListUndeliveredLeadEventsParams struct {
@@ -2386,6 +2466,8 @@ func (q *Queries) ListUndeliveredLeadEvents(ctx context.Context, arg ListUndeliv
 			&i.ChatMessage,
 			&i.Issue,
 			&i.Held,
+			&i.Comment,
+			&i.Review,
 		); err != nil {
 			return nil, err
 		}

@@ -254,6 +254,18 @@ func (e *Engine) publishSession(agent *Agent) {
 // addLeadEvent adds an event of kind about the issue for the Lead of the Workstream, with its entry in the chat, and
 // gives the ready events to the Lead.
 func (e *Engine) addLeadEvent(ctx context.Context, repository string, workstream int64, issue sql.NullInt64, kind, text string) error {
+	return e.addCommentLeadEvent(ctx, repository, workstream, issue, kind, text, commentRef{})
+}
+
+// commentRef names a conversation comment or a review comment. The zero value names no comment.
+type commentRef struct {
+	id     int64
+	review bool
+}
+
+// addCommentLeadEvent adds an event like addLeadEvent. The event keeps comment, so the turn of the event can add its
+// reaction to the comment.
+func (e *Engine) addCommentLeadEvent(ctx context.Context, repository string, workstream int64, issue sql.NullInt64, kind, text string, comment commentRef) error {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
 	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text, "")
@@ -268,6 +280,8 @@ func (e *Engine) addLeadEvent(ctx context.Context, repository string, workstream
 		Payload:     text,
 		Time:        now(),
 		ChatMessage: sql.NullInt64{Int64: message.ID, Valid: true},
+		Comment:     sql.NullInt64{Int64: comment.id, Valid: comment.id != 0},
+		Review:      sql.NullBool{Bool: comment.review, Valid: comment.id != 0},
 	})
 	if err != nil {
 		return err
@@ -717,6 +731,9 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images
 		}
 	}
 	a.setAuthor(author)
+	if current.event != nil && current.event.Comment.Valid {
+		e.launchEventComment(c.ctx, current.event)
+	}
 	if err := e.turn(c, a, prompt, images, current.message != nil); err != nil {
 		return err
 	}

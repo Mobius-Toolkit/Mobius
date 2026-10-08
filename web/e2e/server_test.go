@@ -444,7 +444,7 @@ func TestServer(t *testing.T) {
 		if i == 2 {
 			author = "owner"
 		}
-		if err := server.Engine.SaveMemory(ctx, "owner/shop", author, text); err != nil {
+		if err := server.Engine.SaveMemory(ctx, "owner/shop", author, "", text); err != nil {
 			t.Fatal(err)
 		}
 	}

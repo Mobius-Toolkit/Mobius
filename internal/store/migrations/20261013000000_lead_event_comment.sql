@@ -1,0 +1,2 @@
+ALTER TABLE lead_events ADD COLUMN comment INTEGER;
+ALTER TABLE lead_events ADD COLUMN review BOOLEAN;

@@ -299,7 +299,12 @@ func TestOnlyACommentOfATrustedUserOnTheIssueOfALiveTaskIsAnEvent(t *testing.T) 
 // the task from the branch mobius/41.
 func startWithStoppedTask(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
-	server := connectSeen(t, fake)
+	return addStoppedTask(t, fake, connectSeen(t, fake))
+}
+
+// addStoppedTask adds the stopped task #41 with the pull request #42 to the Workstream #12 of server.
+func addStoppedTask(t *testing.T, fake *testkit.FakeGitHub, server *testserver.Server) *testserver.Server {
+	t.Helper()
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	fake.PushCommit(shop, "mobius/41", "Add plan model")
@@ -362,7 +367,7 @@ func TestAReviewCommentAndALaterCommentOnThePullRequestOfAStoppedTaskGoToTheLead
 			return strings.Contains(prompt, ` review comment on #42 "Add plan model" by @owner:`+"\n\n> Rename plan to tier.\n\nThe state of the task of #41 is stopped.")
 		})
 	})
-	waitForReactions(t, fake, review, reactions("eyes"))
+	waitForEyes(t, fake, review)
 	fake.AddComment(shop, 42, "owner", "Halo")
 
 	testkit.WaitFor(t, func() bool {

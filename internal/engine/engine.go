@@ -72,8 +72,9 @@ type Engine struct {
 
 	// stopsMu guards stops and closed.
 	stopsMu sync.Mutex
-	// stops holds the context of the Workers of each task, by the id of the task, and of each Researcher, by its
-	// researcherKey. A stop of the task or the Researcher ends the context.
+	// stops holds the context of the Workers of each task, by the id of the task, of each Researcher, by its
+	// researcherKey, and of each Curator, by its curatorKey. A stop of the task, the Researcher or the Curator ends
+	// the context.
 	stops map[any]stopper
 	// closed tells that Run ended, so no new Worker starts.
 	closed bool
@@ -86,6 +87,11 @@ type Engine struct {
 	implementers map[int64]*Agent
 	// researchers holds the session of each Researcher that runs, by the id of its session.
 	researchers map[int64]*Agent
+
+	// curatorsMu guards curators.
+	curatorsMu sync.Mutex
+	// curators holds each repository with a Curator that runs. The value tells that one more Curator waits.
+	curators map[string]bool
 
 	mu        sync.Mutex
 	listeners map[chan Change]bool
@@ -124,6 +130,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		stops:        map[any]stopper{},
 		implementers: map[int64]*Agent{},
 		researchers:  map[int64]*Agent{},
+		curators:     map[string]bool{},
 		listeners:    map[chan Change]bool{},
 	}
 }
@@ -134,7 +141,7 @@ type stopper struct {
 	stop context.CancelFunc
 }
 
-// startWorker runs work in the background with the context of key, a task id or a researcherKey. The context
+// startWorker runs work in the background with the context of key, a task id, a researcherKey or a curatorKey. The context
 // ends at the next stop of key and at the end of Run. After the end of Run, startWorker does nothing and gives false.
 func (e *Engine) startWorker(key any, work func(context.Context)) bool {
 	e.stopsMu.Lock()
@@ -149,6 +156,13 @@ func (e *Engine) startWorker(key any, work func(context.Context)) bool {
 	}
 	e.running.Go(func() { work(found.ctx) })
 	return true
+}
+
+// ended tells that Run ended.
+func (e *Engine) ended() bool {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	return e.closed
 }
 
 // stop ends the context of the Workers of key.

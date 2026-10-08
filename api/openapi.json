@@ -2651,7 +2651,7 @@
           "groups": {
             "type": "array",
             "title": "[]AgentGroup",
-            "description": "Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge",
+            "description": "Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge, Curator",
             "items": {
               "$ref": "#/components/schemas/AgentGroup"
             }

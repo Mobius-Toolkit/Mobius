@@ -832,7 +832,7 @@ const result = (page: Page, ...transcripts: string[]) =>
   page.evaluate(
     `recognitions[0].dispatchEvent(Object.assign(new Event('result'), {
       results: ${JSON.stringify(transcripts)}.map((transcript) =>
-        Object.assign([{ transcript }], {
+        Object.assign([{ transcript: transcript.replace(/\\.\\.\\.$/, '') }], {
           isFinal: !transcript.endsWith('...'),
         }),
       ),
@@ -857,7 +857,7 @@ test("two result events add the spoken text once", async ({ page }) => {
   await expect(input).toHaveValue("red");
   await result(page, "red");
   await result(page, "red", "roses...");
-  await expect(input).toHaveValue("red");
+  await expect(input).toHaveValue("red roses");
   await result(page, "red", "roses");
   await expect(input).toHaveValue("red roses");
 });
@@ -870,7 +870,7 @@ test("a final result that repeats the final result before it adds only the new t
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
-  await result(page, "red", "red");
+  await result(page, "red", "red...");
   await expect(input).toHaveValue("red");
   await result(page, "red", "red", "red roses");
   await expect(input).toHaveValue("red roses");
@@ -886,6 +886,228 @@ test("two final results in one event that extend each other add one space", asyn
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "red", "red roses");
   await expect(input).toHaveValue("red roses");
+});
+
+test("an interim result shows in the field and a later interim result replaces it", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await input.fill("Plant");
+  await input.blur();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red...");
+  await expect(input).toHaveValue("Plant red");
+  await result(page, "red rows...");
+  await expect(input).toHaveValue("Plant red rows");
+  await result(page, "red roses...");
+  await expect(input).toHaveValue("Plant red roses");
+});
+
+test("a final result replaces the draft and does not repeat it", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses...");
+  await result(page, "red roses");
+  await expect(input).toHaveValue("red roses");
+  await result(page, "red roses", "and white...");
+  await expect(input).toHaveValue("red roses and white");
+  await result(page, "red roses", "and white lilies");
+  await expect(input).toHaveValue("red roses and white lilies");
+});
+
+test("an end with only a draft keeps the draft text and the next run adds after it", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await emit(page, "audiostart");
+  await result(page, "red roses...");
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "start"]);
+  await expect(input).toHaveValue("red roses");
+
+  await result(page, "and white...");
+  await expect(input).toHaveValue("red roses and white");
+  await result(page, "and white lilies");
+  await expect(input).toHaveValue("red roses and white lilies");
+});
+
+test("a final result after Stop and before the end adds the text one time", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses...");
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await result(page, "red roses");
+  await emit(page, "end");
+  await expect(input).toHaveValue("red roses");
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  expect(await page.evaluate("calls")).toEqual(["start", "stop"]);
+});
+
+test("a result after Send does not put text in the field", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/owner/shop/12");
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "Add a plan...");
+  await expect(input).toHaveValue("Add a plan");
+  await main.getByRole("button", { name: "Send" }).click();
+  await expect(input).toHaveValue("");
+  await result(page, "Add a plan");
+  await result(page, "Add a plan", "today");
+  await expect(input).toHaveValue("");
+});
+
+test("the field scrolls to the end of the voice text", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await input.fill(Array.from({ length: 20 }, (_, index) => `Line ${index}`).join("\n"));
+  await input.blur();
+  await input.evaluate((field) => {
+    field.scrollTop = 0;
+  });
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses...");
+  await expect(input).toHaveValue(/Line 19 red roses$/);
+  const atEnd = () =>
+    input.evaluate((field) => field.scrollTop + field.clientHeight - field.scrollHeight);
+  expect(Math.abs(await atEnd())).toBeLessThanOrEqual(1);
+
+  await result(
+    page,
+    "red roses and so many white lilies that the text needs a new line in the field...",
+  );
+  await expect(input).toHaveValue(/lilies/);
+  expect(await input.evaluate((field) => field.scrollHeight > field.clientHeight)).toBe(true);
+  expect(Math.abs(await atEnd())).toBeLessThanOrEqual(1);
+  expect(await page.evaluate("document.activeElement === document.querySelector('textarea')")).toBe(
+    false,
+  );
+});
+
+test("text that the user types during a recording stays", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses...");
+  await expect(input).toHaveValue("red roses");
+
+  await input.pressSequentially(" really");
+  await result(page, "red roses and white...");
+  await expect(input).toHaveValue("red roses really and white");
+  await result(page, "red roses and white lilies");
+  await expect(input).toHaveValue("red roses really and white lilies");
+});
+
+test("a final result with other words than the draft does not move the new words after a touch", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "send an e mail...");
+  await expect(input).toHaveValue("send an e mail");
+
+  await input.pressSequentially(" now");
+  await result(page, "send an email");
+  await expect(input).toHaveValue("send an e mail now");
+  await result(page, "send an email", "to Bob...");
+  await expect(input).toHaveValue("send an e mail now to Bob");
+});
+
+test("a draft with more than one result does not repeat its words after a touch", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "hello world...", "how...");
+  await expect(input).toHaveValue("hello world how");
+
+  await input.pressSequentially(" now");
+  await result(page, "hello world", "how are...");
+  await expect(input).toHaveValue("hello world how now are");
+});
+
+test("a draft that repeats the last final text does not show the repeated words", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red", "red...");
+  await expect(input).toHaveValue("red");
+  await result(page, "red", "red roses...");
+  await expect(input).toHaveValue("red roses");
+});
+
+test("a run that ends with a draft that repeats the last final text keeps the words one time", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red", "red roses...");
+  await emit(page, "end");
+  await expect(input).toHaveValue("red roses");
+});
+
+test("the field scrolls to the voice text that goes in at the cursor before other text", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  const lines = Array.from({ length: 20 }, (_, index) => `Line ${index}`);
+  await input.fill(lines.join("\n"));
+  const cursor = lines.slice(0, 13).join("\n").length;
+  await select(page, cursor, cursor);
+  await input.evaluate((field) => {
+    field.scrollTop = 0;
+  });
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(
+    page,
+    "red roses and so many white lilies that the text needs a new line in the field and then a few more words to be sure...",
+  );
+  await expect(input).toHaveValue(/Line 12 red roses.*words to be sure\nLine 13/);
+  const gap = await page.evaluate<number>(`(() => {
+    const field = document.querySelector('textarea');
+    const probe = field.cloneNode();
+    field.after(probe);
+    probe.value = field.value.slice(0, field.selectionStart);
+    const end = probe.scrollHeight;
+    probe.remove();
+    return field.scrollTop + field.clientHeight - end;
+  })()`);
+  expect(await input.evaluate((field) => field.scrollTop)).toBeGreaterThan(0);
+  expect(Math.abs(gap)).toBeLessThanOrEqual(1);
 });
 
 test("the spoken text goes in at the cursor", async ({ page }) => {
@@ -954,6 +1176,26 @@ test("Send stops a voice input that the voice button stopped", async ({ page }) 
   await main.getByRole("button", { name: "Send" }).click();
   await expect(main.getByLabel("Message to the Lead")).toHaveValue("");
   expect(await page.evaluate("calls")).toEqual(["start", "stop", "abort"]);
+});
+
+test("a result of the old run after a new start does not come into the new recording", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "hello world...");
+  await expect(input).toHaveValue("hello world");
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "hello world");
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "stop", "start"]);
+  await expect(input).toHaveValue("hello world");
+  await result(page, "again");
+  await expect(input).toHaveValue("hello world again");
 });
 
 test("the voice button lets a new voice input start after the end of the old run", async ({

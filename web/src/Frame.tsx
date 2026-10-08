@@ -183,10 +183,7 @@ export function Frame({
           )}
         >
           <div className="grid gap-2 px-4 pt-4 empty:hidden md:hidden">
-            {(path === "/chat" ||
-              path === "/workstreams" ||
-              path.startsWith("/inbox") ||
-              path === "/settings/memory") &&
+            {(path === "/chat" || path === "/workstreams" || path.startsWith("/inbox")) &&
               organizationSwitch}
             {path === "/settings" && <UpgradeControls upgrade={upgrade} newBuild={newBuild} />}
           </div>

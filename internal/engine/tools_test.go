@@ -100,6 +100,8 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 	researcher.Role = engine.ResearcherRole
 	judge := leadSpec(t)
 	judge.Role = engine.JudgeRole
+	curator := leadSpec(t)
+	curator.Role = engine.CuratorRole
 
 	for _, c := range []struct {
 		spec engine.Spec
@@ -110,6 +112,7 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		{implementer, []string{"cannot_do", "reply_thread"}},
 		{researcher, []string{}},
 		{judge, []string{"submit_verdicts"}},
+		{curator, []string{"edit_memory"}},
 	} {
 		session := run(t, server, c.spec, "List the tools")
 		if got := toolNames(t, reply(t, server, session)); !reflect.DeepEqual(got, c.want) {

@@ -7,6 +7,27 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByLabel("Access password")).toBeHidden();
 });
 
+test("the Owner sees the repositories of each organization in a section and opens one", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await page.goto("/settings/memory");
+  await expect(page.locator("#content").getByRole("button", { name: "owner" })).toHaveCount(0);
+
+  const owner = main
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: "owner", exact: true }) });
+  const plants = main
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: "plants", exact: true }) });
+  await expect(owner.getByRole("link")).toHaveText(["owner/shop"]);
+  await expect(plants.getByRole("link")).toHaveText(["plants/garden"]);
+
+  await plants.getByRole("link", { name: "plants/garden" }).click();
+  await expect(page).toHaveURL("/settings/memory/plants/garden");
+  await expect(page.getByText("Memory of plants/garden").filter({ visible: true })).toBeVisible();
+});
+
 test("the Owner edits the memory file, sees the 200-line error, and reverts the edit", async ({
   page,
 }) => {
