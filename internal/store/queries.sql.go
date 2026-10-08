@@ -1002,6 +1002,50 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 	return i, err
 }
 
+const getMemoryVersion = `-- name: GetMemoryVersion :one
+SELECT id, repository, time, author, text FROM memory_versions WHERE id = ?
+`
+
+func (q *Queries) GetMemoryVersion(ctx context.Context, id int64) (MemoryVersion, error) {
+	row := q.db.QueryRowContext(ctx, getMemoryVersion, id)
+	var i MemoryVersion
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Time,
+		&i.Author,
+		&i.Text,
+	)
+	return i, err
+}
+
+const getMemoryVersionBefore = `-- name: GetMemoryVersionBefore :one
+SELECT text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DESC LIMIT 1
+`
+
+type GetMemoryVersionBeforeParams struct {
+	Repository string
+	ID         int64
+}
+
+func (q *Queries) GetMemoryVersionBefore(ctx context.Context, arg GetMemoryVersionBeforeParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getMemoryVersionBefore, arg.Repository, arg.ID)
+	var text string
+	err := row.Scan(&text)
+	return text, err
+}
+
+const getNewestMemoryVersionID = `-- name: GetNewestMemoryVersionID :one
+SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ?
+`
+
+func (q *Queries) GetNewestMemoryVersionID(ctx context.Context, repository string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getNewestMemoryVersionID, repository)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getReviewComment = `-- name: GetReviewComment :one
 SELECT review_comment FROM tasks WHERE id = ?
 `
@@ -1872,6 +1916,45 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 			&i.ReviewRounds,
 			&i.ReviewComment,
 			&i.CheckHead,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listMemoryVersions = `-- name: ListMemoryVersions :many
+SELECT id, time, author, text FROM memory_versions WHERE repository = ? ORDER BY id DESC
+`
+
+type ListMemoryVersionsRow struct {
+	ID     int64
+	Time   string
+	Author string
+	Text   string
+}
+
+func (q *Queries) ListMemoryVersions(ctx context.Context, repository string) ([]ListMemoryVersionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listMemoryVersions, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMemoryVersionsRow
+	for rows.Next() {
+		var i ListMemoryVersionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Time,
+			&i.Author,
+			&i.Text,
 		); err != nil {
 			return nil, err
 		}
