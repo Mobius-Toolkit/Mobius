@@ -565,7 +565,7 @@ export function Conversation({
                 size="icon"
                 aria-label={showStop ? "Stop the reply" : "Send"}
                 title={showStop ? "Stop the reply" : "Send"}
-                pending={sending || stopping}
+                pending={showStop ? stopping : sending}
                 disabled={empty && !writing}
                 className={cn(
                   "rounded-full max-md:size-11",
@@ -576,7 +576,7 @@ export function Conversation({
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={showStop ? stop : undefined}
               >
-                {sending || stopping ? null : showStop ? (
+                {(showStop ? stopping : sending) ? null : showStop ? (
                   <SquareIcon className="size-3 fill-current" />
                 ) : (
                   <ArrowUpIcon />
