@@ -253,7 +253,7 @@ func (e *Engine) takeSlot(ctx context.Context, a *Agent) error {
 			if err != nil {
 				return err
 			}
-			e.publish(Change{Node: new(node(session))})
+			e.publish(Change{Node: new(e.node(session))})
 			shown = reason
 		}
 		select {

@@ -255,6 +255,8 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 	if strings.TrimSpace(input.Reason) == "" {
 		return "", refuse("The reason is empty. Name the type of change and the evidence.")
 	}
+	e.memoryMu.Lock()
+	defer e.memoryMu.Unlock()
 	text, err := e.readMemory(c.repository)
 	if err != nil {
 		return "", err
@@ -274,7 +276,7 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 		}
 		text = strings.Replace(text, input.Old, input.New, 1)
 	}
-	if err := e.SaveMemory(ctx, c.repository, "curator", input.Reason, text); err != nil {
+	if err := e.saveMemory(ctx, c.repository, "curator", input.Reason, text); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Saved the memory file. It has %d of %d lines.", countLines(text), maxMemoryLines), nil

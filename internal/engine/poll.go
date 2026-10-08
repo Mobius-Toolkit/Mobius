@@ -157,10 +157,10 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 }
 
 // changedIssues reads the issues and pull requests that changed at or after the `since` cursor, reads the new comments
-// of the repository with two calls, acts on the comments, stops a Triager, updates the copy, acts on the new events of
-// the Workstreams, and moves the cursors to the last change. The first poll of a repository has no cursor, so it reads
-// all issues, and it cannot see which event is new. It reads no comment: the next poll starts each comment list at the
-// issue cursor.
+// of the repository with two calls, and reads the reviews and the review threads of the open pull requests with one
+// call. Then it acts on the comments, stops a Triager, updates the copy, acts on the new events of the Workstreams, and
+// moves the cursors to the last change. The first poll of a repository has no cursor, so it reads all issues, and it
+// cannot see which event is new. It reads no comment: the next poll starts each comment list at the issue cursor.
 func (e *Engine) changedIssues(ctx context.Context, repository github.Repository) error {
 	cursor, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: issuesEndpoint})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -199,10 +199,26 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	for number := range review {
 		unrouted[number] = true
 	}
+	for _, issue := range page.Issues {
+		delete(unrouted, int64(issue.GetNumber()))
+	}
+	// A comment that GitHub wrote after it gave the page has its issue or pull request outside the page.
+	var outside []*gh.Issue
+	for _, number := range slices.Sorted(maps.Keys(unrouted)) {
+		issue, err := repository.Issue(ctx, number)
+		if err != nil {
+			return err
+		}
+		if issue != nil {
+			outside = append(outside, issue)
+		}
+	}
+	if err := e.readPullRequests(ctx, repository, openPullRequests(slices.Concat(page.Issues, outside))); err != nil {
+		return err
+	}
 	listChanged := false
 	for _, issue := range page.Issues {
 		number := int64(issue.GetNumber())
-		delete(unrouted, number)
 		if err := e.routeComments(ctx, repository, issue, conversation[number], review[number]); err != nil {
 			return err
 		}
@@ -243,15 +259,8 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			}
 		}
 	}
-	// A comment that GitHub wrote after it gave the page has its issue or pull request outside the page.
-	for _, number := range slices.Sorted(maps.Keys(unrouted)) {
-		issue, err := repository.Issue(ctx, number)
-		if err != nil {
-			return err
-		}
-		if issue == nil {
-			continue
-		}
+	for _, issue := range outside {
+		number := int64(issue.GetNumber())
 		if err := e.routeComments(ctx, repository, issue, conversation[number], review[number]); err != nil {
 			return err
 		}

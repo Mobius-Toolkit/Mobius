@@ -106,7 +106,7 @@ test("Stop in the chat shows the spinner while the request runs", async ({ page 
   const held = await hold(page, "**/api/chat/stop", "POST");
 
   await checkPending(
-    page.getByRole("main").getByRole("button", { name: "Stop", exact: true }),
+    page.getByRole("main").getByRole("button", { name: "Stop the reply", exact: true }),
     held,
   );
   await expect(page.getByRole("main").getByText("The server failed.")).toBeVisible();

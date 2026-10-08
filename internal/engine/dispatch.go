@@ -200,7 +200,7 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 	number := int64(issue.GetNumber())
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		return e.workstreamCommentEvents(ctx, repository, issue, comments)
 	}
 	if err != nil {
 		return err
@@ -215,6 +215,53 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 		}
 	}
 	return e.commentEventsOf(ctx, task, issue, replies)
+}
+
+// workstreamCommentEvents adds a comment event for the Lead for each new comment of a trusted user on an open Workstream
+// issue, or on an open issue below a Workstream, that has no live task. The event of the Workstream issue has no issue.
+// A comment on an issue in no Workstream has no event.
+func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
+	if issue.GetState() != "open" {
+		return nil
+	}
+	number := int64(issue.GetNumber())
+	workstream, err := e.commentWorkstream(ctx, repository, issue)
+	if err != nil || workstream == 0 {
+		return err
+	}
+	eventIssue := sql.NullInt64{Int64: number, Valid: workstream != number}
+	for _, comment := range comments {
+		if !e.commentIsEvent(repository.AppSlug, comment) {
+			continue
+		}
+		text := eventText(comment.GetCreatedAt().Time, "comment on", issue, comment.GetUser().GetLogin(), comment.GetBody())
+		if err := e.addLeadEvent(ctx, repository.FullName, workstream, eventIssue, "comment", text); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// commentWorkstream gives the number of the open Workstream of the issue, or 0 when the issue is in no open Workstream.
+// It reads the local copy of the Workstream tree first.
+func (e *Engine) commentWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue) (int64, error) {
+	number := int64(issue.GetNumber())
+	if hasLabel(issue, workstreamLabel) {
+		return number, nil
+	}
+	workstream, ok, err := e.copiedWorkstreamOf(ctx, repository.FullName, number, issue.GetRepositoryURL())
+	if err != nil || ok {
+		return workstream, err
+	}
+	workstream, err = workstreamOf(ctx, repository, number)
+	if err != nil || workstream == 0 {
+		return 0, err
+	}
+	open, err := repository.Issue(ctx, workstream)
+	if err != nil || open.GetState() != "open" {
+		return 0, err
+	}
+	return workstream, nil
 }
 
 // pullRequestComments acts on the new comments of the pull request of a live task: a new comment or review comment of
@@ -241,6 +288,10 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 			}
 			break
 		}
+	}
+	state := e.pull(repository, number)
+	for _, comment := range comments {
+		state.conversation[comment.GetID()] = comment
 	}
 	replies, _, err := e.newComments(ctx, repository, task, comments)
 	if err != nil || task.State != "stopped" && task.State != "dispatched" || len(replies) == 0 {
