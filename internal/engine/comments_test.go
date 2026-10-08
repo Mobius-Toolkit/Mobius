@@ -96,7 +96,7 @@ func TestAPollReadsTheCommentsOfManyIssuesAndPullRequestsWithTwoCalls(t *testing
 	fake.AddReviewComment(shop, 44, 0, "owner", "Rename tier to plan.")
 	release()
 
-	testkit.WaitFor(t, func() bool { return eventLines(t, server) == 4 })
+	testkit.WaitFor(t, func() bool { return eventLines(t, server) == 6 })
 	waitForPolls(t, fake)
 	afterSingle, afterRepositories := fake.CommentReads()
 	// The poll after the one that read the comments reads the last changed issue again, because its page differs from the saved page.

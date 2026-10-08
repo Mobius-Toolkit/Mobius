@@ -293,7 +293,8 @@ func (e *Engine) commentWorkstream(ctx context.Context, repository github.Reposi
 // a trusted user resets the counters of the task. A comment goes to the Lead or to the Judge, never to both
 // (Mobius-rust#274). The Judge takes the new comments when the task is in checks, approval, ready_for_review, reviewed or needs_human,
 // also the comments from a round before that state. A stopped or dispatched task waits for a human or the Lead, so
-// each new comment that is an event goes to the Lead and becomes the last item of the Judge.
+// each new comment that is an event, and each new review comment of a trusted user in an open thread, goes to the
+// Lead and becomes the last item of the Judge.
 //
 // Each conversation comment that is an event, and each review comment of a trusted user, gets a reaction. A comment of a
 // live task gets the reaction of an agent that gets it, in every state of the task: the Lead gets a conversation comment
@@ -323,23 +324,49 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 	for _, comment := range comments {
 		state.conversation[comment.GetID()] = comment
 	}
-	if err := e.answerReviewComments(ctx, repository, number, reviewComments); err != nil {
+	open, err := e.answerReviewComments(ctx, repository, number, reviewComments)
+	if err != nil {
 		return err
 	}
 	replies, _, err := e.newComments(ctx, repository, task, comments)
 	if err != nil {
 		return err
 	}
-	if task.State != "stopped" && task.State != "dispatched" || len(replies) == 0 {
-		return acknowledge(ctx, repository, replies)
+	if task.State != "stopped" && task.State != "dispatched" || len(replies)+len(open) == 0 {
+		if err := acknowledge(ctx, repository, replies); err != nil {
+			return err
+		}
+		return acknowledgeReviewComments(ctx, repository, open)
+	}
+	var newest time.Time
+	for _, comment := range replies {
+		newest = laterOf(newest, comment.GetCreatedAt().Time)
+	}
+	for _, comment := range open {
+		newest = laterOf(newest, comment.GetCreatedAt().Time)
 	}
 	if err := e.queries.SetJudgedAt(ctx, store.SetJudgedAtParams{
-		JudgedAt: sql.NullString{String: replies[len(replies)-1].GetCreatedAt().UTC().Format(time.RFC3339Nano), Valid: true},
+		JudgedAt: sql.NullString{String: newest.UTC().Format(time.RFC3339Nano), Valid: true},
 		ID:       task.ID,
 	}); err != nil {
 		return err
 	}
+	for _, comment := range open {
+		if err := e.addCommentEvent(ctx, task, pullRequest, comment.GetCreatedAt().Time, "review comment on", comment.GetUser().GetLogin(), comment.GetBody()); err != nil {
+			return err
+		}
+	}
+	if err := acknowledgeReviewComments(ctx, repository, open); err != nil {
+		return err
+	}
 	return e.commentEventsOf(ctx, repository, task, pullRequest, replies)
+}
+
+func laterOf(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // declineOnPullRequest declines each conversation comment that is an event, and each review comment of a trusted user,
@@ -379,13 +406,17 @@ func (e *Engine) newComments(ctx context.Context, repository github.Repository, 
 // the next step.
 func (e *Engine) commentEventsOf(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, comments []*gh.IssueComment) error {
 	for _, comment := range comments {
-		text := eventText(comment.GetCreatedAt().Time, "comment on", issue, comment.GetUser().GetLogin(), comment.GetBody()) +
-			fmt.Sprintf("\n\nThe state of the task of #%d is %s.", task.Issue, task.State)
-		if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "comment", text); err != nil {
+		if err := e.addCommentEvent(ctx, task, issue, comment.GetCreatedAt().Time, "comment on", comment.GetUser().GetLogin(), comment.GetBody()); err != nil {
 			return err
 		}
 	}
 	return acknowledge(ctx, repository, comments)
+}
+
+// addCommentEvent adds a comment event for the Lead of the Workstream of the task. what tells the kind of comment.
+func (e *Engine) addCommentEvent(ctx context.Context, task store.Task, issue *gh.Issue, at time.Time, what, author, body string) error {
+	text := eventText(at, what, issue, author, body) + fmt.Sprintf("\n\nThe state of the task of #%d is %s.", task.Issue, task.State)
+	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "comment", text)
 }
 
 // trustedUser tells if login is a trusted user.

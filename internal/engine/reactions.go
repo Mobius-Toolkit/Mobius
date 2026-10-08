@@ -87,24 +87,35 @@ func (e *Engine) markCommentAnswered(ctx context.Context, repository github.Repo
 	return e.queries.MarkCommentAnswered(ctx, store.MarkCommentAnsweredParams{Repository: repository.FullName, Review: review, Comment: id})
 }
 
-// answerReviewComments reacts to each review comment of a trusted user: the Judge gets the comments of an open
-// thread, and Mobius does not act on the others. A comment of a thread that the poll does not know is the second case.
-func (e *Engine) answerReviewComments(ctx context.Context, repository github.Repository, number int64, comments []*gh.PullRequestComment) error {
+// answerReviewComments declines each review comment of a trusted user that is not in an open thread, and gives the
+// comments that are in an open thread. An agent gets the comments of an open thread. A comment of a thread that the
+// poll does not know is not in an open thread. The caller adds the reaction of the comments that it gives, with
+// acknowledgeReviewComments.
+func (e *Engine) answerReviewComments(ctx context.Context, repository github.Repository, number int64, comments []*gh.PullRequestComment) ([]*gh.PullRequestComment, error) {
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
+	var open []*gh.PullRequestComment
 	for _, comment := range comments {
 		if !e.trustedUser(comment.GetUser().GetLogin()) {
 			continue
 		}
-		open := slices.ContainsFunc(e.pull(repository, number).Threads, func(thread github.ReviewThread) bool {
+		isOpen := slices.ContainsFunc(e.pull(repository, number).Threads, func(thread github.ReviewThread) bool {
 			return openThread(thread, trusted, appLogin(repository.AppSlug)) &&
 				slices.ContainsFunc(thread.Comments, func(inThread github.ThreadComment) bool { return inThread.ID == comment.GetID() })
 		})
-		if !open {
+		if !isOpen {
 			if err := e.declineReviewComment(ctx, repository, number, comment, closedThreadReply); err != nil {
-				return err
+				return nil, err
 			}
 			continue
 		}
+		open = append(open, comment)
+	}
+	return open, nil
+}
+
+// acknowledgeReviewComments adds the reaction of an agent that gets the review comments.
+func acknowledgeReviewComments(ctx context.Context, repository github.Repository, comments []*gh.PullRequestComment) error {
+	for _, comment := range comments {
 		if err := repository.ReactToReviewComment(ctx, comment.GetID(), gotReaction); err != nil {
 			return err
 		}
