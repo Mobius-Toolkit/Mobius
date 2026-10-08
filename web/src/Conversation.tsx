@@ -210,21 +210,57 @@ export function Conversation({
   };
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined);
-  const voice = useVoice((spoken) => {
+  // The place of the voice text in the field. skip is the number of words of the voice text that stay in the text
+  // before the place. count, value and cursor describe what the voice input wrote last.
+  const voiceInsert = useRef<{
+    lead: string;
+    trail: string;
+    skip: number;
+    count: number;
+    value: string;
+    cursor: number;
+  }>(undefined);
+  const voice = useVoice((spoken, first) => {
     const field = input.current;
     if (!field) {
       return;
     }
-    const focused = document.activeElement === field;
-    const start = focused ? field.selectionStart : field.value.length;
-    const end = focused ? field.selectionEnd : field.value.length;
-    const before = field.value.slice(0, start);
-    const after = field.value.slice(end);
-    const lead = before === "" || /\s$/.test(before) ? before : `${before} `;
-    const trail = after === "" || /^\s/.test(after) ? after : ` ${after}`;
-    flushSync(() => setText(lead + spoken + trail));
-    const cursor = lead.length + spoken.length;
+    const words = spoken.split(" ");
+    let insert = voiceInsert.current;
+    const untouched =
+      insert &&
+      field.value === insert.value &&
+      field.selectionStart === insert.cursor &&
+      field.selectionEnd === insert.cursor;
+    if (first || !insert || !untouched) {
+      const skip = first || !insert ? 0 : insert.count;
+      if (words.length <= skip) {
+        return;
+      }
+      const focused = document.activeElement === field;
+      const start = focused ? field.selectionStart : field.value.length;
+      const end = focused ? field.selectionEnd : field.value.length;
+      const before = field.value.slice(0, start);
+      const after = field.value.slice(end);
+      insert = {
+        lead: before === "" || /\s$/.test(before) ? before : `${before} `,
+        trail: after === "" || /^\s/.test(after) ? after : ` ${after}`,
+        skip,
+        count: 0,
+        value: "",
+        cursor: 0,
+      };
+    }
+    const shown = words.slice(insert.skip).join(" ");
+    const value = insert.lead + shown + insert.trail;
+    const cursor = insert.lead.length + shown.length;
+    voiceInsert.current = { ...insert, count: words.length, value, cursor };
+    flushSync(() => setText(value));
     field.setSelectionRange(cursor, cursor);
+    // setSelectionRange does not scroll a field without the focus, and WebKit on iOS does not scroll it reliably.
+    if (!insert.trail) {
+      field.scrollTop = field.scrollHeight;
+    }
   });
 
   const load = useCallback(() => {

@@ -32,7 +32,7 @@ const errorMessages: Record<string, string> = {
 
 // The hook that receives the events of the run.
 type Target = {
-  onText: (text: string) => void;
+  onText: (text: string, first: boolean) => void;
   setListening: (listening: boolean) => void;
   setError: (error: string) => void;
 };
@@ -53,6 +53,14 @@ const state = {
   added: 0,
   // Chrome on Android adds a final result that repeats the text of the final result before it.
   lastFinal: "",
+  // The voice text of one recording is the final texts of all its runs and the draft of the last run.
+  finals: [] as string[],
+  // The interim text that no final result has replaced.
+  draft: "",
+  // The voice text that the owner got last.
+  spoken: "",
+  // True until the owner gets the first voice text of the recording.
+  first: true,
 };
 
 // The lock that keeps the screen on while the voice input listens.
@@ -108,11 +116,10 @@ const create = (Ctor: new () => Recognition) => {
   const live = new Ctor();
   live.continuous = true;
   live.addEventListener("result", (event) => {
-    const spoken: string[] = [];
     while (state.added < event.results.length && event.results[state.added].isFinal) {
       const transcript = event.results[state.added][0].transcript.trim();
       if (transcript !== state.lastFinal) {
-        spoken.push(
+        state.finals.push(
           transcript.startsWith(`${state.lastFinal} `)
             ? transcript.slice(state.lastFinal.length).trim()
             : transcript,
@@ -121,9 +128,16 @@ const create = (Ctor: new () => Recognition) => {
       }
       state.added++;
     }
-    const text = spoken.join(" ").trim();
-    if (text) {
-      state.owner?.onText(text);
+    state.draft = Array.from(event.results)
+      .slice(state.added)
+      .map((part) => part[0].transcript.trim())
+      .join(" ")
+      .trim();
+    const text = [...state.finals, state.draft].filter(Boolean).join(" ");
+    if (text !== state.spoken) {
+      state.spoken = text;
+      state.owner?.onText(text, state.first);
+      state.first = false;
     }
   });
   live.addEventListener("audiostart", () => {
@@ -139,6 +153,10 @@ const create = (Ctor: new () => Recognition) => {
   });
   live.addEventListener("end", () => {
     state.running = false;
+    if (state.draft) {
+      state.finals.push(state.draft);
+      state.draft = "";
+    }
     if (state.wanted && state.canRestart) {
       begin(live);
       return;
@@ -151,13 +169,15 @@ const create = (Ctor: new () => Recognition) => {
 
 const abortRun = () => {
   stopWanting();
+  state.owner = undefined;
   state.recognition?.abort();
 };
 
-// useVoice gives the text of each spoken phrase to onText. It keeps the voice input on until toggle stops it,
-// abort runs or an error occurs. It returns the error of the voice input, or '' when the voice input starts or
-// abort runs. The unmount stops the voice input.
-export function useVoice(onText: (text: string) => void) {
+// useVoice gives the voice text of the recording to onText after each result. The voice text has the final texts and
+// the draft. first is true for the first voice text of a recording. When a run ends, its draft becomes a final text.
+// The voice input stays on until toggle stops it, abort runs or an error occurs. useVoice returns the error of the
+// voice input, or '' when the voice input starts or abort runs. The unmount stops the voice input.
+export function useVoice(onText: (text: string, first: boolean) => void) {
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
   const latestOnText = useRef(onText);
@@ -167,18 +187,19 @@ export function useVoice(onText: (text: string) => void) {
   });
 
   useEffect(() => {
-    const target = { onText: (text: string) => latestOnText.current(text), setListening, setError };
+    const target = {
+      onText: (text: string, first: boolean) => latestOnText.current(text, first),
+      setListening,
+      setError,
+    };
     state.mounted = target;
     return () => {
       state.mounted = undefined;
-      if (state.owner === target) {
-        state.owner = undefined;
-      }
       abortRun();
     };
   }, []);
 
-  // abort drops the phrase that the run still holds.
+  // abort drops the voice text that the run still holds.
   const abort = () => {
     setListening(false);
     setError("");
@@ -196,6 +217,10 @@ export function useVoice(onText: (text: string) => void) {
       return;
     }
     state.recognition ??= create(Speech);
+    state.finals = [];
+    state.draft = "";
+    state.spoken = "";
+    state.first = true;
     state.wanted = true;
     holdScreen();
     setError("");
