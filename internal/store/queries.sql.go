@@ -577,7 +577,7 @@ func (q *Queries) CountSessionsEndedSinceCurator(ctx context.Context, repository
 const countUnread = `-- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = ?1 AND m.repository = ?2 AND m.workstream = ?3
-  AND m.author NOT IN ('Owner', 'Researcher', 'Event')
+  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Event')
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0)
 `
@@ -1231,7 +1231,7 @@ func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredPa
 
 const listChatMessages = `-- name: ListChatMessages :many
 SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Researcher'
+WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator')
 ORDER BY id
 `
 
@@ -1241,7 +1241,7 @@ type ListChatMessagesParams struct {
 	Workstream   int64
 }
 
-// The chat shows no Researcher message.
+// The chat shows no Researcher message and no Curator message.
 func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesParams) ([]ChatMessage, error) {
 	rows, err := q.db.QueryContext(ctx, listChatMessages, arg.Organization, arg.Repository, arg.Workstream)
 	if err != nil {
@@ -1763,6 +1763,38 @@ func (q *Queries) ListCopiedWorkstreamsWithLabelChange(ctx context.Context, arg 
 			return nil, err
 		}
 		items = append(items, workstream)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCuratorReasonsAfter = `-- name: ListCuratorReasonsAfter :many
+SELECT reason FROM memory_versions WHERE repository = ? AND author = 'curator' AND id > ? ORDER BY id
+`
+
+type ListCuratorReasonsAfterParams struct {
+	Repository string
+	ID         int64
+}
+
+func (q *Queries) ListCuratorReasonsAfter(ctx context.Context, arg ListCuratorReasonsAfterParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listCuratorReasonsAfter, arg.Repository, arg.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var reason string
+		if err := rows.Scan(&reason); err != nil {
+			return nil, err
+		}
+		items = append(items, reason)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -2486,7 +2518,7 @@ const listUnread = `-- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
 LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
-WHERE m.author NOT IN ('Owner', 'Researcher', 'Event') AND m.id > coalesce(s.message, 0)
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Event') AND m.id > coalesce(s.message, 0)
 GROUP BY m.organization, m.repository, m.workstream
 ORDER BY m.organization, m.repository, m.workstream
 `
@@ -2498,7 +2530,7 @@ type ListUnreadRow struct {
 	Count        int64
 }
 
-// The messages of the Owner, of a Researcher and of an event are never unread.
+// The messages of the Owner, of a Researcher, of a Curator and of an event are never unread.
 func (q *Queries) ListUnread(ctx context.Context) ([]ListUnreadRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUnread)
 	if err != nil {

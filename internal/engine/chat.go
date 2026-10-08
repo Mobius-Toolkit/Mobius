@@ -48,6 +48,7 @@ const (
 	leadAuthor       = "Lead"
 	tellOwnerAuthor  = "tell_owner"
 	researcherAuthor = "Researcher"
+	curatorAuthor    = "Curator"
 	triagerAuthor    = "Triager"
 	mobiusAuthor     = "Mobius"
 	eventAuthor      = "Event"
@@ -155,7 +156,7 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 			return message, errors.Join(err, e.queries.DeleteChatMessage(ctx, message.ID))
 		}
 	}
-	if author == researcherAuthor {
+	if author == researcherAuthor || author == curatorAuthor {
 		return message, nil
 	}
 	e.publish(Change{Message: &message})

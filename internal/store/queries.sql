@@ -172,10 +172,10 @@ DELETE FROM chat_messages WHERE id = ?;
 UPDATE chat_messages SET text = text || sqlc.arg(text) WHERE id = sqlc.arg(id)
 RETURNING *;
 
--- The chat shows no Researcher message.
+-- The chat shows no Researcher message and no Curator message.
 -- name: ListChatMessages :many
 SELECT * FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Researcher'
+WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator')
 ORDER BY id;
 
 -- name: ListChatMessagesBefore :many
@@ -187,19 +187,19 @@ ORDER BY id DESC LIMIT ?;
 INSERT INTO chat_seen (organization, repository, workstream, message) VALUES (?, ?, ?, ?)
 ON CONFLICT (organization, repository, workstream) DO UPDATE SET message = max(message, excluded.message);
 
--- The messages of the Owner, of a Researcher and of an event are never unread.
+-- The messages of the Owner, of a Researcher, of a Curator and of an event are never unread.
 -- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
 LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
-WHERE m.author NOT IN ('Owner', 'Researcher', 'Event') AND m.id > coalesce(s.message, 0)
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Event') AND m.id > coalesce(s.message, 0)
 GROUP BY m.organization, m.repository, m.workstream
 ORDER BY m.organization, m.repository, m.workstream;
 
 -- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = sqlc.arg(organization) AND m.repository = sqlc.arg(repository) AND m.workstream = sqlc.arg(workstream)
-  AND m.author NOT IN ('Owner', 'Researcher', 'Event')
+  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Event')
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0);
 
@@ -447,6 +447,9 @@ SELECT text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DES
 
 -- name: GetNewestMemoryVersionID :one
 SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ?;
+
+-- name: ListCuratorReasonsAfter :many
+SELECT reason FROM memory_versions WHERE repository = ? AND author = 'curator' AND id > ? ORDER BY id;
 
 -- name: ListRecentMemoryVersions :many
 SELECT time, author, reason FROM memory_versions WHERE repository = ? ORDER BY id DESC LIMIT 20;

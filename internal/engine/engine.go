@@ -88,10 +88,13 @@ type Engine struct {
 	// researchers holds the session of each Researcher that runs, by the id of its session.
 	researchers map[int64]*Agent
 
-	// curatorsMu guards curators.
+	// curatorsMu guards curators and curatorRequests.
 	curatorsMu sync.Mutex
 	// curators holds each repository with a Curator that runs. The value tells that one more Curator waits.
 	curators map[string]bool
+	// curatorRequests holds the requests of the Owner that wait for a Curator, by repository. A Curator takes all the
+	// requests of its repository when it starts.
+	curatorRequests map[string][]string
 
 	mu        sync.Mutex
 	listeners map[chan Change]bool
@@ -111,27 +114,28 @@ type Agents struct {
 // New gives the Engine of the database db and of the GitHub Apps of gh with the settings of cfg.
 func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engine {
 	return &Engine{
-		db:           db,
-		queries:      store.New(db),
-		github:       gh,
-		config:       cfg,
-		agents:       agents,
-		labelsFixed:  map[string]bool{},
-		recovered:    map[string]bool{},
-		copied:       map[string]bool{},
-		quiet:        map[int64]quietItem{},
-		pulls:        map[pullKey]*pullState{},
-		ciWait:       map[int64]ciWait{},
-		limitItems:   map[config.Harness]int64{},
-		workers:      newWorkers(),
-		chats:        map[ChatKey]*chat{},
-		triages:      map[triageKey]triage{},
-		checks:       make(chan struct{}, cfg.MaxChecks),
-		stops:        map[any]stopper{},
-		implementers: map[int64]*Agent{},
-		researchers:  map[int64]*Agent{},
-		curators:     map[string]bool{},
-		listeners:    map[chan Change]bool{},
+		db:              db,
+		queries:         store.New(db),
+		github:          gh,
+		config:          cfg,
+		agents:          agents,
+		labelsFixed:     map[string]bool{},
+		recovered:       map[string]bool{},
+		copied:          map[string]bool{},
+		quiet:           map[int64]quietItem{},
+		pulls:           map[pullKey]*pullState{},
+		ciWait:          map[int64]ciWait{},
+		limitItems:      map[config.Harness]int64{},
+		workers:         newWorkers(),
+		chats:           map[ChatKey]*chat{},
+		triages:         map[triageKey]triage{},
+		checks:          make(chan struct{}, cfg.MaxChecks),
+		stops:           map[any]stopper{},
+		implementers:    map[int64]*Agent{},
+		researchers:     map[int64]*Agent{},
+		curators:        map[string]bool{},
+		curatorRequests: map[string][]string{},
+		listeners:       map[chan Change]bool{},
 	}
 }
 

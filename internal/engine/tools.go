@@ -293,6 +293,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"question": map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
 				},
 				e.startResearcher),
+			toolOf(e, c, noRepository, "tell_curator",
+				"Send a request to the Curator of a repository. The Curator changes the memory file of the repository. In the chat, call it only after the Owner approves the exact message. The tool returns at once, and the result arrives later.",
+				map[string]any{
+					"repository": map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository (owner/name) in the organization of the chat."},
+					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The request for the Curator."},
+				},
+				e.tellCurator),
 		}
 	}
 	return nil
@@ -306,13 +313,24 @@ var workstreamProperties = map[string]any{
 // tool gives the Mobius tool name of c. The tool decodes the arguments into In for run, and adds the call
 // with its result or its error to the Transcript of the session.
 func tool[In any](e *Engine, c caller, name, description string, properties map[string]any, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
+	return toolOf(e, c, e.callerRepository, name, description, properties, run)
+}
+
+// noRepository is the resolve of a tool that takes the repository as an input. The run of the tool gets the zero
+// Repository.
+func noRepository(caller) (github.Repository, error) {
+	return github.Repository{}, nil
+}
+
+// toolOf is tool for a tool whose run gets the repository that resolve gives.
+func toolOf[In any](e *Engine, c caller, resolve func(caller) (github.Repository, error), name, description string, properties map[string]any, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
 	return mcp.Tool{
 		Name:        name,
 		Description: description,
 		Properties:  properties,
 		Run: func(ctx context.Context, arguments json.RawMessage) (string, error) {
 			c.agent.touch()
-			text, err := call(ctx, e, c, name, arguments, run)
+			text, err := call(ctx, c, resolve, name, arguments, run)
 			if recordErr := e.recordCall(ctx, c.session, name, arguments, text, err); recordErr != nil {
 				return "", recordErr
 			}
@@ -321,8 +339,8 @@ func tool[In any](e *Engine, c caller, name, description string, properties map[
 	}
 }
 
-func call[In any](ctx context.Context, e *Engine, c caller, name string, arguments json.RawMessage, run func(context.Context, caller, github.Repository, In) (string, error)) (string, error) {
-	repository, err := e.callerRepository(c)
+func call[In any](ctx context.Context, c caller, resolve func(caller) (github.Repository, error), name string, arguments json.RawMessage, run func(context.Context, caller, github.Repository, In) (string, error)) (string, error) {
+	repository, err := resolve(c)
 	if err != nil {
 		return "", err
 	}
