@@ -957,6 +957,57 @@ test("text that the user types during a recording stays", async ({ page }) => {
   await expect(input).toHaveValue("red roses really and white lilies");
 });
 
+test("a final result with other words than the draft does not move the new words after a touch", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "send an e mail...");
+  await expect(input).toHaveValue("send an e mail");
+
+  await input.pressSequentially(" now");
+  await result(page, "send an email");
+  await expect(input).toHaveValue("send an e mail now");
+  await result(page, "send an email", "to Bob...");
+  await expect(input).toHaveValue("send an e mail now to Bob");
+});
+
+test("the field scrolls to the voice text that goes in at the cursor before other text", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  const lines = Array.from({ length: 20 }, (_, index) => `Line ${index}`);
+  await input.fill(lines.join("\n"));
+  const cursor = lines.slice(0, 13).join("\n").length;
+  await select(page, cursor, cursor);
+  await input.evaluate((field) => {
+    field.scrollTop = 0;
+  });
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(
+    page,
+    "red roses and so many white lilies that the text needs a new line in the field and then a few more words to be sure...",
+  );
+  await expect(input).toHaveValue(/Line 12 red roses.*words to be sure\nLine 13/);
+  const gap = await page.evaluate<number>(`(() => {
+    const field = document.querySelector('textarea');
+    const probe = field.cloneNode();
+    field.after(probe);
+    probe.value = field.value.slice(0, field.selectionStart);
+    const end = probe.scrollHeight;
+    probe.remove();
+    return field.scrollTop + field.clientHeight - end;
+  })()`);
+  expect(await input.evaluate((field) => field.scrollTop)).toBeGreaterThan(0);
+  expect(Math.abs(gap)).toBeLessThanOrEqual(1);
+});
+
 test("the spoken text goes in at the cursor", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");

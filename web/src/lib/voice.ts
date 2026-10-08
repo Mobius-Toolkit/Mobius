@@ -32,7 +32,7 @@ const errorMessages: Record<string, string> = {
 
 // The hook that receives the events of the run.
 type Target = {
-  onText: (text: string, first: boolean) => void;
+  onText: (text: string, first: boolean, detach: () => string) => void;
   setListening: (listening: boolean) => void;
   setError: (error: string) => void;
 };
@@ -60,6 +60,11 @@ const state = {
   finals: [] as string[],
   // The interim text that no final result has replaced.
   draft: "",
+  // The words at the start of the draft that the field shows in an older place. A touch of the field sets them.
+  skip: 0,
+  // What the field shows: the number of final texts, and the number of words of the draft that is not skipped.
+  shownFinals: 0,
+  shownWords: 0,
   // The voice text that the owner got last.
   spoken: "",
   // True until the owner gets the first voice text of the recording.
@@ -98,6 +103,10 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+const visibleDraft = () => state.draft.split(" ").slice(state.skip).join(" ");
+
+const voiceText = () => [...state.finals, visibleDraft()].filter(Boolean).join(" ");
+
 const begin = (live: Recognition) => {
   live.lang = navigator.language;
   state.owner = state.mounted;
@@ -116,6 +125,22 @@ const begin = (live: Recognition) => {
   state.running = true;
 };
 
+// After the user touches the field, the voice text starts again at the touched place. The field already shows the
+// final texts and the draft words that it got, so the new voice text has only the words after them.
+const detach = () => {
+  state.finals = state.finals.slice(state.shownFinals);
+  if (state.finals.length > 0) {
+    state.finals[0] = state.finals[0].split(" ").slice(state.shownWords).join(" ");
+    state.skip = 0;
+  } else if (state.draft) {
+    state.skip += state.shownWords;
+  } else {
+    state.skip = 0;
+  }
+  state.spoken = voiceText();
+  return state.spoken;
+};
+
 const create = (Ctor: new () => Recognition) => {
   const live = new Ctor();
   live.continuous = true;
@@ -126,13 +151,16 @@ const create = (Ctor: new () => Recognition) => {
     while (state.added < event.results.length && event.results[state.added].isFinal) {
       const transcript = event.results[state.added][0].transcript.trim();
       if (transcript !== state.lastFinal) {
-        state.finals.push(
-          transcript.startsWith(`${state.lastFinal} `)
-            ? transcript.slice(state.lastFinal.length).trim()
-            : transcript,
-        );
+        const piece = transcript.startsWith(`${state.lastFinal} `)
+          ? transcript.slice(state.lastFinal.length).trim()
+          : transcript;
+        const fresh = piece.split(" ").slice(state.skip).join(" ");
+        if (fresh) {
+          state.finals.push(fresh);
+        }
         state.lastFinal = transcript;
       }
+      state.skip = 0;
       state.added++;
     }
     state.draft = Array.from(event.results)
@@ -140,12 +168,14 @@ const create = (Ctor: new () => Recognition) => {
       .map((part) => part[0].transcript.trim())
       .join(" ")
       .trim();
-    const text = [...state.finals, state.draft].filter(Boolean).join(" ");
+    const text = voiceText();
     if (text !== state.spoken) {
       state.spoken = text;
-      state.owner?.onText(text, state.first);
+      state.owner?.onText(text, state.first, detach);
       state.first = false;
     }
+    state.shownFinals = state.finals.length;
+    state.shownWords = visibleDraft() === "" ? 0 : visibleDraft().split(" ").length;
   });
   live.addEventListener("audiostart", () => {
     state.canRestart = true;
@@ -160,10 +190,14 @@ const create = (Ctor: new () => Recognition) => {
   });
   live.addEventListener("end", () => {
     state.running = false;
-    if (state.draft) {
-      state.finals.push(state.draft);
-      state.draft = "";
+    const rest = visibleDraft();
+    if (rest) {
+      state.finals.push(rest);
     }
+    state.draft = "";
+    state.skip = 0;
+    state.shownFinals = state.finals.length;
+    state.shownWords = 0;
     if (state.wanted && state.canRestart) {
       begin(live);
       return;
@@ -183,8 +217,9 @@ const abortRun = () => {
 // useVoice gives the voice text of the recording to onText after each result. The voice text has the final texts and
 // the draft. first is true for the first voice text of a recording. When a run ends, its draft becomes a final text.
 // The voice input stays on until toggle stops it, abort runs or an error occurs. useVoice returns the error of the
-// voice input, or '' when the voice input starts or abort runs. The unmount stops the voice input.
-export function useVoice(onText: (text: string, first: boolean) => void) {
+// voice input, or '' when the voice input starts or abort runs. The unmount stops the voice input. onText calls its
+// third argument when the user has touched the field. That call gives the voice text that the field does not show.
+export function useVoice(onText: (text: string, first: boolean, detach: () => string) => void) {
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
   const latestOnText = useRef(onText);
@@ -194,8 +229,8 @@ export function useVoice(onText: (text: string, first: boolean) => void) {
   });
 
   useEffect(() => {
-    const target = {
-      onText: (text: string, first: boolean) => latestOnText.current(text, first),
+    const target: Target = {
+      onText: (text, first, cut) => latestOnText.current(text, first, cut),
       setListening,
       setError,
     };
@@ -227,6 +262,9 @@ export function useVoice(onText: (text: string, first: boolean) => void) {
     state.finals = [];
     state.draft = "";
     state.spoken = "";
+    state.skip = 0;
+    state.shownFinals = 0;
+    state.shownWords = 0;
     state.first = true;
     state.wanted = true;
     holdScreen();

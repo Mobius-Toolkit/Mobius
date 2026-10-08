@@ -210,33 +210,30 @@ export function Conversation({
   };
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined);
-  // The place of the voice text in the field. skip is the number of words of the voice text that stay in the text
-  // before the place. count, value and cursor describe what the voice input wrote last.
-  const voiceInsert = useRef<{
-    lead: string;
-    trail: string;
-    skip: number;
-    count: number;
-    value: string;
-    cursor: number;
-  }>(undefined);
-  const voice = useVoice((spoken, first) => {
+  // The place of the voice text in the field. value and cursor describe what the voice input wrote last.
+  const voiceInsert = useRef<{ lead: string; trail: string; value: string; cursor: number }>(
+    undefined,
+  );
+  const voice = useVoice((spoken, first, detach) => {
     const field = input.current;
     if (!field) {
       return;
     }
-    const words = spoken.split(" ");
-    let insert = voiceInsert.current;
-    const untouched =
+    let insert = first ? undefined : voiceInsert.current;
+    let voiceText = spoken;
+    if (
       insert &&
-      field.value === insert.value &&
-      field.selectionStart === insert.cursor &&
-      field.selectionEnd === insert.cursor;
-    if (first || !insert || !untouched) {
-      const skip = first || !insert ? 0 : insert.count;
-      if (words.length <= skip) {
-        return;
-      }
+      (field.value !== insert.value ||
+        field.selectionStart !== insert.cursor ||
+        field.selectionEnd !== insert.cursor)
+    ) {
+      insert = undefined;
+      voiceText = detach();
+    }
+    if (!voiceText) {
+      return;
+    }
+    if (!insert) {
       const focused = document.activeElement === field;
       const start = focused ? field.selectionStart : field.value.length;
       const end = focused ? field.selectionEnd : field.value.length;
@@ -245,22 +242,21 @@ export function Conversation({
       insert = {
         lead: before === "" || /\s$/.test(before) ? before : `${before} `,
         trail: after === "" || /^\s/.test(after) ? after : ` ${after}`,
-        skip,
-        count: 0,
         value: "",
         cursor: 0,
       };
     }
-    const shown = words.slice(insert.skip).join(" ");
-    const value = insert.lead + shown + insert.trail;
-    const cursor = insert.lead.length + shown.length;
-    voiceInsert.current = { ...insert, count: words.length, value, cursor };
+    const value = insert.lead + voiceText + insert.trail;
+    const cursor = insert.lead.length + voiceText.length;
+    voiceInsert.current = { ...insert, value, cursor };
     flushSync(() => setText(value));
+    // The height of the text up to the end of the voice text gives the scroll position. setSelectionRange does not
+    // scroll a field without the focus, and WebKit on iOS does not scroll it reliably.
+    field.value = insert.lead + voiceText;
+    const top = field.scrollHeight - field.clientHeight;
+    field.value = value;
     field.setSelectionRange(cursor, cursor);
-    // setSelectionRange does not scroll a field without the focus, and WebKit on iOS does not scroll it reliably.
-    if (!insert.trail) {
-      field.scrollTop = field.scrollHeight;
-    }
+    field.scrollTop = top;
   });
 
   const load = useCallback(() => {
