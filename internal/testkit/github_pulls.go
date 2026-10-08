@@ -325,7 +325,11 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 		pulls := map[string]any{}
 		for _, alias := range aliases {
 			number, _ := strconv.ParseInt(alias[2], 10, 64)
-			pulls["pr"+alias[1]] = g.pullRequestNode(issueKey{repository, number})
+			key := issueKey{repository, number}
+			pulls["pr"+alias[1]] = g.pullRequestNode(key)
+			if found, ok := g.issues[key]; ok && len(found.reviews) > 0 {
+				g.reviewRead = true
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": pulls}})
 	}
