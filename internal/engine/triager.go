@@ -89,11 +89,11 @@ func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Reposi
 		return err
 	}
 	for _, number := range numbers {
-		if err := e.queries.ReleaseTriager(ctx, store.ReleaseTriagerParams{Repository: repository.FullName, Issue: number}); err != nil {
-			return err
-		}
 		issue, err := repository.Issue(ctx, number)
 		if err != nil {
+			return err
+		}
+		if err := e.queries.ReleaseTriager(ctx, store.ReleaseTriagerParams{Repository: repository.FullName, Issue: number}); err != nil {
 			return err
 		}
 		if issue == nil || issue.GetState() != "open" || !hasLabel(issue, noWorkstreamLabel) {
