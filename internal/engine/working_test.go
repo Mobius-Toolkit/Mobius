@@ -38,6 +38,16 @@ func TestALeadWorksOnlyWhileATurnRuns(t *testing.T) {
 		t.Error("the Lead in a turn does not work")
 	}
 
+	if _, err := server.DB.Exec("UPDATE sessions SET queue_reason = ? WHERE id = ?", "paused until 2026-10-04 10:00 UTC", lead.ID); err != nil {
+		t.Fatal(err)
+	}
+	if isWorking(t, server, lead.ID) {
+		t.Error("the paused Lead works")
+	}
+	if _, err := server.DB.Exec("UPDATE sessions SET queue_reason = NULL WHERE id = ?", lead.ID); err != nil {
+		t.Fatal(err)
+	}
+
 	stopChat(t, server, leadChat)
 
 	waitForChange(t, changes, func(change engine.Change) bool {

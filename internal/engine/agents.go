@@ -680,7 +680,7 @@ func (e *Engine) working(n Node) bool {
 		e.chatsMu.Lock()
 		defer e.chatsMu.Unlock()
 		c, ok := e.chats[ChatKey{session.Organization, session.Repository, session.Workstream}]
-		return ok && c.writing
+		return ok && c.writing && session.QueueReason.String == ""
 	}
 	return session.QueueReason.String == "" || session.QueueReason.String == checkRunsReason
 }
