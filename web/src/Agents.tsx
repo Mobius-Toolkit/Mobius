@@ -15,7 +15,7 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { queueState } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
-import { dayClock } from "@/lib/time";
+import { clock, dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { BackButton } from "./BackButton";
 
@@ -75,41 +75,39 @@ function TranscriptEntry({ line }: { line: TranscriptLine }) {
   return (
     <li
       className={cn(
-        "grid grid-cols-[auto_auto_minmax(0,1fr)] gap-x-3 py-2",
+        "grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 rounded-xl border px-3 py-2",
+        line.kind === "prompt"
+          ? "justify-self-end border-transparent bg-secondary"
+          : "justify-self-start bg-card",
         line.error && "text-destructive",
       )}
     >
-      <span className="text-muted-foreground tabular-nums">
-        {new Date(line.time).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}
-      </span>
-      <span className="font-mono text-xs leading-5">{line.kind}</span>
-      <div className="grid gap-1">
-        <span className="break-words">
-          {line.text}
-          {line.harnessToolName && (
-            <span className="text-sm text-muted-foreground"> {line.harnessToolName}</span>
-          )}
-        </span>
-        <span className="flex gap-1">
-          {line.folded && line.body && (
-            <Button variant="ghost" size="xs" onClick={() => setOpen(!open)}>
-              {open ? "Hide" : "Show"}
-            </Button>
-          )}
-          <Button variant="ghost" size="xs" onClick={() => setRaw(!raw)}>
-            Raw
-          </Button>
-        </span>
-        {open && line.body && (
-          <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs whitespace-pre-wrap">
-            {line.body}
-          </pre>
-        )}
-        {raw && <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">{line.raw}</pre>}
+      <div className="flex gap-2 text-xs text-muted-foreground">
+        <span className="font-mono">{line.kind}</span>
+        <span>{clock(line.time)}</span>
       </div>
+      <span className="break-words">
+        {line.text}
+        {line.harnessToolName && (
+          <span className="text-sm text-muted-foreground"> {line.harnessToolName}</span>
+        )}
+      </span>
+      <span className="flex gap-1">
+        {line.folded && line.body && (
+          <Button variant="ghost" size="xs" onClick={() => setOpen(!open)}>
+            {open ? "Hide" : "Show"}
+          </Button>
+        )}
+        <Button variant="ghost" size="xs" onClick={() => setRaw(!raw)}>
+          Raw
+        </Button>
+      </span>
+      {open && line.body && (
+        <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs whitespace-pre-wrap">
+          {line.body}
+        </pre>
+      )}
+      {raw && <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">{line.raw}</pre>}
     </li>
   );
 }
@@ -183,7 +181,7 @@ export function Transcript({
       </CardHeader>
       <CardContent className="grid gap-4">
         {error && <Badge variant="destructive">{error}</Badge>}
-        <ul className="divide-y">
+        <ul className="grid grid-cols-[minmax(0,1fr)] gap-2">
           {lines?.map((line) => (
             <TranscriptEntry key={line.id} line={line} />
           ))}
@@ -223,6 +221,7 @@ export function Agents({ source }: { source?: EventSource }) {
     if (!source) {
       return;
     }
+    load();
     source.addEventListener("open", load);
     const remove = onEvent<LiveEvents, "agent">(source, "agent", load);
     return () => {

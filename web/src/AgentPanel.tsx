@@ -136,6 +136,7 @@ function AgentTree({
     if (!source) {
       return;
     }
+    load();
     source.addEventListener("open", load);
     const remove = onEvent<LiveEvents, "agent">(source, "agent", (agent) => {
       if (agent.repository === `${owner}/${name}` && agent.workstream === number) {
@@ -283,6 +284,7 @@ function Tasks({
     if (!source) {
       return;
     }
+    load();
     source.addEventListener("open", load);
     const remove = onEvent<LiveEvents, "workstreams">(source, "workstreams", load);
     return () => {

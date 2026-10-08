@@ -1,13 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { PlaneIcon, PlusIcon } from "lucide-react";
+import { PlaneIcon } from "lucide-react";
 import type { Unread, Workstream } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { unreadCount } from "@/lib/unread";
 import {
   chatParams,
   organizationWorkstreams,
+  workstreamKey,
   type Workstreams as WorkstreamLists,
 } from "@/lib/workstreams";
 
@@ -30,6 +30,14 @@ export function WorkstreamBadges({
   });
   return (
     <span className="flex shrink-0 items-center gap-1.5">
+      {workstreams.working.has(workstreamKey(workstream)) && (
+        <span
+          role="img"
+          aria-label="Agent running"
+          title="Agent running"
+          className="size-2 rounded-full bg-green-600"
+        />
+      )}
       {workstream.autopilot && (
         <span role="img" aria-label="Autopilot" title="Autopilot" className="text-muted-foreground">
           <PlaneIcon className="size-3.5" />
@@ -59,14 +67,6 @@ export function Workstreams({
     <Card>
       <CardHeader>
         <CardTitle>Workstreams</CardTitle>
-        <CardAction>
-          <Button asChild size="sm">
-            <Link to="/workstreams/new">
-              <PlusIcon />
-              New
-            </Link>
-          </Button>
-        </CardAction>
       </CardHeader>
       <CardContent>
         {workstreams.error && <Badge variant="destructive">{workstreams.error}</Badge>}

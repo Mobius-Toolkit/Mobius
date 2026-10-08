@@ -16,9 +16,12 @@ test("back and forward move between the pages", async ({ page }) => {
   await link("/inbox").click();
   await expect(page).toHaveURL("/inbox");
   await expect(main.getByText("Inbox", { exact: true })).toBeVisible();
-  await link("/activity").click();
-  await expect(page).toHaveURL("/activity");
-  await expect(main.getByText("Activity", { exact: true })).toBeVisible();
+  await link("/inbox/activity").click();
+  await expect(page).toHaveURL("/inbox/activity");
+  await expect(main.getByRole("tab", { name: "Activity" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
 
   await page.goBack();
   await expect(page).toHaveURL("/inbox");
@@ -31,14 +34,75 @@ test("back and forward move between the pages", async ({ page }) => {
   await expect(main.getByText("Inbox", { exact: true })).toBeVisible();
 });
 
-test("an unknown path goes to the Workstreams", async ({ page }) => {
-  const main = page.getByRole("main");
-
-  for (const path of ["/nowhere", "/workstreams/owner/shop/abc", "/workstreams/owner"]) {
+test("the start page and an unknown path open the Triager chat", async ({ page }) => {
+  for (const path of [
+    "/",
+    "/nowhere",
+    "/activity",
+    "/workstreams/new",
+    "/workstreams/owner/shop/abc",
+    "/workstreams/owner",
+  ]) {
     await page.goto(path);
-    await expect(page).toHaveURL("/workstreams");
-    await expect(main.getByText("Integrate loyalty plans")).toBeVisible();
+    await expect(page).toHaveURL("/chat");
+    await expect(page.getByLabel("Message to the Triager")).toBeVisible();
   }
+});
+
+test("the tab bar of a phone shows the tabs in order, and the Chat tab shows the unread count", async ({
+  page,
+}) => {
+  const tabs = page.getByRole("navigation").last().getByRole("link");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/workstreams");
+  await expect(tabs).toHaveText([/^Chat$/, /^Workstreams$/, /^Inbox\s*2$/, /^Settings$/]);
+
+  await page.addInitScript("localStorage.setItem('organization', 'plants')");
+  await page.goto("/workstreams");
+  await expect(tabs).toHaveText([/^Chat\s*1$/, /^Workstreams$/, /^Inbox$/, /^Settings$/]);
+});
+
+test("the sidebar of a desktop shows Chat and Inbox above the Workstreams", async ({ page }) => {
+  const links = page.getByRole("navigation").first().getByRole("link");
+
+  await page.goto("/workstreams");
+  await expect(links.nth(0)).toHaveText(/^Chat$/);
+  await expect(links.nth(1)).toHaveText(/^Inbox\s*2$/);
+  await expect(links.nth(2)).toHaveText(/^Workstreams$/);
+  await expect(links.filter({ hasText: /^Activity$/ })).toHaveCount(0);
+  await expect(links.filter({ hasText: /^New Workstream$/ })).toHaveCount(0);
+
+  await page.addInitScript("localStorage.setItem('organization', 'plants')");
+  await page.goto("/workstreams");
+  await expect(links.nth(0)).toHaveText(/^Chat\s*1$/);
+});
+
+test("the Inbox page has a tab for each address, and a reload keeps the tab", async ({ page }) => {
+  const main = page.getByRole("main");
+  const todo = main.getByRole("tab", { name: /^To do/ });
+  const activity = main.getByRole("tab", { name: "Activity" });
+
+  await page.goto("/inbox");
+  await expect(todo).toHaveText(/^To do\s*2$/);
+  await expect(todo).toHaveAttribute("aria-selected", "true");
+  await expect(main.getByText("#45 needs a decision")).toBeVisible();
+
+  await activity.click();
+  await expect(page).toHaveURL("/inbox/activity");
+  await expect(activity).toHaveAttribute("aria-selected", "true");
+  await expect(main.getByRole("button", { name: "Integrate loyalty plans" })).toBeVisible();
+  await expect(main.getByText("#45 needs a decision")).toHaveCount(0);
+
+  await page.reload();
+  await expect(page).toHaveURL("/inbox/activity");
+  await expect(activity).toHaveAttribute("aria-selected", "true");
+  await expect(main.getByRole("button", { name: "Integrate loyalty plans" })).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL("/inbox");
+  await expect(todo).toHaveAttribute("aria-selected", "true");
+  await expect(main.getByText("#45 needs a decision")).toBeVisible();
 });
 
 test("a click on a link of the app opens its page with no page load", async ({ page }) => {
@@ -83,11 +147,11 @@ test("a click on a link of the app opens its page with no page load", async ({ p
 });
 
 test("a link marks only its own page as the current page", async ({ page }) => {
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const current = page.locator('[aria-current="page"]');
-  await expect(current.filter({ visible: true })).toHaveText(["New Workstream"]);
+  await expect(current.filter({ visible: true })).toHaveText(["Chat"]);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(current.filter({ visible: true })).toHaveText(["Workstreams"]);
+  await expect(current.filter({ visible: true })).toHaveText(["Chat"]);
   await page.goto("/settings/checkup");
   await expect(current.filter({ visible: true })).toHaveCount(0);
 });
@@ -179,20 +243,12 @@ test.describe("the back button of a phone", () => {
     await expect(page).toHaveURL("/workstreams");
     await page.goForward();
     await expect(page).toHaveURL("/workstreams/owner/shop/46");
-
-    await page.goto("/workstreams");
-    await page.locator('a[href="/workstreams/new"]').filter({ visible: true }).click();
-    await expect(page).toHaveURL("/workstreams/new");
-    await back(page).click();
-    await expect(page).toHaveURL("/workstreams");
-    await page.goForward();
-    await expect(page).toHaveURL("/workstreams/new");
   });
 
   test("opens the parent page after a direct open", async ({ page }) => {
     const main = page.getByRole("main");
 
-    for (const path of ["/workstreams/owner/shop/46", "/workstreams/new"]) {
+    for (const path of ["/workstreams/owner/shop/46"]) {
       await page.goto(path);
       await expect(back(page)).toBeVisible();
       await back(page).click();
@@ -204,7 +260,7 @@ test.describe("the back button of a phone", () => {
   });
 
   test("is not on a tab page", async ({ page }) => {
-    for (const path of ["/workstreams", "/inbox", "/activity", "/settings"]) {
+    for (const path of ["/chat", "/workstreams", "/inbox", "/inbox/activity", "/settings"]) {
       await page.goto(path);
       await expect(page.getByRole("navigation").last()).toBeVisible();
       await expect(back(page)).toHaveCount(0);
@@ -275,6 +331,54 @@ test("a Workstream with Autopilot on shows the Autopilot icon", async ({ page })
   );
 });
 
+test("a Workstream with an agent that works shows the dot, and a Workstream with no agent does not", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const row = (title: string) => main.getByRole("link").filter({ hasText: title });
+  const dot = (title: string) => row(title).getByRole("img", { name: "Agent running" });
+
+  await page.goto("/workstreams");
+  await expect(dot("Integrate loyalty plans")).toBeVisible();
+  await expect(row("Early renewals")).toBeVisible();
+  await expect(dot("Early renewals")).toHaveCount(0);
+});
+
+test("a Workstream with only a paused agent shows no dot", async ({ page }) => {
+  const main = page.getByRole("main");
+  await page.route("**/api/agents", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          count: 1,
+          max: 8,
+          groups: [
+            {
+              name: "Implementer",
+              count: 1,
+              max: 3,
+              agents: [
+                {
+                  agent: {
+                    repository: "owner/shop",
+                    workstream: 14,
+                    queueReason: "paused until 2026-09-28 12:00 UTC",
+                    working: false,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    }),
+  );
+
+  await page.goto("/workstreams");
+  await expect(main.getByRole("link").filter({ hasText: "Early renewals" })).toBeVisible();
+  await expect(main.getByRole("img", { name: "Agent running" })).toHaveCount(0);
+});
+
 test("the agents page shows the start time of an agent after the repository", async ({ page }) => {
   await page.goto("/agents");
   await expect(
@@ -283,4 +387,30 @@ test("the agents page shows the start time of an agent after the repository", as
       .getByRole("button", { name: /Ticket #41 Add plan model/ })
       .getByText(/owner\/shop · Sep \d+, \d\d:\d\d [AP]M$/),
   ).toBeVisible();
+});
+
+test("the agents screen shows a status that changed while the page was hidden", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const ticket = main.getByRole("button", { name: /Ticket #41 Add plan model/ });
+  const setVisibility = (state: "hidden" | "visible") =>
+    page.evaluate(`(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => ${state === "hidden"} })
+      document.dispatchEvent(new Event('visibilitychange'))
+    })()`);
+
+  await page.goto("/agents");
+  await expect(ticket).toBeVisible();
+  await expect(ticket.getByText("waits for the Owner")).toHaveCount(0);
+
+  await setVisibility("hidden");
+  const res = await page.request.put(
+    "/e2e/agents/41/queue-reason?reason=waits%20for%20the%20Owner",
+  );
+  expect(res.ok()).toBe(true);
+  await setVisibility("visible");
+  await expect(ticket.getByText("waits for the Owner")).toBeVisible();
+  const reset = await page.request.put("/e2e/agents/41/queue-reason?reason=");
+  expect(reset.ok()).toBe(true);
 });
