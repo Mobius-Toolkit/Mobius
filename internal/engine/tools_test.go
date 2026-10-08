@@ -512,11 +512,10 @@ func TestMessageLeadSendsTheMessageToTheLeadOfAnOpenWorkstream(t *testing.T) {
 func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	// Only these prompts play a call, so a Lead that the engine starts for an event does not repeat the messages.
-	messageTo := func(prompt string, workstream int) string {
-		return "[[prompts]]\nwhen = \"" + prompt + "\"\n" +
-			strings.TrimPrefix(call("message_lead", "{ workstream = "+strconv.Itoa(workstream)+", text = \"Create the task issues.\" }"), "[[prompts]]\n")
-	}
-	server, _ := connect(t, fake, messageTo("Message 1.", 20)+messageTo("Message 2.", 12)+messageTo("Message 3.", 21))
+	messages := "[[prompts]]\nwhen = \"Message 1.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 20, text = \"Create the task issues.\" } }\n\n" +
+		"[[prompts]]\nwhen = \"Message 2.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 12, text = \"Create the task issues.\" } }\n\n" +
+		"[[prompts]]\nwhen = \"Message 3.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 21, text = \"Create the task issues.\" } }\n"
+	server, _ := connect(t, fake, messages)
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 21, "Not a Workstream")
