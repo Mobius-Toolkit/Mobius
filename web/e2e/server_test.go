@@ -136,8 +136,10 @@ const question = "What is the state of the plans? The full report is at " +
 // the next step. Then an Implementer and a Lead run, a drain waits for them, and the drain holds a second
 // Implementer. The parent of the first Implementer is a Lead session that ended. Release v0.1.4 of Mobius is newer
 // than this server. The Inbox has an item of a usage limit of antigravity, with no Workstream and no issue. The
-// table of the pauses has a row of antigravity for that item, with no timer. No fake agent prompts antigravity,
-// so no successful prompt ends the pause. The tools of the Checkup page have fixed paths and versions, and tar gives no
+// table of the pauses has a row of antigravity for that item, with no timer. The Curator of a repository uses
+// antigravity too, so it waits for the pause. A Curator starts after 10 ended sessions of a repository. Fewer
+// sessions have ended when the screenshots test takes its screenshots, so no Curator session shows in them. The tools
+// of the Checkup page have fixed paths and versions, and tar gives no
 // version.
 //
 // The Workstream owner/shop#14 has Autopilot on and one task in ready_for_review.
