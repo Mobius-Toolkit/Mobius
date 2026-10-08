@@ -106,6 +106,7 @@ type FakeGitHub struct {
 	singleCommentReads, repositoryCommentReads int
 	failedCloses                               map[issueKey]bool
 	failedSubIssues                            map[issueKey]bool
+	reactions                                  map[reactionKey][]Reaction
 	// The ids of the first comments of the resolved review threads.
 	resolvedThreads map[int64]bool
 	latestRelease   *releaseJSON
@@ -167,6 +168,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		installationTokenLife:   time.Hour,
 		issues:                  map[issueKey]*issue{},
 		repositoryLabels:        map[labelKey]Label{},
+		reactions:               map[reactionKey][]Reaction{},
 		resolvedThreads:         map[int64]bool{},
 		failedCloses:            map[issueKey]bool{},
 		failedSubIssues:         map[issueKey]bool{},
@@ -212,6 +214,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/comments", g.withToken(g.issueComments))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/comments", g.withToken(g.addComment))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/issues/comments/{id}", g.withToken(g.updateComment))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/comments/{id}/reactions", g.withToken(g.addIssueCommentReaction))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/labels", g.withToken(g.addLabels))
 	mux.HandleFunc("DELETE /repos/{owner}/{repo}/issues/{number}/labels/{name}", g.withToken(g.removeLabel))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/labels", g.withToken(g.listRepositoryLabels))
@@ -225,6 +228,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/comments", g.withToken(g.repositoryReviewComments))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.reviewComments))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.replyToReviewComment))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/comments/{id}/reactions", g.withToken(g.addReviewCommentReaction))
 	mux.HandleFunc("POST /graphql", g.withToken(g.graphql))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/check-runs", g.withToken(g.createCheckRun))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/check-runs/{id}", g.withToken(g.updateCheckRun))

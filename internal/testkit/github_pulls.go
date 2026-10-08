@@ -71,6 +71,13 @@ func (g *FakeGitHub) AddReviewComment(repository string, number, inReplyTo int64
 	return g.reviewComment(issueKey{repository, number}, inReplyTo, author, InlineComment{"src/plan.rs", 12, body}).ID
 }
 
+// ResolveReviewThread marks the review thread that starts with the comment root as resolved.
+func (g *FakeGitHub) ResolveReviewThread(root int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.resolvedThreads[root] = true
+}
+
 // UnresolveReviewThread marks the review thread that starts with the comment root as not resolved.
 func (g *FakeGitHub) UnresolveReviewThread(root int64) {
 	g.mu.Lock()

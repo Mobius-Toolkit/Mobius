@@ -196,16 +196,13 @@ func lastEvent(events []*gh.IssueEvent, kind, label string) (int, *gh.IssueEvent
 // commentEvents acts on the new comments of the issue of a live task: a new comment of a trusted user resets the
 // counters of the task, and each new comment that is an event goes to the Lead. When the newest such comment is
 // newer than the last comment of the Mobius App, the question, it answers the question: mobius:needs-human goes away
-// unless the task waits for a human. An issue with no live task and with mobius:no-workstream goes to retriage. Any
-// other issue with no live task goes to workstreamCommentEvents.
+// unless the task waits for a human. Each such comment gets the reaction of an agent that gets it. For an issue with no
+// live task, see commentsWithoutTask.
 func (e *Engine) commentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
 	number := int64(issue.GetNumber())
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
 	if errors.Is(err, sql.ErrNoRows) {
-		if hasLabel(issue, noWorkstreamLabel) {
-			return e.retriage(ctx, repository, issue, comments)
-		}
-		return e.workstreamCommentEvents(ctx, repository, issue, comments)
+		return e.commentsWithoutTask(ctx, repository, issue, comments)
 	}
 	if err != nil {
 		return err
@@ -219,32 +216,49 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 			return err
 		}
 	}
-	return e.commentEventsOf(ctx, task, issue, replies)
+	return e.commentEventsOf(ctx, repository, task, issue, replies)
 }
 
-// workstreamCommentEvents adds a comment event for the Lead for each new comment of a trusted user on an open Workstream
-// issue, or on an open issue below a Workstream, that has no live task. The event of the Workstream issue has no issue.
-// A comment on an issue in no Workstream has no event.
-func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
-	if issue.GetState() != "open" {
+// commentsWithoutTask acts on the new comments of an issue with no live task. Mobius does not act on a comment on a
+// closed issue. An issue with mobius:no-workstream goes to retriage. Any other issue goes to workstreamCommentEvents.
+func (e *Engine) commentsWithoutTask(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
+	events, _ := e.replies(repository.AppSlug, comments)
+	if len(events) == 0 {
 		return nil
 	}
+	switch {
+	case issue.GetState() != "open":
+		return declineComments(ctx, repository, int64(issue.GetNumber()), events, closedIssueReply)
+	case hasLabel(issue, noWorkstreamLabel):
+		return e.retriage(ctx, repository, issue, events)
+	}
+	return e.workstreamCommentEvents(ctx, repository, issue, events)
+}
+
+// workstreamCommentEvents adds a comment event for the Lead for each comment of events on an open Workstream issue, or
+// on an open issue below a Workstream, that has no live task. The event of the Workstream issue has no issue. An issue
+// in no Workstream with mobius:ready waits for the Triager, which reads the comments. Mobius does not act on a comment
+// on another issue in no Workstream.
+func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueComment) error {
 	number := int64(issue.GetNumber())
 	workstream, err := e.commentWorkstream(ctx, repository, issue)
-	if err != nil || workstream == 0 {
+	if err != nil {
 		return err
 	}
+	if workstream == 0 && hasLabel(issue, readyLabel) {
+		return acknowledge(ctx, repository, events)
+	}
+	if workstream == 0 {
+		return declineComments(ctx, repository, number, events, noWorkstreamReply)
+	}
 	eventIssue := sql.NullInt64{Int64: number, Valid: workstream != number}
-	for _, comment := range comments {
-		if !e.commentIsEvent(repository.AppSlug, comment) {
-			continue
-		}
+	for _, comment := range events {
 		text := eventText(comment.GetCreatedAt().Time, "comment on", issue, comment.GetUser().GetLogin(), comment.GetBody())
 		if err := e.addLeadEvent(ctx, repository.FullName, workstream, eventIssue, "comment", text); err != nil {
 			return err
 		}
 	}
-	return nil
+	return acknowledge(ctx, repository, events)
 }
 
 // commentWorkstream gives the number of the open Workstream of the issue, or 0 when the issue is in no open Workstream.
@@ -274,6 +288,11 @@ func (e *Engine) commentWorkstream(ctx context.Context, repository github.Reposi
 // (Mobius-rust#274). The Judge takes the new comments when the task is in checks, approval, ready_for_review, reviewed or needs_human,
 // also the comments from a round before that state. A stopped or dispatched task waits for a human or the Lead, so
 // each new comment that is an event goes to the Lead and becomes the last item of the Judge.
+//
+// Each conversation comment that is an event, and each review comment of a trusted user, gets a reaction. A comment of a
+// live task gets the reaction of an agent that gets it, in every state of the task: the Lead gets a conversation comment
+// of a stopped or dispatched task, and the Judge gets the other comments after the round of the task. The Judge gets a
+// review comment only when its thread is open. Mobius does not act on a comment on a pull request with no live task.
 func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repository, pullRequest *gh.Issue, comments []*gh.IssueComment, reviewComments []*gh.PullRequestComment) error {
 	number := int64(pullRequest.GetNumber())
 	task, err := e.queries.GetLiveTaskByPullRequest(ctx, store.GetLiveTaskByPullRequestParams{
@@ -281,7 +300,7 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 		PullRequest: sql.NullInt64{Int64: number, Valid: true},
 	})
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		return e.declineOnPullRequest(ctx, repository, number, comments, reviewComments)
 	}
 	if err != nil {
 		return err
@@ -298,9 +317,15 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 	for _, comment := range comments {
 		state.conversation[comment.GetID()] = comment
 	}
-	replies, _, err := e.newComments(ctx, repository, task, comments)
-	if err != nil || task.State != "stopped" && task.State != "dispatched" || len(replies) == 0 {
+	if err := e.answerReviewComments(ctx, repository, number, reviewComments); err != nil {
 		return err
+	}
+	replies, _, err := e.newComments(ctx, repository, task, comments)
+	if err != nil {
+		return err
+	}
+	if task.State != "stopped" && task.State != "dispatched" || len(replies) == 0 {
+		return acknowledge(ctx, repository, replies)
 	}
 	if err := e.queries.SetJudgedAt(ctx, store.SetJudgedAtParams{
 		JudgedAt: sql.NullString{String: replies[len(replies)-1].GetCreatedAt().UTC().Format(time.RFC3339Nano), Valid: true},
@@ -308,7 +333,25 @@ func (e *Engine) pullRequestComments(ctx context.Context, repository github.Repo
 	}); err != nil {
 		return err
 	}
-	return e.commentEventsOf(ctx, task, pullRequest, replies)
+	return e.commentEventsOf(ctx, repository, task, pullRequest, replies)
+}
+
+// declineOnPullRequest declines each conversation comment that is an event, and each review comment of a trusted user,
+// on the pull request number with no live task.
+func (e *Engine) declineOnPullRequest(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment, reviewComments []*gh.PullRequestComment) error {
+	events, _ := e.replies(repository.AppSlug, comments)
+	if err := declineComments(ctx, repository, number, events, noTaskReply); err != nil {
+		return err
+	}
+	for _, comment := range reviewComments {
+		if !e.trustedUser(comment.GetUser().GetLogin()) {
+			continue
+		}
+		if err := declineReviewComment(ctx, repository, number, comment, noTaskReply); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // newComments resets the counters of the task when comments have a comment of a trusted user. It gives the comments
@@ -325,9 +368,10 @@ func (e *Engine) newComments(ctx context.Context, repository github.Repository, 
 	return replies, answered, nil
 }
 
-// commentEventsOf adds a comment event for the Lead for each comment on the issue or the pull request of the task.
-// The event gives the state of the task, so the Lead can tell the Owner the next step.
-func (e *Engine) commentEventsOf(ctx context.Context, task store.Task, issue *gh.Issue, comments []*gh.IssueComment) error {
+// commentEventsOf adds a comment event for the Lead for each comment on the issue or the pull request of the task, and
+// the reaction of an agent that gets the comment. The event gives the state of the task, so the Lead can tell the Owner
+// the next step.
+func (e *Engine) commentEventsOf(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, comments []*gh.IssueComment) error {
 	for _, comment := range comments {
 		text := eventText(comment.GetCreatedAt().Time, "comment on", issue, comment.GetUser().GetLogin(), comment.GetBody()) +
 			fmt.Sprintf("\n\nThe state of the task of #%d is %s.", task.Issue, task.State)
@@ -335,7 +379,7 @@ func (e *Engine) commentEventsOf(ctx context.Context, task store.Task, issue *gh
 			return err
 		}
 	}
-	return nil
+	return acknowledge(ctx, repository, comments)
 }
 
 // trustedUser tells if login is a trusted user.
