@@ -491,6 +491,21 @@ func TestThePromptOfTheCuratorHasEachKindOfItemOfTheSessionsOfTheRepository(t *t
 	}
 }
 
+func TestTheLeadReplyBeforeAnOwnerMessageCanBeATellOwnerMessage(t *testing.T) {
+	t.Parallel()
+	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+	at := time.Now().Add(-time.Hour)
+	addChat(t, server, "Lead", "Old Lead reply", at)
+	addChat(t, server, "tell_owner", "I will skip the tests of #12", at.Add(time.Second))
+	addChat(t, server, "Owner", "No, never skip the tests", at.Add(2*time.Second))
+
+	prompt := nextCuratorPrompt(t, server, 1)
+
+	if !strings.Contains(prompt, "Lead:\nI will skip the tests of #12\n\nOwner:\nNo, never skip the tests") {
+		t.Errorf("the tell_owner message is not before the Owner message in %s", prompt)
+	}
+}
+
 func TestTheFixRoundsThatRepeatCanComeOnlyFromReviews(t *testing.T) {
 	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)

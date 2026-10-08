@@ -468,7 +468,7 @@ ORDER BY julianday(started_at) DESC LIMIT 1;
 SELECT m.workstream, m.time, m.text,
        CAST(COALESCE((SELECT p.text FROM chat_messages p
                       WHERE p.organization = m.organization AND p.repository = m.repository AND p.workstream = m.workstream
-                        AND p.id < m.id AND p.author = 'Lead'
+                        AND p.id < m.id AND p.author IN ('Lead', 'tell_owner')
                       ORDER BY p.id DESC LIMIT 1), '') AS TEXT) AS lead_text
 FROM chat_messages m
 WHERE m.repository = sqlc.arg(repository) AND m.author = 'Owner' AND julianday(m.time) > julianday(CAST(sqlc.arg(since) AS TEXT))
