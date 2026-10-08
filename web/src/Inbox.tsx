@@ -15,25 +15,10 @@ export function Inbox({
   items: InboxItem[];
   workstreams?: Workstream[];
 }) {
-  const showLogin = use(LoginContext);
   const [error, setError] = useState("");
   const shown = items
     .filter((item) => item.organization === organization)
     .toSorted((a, b) => b.id - a.id);
-
-  const act = (call: typeof dismiss, id: number) => {
-    call(id)
-      .then((res) => {
-        if (res.status === 204) {
-          setError("");
-        } else if (res.status === 401) {
-          showLogin();
-        } else {
-          setError(res.data.error);
-        }
-      })
-      .catch((err: unknown) => setError(String(err)));
-  };
 
   return (
     <Card>
@@ -49,46 +34,95 @@ export function Inbox({
         {shown.length === 0 && <p className="text-muted-foreground">Nothing waits for you.</p>}
         <ul className="divide-y">
           {shown.map((item) => (
-            <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
-              <Badge variant="secondary">{item.kind}</Badge>
-              <div className="grid min-w-0 grow basis-60 gap-0.5">
-                <span className="break-words">{item.text}</span>
-                <span className="text-sm text-muted-foreground">
-                  {item.kind !== InboxItemKind.usage_limit && (
-                    <>
-                      {workstreams?.find(
-                        (workstream) =>
-                          workstream.repository === item.repository &&
-                          workstream.number === item.workstream,
-                      )?.title ?? `#${item.workstream}`}{" "}
-                      · #{item.issue} ·{" "}
-                    </>
-                  )}
-                  {dayClock(item.time)}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                {item.kind === InboxItemKind.usage_limit ? (
-                  <Button size="sm" onClick={() => act(resume, item.id)}>
-                    Resume now
-                  </Button>
-                ) : (
-                  item.link && (
-                    <Button asChild variant="link" size="sm">
-                      <a href={item.link} target="_blank" rel="noreferrer">
-                        Open on GitHub
-                      </a>
-                    </Button>
-                  )
-                )}
-                <Button variant="outline" size="sm" onClick={() => act(dismiss, item.id)}>
-                  Dismiss
-                </Button>
-              </div>
-            </li>
+            <InboxRow key={item.id} item={item} workstreams={workstreams} setError={setError} />
           ))}
         </ul>
       </CardContent>
     </Card>
+  );
+}
+
+function InboxRow({
+  item,
+  workstreams,
+  setError,
+}: {
+  item: InboxItem;
+  workstreams?: Workstream[];
+  setError: (error: string) => void;
+}) {
+  const showLogin = use(LoginContext);
+  const [running, setRunning] = useState<typeof dismiss | null>(null);
+
+  const act = (call: typeof dismiss) => {
+    setRunning(() => call);
+    call(item.id)
+      .then((res) => {
+        if (res.status === 204) {
+          setError("");
+          return;
+        }
+        if (res.status === 401) {
+          showLogin();
+        } else {
+          setError(res.data.error);
+        }
+        setRunning(null);
+      })
+      .catch((err: unknown) => {
+        setError(String(err));
+        setRunning(null);
+      });
+  };
+
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
+      <Badge variant="secondary">{item.kind}</Badge>
+      <div className="grid min-w-0 grow basis-60 gap-0.5">
+        <span className="break-words">{item.text}</span>
+        <span className="text-sm text-muted-foreground">
+          {item.kind !== InboxItemKind.usage_limit && (
+            <>
+              {workstreams?.find(
+                (workstream) =>
+                  workstream.repository === item.repository &&
+                  workstream.number === item.workstream,
+              )?.title ?? `#${item.workstream}`}{" "}
+              · #{item.issue} ·{" "}
+            </>
+          )}
+          {dayClock(item.time)}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        {item.kind === InboxItemKind.usage_limit ? (
+          <Button
+            size="sm"
+            disabled={running !== null}
+            pending={running === resume}
+            onClick={() => act(resume)}
+          >
+            Resume now
+          </Button>
+        ) : (
+          item.link && (
+            <Button asChild variant="link" size="sm">
+              <a href={item.link} target="_blank" rel="noreferrer">
+                Open on GitHub
+              </a>
+            </Button>
+          )
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={running !== null}
+          pending={running === dismiss}
+          onClick={() => act(dismiss)}
+        >
+          Dismiss
+        </Button>
+      </div>
+    </li>
   );
 }

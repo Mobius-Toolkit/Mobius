@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	gh "github.com/google/go-github/v92/github"
 )
@@ -197,6 +198,13 @@ func (r Repository) Comments(ctx context.Context, number int64) ([]*gh.IssueComm
 	return all(r.Client.Issues.ListCommentsIter(ctx, r.Owner(), r.Name(), int(number), &gh.IssueListCommentsOptions{ListOptions: gh.ListOptions{PerPage: 100}}))
 }
 
+// CommentsSince gives the conversation comments of all issues and pull requests of the repository that changed at or
+// after since.
+func (r Repository) CommentsSince(ctx context.Context, since time.Time) ([]*gh.IssueComment, error) {
+	options := &gh.IssueListCommentsOptions{Sort: new("updated"), Direction: new("asc"), Since: &since, ListOptions: gh.ListOptions{PerPage: 100}}
+	return all(r.Client.Issues.ListCommentsIter(ctx, r.Owner(), r.Name(), 0, options))
+}
+
 // Reviews gives the reviews of the pull request number.
 func (r Repository) Reviews(ctx context.Context, number int64) ([]*gh.PullRequestReview, error) {
 	return all(r.Client.PullRequests.ListReviewsIter(ctx, r.Owner(), r.Name(), int(number), &gh.ListOptions{PerPage: 100}))
@@ -205,6 +213,12 @@ func (r Repository) Reviews(ctx context.Context, number int64) ([]*gh.PullReques
 // ReviewComments gives the review comments of the pull request number.
 func (r Repository) ReviewComments(ctx context.Context, number int64) ([]*gh.PullRequestComment, error) {
 	return all(r.Client.PullRequests.ListCommentsIter(ctx, r.Owner(), r.Name(), int(number), &gh.PullRequestListCommentsOptions{ListOptions: gh.ListOptions{PerPage: 100}}))
+}
+
+// ReviewCommentsSince gives the review comments of all pull requests of the repository that changed at or after since.
+func (r Repository) ReviewCommentsSince(ctx context.Context, since time.Time) ([]*gh.PullRequestComment, error) {
+	options := &gh.PullRequestListCommentsOptions{Sort: "updated", Direction: "asc", Since: since, ListOptions: gh.ListOptions{PerPage: 100}}
+	return all(r.Client.PullRequests.ListCommentsIter(ctx, r.Owner(), r.Name(), 0, options))
 }
 
 // OpenIssuesWithLabel gives the open issues with label. It gives no pull request.

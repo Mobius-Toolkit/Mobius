@@ -414,3 +414,6 @@ WHERE EXISTS (
     WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(name)
 )
 ORDER BY i.repository, i.workstream, i.number;
+
+-- name: AddMemoryVersion :exec
+INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?);
