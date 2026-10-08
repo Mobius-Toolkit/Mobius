@@ -191,6 +191,29 @@ func TestAFailedCheckRunOnTheSameHeadStartsOneFixRoundAndThenHandsTheTaskToAHuma
 	}
 }
 
+func TestMobiusReadyOnATaskThatStoppedOnFailedCIStartsANewCIFixRoundOnTheSameHead(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixesNothing, noChange)
+	sha := approvalHead(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+	endedImplementers(t, server, 2)
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 4 })
+	endedImplementers(t, server, 4)
+	if got := head(t, fake, "mobius/41"); got != sha {
+		t.Errorf("head = %s", got)
+	}
+	prompts := promptTexts(t, server, roleSessions(t, server, engine.ImplementerRole)[3].ID)
+	if len(prompts) == 0 || !strings.Contains(prompts[0], "Check run \"build\"") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
 func TestACancelledOrTimedOutCheckRunOnTheHeadStartsAFixRound(t *testing.T) {
 	for _, conclusion := range []string{"cancelled", "timed_out"} {
 		t.Run(conclusion, func(t *testing.T) {

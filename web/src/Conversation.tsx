@@ -7,6 +7,7 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  Fragment,
   use,
   useCallback,
   useEffect,
@@ -34,7 +35,7 @@ import { onEvent } from "@/lib/events";
 import { fitImage, maxImages } from "@/lib/images";
 import { LoginContext } from "@/lib/login";
 import { atEnd } from "@/lib/scroll";
-import { clock } from "@/lib/time";
+import { clock, dayLabel } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
 import { useVoice } from "@/lib/voice";
@@ -101,6 +102,20 @@ function Message({ message }: { message: ChatMessage }) {
   );
 }
 
+function DaySeparator({ label }: { label: string }) {
+  return (
+    <div
+      role="separator"
+      aria-label={label}
+      className="flex items-center gap-3 text-xs text-muted-foreground"
+    >
+      <span className="h-px grow bg-border" />
+      <span>{label}</span>
+      <span className="h-px grow bg-border" />
+    </div>
+  );
+}
+
 function Thumbnail({
   file,
   position,
@@ -151,7 +166,6 @@ export function Conversation({
   source,
   unread,
   head,
-  tail,
   brief,
   note,
   footer,
@@ -163,7 +177,6 @@ export function Conversation({
   source?: EventSource;
   unread?: number;
   head: ReactNode;
-  tail?: ReactNode;
   brief?: Workstream;
   note?: ReactNode;
   footer?: ReactNode;
@@ -398,7 +411,7 @@ export function Conversation({
 
   return (
     <section className="flex min-h-0 min-w-0 grow flex-col">
-      <header className="flex min-h-14 items-center gap-2 border-b px-4 py-2">
+      <header className="hidden min-h-14 items-center gap-2 border-b px-4 py-2 md:flex">
         {head}
         <span className="grow" />
         {harness && (
@@ -406,7 +419,6 @@ export function Conversation({
             {agent}: {harness}
           </span>
         )}
-        {tail}
       </header>
       {brief && (
         <Collapsible
@@ -436,7 +448,7 @@ export function Conversation({
             scrollToEnd(event.currentTarget);
           }
         }}
-        className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto bg-muted/40 p-4"
+        className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4"
       >
         {error && <Badge variant="destructive">{error}</Badge>}
         {loaded && messages.length === 0 && (
@@ -444,9 +456,17 @@ export function Conversation({
             No messages. Write to start a chat session.
           </p>
         )}
-        {messages.map((message) => (
-          <Message key={message.id} message={message} />
-        ))}
+        {messages.map((message, index) => {
+          const label = dayLabel(message.time);
+          return (
+            <Fragment key={message.id}>
+              {(index === 0 || dayLabel(messages[index - 1].time) !== label) && (
+                <DaySeparator label={label} />
+              )}
+              <Message message={message} />
+            </Fragment>
+          );
+        })}
         {writing && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <span className="size-2 animate-pulse rounded-full bg-green-600" />
@@ -498,6 +518,8 @@ export function Conversation({
             placeholder={`Write to the ${agent}`}
             value={text}
             onChange={(event) => setText(event.target.value)}
+            // Safari on iOS scrolls the page when the keyboard opens, and it can keep that offset after the keyboard closes.
+            onBlur={() => window.scrollTo(0, 0)}
             onPaste={(event) => {
               const pasted = [...event.clipboardData.files].filter((file) =>
                 file.type.startsWith("image/"),

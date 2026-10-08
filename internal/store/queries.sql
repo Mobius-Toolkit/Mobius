@@ -249,7 +249,7 @@ SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?);
 SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
 
 -- name: ResetTaskCounters :exec
-UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0 WHERE id = ?;
+UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;
 
 -- name: EndTask :exec
 UPDATE tasks SET state = 'ended' WHERE id = ?;
@@ -447,3 +447,10 @@ SELECT text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DES
 
 -- name: GetNewestMemoryVersionID :one
 SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ?;
+
+-- name: IsCommentAnswered :one
+SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review = ? AND comment = ?);
+
+-- name: MarkCommentAnswered :exec
+INSERT INTO answered_comments (repository, review, comment) VALUES (?, ?, ?)
+ON CONFLICT (repository, review, comment) DO NOTHING;

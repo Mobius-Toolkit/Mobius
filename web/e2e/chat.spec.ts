@@ -1082,6 +1082,123 @@ test("a session that the user stops does not restart", async ({ page }) => {
   expect(await page.evaluate("calls")).toEqual(["start", "stop"]);
 });
 
+// The history change opens the page with no reload, so the page keeps its recognition object.
+const open = (page: Page, path: string) =>
+  page.evaluate(
+    `history.pushState({}, '', '${path}'); dispatchEvent(new PopStateEvent('popstate'))`,
+  );
+
+const plants = "/workstreams/plants/garden/12";
+const seasonal = "/workstreams/owner/shop/13";
+
+test("the voice input works in each Workstream after a switch", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  const stop = main.getByRole("button", { name: "Stop voice input" });
+
+  await mic.click();
+  await result(page, "red");
+  await expect(input).toHaveValue("red");
+  await stop.click();
+  await emit(page, "end");
+  await expect(mic).toBeVisible();
+
+  await open(page, seasonal);
+  await expect(input).toHaveValue("");
+  await mic.click();
+  await result(page, "roses");
+  await expect(input).toHaveValue("roses");
+  await stop.click();
+  await emit(page, "end");
+  await expect(mic).toBeVisible();
+
+  await open(page, shop);
+  await mic.click();
+  await result(page, "today");
+  await expect(input).toHaveValue("today");
+  await stop.click();
+  await emit(page, "end");
+  await expect(mic).toBeVisible();
+
+  await open(page, plants);
+  await mic.click();
+  await result(page, "lilies");
+  await expect(input).toHaveValue("lilies");
+  expect(await page.evaluate("recognitions.length")).toBe(1);
+});
+
+test("a switch during a voice input stops it and shows the start state", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+
+  await open(page, plants);
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  expect(await page.evaluate("calls")).toEqual(["start", "abort"]);
+});
+
+test("a voice result of the old run after a switch does not go into the new field", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await open(page, seasonal);
+  await expect(input).toHaveValue("");
+
+  await result(page, "red");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "roses");
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "abort", "start"]);
+  await result(page, "today");
+  await expect(input).toHaveValue("today");
+});
+
+test("a voice button tap after a switch during a run starts after the end of the old run", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await open(page, seasonal);
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  expect(await page.evaluate("calls")).toEqual(["start", "abort"]);
+
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "abort", "start"]);
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await expect(main.getByText("The voice input did not start.")).toHaveCount(0);
+  expect(await page.evaluate("recognitions.length")).toBe(1);
+});
+
+test("a voice error of the old run after a switch does not show in the new Workstream", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await open(page, seasonal);
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'no-speech' }))",
+  );
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "abort", "start"]);
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await expect(main.getByText("The microphone did not hear speech.")).toHaveCount(0);
+});
+
 test("the voice input shows a message when it does not start", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.addInitScript("window.startError = 'InvalidStateError'");
@@ -1176,6 +1293,129 @@ test("a successful send removes the voice error", async ({ page }) => {
   await main.getByLabel("Message to the Lead").fill("Add a plan");
   await main.getByRole("button", { name: "Send" }).click();
   await expect(main.getByRole("alert")).toHaveCount(0);
+});
+
+// The fake wake lock keeps each lock in locks. A lock has released true after its release().
+const fakeWakeLock = `window.locks = []
+  Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: {
+    request: async (type) => {
+      if (window.wakeLockError) throw new Error(window.wakeLockError)
+      const lock = { type, released: false, release: async () => { lock.released = true } }
+      window.locks.push(lock)
+      return lock
+    },
+  } })`;
+
+const heldLocks = (page: Page) =>
+  page.evaluate("locks.filter((lock) => !lock.released).map((lock) => lock.type)");
+
+const wakeLockTest = (name: string, run: (page: Page) => Promise<void>) =>
+  test(name, async ({ page }) => {
+    await page.addInitScript(fakeRecognition);
+    await page.addInitScript(fakeWakeLock);
+    await page.goto(shop);
+    await run(page);
+  });
+
+wakeLockTest("a voice input start requests the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+});
+
+wakeLockTest("the voice button stop releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("Send releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses");
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await main.getByRole("button", { name: "Send" }).click();
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("a voice error releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'network' }))",
+  );
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("an end without a restart releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await emit(page, "end");
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("a restart after an end keeps the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await emit(page, "audiostart");
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "start"]);
+  expect(await heldLocks(page)).toEqual(["screen"]);
+  expect(await page.evaluate("locks.length")).toBe(1);
+});
+
+wakeLockTest("a switch during a voice input releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await open(page, plants);
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("a page that becomes visible again requests the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await page.evaluate(
+    "locks[0].released = true; document.dispatchEvent(new Event('visibilitychange'))",
+  );
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  expect(await page.evaluate("locks.length")).toBe(2);
+});
+
+wakeLockTest("a page that becomes visible while not listening requests no lock", async (page) => {
+  await page.evaluate("document.dispatchEvent(new Event('visibilitychange'))");
+  await page.getByRole("main").getByLabel("Message to the Lead").click();
+  expect(await page.evaluate("locks.length")).toBe(0);
+});
+
+wakeLockTest("a refused wake lock request shows no error", async (page) => {
+  await page.evaluate("window.wakeLockError = 'NotAllowedError'");
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses");
+  await expect(main.getByLabel("Message to the Lead")).toHaveValue("red roses");
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await expect(main.getByRole("alert")).toHaveCount(0);
+});
+
+test("the voice input works without navigator.wakeLock", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.addInitScript("delete Navigator.prototype.wakeLock");
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  expect(await page.evaluate("navigator.wakeLock")).toBeUndefined();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses");
+  await expect(main.getByLabel("Message to the Lead")).toHaveValue("red roses");
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
 });
 
 test("the note closes the Workstream when all tasks are closed", async ({ page }) => {
@@ -1446,5 +1686,156 @@ test.describe("on a phone", () => {
         "document.querySelector('form').scrollWidth <= document.querySelector('form').clientWidth",
       ),
     ).toBe(true);
+  });
+});
+
+test("the chat shows one separator before the first message of each day", async ({ page }) => {
+  const times = [
+    "2025-12-30T20:00:00Z",
+    "2026-09-28T09:30:00Z",
+    "2026-09-28T21:40:00Z",
+    "2026-10-14T09:12:00Z",
+    "2026-10-15T08:37:00Z",
+    "2026-10-15T08:38:00Z",
+  ];
+  await page.clock.setFixedTime("2026-10-15T12:00:00Z");
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { messages: unknown[] } };
+    body.data.messages = times.map((time, index) => ({
+      id: index + 1,
+      author: "Lead",
+      text: `Message ${index + 1}`,
+      time,
+      images: 0,
+      organization: "owner",
+      repository: "owner/shop",
+      workstream: 12,
+    }));
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await expect(main.getByText("Message 6")).toBeVisible();
+
+  const order = await main
+    .locator("[role=separator], [data-message]")
+    .evaluateAll((elements) =>
+      elements.map((element) =>
+        element.getAttribute("role") === "separator"
+          ? (element.getAttribute("aria-label") ?? "")
+          : (element.textContent ?? "").match(/Message \d/)?.[0],
+      ),
+    );
+  expect(order).toEqual([
+    "Tue, Dec 30, 2025",
+    "Message 1",
+    "Mon, Sep 28",
+    "Message 2",
+    "Message 3",
+    "Yesterday",
+    "Message 4",
+    "Today",
+    "Message 5",
+    "Message 6",
+  ]);
+  await expect(main.getByRole("separator", { name: "Mon, Sep 28" })).toHaveText("Mon, Sep 28");
+});
+
+async function longHistory(page: Page) {
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { messages: unknown[] } };
+    body.data.messages = Array.from({ length: 60 }, (_, index) => ({
+      id: 900000 + index,
+      author: index % 2 === 0 ? "Owner" : "Lead",
+      text: `History ${index} ${"word ".repeat(30)}`,
+      time: "2026-10-15T08:37:00Z",
+      images: 0,
+      organization: "owner",
+      repository: "owner/shop",
+      workstream: 12,
+    }));
+    await route.fulfill({ response, json: body });
+  });
+}
+
+// The page and the content area must not scroll, and only the message list does.
+const pageScroll = `(() => ({
+  window: window.scrollY,
+  document: document.scrollingElement.scrollHeight - document.scrollingElement.clientHeight,
+  content: document.getElementById('content').scrollTop,
+  contentOverflow: document.getElementById('content').scrollHeight - document.getElementById('content').clientHeight,
+}))()`;
+
+for (const [device, size] of [
+  ["desktop", undefined],
+  ["phone", phone],
+] as const) {
+  test(`the message list scrolls and the page does not on a ${device}`, async ({ page }) => {
+    if (size) {
+      await page.setViewportSize(size);
+    }
+    await longHistory(page);
+    await page.goto(shop);
+    const list = page.locator("[data-message]").first().locator("..");
+    await expect(page.getByText("History 59 ")).toBeVisible();
+    await expect.poll(() => page.evaluate(shows("History 59 ", "end"))).toBe(true);
+
+    const end = await list.evaluate((element) => element.scrollTop);
+    expect(end).toBeGreaterThan(0);
+    await list.hover();
+    // A wheel scroll is animated, and a long one can stop before the end of the list.
+    const scrollBy = (delta: number) =>
+      expect.poll(async () => {
+        await page.mouse.wheel(0, delta);
+        return list.evaluate((element) => element.scrollTop);
+      });
+    await scrollBy(-100000).toBe(0);
+    await scrollBy(100000).toBeGreaterThanOrEqual(end);
+    await expect(list).toHaveCSS("overscroll-behavior-y", "contain");
+    expect(await page.evaluate(pageScroll)).toEqual({
+      window: 0,
+      document: 0,
+      content: 0,
+      contentOverflow: 0,
+    });
+  });
+}
+
+test.describe("on a phone with the keyboard", () => {
+  test.use({ viewport: phone, isMobile: true, hasTouch: true });
+
+  test("the input stays on the tab bar after a send and after the focus leaves", async ({
+    page,
+  }) => {
+    await longHistory(page);
+    await page.goto(shop);
+    await expect.poll(() => page.evaluate(shows("History 59 ", "end"))).toBe(true);
+    const form = page.getByRole("main").locator("form");
+    const tabBar = page.locator("nav").last();
+    const gap = async () =>
+      (await tabBar.boundingBox())!.y -
+      (await form.boundingBox())!.y -
+      (await form.boundingBox())!.height;
+    expect(await gap()).toBeCloseTo(0, 0);
+
+    const input = page.getByLabel("Message to the Lead");
+    await input.tap();
+    await page.keyboard.type("keyboard");
+    await page.getByRole("button", { name: "Send" }).tap();
+    await expect.poll(() => sent(page)).toContain("keyboard");
+    await expect.poll(() => page.evaluate(shows("keyboard", "end"))).toBe(true);
+    expect(await gap()).toBeCloseTo(0, 0);
+
+    await input.blur();
+    await page.getByRole("main").locator("[data-message]").first().tap();
+    expect(await gap()).toBeCloseTo(0, 0);
+    expect(await page.evaluate(pageScroll)).toEqual({
+      window: 0,
+      document: 0,
+      content: 0,
+      contentOverflow: 0,
+    });
   });
 });

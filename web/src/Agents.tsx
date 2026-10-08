@@ -18,7 +18,7 @@ import { LoginContext } from "@/lib/login";
 import { atEnd } from "@/lib/scroll";
 import { clock, dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { BackButton } from "./BackButton";
+import { TopBar } from "./TopBar";
 
 function numbered(number: number, title?: string | null) {
   return title ? `#${number} ${title}` : `#${number}`;
@@ -126,10 +126,12 @@ export function Transcript({
   agent,
   source,
   onClose,
+  page,
 }: {
   agent: Agent;
   source?: EventSource;
   onClose: () => void;
+  page?: boolean;
 }) {
   const showLogin = use(LoginContext);
   const [lines, setLines] = useState<TranscriptLine[]>();
@@ -185,7 +187,7 @@ export function Transcript({
 
   return (
     <Card className="min-h-0 max-md:max-h-[calc(100svh-10rem)] md:max-h-[calc(100svh-3rem)]">
-      <CardHeader>
+      <CardHeader className={page ? "max-md:hidden" : undefined}>
         <CardTitle className="truncate">
           {agent.name} {agent.title}
         </CardTitle>
@@ -276,37 +278,48 @@ export function Agents({ source }: { source?: EventSource }) {
     };
   }, [source, load]);
 
-  if (selected) {
-    return <Transcript agent={selected} source={source} onClose={() => setSelected(undefined)} />;
-  }
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BackButton parent="/settings" />
-          Agents
-        </CardTitle>
-        {agents && (
-          <CardAction className="text-muted-foreground">
+    <>
+      <TopBar
+        title={selected ? `${selected.name} ${selected.title}` : "Agents"}
+        back="/settings"
+        onBack={selected && (() => setSelected(undefined))}
+      >
+        {agents && !selected && (
+          <span className="ml-auto text-muted-foreground">
             {agents.count} / {agents.max}
-          </CardAction>
+          </span>
         )}
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        {error && <Badge variant="destructive">{error}</Badge>}
-        {agents?.groups.map((group) => (
-          <section key={group.name} className="grid gap-1">
-            <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-              {group.name} {group.count} / {group.max}
-            </h3>
-            <ul>
-              {group.agents.map((row) => (
-                <AgentRow key={row.agent.id} row={row} onOpen={setSelected} />
-              ))}
-            </ul>
-          </section>
-        ))}
-      </CardContent>
-    </Card>
+      </TopBar>
+      {selected ? (
+        <Transcript agent={selected} source={source} onClose={() => setSelected(undefined)} page />
+      ) : (
+        <Card>
+          <CardHeader className="max-md:hidden">
+            <CardTitle>Agents</CardTitle>
+            {agents && (
+              <CardAction className="text-muted-foreground">
+                {agents.count} / {agents.max}
+              </CardAction>
+            )}
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            {error && <Badge variant="destructive">{error}</Badge>}
+            {agents?.groups.map((group) => (
+              <section key={group.name} className="grid gap-1">
+                <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  {group.name} {group.count} / {group.max}
+                </h3>
+                <ul>
+                  {group.agents.map((row) => (
+                    <AgentRow key={row.agent.id} row={row} onOpen={setSelected} />
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+    </>
   );
 }

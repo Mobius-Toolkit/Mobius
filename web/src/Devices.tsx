@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoginContext } from "@/lib/login";
-import { BackButton } from "./BackButton";
+import { TopBar } from "./TopBar";
 
 export function Devices() {
   const showLogin = use(LoginContext);
@@ -50,38 +50,40 @@ export function Devices() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <BackButton parent="/settings" />
-          Devices
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {error && <Badge variant="destructive">{error}</Badge>}
-        <ul className="divide-y">
-          {devices?.logins.map((login) => (
-            <li key={login.id} className="flex items-center justify-between gap-4 py-2">
-              <span className="grid gap-1">
-                <span>{login.userAgent}</span>
-                <span className="text-muted-foreground">
-                  Logged in {new Date(login.createdAt).toLocaleString()}
+    <>
+      <TopBar title="Devices" back="/settings" />
+      <Card>
+        <CardHeader className="max-md:hidden">
+          <CardTitle>Devices</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {error && <Badge variant="destructive">{error}</Badge>}
+          <ul className="divide-y">
+            {devices?.logins.map((login) => (
+              <li key={login.id} className="flex items-center justify-between gap-4 py-2">
+                <span className="grid gap-1">
+                  <span>{login.userAgent}</span>
+                  <span className="text-muted-foreground">
+                    Logged in {new Date(login.createdAt).toLocaleString()}
+                  </span>
                 </span>
-              </span>
-              <span className="flex items-center gap-2">
-                {login.id === devices.thisDevice && <Badge variant="secondary">This device</Badge>}
-                <Button
-                  variant="outline"
-                  pending={loggingOut.includes(login.id)}
-                  onClick={() => logOut(login.id)}
-                >
-                  Log out
-                </Button>
-              </span>
-            </li>
-          ))}
-        </ul>
-      </CardContent>
-    </Card>
+                <span className="flex items-center gap-2">
+                  {login.id === devices.thisDevice && (
+                    <Badge variant="secondary">This device</Badge>
+                  )}
+                  <Button
+                    variant="outline"
+                    pending={loggingOut.includes(login.id)}
+                    onClick={() => logOut(login.id)}
+                  >
+                    Log out
+                  </Button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+    </>
   );
 }

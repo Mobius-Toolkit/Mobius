@@ -1167,6 +1167,23 @@ func (q *Queries) HoldTriager(ctx context.Context, arg HoldTriagerParams) error 
 	return err
 }
 
+const isCommentAnswered = `-- name: IsCommentAnswered :one
+SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review = ? AND comment = ?)
+`
+
+type IsCommentAnsweredParams struct {
+	Repository string
+	Review     bool
+	Comment    int64
+}
+
+func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isCommentAnswered, arg.Repository, arg.Review, arg.Comment)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listChatMessages = `-- name: ListChatMessages :many
 SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Researcher'
@@ -2460,6 +2477,22 @@ func (q *Queries) ListWaitingLeadWorkstreams(ctx context.Context) ([]ListWaiting
 	return items, nil
 }
 
+const markCommentAnswered = `-- name: MarkCommentAnswered :exec
+INSERT INTO answered_comments (repository, review, comment) VALUES (?, ?, ?)
+ON CONFLICT (repository, review, comment) DO NOTHING
+`
+
+type MarkCommentAnsweredParams struct {
+	Repository string
+	Review     bool
+	Comment    int64
+}
+
+func (q *Queries) MarkCommentAnswered(ctx context.Context, arg MarkCommentAnsweredParams) error {
+	_, err := q.db.ExecContext(ctx, markCommentAnswered, arg.Repository, arg.Review, arg.Comment)
+	return err
+}
+
 const queueTask = `-- name: QueueTask :execrows
 UPDATE tasks SET state = 'queued', queued_at = ?1 WHERE id = ?2 AND state = ?3
 `
@@ -2542,7 +2575,7 @@ func (q *Queries) RequeueTask(ctx context.Context, id int64) (int64, error) {
 }
 
 const resetTaskCounters = `-- name: ResetTaskCounters :exec
-UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0 WHERE id = ?
+UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?
 `
 
 func (q *Queries) ResetTaskCounters(ctx context.Context, id int64) error {

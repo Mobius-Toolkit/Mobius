@@ -34,6 +34,9 @@ export default defineConfig({
     baseURL: `http://${addr}`,
     trace: "retain-on-failure",
     userAgent: "Mobius screenshots",
+    // The chat day separators and the clocks show the local time zone and the locale.
+    timezoneId: "UTC",
+    locale: "en-US",
     // page.route does not see the requests that pass through a service worker.
     serviceWorkers: "block",
     // With partial raster, Chrome paints only the changed part of a tile again, and the edges of that part can differ from run to run.

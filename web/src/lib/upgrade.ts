@@ -13,6 +13,11 @@ import { onEvent } from "./events";
 
 export type Upgrade = ReturnType<typeof useUpgrade>;
 
+// hasUpgradeControls is true when UpgradeControls shows something.
+export function hasUpgradeControls(upgrade: Upgrade, newBuild: boolean) {
+  return Boolean(upgrade.drain?.on || upgrade.version || upgrade.failure || newBuild);
+}
+
 export function useUpgrade(source?: EventSource) {
   const [version, setVersion] = useState("");
   const [drain, setDrain] = useState<Drain>();
