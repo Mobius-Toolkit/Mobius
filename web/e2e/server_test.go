@@ -199,7 +199,7 @@ func TestServer(t *testing.T) {
 	github.SetBody("owner/shop", 45, "Each plan has a limit of seats.")
 	github.SetBody("plants/garden", 18, "Cut the **old** canes in March.")
 	github.SetBody("plants/garden", 19, "Put **bark** on the beds.")
-	github.AddSubIssueOf("owner/shop", 14, 40, "Renew a month early")
+	github.AddIssue("owner/shop", 40, "Renew a month early")
 	github.AddLabel("owner/shop", 41, "mobius:needs-human", "owner")
 	github.AddLabel("owner/shop", 42, "mobius:needs-human", "owner")
 	github.AddSubIssueOf("owner/shop", 12, 38, "Show the plan prices")
@@ -422,7 +422,6 @@ func TestServer(t *testing.T) {
 		VALUES ('owner/shop', 40, 14, 'ready_for_review', ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
-	github.AddLabel("owner/shop", 40, "mobius:review", testkit.AppSlug+"[bot]")
 	for _, session := range []struct {
 		number int64
 		reason string
