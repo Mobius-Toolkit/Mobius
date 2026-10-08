@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -131,7 +133,7 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent) error {
 	if err != nil {
 		return err
 	}
-	leads, err := e.leadMemories(repository.FullName)
+	leads, err := e.leadMemories(ctx, repository.FullName)
 	if err != nil {
 		return err
 	}
@@ -160,30 +162,91 @@ func (e *Engine) memoryHistory(ctx context.Context, repository string) (string, 
 	return section.String(), nil
 }
 
-// leadMemories gives the MEMORY.md of each Lead of repository as prompt sections.
-func (e *Engine) leadMemories(repository string) (string, error) {
-	dir := filepath.Join(e.config.DataDir, "leads", repository)
-	entries, err := os.ReadDir(dir)
+// claudeMemoryDir gives the directory of the Claude Code memory of the Lead with the directory leadDir.
+func claudeMemoryDir(home, leadDir string) string {
+	return filepath.Join(home, ".claude", "projects", strings.NewReplacer("/", "-", ".", "-").Replace(leadDir), "memory")
+}
+
+// leadMemories gives the .md files of each Lead of repository as prompt sections. A Lead has a section only when one
+// of its files changed after the start of the last Curator session that ended "done".
+func (e *Engine) leadMemories(ctx context.Context, repository string) (string, error) {
+	started, err := e.queries.GetLastDoneCuratorStart(ctx, repository)
+	var since time.Time
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return "", err
+	default:
+		if since, err = time.Parse(time.RFC3339Nano, started); err != nil {
+			return "", err
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	leads := filepath.Join(e.config.DataDir, "leads", repository)
+	entries, err := os.ReadDir(leads)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
 	if err != nil {
 		return "", err
 	}
-	sections := ""
+	var sections strings.Builder
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		text, err := readMemory(filepath.Join(dir, entry.Name()))
-		if err != nil {
-			return "", err
+		dir := filepath.Join(leads, entry.Name())
+		var files strings.Builder
+		changed := false
+		for _, notes := range []string{dir, claudeMemoryDir(home, dir)} {
+			text, newer, err := readNotes(notes, since)
+			if err != nil {
+				return "", err
+			}
+			changed = changed || newer
+			files.WriteString(text)
 		}
-		if text = strings.TrimSpace(text); text != "" {
-			sections += fmt.Sprintf("# MEMORY.md of the Lead of Workstream %s\n\n%s\n\n", entry.Name(), text)
+		if changed && files.Len() > 0 {
+			fmt.Fprintf(&sections, "# Notes of the Lead of Workstream %s\n\n%s", entry.Name(), files.String())
 		}
 	}
-	return sections, nil
+	return sections.String(), nil
+}
+
+// readNotes gives the .md files of dir as prompt subsections, in the order of their names, and tells if a file was
+// modified after since. A missing dir has no file.
+func readNotes(dir string, since time.Time) (string, bool, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	var sections strings.Builder
+	changed := false
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			return "", false, err
+		}
+		changed = changed || info.ModTime().After(since)
+		data, err := os.ReadFile(filepath.Clean(path))
+		if err != nil {
+			return "", false, err
+		}
+		if text := strings.TrimSpace(string(data)); text != "" {
+			fmt.Fprintf(&sections, "## %s\n\n%s\n\n", path, text)
+		}
+	}
+	return sections.String(), changed, nil
 }
 
 // editMemory replaces the one occurrence of input.Old in the memory file of the repository of c with input.New. An
@@ -214,5 +277,5 @@ func (e *Engine) editMemory(ctx context.Context, c caller, _ github.Repository, 
 	if err := e.SaveMemory(ctx, c.repository, "curator", input.Reason, text); err != nil {
 		return "", err
 	}
-	return "Saved the memory file.", nil
+	return fmt.Sprintf("Saved the memory file. It has %d of %d lines.", countLines(text), maxMemoryLines), nil
 }

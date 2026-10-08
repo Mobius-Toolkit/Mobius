@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"slices"
@@ -235,7 +237,7 @@ func TestListCopiedWorkstreams(t *testing.T) {
 	}
 }
 
-func TestOnlyACuratorThatDidWorkResetsTheCountOfEndedSessions(t *testing.T) {
+func TestACuratorThatIsOpenOrEndedDoneFailedOrHungResetsTheCountOfEndedSessions(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(ctx, filepath.Join(t.TempDir(), "mobius.db"))
 	if err != nil {
@@ -248,8 +250,7 @@ func TestOnlyACuratorThatDidWorkResetsTheCountOfEndedSessions(t *testing.T) {
 			('lead', 'h', 'm', 'o/a', 1, '2026-10-01T00:00:00Z', '2026-10-01T02:00:00Z', 'done'),
 			('curator', 'h', 'm', 'o/a', 0, '2026-10-02T00:00:00Z', '2026-10-02T01:00:00Z', 'declined'),
 			('curator', 'h', 'm', 'o/a', 0, '2026-10-02T02:00:00Z', '2026-10-02T03:00:00Z', 'stopped'),
-			('curator', 'h', 'm', 'o/a', 0, '2026-10-02T04:00:00Z', '2026-10-02T05:00:00Z', 'restart'),
-			('curator', 'h', 'm', 'o/a', 0, '2026-10-02T06:00:00Z', '2026-10-02T07:00:00Z', 'failed');
+			('curator', 'h', 'm', 'o/a', 0, '2026-10-02T04:00:00Z', '2026-10-02T05:00:00Z', 'restart');
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -266,13 +267,63 @@ func TestOnlyACuratorThatDidWorkResetsTheCountOfEndedSessions(t *testing.T) {
 		t.Fatalf("count after Curators that did no work = %d, want 2", n)
 	}
 
+	for i, reason := range []string{"failed", "hung", "done"} {
+		_, err = db.Exec(`INSERT INTO sessions (role, harness, model, repository, workstream, started_at, ended_at, end_reason) VALUES
+			('lead', 'h', 'm', 'o/a', 1, ?, ?, 'done'),
+			('curator', 'h', 'm', 'o/a', 0, ?, ?, ?)`,
+			fmt.Sprintf("2026-10-%02dT00:00:00Z", 3+i), fmt.Sprintf("2026-10-%02dT01:00:00Z", 3+i),
+			fmt.Sprintf("2026-10-%02dT02:00:00Z", 3+i), fmt.Sprintf("2026-10-%02dT03:00:00Z", 3+i), reason)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n := count(); n != 0 {
+			t.Errorf("count after a Curator that ended %s = %d, want 0", reason, n)
+		}
+	}
+
+	_, err = db.Exec(`INSERT INTO sessions (role, harness, model, repository, workstream, started_at, ended_at, end_reason) VALUES
+		('lead', 'h', 'm', 'o/a', 1, '2026-10-06T00:00:00Z', '2026-10-06T01:00:00Z', 'done')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("count after a Lead session = %d, want 1", n)
+	}
 	_, err = db.Exec(`INSERT INTO sessions (role, harness, model, repository, workstream, started_at) VALUES
-		('curator', 'h', 'm', 'o/a', 0, '2026-10-03T00:00:00Z')`)
+		('curator', 'h', 'm', 'o/a', 0, '2026-10-07T00:00:00Z')`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n := count(); n != 0 {
 		t.Errorf("count with an open Curator = %d, want 0", n)
+	}
+}
+
+func TestOnlyACuratorThatEndedDoneGivesTheStartOfTheLastRun(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	queries := New(db)
+	if _, err := queries.GetLastDoneCuratorStart(ctx, "o/a"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("error with no Curator = %v", err)
+	}
+	_, err = db.Exec(`
+		INSERT INTO sessions (role, harness, model, repository, workstream, started_at, ended_at, end_reason) VALUES
+			('curator', 'h', 'm', 'o/a', 0, '2026-10-01T00:00:00Z', '2026-10-01T01:00:00Z', 'done'),
+			('curator', 'h', 'm', 'o/a', 0, '2026-10-02T00:00:00Z', '2026-10-02T01:00:00Z', 'failed'),
+			('curator', 'h', 'm', 'o/a', 0, '2026-10-03T00:00:00Z', '2026-10-03T01:00:00Z', 'hung'),
+			('curator', 'h', 'm', 'o/a', 0, '2026-10-04T00:00:00Z', NULL, NULL),
+			('curator', 'h', 'm', 'o/b', 0, '2026-10-05T00:00:00Z', '2026-10-05T01:00:00Z', 'done');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := queries.GetLastDoneCuratorStart(ctx, "o/a")
+	if err != nil || started != "2026-10-01T00:00:00Z" {
+		t.Errorf("start = %q, %v", started, err)
 	}
 }
 

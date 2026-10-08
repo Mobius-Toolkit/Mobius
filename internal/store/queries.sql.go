@@ -555,7 +555,10 @@ func (q *Queries) CountActiveTasks(ctx context.Context) (int64, error) {
 const countSessionsEndedSinceCurator = `-- name: CountSessionsEndedSinceCurator :one
 SELECT count(*) FROM sessions s
 WHERE s.repository = ?1 AND s.role <> 'curator' AND s.ended_at IS NOT NULL
-  AND julianday(s.ended_at) > coalesce((SELECT max(julianday(c.started_at)) FROM sessions c WHERE c.repository = s.repository AND c.role = 'curator' AND (c.ended_at IS NULL OR c.end_reason = 'done')), 0)
+  AND julianday(s.ended_at) > coalesce((
+      SELECT max(julianday(c.started_at)) FROM sessions c
+      WHERE c.repository = s.repository AND c.role = 'curator' AND (c.ended_at IS NULL OR c.end_reason IN ('done', 'failed', 'hung'))
+  ), 0)
 `
 
 func (q *Queries) CountSessionsEndedSinceCurator(ctx context.Context, repository string) (int64, error) {
@@ -947,6 +950,19 @@ func (q *Queries) GetHarnessPause(ctx context.Context, harness string) (HarnessP
 	var i HarnessPause
 	err := row.Scan(&i.Harness, &i.PausedUntil, &i.InboxItem)
 	return i, err
+}
+
+const getLastDoneCuratorStart = `-- name: GetLastDoneCuratorStart :one
+SELECT started_at FROM sessions
+WHERE repository = ? AND role = 'curator' AND end_reason = 'done'
+ORDER BY julianday(started_at) DESC LIMIT 1
+`
+
+func (q *Queries) GetLastDoneCuratorStart(ctx context.Context, repository string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getLastDoneCuratorStart, repository)
+	var started_at string
+	err := row.Scan(&started_at)
+	return started_at, err
 }
 
 const getLiveTask = `-- name: GetLiveTask :one

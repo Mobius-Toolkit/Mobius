@@ -150,6 +150,7 @@ func TestTheCloseOfAWorkstreamStartsACurator(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
 			fake := testkit.NewFakeGitHub(t)
 			server, dataDir := connect(t, fake, curatorScript)
 			lead := filepath.Join(dataDir, "leads", "owner", "shop", "12")
@@ -181,7 +182,7 @@ func TestTheCloseOfAWorkstreamStartsACurator(t *testing.T) {
 				"You are a Curator",
 				"a maximum of 200 lines",
 				"# Memory\n\n" + lesson + "\n\n",
-				"# MEMORY.md of the Lead of Workstream 12\n\n" + leadNote + "\n\n",
+				"# Notes of the Lead of Workstream 12\n\n## " + filepath.Join(lead, "MEMORY.md") + "\n\n" + leadNote + "\n\n",
 			} {
 				if !strings.Contains(prompts[0], part) {
 					t.Errorf("%q is not in %s", part, prompts[0])
@@ -207,7 +208,7 @@ func TestAnEditMemoryCallAddsAVersionOfTheCuratorAndTheNextAgentGetsTheText(t *t
 	if got := memoryReasons(t, server); len(got) != 1 || got[0] != "Add: Workstream 12 repeats the format failure." {
 		t.Errorf("reasons = %q", got)
 	}
-	if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != "Saved the memory file." {
+	if calls := mcpCalls(t, server, session); len(calls) != 1 || calls[0]["result"] != "Saved the memory file. It has 1 of 200 lines." {
 		t.Errorf("calls = %v", calls)
 	}
 	sendChat(t, server, leadChat, "Plan the loyalty API")
@@ -294,5 +295,78 @@ func TestTwoStartsDuringACuratorSessionGiveOneMoreCuratorSession(t *testing.T) {
 	waitForPolls(t, fake)
 	if sessions := curatorSessions(t, server); len(sessions) != 3 {
 		t.Errorf("Curators = %+v", sessions)
+	}
+}
+
+func TestTheClaudeCodeMemoryOfALeadIsInTheDirectoryOfItsProject(t *testing.T) {
+	got := engine.ClaudeMemoryDir("/Users/a", "/Users/a/.mobius/leads/O/R/230")
+	if want := "/Users/a/.claude/projects/-Users-a--mobius-leads-O-R-230/memory"; got != want {
+		t.Errorf("directory = %s, want %s", got, want)
+	}
+}
+
+func writeNotes(t *testing.T, dir, name, text string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestThePromptOfTheCuratorHasTheNotesOfTheLeadsThatChangedAfterTheLastDoneCurator(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	server, dataDir := connect(t, testkit.NewFakeGitHub(t), curatorScript)
+	twelve := filepath.Join(dataDir, "leads", "owner", "shop", "12")
+	thirteen := filepath.Join(dataDir, "leads", "owner", "shop", "13")
+	index := writeNotes(t, twelve, "MEMORY.md", "- Index of twelve.")
+	writeNotes(t, twelve, "ignored.txt", "- Not a note.")
+	plans := writeNotes(t, engine.ClaudeMemoryDir(home, twelve), "plans.md", "- Plans use cents.")
+	writeNotes(t, thirteen, "MEMORY.md", "- First of thirteen.")
+	prompt := func(session store.Session) string {
+		t.Helper()
+		return promptTexts(t, server, session.ID)[0]
+	}
+	waitForEnd := func(count int) store.Session {
+		t.Helper()
+		return testkit.WaitForValue(t, func() (store.Session, bool) {
+			sessions := curatorSessions(t, server)
+			return sessions[count-1], len(sessions) == count && sessions[count-1].EndedAt.Valid
+		})
+	}
+
+	endLeads(t, server, 10)
+
+	first := prompt(waitForEnd(1))
+	for _, part := range []string{
+		"# Notes of the Lead of Workstream 12\n\n## " + index + "\n\n- Index of twelve.\n\n## " + plans + "\n\n- Plans use cents.\n\n",
+		"# Notes of the Lead of Workstream 13\n\n## " + filepath.Join(thirteen, "MEMORY.md") + "\n\n- First of thirteen.\n\n",
+	} {
+		if !strings.Contains(first, part) {
+			t.Errorf("%q is not in %s", part, first)
+		}
+	}
+	if strings.Contains(first, "Not a note.") {
+		t.Errorf("a file that is not .md is in %s", first)
+	}
+
+	writeNotes(t, thirteen, "MEMORY.md", "- Second of thirteen.")
+	end(t, start(t, server, roleSpec(t, engine.CuratorRole)), "failed")
+	endLeads(t, server, 9)
+	if sessions := curatorSessions(t, server); len(sessions) != 2 {
+		t.Fatalf("Curators after a failed Curator and 9 sessions = %+v", sessions)
+	}
+	endLeads(t, server, 1)
+
+	second := prompt(waitForEnd(3))
+	if !strings.Contains(second, "# Notes of the Lead of Workstream 13\n\n## "+filepath.Join(thirteen, "MEMORY.md")+"\n\n- Second of thirteen.\n\n") {
+		t.Errorf("the changed notes are not in %s", second)
+	}
+	if strings.Contains(second, "Workstream 12") {
+		t.Errorf("the notes of a Workstream with no change are in %s", second)
 	}
 }

@@ -28,10 +28,18 @@ func (e *Engine) readMemory(repository string) (string, error) {
 	return string(data), err
 }
 
+// countLines gives the number of lines of text.
+func countLines(text string) int {
+	if text == "" {
+		return 0
+	}
+	return strings.Count(strings.TrimSuffix(text, "\n"), "\n") + 1
+}
+
 // SaveMemory writes text to the memory file of the repository and adds a version with author and reason. It refuses a
 // text of more than maxMemoryLines lines. It does nothing when text is the text of the file.
 func (e *Engine) SaveMemory(ctx context.Context, repository, author, reason, text string) error {
-	if lines := strings.Count(strings.TrimSuffix(text, "\n"), "\n") + 1; lines > maxMemoryLines {
+	if lines := countLines(text); lines > maxMemoryLines {
 		return fmt.Errorf("memory of %s has %d lines, the maximum is %d", repository, lines, maxMemoryLines)
 	}
 	current, err := e.readMemory(repository)

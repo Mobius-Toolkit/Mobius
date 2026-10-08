@@ -45,3 +45,8 @@ func (a *Agent) CannotDo() string {
 	defer a.mu.Unlock()
 	return a.cannotDo
 }
+
+// ClaudeMemoryDir gives the directory of the Claude Code memory of the Lead with the directory leadDir.
+func ClaudeMemoryDir(home, leadDir string) string {
+	return claudeMemoryDir(home, leadDir)
+}
