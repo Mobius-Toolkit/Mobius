@@ -516,17 +516,19 @@ test.describe("the bars of a phone", () => {
     await expect(bar).not.toContainText("Lead:");
   });
 
-  test("show the organization switch at the top of the content of Workstreams and Inbox", async ({
+  test("show the organization switch at the top of the content of Chat, Workstreams, Inbox and Memory", async ({
     page,
   }) => {
     const content = page.locator("#content");
     const organization = content.getByRole("button", { name: "owner" });
 
-    for (const path of ["/workstreams", "/inbox"]) {
+    for (const path of ["/chat", "/workstreams", "/inbox"]) {
       await page.goto(path);
       await expect(organization).toBeVisible();
       await expect(topBar(page).getByRole("button")).toHaveCount(0);
     }
+    await page.goto("/settings/memory");
+    await expect(organization).toBeVisible();
     await page.goto("/settings");
     await expect(page.getByRole("link", { name: "Devices" })).toBeVisible();
     await expect(organization).toHaveCount(0);

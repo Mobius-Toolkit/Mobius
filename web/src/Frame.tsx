@@ -146,7 +146,8 @@ export function Frame({
           className="flex min-h-0 grow flex-col overflow-y-auto md:overflow-visible"
         >
           <div className="grid gap-2 px-4 pt-4 empty:hidden md:hidden">
-            {(path === "/workstreams" ||
+            {(path === "/chat" ||
+              path === "/workstreams" ||
               path.startsWith("/inbox") ||
               path === "/settings/memory") &&
               organizationSwitch}
