@@ -538,15 +538,19 @@ func (e *Engine) runPreparedWorker(task store.Task, title *string, name string, 
 // runWorker runs work, the Worker name of the task, in the background until the task stops. title points to the title
 // of the issue of the task, which is empty until work reads it. An error of work tells that the Worker must start
 // again: after the wait of RestartWorker, the queued or working task goes to the queue and work runs again. A task in
-// another state, for example after a decline, does not start again.
+// another state, for example after a decline, does not start again. A Worker that a newer Worker replaced, for example
+// the Reviewer after it started a fix round, does not start again.
 func (e *Engine) runWorker(task store.Task, title *string, name string, work func(context.Context) error) {
-	e.startWorker(task.ID, func(ctx context.Context) {
+	e.startNumberedWorker(task.ID, func(ctx context.Context, start int) {
 		for {
 			err := work(ctx)
 			if err == nil {
 				return
 			}
 			log.Printf("%s of %s#%d: %v", name, task.Repository, task.Issue, err)
+			if e.startedAfter(task.ID, start) {
+				return
+			}
 			again, err := e.RestartWorker(ctx, task, *title, err)
 			if err == nil && again {
 				again, err = e.queueAgain(ctx, task.ID)

@@ -11,6 +11,8 @@ import (
 )
 
 const (
+	// failReviewerEnd makes the end of a Reviewer session fail.
+	failReviewerEnd = "CREATE TRIGGER fail_update BEFORE UPDATE OF end_reason ON sessions WHEN NEW.role = 'reviewer' BEGIN SELECT RAISE(ABORT, 'forced failure'); END"
 	// failHandToHuman makes the move of a task to needs_human fail.
 	failHandToHuman = "CREATE TRIGGER fail_update BEFORE UPDATE OF state ON tasks WHEN NEW.state = 'needs_human' BEGIN SELECT RAISE(ABORT, 'forced failure'); END"
 	// failFixRoundWorker makes the change of the Worker of a task to the Implementer of a fix round fail.
@@ -101,8 +103,8 @@ func TestAnErrorInAFixRoundAfterTheQueueStepStartsTheImplementerOfTheRoundAgain(
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	testkit.WaitFor(t, func() bool { return workerRestarts(t, server) >= 1 })
-	reviewers := roleSessions(t, server, engine.ReviewerRole)
-	if len(reviewers) != 1 || reviewers[0].EndReason.String != "done" {
+	reviewers := endedReviewers(t, server, 1)
+	if reviewers[0].EndReason.String != "done" {
 		t.Errorf("Reviewers = %+v", reviewers)
 	}
 	if task := liveTask(t, server, 41); task.State != "queued" || task.FixRounds != 1 {
@@ -124,6 +126,22 @@ func TestAnErrorInAFixRoundAfterTheQueueStepStartsTheImplementerOfTheRoundAgain(
 	}
 	if task := liveTask(t, server, 41); task.FixRounds != 1 {
 		t.Errorf("task = %+v", task)
+	}
+}
+
+func TestAReviewerThatFailsAfterAFixRoundStartedDoesNotStartAgain(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, finding+leadStarts, fixReplies+commits, func(cfg *config.Config) {
+		cfg.MaxFixRounds = 2
+		cfg.MaxWorkerRestarts = 10
+	})
+	failTaskUpdates(t, server, failReviewerEnd)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	endedImplementers(t, server, 2)
+	if restarts := workerRestarts(t, server); restarts != 0 {
+		t.Errorf("worker restarts = %d", restarts)
 	}
 }
 
