@@ -114,7 +114,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.stopResearcher),
 			tool(e, c, "ask",
-				"Ask the people on a task issue a question. Mobius posts the question as a comment, adds mobius:needs-human, and adds an Inbox item for the Owner. The reply arrives later as an event.",
+				"Ask the people on a task issue a question. Mobius posts the question as a comment, adds mobius:question, and adds an Inbox item for the Owner. The reply arrives later as an event.",
 				map[string]any{
 					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue."},

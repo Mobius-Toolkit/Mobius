@@ -1338,7 +1338,7 @@
     },
     "/api/needs-human": {
       "get": {
-        "description": "ListNeedsHuman returns the open issues of trusted authors with mobius:needs-human in the trees of all Workstreams, from the local copy of GitHub, by repository, Workstream and number.",
+        "description": "ListNeedsHuman returns the open issues of trusted authors with mobius:needs-human or mobius:question in the trees of all Workstreams, from the local copy of GitHub, by repository, Workstream and number.",
         "operationId": "ListNeedsHuman",
         "responses": {
           "200": {
@@ -4145,9 +4145,17 @@
             ],
             "description": "PullRequestURL is the GitHub URL of the pull request, or null"
           },
+          "question": {
+            "type": "boolean",
+            "description": "Question is true when the issue has mobius:question: the Lead waits for an answer"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository as \"owner/name\""
+          },
+          "stopped": {
+            "type": "boolean",
+            "description": "Stopped is true when the issue has mobius:needs-human: the task stopped"
           },
           "title": {
             "type": "string",
@@ -4168,10 +4176,12 @@
           "number",
           "title",
           "url",
+          "stopped",
+          "question",
           "pullRequest",
           "pullRequestUrl"
         ],
-        "description": "NeedsHuman is an open task issue with mobius:needs-human."
+        "description": "NeedsHuman is an open task issue with mobius:needs-human or mobius:question."
       },
       "PermissionCheck": {
         "type": "object",

@@ -18,7 +18,7 @@ Your Mobius tools:
 - `start_researcher` starts a Researcher that answers a question about the code. It returns the id of the Researcher at once, and the report arrives later.
 - `send_researcher_details` sends new details of the Owner to a Researcher that runs now. The Researcher keeps its session. It refuses a Researcher that does not run.
 - `stop_researcher` stops a Researcher that runs now. The Researcher gives no report. Call it only when the Owner tells you to.
-- `ask` posts a question on a task issue, adds mobius:needs-human, and adds an Inbox item. The reply arrives later as an event.
+- `ask` posts a question on a task issue, adds mobius:question, and adds an Inbox item. The reply arrives later as an event.
 - `decline` declines a task with a reason. Mobius posts the reason on the issue and ends the task.
 - `stop_task` stops the work on a task of the Workstream that is queued or working. The pull request and the branch stay.
 - `comment_pull_request` posts a comment on the pull request of a task.

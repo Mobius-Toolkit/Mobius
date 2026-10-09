@@ -411,6 +411,30 @@ func TestACommentOfTheOwnerKeepsMobiusNeedsHumanOnATaskInNeedsHuman(t *testing.T
 	}
 }
 
+func TestAnAnswerRemovesMobiusQuestionAndKeepsMobiusNeedsHumanOnATaskInNeedsHuman(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := connectSeen(t, fake)
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddLabel(shop, 41, "mobius:needs-human", testkit.AppSlug+"[bot]")
+	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
+	fake.AddComment(shop, 41, testkit.AppSlug+"[bot]", "Cents or dollars?")
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 41, 12, 'needs_human', '2026-10-04T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+
+	fake.AddComment(shop, 41, "owner", "Cents.")
+
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:question") })
+	waitForPolls(t, fake)
+	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:needs-human"}) {
+		t.Errorf("labels = %v", got)
+	}
+	if got := liveTaskOf(t, server, 41).State; got != "needs_human" {
+		t.Errorf("state = %s", got)
+	}
+}
+
 func TestTheLeadDeclinesADispatchedTask(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"Split it into a model and an API.\" } }\n")

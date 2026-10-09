@@ -255,22 +255,26 @@ func labelState(labels []string) string {
 	return "open"
 }
 
-// NeedsHuman is an open issue with mobius:needs-human in the tree of a Workstream.
+// NeedsHuman is an open issue with mobius:needs-human or mobius:question in the tree of a Workstream.
 type NeedsHuman struct {
 	Repository string
 	Workstream int64
 	Number     int64
 	Title      string
 	URL        string
+	// Stopped is true when the issue has mobius:needs-human: the task stopped.
+	Stopped bool
+	// Question is true when the issue has mobius:question: the Lead waits for an answer.
+	Question bool
 	// PullRequest is the pull request of the live task of the issue, or 0.
 	PullRequest    int64
 	PullRequestURL string
 }
 
-// NeedsHuman gives the open issues of trusted authors with mobius:needs-human in the trees of the Workstreams, from the
-// local copy, by repository, Workstream and number.
+// NeedsHuman gives the open issues of trusted authors with mobius:needs-human or mobius:question in the trees of the
+// Workstreams, from the local copy, by repository, Workstream and number.
 func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
-	rows, err := e.queries.ListCopiedIssuesWithLabel(ctx, needsHumanLabel)
+	rows, err := e.queries.ListCopiedIssuesWithLabels(ctx, store.ListCopiedIssuesWithLabelsParams{NeedsHuman: needsHumanLabel, Question: questionLabel})
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +284,7 @@ func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
 		if !ok || row.State != "open" || otherRepository(row.RepositoryUrl, row.Repository) || !e.TrustedAuthor(repository.AppSlug, row.Author) {
 			continue
 		}
-		issue := NeedsHuman{Repository: row.Repository, Workstream: row.Workstream, Number: row.Number, Title: row.Title, URL: row.HtmlUrl}
+		issue := NeedsHuman{Repository: row.Repository, Workstream: row.Workstream, Number: row.Number, Title: row.Title, URL: row.HtmlUrl, Stopped: row.HasNeedsHuman, Question: row.HasQuestion}
 		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: row.Repository, Issue: row.Number})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
