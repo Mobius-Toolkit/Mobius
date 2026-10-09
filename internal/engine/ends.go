@@ -59,6 +59,8 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 //   - A removal of the label that the state needs by a person stops the task: mobius:review for a task in ready_for_review,
 //     and mobius:working for a task in another state. A Judge that runs from ready_for_review needs mobius:review, and a
 //     Judge that runs from needs_human needs no label.
+//   - A removal of mobius:needs-human by a trusted user continues a task in needs_human, and a removal by the Mobius App
+//     continues it when Autopilot is on (continueByRemoval).
 //   - A task in needs_human gets the labels that handToHuman sets, and a live task in another state loses
 //     mobius:needs-human on its pull request (labelsOfNeedsHuman).
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
@@ -95,6 +97,9 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	if task.State != "stopped" && task.State != "needs_human" && !judgeOfHuman && !hasLabel(issue, needed) {
 		return Work{}, false, e.labelRemoved(ctx, repository, task, issue, needed)
+	}
+	if continued, err := e.continueByRemoval(ctx, repository, task, issue, pullRequest); err != nil || continued {
+		return Work{}, false, err
 	}
 	if err := e.labelsOfNeedsHuman(ctx, repository, task, issue, pullRequest, judgeOfHuman); err != nil {
 		return Work{}, false, err
@@ -139,6 +144,65 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	judged, err := e.judge(ctx, repository, task, pullRequest, waiting)
 	return work, judged, err
+}
+
+// continueByRemoval resumes the task in needs_human when an actor removed mobius:needs-human from its issue or from its
+// pull request, and the actor is a trusted user, or the Mobius App with Autopilot on. It reads the label events only
+// when one of the two items lacks the label. A removal counts only when it is newer than the last addition of the label
+// to the other item, because handToHuman adds the label to the issue and to the pull request after the move to
+// needs_human, and resume removes it from both. An issue with mobius:ready waits for the dispatch.
+func (e *Engine) continueByRemoval(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest) (bool, error) {
+	issueHas := hasLabel(issue, needsHumanLabel)
+	pullHas := pullRequest == nil || hasPullRequestLabel(pullRequest, needsHumanLabel)
+	if task.State != "needs_human" || hasLabel(issue, readyLabel) || issueHas && pullHas {
+		return false, nil
+	}
+	issueEvents, err := repository.IssueEvents(ctx, task.Issue)
+	if err != nil {
+		return false, err
+	}
+	var pullEvents []*gh.IssueEvent
+	if pullRequest != nil {
+		if pullEvents, err = repository.IssueEvents(ctx, task.PullRequest.Int64); err != nil {
+			return false, err
+		}
+	}
+	var actors []string
+	if !issueHas {
+		actors = append(actors, removalActor(issueEvents, pullEvents))
+	}
+	if !pullHas {
+		actors = append(actors, removalActor(pullEvents, issueEvents))
+	}
+	for _, actor := range actors {
+		if actor == "" || !e.TrustedAuthor(repository.AppSlug, actor) {
+			continue
+		}
+		if strings.EqualFold(actor, appLogin(repository.AppSlug)) {
+			on, err := e.workstreamAutopilot(ctx, repository, task.Workstream)
+			if err != nil {
+				return false, err
+			}
+			if !on {
+				continue
+			}
+		}
+		return true, e.resume(ctx, repository, issue, task, actor)
+	}
+	return false, nil
+}
+
+// removalActor gives the actor of the last removal of mobius:needs-human in events, or "" when events have no removal
+// that is newer than the last addition of the label in other.
+func removalActor(events, other []*gh.IssueEvent) string {
+	_, removed := lastEvent(events, "unlabeled", needsHumanLabel)
+	if removed == nil {
+		return ""
+	}
+	if _, added := lastEvent(other, "labeled", needsHumanLabel); added != nil && !removed.GetCreatedAt().After(added.GetCreatedAt().Time) {
+		return ""
+	}
+	return removed.GetActor().GetLogin()
 }
 
 // labelsOfNeedsHuman gives the issue and the pull request of a task in needs_human the labels that handToHuman sets, and
