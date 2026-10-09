@@ -75,7 +75,10 @@ func TestACannotDoInAnAutonomousTurnEndsTheWaitAndSendsNoPrompt(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	later := `later = { after = "10ms", call = { tool = "cannot_do", arguments = { reason = "The plan table does not exist." } }, updates = ['` + workUpdate + `'] }`
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First\"]\n"+later+"\n\n[[prompts]]\nreply = [\"Second\"]\n")
-	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	spec := implementerSpec(t, server, fake, 41)
+	spec.Dir = t.TempDir()
+	testkit.Git(t, spec.Dir, "clone", fake.Remote(shop), ".")
+	agent := start(t, server, spec)
 	if err := agent.Prompt(t.Context(), "One", nil); err != nil {
 		t.Fatal(err)
 	}
