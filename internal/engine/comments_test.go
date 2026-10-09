@@ -116,6 +116,7 @@ func TestAnOldCommentGivesNoEventAfterTheCommentCursorsAreMissing(t *testing.T) 
 	server := startWithStoppedTask(t, fake)
 	fake.AddComment(shop, 41, "owner", "First.")
 	testkit.WaitFor(t, func() bool { return eventLines(t, server) == 1 })
+	waitForPolls(t, fake)
 	if _, err := server.DB.Exec(`DELETE FROM sync_cursors WHERE endpoint IN ('issue_comments', 'review_comments')`); err != nil {
 		t.Fatal(err)
 	}
