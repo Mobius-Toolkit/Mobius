@@ -797,7 +797,7 @@
     },
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each new or changed Transcript row, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, and each Workstream that the Triager chat created. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
+        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each new or changed Transcript row, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, and each Workstream that the Triager chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
         "operationId": "StreamEvents",
         "parameters": [
           {
@@ -1338,7 +1338,7 @@
     },
     "/api/needs-human": {
       "get": {
-        "description": "ListNeedsHuman returns the open issues of trusted authors with mobius:needs-human in the trees of all Workstreams, from the local copy of GitHub, by repository, Workstream and number.",
+        "description": "ListNeedsHuman returns the open issues of trusted authors with mobius:needs-human or mobius:question in the trees of all Workstreams, from the local copy of GitHub, by repository, Workstream and number.",
         "operationId": "ListNeedsHuman",
         "responses": {
           "200": {
@@ -1677,6 +1677,254 @@
         ],
         "tags": [
           "tasks"
+        ]
+      }
+    },
+    "/api/repositories/{owner}/{name}/memory": {
+      "get": {
+        "description": "ListMemoryVersions returns the versions of the memory file of the repository, the newest first, each with the result of the check of its revert. The first version is the current text of the file. It returns 404 when the repository is not a repository of Mobius.",
+        "operationId": "ListMemoryVersions",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_MemoryVersion"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "memory"
+        ]
+      },
+      "put": {
+        "description": "SaveMemory saves the text as the memory file of the repository and adds a version with the author owner. It does nothing when the text does not change. It returns 404 when the repository is not a repository of Mobius, 409 when a newer version exists than the base version, and 422 when the text has more than 200 lines.",
+        "operationId": "SaveMemory",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveMemoryBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "memory"
+        ]
+      }
+    },
+    "/api/repositories/{owner}/{name}/memory/{id}/revert": {
+      "post": {
+        "description": "RevertMemory undoes the change of the version in the current text of the memory file and saves the result as a new version with the author owner. It returns 404 when the repository is not a repository of Mobius, or when the version does not exist or belongs to another repository. It returns 409 when a later version changed the part, when the revert changes nothing, or when the result has more than 200 lines.",
+        "operationId": "RevertMemory",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "ID is the id of the version to revert",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "memory"
         ]
       }
     },
@@ -2269,7 +2517,7 @@
     },
     "/api/workstreams/{owner}/{name}/{number}/tasks": {
       "get": {
-        "description": "ListTasks returns the open tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.",
+        "description": "ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.",
         "operationId": "ListTasks",
         "parameters": [
           {
@@ -2403,7 +2651,7 @@
           "groups": {
             "type": "array",
             "title": "[]AgentGroup",
-            "description": "Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge",
+            "description": "Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge, Curator",
             "items": {
               "$ref": "#/components/schemas/AgentGroup"
             }
@@ -2520,6 +2768,14 @@
             ],
             "description": "Parent is the id of the session of the agent that started this session, or null"
           },
+          "pausedUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PausedUntil is the end of the usage-limit pause that the session waits for, or null while the session does not wait for a pause",
+            "format": "date-time"
+          },
           "queueReason": {
             "type": "string",
             "description": "QueueReason tells why the session waits, for example for a slot or for the end of a usage limit. It is empty while the session does not wait"
@@ -2541,6 +2797,10 @@
             "type": "string",
             "description": "Title tells what the session works on, for example \"chat session\". It can be empty"
           },
+          "working": {
+            "type": "boolean",
+            "description": "Working is true while the session works. A chat session works while a turn runs. Another open session works while it does not wait for a slot, for a check slot or for the end of a usage limit"
+          },
           "workstream": {
             "type": "integer",
             "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager"
@@ -2561,7 +2821,9 @@
           "startedAt",
           "endedAt",
           "endReason",
-          "queueReason"
+          "queueReason",
+          "pausedUntil",
+          "working"
         ],
         "description": "Agent is the session of an agent."
       },
@@ -3008,6 +3270,24 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Array_MemoryVersion": {
+        "type": "object",
+        "title": "Envelope_Array_MemoryVersion",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]MemoryVersion",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/MemoryVersion"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Array_NeedsHuman": {
         "type": "object",
         "title": "Envelope_Array_NeedsHuman",
@@ -3382,6 +3662,14 @@
             "type": "string",
             "description": "Organization is the owner of the repository"
           },
+          "pausedUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PausedUntil is the end of the pause of a usage limit item, or null for another item and after the pause ends",
+            "format": "date-time"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository as \"owner/name\""
@@ -3410,6 +3698,7 @@
           "text",
           "link",
           "time",
+          "pausedUntil",
           "dismissedAt"
         ],
         "description": "InboxItem is an item of the Inbox of the Owner."
@@ -3727,6 +4016,29 @@
               "event",
               "data"
             ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "type": "object"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "ping"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
           }
         ],
         "description": "LiveEvents are the events of the live event stream. Only an activity has an event id."
@@ -3763,6 +4075,54 @@
         ],
         "description": "ManifestForm is the form that the browser posts to GitHub to create a Mobius App."
       },
+      "MemoryVersion": {
+        "type": "object",
+        "title": "MemoryVersion",
+        "properties": {
+          "author": {
+            "type": "string",
+            "description": "Author is curator or owner",
+            "enum": [
+              "curator",
+              "owner"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "description": "ID is the id of the version"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason is the type of change and the evidence of the Curator, \"Revert of version N\" for a revert, and empty for an edit of the Owner"
+          },
+          "revert_problem": {
+            "type": "string",
+            "description": "RevertProblem is the reason why the revert is not possible, and empty when it is possible"
+          },
+          "revertible": {
+            "type": "boolean",
+            "description": "Revertible tells if the revert of the version is possible"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text is the text of the memory file in this version"
+          },
+          "time": {
+            "type": "string",
+            "description": "Time is the time when Mobius saved the version, in RFC 3339 format"
+          }
+        },
+        "required": [
+          "id",
+          "time",
+          "author",
+          "reason",
+          "text",
+          "revertible",
+          "revert_problem"
+        ],
+        "description": "MemoryVersion is a version of the memory file of a repository."
+      },
       "NeedsHuman": {
         "type": "object",
         "title": "NeedsHuman",
@@ -3785,9 +4145,17 @@
             ],
             "description": "PullRequestURL is the GitHub URL of the pull request, or null"
           },
+          "question": {
+            "type": "boolean",
+            "description": "Question is true when the issue has mobius:question: the Lead waits for an answer"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository as \"owner/name\""
+          },
+          "stopped": {
+            "type": "boolean",
+            "description": "Stopped is true when the issue has mobius:needs-human: the task stopped"
           },
           "title": {
             "type": "string",
@@ -3808,10 +4176,12 @@
           "number",
           "title",
           "url",
+          "stopped",
+          "question",
           "pullRequest",
           "pullRequestUrl"
         ],
-        "description": "NeedsHuman is an open task issue with mobius:needs-human."
+        "description": "NeedsHuman is an open task issue with mobius:needs-human or mobius:question."
       },
       "PermissionCheck": {
         "type": "object",
@@ -3883,6 +4253,20 @@
           "labels"
         ],
         "description": "RepositoryCheckup is the status of each Mobius label in a repository."
+      },
+      "SaveMemoryBody": {
+        "type": "object",
+        "title": "SaveMemoryBody",
+        "properties": {
+          "base_version": {
+            "type": "integer",
+            "description": "BaseVersion is the id of the newest version when the edit started, and 0 when the file had no version"
+          },
+          "text": {
+            "type": "string",
+            "description": "Text is the new text of the memory file"
+          }
+        }
       },
       "SeeChatBody": {
         "type": "object",
@@ -3993,7 +4377,7 @@
           },
           "state": {
             "type": "string",
-            "description": "State is the Mobius label of the issue with no \"mobius:\", or open. A task that waits for a slot shows \"queued\". A task that waits for CI shows \"waits for CI\". A task that waits for the Lead shows \"waits for Lead\"."
+            "description": "State is the Mobius label of the issue with no \"mobius:\", or open, or closed for a closed issue. A task that waits for a slot shows \"queued\". A task that waits for CI shows \"waits for CI\". A task that waits for the Lead shows \"waits for Lead\". A task that waits for start_implementer shows \"waits for start_implementer\"."
           },
           "title": {
             "type": "string",
@@ -4198,6 +4582,10 @@
             "type": "integer",
             "description": "Number is the number of the Workstream issue"
           },
+          "readyToMerge": {
+            "type": "boolean",
+            "description": "ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository of the Workstream issue, as \"owner/name\""
@@ -4213,7 +4601,8 @@
           "title",
           "brief",
           "autopilot",
-          "allTasksClosed"
+          "allTasksClosed",
+          "readyToMerge"
         ],
         "description": "Workstream is an open Workstream of a managed repository."
       },

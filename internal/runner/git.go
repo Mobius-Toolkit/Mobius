@@ -15,6 +15,14 @@ import (
 	"syscall"
 )
 
+// LowSpeedLimit and LowSpeedTime are the stall limit of a git transfer over HTTP: git stops the transfer when its
+// speed stays below LowSpeedLimit bytes per second for LowSpeedTime seconds. The time is long, because a server can
+// send no pack data while it counts the objects of a large repository or resolves the deltas of a push.
+var (
+	LowSpeedLimit = 1000
+	LowSpeedTime  = 120
+)
+
 // git gives the git command with args in dir. The token goes to git only in the environment of the process, so no
 // file and no process list shows it. No hook runs, so no code of the repository gets that environment. The command
 // leads its own process group, so the end of ctx also stops the git processes that it started, for example of a fetch.
@@ -26,9 +34,17 @@ func git(ctx context.Context, dataDir, dir, token string, args ...string) *exec.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+filepath.Join(agentEnv(dataDir), "gitconfig"), "GIT_TERMINAL_PROMPT=0")
+	settings := [][2]string{
+		{"http.lowSpeedLimit", strconv.Itoa(LowSpeedLimit)},
+		{"http.lowSpeedTime", strconv.Itoa(LowSpeedTime)},
+	}
 	if token != "" {
 		credentials := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-		cmd.Env = append(cmd.Env, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=http.extraHeader", "GIT_CONFIG_VALUE_0=AUTHORIZATION: basic "+credentials)
+		settings = append(settings, [2]string{"http.extraHeader", "AUTHORIZATION: basic " + credentials})
+	}
+	cmd.Env = append(cmd.Env, "GIT_CONFIG_COUNT="+strconv.Itoa(len(settings)))
+	for i, setting := range settings {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i, setting[0]), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i, setting[1]))
 	}
 	return cmd
 }
@@ -123,6 +139,11 @@ func ResearchDir(dataDir, repository string, id int64) string {
 	return filepath.Join(dataDir, "worktrees", repository, "research-"+strconv.FormatInt(id, 10))
 }
 
+// CuratorDir gives the worktree of the Curator session id of repository below dataDir.
+func CuratorDir(dataDir, repository string, id int64) string {
+	return filepath.Join(dataDir, "worktrees", repository, "curator-"+strconv.FormatInt(id, 10))
+}
+
 // ReviewDir gives the worktree of the Reviewer session id of repository below dataDir.
 func ReviewDir(dataDir, repository string, id int64) string {
 	return filepath.Join(dataDir, "worktrees", repository, "review-"+strconv.FormatInt(id, 10))
@@ -202,9 +223,37 @@ func AddDetachedWorktree(ctx context.Context, dataDir, repository, dir, commit s
 	return err
 }
 
-// RemoveWorktree removes the worktree dir of the bare clone of repository, with its changes.
+// RemoveWorktree removes the worktree dir of the bare clone of repository, with its changes. It also removes a worktree
+// that a killed "git worktree add" left: git cannot remove it, and "git worktree prune" keeps its record because the
+// record is locked. Thus the fallback deletes the record that points to dir, so a new worktree can use dir again.
 func RemoveWorktree(ctx context.Context, dataDir, repository, dir string) error {
-	_, err := run(git(ctx, dataDir, bareDir(dataDir, repository), "", "worktree", "remove", "--force", dir))
+	bare := bareDir(dataDir, repository)
+	if _, err := run(git(ctx, dataDir, bare, "", "worktree", "remove", "--force", "--force", dir)); err == nil {
+		return nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(dir))
+	if err != nil {
+		return err
+	}
+	gitdirs, err := filepath.Glob(filepath.Join(bare, "worktrees", "*", "gitdir"))
+	if err != nil {
+		return err
+	}
+	for _, gitdir := range gitdirs {
+		content, err := os.ReadFile(filepath.Clean(gitdir))
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(string(content)) == filepath.Join(parent, filepath.Base(dir), ".git") {
+			if err := os.RemoveAll(filepath.Dir(gitdir)); err != nil {
+				return err
+			}
+		}
+	}
+	_, err = run(git(ctx, dataDir, bare, "", "worktree", "prune"))
 	return err
 }
 
@@ -219,7 +268,11 @@ func Prune(ctx context.Context, dataDir, repository string) error {
 	return err
 }
 
-// Pull merges origin/branch of the last Fetch into the worktree, also when the two branches diverged.
+// ErrMergeConflict is the error of a Pull whose merge has conflicts.
+var ErrMergeConflict = errors.New("merge conflict")
+
+// Pull merges origin/branch of the last Fetch into the worktree, also when the two branches diverged. A failed merge
+// is aborted, so the worktree has no unmerged files. A merge with conflicts gives ErrMergeConflict.
 func Pull(ctx context.Context, dataDir, worktree, branch string) error {
 	remote := "refs/remotes/origin/" + branch
 	found, err := hasRef(ctx, dataDir, worktree, remote)
@@ -227,6 +280,16 @@ func Pull(ctx context.Context, dataDir, worktree, branch string) error {
 		return err
 	}
 	_, err = run(git(ctx, dataDir, worktree, "", "merge", "--no-edit", remote))
+	if err == nil {
+		return nil
+	}
+	conflicts, conflictsErr := run(git(ctx, dataDir, worktree, "", "diff", "--name-only", "--diff-filter=U"))
+	if _, abortErr := run(git(ctx, dataDir, worktree, "", "merge", "--abort")); abortErr != nil {
+		return errors.Join(err, conflictsErr, abortErr)
+	}
+	if conflictsErr == nil && conflicts != "" {
+		return fmt.Errorf("%w in %s", ErrMergeConflict, strings.ReplaceAll(conflicts, "\n", ", "))
+	}
 	return err
 }
 
@@ -251,4 +314,23 @@ func RevParse(ctx context.Context, dataDir, worktree, name string) (string, erro
 // HeadContains tells if HEAD of the worktree contains commit.
 func HeadContains(ctx context.Context, dataDir, worktree, commit string) (bool, error) {
 	return succeeds(git(ctx, dataDir, worktree, "", "merge-base", "--is-ancestor", commit, "HEAD"))
+}
+
+// HasUnpushedWork tells if the worktree has uncommitted changes, or commits that origin/branch does not have. Before
+// the first push, origin/branch does not exist, and the worktree is compared with origin/base.
+func HasUnpushedWork(ctx context.Context, dataDir, worktree, branch, base string) (bool, error) {
+	status, err := run(git(ctx, dataDir, worktree, "", "--no-optional-locks", "status", "--porcelain"))
+	if err != nil || status != "" {
+		return status != "", err
+	}
+	remote := "origin/" + branch
+	found, err := hasRef(ctx, dataDir, worktree, "refs/remotes/"+remote)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		remote = "origin/" + base
+	}
+	commits, err := run(git(ctx, dataDir, worktree, "", "rev-list", "--count", remote+"..HEAD"))
+	return commits != "0", err
 }

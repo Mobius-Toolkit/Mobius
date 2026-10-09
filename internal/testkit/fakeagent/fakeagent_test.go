@@ -202,6 +202,31 @@ reply = ["second"]
 	}
 }
 
+func TestAPromptResponseHasTheUsageAndTheMetaOfTheScript(t *testing.T) {
+	c := start(t, `
+[[prompts]]
+usage = '{"inputTokens": 10}'
+meta = '{"quota": {}}'
+`)
+	if err := c.newSession(t, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	var response map[string]any
+	err := c.call(t, acp.AgentMethodSessionPrompt, map[string]any{
+		"sessionId": "fake-session",
+		"prompt":    []any{map[string]any{"type": "text", "text": "go"}},
+	}, &response)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]any{"stopReason": "end_turn", "usage": map[string]any{"inputTokens": 10.0}, "_meta": map[string]any{"quota": map[string]any{}}}
+	if !reflect.DeepEqual(response, want) {
+		t.Errorf("response = %+v", response)
+	}
+}
+
 func TestATurnSendsTheUpdatesThenTheReplyThenTheShellOutput(t *testing.T) {
 	c := start(t, `
 [[prompts]]
@@ -387,5 +412,79 @@ func TestAScriptWithAnUnknownKeyFails(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "answer") {
 		t.Errorf("error = %v", err)
+	}
+}
+
+func TestALaterSendsItsUpdatesAfterTheResponse(t *testing.T) {
+	c := start(t, `
+[[prompts]]
+reply = ["first"]
+later = { after = "100ms", updates = ['{"sessionUpdate": "plan", "entries": []}'] }
+
+[[prompts]]
+reply = ["second"]
+`)
+
+	reply, _ := c.prompt(t, "Go.")
+
+	if reply != "first" {
+		t.Errorf("reply = %q", reply)
+	}
+	if updates := c.updatesNow(); len(updates) != 0 {
+		t.Errorf("updates at the response = %+v", updates)
+	}
+	deadline := time.Now().Add(time.Minute)
+	for len(c.updatesNow()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if updates := c.takeUpdates(); len(updates) != 1 || updates[0]["sessionUpdate"] != "plan" {
+		t.Errorf("updates = %+v", updates)
+	}
+	if reply, _ := c.prompt(t, "Again."); reply != "second" {
+		t.Errorf("second reply = %q", reply)
+	}
+}
+
+func TestAPromptAfterALaterWithAbsorbGetsItsUpdatesAndNoResponseBeforeTheCancel(t *testing.T) {
+	c := start(t, `
+[[prompts]]
+reply = ["first"]
+later = { updates = ['{"sessionUpdate": "plan", "entries": []}'], absorb = true }
+
+[[prompts]]
+reply = ["second"]
+`)
+	c.prompt(t, "Go.")
+	time.Sleep(100 * time.Millisecond)
+	if updates := c.updatesNow(); len(updates) != 0 {
+		t.Fatalf("updates before the next prompt = %+v", updates)
+	}
+	done := make(chan string)
+	go func() {
+		stopReason, _ := c.send("Absorbed.")
+		done <- stopReason
+	}()
+	deadline := time.Now().Add(time.Minute)
+	for len(c.updatesNow()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if updates := c.takeUpdates(); len(updates) != 1 || updates[0]["sessionUpdate"] != "plan" {
+		t.Fatalf("updates = %+v", updates)
+	}
+
+	select {
+	case stopReason := <-done:
+		t.Fatalf("the absorbed prompt got the response %q", stopReason)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if err := c.conn.SendNotification(context.Background(), acp.AgentMethodSessionCancel, map[string]any{"sessionId": "fake-session"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if stopReason := <-done; stopReason != "cancelled" {
+		t.Errorf("stop reason = %q", stopReason)
+	}
+	if reply, _ := c.prompt(t, "Again."); reply != "second" {
+		t.Errorf("reply after the cancel = %q", reply)
 	}
 }

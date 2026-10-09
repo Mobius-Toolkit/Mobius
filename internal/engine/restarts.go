@@ -1,15 +1,18 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 	"unicode/utf8"
 
 	gh "github.com/google/go-github/v92/github"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -18,6 +21,43 @@ const errorTail = 2000
 
 // restartDelays are the waits before the first, the second, and each later restart of a Worker.
 var restartDelays = []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute}
+
+// errWorkerLost is the error of a Worker that the poll restarts because the task has no Worker.
+var errWorkerLost = errors.New("the Worker of the task ended with no state change")
+
+// restartLost starts the Worker of each queued or working task of repository that has no Worker, and moves a working
+// task of a Judge back to its earlier state, so that the poll gives the items to a new Judge.
+//
+// A task that waits for a free slot has a Worker, because its goroutine runs and waits. A step that moves a task to
+// queued or working before it starts the Worker holds the task (holdWorker), and the hand-over from one Worker to the
+// next starts the next goroutine before the old one returns. Thus a task with no goroutine and no hold has lost its
+// Worker. The Worker starts again like after any error: the restart counts and waits, and startIdleWorker starts no
+// second Worker. afterRestart tells that the server restarted. Then no Worker of the earlier run exists, and the
+// Worker starts again at once with no count and no wait.
+func (e *Engine) restartLost(ctx context.Context, repository github.Repository, afterRestart bool) error {
+	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if task.State != "queued" && task.State != "working" || e.hasWorker(task.ID) {
+			continue
+		}
+		switch task.Worker.String {
+		case ImplementerRole, checkRoundWorker, conflictRoundWorker:
+			e.restartImplementer(repository, task, !afterRestart)
+		case ReviewerRole:
+			e.restartReviewer(repository, task, !afterRestart)
+		// The poll gives the items to a new Judge.
+		case JudgeRole:
+			before := cmp.Or(task.WorkerInput.String, "reviewed")
+			if _, err := e.setTaskState(ctx, store.SetTaskStateParams{State: before, ID: task.ID, FromState: "working"}); err != nil {
+				log.Printf("start the %s of %s#%d again: %v", task.Worker.String, repository.FullName, task.Issue, err)
+			}
+		}
+	}
+	return nil
+}
 
 // RestartWorker tells if the Worker of the task starts again after err. title is the title of the issue of the task.
 //
@@ -66,13 +106,14 @@ func tail(text string, count int) string {
 }
 
 // handToHuman moves the task from working, queued or checks to needs_human, and the issue of the task from mobius:working
-// or mobius:review to mobius:needs-human. It gives false when the task is not working, queued or checks, for example after a decline.
+// or mobius:review to mobius:needs-human, with the pull request of the task. It gives false when the task is not working,
+// queued or checks, for example after a decline. It reads the task again, because task can be older than its pull request.
 func (e *Engine) handToHuman(ctx context.Context, task store.Task) (bool, error) {
 	moved := int64(0)
 	for _, from := range []string{"working", "queued", "checks"} {
 		if moved == 0 {
 			var err error
-			if moved, err = e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "needs_human", ID: task.ID, FromState: from}); err != nil {
+			if moved, err = e.handTaskToHuman(ctx, task.ID, from); err != nil {
 				return false, err
 			}
 		}
@@ -90,5 +131,31 @@ func (e *Engine) handToHuman(ctx context.Context, task store.Task) (bool, error)
 	if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
 		return false, err
 	}
-	return true, repository.AddLabel(ctx, task.Issue, needsHumanLabel)
+	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+	if err != nil {
+		return false, err
+	}
+	return true, addNeedsHuman(ctx, repository, current)
+}
+
+// addNeedsHuman adds mobius:needs-human to the issue of the task, and to its pull request when it has one.
+func addNeedsHuman(ctx context.Context, repository github.Repository, task store.Task) error {
+	if err := repository.AddLabel(ctx, task.Issue, needsHumanLabel); err != nil {
+		return err
+	}
+	if !task.PullRequest.Valid {
+		return nil
+	}
+	return repository.AddLabel(ctx, task.PullRequest.Int64, needsHumanLabel)
+}
+
+// removeNeedsHuman removes mobius:needs-human from the issue of the task, and from its pull request when it has one.
+func removeNeedsHuman(ctx context.Context, repository github.Repository, task store.Task) error {
+	if err := repository.RemoveLabel(ctx, task.Issue, needsHumanLabel); err != nil {
+		return err
+	}
+	if !task.PullRequest.Valid {
+		return nil
+	}
+	return repository.RemoveLabel(ctx, task.PullRequest.Int64, needsHumanLabel)
 }

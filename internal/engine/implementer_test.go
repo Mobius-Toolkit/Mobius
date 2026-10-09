@@ -1,18 +1,24 @@
 package engine_test
 
 import (
+	"database/sql"
 	"fmt"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -164,7 +170,7 @@ func TestTheImplementerCommitsAndMobiusOpensADraftPullRequest(t *testing.T) {
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	runs := approvalCheckRuns(t, server, fake)
-	if want := []testkit.PullRequest{{Number: 42, Title: "Add plan model", Body: "Closes #41", Head: "mobius/41", Base: "main", Draft: true}}; !reflect.DeepEqual(fake.PullRequests(shop), want) {
+	if want := []testkit.PullRequest{{Number: 42, Title: "Add plan model", Body: "Workstream:\n- #12\n\nIssue:\n- #41\n\nCloses #41", Head: "mobius/41", Base: "main", Draft: true}}; !reflect.DeepEqual(fake.PullRequests(shop), want) {
 		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
 	}
 	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: head(t, fake, "mobius/41"), Status: "in_progress"}}; !reflect.DeepEqual(runs, want) {
@@ -205,7 +211,7 @@ func TestTheImplementerCommitsAndMobiusOpensADraftPullRequest(t *testing.T) {
 func TestCannotDoGoesToTheLeadAndTheNextStartMergesABranchThatDiverged(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"comment on #41\"\n" + startImplementer + "\n[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"ok\"]\n\n" + leadStarts
-	server, dataDir := connectTask(t, fake, lead, "[[prompts]]\n"+cannotDoCall+commitCents, noChange)
+	server, dataDir := connectTask(t, fake, lead, "[[prompts]]\nwhen = \"Try again\"\nreply = [\"ok\"]\n\n[[prompts]]\n"+cannotDoCall, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForLeadPrompt(t, server, " cannot_do on #41 \"Add plan model\" by the Implementer:\n\n> The plan table does not exist.")
 	if session := endedImplementers(t, server, 1)[0]; session.EndReason.String != "cannot_do" {
@@ -215,18 +221,98 @@ func TestCannotDoGoesToTheLeadAndTheNextStartMergesABranchThatDiverged(t *testin
 		t.Errorf("state = %s", state)
 	}
 
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
+	if err := os.WriteFile(filepath.Join(worktree, "local.txt"), []byte("local\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, worktree, "add", "local.txt")
+	testkit.Git(t, worktree, "commit", "-q", "-m", "Add plan model")
 	fake.PushCommit(shop, "mobius/41", "Add the plan table")
 	fake.AddComment(shop, 41, "owner", "I added the table. Try again.")
 
-	if session := endedImplementers(t, server, 2)[1]; session.EndReason.String != "cannot_do" {
+	if session := endedImplementers(t, server, 2)[1]; session.EndReason.String != "done" {
 		t.Errorf("end reason = %s", session.EndReason.String)
 	}
-	log := testkit.Git(t, filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41"), "log", "--format=%s")
+	log := testkit.Git(t, worktree, "log", "--format=%s")
 	if !strings.Contains(log, "Add plan model") || !strings.Contains(log, "Add the plan table") {
 		t.Errorf("log = %s", log)
 	}
-	if len(fake.PullRequests(shop)) != 0 {
-		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
+	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
+}
+
+func TestAMergeWithConflictsStopsTheTaskWithNoRestartAndLeavesACleanWorktree(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"comment on #41\"\n" + startImplementer + "\n[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"ok\"]\n\n" + leadStarts
+	server, dataDir := connectTask(t, fake, lead, "[[prompts]]\nwhen = \"Try again\"\nreply = [\"ok\"]\n\n[[prompts]]\n"+cannotDoCall, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForLeadPrompt(t, server, " cannot_do on #41 \"Add plan model\" by the Implementer:")
+
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
+	if err := os.WriteFile(filepath.Join(worktree, "plan.txt"), []byte("rewritten\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, worktree, "add", "plan.txt")
+	testkit.Git(t, worktree, "commit", "-q", "-m", "Add plan model")
+	pushed := t.TempDir()
+	testkit.Git(t, pushed, "clone", "--branch=main", fake.Remote(shop), ".")
+	if err := os.WriteFile(filepath.Join(pushed, "plan.txt"), []byte("pushed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, pushed, "add", "plan.txt")
+	testkit.Git(t, pushed, "commit", "-q", "-m", "Add plan model")
+	testkit.Git(t, pushed, "push", "origin", "HEAD:refs/heads/mobius/41")
+	fake.AddComment(shop, 41, "owner", "Try again.")
+
+	prompt := waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the local branch diverged from origin/mobius/41, and the merge had conflicts. Mobius pushed nothing")
+	if !strings.Contains(prompt, "merge conflict in plan.txt") || !strings.Contains(prompt, "Resume gives the same conflict. First, in "+worktree+", merge origin/mobius/41 into the local branch") {
+		t.Errorf("prompt = %s", prompt)
+	}
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+	if !hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+	if status := testkit.Git(t, worktree, "status", "--porcelain"); status != "" {
+		t.Errorf("status = %s", status)
+	}
+	sessions := roleSessions(t, server, engine.ImplementerRole)
+	if len(sessions) != 2 || sessions[1].EndReason.String != "merge_conflict" {
+		t.Errorf("sessions = %+v", sessions)
+	}
+	if stops := strings.Count(strings.Join(leadPrompts(t, server), "\n"), " stop of #41 "); stops != 1 {
+		t.Errorf("stops = %d", stops)
+	}
+}
+
+func TestARewrittenPushedCommitStopsTheTaskBeforeThePushWithNoRestartAndLeavesACleanWorktree(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	commitAs := "git -c user.name=agent -c user.email=agent@example.com commit -q -m 'Add plan model'"
+	rewrites := fmt.Sprintf("[[prompts]]\nshell = '''echo rewritten > plan.txt && git add plan.txt && %s && other=$(mktemp -d) && git clone -q --branch=main '%s' \"$other\" && cd \"$other\" && echo pushed > plan.txt && git add plan.txt && %s && git push -q origin HEAD:refs/heads/mobius/41'''\n", commitAs, fake.Remote(shop), commitAs)
+	server, dataDir := connectTask(t, fake, leadStarts, rewrites, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
+
+	prompt := waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the local branch diverged from origin/mobius/41, and the merge had conflicts. Mobius pushed nothing")
+	if !strings.Contains(prompt, "merge conflict in plan.txt") || !strings.Contains(prompt, "Resume gives the same conflict. First, in "+worktree+", merge origin/mobius/41 into the local branch") {
+		t.Errorf("prompt = %s", prompt)
+	}
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+	if status := testkit.Git(t, worktree, "status", "--porcelain"); status != "" {
+		t.Errorf("status = %s", status)
+	}
+	sessions := roleSessions(t, server, engine.ImplementerRole)
+	if len(sessions) != 1 || sessions[0].EndReason.String != "merge_conflict" {
+		t.Errorf("sessions = %+v", sessions)
+	}
+	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 0 {
+		t.Errorf("pull requests = %+v", pullRequests)
 	}
 }
 
@@ -368,6 +454,9 @@ func TestAfterMaxCheckAttemptsMobiusPushesFailsTheCheckRunAndStopsTheTask(t *tes
 	}
 	if !hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:working") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+	if !pullRequestHasNeedsHuman(fake) {
+		t.Errorf("labels of the pull request = %v", fake.Labels(shop, pullRequestNumber))
 	}
 	if state := taskState(t, server); state != "needs_human" {
 		t.Errorf("state = %s", state)
@@ -654,5 +743,73 @@ func TestSendDetailsStopsTheTurnAndSendsTheDetailsInTheSameSession(t *testing.T)
 	}
 	if len(fake.PullRequests(shop)) != 1 {
 		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
+	}
+}
+
+func TestAFetchThatStallsFailsTheWorkerAndTheWorkerRestarts(t *testing.T) {
+	limit, seconds := runner.LowSpeedLimit, runner.LowSpeedTime
+	runner.LowSpeedLimit, runner.LowSpeedTime = 1000, 1
+	t.Cleanup(func() { runner.LowSpeedLimit, runner.LowSpeedTime = limit, seconds })
+	fake := testkit.NewFakeGitHub(t)
+	var database atomic.Pointer[sql.DB]
+	files := http.FileServer(http.Dir(fake.Remote(shop)))
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var started int
+		if db := database.Load(); db != nil {
+			if err := db.QueryRow("SELECT count(*) FROM tasks WHERE state IN ('queued', 'working')").Scan(&started); err != nil {
+				t.Error(err)
+			}
+		}
+		if started > 0 {
+			<-r.Context().Done()
+			return
+		}
+		files.ServeHTTP(w, r)
+	}))
+	t.Cleanup(remote.Close)
+	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 20 })
+	database.Store(server.DB)
+	fake.SetCloneURL(shop, remote.URL)
+	cmd := exec.Command("git", "update-server-info")
+	cmd.Dir = fake.Remote(shop)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("update-server-info: %v: %s", err, out)
+	}
+	waitForPolls(t, fake)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool {
+		var restarts int
+		if err := server.DB.QueryRow("SELECT coalesce(max(worker_restarts), 0) FROM tasks WHERE issue = 41").Scan(&restarts); err != nil {
+			t.Fatal(err)
+		}
+		return restarts > 0
+	})
+}
+
+func TestCannotDoIsRefusedWhenTheWorktreeHasWorkThatMobiusDidNotPush(t *testing.T) {
+	const refusal = "error: Your worktree has work that Mobius did not push. Commit your work and end the turn normally."
+	for name, shell := range map[string]string{
+		"an unpushed commit":    commitCents,
+		"an uncommitted change": "shell = \"echo cents > plan.txt\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\n"+shell+cannotDoCall, noChange)
+			fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+			ended := endedImplementers(t, server, 1)[0]
+
+			if ended.EndReason.String != "done" {
+				t.Errorf("end reason = %s", ended.EndReason.String)
+			}
+			if got := reply(t, server, ended.ID); !strings.Contains(got, refusal) {
+				t.Errorf("reply = %q", got)
+			}
+			if state := taskState(t, server); state == "dispatched" {
+				t.Errorf("state = %s", state)
+			}
+		})
 	}
 }

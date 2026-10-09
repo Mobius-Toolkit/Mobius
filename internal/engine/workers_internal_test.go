@@ -23,6 +23,7 @@ implementer = { harness = "devin",       model = "swe-1.5", effort = "high" }
 researcher  = { harness = "antigravity", model = "gemini-3-pro" }
 reviewer    = { harness = "claude-code", model = "opus",    effort = "high" }
 judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
+curator     = { harness = "claude-code", model = "sonnet",  effort = "medium" }
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +50,7 @@ func TestAFullRoleGivesItsCount(t *testing.T) {
 func TestAFullGlobalLimitCountsTheCountedRoles(t *testing.T) {
 	running := map[string]int{ImplementerRole: 2, ReviewerRole: 2}
 
-	if got := limitReason(limits(t), running, nil, JudgeRole); got != "no free agent slot (4/4)" {
+	if got := limitReason(limits(t), running, nil, CuratorRole); got != "no free agent slot (4/4)" {
 		t.Errorf("reason = %q", got)
 	}
 }

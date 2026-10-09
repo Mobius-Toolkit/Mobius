@@ -46,6 +46,7 @@ func TestEachRoleStartsOnTheHarnessModelAndEffortOfItsRoleBinding(t *testing.T) 
 		{engine.ResearcherRole, cfg.Roles.Researcher},
 		{engine.ReviewerRole, cfg.Roles.Reviewer},
 		{engine.JudgeRole, cfg.Roles.Judge},
+		{engine.CuratorRole, cfg.Roles.Curator},
 	} {
 		id := run(t, server, roleSpec(t, c.role), "Who runs this session?")
 

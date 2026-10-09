@@ -62,6 +62,7 @@ implementer = { harness = "devin",       model = "swe-1.5", effort = "high" }
 researcher  = { harness = "antigravity", model = "gemini-3-pro" }
 reviewer    = { harness = "claude-code", model = "opus",    effort = "high" }
 judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
+curator     = { harness = "antigravity", model = "gemini-3-pro" }
 `, Password, TrustedUser, dataDir))
 	if err != nil {
 		t.Fatal(err)

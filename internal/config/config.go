@@ -61,6 +61,7 @@ type Roles struct {
 	Researcher  RoleBinding `toml:"researcher"`
 	Reviewer    RoleBinding `toml:"reviewer"`
 	Judge       RoleBinding `toml:"judge"`
+	Curator     RoleBinding `toml:"curator"`
 }
 
 // RoleBinding is the Harness, the model and the limits of a Role.
@@ -117,7 +118,8 @@ func Parse(text []byte) (*Config, error) {
 				Implementer: RoleBinding{Max: 2, CountsInMaxAgents: true},
 				Researcher:  RoleBinding{Max: 2, CountsInMaxAgents: true},
 				Reviewer:    RoleBinding{Max: 2, CountsInMaxAgents: true},
-				Judge:       RoleBinding{Max: 2, CountsInMaxAgents: true},
+				Judge:       RoleBinding{Max: 2},
+				Curator:     RoleBinding{Max: 2, CountsInMaxAgents: true},
 			},
 		},
 		CheckTimeout:        "15m",
@@ -190,6 +192,7 @@ func (r *Roles) Bindings() []NamedBinding {
 		{"researcher", &r.Researcher},
 		{"reviewer", &r.Reviewer},
 		{"judge", &r.Judge},
+		{"curator", &r.Curator},
 	}
 }
 

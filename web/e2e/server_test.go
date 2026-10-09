@@ -132,19 +132,27 @@ const question = "What is the state of the plans? The full report is at " +
 // the second App, so the tests see the first App with no organization.
 //
 // After the first poll of both repositories, a dispatch of #45 gives an Inbox item, and the Owner writes to the
-// Lead chats of owner/shop#12 and plants/garden#12 and to the Triager chat of owner. Each chat session ends before
+// Lead chats of owner/shop#12 and plants/garden#12 and to the Triager chats of owner and plants. Each chat session ends before
 // the next step. Then an Implementer and a Lead run, a drain waits for them, and the drain holds a second
 // Implementer. The parent of the first Implementer is a Lead session that ended. Release v0.1.4 of Mobius is newer
-// than this server. The Inbox has an item of a usage limit of claude-code, with no Workstream and no issue. The
-// table of the pauses has no row, because a pause stops the fake agents. The tools of the Checkup page have fixed
-// paths and versions, and tar gives no version.
+// than this server. The Inbox has an item of a usage limit of antigravity, with no Workstream and no issue. The
+// table of the pauses has a row of antigravity for that item, with no timer. The Curator of a repository uses
+// antigravity too, so it waits for the pause. A Curator starts after 10 ended sessions of a repository. Fewer
+// sessions have ended when the screenshots test takes its screenshots, so no Curator session shows in them. The tools
+// of the Checkup page have fixed paths and versions, and tar gives no
+// version.
+//
+// The Workstream owner/shop#14 has Autopilot on and one task in ready_for_review.
 //
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
 // unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
 // Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, and
 // the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55. The
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
-// POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub.
+// The Workstream owner/shop#12 has two closed tasks and a task with a question of the Lead. It also has four Implementer sessions with the queue reasons of a
+// check that runs, a check that waits for a slot, a pause, and a full Role.
+// POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
+// /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -163,6 +171,7 @@ func TestServer(t *testing.T) {
 	}{
 		{"owner/shop", 12, "Integrate loyalty plans"},
 		{"owner/shop", 13, "Seasonal prices"},
+		{"owner/shop", 14, "Early renewals"},
 		{"plants/garden", 12, "Plant roses"},
 		{"plants/garden", 14, "Water the roses"},
 		{"plants/garden", 15, "Feed the roses"},
@@ -179,16 +188,24 @@ func TestServer(t *testing.T) {
 		github.AddIssue(workstream.repository, workstream.number, workstream.title)
 		github.AddLabel(workstream.repository, workstream.number, "mobius:workstream", "owner")
 	}
+	github.AddLabel("owner/shop", 14, "mobius:autopilot", "owner")
 	github.AddSubIssueOf("owner/shop", 12, 41, "Add plan model")
 	github.AddSubIssueOf("owner/shop", 12, 42, "Let customers change plans")
 	github.AddSubIssueOf("owner/shop", 12, 45, "Pick the plan limits")
+	github.AddSubIssueOf("owner/shop", 12, 30, "Name the plan tiers")
+	github.AddLabel("owner/shop", 30, "mobius:question", "owner")
 	github.AddSubIssueOf("owner/shop", 13, 43, "Add season table")
 	github.CloseIssue("owner/shop", 43)
+	github.AddSubIssueOf("owner/shop", 41, 36, "Rename the plan table")
+	github.AddSubIssueOf("owner/shop", 12, 37, "Remove the old plan page")
+	github.CloseIssue("owner/shop", 36)
+	github.CloseIssue("owner/shop", 37)
 	github.SetBody("owner/shop", 12, "Reward repeat customers.\n\n- Points on every order\n- One **free** plan for staff")
 	github.SetBody("owner/shop", 13, "Change the prices for each season.")
 	github.SetBody("owner/shop", 45, "Each plan has a limit of seats.")
 	github.SetBody("plants/garden", 18, "Cut the **old** canes in March.")
 	github.SetBody("plants/garden", 19, "Put **bark** on the beds.")
+	github.AddIssue("owner/shop", 40, "Renew a month early")
 	github.AddLabel("owner/shop", 41, "mobius:needs-human", "owner")
 	github.AddLabel("owner/shop", 42, "mobius:needs-human", "owner")
 	github.AddSubIssueOf("owner/shop", 12, 38, "Show the plan prices")
@@ -243,6 +260,12 @@ func TestServer(t *testing.T) {
 	server.Mux.HandleFunc("DELETE /e2e/repositories/{owner}/{name}", func(_ http.ResponseWriter, r *http.Request) {
 		github.RemoveRepository(r.PathValue("owner") + "/" + r.PathValue("name"))
 	})
+	server.Mux.HandleFunc("PUT /e2e/agents/{issue}/queue-reason", func(w http.ResponseWriter, r *http.Request) {
+		_, err := server.DB.Exec("UPDATE sessions SET queue_reason = ? WHERE issue = ? AND ended_at IS NULL", r.URL.Query().Get("reason"), r.PathValue("issue"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -276,7 +299,9 @@ func TestServer(t *testing.T) {
 	chat(ctx, t, server, engine.ChatKey{Organization: "plants", Repository: "plants/garden", Workstream: 12}, "Which roses sell best?", "Lead")
 	triager := engine.ChatKey{Organization: "owner"}
 	chat(ctx, t, server, triager, "Start a Workstream for gift cards.", "Triager")
-	// The plants chat keeps its unread reply for the organization switch.
+	// The Lead chat and the Triager chat of plants keep their unread replies for the organization switch and for the
+	// unread count of the Chat tab.
+	chat(ctx, t, server, engine.ChatKey{Organization: "plants"}, "Start a Workstream for gift cards.", "Triager")
 	for _, key := range []engine.ChatKey{shop, triager} {
 		view, err := server.Engine.ChatView(ctx, key)
 		if err != nil {
@@ -390,14 +415,17 @@ func TestServer(t *testing.T) {
 		}
 		return lines == 1
 	})
-	_, err = queries.AddInboxItem(ctx, store.AddInboxItemParams{
+	limit, err := queries.AddInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         "usage limit",
 		Organization: "owner",
 		Repository:   "owner/shop",
-		Text:         "claude-code reached a usage limit. Mobius sends the prompt again at 2026-09-28 12:00 UTC.",
+		Text:         "antigravity reached a usage limit. Mobius sends the prompt again at 2026-09-28 12:00 UTC.",
 		Time:         time.Now().UTC().Format(time.RFC3339Nano),
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queries.SetHarnessPause(ctx, store.SetHarnessPauseParams{Harness: "antigravity", PausedUntil: "2026-09-28T12:00:00Z", InboxItem: limit.ID}); err != nil {
 		t.Fatal(err)
 	}
 	for number, state := range map[int64]string{38: "checks", 39: "approval"} {
@@ -407,11 +435,51 @@ func TestServer(t *testing.T) {
 		}
 		github.AddLabel("owner/shop", number, "mobius:working", testkit.AppSlug+"[bot]")
 	}
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
+		VALUES ('owner/shop', 40, 14, 'ready_for_review', ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []struct{ author, reason, text string }{
+		{"curator", "Add: two Implementer sessions used npm and not pnpm", "Run make fmt before each commit.\nUse pnpm for the frontend.\n"},
+		{"curator", "Add: three fix rounds repeated the same wait with a fixed sleep in tests", "Run make fmt before each commit.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\n"},
+		{"owner", "", "Run make fmt before each commit and each push.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\nWrite each message in Simplified Technical English.\n"},
+	} {
+		if err := server.Engine.SaveMemory(ctx, "owner/shop", version.author, version.reason, version.text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, session := range []struct {
+		number  int64
+		harness string
+		reason  string
+	}{
+		{38, "claude-code", "runs .mobius/check"},
+		{39, "claude-code", "waits for a check slot"},
+		{45, "antigravity", "paused until 2026-09-28 12:00 UTC"},
+		{42, "claude-code", "no free Implementer slot (2/2)"},
+	} {
+		if _, err := server.DB.Exec(`INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, started_at, queue_reason)
+			VALUES (?, ?, 'sonnet', 'owner', 'owner/shop', 12, ?, ?, ?)`,
+			engine.ImplementerRole, session.harness, session.number, time.Now().UTC().Format(time.RFC3339Nano), session.reason); err != nil {
+			t.Fatal(err)
+		}
+	}
 	fixTimes(t, server)
 	go func() { _, _ = server.Engine.Drain(ctx) }()
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
 	held := implementerSpec(t, server, 42)
 	go func() { _, _ = server.Engine.Start(ctx, held) }()
+	testkit.WaitFor(t, func() bool {
+		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_reason = 'Mobius prepares an upgrade'", "2026-09-28T09:30:00Z")
+		if err != nil {
+			t.Fatal(err)
+		}
+		changed, err := result.RowsAffected()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return changed > 0
+	})
 	<-ctx.Done()
 	_ = srv.Close()
 }
@@ -452,7 +520,7 @@ func fixTools(t *testing.T, dataDir string) {
 	harnesses := filepath.Join(dataDir, "harnesses")
 	for program, output := range map[string]string{
 		"git":    "git version 2.50.1\n",
-		"curl":   "curl 8.14.1 (x86_64-pc-linux-gnu)\n",
+		"curl":   "curl 8.7.1 (x86_64-apple-darwin23.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.61.0\n",
 		"tar":    "",
 		"claude": "2.1.284 (Claude Code)\n",
 	} {
@@ -472,6 +540,7 @@ func fixTimes(t *testing.T, server *testserver.Server) {
 		"UPDATE transcript SET time = ?1",
 		"UPDATE chat_messages SET time = ?1",
 		"UPDATE inbox_items SET time = ?1",
+		"UPDATE memory_versions SET time = ?1",
 	} {
 		if _, err := server.DB.Exec(query, "2026-09-28T09:30:00Z"); err != nil {
 			t.Fatal(err)

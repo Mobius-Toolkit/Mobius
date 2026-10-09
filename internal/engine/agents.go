@@ -83,6 +83,17 @@ type Agent struct {
 	turn bool
 	// activity is the time of the last activity of the agent, or of the last prompt.
 	activity time.Time
+	// subagent tells that the current prompt started a background subagent.
+	subagent bool
+	// autonomous tells that a turn runs that no prompt of Mobius started.
+	autonomous bool
+	// autonomousEnd is the time of the end of an autonomous turn while a prompt runs, until the next work update.
+	// Otherwise it is zero.
+	autonomousEnd time.Time
+	// ended gets a value at each autonomousEnd.
+	ended chan struct{}
+	// stopRequested tells that a stop came while no turn ran. Prompt takes it before it sends its text.
+	stopRequested bool
 	// retries is the number of retry prompts that Prompt sent in the session.
 	retries int
 	// details are the new details from the Owner that the next prompt of the Implementer or the Researcher carries.
@@ -93,6 +104,11 @@ type Agent struct {
 	// chunk is the JSON of the last Transcript row while that row is a message chunk or a thought chunk, and chunkID is its id.
 	chunk   map[string]any
 	chunkID int64
+	// turnUsage is the usage data of the turn that runs, or of the last turn.
+	turnUsage turnUsage
+	// costTotal is the last cost total of the session. costBase is the cost total at the end of the last turn with a cost.
+	costTotal float64
+	costBase  float64
 	// resetHint is the last _claude/rateLimit.resetsAt of a usage update of the session, or zero.
 	resetHint time.Time
 	// author is the author of the chat messages that the reply text adds to the chat of the session, or "" when the
@@ -121,6 +137,9 @@ type Node struct {
 	Name string
 	// Title tells what the session works on, for example "chat session". It can be empty.
 	Title string
+	// Working is true while an open session works: a chat session has a turn that runs, and another session does not
+	// wait for a slot or a pause.
+	Working bool
 }
 
 // Change is a change for the live event stream: a new, changed or ended session, a new or changed Transcript line,
@@ -147,6 +166,8 @@ type Created struct {
 	Repository string
 	Number     int64
 }
+
+const checkRunsReason = "runs .mobius/check"
 
 func now() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
@@ -216,6 +237,7 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		Role:         spec.Role,
 		Harness:      string(binding.Harness),
 		Model:        binding.Model,
+		Effort:       sql.NullString{String: binding.Effort, Valid: binding.Effort != ""},
 		Organization: spec.Organization,
 		Repository:   spec.Repository,
 		Workstream:   spec.Workstream,
@@ -229,8 +251,8 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		}
 		return nil, err
 	}
-	e.publish(Change{Node: new(node(session))})
-	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1)}, nil
+	e.publish(Change{Node: new(e.node(session))})
+	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
 }
 
 // waitForSlot waits for a slot of the Role of a, and starts the session. A failed wait ends the session, like Start.
@@ -250,7 +272,7 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 	if err != nil {
 		return a.Fail(ended, err)
 	}
-	e.publish(Change{Node: new(node(started))})
+	e.publish(Change{Node: new(e.node(started))})
 	return nil
 }
 
@@ -342,19 +364,27 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		text += imagesNote(text, len(images))
 		images = nil
 	}
+	retrying := false
 	for {
-		row, err := compact(promptRow(text, images))
-		if err != nil {
-			return err
+		if !retrying {
+			err := a.waitQuiet(ctx)
+			if errors.Is(err, errStopped) {
+				a.takeStop()
+				return nil
+			}
+			if errors.Is(err, errCannotDone) {
+				return nil
+			}
+			if errors.Is(err, errHung) {
+				var retry string
+				retry, err = a.retryHang(ctx)
+				text = retry + "\n\n" + text
+			}
+			if err != nil {
+				return err
+			}
 		}
-		a.mu.Lock()
-		err = a.engine.addRow(ctx, a.id, "prompt", row, !a.prompted)
-		a.prompted = true
-		a.chunk = nil
-		a.message = 0
-		a.reply.Reset()
-		a.cannotDo = ""
-		a.mu.Unlock()
+		row, err := compact(promptRow(text, images))
 		if err != nil {
 			return err
 		}
@@ -363,7 +393,25 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 			return err
 		}
 		a.mu.Lock()
+		if a.stopRequested {
+			a.stopRequested = false
+			a.mu.Unlock()
+			return nil
+		}
+		err = a.engine.addRow(ctx, a.id, "prompt", row, !a.prompted)
+		a.prompted = true
+		a.chunk = nil
+		a.message = 0
+		a.reply.Reset()
+		a.cannotDo = ""
+		if err != nil {
+			a.mu.Unlock()
+			return err
+		}
 		a.turn = true
+		a.turnUsage = turnUsage{started: now()}
+		a.subagent = false
+		a.autonomousEnd = time.Time{}
 		a.activity = time.Now()
 		a.mu.Unlock()
 		resendCtx, stopResend := context.WithCancel(ctx)
@@ -375,21 +423,21 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		err = a.sendPrompt(ctx, text, images)
 		stopResend()
 		<-resent
-		a.mu.Lock()
-		a.turn = false
-		a.mu.Unlock()
+		// While a retry runs, turn stays true, so a late update of the hung turn is no autonomous turn.
+		retrying = errors.Is(err, errHung) && a.retries < maxRetries
+		if !retrying {
+			a.mu.Lock()
+			a.turn = false
+			a.mu.Unlock()
+		}
 		if err == nil {
 			return a.engine.endPauseSince(ctx, paused)
 		}
 		if errors.Is(err, errHung) {
-			if a.retries == maxRetries {
-				return errors.Join(err, a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s after %d retries. Mobius stops the session.", hangTimeout, maxRetries)))
-			}
-			a.retries++
-			if err := a.addNote(ctx, fmt.Sprintf("The agent had no activity for %s. Mobius stopped the turn and sends retry %d of %d.", hangTimeout, a.retries, maxRetries)); err != nil {
+			if text, err = a.retryHang(ctx); err != nil {
 				return err
 			}
-			text, images = retryText(a.spec.Role), nil
+			images = nil
 			continue
 		}
 		limited, waitErr := a.waitOutLimit(ctx, err)
@@ -400,6 +448,26 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 			return err
 		}
 	}
+}
+
+// stop asks the agent to end the turn that runs. While no turn runs, stop only sets stopRequested, so Prompt sends
+// no prompt and no cancel reaches an autonomous turn.
+func (a *Agent) stop(ctx context.Context) error {
+	a.mu.Lock()
+	if !a.turn {
+		a.stopRequested = true
+		a.mu.Unlock()
+		return nil
+	}
+	a.mu.Unlock()
+	return a.cancel(ctx)
+}
+
+// takeStop clears stopRequested.
+func (a *Agent) takeStop() {
+	a.mu.Lock()
+	a.stopRequested = false
+	a.mu.Unlock()
 }
 
 // cancel asks the agent to end the turn that runs.
@@ -446,6 +514,9 @@ func (a *Agent) setAuthor(author string) {
 func (a *Agent) End(ctx context.Context, reason string) error {
 	a.closeHarness()
 	defer a.release()
+	if err := a.addAutonomousUsage(context.WithoutCancel(ctx)); err != nil {
+		log.Printf("add the usage of the session %d: %v", a.id, err)
+	}
 	if a.scratch != "" {
 		if err := os.RemoveAll(a.scratch); err != nil {
 			return err
@@ -455,7 +526,12 @@ func (a *Agent) End(ctx context.Context, reason string) error {
 	if err != nil {
 		return err
 	}
-	a.engine.publish(Change{Node: new(node(session))})
+	a.engine.publish(Change{Node: new(a.engine.node(session))})
+	if spec := a.spec; spec.Role != CuratorRole && spec.Repository != "" {
+		if err := a.engine.startCuratorAfterEnds(ctx, spec.Repository); err != nil {
+			log.Printf("start a Curator of %s: %v", spec.Repository, err)
+		}
+	}
 	return nil
 }
 
@@ -509,13 +585,13 @@ func (a *Agent) record(params json.RawMessage) error {
 	ctx := context.Background()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	switch kind {
-	case "agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update", "plan":
-		a.activity = time.Now()
-	}
+	a.track(notification, kind)
+	a.readUsage(notification, kind)
 	// The unit of resetsAt is Unix seconds.
-	if resetsAt, ok := field(notification, "update", "_meta", "_claude/rateLimit", "resetsAt").(float64); ok {
-		a.resetHint = time.Unix(int64(resetsAt), 0)
+	if resetsAt, ok := field(notification, "update", "_meta", "_claude/rateLimit", "resetsAt").(json.Number); ok {
+		if seconds, err := resetsAt.Int64(); err == nil {
+			a.resetHint = time.Unix(seconds, 0)
+		}
 	}
 	if isChunk && a.chunk != nil && stringField(a.chunk, "update", "sessionUpdate") == kind {
 		update := a.chunk["update"].(map[string]any)
@@ -597,16 +673,34 @@ func (e *Engine) publishRow(row store.Transcript, folded bool) error {
 	return nil
 }
 
-func node(session store.Session) Node {
+func (e *Engine) node(session store.Session) Node {
+	var n Node
 	switch {
 	case session.Role == LeadRole:
-		return Node{Session: session, Name: "Lead", Title: "chat session"}
+		n = Node{Session: session, Name: "Lead", Title: "chat session"}
 	case session.Role == TriagerRole && session.Repository == "":
-		return Node{Session: session, Name: "Triager", Title: "chat session"}
+		n = Node{Session: session, Name: "Triager", Title: "chat session"}
 	case session.Role == TriagerRole:
-		return Node{Session: session, Name: "Triager", Title: session.Repository}
+		n = Node{Session: session, Name: "Triager", Title: session.Repository}
+	default:
+		n = Node{Session: session, Name: session.Role}
 	}
-	return Node{Session: session, Name: session.Role}
+	n.Working = e.working(n)
+	return n
+}
+
+func (e *Engine) working(n Node) bool {
+	session := n.Session
+	switch {
+	case session.EndedAt.Valid:
+		return false
+	case n.Title == "chat session":
+		e.chatsMu.Lock()
+		defer e.chatsMu.Unlock()
+		c, ok := e.chats[ChatKey{session.Organization, session.Repository, session.Workstream}]
+		return ok && c.writing && session.QueueReason.String == ""
+	}
+	return session.QueueReason.String == "" || session.QueueReason.String == checkRunsReason
 }
 
 // Tree gives the sessions of the Workstream of repository, the oldest first.
@@ -618,7 +712,7 @@ func (e *Engine) Tree(ctx context.Context, repository string, workstream int64) 
 	}
 	nodes := make([]Node, 0, len(sessions))
 	for _, session := range sessions {
-		nodes = append(nodes, node(session))
+		nodes = append(nodes, e.node(session))
 	}
 	return nodes, nil
 }
@@ -641,7 +735,7 @@ type AgentGroup struct {
 }
 
 // ActiveAgents is the open sessions of all organizations in one group for each Role, in the order Lead, Triager,
-// Implementer, Researcher, Reviewer, Judge. Count is the number of sessions that hold a slot and count in max_agents.
+// Implementer, Researcher, Reviewer, Judge, Curator. Count is the number of sessions that hold a slot and count in max_agents.
 type ActiveAgents struct {
 	Count  int
 	Max    int
@@ -664,7 +758,7 @@ func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 		if _, ok := roleBinding(e.config, role); !ok {
 			continue
 		}
-		agents[role] = append(agents[role], ActiveAgent{node(row.Session), row.WorkstreamTitle, row.IssueTitle, row.PullRequest})
+		agents[role] = append(agents[role], ActiveAgent{e.node(row.Session), row.WorkstreamTitle, row.IssueTitle, row.PullRequest})
 	}
 	active := ActiveAgents{Max: e.config.MaxAgents}
 	for _, g := range groups {
@@ -704,5 +798,31 @@ func (e *Engine) publish(change Change) {
 			delete(e.listeners, listener)
 			close(listener)
 		}
+	}
+}
+
+// setTaskState moves the task like SetTaskState. It publishes a Workstream change when the task enters or leaves
+// ready_for_review, because the Workstream list shows a pull request that waits for the merge.
+func (e *Engine) setTaskState(ctx context.Context, params store.SetTaskStateParams) (int64, error) {
+	moved, err := e.queries.SetTaskState(ctx, params)
+	if err == nil && moved > 0 {
+		e.publishReadyForReview(params.FromState, params.State)
+	}
+	return moved, err
+}
+
+// handTaskToHuman moves the task to needs_human like HandTaskToHuman, and stores the time of the move. Only a hand-off to
+// a human calls it. A return of the Judge to needs_human uses setTaskState.
+func (e *Engine) handTaskToHuman(ctx context.Context, id int64, from string) (int64, error) {
+	moved, err := e.queries.HandTaskToHuman(ctx, store.HandTaskToHumanParams{ID: id, FromState: from})
+	if err == nil && moved > 0 {
+		e.publishReadyForReview(from, "needs_human")
+	}
+	return moved, err
+}
+
+func (e *Engine) publishReadyForReview(from, to string) {
+	if from == "ready_for_review" || to == "ready_for_review" {
+		e.publish(Change{Workstreams: true})
 	}
 }

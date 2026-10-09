@@ -26,6 +26,8 @@ type Workstream struct {
 	Autopilot bool `gork:"autopilot"`
 	// AllTasksClosed is true when the Workstream issue has sub-issues and each one is closed
 	AllTasksClosed bool `gork:"allTasksClosed"`
+	// ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it
+	ReadyToMerge bool `gork:"readyToMerge"`
 }
 
 // ListWorkstreamsResponse is the response of ListWorkstreams.
@@ -49,6 +51,7 @@ func (h *handlers) ListWorkstreams(ctx context.Context, _ ListWorkstreamsRequest
 			Brief:          row.Body,
 			Autopilot:      row.Autopilot,
 			AllTasksClosed: row.AllTasksClosed,
+			ReadyToMerge:   row.ReadyToMerge,
 		})
 	}
 	return &ListWorkstreamsResponse{Body: Envelope[[]Workstream]{Data: workstreams}}, nil

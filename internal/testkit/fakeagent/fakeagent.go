@@ -7,6 +7,8 @@
 //	image_support = true    # the agent declares that it reads the images of a prompt
 //	skip_tools_list = 1     # the first 1 agent processes of the script do not list the tools after session/new;
 //	                        # the file "starts" next to the script counts the processes
+//	hang_start = 1          # the first 1 agent processes of the script never answer initialize;
+//	                        # the file "hung_starts" next to the script counts the processes
 //
 //	[options]               # one select option for each id, in id order; the first value is current
 //	model = ["sonnet", "opus"]
@@ -20,9 +22,20 @@
 //	                        # calls the tool of the Mobius MCP server; the reply gets the text of the result,
 //	                        # after "error: " for an error result; {shell} becomes the trimmed stdout of shell
 //	list_tools = true       # the reply gets the JSON of the tool list of the Mobius MCP server
+//	usage = '{"inputTokens": 10, "outputTokens": 2}'  # the usage field of the response
+//	meta = '{"quota": {}}'  # the _meta field of the response
 //	error = { code = -32000, message = "Usage limit", data = "..." }  # the turn ends with this error
 //	hang = true             # the turn ends only at session/cancel
 //	busy = "300ms"          # before the reply, the agent sends a tool_call_update every 10 ms for this long
+//	later = { after = "100ms", updates = ['{"sessionUpdate": "plan", "entries": []}'] }
+//	                        # after the response, the agent waits for after and then sends the updates, as Claude Code
+//	                        # does for a turn that it starts alone
+//	later = { after = "100ms", call = { tool = "cannot_do", arguments = { reason = "No." } } }
+//	                        # with call, the agent calls the tool of the Mobius MCP server before it sends the updates
+//	later = { updates = ['{"sessionUpdate": "plan", "entries": []}'], absorb = true }
+//	                        # with absorb, the agent sends the updates when the next session/prompt arrives, and that
+//	                        # prompt gets no response before session/cancel, which ends it as cancelled, as Claude
+//	                        # Code does when it takes a prompt into a turn that it started alone
 //
 // The reply has the texts of reply, then one text "image <MIME type> <base64 data>" for each image block of the
 // prompt, then the text of call or list_tools, then the text of shell.
@@ -61,6 +74,7 @@ type script struct {
 	LoginWorks    bool                `toml:"login_works"`
 	ImageSupport  bool                `toml:"image_support"`
 	SkipToolsList int                 `toml:"skip_tools_list"`
+	HangStart     int                 `toml:"hang_start"`
 	Options       map[string][]string `toml:"options"`
 	Prompts       []prompt            `toml:"prompts"`
 }
@@ -75,6 +89,22 @@ type prompt struct {
 	Call      *call        `toml:"call"`
 	Shell     string       `toml:"shell"`
 	Error     *scriptError `toml:"error"`
+	Usage     string       `toml:"usage"`
+	Meta      string       `toml:"meta"`
+	Later     *later       `toml:"later"`
+}
+
+type promptResult struct {
+	StopReason acp.StopReason  `json:"stopReason"`
+	Usage      json.RawMessage `json:"usage,omitempty"`
+	Meta       json.RawMessage `json:"_meta,omitempty"`
+}
+
+type later struct {
+	After   string   `toml:"after"`
+	Updates []string `toml:"updates"`
+	Absorb  bool     `toml:"absorb"`
+	Call    *call    `toml:"call"`
 }
 
 type call struct {
@@ -113,6 +143,8 @@ type agent struct {
 	mcpURL      string
 	// cancel closes at a session/cancel. It is nil when no turn runs.
 	cancel chan struct{}
+	// absorbed is the later with absorb that waits for the next session/prompt, or nil.
+	absorbed *later
 }
 
 // Run is the main function of the fake agent program, with the script at path.
@@ -166,6 +198,14 @@ func Serve(path string, r io.Reader, w io.Writer) error {
 func (a *agent) handle(ctx context.Context, method string, params json.RawMessage) (any, *acp.RequestError) {
 	switch method {
 	case acp.AgentMethodInitialize:
+		hang, err := a.within("hung_starts", a.script.HangStart)
+		if err != nil {
+			return nil, acp.NewInternalError(err.Error())
+		}
+		if hang {
+			<-ctx.Done()
+			return nil, acp.NewInternalError("the start ended")
+		}
 		var request acp.InitializeRequest
 		if err := json.Unmarshal(params, &request); err != nil {
 			return nil, acp.NewInvalidParams(err.Error())
@@ -235,7 +275,7 @@ func (a *agent) newSession(params json.RawMessage) (any, *acp.RequestError) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), "mcp_url"), []byte(a.mcpURL), 0o600); err != nil {
 		return nil, acp.NewInternalError(err.Error())
 	}
-	skip, err := a.skipToolsList()
+	skip, err := a.within("starts", a.script.SkipToolsList)
 	if err != nil {
 		return nil, acp.NewInternalError(err.Error())
 	}
@@ -245,20 +285,20 @@ func (a *agent) newSession(params json.RawMessage) (any, *acp.RequestError) {
 	return map[string]any{"sessionId": "fake-session", "configOptions": a.options}, nil
 }
 
-// skipToolsList counts this agent process in the file "starts" next to the script, and tells if the process is one
-// of the first skip_tools_list processes.
-func (a *agent) skipToolsList() (bool, error) {
-	if a.script.SkipToolsList == 0 {
+// within counts this agent process in the file name next to the script, and tells if the process is one of the
+// first limit processes.
+func (a *agent) within(name string, limit int) (bool, error) {
+	if limit == 0 {
 		return false, nil
 	}
-	path := filepath.Join(filepath.Dir(a.path), "starts")
+	path := filepath.Join(filepath.Dir(a.path), name)
 	text, err := os.ReadFile(filepath.Clean(path))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, err
 	}
 	starts, _ := strconv.Atoi(string(text))
 	starts++
-	return starts <= a.script.SkipToolsList, os.WriteFile(path, []byte(strconv.Itoa(starts)), 0o600)
+	return starts <= limit, os.WriteFile(path, []byte(strconv.Itoa(starts)), 0o600)
 }
 
 // listTools lists the tools of the MCP server at url. As in Claude Code, a failed list only leaves the session with no tools.
@@ -350,6 +390,19 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 			images = append(images, "image "+block.MIMEType+" "+block.Data)
 		}
 	}
+	if cancel, absorbed := a.absorb(); absorbed != nil {
+		for _, update := range absorbed.Updates {
+			if err := a.send(ctx, request.SessionID, json.RawMessage(update)); err != nil {
+				return nil, acp.NewInternalError(err.Error())
+			}
+		}
+		select {
+		case <-cancel:
+			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
+		case <-ctx.Done():
+			return nil, acp.NewRequestCancelled(nil)
+		}
+	}
 	turn, mcpURL, cancel := a.next(text.String())
 	turn.Reply = append(slices.Clone(turn.Reply), images...)
 	stopReason, err := a.play(ctx, request.SessionID, turn, mcpURL, cancel)
@@ -361,7 +414,61 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 	if err != nil {
 		return nil, err
 	}
-	return acp.PromptResponse{StopReason: stopReason}, nil
+	if turn.Later != nil {
+		if err := a.startLater(request.SessionID, mcpURL, *turn.Later); err != nil {
+			return nil, acp.NewInternalError(err.Error())
+		}
+	}
+	result := promptResult{StopReason: stopReason}
+	if turn.Usage != "" {
+		result.Usage = json.RawMessage(turn.Usage)
+	}
+	if turn.Meta != "" {
+		result.Meta = json.RawMessage(turn.Meta)
+	}
+	return result, nil
+}
+
+// absorb gives the channel that closes at a session/cancel, and the later with absorb that waited for this prompt, or nil.
+func (a *agent) absorb() (chan struct{}, *later) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	absorbed := a.absorbed
+	if absorbed == nil {
+		return nil, nil
+	}
+	a.absorbed = nil
+	a.cancel = make(chan struct{})
+	return a.cancel, absorbed
+}
+
+// startLater sends the updates of l in the background after the response of the prompt, or holds a later with
+// absorb for the next prompt.
+func (a *agent) startLater(sessionID, mcpURL string, l later) error {
+	if l.Absorb {
+		a.mu.Lock()
+		a.absorbed = &l
+		a.mu.Unlock()
+		return nil
+	}
+	after, err := time.ParseDuration(l.After)
+	if err != nil {
+		return err
+	}
+	go func() {
+		time.Sleep(after)
+		if l.Call != nil {
+			if _, err := mobiusReply(context.Background(), mcpURL, prompt{Call: l.Call}, ""); err != nil {
+				return
+			}
+		}
+		for _, update := range l.Updates {
+			if err := a.send(context.Background(), sessionID, json.RawMessage(update)); err != nil {
+				break
+			}
+		}
+	}()
+	return nil
 }
 
 func (a *agent) play(ctx context.Context, sessionID string, turn prompt, mcpURL string, cancel chan struct{}) (acp.StopReason, *acp.RequestError) {

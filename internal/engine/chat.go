@@ -48,6 +48,7 @@ const (
 	leadAuthor       = "Lead"
 	tellOwnerAuthor  = "tell_owner"
 	researcherAuthor = "Researcher"
+	curatorAuthor    = "Curator"
 	triagerAuthor    = "Triager"
 	mobiusAuthor     = "Mobius"
 	eventAuthor      = "Event"
@@ -155,7 +156,7 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 			return message, errors.Join(err, e.queries.DeleteChatMessage(ctx, message.ID))
 		}
 	}
-	if author == researcherAuthor {
+	if author == researcherAuthor || author == curatorAuthor {
 		return message, nil
 	}
 	e.publish(Change{Message: &message})
@@ -217,9 +218,11 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, text string,
 func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	e.chatsMu.Lock()
 	c, ok := e.chats[key]
+	var agent *Agent
 	if ok {
 		c.queue = append(c.queue, items...)
 		c.writing = true
+		agent = c.agent
 		c.notify()
 		if tracked {
 			e.untrack()
@@ -233,11 +236,37 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	}
 	e.chatsMu.Unlock()
 	e.publish(Change{Chat: &ChatState{Key: key, Writing: true}})
+	e.publishSession(agent)
+}
+
+// publishSession sends the session of agent, so the clients read its working state again. It does nothing for nil.
+func (e *Engine) publishSession(agent *Agent) {
+	if agent == nil {
+		return
+	}
+	session, err := e.queries.GetSession(context.Background(), agent.id)
+	if err != nil {
+		log.Printf("read the chat session %d: %v", agent.id, err)
+		return
+	}
+	e.publish(Change{Node: new(e.node(session))})
 }
 
 // addLeadEvent adds an event of kind about the issue for the Lead of the Workstream, with its entry in the chat, and
 // gives the ready events to the Lead.
 func (e *Engine) addLeadEvent(ctx context.Context, repository string, workstream int64, issue sql.NullInt64, kind, text string) error {
+	return e.addCommentLeadEvent(ctx, repository, workstream, issue, kind, text, commentRef{})
+}
+
+// commentRef names a conversation comment or a review comment. The zero value names no comment.
+type commentRef struct {
+	id     int64
+	review bool
+}
+
+// addCommentLeadEvent adds an event like addLeadEvent. The event keeps comment, so the turn of the event can add its
+// reaction to the comment.
+func (e *Engine) addCommentLeadEvent(ctx context.Context, repository string, workstream int64, issue sql.NullInt64, kind, text string, comment commentRef) error {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
 	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text, "")
@@ -252,6 +281,8 @@ func (e *Engine) addLeadEvent(ctx context.Context, repository string, workstream
 		Payload:     text,
 		Time:        now(),
 		ChatMessage: sql.NullInt64{Int64: message.ID, Valid: true},
+		Comment:     sql.NullInt64{Int64: comment.id, Valid: comment.id != 0},
+		Review:      sql.NullBool{Bool: comment.review, Valid: comment.id != 0},
 	})
 	if err != nil {
 		return err
@@ -322,7 +353,7 @@ func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 		c.stopWait()
 		return nil
 	case c.stoppable:
-		return c.agent.cancel(ctx)
+		return c.agent.stop(ctx)
 	}
 	return nil
 }
@@ -539,7 +570,7 @@ func (e *Engine) finishChat(c *chat, failure string) {
 func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 	if failed.message != nil {
 		message := failed.message
-		_, err := e.addInboxItem(ctx, store.AddInboxItemParams{
+		err := e.addInboxItem(ctx, store.AddInboxItemParams{
 			Kind:         leadFailedKind,
 			Organization: message.Organization,
 			Repository:   message.Repository,
@@ -556,7 +587,7 @@ func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 	}
 	for _, event := range events {
 		organization, _, _ := strings.Cut(repository, "/")
-		_, err := e.addInboxItem(ctx, store.AddInboxItemParams{
+		err := e.addInboxItem(ctx, store.AddInboxItemParams{
 			Kind:         leadFailedKind,
 			Organization: organization,
 			Repository:   repository,
@@ -619,6 +650,7 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 			continue
 		}
 		if c.key.Workstream != 0 {
+			a.setAuthor("")
 			if err := e.turn(c, a, savePrompt, nil, true); err != nil {
 				return err
 			}
@@ -638,14 +670,18 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 // next takes the next queued item. With no item, the chat is not writing.
 func (e *Engine) next(c *chat) (item, bool) {
 	e.chatsMu.Lock()
-	defer e.chatsMu.Unlock()
 	if len(c.queue) == 0 {
-		if c.writing {
-			c.writing = false
+		stopped := c.writing
+		c.writing = false
+		agent := c.agent
+		e.chatsMu.Unlock()
+		if stopped {
 			e.publish(Change{Chat: &ChatState{Key: c.key}})
+			e.publishSession(agent)
 		}
 		return item{}, false
 	}
+	defer e.chatsMu.Unlock()
 	next := c.queue[0]
 	c.queue = c.queue[1:]
 	return next, true
@@ -697,6 +733,9 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images
 		}
 	}
 	a.setAuthor(author)
+	if current.event != nil && current.event.Comment.Valid {
+		e.launchEventComment(c.ctx, current.event)
+	}
 	if err := e.turn(c, a, prompt, images, current.message != nil); err != nil {
 		return err
 	}
@@ -711,6 +750,7 @@ func (e *Engine) turn(c *chat, a *Agent, prompt string, images []Image, stoppabl
 	defer func() {
 		e.chatsMu.Lock()
 		c.stoppable = false
+		a.takeStop()
 		e.chatsMu.Unlock()
 	}()
 	return a.Prompt(c.ctx, prompt, images)
@@ -787,7 +827,7 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repo
 		return "", err
 	}
 	c.agent.setAuthor("")
-	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
+	err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         leadKind,
 		Organization: c.organization,
 		Repository:   c.repository,

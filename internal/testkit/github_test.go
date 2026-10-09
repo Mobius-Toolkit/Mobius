@@ -413,6 +413,44 @@ func TestACreatedIssueGetsTheNextNumberAndHasSubIssuesAndComments(t *testing.T) 
 	}
 }
 
+func TestTheCommentListOfARepositoryFiltersSortsAndPages(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+	github.AddIssue("owner/shop", 41, "Add plan model")
+	github.AddIssue("owner/other", 7, "Other")
+	first := github.AddComment("owner/shop", 12, "owner", "One.")
+	github.AddComment("owner/shop", 41, "owner", "Two.")
+	github.AddComment("owner/other", 7, "owner", "Three.")
+	last := github.AddCommentInLastSecond("owner/shop", 41, "owner", "Four.")
+	github.EditComment("owner/shop", first, "One, edited.")
+	token := installationToken(t, github)
+	list := github.URL + "/repos/owner/shop/issues/comments"
+	ids := func(query string) []int64 {
+		var comments []commentJSON
+		send(t, http.MethodGet, list+query, token, "", &comments)
+		var ids []int64
+		for _, comment := range comments {
+			ids = append(ids, comment.ID)
+		}
+		return ids
+	}
+
+	created := ids("")
+	updated := ids("?sort=updated&direction=desc")
+	since := ids("?sort=updated&since=" + timestamp(github.Now().Unix()))
+	paged := ids("?per_page=1&page=2")
+
+	if !reflect.DeepEqual(created, []int64{first, first + 1, last}) || !reflect.DeepEqual(updated, []int64{first, last, first + 1}) ||
+		!reflect.DeepEqual(since, []int64{first}) || !reflect.DeepEqual(paged, []int64{first + 1}) {
+		t.Errorf("created = %v, updated = %v, since = %v, paged = %v", created, updated, since, paged)
+	}
+	var comments []commentJSON
+	send(t, http.MethodGet, list, token, "", &comments)
+	if comments[0].IssueURL != "https://api.github.com/repos/owner/shop/issues/12" {
+		t.Errorf("comment = %+v", comments[0])
+	}
+}
+
 func TestRepositoryLabelsCompareTheNameWithNoRegardToCase(t *testing.T) {
 	github := NewFakeGitHub(t)
 	github.AddRepositoryLabel("owner/shop", "mobius:working", "ededed", "Custom description")
@@ -552,5 +590,79 @@ func TestTheLatestReleaseOfMobiusNeedsNoToken(t *testing.T) {
 	want := releaseJSON{TagName: "v0.3.0", Assets: []assetJSON{{"mobius-x86_64-unknown-linux-gnu.tar.gz"}}}
 	if got.StatusCode != http.StatusOK || !reflect.DeepEqual(release, want) {
 		t.Errorf("release = %d %+v", got.StatusCode, release)
+	}
+}
+
+func TestAMergeAddsOneSquashCommitToTheBaseAndRefusesAWrongHeadAndAClosedPullRequest(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddRepository("owner/shop")
+	github.PushCommit("owner/shop", "feature", "Add plans")
+	number := github.OpenPullRequest("owner/shop", "Add plans", "feature")
+	remote := github.Remote("owner/shop")
+	head := Git(t, remote, "rev-parse", "feature")
+	installation := installationToken(t, github)
+	merge := fmt.Sprintf("%s/repos/owner/shop/pulls/%d/merge", github.URL, number)
+
+	if response := send(t, http.MethodPut, merge, installation, `{"merge_method": "squash", "sha": "0000000000000000000000000000000000000000"}`, nil); response.StatusCode != http.StatusConflict {
+		t.Errorf("status = %d", response.StatusCode)
+	}
+	if response := send(t, http.MethodPut, merge, installation, fmt.Sprintf(`{"merge_method": "squash", "sha": %q}`, head), nil); response.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", response.StatusCode)
+	}
+	if got, want := Git(t, remote, "rev-parse", "main^{tree}"), Git(t, remote, "rev-parse", head+"^{tree}"); got != want {
+		t.Errorf("tree of main = %s, want %s", got, want)
+	}
+	if got := Git(t, remote, "log", "--format=%s", "main"); got != "Add plans\nStart" {
+		t.Errorf("log = %q", got)
+	}
+	if response := send(t, http.MethodPut, merge, installation, fmt.Sprintf(`{"merge_method": "squash", "sha": %q}`, head), nil); response.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("status = %d", response.StatusCode)
+	}
+	if got := github.MergeCalls(); got != 3 {
+		t.Errorf("merge calls = %d", got)
+	}
+}
+
+func TestAReactionGoesToAConversationCommentOrAReviewCommentOnceForEachContent(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+	github.AddIssue("owner/shop", 42, "Add plan model")
+	conversation := github.AddComment("owner/shop", 12, "owner", "Start with the model.")
+	review := github.AddReviewComment("owner/shop", 42, 0, "owner", "Rename plan to tier.")
+	token := installationToken(t, github)
+	base := github.URL + "/repos/owner/shop"
+
+	first := send(t, http.MethodPost, fmt.Sprintf("%s/issues/comments/%d/reactions", base, conversation), token, `{"content": "eyes"}`, nil)
+	second := send(t, http.MethodPost, fmt.Sprintf("%s/issues/comments/%d/reactions", base, conversation), token, `{"content": "eyes"}`, nil)
+	send(t, http.MethodPost, fmt.Sprintf("%s/pulls/comments/%d/reactions", base, review), token, `{"content": "confused"}`, nil)
+	wrongKind := send(t, http.MethodPost, fmt.Sprintf("%s/pulls/comments/%d/reactions", base, conversation), token, `{"content": "eyes"}`, nil)
+
+	if first.StatusCode != http.StatusCreated || second.StatusCode != http.StatusOK || wrongKind.StatusCode != http.StatusNotFound {
+		t.Errorf("statuses = %d, %d, %d", first.StatusCode, second.StatusCode, wrongKind.StatusCode)
+	}
+	if got := github.Reactions("owner/shop", conversation); !reflect.DeepEqual(got, []Reaction{{"mobius-test[bot]", "eyes"}}) {
+		t.Errorf("reactions = %+v", got)
+	}
+	if got := github.Reactions("owner/shop", review); !reflect.DeepEqual(got, []Reaction{{"mobius-test[bot]", "confused"}}) {
+		t.Errorf("reactions = %+v", got)
+	}
+}
+
+func TestAFailedReactionContentGivesAServerErrorAndAddsNothing(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+	comment := github.AddComment("owner/shop", 12, "owner", "Start with the model.")
+	token := installationToken(t, github)
+	url := fmt.Sprintf("%s/repos/owner/shop/issues/comments/%d/reactions", github.URL, comment)
+	github.FailReactions("rocket", true)
+
+	failed := send(t, http.MethodPost, url, token, `{"content": "rocket"}`, nil)
+	other := send(t, http.MethodPost, url, token, `{"content": "eyes"}`, nil)
+
+	if failed.StatusCode != http.StatusInternalServerError || other.StatusCode != http.StatusCreated {
+		t.Errorf("statuses = %d, %d", failed.StatusCode, other.StatusCode)
+	}
+	if got := github.Reactions("owner/shop", comment); !reflect.DeepEqual(got, []Reaction{{"mobius-test[bot]", "eyes"}}) {
+		t.Errorf("reactions = %+v", got)
 	}
 }

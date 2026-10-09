@@ -194,7 +194,7 @@ func TestTheCheckupShowsTheStatusOfEachAppPermissionWithThePageThatFixesIt(t *te
 		"checks":        "write",
 		"metadata":      "read",
 		"workflows":     "write",
-		"actions":       "read",
+		"actions":       "write",
 	}
 	github.SetAppPermissions(testkit.AppID, permissions)
 	want = permissionCheck{"workflows", "write", "not-accepted", github.URL + "/organizations/owner/settings/installations/1"}
@@ -220,11 +220,11 @@ func TestTheCheckupShowsTheStatusOfEachAppPermissionWithThePageThatFixesIt(t *te
 	}
 }
 
-func TestTheCheckupShowsTheMissingActionsReadPermission(t *testing.T) {
+func TestTheCheckupShowsTheMissingActionsWritePermission(t *testing.T) {
 	github := testkit.NewFakeGitHub(t)
 	server := startWithApp(t, github, "Organization")
 
-	want := permissionCheck{"actions", "read", "missing", github.URL + "/organizations/owner/settings/apps/" + testkit.AppSlug + "/permissions"}
+	want := permissionCheck{"actions", "write", "missing", github.URL + "/organizations/owner/settings/apps/" + testkit.AppSlug + "/permissions"}
 	if got := permissionStatus(t, server, "actions"); got != want {
 		t.Errorf("actions = %+v, want %+v", got, want)
 	}

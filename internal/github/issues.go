@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	gh "github.com/google/go-github/v92/github"
 )
@@ -54,17 +55,6 @@ func (r Repository) Parent(ctx context.Context, number int64) (*gh.Issue, error)
 	return found(parent, err)
 }
 
-// ReviewThread is a review thread of a pull request.
-type ReviewThread struct {
-	// ID is the GraphQL node id of the thread.
-	ID string
-	// Comment is the id of the first comment of the thread.
-	Comment  int64
-	Resolved bool
-	// Authors are the REST logins of the authors of the comments, in order. The login of a bot ends with "[bot]".
-	Authors []string
-}
-
 type graphqlError struct {
 	Message string `json:"message"`
 }
@@ -87,76 +77,6 @@ func (r Repository) graphql(ctx context.Context, query string, variables map[str
 		return errors.New(response.Errors[0].Message)
 	}
 	return nil
-}
-
-// ReviewThreads gives the review threads of the pull request number.
-func (r Repository) ReviewThreads(ctx context.Context, number int64) ([]ReviewThread, error) {
-	const query = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
-		repository(owner: $owner, name: $name) {
-			pullRequest(number: $number) {
-				reviewThreads(first: 100, after: $after) {
-					nodes { id isResolved comments(first: 100) { nodes { databaseId author { __typename login } } } }
-					pageInfo { hasNextPage endCursor }
-				}
-			}
-		}
-	}`
-	var threads []ReviewThread
-	var after *string
-	for {
-		var data struct {
-			Repository struct {
-				PullRequest *struct {
-					ReviewThreads struct {
-						Nodes []struct {
-							ID         string `json:"id"`
-							IsResolved bool   `json:"isResolved"`
-							Comments   struct {
-								Nodes []struct {
-									DatabaseID int64 `json:"databaseId"`
-									Author     struct {
-										Typename string `json:"__typename"`
-										Login    string `json:"login"`
-									} `json:"author"`
-								} `json:"nodes"`
-							} `json:"comments"`
-						} `json:"nodes"`
-						PageInfo struct {
-							HasNextPage bool    `json:"hasNextPage"`
-							EndCursor   *string `json:"endCursor"`
-						} `json:"pageInfo"`
-					} `json:"reviewThreads"`
-				} `json:"pullRequest"`
-			} `json:"repository"`
-		}
-		variables := map[string]any{"owner": r.Owner(), "name": r.Name(), "number": number, "after": after}
-		if err := r.graphql(ctx, query, variables, &data); err != nil {
-			return nil, err
-		}
-		if data.Repository.PullRequest == nil {
-			return nil, errors.New("GitHub gave no pull request")
-		}
-		page := data.Repository.PullRequest.ReviewThreads
-		for _, node := range page.Nodes {
-			if len(node.Comments.Nodes) == 0 {
-				return nil, errors.New("GitHub gave a review thread with no comment")
-			}
-			thread := ReviewThread{ID: node.ID, Comment: node.Comments.Nodes[0].DatabaseID, Resolved: node.IsResolved}
-			for _, comment := range node.Comments.Nodes {
-				// GraphQL gives a bot login with no "[bot]".
-				login := comment.Author.Login
-				if comment.Author.Typename == "Bot" {
-					login += "[bot]"
-				}
-				thread.Authors = append(thread.Authors, login)
-			}
-			threads = append(threads, thread)
-		}
-		if !page.PageInfo.HasNextPage {
-			return threads, nil
-		}
-		after = page.PageInfo.EndCursor
-	}
 }
 
 // ResolveReviewThread resolves the review thread with the GraphQL node id.
@@ -197,6 +117,13 @@ func (r Repository) Comments(ctx context.Context, number int64) ([]*gh.IssueComm
 	return all(r.Client.Issues.ListCommentsIter(ctx, r.Owner(), r.Name(), int(number), &gh.IssueListCommentsOptions{ListOptions: gh.ListOptions{PerPage: 100}}))
 }
 
+// CommentsSince gives the conversation comments of all issues and pull requests of the repository that changed at or
+// after since.
+func (r Repository) CommentsSince(ctx context.Context, since time.Time) ([]*gh.IssueComment, error) {
+	options := &gh.IssueListCommentsOptions{Sort: new("updated"), Direction: new("asc"), Since: &since, ListOptions: gh.ListOptions{PerPage: 100}}
+	return all(r.Client.Issues.ListCommentsIter(ctx, r.Owner(), r.Name(), 0, options))
+}
+
 // Reviews gives the reviews of the pull request number.
 func (r Repository) Reviews(ctx context.Context, number int64) ([]*gh.PullRequestReview, error) {
 	return all(r.Client.PullRequests.ListReviewsIter(ctx, r.Owner(), r.Name(), int(number), &gh.ListOptions{PerPage: 100}))
@@ -205,6 +132,12 @@ func (r Repository) Reviews(ctx context.Context, number int64) ([]*gh.PullReques
 // ReviewComments gives the review comments of the pull request number.
 func (r Repository) ReviewComments(ctx context.Context, number int64) ([]*gh.PullRequestComment, error) {
 	return all(r.Client.PullRequests.ListCommentsIter(ctx, r.Owner(), r.Name(), int(number), &gh.PullRequestListCommentsOptions{ListOptions: gh.ListOptions{PerPage: 100}}))
+}
+
+// ReviewCommentsSince gives the review comments of all pull requests of the repository that changed at or after since.
+func (r Repository) ReviewCommentsSince(ctx context.Context, since time.Time) ([]*gh.PullRequestComment, error) {
+	options := &gh.PullRequestListCommentsOptions{Sort: "updated", Direction: "asc", Since: since, ListOptions: gh.ListOptions{PerPage: 100}}
+	return all(r.Client.PullRequests.ListCommentsIter(ctx, r.Owner(), r.Name(), 0, options))
 }
 
 // OpenIssuesWithLabel gives the open issues with label. It gives no pull request.
@@ -222,6 +155,25 @@ func (r Repository) IssueEvents(ctx context.Context, number int64) ([]*gh.IssueE
 func (r Repository) AddComment(ctx context.Context, number int64, body string) (int64, error) {
 	comment, _, err := r.Client.Issues.CreateComment(ctx, r.Owner(), r.Name(), int(number), gh.IssueCommentRequest{Body: body})
 	return comment.GetID(), err
+}
+
+// ReactToComment adds the reaction content, for example "eyes", to the conversation comment id.
+func (r Repository) ReactToComment(ctx context.Context, id int64, content string) error {
+	_, _, err := r.Client.Reactions.CreateIssueCommentReaction(ctx, r.Owner(), r.Name(), id, content)
+	return err
+}
+
+// ReactToReviewComment adds the reaction content to the review comment id.
+func (r Repository) ReactToReviewComment(ctx context.Context, id int64, content string) error {
+	_, _, err := r.Client.Reactions.CreatePullRequestCommentReaction(ctx, r.Owner(), r.Name(), id, content)
+	return err
+}
+
+// ReplyToReviewComment adds a reply with body to the review thread that starts with the comment root of the pull
+// request number.
+func (r Repository) ReplyToReviewComment(ctx context.Context, number, root int64, body string) error {
+	_, _, err := r.Client.PullRequests.CreateCommentInReplyTo(ctx, r.Owner(), r.Name(), int(number), body, root)
+	return err
 }
 
 // UpdateComment replaces the body of the comment id of an issue or a pull request.

@@ -405,6 +405,22 @@ func TestAnIdleLeadSavesItsMemoryAndTheNextMessageStartsANewSession(t *testing.T
 	}
 }
 
+func TestTheReplyOfTheMemorySaveTurnGoesOnlyToTheTranscript(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First answer\"]\n\n[[prompts]]\nreply = [\"Memory saved\"]\n")
+	sendChat(t, server, leadChat, "Plan the loyalty API")
+
+	session := endedChatSession(t, server, 0)
+
+	want := []chatLine{{"Owner", "Plan the loyalty API"}, {"Lead", "First answer"}}
+	if got := chatLines(t, server, leadChat); !slices.Equal(got, want) {
+		t.Errorf("chat = %+v", got)
+	}
+	if got := reply(t, server, session.ID); got != "First answerMemory saved" {
+		t.Errorf("reply = %q", got)
+	}
+}
+
 func TestALeadReplyIsUnreadUntilTheOwnerSeesIt(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hello\"]\n")

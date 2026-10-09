@@ -138,7 +138,7 @@ func TestTheFirstPromptHasTheContextAndEachLaterTurnHasOneEvent(t *testing.T) {
 		"You are the Lead of one Workstream. The Owner talks to you in this chat.",
 		"# Brief\n\nShip loyalty plans to all shops.\n",
 		"# MEMORY.md\n\n- [Plans](plans.md)\n",
-		"# Task list\n\n#41 Add plan model: working\n\n",
+		"# Task list\n\n#41 Add plan model: waits for start_implementer\n\n",
 		"# Chat history\n\n",
 		"\n# Event\n\n",
 	)
@@ -299,7 +299,12 @@ func TestOnlyACommentOfATrustedUserOnTheIssueOfALiveTaskIsAnEvent(t *testing.T) 
 // the task from the branch mobius/41.
 func startWithStoppedTask(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
-	server := connectSeen(t, fake)
+	return addStoppedTask(t, fake, connectSeen(t, fake))
+}
+
+// addStoppedTask adds the stopped task #41 with the pull request #42 to the Workstream #12 of server.
+func addStoppedTask(t *testing.T, fake *testkit.FakeGitHub, server *testserver.Server) *testserver.Server {
+	t.Helper()
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	fake.PushCommit(shop, "mobius/41", "Add plan model")
@@ -352,6 +357,29 @@ func TestACommentOnTheIssueOfAStoppedTaskGoesToTheLead(t *testing.T) {
 	})
 }
 
+func TestAReviewCommentAndALaterCommentOnThePullRequestOfAStoppedTaskGoToTheLead(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithStoppedTask(t, fake)
+
+	review := fake.AddReviewComment(shop, 42, 0, "owner", "Rename plan to tier.")
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool {
+			return strings.Contains(prompt, ` review comment on #42 "Add plan model" by @owner:`+"\n\n> Rename plan to tier.\n\nThe state of the task of #41 is stopped.")
+		})
+	})
+	waitForEyes(t, fake, review)
+	fake.AddComment(shop, 42, "owner", "Halo")
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool {
+			return strings.Contains(prompt, ` comment on #42 "Add plan model" by @owner:`+"\n\n> Halo\n\nThe state of the task of #41 is stopped.")
+		})
+	})
+	if task := liveTaskOf(t, server, 41); !task.JudgedAt.Valid {
+		t.Errorf("task = %+v", task)
+	}
+}
+
 func TestAReviewCommentOfATrustedUserResetsTheCountersOfTheTask(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
@@ -380,6 +408,30 @@ func TestACommentOfTheOwnerKeepsMobiusNeedsHumanOnATaskInNeedsHuman(t *testing.T
 	waitForPolls(t, fake)
 	if !slices.Contains(fake.Labels(shop, 41), "mobius:needs-human") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+}
+
+func TestAnAnswerRemovesMobiusQuestionAndKeepsMobiusNeedsHumanOnATaskInNeedsHuman(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := connectSeen(t, fake)
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddLabel(shop, 41, "mobius:needs-human", testkit.AppSlug+"[bot]")
+	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
+	fake.AddComment(shop, 41, testkit.AppSlug+"[bot]", "Cents or dollars?")
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 41, 12, 'needs_human', '2026-10-04T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+
+	fake.AddComment(shop, 41, "owner", "Cents.")
+
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:question") })
+	waitForPolls(t, fake)
+	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:needs-human"}) {
+		t.Errorf("labels = %v", got)
+	}
+	if got := liveTaskOf(t, server, 41).State; got != "needs_human" {
+		t.Errorf("state = %s", got)
 	}
 }
 

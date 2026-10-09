@@ -8,20 +8,32 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { Switch } from "@/components/ui/switch";
 import type { Workstreams } from "@/lib/workstreams";
 import { AgentPanel } from "./AgentPanel";
-import { BackButton } from "./BackButton";
 import { Conversation } from "./Conversation";
+import { TopBar } from "./TopBar";
 
-function NeedsHumanList({ issues, onChange }: { issues: NeedsHuman[]; onChange: () => void }) {
+function NeedsHumanList({
+  issues,
+  onChange,
+}: {
+  issues: NeedsHuman[];
+  onChange: () => Promise<unknown>;
+}) {
   const [error, setError] = useState("");
+  const [pending, setPending] = useState<number[]>([]);
   if (issues.length === 0) {
     return null;
   }
   const resume = (issue: NeedsHuman) => {
     const [owner, name] = issue.repository.split("/");
+    setPending((numbers) => [...numbers, issue.number]);
     resumeIssue(owner, name, issue.number)
       .then((res) => setError(res.status === 204 ? "" : res.data.error))
       .catch((err: unknown) => setError(String(err)))
-      .finally(onChange);
+      .finally(() =>
+        onChange().then(() =>
+          setPending((numbers) => numbers.filter((number) => number !== issue.number)),
+        ),
+      );
   };
   return (
     <div className="grid gap-1 border-t px-4 py-2">
@@ -50,9 +62,22 @@ function NeedsHumanList({ issues, onChange }: { issues: NeedsHuman[]; onChange: 
               PR #{issue.pullRequest}
             </a>
           )}
-          <Button size="sm" onClick={() => resume(issue)}>
-            Resume
-          </Button>
+          {issue.question && (
+            <Button size="sm" asChild>
+              <a href={issue.url} target="_blank" rel="noreferrer">
+                Answer
+              </a>
+            </Button>
+          )}
+          {issue.stopped && (
+            <Button
+              size="sm"
+              pending={pending.includes(issue.number)}
+              onClick={() => resume(issue)}
+            >
+              Resume
+            </Button>
+          )}
         </div>
       ))}
     </div>
@@ -113,9 +138,39 @@ export function Chat({
       });
   };
 
+  const autopilot = (id: string) => (
+    <>
+      <Switch
+        id={id}
+        checked={workstream?.autopilot ?? false}
+        disabled={!workstream || autopilotBusy}
+        onCheckedChange={switchAutopilot}
+      />
+      <Label htmlFor={id}>Autopilot</Label>
+    </>
+  );
   const panel = <AgentPanel owner={owner} name={name} number={number} source={source} />;
   return (
     <div className="flex min-h-0 min-w-0 grow">
+      <TopBar title={workstream?.title ?? ""} back="/workstreams">
+        <span className="shrink-0 text-sm text-muted-foreground">#{number}</span>
+        {autopilot("autopilot-top-bar")}
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button variant="outline" size="sm" className="ml-auto shrink-0">
+              Agents
+            </Button>
+          </SheetTrigger>
+          <SheetContent
+            side="bottom"
+            aria-describedby={undefined}
+            className="pt-2 data-[side=bottom]:h-[80svh]"
+          >
+            <SheetTitle className="sr-only">Agents and tasks</SheetTitle>
+            {panel}
+          </SheetContent>
+        </Sheet>
+      </TopBar>
       <Conversation
         organization={owner}
         repository={repository}
@@ -126,34 +181,10 @@ export function Chat({
         brief={workstream}
         head={
           <>
-            <BackButton parent="/workstreams" />
-            <h2 className="min-w-0 truncate font-semibold">{workstream?.title}</h2>
+            <h2 className="min-w-0 truncate text-base font-semibold">{workstream?.title}</h2>
             <span className="text-sm text-muted-foreground">#{number}</span>
-            <Switch
-              id="autopilot"
-              checked={workstream?.autopilot ?? false}
-              disabled={!workstream || autopilotBusy}
-              onCheckedChange={switchAutopilot}
-            />
-            <Label htmlFor="autopilot">Autopilot</Label>
+            {autopilot("autopilot")}
           </>
-        }
-        tail={
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="sm" className="md:hidden">
-                Agents
-              </Button>
-            </SheetTrigger>
-            <SheetContent
-              side="bottom"
-              aria-describedby={undefined}
-              className="pt-2 data-[side=bottom]:h-[80svh]"
-            >
-              <SheetTitle className="sr-only">Agents and tasks</SheetTitle>
-              {panel}
-            </SheetContent>
-          </Sheet>
         }
         note={
           <>
@@ -163,7 +194,7 @@ export function Chat({
             {workstream?.allTasksClosed && (
               <div className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
                 <span>All tasks are closed.</span>
-                <Button size="sm" disabled={closeBusy} onClick={close}>
+                <Button size="sm" pending={closeBusy} onClick={close}>
                   Close Workstream
                 </Button>
                 {closeError && <span className="text-sm text-destructive">{closeError}</span>}

@@ -30,6 +30,8 @@ type InboxItem struct {
 	Link string `gork:"link"`
 	// Time is the time of the item
 	Time time.Time `gork:"time"`
+	// PausedUntil is the end of the pause of a usage limit item, or null for another item and after the pause ends
+	PausedUntil *time.Time `gork:"pausedUntil"`
 	// DismissedAt is the time when the Owner dismissed the item, or null
 	DismissedAt *time.Time `gork:"dismissedAt"`
 }
@@ -50,7 +52,7 @@ func (h *handlers) ListInbox(ctx context.Context, _ ListInboxRequest) (*ListInbo
 	}
 	inbox := make([]InboxItem, 0, len(items))
 	for _, item := range items {
-		found, err := inboxItemOf(item)
+		found, err := h.inboxItemOf(ctx, item)
 		if err != nil {
 			return nil, err
 		}
@@ -72,7 +74,7 @@ func (h *handlers) Dismiss(ctx context.Context, req DismissRequest) error {
 	return h.engine.Dismiss(ctx, req.Path.ID)
 }
 
-func inboxItemOf(item store.InboxItem) (InboxItem, error) {
+func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (InboxItem, error) {
 	t, err := time.Parse(time.RFC3339Nano, item.Time)
 	if err != nil {
 		return InboxItem{}, err
@@ -87,6 +89,9 @@ func inboxItemOf(item store.InboxItem) (InboxItem, error) {
 		Text:         item.Text,
 		Link:         item.Link,
 		Time:         t,
+	}
+	if found.PausedUntil, err = h.engine.InboxPausedUntil(ctx, item); err != nil {
+		return InboxItem{}, err
 	}
 	if item.DismissedAt.Valid {
 		dismissedAt, err := time.Parse(time.RFC3339Nano, item.DismissedAt.String)

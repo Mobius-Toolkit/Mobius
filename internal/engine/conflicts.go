@@ -29,7 +29,7 @@ func (e *Engine) onConflict(ctx context.Context, repository github.Repository, t
 
 // stale hands the task of the stale pull request to a human, with an Inbox item and an event for the Lead.
 func (e *Engine) stale(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "needs_human", ID: task.ID, FromState: task.State})
+	moved, err := e.handTaskToHuman(ctx, task.ID, task.State)
 	if err != nil || moved == 0 {
 		return err
 	}
@@ -39,7 +39,7 @@ func (e *Engine) stale(ctx context.Context, repository github.Repository, task s
 	if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
 		return err
 	}
-	if err := repository.AddLabel(ctx, task.Issue, needsHumanLabel); err != nil {
+	if err := addNeedsHuman(ctx, repository, task); err != nil {
 		return err
 	}
 	issue, err := existingIssue(ctx, repository, task.Issue)
@@ -52,7 +52,7 @@ func (e *Engine) stale(ctx context.Context, repository github.Repository, task s
 	}
 	age := fmt.Sprintf("%g days", e.config.StalePRAge.Hours()/24)
 	number := pullRequest.GetNumber()
-	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
+	err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         stalePullRequestKind,
 		Organization: repository.Owner(),
 		Repository:   task.Repository,

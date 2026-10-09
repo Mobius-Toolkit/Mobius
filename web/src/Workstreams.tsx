@@ -1,15 +1,16 @@
-import { Link } from "@tanstack/react-router";
-import { PlusIcon } from "lucide-react";
+import { GitPullRequestArrowIcon, PlaneIcon } from "lucide-react";
 import type { Unread, Workstream } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ErrorBadge, inset, LinkRow, List, PageHeader } from "@/components/page";
 import { unreadCount } from "@/lib/unread";
+import { cn } from "@/lib/utils";
 import {
   chatParams,
   organizationWorkstreams,
+  workstreamKey,
   type Workstreams as WorkstreamLists,
 } from "@/lib/workstreams";
+import { TopBar } from "./TopBar";
 
 export function WorkstreamBadges({
   workstream,
@@ -30,6 +31,29 @@ export function WorkstreamBadges({
   });
   return (
     <span className="flex shrink-0 items-center gap-1.5">
+      {workstreams.working.has(workstreamKey(workstream)) && (
+        <span
+          role="img"
+          aria-label="Agent running"
+          title="Agent running"
+          className="size-2 rounded-full bg-green-600"
+        />
+      )}
+      {workstream.autopilot && (
+        <span role="img" aria-label="Autopilot" title="Autopilot" className="text-muted-foreground">
+          <PlaneIcon className="size-3.5" />
+        </span>
+      )}
+      {workstream.readyToMerge && (
+        <span
+          role="img"
+          aria-label="Ready to merge"
+          title="Ready to merge"
+          className="text-green-600 dark:text-green-500"
+        >
+          <GitPullRequestArrowIcon className="size-3.5" />
+        </span>
+      )}
       <span className="text-muted-foreground">#{workstream.number}</span>
       {workstream.allTasksClosed && <Badge variant="secondary">done</Badge>}
       {needsHuman && (
@@ -51,42 +75,26 @@ export function Workstreams({
 }) {
   const shown = organizationWorkstreams(workstreams, organization);
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Workstreams</CardTitle>
-        <CardAction>
-          <Button asChild size="sm">
-            <Link to="/workstreams/new">
-              <PlusIcon />
-              New
-            </Link>
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        {workstreams.error && <Badge variant="destructive">{workstreams.error}</Badge>}
-        {shown?.length === 0 && (
-          <p className="text-muted-foreground">This organization has no open Workstream.</p>
-        )}
-        <ul className="divide-y">
-          {shown?.map((workstream) => (
-            <li key={`${workstream.repository}#${workstream.number}`}>
-              <Link
-                to="/workstreams/$owner/$name/$number"
-                params={chatParams(workstream)}
-                className="-mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-2 hover:bg-muted"
-              >
-                <span>{workstream.title}</span>
-                <WorkstreamBadges
-                  workstream={workstream}
-                  workstreams={workstreams}
-                  unread={unread}
-                />
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </CardContent>
-    </Card>
+    <>
+      <TopBar title="Workstreams" />
+      <PageHeader title="Workstreams" />
+      {workstreams.error && <ErrorBadge>{workstreams.error}</ErrorBadge>}
+      {shown?.length === 0 && (
+        <p className={cn("text-muted-foreground", inset)}>
+          This organization has no open Workstream.
+        </p>
+      )}
+      <List>
+        {shown?.map((workstream) => (
+          <LinkRow
+            key={`${workstream.repository}#${workstream.number}`}
+            link={{ to: "/workstreams/$owner/$name/$number", params: chatParams(workstream) }}
+            title={workstream.title}
+          >
+            <WorkstreamBadges workstream={workstream} workstreams={workstreams} unread={unread} />
+          </LinkRow>
+        ))}
+      </List>
+    </>
   );
 }

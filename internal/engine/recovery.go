@@ -12,6 +12,7 @@ import (
 const (
 	workingLabel    = "mobius:working"
 	needsHumanLabel = "mobius:needs-human"
+	questionLabel   = "mobius:question"
 	reviewLabel     = "mobius:review"
 	// stoppedKind is the kind of the Inbox item of a task that stopped.
 	stoppedKind = "stopped"
@@ -48,7 +49,7 @@ func (e *Engine) handLostTasksWith(ctx context.Context, repository github.Reposi
 		if err != nil {
 			return err
 		}
-		if _, err := e.addInboxItem(ctx, store.AddInboxItemParams{
+		if err := e.addInboxItem(ctx, store.AddInboxItemParams{
 			Kind:         stoppedKind,
 			Organization: repository.Owner(),
 			Repository:   repository.FullName,

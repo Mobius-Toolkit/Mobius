@@ -70,6 +70,8 @@ type LeadEvent struct {
 	ChatMessage sql.NullInt64
 	Issue       sql.NullInt64
 	Held        int64
+	Comment     sql.NullInt64
+	Review      sql.NullBool
 }
 
 type Session struct {
@@ -87,6 +89,7 @@ type Session struct {
 	Organization string
 	Issue        sql.NullInt64
 	Parent       sql.NullInt64
+	Effort       sql.NullString
 }
 
 type Task struct {
@@ -107,6 +110,9 @@ type Task struct {
 	ReviewRounds   int64
 	ReviewComment  sql.NullInt64
 	CheckHead      sql.NullString
+	ApprovedReview sql.NullString
+	RefusedReview  sql.NullString
+	NeedsHumanAt   sql.NullString
 }
 
 type Transcript struct {

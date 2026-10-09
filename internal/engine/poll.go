@@ -1,12 +1,12 @@
 package engine
 
 import (
-	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"slices"
 	"time"
 
@@ -23,9 +23,10 @@ const issuesEndpoint = "issues"
 // Apps, it removes the copy of each repository that it did not find. Then, for each repository, it fixes the labels
 // at the first sight in this run of the server, copies the open Workstreams until that step works one time, hands
 // the lost tasks to a human and starts the Workers of the earlier run again until that step works one time, reads the
-// changed issues, dispatches the ready issues, starts the tasks of the Workstreams with Autopilot, and checks the live
-// tasks. The work of a repository starts again at its first poll, because the work needs GitHub. At the end, the
-// pull requests with work for an agent replace the ones of the last poll. With no App, the poll does nothing.
+// changed issues, dispatches the ready issues, starts the tasks of the Workstreams with Autopilot, checks the live
+// tasks, and starts the Worker again of each task that has none. The work of a repository starts again at its first
+// poll, because the work needs GitHub. At the end, the pull requests with work for an agent replace the ones of the
+// last poll. With no App, the poll does nothing.
 func (e *Engine) poll(ctx context.Context) {
 	apps, err := e.queries.ListGitHubApps(ctx)
 	if err != nil || len(apps) == 0 {
@@ -91,7 +92,8 @@ func repositoryKeys(repositories []github.Repository) []string {
 }
 
 // recover hands the lost tasks of repository to a human, gives the events that wait from the earlier run of the
-// server to the Leads, and starts each Worker of the earlier run again. The Workers start only one time.
+// server to the Leads, starts a Curator for the requests of the Owner that wait, and starts each Worker of the earlier
+// run again.
 func (e *Engine) recover(ctx context.Context, repository github.Repository) error {
 	if err := e.handLostTasks(ctx, repository); err != nil {
 		return err
@@ -108,31 +110,17 @@ func (e *Engine) recover(ctx context.Context, repository github.Repository) erro
 			return err
 		}
 	}
-	e.recovered[repository.FullName] = true
-	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
+	requests, err := e.queries.ListCuratorRequests(ctx, repository.FullName)
 	if err != nil {
 		return err
 	}
-	for _, task := range tasks {
-		if task.State != "queued" && task.State != "working" {
-			continue
-		}
-		var err error
-		switch task.Worker.String {
-		case ImplementerRole, checkRoundWorker, conflictRoundWorker:
-			err = e.restartImplementer(ctx, repository, task)
-		case ReviewerRole:
-			err = e.restartReviewer(ctx, repository, task)
-		// The poll gives the items to a new Judge.
-		case JudgeRole:
-			before := cmp.Or(task.WorkerInput.String, "reviewed")
-			_, err = e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: before, ID: task.ID, FromState: "working"})
-		}
-		if err != nil {
-			log.Printf("start the %s of %s#%d again: %v", task.Worker.String, repository.FullName, task.Issue, err)
+	if len(requests) > 0 {
+		if err := e.startCurator(ctx, repository.FullName); err != nil {
+			return err
 		}
 	}
-	return nil
+	e.recovered[repository.FullName] = true
+	return e.restartLost(ctx, repository, true)
 }
 
 // pollRepository recovers the work of the earlier run until that works one time, and then acts on the changes of the
@@ -146,19 +134,26 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.changedIssues(ctx, repository); err != nil {
 		return err
 	}
+	if err := e.startHeldTriagers(ctx, repository); err != nil {
+		return err
+	}
 	if err := e.dispatchReady(ctx, repository); err != nil {
 		return err
 	}
 	if err := e.startAutopilot(ctx, repository); err != nil {
 		return err
 	}
-	return e.checkTasks(ctx, repository, work)
+	if err := e.checkTasks(ctx, repository, work); err != nil {
+		return err
+	}
+	return e.restartLost(ctx, repository, false)
 }
 
-// changedIssues reads the issues and pull requests that changed at or after the `since` cursor, acts on their new
-// comments, stops a Triager, updates the copy, acts on the new events of the Workstreams, and moves the cursor to the
-// last change. The first poll of a repository has no cursor, so it reads all issues, and it cannot see which event or
-// comment is new.
+// changedIssues reads the issues and pull requests that changed at or after the `since` cursor, reads the new comments
+// of the repository with two calls, and reads the reviews and the review threads of the open pull requests with one
+// call. Then it acts on the comments, stops a Triager, updates the copy, acts on the new events of the Workstreams, and
+// moves the cursors to the last change. The first poll of a repository has no cursor, so it reads all issues, and it
+// cannot see which event is new. It reads no comment: the next poll starts each comment list at the issue cursor.
 func (e *Engine) changedIssues(ctx context.Context, repository github.Repository) error {
 	cursor, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: issuesEndpoint})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -175,16 +170,53 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		return err
 	}
 	firstPoll := since.IsZero()
+	var conversation map[int64][]*gh.IssueComment
+	var review map[int64][]*gh.PullRequestComment
+	var commentCursors []store.SetSyncCursorParams
+	if !firstPoll {
+		var conversationCursor, reviewCursor store.SetSyncCursorParams
+		conversation, conversationCursor, err = newComments(ctx, e.queries, repository, issueCommentsEndpoint, since, repository.CommentsSince, issueCommentNumber)
+		if err != nil {
+			return err
+		}
+		review, reviewCursor, err = newComments(ctx, e.queries, repository, reviewCommentsEndpoint, since, repository.ReviewCommentsSince, reviewCommentNumber)
+		if err != nil {
+			return err
+		}
+		commentCursors = []store.SetSyncCursorParams{conversationCursor, reviewCursor}
+	}
+	unrouted := map[int64]bool{}
+	for number := range conversation {
+		unrouted[number] = true
+	}
+	for number := range review {
+		unrouted[number] = true
+	}
+	for _, issue := range page.Issues {
+		delete(unrouted, int64(issue.GetNumber()))
+	}
+	// A comment that GitHub wrote after it gave the page has its issue or pull request outside the page.
+	var outside []*gh.Issue
+	for _, number := range slices.Sorted(maps.Keys(unrouted)) {
+		issue, err := repository.Issue(ctx, number)
+		if err != nil {
+			return err
+		}
+		if issue != nil {
+			outside = append(outside, issue)
+		}
+	}
+	if err := e.readPullRequests(ctx, repository, openPullRequests(slices.Concat(page.Issues, outside))); err != nil {
+		return err
+	}
 	listChanged := false
 	for _, issue := range page.Issues {
-		if issue.IsPullRequest() {
-			if err := e.pullRequestComments(ctx, repository, issue, since); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := e.commentEvents(ctx, repository, issue, since); err != nil {
+		number := int64(issue.GetNumber())
+		if err := e.routeComments(ctx, repository, issue, conversation[number], review[number]); err != nil {
 			return err
+		}
+		if issue.IsPullRequest() {
+			continue
 		}
 		if !hasLabel(issue, noWorkstreamLabel) {
 			if err := e.stopTriager(ctx, repository, int64(issue.GetNumber())); err != nil {
@@ -220,8 +252,19 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			}
 		}
 	}
+	for _, issue := range outside {
+		number := int64(issue.GetNumber())
+		if err := e.routeComments(ctx, repository, issue, conversation[number], review[number]); err != nil {
+			return err
+		}
+	}
 	if listChanged {
 		e.publish(Change{Workstreams: true})
+	}
+	for _, cursor := range commentCursors {
+		if err := e.queries.SetSyncCursor(ctx, cursor); err != nil {
+			return err
+		}
 	}
 	for _, issue := range page.Issues {
 		if issue.GetUpdatedAt().After(since) {
@@ -235,6 +278,14 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		Since: sql.NullString{String: since.UTC().Format(time.RFC3339), Valid: !since.IsZero()},
 		Etag:  sql.NullString{String: page.ETag, Valid: page.ETag != ""},
 	})
+}
+
+// routeComments gives the new comments of the issue or the pull request to the code that acts on them.
+func (e *Engine) routeComments(ctx context.Context, repository github.Repository, issue *gh.Issue, conversation []*gh.IssueComment, review []*gh.PullRequestComment) error {
+	if issue.IsPullRequest() {
+		return e.pullRequestComments(ctx, repository, issue, conversation, review)
+	}
+	return e.commentEvents(ctx, repository, issue, conversation)
 }
 
 // workstreamEvent acts on a new event of the issue. A change of mobius:autopilot makes the next poll read the ready
@@ -263,7 +314,13 @@ func (e *Engine) workstreamEvent(ctx context.Context, repository github.Reposito
 		return e.stopWorkstream(ctx, repository, number)
 	// The label can go away before the poll sees the close.
 	case event.GetEvent() == "closed" && trusted:
-		return e.closeWorkstream(ctx, repository, number)
+		if err := e.closeWorkstream(ctx, repository, number); err != nil {
+			return err
+		}
+		if err := e.startCurator(ctx, repository.FullName); err != nil {
+			log.Printf("start a Curator of %s: %v", repository.FullName, err)
+		}
+		return nil
 	case event.GetEvent() == "reopened" && trusted && hasLabel(issue, workstreamLabel):
 		return e.addLeadEvent(ctx, repository.FullName, number, sql.NullInt64{}, "reopen", eventText(time.Now(), "reopen of Workstream", issue, actor, issue.GetBody()))
 	}

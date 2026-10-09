@@ -1,11 +1,13 @@
 import { use, useState, type FormEvent } from "react";
 import { createManifestForm, type GitHubApp, type ManifestForm } from "@/api/api.gen";
+import { inset, List, PageHeader, Row } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { LoginContext } from "@/lib/login";
-import { BackButton } from "./BackButton";
+import { cn } from "@/lib/utils";
+import { TopBar } from "./TopBar";
 
 function postToGitHub(form: ManifestForm) {
   const element = document.createElement("form");
@@ -44,67 +46,73 @@ export function GitHub({ apps, back }: { apps: GitHubApp[]; back?: boolean }) {
       .finally(() => setBusy(false));
   };
 
+  const form = (
+    <form onSubmit={submit}>
+      <FieldGroup>
+        {apps.length > 0 && <h3 className="font-medium">Add an organization</h3>}
+        <Field>
+          <FieldLabel htmlFor="account">Account or organization</FieldLabel>
+          <Input
+            id="account"
+            required
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
+          />
+        </Field>
+        <Field data-invalid={error !== undefined}>
+          <FieldLabel htmlFor="name">App name</FieldLabel>
+          <Input
+            id="name"
+            placeholder={`Mobius ${account}`}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            aria-invalid={error !== undefined}
+          />
+          <FieldDescription>
+            GitHub App names are unique on all of GitHub. Use a name that no other App has, for
+            example with your account name.
+          </FieldDescription>
+          <FieldError>{error}</FieldError>
+        </Field>
+        <Button type="submit" pending={busy}>
+          Create the App
+        </Button>
+      </FieldGroup>
+    </form>
+  );
+
+  if (!back) {
+    return (
+      <Card className="w-full max-w-lg">
+        <CardHeader>
+          <CardTitle>Connect GitHub</CardTitle>
+        </CardHeader>
+        <CardContent>{form}</CardContent>
+      </Card>
+    );
+  }
   return (
-    <Card className="w-full max-w-lg">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          {back && <BackButton parent="/settings" />}
-          Connect GitHub
-        </CardTitle>
-        {apps.length > 0 && (
-          <CardDescription>
-            Install each App on the repositories of its organization.
-          </CardDescription>
-        )}
-      </CardHeader>
-      <CardContent className="grid gap-6">
-        {apps.length > 0 && (
-          <ul className="grid gap-4">
-            {apps.map((app) => (
-              <li key={app.slug} className="grid gap-1">
-                <a href={app.installUrl} className="font-medium hover:underline">
-                  Install {app.slug} on your repositories
-                </a>
-                <span className="text-muted-foreground">
-                  {app.repositories.length === 0 ? "No repositories" : app.repositories.join(", ")}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <form onSubmit={submit}>
-          <FieldGroup>
-            {apps.length > 0 && <h3 className="font-medium">Add an organization</h3>}
-            <Field>
-              <FieldLabel htmlFor="account">Account or organization</FieldLabel>
-              <Input
-                id="account"
-                required
-                value={account}
-                onChange={(e) => setAccount(e.target.value)}
-              />
-            </Field>
-            <Field data-invalid={error !== undefined}>
-              <FieldLabel htmlFor="name">App name</FieldLabel>
-              <Input
-                id="name"
-                placeholder={`Mobius ${account}`}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                aria-invalid={error !== undefined}
-              />
-              <FieldDescription>
-                GitHub App names are unique on all of GitHub. Use a name that no other App has, for
-                example with your account name.
-              </FieldDescription>
-              <FieldError>{error}</FieldError>
-            </Field>
-            <Button type="submit" disabled={busy}>
-              Create the App
-            </Button>
-          </FieldGroup>
-        </form>
-      </CardContent>
-    </Card>
+    <>
+      <TopBar title="Connect GitHub" back="/settings" />
+      <PageHeader title="Connect GitHub" />
+      {apps.length > 0 && (
+        <p className={cn("text-sm text-muted-foreground", inset)}>
+          Install each App on the repositories of its organization.
+        </p>
+      )}
+      <List>
+        {apps.map((app) => (
+          <Row key={app.slug} className="grid gap-1 py-3">
+            <a href={app.installUrl} className="font-medium hover:underline">
+              Install {app.slug} on your repositories
+            </a>
+            <span className="text-muted-foreground">
+              {app.repositories.length === 0 ? "No repositories" : app.repositories.join(", ")}
+            </span>
+          </Row>
+        ))}
+      </List>
+      <div className={cn("max-w-lg", inset)}>{form}</div>
+    </>
   );
 }

@@ -112,7 +112,7 @@ func TestManifestFormPostsTheManifestToTheSettingsOfAnOrganization(t *testing.T)
 			"contents": "write",
 			"checks": "write",
 			"workflows": "write",
-			"actions": "read",
+			"actions": "write",
 			"metadata": "read"
 		}
 	}`), &want)
@@ -441,5 +441,72 @@ func TestAnInstallationKeepsItsTokenUntilTheTokenExpires(t *testing.T) {
 
 	if got := fake.InstallationTokensGiven(); got != 2 {
 		t.Errorf("installation tokens = %d, want one for each App", got)
+	}
+}
+
+func TestPullRequestReviewsReadsTheNextPagesOfEachConnection(t *testing.T) {
+	const shop = "owner/shop"
+	fake := testkit.NewFakeGitHub(t)
+	gh := connect(t, fake)
+	repository, _ := gh.Repository(shop)
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.PushCommit(shop, "mobius/41", "Add plan model")
+	number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41")
+	first := fake.AddReviewComment(shop, number, 0, "owner", "Use price_cents.")
+	fake.AddReviewComment(shop, number, first, "mobius-test[bot]", "Done.")
+	fake.AddReviewComment(shop, number, first, "owner", "Thanks.")
+	fake.AddReviewComment(shop, number, 0, "coderabbitai[bot]", "Rename plan to tier.")
+	fake.AddReviewComment(shop, number, 0, "owner", "Split the parser.")
+	for range 3 {
+		fake.AddReview(shop, number, "owner", "COMMENTED", "")
+	}
+	fake.AddReview(shop, number, "owner", "APPROVED", "")
+	fake.SetGraphQLPageSize(2)
+
+	found, err := repository.PullRequestReviews(t.Context(), []int64{number})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviews, threads := found[number].Reviews, found[number].Threads
+	if len(reviews) != 4 || reviews[3].State != "APPROVED" || reviews[3].Author != "owner" || reviews[3].Commit == "" || reviews[3].SubmittedAt.IsZero() {
+		t.Errorf("reviews = %+v", reviews)
+	}
+	if len(threads) != 3 || len(threads[0].Comments) != 3 || threads[0].Comment != first || threads[1].Authors[0] != "coderabbitai[bot]" {
+		t.Errorf("threads = %+v", threads)
+	}
+	if threads[0].Path != "src/plan.rs" || threads[0].Line != 12 || threads[0].Comments[2].Body != "Thanks." {
+		t.Errorf("thread = %+v", threads[0])
+	}
+	if got := fake.PullRequestReads(); got != 1 {
+		t.Errorf("reads of pull requests = %d", got)
+	}
+}
+
+func TestMergePullRequestTellsAMergeApartFromAChangedHeadAndARefusal(t *testing.T) {
+	const shop = "owner/shop"
+	fake := testkit.NewFakeGitHub(t)
+	gh := connect(t, fake)
+	repository, _ := gh.Repository(shop)
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.PushCommit(shop, "mobius/41", "Add plan model")
+	number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41")
+	sha := testkit.Git(t, fake.Remote(shop), "rev-parse", "mobius/41")
+
+	merged, reason, err := repository.MergePullRequest(t.Context(), number, "0000000000000000000000000000000000000000")
+	if err != nil || merged || reason != "" {
+		t.Errorf("changed head: %v, %q, %v", merged, reason, err)
+	}
+
+	fake.RefuseMerge(shop, number, "Required status check is expected.")
+	merged, reason, err = repository.MergePullRequest(t.Context(), number, sha)
+	if err != nil || merged || reason != "Required status check is expected." {
+		t.Errorf("refusal: %v, %q, %v", merged, reason, err)
+	}
+
+	fake.RefuseMerge(shop, number, "")
+	merged, reason, err = repository.MergePullRequest(t.Context(), number, sha)
+	if err != nil || !merged || reason != "" {
+		t.Errorf("merge: %v, %q, %v", merged, reason, err)
 	}
 }

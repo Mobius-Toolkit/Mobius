@@ -1,5 +1,13 @@
-import { ChevronRightIcon, MicIcon, PaperclipIcon, SquareIcon, XIcon } from "lucide-react";
 import {
+  ArrowUpIcon,
+  ChevronRightIcon,
+  MicIcon,
+  PaperclipIcon,
+  SquareIcon,
+  XIcon,
+} from "lucide-react";
+import {
+  Fragment,
   use,
   useCallback,
   useEffect,
@@ -26,7 +34,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { onEvent } from "@/lib/events";
 import { fitImage, maxImages } from "@/lib/images";
 import { LoginContext } from "@/lib/login";
-import { clock } from "@/lib/time";
+import { atEnd } from "@/lib/scroll";
+import { clock, dayLabel } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
 import { useVoice } from "@/lib/voice";
@@ -43,10 +52,6 @@ function upsert(list: ChatMessage[], message: ChatMessage) {
   return [...list.filter((other) => other.id !== message.id), message].toSorted(
     (a, b) => a.id - b.id,
   );
-}
-
-function atEnd(list: HTMLElement) {
-  return list.scrollHeight - list.scrollTop - list.clientHeight < 40;
 }
 
 function Message({ message }: { message: ChatMessage }) {
@@ -93,6 +98,20 @@ function Message({ message }: { message: ChatMessage }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function DaySeparator({ label }: { label: string }) {
+  return (
+    <div
+      role="separator"
+      aria-label={label}
+      className="flex items-center gap-3 text-xs text-muted-foreground"
+    >
+      <span className="h-px grow bg-border" />
+      <span>{label}</span>
+      <span className="h-px grow bg-border" />
     </div>
   );
 }
@@ -147,7 +166,6 @@ export function Conversation({
   source,
   unread,
   head,
-  tail,
   brief,
   note,
   footer,
@@ -159,7 +177,6 @@ export function Conversation({
   source?: EventSource;
   unread?: number;
   head: ReactNode;
-  tail?: ReactNode;
   brief?: Workstream;
   note?: ReactNode;
   footer?: ReactNode;
@@ -175,6 +192,7 @@ export function Conversation({
   const [images, setImages] = useState<File[]>([]);
   const [sendError, setSendError] = useState("");
   const [sending, setSending] = useState(false);
+  const [stopping, setStopping] = useState(false);
   // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
   // message.
   const imagesRef = useRef<File[]>([]);
@@ -192,22 +210,57 @@ export function Conversation({
   };
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined);
-  const voice = useVoice((spoken) => {
-    const field = input.current;
-    if (!field) {
-      return;
-    }
-    const focused = document.activeElement === field;
-    const start = focused ? field.selectionStart : field.value.length;
-    const end = focused ? field.selectionEnd : field.value.length;
-    const before = field.value.slice(0, start);
-    const after = field.value.slice(end);
-    const lead = before === "" || /\s$/.test(before) ? before : `${before} `;
-    const trail = after === "" || /^\s/.test(after) ? after : ` ${after}`;
-    flushSync(() => setText(lead + spoken + trail));
-    const cursor = lead.length + spoken.length;
-    field.setSelectionRange(cursor, cursor);
-  });
+  // The place of the voice text in the field. value and cursor describe what the voice input wrote last.
+  const voiceInsert = useRef<{ lead: string; trail: string; value: string; cursor: number }>(
+    undefined,
+  );
+  const voice = useVoice(
+    (voiceText, first) => {
+      const field = input.current;
+      if (!field) {
+        return;
+      }
+      let insert = first ? undefined : voiceInsert.current;
+      if (!voiceText) {
+        return;
+      }
+      if (!insert) {
+        const focused = document.activeElement === field;
+        const start = focused ? field.selectionStart : field.value.length;
+        const end = focused ? field.selectionEnd : field.value.length;
+        const before = field.value.slice(0, start);
+        const after = field.value.slice(end);
+        insert = {
+          lead: before === "" || /\s$/.test(before) ? before : `${before} `,
+          trail: after === "" || /^\s/.test(after) ? after : ` ${after}`,
+          value: "",
+          cursor: 0,
+        };
+      }
+      const value = insert.lead + voiceText + insert.trail;
+      const cursor = insert.lead.length + voiceText.length;
+      voiceInsert.current = { ...insert, value, cursor };
+      flushSync(() => setText(value));
+      // The height of the text up to the end of the voice text gives the scroll position. setSelectionRange does not
+      // scroll a field without the focus, and WebKit on iOS does not scroll it reliably.
+      field.value = insert.lead + voiceText;
+      const top = field.scrollHeight - field.clientHeight;
+      field.value = value;
+      field.setSelectionRange(cursor, cursor);
+      field.scrollTop = top;
+    },
+    () => {
+      const field = input.current;
+      const insert = voiceInsert.current;
+      return (
+        !!field &&
+        !!insert &&
+        (field.value !== insert.value ||
+          field.selectionStart !== insert.cursor ||
+          field.selectionEnd !== insert.cursor)
+      );
+    },
+  );
 
   const load = useCallback(() => {
     getChat({ organization, repository, workstream })
@@ -219,6 +272,9 @@ export function Conversation({
           setMessages((list) => chat.messages.reduce(upsert, list));
           setHarness(chat.harness);
           setWriting(chat.writing);
+          if (!chat.writing) {
+            setStopping(false);
+          }
           setLoaded(true);
         } else {
           setError(res.data.error);
@@ -243,6 +299,9 @@ export function Conversation({
     const removeState = onEvent<LiveEvents, "chat">(source, "chat", (state) => {
       if (sameChat(state, key)) {
         setWriting(state.writing);
+        if (!state.writing) {
+          setStopping(false);
+        }
         setFailure(state.error);
       }
     });
@@ -329,8 +388,12 @@ export function Conversation({
     setSendError(problem);
   };
 
+  const empty = !text.trim() && images.length === 0;
+  const showStop = empty && writing;
+  const buttonPending = sending || (showStop && stopping);
+
   const send = () => {
-    if (inFlight.current || (!text.trim() && images.length === 0)) {
+    if (inFlight.current || empty) {
       return;
     }
     const sent = text;
@@ -367,18 +430,23 @@ export function Conversation({
   };
 
   const stop = () => {
+    setStopping(true);
     stopChat({ organization, repository, workstream })
       .then((res) => {
         if (res.status !== 204) {
           setSendError(res.data.error);
+          setStopping(false);
         }
       })
-      .catch((err: unknown) => setSendError(String(err)));
+      .catch((err: unknown) => {
+        setSendError(String(err));
+        setStopping(false);
+      });
   };
 
   return (
     <section className="flex min-h-0 min-w-0 grow flex-col">
-      <header className="flex min-h-14 items-center gap-2 border-b px-4 py-2">
+      <header className="hidden min-h-14 items-center gap-2 border-b px-4 py-2 md:flex">
         {head}
         <span className="grow" />
         {harness && (
@@ -386,7 +454,6 @@ export function Conversation({
             {agent}: {harness}
           </span>
         )}
-        {tail}
       </header>
       {brief && (
         <Collapsible
@@ -416,7 +483,7 @@ export function Conversation({
             scrollToEnd(event.currentTarget);
           }
         }}
-        className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto bg-muted/40 p-4"
+        className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4"
       >
         {error && <Badge variant="destructive">{error}</Badge>}
         {loaded && messages.length === 0 && (
@@ -424,9 +491,17 @@ export function Conversation({
             No messages. Write to start a chat session.
           </p>
         )}
-        {messages.map((message) => (
-          <Message key={message.id} message={message} />
-        ))}
+        {messages.map((message, index) => {
+          const label = dayLabel(message.time);
+          return (
+            <Fragment key={message.id}>
+              {(index === 0 || dayLabel(messages[index - 1].time) !== label) && (
+                <DaySeparator label={label} />
+              )}
+              <Message message={message} />
+            </Fragment>
+          );
+        })}
         {writing && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <span className="size-2 animate-pulse rounded-full bg-green-600" />
@@ -441,15 +516,26 @@ export function Conversation({
       </div>
       {footer}
       <form
-        className="flex items-end gap-2 border-t p-3 max-md:[&>button]:h-11"
+        className="grid gap-1 border-t p-2"
         onSubmit={(event) => {
           event.preventDefault();
           send();
         }}
       >
-        <div className="grid min-w-30 grow gap-1">
+        <input
+          ref={picker}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(event) => {
+            void addImages([...(event.target.files ?? [])]);
+            event.target.value = "";
+          }}
+        />
+        <div className="grid gap-1 rounded-2xl border border-input bg-background p-2 transition-colors has-[textarea:focus-visible]:border-ring dark:bg-input/30">
           {images.length > 0 && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 pb-1">
               {images.map((image, index) => (
                 <Thumbnail
                   key={index}
@@ -467,6 +553,8 @@ export function Conversation({
             placeholder={`Write to the ${agent}`}
             value={text}
             onChange={(event) => setText(event.target.value)}
+            // Safari on iOS scrolls the page when the keyboard opens, and it can keep that offset after the keyboard closes.
+            onBlur={() => window.scrollTo(0, 0)}
             onPaste={(event) => {
               const pasted = [...event.clipboardData.files].filter((file) =>
                 file.type.startsWith("image/"),
@@ -491,74 +579,77 @@ export function Conversation({
                 send();
               }
             }}
-            className="max-h-40 min-h-9 resize-none"
+            className="max-h-40 min-h-9 w-full resize-none rounded-none border-0 px-1 py-1.5 focus-visible:ring-0 dark:bg-transparent"
           />
-          {voice.error && (
-            <p role="alert" className="text-sm text-destructive">
-              {voice.error}
-            </p>
-          )}
-          {sendError && (
-            <p role="alert" className="text-sm text-destructive">
-              {sendError}
-            </p>
-          )}
+          <div className="flex items-center justify-between gap-2">
+            {/* A button that takes the focus closes the keyboard of a phone, and the button moves before the click. */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Attach images"
+              title="Attach images"
+              className="rounded-full text-muted-foreground max-md:size-11"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => picker.current?.click()}
+            >
+              <PaperclipIcon />
+            </Button>
+            <div className="flex items-center gap-1">
+              {voice.supported && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={voice.listening ? "Stop voice input" : "Start voice input"}
+                  title={voice.listening ? "Stop voice input" : "Start voice input"}
+                  aria-pressed={voice.listening}
+                  className={cn(
+                    "rounded-full text-muted-foreground max-md:size-11",
+                    voice.listening &&
+                      "bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive motion-safe:animate-pulse",
+                  )}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={voice.toggle}
+                >
+                  {voice.listening ? <SquareIcon /> : <MicIcon />}
+                </Button>
+              )}
+              <Button
+                type={showStop ? "button" : "submit"}
+                size="icon"
+                aria-label={showStop ? "Stop the reply" : "Send"}
+                title={showStop ? "Stop the reply" : "Send"}
+                pending={buttonPending}
+                disabled={empty && !writing}
+                className={cn(
+                  "rounded-full max-md:size-11",
+                  empty &&
+                    !writing &&
+                    "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
+                )}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={showStop ? stop : undefined}
+              >
+                {buttonPending ? null : showStop ? (
+                  <SquareIcon className="size-3 fill-current" />
+                ) : (
+                  <ArrowUpIcon />
+                )}
+              </Button>
+            </div>
+          </div>
         </div>
-        {/* A button that takes the focus closes the keyboard of a phone, and the button moves before the click. */}
-        {writing && (
-          <Button
-            type="button"
-            variant="destructive"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={stop}
-          >
-            Stop
-          </Button>
+        {voice.error && (
+          <p role="alert" className="text-sm text-destructive">
+            {voice.error}
+          </p>
         )}
-        <input
-          ref={picker}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(event) => {
-            void addImages([...(event.target.files ?? [])]);
-            event.target.value = "";
-          }}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          aria-label="Attach images"
-          title="Attach images"
-          className="max-md:w-11"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => picker.current?.click()}
-        >
-          <PaperclipIcon />
-        </Button>
-        {voice.supported && (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            aria-label={voice.listening ? "Stop voice input" : "Start voice input"}
-            title={voice.listening ? "Stop voice input" : "Start voice input"}
-            aria-pressed={voice.listening}
-            className={cn(
-              "max-md:w-11",
-              voice.listening && "border-destructive text-destructive motion-safe:animate-pulse",
-            )}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={voice.toggle}
-          >
-            {voice.listening ? <SquareIcon /> : <MicIcon />}
-          </Button>
+        {sendError && (
+          <p role="alert" className="text-sm text-destructive">
+            {sendError}
+          </p>
         )}
-        <Button type="submit" disabled={sending} onMouseDown={(event) => event.preventDefault()}>
-          Send
-        </Button>
       </form>
     </section>
   );

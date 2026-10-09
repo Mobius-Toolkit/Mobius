@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -117,7 +118,7 @@ func (r Repository) JobLog(ctx context.Context, id int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	response, err := http.DefaultClient.Do(request)
+	response, err := (&http.Client{Timeout: Timeout}).Do(request)
 	if err != nil {
 		return "", err
 	}
@@ -127,6 +128,21 @@ func (r Repository) JobLog(ctx context.Context, id int64) (string, error) {
 	}
 	text, err := io.ReadAll(response.Body)
 	return string(text), err
+}
+
+// MergePullRequest squash merges the pull request number if its head is sha. It tells if GitHub merged the pull
+// request. It gives the reason when GitHub refuses the merge, for example for a rule of the base branch. A head that is
+// not sha is no refusal and no merge, because the next poll reads the new head.
+func (r Repository) MergePullRequest(ctx context.Context, number int64, sha string) (bool, string, error) {
+	_, _, err := r.Client.PullRequests.Merge(ctx, r.Owner(), r.Name(), int(number), "", &gh.PullRequestOptions{MergeMethod: "squash", SHA: sha})
+	var response *gh.ErrorResponse
+	if errors.As(err, &response) && response.Response.StatusCode == http.StatusConflict {
+		return false, "", nil
+	}
+	if errors.As(err, &response) && (response.Response.StatusCode == http.StatusMethodNotAllowed || response.Response.StatusCode == http.StatusUnprocessableEntity) {
+		return false, response.Message, nil
+	}
+	return err == nil, "", err
 }
 
 // UserID gives the id of the account login.

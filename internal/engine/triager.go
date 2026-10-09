@@ -9,7 +9,10 @@ import (
 	"slices"
 	"strings"
 
+	gh "github.com/google/go-github/v92/github"
+
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // triageKey names the Triager session of one issue.
@@ -39,6 +42,71 @@ func (e *Engine) triage(ctx context.Context, repository github.Repository, numbe
 		e.untrack()
 		return false, err
 	}
+	e.startTriager(repository, number)
+	return true, nil
+}
+
+// retriage starts the Triager of the open issue with mobius:no-workstream again after the comments of events, and adds
+// the reaction of an agent that gets them. The Triager reads the comments of the issue.
+func (e *Engine) retriage(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueComment) error {
+	if err := acknowledge(ctx, repository, events); err != nil {
+		return err
+	}
+	return e.restartTriager(ctx, repository, int64(issue.GetNumber()))
+}
+
+// restartTriager starts the Triager of the issue number again. A running Triager stops first, so the new run reads the
+// comments again. While the drain is on, the database keeps the issue for startHeldTriagers.
+func (e *Engine) restartTriager(ctx context.Context, repository github.Repository, number int64) error {
+	if !e.tryTrack() {
+		return e.queries.HoldTriager(ctx, store.HoldTriagerParams{Repository: repository.FullName, Issue: number})
+	}
+	e.triagesMu.Lock()
+	running, ok := e.triages[triageKey{repository.FullName, number}]
+	e.triagesMu.Unlock()
+	if ok {
+		running.stop()
+		select {
+		case <-running.done:
+		case <-ctx.Done():
+			e.untrack()
+			return ctx.Err()
+		}
+	}
+	e.startTriager(repository, number)
+	return nil
+}
+
+// startHeldTriagers starts the Triagers that the drain held, when the issue is still open and has
+// mobius:no-workstream. It starts none while the drain is on.
+func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Repository) error {
+	if e.draining() {
+		return nil
+	}
+	numbers, err := e.queries.ListHeldTriagers(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	for _, number := range numbers {
+		issue, err := repository.Issue(ctx, number)
+		if err != nil {
+			return err
+		}
+		if err := e.queries.ReleaseTriager(ctx, store.ReleaseTriagerParams{Repository: repository.FullName, Issue: number}); err != nil {
+			return err
+		}
+		if issue == nil || issue.GetState() != "open" || !hasLabel(issue, noWorkstreamLabel) {
+			continue
+		}
+		if err := e.restartTriager(ctx, repository, number); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// startTriager runs the Triager of the issue number in a goroutine. The caller holds a tryTrack.
+func (e *Engine) startTriager(repository github.Repository, number int64) {
 	triageCtx, stop := context.WithCancel(context.Background())
 	key := triageKey{repository.FullName, number}
 	running := triage{stop, make(chan struct{})}
@@ -55,7 +123,6 @@ func (e *Engine) triage(ctx context.Context, repository github.Repository, numbe
 		e.triagesMu.Unlock()
 		stop()
 	}()
-	return true, nil
 }
 
 // runTriager runs the Triager session of the issue number. When the issue keeps mobius:no-workstream, the last text of
@@ -83,7 +150,21 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err != nil {
 		return a.Fail(ended, err)
 	}
+	comments, err := repository.Comments(ctx, number)
+	if err != nil {
+		return a.Fail(ended, err)
+	}
+	e.launchTriagerComments(ctx, repository, comments)
 	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n#%d %s\n\n%s", triagerPrompt, workstreams, number, issue.GetTitle(), issue.GetBody())
+	comments = slices.DeleteFunc(comments, func(comment *gh.IssueComment) bool {
+		return !e.TrustedAuthor(repository.AppSlug, comment.GetUser().GetLogin())
+	})
+	if len(comments) > 0 {
+		prompt += "\n\n# Comments\n"
+		for _, comment := range comments {
+			prompt += entry(comment.GetUser().GetLogin(), comment.GetCreatedAt().Time, "", comment.GetBody())
+		}
+	}
 	err = a.Prompt(ctx, prompt, nil)
 	switch {
 	case ctx.Err() != nil:

@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/coder/acp-go-sdk"
 
@@ -40,6 +41,12 @@ var fullAutoModes = map[config.Harness]string{
 
 // The ACP error code of session/new when the agent needs a login.
 const authRequired = -32000
+
+// StartTimeout is the time that the ACP requests of a start have: initialize and session/new, and the requests of
+// Configure. A start of a Harness on a loaded machine takes seconds, so a start that reaches this time has hung.
+var StartTimeout = 5 * time.Minute
+
+var errStartTimeout = errors.New("the start took longer than")
 
 // ghURLEnv is the environment variable of an agent process that gives the URL of the token of its gh.
 const ghURLEnv = "MOBIUS_GH_TOKEN_URL"
@@ -208,11 +215,25 @@ func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpU
 		return nil, fmt.Errorf("%s: %w", program, err)
 	}
 	session := &Session{harness: harness, conn: conn, cmd: cmd, stop: stop}
-	if err := session.open(ctx, cwd, mcpURL); err != nil {
+	if err := session.limited(ctx, func(ctx context.Context) error { return session.open(ctx, cwd, mcpURL) }); err != nil {
 		session.Close()
+		if errors.Is(err, errStartTimeout) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%s: %w", program, describe(err))
 	}
 	return session, nil
+}
+
+// limited runs request with ctx limited to StartTimeout. When only the limit ends it, limited gives errStartTimeout.
+func (s *Session) limited(ctx context.Context, request func(context.Context) error) error {
+	limit, cancel := context.WithTimeout(ctx, StartTimeout)
+	defer cancel()
+	err := request(limit)
+	if err != nil && ctx.Err() == nil && limit.Err() != nil {
+		return fmt.Errorf("%s: %w %s", Program(s.harness), errStartTimeout, StartTimeout)
+	}
+	return err
 }
 
 // LogInAntigravity starts the Google login of Antigravity when Antigravity is not logged in.
@@ -319,6 +340,10 @@ func (s *Session) choices(category acp.SessionConfigOptionCategory) Choices {
 
 // Configure sets the model, the effort when it is not empty, and the full auto mode.
 func (s *Session) Configure(ctx context.Context, model, effort string) error {
+	return s.limited(ctx, func(ctx context.Context) error { return s.configure(ctx, model, effort) })
+}
+
+func (s *Session) configure(ctx context.Context, model, effort string) error {
 	if err := s.set(ctx, acp.SessionConfigOptionCategoryModel, "model", model); err != nil {
 		return err
 	}
@@ -388,9 +413,18 @@ func (s *Session) ImagesSupported() bool {
 	return s.images
 }
 
+// PromptResult is the result of session/prompt.
+type PromptResult struct {
+	StopReason acp.StopReason `json:"stopReason"`
+	// Usage is the raw usage field, a draft of ACP, or nil.
+	Usage json.RawMessage `json:"usage"`
+	// Meta is the raw _meta field, or nil.
+	Meta json.RawMessage `json:"_meta"`
+}
+
 // Prompt sends text and then each image, and holds until the turn ends. The updates of the turn go to the updates
 // function of Start before Prompt returns. A prompt with no text has no text block.
-func (s *Session) Prompt(ctx context.Context, text string, images []Image) (acp.StopReason, error) {
+func (s *Session) Prompt(ctx context.Context, text string, images []Image) (PromptResult, error) {
 	var blocks []acp.ContentBlock
 	if text != "" {
 		blocks = append(blocks, acp.TextBlock(text))
@@ -398,8 +432,7 @@ func (s *Session) Prompt(ctx context.Context, text string, images []Image) (acp.
 	for _, image := range images {
 		blocks = append(blocks, acp.ImageBlock(base64.StdEncoding.EncodeToString(image.Data), image.MIMEType))
 	}
-	response, err := acp.SendRequest[acp.PromptResponse](s.conn, ctx, acp.AgentMethodSessionPrompt, acp.PromptRequest{SessionId: s.id, Prompt: blocks})
-	return response.StopReason, err
+	return acp.SendRequest[PromptResult](s.conn, ctx, acp.AgentMethodSessionPrompt, acp.PromptRequest{SessionId: s.id, Prompt: blocks})
 }
 
 // Cancel asks the agent to end the turn of the session that runs.

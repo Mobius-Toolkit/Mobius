@@ -337,12 +337,16 @@ func (g *FakeGitHub) listInstallationRepositories(w http.ResponseWriter, r *http
 	for _, repository := range g.repositories {
 		if g.appOf(repository) == found.app {
 			owner, name, _ := strings.Cut(repository, "/")
+			cloneURL, set := g.cloneURLs[repository]
+			if !set {
+				cloneURL = "file://" + g.Remote(repository)
+			}
 			repositories = append(repositories, repositoryJSON{
 				FullName:      repository,
 				Name:          name,
 				Owner:         map[string]string{"login": owner},
 				DefaultBranch: "main",
-				CloneURL:      "file://" + g.Remote(repository),
+				CloneURL:      cloneURL,
 			})
 		}
 	}
