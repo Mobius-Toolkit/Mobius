@@ -47,13 +47,24 @@ func workerRestarts(t *testing.T, server *testserver.Server) int64 {
 // the restart of the Reviewer fails until openPullRequest.
 func seedReviewer(t *testing.T, fake *testkit.FakeGitHub, adjust func(*config.Config)) *testserver.Server {
 	t.Helper()
+	return seedReviewerAs(t, fake, options+noFinding, adjust)
+}
+
+// seedReviewerWith is seedReviewer with the agent script script.
+func seedReviewerWith(t *testing.T, fake *testkit.FakeGitHub, script string) *testserver.Server {
+	t.Helper()
+	return seedReviewerAs(t, fake, options+script, func(*config.Config) {})
+}
+
+func seedReviewerAs(t *testing.T, fake *testkit.FakeGitHub, script string, adjust func(*config.Config)) *testserver.Server {
+	t.Helper()
 	dataDir := t.TempDir()
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
-	testkit.InstallFakeAgent(t, dataDir, options+noFinding)
+	testkit.InstallFakeAgent(t, dataDir, script)
 	seed(t, dataDir,
 		`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, queued_at, branch, pull_request, worker, worker_input)
 		 VALUES (1, 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'mobius/41', 42, 'reviewer', NULL)`)
