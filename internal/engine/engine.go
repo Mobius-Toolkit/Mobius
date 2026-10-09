@@ -135,15 +135,22 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 	}
 }
 
-// stopper is a context of Workers with the function that ends it.
+// stopper is a context of Workers with the function that ends it. starts is the number of Workers that started with
+// the context.
 type stopper struct {
-	ctx  context.Context
-	stop context.CancelFunc
+	ctx    context.Context
+	stop   context.CancelFunc
+	starts int
 }
 
 // startWorker runs work in the background with the context of key, a task id, a researcherKey or a curatorKey. The context
 // ends at the next stop of key and at the end of Run. After the end of Run, startWorker does nothing and gives false.
 func (e *Engine) startWorker(key any, work func(context.Context)) bool {
+	return e.startNumberedWorker(key, func(ctx context.Context, _ int) { work(ctx) })
+}
+
+// startNumberedWorker runs work like startWorker. work gets the number of its start, which startedAfter compares.
+func (e *Engine) startNumberedWorker(key any, work func(context.Context, int)) bool {
 	e.stopsMu.Lock()
 	defer e.stopsMu.Unlock()
 	if e.closed {
@@ -152,10 +159,18 @@ func (e *Engine) startWorker(key any, work func(context.Context)) bool {
 	found, ok := e.stops[key]
 	if !ok {
 		found.ctx, found.stop = context.WithCancel(context.Background())
-		e.stops[key] = found
 	}
-	e.running.Go(func() { work(found.ctx) })
+	found.starts++
+	e.stops[key] = found
+	e.running.Go(func() { work(found.ctx, found.starts) })
 	return true
+}
+
+// startedAfter tells if a Worker of key started after the Worker with the start number start.
+func (e *Engine) startedAfter(key any, start int) bool {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	return e.stops[key].starts > start
 }
 
 // ended tells that Run ended.

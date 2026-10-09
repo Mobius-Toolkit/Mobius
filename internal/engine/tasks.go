@@ -145,7 +145,7 @@ func taskText(lines []taskLine) string {
 type TaskLine struct {
 	Number int64
 	Title  string
-	// State is the Mobius label with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead".
+	// State is the Mobius label with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task that waits for start_implementer shows "waits for start_implementer".
 	State string
 	URL   string
 	// Depth is 0 for a sub-issue of the Workstream issue, and one more for each level below.
@@ -232,7 +232,7 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 	return lines, nil
 }
 
-// waitState gives the line state of a task that waits for a slot, for CI or for the Lead. Any other task keeps the Mobius label.
+// waitState gives the line state of a task that waits for a slot, for CI, for the Lead or for start_implementer. Any other task keeps the Mobius label.
 func waitState(task, label string) string {
 	switch task {
 	case "queued":
@@ -241,6 +241,8 @@ func waitState(task, label string) string {
 		return "waits for CI"
 	case "approval":
 		return "waits for Lead"
+	case "dispatched":
+		return "waits for start_implementer"
 	}
 	return label
 }

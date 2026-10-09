@@ -59,6 +59,7 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 //   - A removal of the label that the state needs by a person stops the task: mobius:review for a task in ready_for_review,
 //     and mobius:working for a task in another state. A Judge that runs from ready_for_review needs mobius:review, and a
 //     Judge that runs from needs_human needs no label.
+//   - A task in needs_human gets the labels that handToHuman sets (labelsOfNeedsHuman).
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
 //     conflict round. A failed check run of another App on its head gets a fix round.
 //   - Else a task in checks moves to approval when the CI of the head passed (onChecks).
@@ -93,6 +94,9 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	if task.State != "stopped" && task.State != "needs_human" && !judgeOfHuman && !hasLabel(issue, needed) {
 		return Work{}, false, e.labelRemoved(ctx, repository, task, issue, needed)
+	}
+	if err := e.labelsOfNeedsHuman(ctx, repository, task, issue); err != nil {
+		return Work{}, false, err
 	}
 	if pullRequest == nil {
 		return Work{}, false, nil
@@ -134,6 +138,25 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	judged, err := e.judge(ctx, repository, task, pullRequest, waiting)
 	return work, judged, err
+}
+
+// labelsOfNeedsHuman gives the issue of a task in needs_human the labels that handToHuman sets, and writes nothing when
+// the issue has them. A mobius:ready label waits for the dispatch, which resumes the task.
+func (e *Engine) labelsOfNeedsHuman(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue) error {
+	if task.State != "needs_human" || hasLabel(issue, readyLabel) {
+		return nil
+	}
+	for _, label := range []string{workingLabel, reviewLabel} {
+		if hasLabel(issue, label) {
+			if err := repository.RemoveLabel(ctx, task.Issue, label); err != nil {
+				return err
+			}
+		}
+	}
+	if hasLabel(issue, needsHumanLabel) {
+		return nil
+	}
+	return repository.AddLabel(ctx, task.Issue, needsHumanLabel)
 }
 
 // afterReview tells if the state is one of the states of a task whose Reviewer has no open finding: the task waits for

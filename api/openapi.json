@@ -4377,7 +4377,7 @@
           },
           "state": {
             "type": "string",
-            "description": "State is the Mobius label of the issue with no \"mobius:\", or open, or closed for a closed issue. A task that waits for a slot shows \"queued\". A task that waits for CI shows \"waits for CI\". A task that waits for the Lead shows \"waits for Lead\"."
+            "description": "State is the Mobius label of the issue with no \"mobius:\", or open, or closed for a closed issue. A task that waits for a slot shows \"queued\". A task that waits for CI shows \"waits for CI\". A task that waits for the Lead shows \"waits for Lead\". A task that waits for start_implementer shows \"waits for start_implementer\"."
           },
           "title": {
             "type": "string",

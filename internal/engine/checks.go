@@ -55,18 +55,12 @@ func (e *Engine) unhandledFailure(ctx context.Context, repository github.Reposit
 	return len(runs) > 0, err
 }
 
-// onFailure starts a fix round when check runs of other Apps failed on the head of the pull request of the task in
-// ready_for_review, checks or approval. Each failed check run is an item with its annotations, and a check run of
-// GitHub Actions also has the end of its job log. A head gets one round. It gives true when a round started, or when
-// the task left its state.
-func (e *Engine) onFailure(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
-	head := pullRequest.GetHead().GetSHA()
-	if task.CheckHead.String == head {
-		return false, nil
-	}
+// ciItems gives the items of a fix round for the failed check runs of other Apps on the commit head. Each failed check
+// run is an item with its annotations, and a check run of GitHub Actions also has the end of its job log.
+func ciItems(ctx context.Context, repository github.Repository, head string) (string, error) {
 	runs, err := failedCheckRuns(ctx, repository, head)
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	var items strings.Builder
 	for _, run := range runs {
@@ -74,7 +68,7 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 		fmt.Fprintf(&items, "\nCheck run \"%s\", %s:\n%s\n\n%s\n", run.GetName(), run.GetHTMLURL(), output.GetTitle(), output.GetSummary())
 		annotations, err := repository.CheckRunAnnotations(ctx, run.GetID())
 		if err != nil {
-			return false, err
+			return "", err
 		}
 		for _, annotation := range annotations {
 			fmt.Fprintf(&items, "- %s line %d: %s\n", annotation.GetPath(), annotation.GetStartLine(), annotation.GetMessage())
@@ -88,7 +82,22 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 		}
 		items.WriteString("\nAction: fix\n")
 	}
-	if items.Len() == 0 {
+	return items.String(), nil
+}
+
+// onFailure starts a fix round when check runs of other Apps failed on the head of the pull request of the task in
+// ready_for_review, checks or approval. A head gets one round. It gives true when a round started, or when
+// the task left its state.
+func (e *Engine) onFailure(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
+	head := pullRequest.GetHead().GetSHA()
+	if task.CheckHead.String == head {
+		return false, nil
+	}
+	items, err := ciItems(ctx, repository, head)
+	if err != nil {
+		return false, err
+	}
+	if items == "" {
 		return false, nil
 	}
 	issue, err := existingIssue(ctx, repository, task.Issue)
@@ -103,7 +112,7 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	if err != nil || moved == 0 {
 		return true, err
 	}
-	if err := e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items.String(), parent: parent, failedCheck: true}); err != nil {
+	if err := e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items, parent: parent, failedCheck: true}); err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "working"})
 		return false, errors.Join(err, stateErr)
 	}

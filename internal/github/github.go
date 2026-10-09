@@ -67,6 +67,10 @@ type GitHub struct {
 	transports map[int64]*ghinstallation.Transport
 }
 
+// Timeout is the longest time of one HTTP call to GitHub, from the start of the request to the end of the response
+// body. A normal call, also the download of a large job log on a slow connection, is much shorter.
+var Timeout = 5 * time.Minute
+
 // Repository is a repository of an installation of a Mobius App.
 type Repository struct {
 	// FullName is "owner/name".
@@ -82,6 +86,8 @@ type Repository struct {
 
 // Token gives an installation token of the repository that is valid for one more minute or longer.
 func (r Repository) Token(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, Timeout)
+	defer cancel()
 	return r.installation.Token(ctx)
 }
 
@@ -102,7 +108,7 @@ func New(queries *store.Queries, apiURL, webURL string, trustedUsers []string) (
 
 func (g *GitHub) client(options ...gh.ClientOptionsFunc) (*gh.Client, error) {
 	base := g.apiURL + "/"
-	return gh.NewClient(append(options, gh.WithURLs(&base, &base))...)
+	return gh.NewClient(append(options, gh.WithURLs(&base, &base), gh.WithTimeout(Timeout))...)
 }
 
 // ManifestForm is the form that creates a Mobius App on GitHub.
@@ -250,7 +256,7 @@ func (g *GitHub) exchange(ctx context.Context, body map[string]string) (userToke
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
-	response, err := http.DefaultClient.Do(request)
+	response, err := (&http.Client{Timeout: Timeout}).Do(request)
 	if err != nil {
 		return userTokens{}, err
 	}
