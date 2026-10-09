@@ -193,6 +193,8 @@ func TestFetchSendsTheTokenHeader(t *testing.T) {
 }
 
 func TestPullAbortsAMergeWithConflicts(t *testing.T) {
+	t.Setenv("GIT_COMMITTER_NAME", "Test")
+	t.Setenv("GIT_COMMITTER_EMAIL", "test@example.com")
 	dataDir := t.TempDir()
 	source := filepath.Join(dataDir, "source")
 	if err := os.Mkdir(source, 0o750); err != nil {
