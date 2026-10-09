@@ -287,6 +287,35 @@ func TestAMergeWithConflictsStopsTheTaskWithNoRestartAndLeavesACleanWorktree(t *
 	}
 }
 
+func TestARewrittenPushedCommitStopsTheTaskBeforeThePushWithNoRestartAndLeavesACleanWorktree(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	commitAs := "git -c user.name=agent -c user.email=agent@example.com commit -q -m 'Add plan model'"
+	rewrites := fmt.Sprintf("[[prompts]]\nshell = '''echo rewritten > plan.txt && git add plan.txt && %s && other=$(mktemp -d) && git clone -q --branch=main '%s' \"$other\" && cd \"$other\" && echo pushed > plan.txt && git add plan.txt && %s && git push -q origin HEAD:refs/heads/mobius/41'''\n", commitAs, fake.Remote(shop), commitAs)
+	server, dataDir := connectTask(t, fake, leadStarts, rewrites, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	prompt := waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the local branch diverged from origin/mobius/41, and the merge had conflicts. Mobius pushed nothing")
+	if !strings.Contains(prompt, "merge conflict in plan.txt") {
+		t.Errorf("prompt = %s", prompt)
+	}
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
+	if status := testkit.Git(t, worktree, "status", "--porcelain"); status != "" {
+		t.Errorf("status = %s", status)
+	}
+	sessions := roleSessions(t, server, engine.ImplementerRole)
+	if len(sessions) != 1 || sessions[0].EndReason.String != "merge_conflict" {
+		t.Errorf("sessions = %+v", sessions)
+	}
+	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 0 {
+		t.Errorf("pull requests = %+v", pullRequests)
+	}
+}
+
 func TestACommitOnTheBranchDuringARoundMergesBeforeThePush(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, commits, noChange)
