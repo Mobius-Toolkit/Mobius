@@ -128,19 +128,17 @@ func (e *Engine) recover(ctx context.Context, repository github.Repository) erro
 		if task.State != "queued" && task.State != "working" {
 			continue
 		}
-		var err error
 		switch task.Worker.String {
 		case ImplementerRole, checkRoundWorker, conflictRoundWorker:
-			err = e.restartImplementer(ctx, repository, task)
+			e.restartImplementer(repository, task)
 		case ReviewerRole:
-			err = e.restartReviewer(ctx, repository, task)
+			e.restartReviewer(repository, task)
 		// The poll gives the items to a new Judge.
 		case JudgeRole:
 			before := cmp.Or(task.WorkerInput.String, "reviewed")
-			_, err = e.setTaskState(ctx, store.SetTaskStateParams{State: before, ID: task.ID, FromState: "working"})
-		}
-		if err != nil {
-			log.Printf("start the %s of %s#%d again: %v", task.Worker.String, repository.FullName, task.Issue, err)
+			if _, err := e.setTaskState(ctx, store.SetTaskStateParams{State: before, ID: task.ID, FromState: "working"}); err != nil {
+				log.Printf("start the %s of %s#%d again: %v", task.Worker.String, repository.FullName, task.Issue, err)
+			}
 		}
 	}
 	return nil

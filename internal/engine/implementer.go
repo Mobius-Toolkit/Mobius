@@ -324,7 +324,8 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 
 // fixRound starts a fix round of the Implementer on the pull request of the working task. The pull request is a draft
 // during the round. At max_fix_rounds, a round that counts hands the task to a human instead. A task that is not
-// working, for example after a decline, gets no round.
+// working, for example after a decline, gets no round. The steps after the queue step run in the Worker, so an error
+// there starts the Implementer of the round again.
 func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r round) error {
 	if err := makeDraft(ctx, repository, r.pullRequest); err != nil {
 		return err
@@ -358,9 +359,6 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err != nil || queued == 0 {
 		return err
 	}
-	if err := resumeWork(ctx, repository, r.task); err != nil {
-		return err
-	}
 	j := job{
 		task:        r.task,
 		title:       r.title,
@@ -374,13 +372,18 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if r.failedCheck {
 		worker = checkRoundWorker
 	}
-	if err := e.setWorker(ctx, r.task.ID, worker, j.prompt); err != nil {
-		return err
-	}
-	if r.failedCheck {
-		e.addWork(r.task.ID, pullRequestWork(repository, r.pullRequest))
-	}
-	e.runImplementer(j)
+	e.runPreparedWorker(j.task, &j.title, "Implementer", func(ctx context.Context) (bool, error) {
+		if err := e.setWorker(ctx, r.task.ID, worker, j.prompt); err != nil {
+			return false, err
+		}
+		if err := resumeWork(ctx, repository, r.task); err != nil {
+			return false, err
+		}
+		if r.failedCheck {
+			e.addWork(r.task.ID, pullRequestWork(repository, r.pullRequest))
+		}
+		return true, nil
+	}, func(ctx context.Context) error { return e.implementer(ctx, &j) })
 	return nil
 }
 
@@ -462,39 +465,44 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 }
 
 // restartImplementer starts the Implementer of the queued or working task again with the same prompt, after a
-// restart of the server. The task keeps its place in the queue.
-func (e *Engine) restartImplementer(ctx context.Context, repository github.Repository, task store.Task) error {
+// restart of the server. The task keeps its place in the queue. An error in the steps before the session starts the
+// Worker again.
+func (e *Engine) restartImplementer(repository github.Repository, task store.Task) {
 	if !task.WorkerInput.Valid {
-		return nil
+		return
 	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
-	if err != nil {
-		return err
-	}
-	var pullRequest *gh.PullRequest
-	if task.PullRequest.Valid {
-		if pullRequest, err = repository.PullRequest(ctx, task.PullRequest.Int64); err != nil {
-			return err
+	var j job
+	e.runPreparedWorker(task, &j.title, "Implementer", func(ctx context.Context) (bool, error) {
+		issue, err := existingIssue(ctx, repository, task.Issue)
+		if err != nil {
+			return false, err
 		}
-	}
-	parent, err := e.restartParent(ctx, task, ImplementerRole)
-	if err != nil {
-		return err
-	}
-	queued, err := e.queries.RequeueTask(ctx, task.ID)
-	if err != nil || queued == 0 {
-		return err
-	}
-	e.runImplementer(job{
-		task:          task,
-		title:         issue.GetTitle(),
-		branch:        task.Branch.String,
-		pullRequest:   pullRequest,
-		conflictRound: task.Worker.String == conflictRoundWorker,
-		prompt:        task.WorkerInput.String,
-		parent:        parent,
-	})
-	return nil
+		j.title = issue.GetTitle()
+		var pullRequest *gh.PullRequest
+		if task.PullRequest.Valid {
+			if pullRequest, err = repository.PullRequest(ctx, task.PullRequest.Int64); err != nil {
+				return false, err
+			}
+		}
+		parent, err := e.restartParent(ctx, task, ImplementerRole)
+		if err != nil {
+			return false, err
+		}
+		queued, err := e.queries.RequeueTask(ctx, task.ID)
+		if err != nil || queued == 0 {
+			return false, err
+		}
+		j = job{
+			task:          task,
+			title:         j.title,
+			branch:        task.Branch.String,
+			pullRequest:   pullRequest,
+			conflictRound: task.Worker.String == conflictRoundWorker,
+			prompt:        task.WorkerInput.String,
+			parent:        parent,
+		}
+		return true, nil
+	}, func(ctx context.Context) error { return e.implementer(ctx, &j) })
 }
 
 func (e *Engine) setWorker(ctx context.Context, task int64, worker, input string) error {
@@ -508,25 +516,44 @@ func (e *Engine) setWorker(ctx context.Context, task int64, worker, input string
 // runImplementer runs the job in the background until the task stops. After a failure, the Implementer starts again
 // after the wait of RestartWorker.
 func (e *Engine) runImplementer(j job) {
-	e.runWorker(j.task, j.title, "Implementer", func(ctx context.Context) error { return e.implementer(ctx, &j) })
+	e.runWorker(j.task, &j.title, "Implementer", func(ctx context.Context) error { return e.implementer(ctx, &j) })
 }
 
-// runWorker runs work, the Worker name of the task with title, in the background until the task stops. An error of
-// work tells that the Worker must start again: after the wait of RestartWorker, the task goes back to the queue and
-// work runs again.
-func (e *Engine) runWorker(task store.Task, title, name string, work func(context.Context) error) {
-	e.startWorker(task.ID, func(ctx context.Context) {
+// runPreparedWorker runs work like runWorker, after prepare. prepare gives false when the task stopped, and then work
+// does not run. After an error of prepare, prepare runs again before work. After its success, only work runs again.
+func (e *Engine) runPreparedWorker(task store.Task, title *string, name string, prepare func(context.Context) (bool, error), work func(context.Context) error) {
+	prepared := false
+	e.runWorker(task, title, name, func(ctx context.Context) error {
+		if !prepared {
+			ok, err := prepare(ctx)
+			if err != nil || !ok {
+				return err
+			}
+			prepared = true
+		}
+		return work(ctx)
+	})
+}
+
+// runWorker runs work, the Worker name of the task, in the background until the task stops. title points to the title
+// of the issue of the task, which is empty until work reads it. An error of work tells that the Worker must start
+// again: after the wait of RestartWorker, the queued or working task goes to the queue and work runs again. A task in
+// another state, for example after a decline, does not start again. A Worker that a newer Worker replaced, for example
+// the Reviewer after it started a fix round, does not start again.
+func (e *Engine) runWorker(task store.Task, title *string, name string, work func(context.Context) error) {
+	e.startNumberedWorker(task.ID, func(ctx context.Context, start int) {
 		for {
 			err := work(ctx)
 			if err == nil {
 				return
 			}
 			log.Printf("%s of %s#%d: %v", name, task.Repository, task.Issue, err)
-			again, err := e.RestartWorker(ctx, task, title, err)
+			if e.startedAfter(task.ID, start) {
+				return
+			}
+			again, err := e.RestartWorker(ctx, task, *title, err)
 			if err == nil && again {
-				var queued int64
-				queued, err = e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: "working"})
-				again = queued > 0
+				again, err = e.queueAgain(ctx, task.ID)
 			}
 			if err != nil && ctx.Err() == nil {
 				log.Printf("restart of %s#%d: %v", task.Repository, task.Issue, err)
@@ -536,6 +563,16 @@ func (e *Engine) runWorker(task store.Task, title, name string, work func(contex
 			}
 		}
 	})
+}
+
+// queueAgain puts a working task at the end of the queue, and keeps the place of a queued task. It tells if the task
+// was working or queued.
+func (e *Engine) queueAgain(ctx context.Context, task int64) (bool, error) {
+	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task, FromState: "working"})
+	if err == nil && queued == 0 {
+		queued, err = e.queries.RequeueTask(ctx, task)
+	}
+	return queued > 0, err
 }
 
 // implementer runs one Implementer session of the job, and acts on its outcome. The end of ctx stops the session.
