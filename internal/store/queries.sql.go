@@ -425,7 +425,7 @@ func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session
 
 const addTask = `-- name: AddTask :one
 INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES (?, ?, ?, 'dispatched', ?)
-RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, conflict_head, ci_failed_head
+RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head
 `
 
 type AddTaskParams struct {
@@ -463,6 +463,7 @@ func (q *Queries) AddTask(ctx context.Context, arg AddTaskParams) (Task, error) 
 		&i.CheckHead,
 		&i.ApprovedReview,
 		&i.RefusedReview,
+		&i.NeedsHumanAt,
 		&i.ConflictHead,
 		&i.CiFailedHead,
 	)
@@ -1071,7 +1072,7 @@ func (q *Queries) GetLastDoneCuratorStart(ctx context.Context, repository string
 }
 
 const getLiveTask = `-- name: GetLiveTask :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, conflict_head, ci_failed_head FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
 `
 
 type GetLiveTaskParams struct {
@@ -1102,6 +1103,7 @@ func (q *Queries) GetLiveTask(ctx context.Context, arg GetLiveTaskParams) (Task,
 		&i.CheckHead,
 		&i.ApprovedReview,
 		&i.RefusedReview,
+		&i.NeedsHumanAt,
 		&i.ConflictHead,
 		&i.CiFailedHead,
 	)
@@ -1109,7 +1111,7 @@ func (q *Queries) GetLiveTask(ctx context.Context, arg GetLiveTaskParams) (Task,
 }
 
 const getLiveTaskByPullRequest = `-- name: GetLiveTaskByPullRequest :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, conflict_head, ci_failed_head FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
 `
 
 type GetLiveTaskByPullRequestParams struct {
@@ -1140,6 +1142,7 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 		&i.CheckHead,
 		&i.ApprovedReview,
 		&i.RefusedReview,
+		&i.NeedsHumanAt,
 		&i.ConflictHead,
 		&i.CiFailedHead,
 	)
@@ -1255,6 +1258,24 @@ func (q *Queries) GetSyncCursor(ctx context.Context, arg GetSyncCursorParams) (G
 	var i GetSyncCursorRow
 	err := row.Scan(&i.Since, &i.Etag)
 	return i, err
+}
+
+const handTaskToHuman = `-- name: HandTaskToHuman :execrows
+UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?1 AND state = ?2
+`
+
+type HandTaskToHumanParams struct {
+	ID        int64
+	FromState string
+}
+
+func (q *Queries) HandTaskToHuman(ctx context.Context, arg HandTaskToHumanParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, handTaskToHuman, arg.ID, arg.FromState)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const hasCopiedWorkstream = `-- name: HasCopiedWorkstream :one
@@ -2224,7 +2245,7 @@ func (q *Queries) ListLiveTaskRepositories(ctx context.Context) ([]string, error
 }
 
 const listLiveTasks = `-- name: ListLiveTasks :many
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, conflict_head, ci_failed_head FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
 `
 
 func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task, error) {
@@ -2256,6 +2277,7 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 			&i.CheckHead,
 			&i.ApprovedReview,
 			&i.RefusedReview,
+			&i.NeedsHumanAt,
 			&i.ConflictHead,
 			&i.CiFailedHead,
 		); err != nil {
