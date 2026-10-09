@@ -202,6 +202,31 @@ reply = ["second"]
 	}
 }
 
+func TestAPromptResponseHasTheUsageAndTheMetaOfTheScript(t *testing.T) {
+	c := start(t, `
+[[prompts]]
+usage = '{"inputTokens": 10}'
+meta = '{"quota": {}}'
+`)
+	if err := c.newSession(t, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	var response map[string]any
+	err := c.call(t, acp.AgentMethodSessionPrompt, map[string]any{
+		"sessionId": "fake-session",
+		"prompt":    []any{map[string]any{"type": "text", "text": "go"}},
+	}, &response)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := map[string]any{"stopReason": "end_turn", "usage": map[string]any{"inputTokens": 10.0}, "_meta": map[string]any{"quota": map[string]any{}}}
+	if !reflect.DeepEqual(response, want) {
+		t.Errorf("response = %+v", response)
+	}
+}
+
 func TestATurnSendsTheUpdatesThenTheReplyThenTheShellOutput(t *testing.T) {
 	c := start(t, `
 [[prompts]]
