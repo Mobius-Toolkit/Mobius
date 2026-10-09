@@ -412,10 +412,10 @@ export function Conversation({
     if (!list || !loaded || !older) {
       return;
     }
-    if (waiting || (scrolledCount.current !== undefined && list.scrollTop < list.clientHeight)) {
+    if (waiting || (openUnread !== undefined && list.scrollTop < list.clientHeight)) {
       loadOlder();
     }
-  }, [loaded, older, waiting, loadOlder]);
+  }, [loaded, older, waiting, openUnread, loadOlder]);
 
   // The first scroll shows the first unread message, or the end. Then a new message scrolls to the end, and a longer
   // last message scrolls only while the Owner is at the end.
