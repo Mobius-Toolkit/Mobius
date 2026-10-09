@@ -131,7 +131,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				"Create an issue below an issue of the Workstream. Mobius adds the blockers as native issue dependencies.",
 				map[string]any{
 					"title":      map[string]any{"type": "string", "minLength": 1, "description": "The title of the issue."},
-					"body":       map[string]any{"type": "string", "description": "The body of the issue: the goal, the limits, and what \"done\" means."},
+					"body":       map[string]any{"type": "string", "description": "The body of the issue, with the sections Goal, Today (optional), Change, Limits, and Done, in this order."},
 					"parent":     map[string]any{"type": "integer", "minimum": 1, "description": "The Workstream issue or an issue below it."},
 					"blocked_by": map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}, "description": "The issues that block this issue. They can be in another Workstream."},
 				},
