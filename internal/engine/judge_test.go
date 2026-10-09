@@ -1,6 +1,9 @@
 package engine_test
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -222,7 +225,13 @@ func TestACommentInAnUnresolvedThreadMakesTheJudgeRunAgain(t *testing.T) {
 // start a fix round, and the round limit then hands the task to a human.
 func judgeToHuman(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
-	server := connectJudge(t, fake, "shell = \"true\"\n", fixesEach, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
+	return judgeToHumanWith(t, fake, "shell = \"true\"\n")
+}
+
+// judgeToHumanWith is judgeToHuman with the script of the Judge.
+func judgeToHumanWith(t *testing.T, fake *testkit.FakeGitHub, judge string) *testserver.Server {
+	t.Helper()
+	server := connectJudge(t, fake, judge, fixesEach, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
 	fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier.")
 	fake.AddReviewComment(shop, 42, 0, bot, "Rename tier to plan.")
 	testkit.WaitFor(t, func() bool {
@@ -298,5 +307,44 @@ func TestACommentOnThePullRequestOfATaskInApprovalGoesOnlyToTheJudge(t *testing.
 	waitForPolls(t, fake)
 	if slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "Why cents?") }) {
 		t.Errorf("Lead prompts = %q", leadPrompts(t, server))
+	}
+}
+
+func needsHumanAt(t *testing.T, server *testserver.Server) string {
+	t.Helper()
+	var movedAt string
+	if err := server.DB.QueryRow("SELECT needs_human_at FROM tasks WHERE id = 1").Scan(&movedAt); err != nil {
+		t.Fatal(err)
+	}
+	return movedAt
+}
+
+func TestARemovalOfNeedsHumanWhileTheJudgeOfTheHumanTaskRunsContinuesTheTask(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	dir := t.TempDir()
+	start, running, release := filepath.Join(dir, "start"), filepath.Join(dir, "running"), filepath.Join(dir, "release")
+	waits := fmt.Sprintf("shell = \"if [ -e '%[1]s' ]; then touch '%[2]s'; while [ ! -e '%[3]s' ]; do sleep 0.05; done; fi\"\n"+
+		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 5, actions = [{ verdict = \"follow-up\", text = \"Later.\" }] }] } }\n",
+		start, running, release)
+	server := judgeToHumanWith(t, fake, waits)
+	rounds := implementerRounds(t, server)
+	movedAt := needsHumanAt(t, server)
+	if err := os.WriteFile(start, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if comment := fake.AddComment(shop, 42, "owner", "Later."); comment != 5 {
+		t.Fatalf("comment = %d", comment)
+	}
+	testkit.WaitFor(t, func() bool { _, err := os.Stat(running); return err == nil })
+
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	waitForLeadPrompt(t, server, "follow-up on pull request #42 of #41")
+
+	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) > rounds })
+	if after := needsHumanAt(t, server); after != movedAt {
+		t.Errorf("needs_human_at = %s, want %s", after, movedAt)
 	}
 }
