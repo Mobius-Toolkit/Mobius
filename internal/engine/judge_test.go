@@ -348,3 +348,22 @@ func TestARemovalOfNeedsHumanWhileTheJudgeOfTheHumanTaskRunsContinuesTheTask(t *
 		t.Errorf("needs_human_at = %s, want %s", after, movedAt)
 	}
 }
+
+func TestAFailedJudgeStopsTheTaskWithItsOwnReason(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := connectJudge(t, fake, "error = { code = -32000, message = \"The Judge crashed.\" }\n", fixesEach, func(*config.Config) {})
+	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, 'stop', 'the CI of the head commit failed', '2026-10-04T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+
+	fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier.")
+
+	testkit.WaitFor(t, func() bool {
+		for _, issue := range apiData[[]needsHuman](t, server, "/api/needs-human") {
+			if issue.Number == 41 {
+				return strings.Contains(issue.Reason, "the Judge failed") && strings.Contains(issue.Reason, "The Judge crashed.")
+			}
+		}
+		return false
+	})
+}

@@ -281,7 +281,8 @@ func (e *Engine) runJudge(ctx context.Context, j judgeJob) {
 	if err := e.markJudged(ended, j); err != nil {
 		log.Printf("Judge of %s#%d: %v", j.task.Repository, j.task.Issue, err)
 	}
-	if _, err := e.handToHuman(ended, j.task); err != nil {
+	reason := fmt.Sprintf("the Judge failed. Mobius added mobius:needs-human. The error ends with these lines:\n\n```\n%s\n```", tail(err.Error(), errorTail))
+	if err := e.handOver(ended, j.task, j.title, reason); err != nil {
 		log.Printf("stop of %s#%d: %v", j.task.Repository, j.task.Issue, err)
 	}
 }
