@@ -289,7 +289,7 @@ func HeadContains(ctx context.Context, dataDir, worktree, commit string) (bool, 
 // HasUnpushedWork tells if the worktree has uncommitted changes, or commits that origin/branch does not have. Before
 // the first push, origin/branch does not exist, and the worktree is compared with origin/base.
 func HasUnpushedWork(ctx context.Context, dataDir, worktree, branch, base string) (bool, error) {
-	status, err := run(git(ctx, dataDir, worktree, "", "status", "--porcelain"))
+	status, err := run(git(ctx, dataDir, worktree, "", "--no-optional-locks", "status", "--porcelain"))
 	if err != nil || status != "" {
 		return status != "", err
 	}
