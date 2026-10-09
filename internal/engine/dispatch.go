@@ -566,7 +566,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 
 // resume continues the task of the issue that waits for a human, or the stopped task with a pull request, for the
 // actor: a pull request with a merge conflict gets a conflict round, another pull request gets a fix round with its
-// open review threads, and a task with no pull request gets the Implementer on the same branch.
+// open review threads, and a task with no pull request goes back to the Lead with a dispatch event.
 // mobius:ready goes away last, so a failure before the round starts leaves the issue in the ready list.
 func (e *Engine) resume(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string) error {
 	number := int64(issue.GetNumber())
@@ -594,14 +594,17 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	case pullRequest != nil:
 		to = "working"
 	}
-	parent, err := e.newestSession(ctx, task)
-	if err != nil {
-		return err
-	}
+	var parent sql.NullInt64
 	items := ""
-	if pullRequest != nil && !conflict {
-		if items, err = e.continueItems(ctx, repository, int64(pullRequest.GetNumber())); err != nil {
+	if pullRequest != nil {
+		var err error
+		if parent, err = e.newestSession(ctx, task); err != nil {
 			return err
+		}
+		if !conflict {
+			if items, err = e.continueItems(ctx, repository, int64(pullRequest.GetNumber())); err != nil {
+				return err
+			}
 		}
 	}
 	from := task.State
@@ -616,7 +619,8 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	case pullRequest != nil:
 		err = e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items, parent: parent})
 	default:
-		_, err = e.startImplementer(ctx, repository, task.Workstream, number, issue.GetBody(), parent)
+		text := eventText(time.Now(), "resume of", issue, actor, issue.GetBody())
+		err = e.addLeadEvent(ctx, repository.FullName, task.Workstream, sql.NullInt64{Int64: number, Valid: true}, "dispatch", text)
 	}
 	if err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: from, ID: task.ID, FromState: to})

@@ -301,20 +301,44 @@ func TestATaskInNeedsHumanStaysInNeedsHumanAfterTheNextPolls(t *testing.T) {
 	}
 }
 
-func TestMobiusReadyOnATaskInNeedsHumanWithNoPullRequestStartsTheImplementerOnTheSameBranch(t *testing.T) {
+func TestMobiusReadyOnATaskInNeedsHumanWithNoPullRequestGivesTheTaskBackToTheLead(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	goFile := filepath.Join(t.TempDir(), "go")
-	server := handedToHuman(t, fake, fmt.Sprintf("[[prompts]]\nshell = \"if [ -e '%s' ]; then %s; else kill -9 $PPID; sleep 5; fi\"\n", goFile, commitShell))
+	// The prompt of a new session has the earlier events in its history, so the rule of the newest event comes first.
+	lead := "[[prompts]]\nwhen = \"> Go on.\"\n" + startImplementer + "\n[[prompts]]\nwhen = \"resume of #41\"\nreply = [\"I check the task.\"]\n\n[[prompts]]\nwhen = \"stop of #41\"\nreply = [\"I see the stop.\"]\n\n" + leadStarts
+	server, _ := connectTask(t, fake, lead, fmt.Sprintf("[[prompts]]\nshell = \"if [ -e '%s' ]; then %s; else kill -9 $PPID; sleep 5; fi\"\n", goFile, commitShell), func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
 	stopped := liveTask(t, server, 41)
 	if len(fake.PullRequests(shop)) != 0 || !stopped.Branch.Valid {
 		t.Fatalf("pull requests = %+v, task = %+v", fake.PullRequests(shop), stopped)
 	}
+	implementers := len(roleSessions(t, server, engine.ImplementerRole))
 	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool {
+			return strings.Contains(prompt, ` resume of #41 "Add plan model" by @owner:`+"\n\n> Plans have a price.")
+		})
+	})
+	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:ready") })
+	waitForPolls(t, fake)
+	if task := liveTask(t, server, 41); task.State != "dispatched" || task.ID != stopped.ID || task.WorkerRestarts != 0 {
+		t.Errorf("task = %+v", task)
+	}
+	if got := len(roleSessions(t, server, engine.ImplementerRole)); got != implementers {
+		t.Errorf("Implementers = %d, want %d", got, implementers)
+	}
+	if !hasLabel(fake, "mobius:working") || hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+
+	fake.AddComment(shop, 41, "owner", "Go on.")
 
 	task := testkit.WaitForValue(t, func() (store.Task, bool) {
 		task := liveTask(t, server, 41)
@@ -326,14 +350,6 @@ func TestMobiusReadyOnATaskInNeedsHumanWithNoPullRequestStartsTheImplementerOnTh
 	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 1 || pullRequests[0].Head != stopped.Branch.String {
 		t.Errorf("pull requests = %+v", pullRequests)
 	}
-	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:ready") })
-	if !hasLabel(fake, "mobius:working") || hasLabel(fake, "mobius:needs-human") {
-		t.Errorf("labels = %v", fake.Labels(shop, 41))
-	}
-	testkit.WaitFor(t, func() bool {
-		sessions := roleSessions(t, server, engine.ImplementerRole)
-		return sessions[len(sessions)-1].EndReason.String == "done"
-	})
 }
 
 func TestMobiusReadyOfTheAppOnATaskInNeedsHumanHasNoEffectWhenAutopilotIsOff(t *testing.T) {
