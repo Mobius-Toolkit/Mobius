@@ -67,6 +67,10 @@ type Engine struct {
 	gitMu sync.Mutex
 	// checks holds one value for each local check that runs, at most max_checks.
 	checks chan struct{}
+	// checkStartMu guards checkStart.
+	checkStartMu sync.Mutex
+	// checkStart is the start time of the last local check.
+	checkStart time.Time
 	// diskFreed wakes the checks that wait for free disk space.
 	diskFreed signal
 

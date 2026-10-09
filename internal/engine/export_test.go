@@ -12,6 +12,11 @@ var (
 	HangTimeout   = &hangTimeout
 	ErrHung       = errHung
 	AbsorbTimeout = &absorbTimeout
+	LoadAverage   = &loadAverage
+	CheckGap      = &checkGap
+	LoadPoll      = &loadPoll
+	LoadWaitEvent = &loadWaitEvent
+	Cores         = cores
 )
 
 // Seal seals the drain for the restart.
