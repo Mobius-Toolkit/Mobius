@@ -650,6 +650,7 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 			continue
 		}
 		if c.key.Workstream != 0 {
+			a.setAuthor("")
 			if err := e.turn(c, a, savePrompt, nil, true); err != nil {
 				return err
 			}
