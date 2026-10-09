@@ -239,14 +239,14 @@ UPDATE lead_events SET held = 1 WHERE id = ?;
 UPDATE lead_events SET held = 0 WHERE repository = ? AND workstream = ? AND held = 1
 RETURNING *;
 
--- A stop writes a stop event, a stale_pull_request event, or an Inbox item of the kind question or stopped.
+-- A stop writes a stop event, a stale_pull_request event, or an Inbox item of the kind stopped.
 -- name: GetNewestStopText :one
 SELECT text FROM (
     SELECT payload AS text, time FROM lead_events
     WHERE lead_events.repository = ?1 AND lead_events.issue = ?2 AND lead_events.kind IN ('stop', 'stale_pull_request')
     UNION ALL
     SELECT text, time FROM inbox_items
-    WHERE inbox_items.repository = ?1 AND inbox_items.issue = ?2 AND inbox_items.kind IN ('question', 'stopped')
+    WHERE inbox_items.repository = ?1 AND inbox_items.issue = ?2 AND inbox_items.kind = 'stopped'
 ) ORDER BY time DESC LIMIT 1;
 
 -- name: ListWaitingLeadWorkstreams :many

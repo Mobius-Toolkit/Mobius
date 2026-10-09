@@ -4151,7 +4151,7 @@
           },
           "reason": {
             "type": "string",
-            "description": "Reason is the text of the newest stop of the task, or an empty string"
+            "description": "Reason is the text of the newest stop of the task when Stopped is true, or an empty string"
           },
           "repository": {
             "type": "string",

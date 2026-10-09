@@ -97,7 +97,7 @@ type NeedsHuman struct {
 	PullRequest *int64 `gork:"pullRequest"`
 	// PullRequestURL is the GitHub URL of the pull request, or null
 	PullRequestURL *string `gork:"pullRequestUrl"`
-	// Reason is the text of the newest stop of the task, or an empty string
+	// Reason is the text of the newest stop of the task when Stopped is true, or an empty string
 	Reason string `gork:"reason"`
 }
 
