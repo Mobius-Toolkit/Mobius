@@ -287,6 +287,7 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		"mergeable":       mergeableValue,
 		"mergeable_state": state,
 		"created_at":      timestamp(g.createdAt[key]),
+		"labels":          g.issueJSON(key).Labels,
 	}
 }
 

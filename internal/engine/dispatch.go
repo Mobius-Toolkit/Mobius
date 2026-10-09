@@ -195,9 +195,8 @@ func lastEvent(events []*gh.IssueEvent, kind, label string) (int, *gh.IssueEvent
 
 // commentEvents acts on the new comments of the issue of a live task: a new comment of a trusted user resets the
 // counters of the task, and each new comment that is an event goes to the Lead. When the newest such comment is
-// newer than the last comment of the Mobius App, the question, it answers the question: mobius:needs-human goes away
-// unless the task waits for a human. Each such comment gets the reaction of an agent that gets it. For an issue with no
-// live task, see commentsWithoutTask.
+// newer than the last comment of the Mobius App, the question, it answers the question: mobius:question goes away.
+// Each such comment gets the reaction of an agent that gets it. For an issue with no live task, see commentsWithoutTask.
 func (e *Engine) commentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
 	number := int64(issue.GetNumber())
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
@@ -211,8 +210,8 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 	if err != nil {
 		return err
 	}
-	if answered && task.State != "needs_human" && hasLabel(issue, needsHumanLabel) {
-		if err := repository.RemoveLabel(ctx, number, needsHumanLabel); err != nil {
+	if answered && hasLabel(issue, questionLabel) {
+		if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
 			return err
 		}
 	}
@@ -456,7 +455,7 @@ func (e *Engine) commentIsEvent(appSlug string, comment *gh.IssueComment) bool {
 	return e.trustedUser(comment.GetUser().GetLogin()) && comment.GetPerformedViaGithubApp().GetSlug() != appSlug
 }
 
-// ask posts the question text on the issue of a live task of the Workstream, adds mobius:needs-human, and adds an
+// ask posts the question text on the issue of a live task of the Workstream, adds mobius:question, and adds an
 // Inbox item. The reply comes later as a comment event.
 func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository, input textInput) (string, error) {
 	if input.N < 1 {
@@ -478,7 +477,7 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if _, err := repository.AddComment(ctx, input.N, input.Text); err != nil {
 		return "", err
 	}
-	if err := repository.AddLabel(ctx, input.N, needsHumanLabel); err != nil {
+	if err := repository.AddLabel(ctx, input.N, questionLabel); err != nil {
 		return "", err
 	}
 	err = e.addInboxItem(ctx, store.AddInboxItemParams{
@@ -574,7 +573,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	if err := repository.AddLabel(ctx, number, workingLabel); err != nil {
 		return err
 	}
-	if err := repository.RemoveLabel(ctx, number, needsHumanLabel); err != nil {
+	if err := removeNeedsHuman(ctx, repository, task); err != nil {
 		return err
 	}
 	if err := e.queries.ResetTaskCounters(ctx, task.ID); err != nil {

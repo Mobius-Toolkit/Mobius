@@ -1491,16 +1491,27 @@ func (q *Queries) ListCopiedIssueRows(ctx context.Context, arg ListCopiedIssueRo
 	return items, nil
 }
 
-const listCopiedIssuesWithLabel = `-- name: ListCopiedIssuesWithLabel :many
-SELECT i.repository, i.workstream, i.number, i.title, i.state, i.author, i.html_url, i.repository_url FROM copied_issues i
-WHERE EXISTS (
-    SELECT 1 FROM copied_issue_labels l
-    WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = ?1
-)
+const listCopiedIssuesWithLabels = `-- name: ListCopiedIssuesWithLabels :many
+SELECT i.repository, i.workstream, i.number, i.title, i.state, i.author, i.html_url, i.repository_url,
+    EXISTS (
+        SELECT 1 FROM copied_issue_labels l
+        WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = ?1
+    ) AS has_needs_human,
+    EXISTS (
+        SELECT 1 FROM copied_issue_labels l
+        WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = ?2
+    ) AS has_question
+FROM copied_issues i
+WHERE has_needs_human OR has_question
 ORDER BY i.repository, i.workstream, i.number
 `
 
-type ListCopiedIssuesWithLabelRow struct {
+type ListCopiedIssuesWithLabelsParams struct {
+	NeedsHuman string
+	Question   string
+}
+
+type ListCopiedIssuesWithLabelsRow struct {
 	Repository    string
 	Workstream    int64
 	Number        int64
@@ -1509,17 +1520,19 @@ type ListCopiedIssuesWithLabelRow struct {
 	Author        string
 	HtmlUrl       string
 	RepositoryUrl string
+	HasNeedsHuman bool
+	HasQuestion   bool
 }
 
-func (q *Queries) ListCopiedIssuesWithLabel(ctx context.Context, name string) ([]ListCopiedIssuesWithLabelRow, error) {
-	rows, err := q.db.QueryContext(ctx, listCopiedIssuesWithLabel, name)
+func (q *Queries) ListCopiedIssuesWithLabels(ctx context.Context, arg ListCopiedIssuesWithLabelsParams) ([]ListCopiedIssuesWithLabelsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCopiedIssuesWithLabels, arg.NeedsHuman, arg.Question)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListCopiedIssuesWithLabelRow
+	var items []ListCopiedIssuesWithLabelsRow
 	for rows.Next() {
-		var i ListCopiedIssuesWithLabelRow
+		var i ListCopiedIssuesWithLabelsRow
 		if err := rows.Scan(
 			&i.Repository,
 			&i.Workstream,
@@ -1529,6 +1542,8 @@ func (q *Queries) ListCopiedIssuesWithLabel(ctx context.Context, name string) ([
 			&i.Author,
 			&i.HtmlUrl,
 			&i.RepositoryUrl,
+			&i.HasNeedsHuman,
+			&i.HasQuestion,
 		); err != nil {
 			return nil, err
 		}
