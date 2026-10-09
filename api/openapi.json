@@ -2515,6 +2515,90 @@
         ]
       }
     },
+    "/api/workstreams/{owner}/{name}/{number}/details": {
+      "get": {
+        "description": "GetWorkstreamDetails returns the creation time, the state and the task counts of a Workstream. It reads GitHub, so it works also for a closed Workstream. A task is an issue in the sub-issue tree of the Workstream, at each depth. It returns 409 when the issue is not a Workstream.",
+        "operationId": "GetWorkstreamDetails",
+        "parameters": [
+          {
+            "description": "Owner is the owner of the repository",
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Name is the name of the repository",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number is the number of the Workstream issue",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_WorkstreamDetails"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "workstreams"
+        ]
+      }
+    },
     "/api/workstreams/{owner}/{name}/{number}/tasks": {
       "get": {
         "description": "ListTasks returns the open and closed tasks of trusted authors in the tree of a Workstream, from the local copy of GitHub. A nested task follows its parent. The copy can be one poll interval old.",
@@ -3532,6 +3616,20 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/Upgrade",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_WorkstreamDetails": {
+        "type": "object",
+        "title": "Envelope_WorkstreamDetails",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/WorkstreamDetails",
             "description": "Data is the payload of the response"
           }
         },
@@ -4610,6 +4708,36 @@
           "readyToMerge"
         ],
         "description": "Workstream is an open Workstream of a managed repository."
+      },
+      "WorkstreamDetails": {
+        "type": "object",
+        "title": "WorkstreamDetails",
+        "properties": {
+          "completedTasks": {
+            "type": "integer",
+            "description": "CompletedTasks is the number of closed tasks, with each close reason"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "CreatedAt is the creation time of the Workstream issue",
+            "format": "date-time"
+          },
+          "open": {
+            "type": "boolean",
+            "description": "Open is true when the Workstream issue is open"
+          },
+          "openTasks": {
+            "type": "integer",
+            "description": "OpenTasks is the number of open tasks"
+          }
+        },
+        "required": [
+          "createdAt",
+          "open",
+          "completedTasks",
+          "openTasks"
+        ],
+        "description": "WorkstreamDetails is the details of a Workstream."
       },
       "WorkstreamRef": {
         "type": "object",

@@ -124,7 +124,7 @@ type FakeGitHub struct {
 	// hangs holds the route patterns whose next request gets no answer.
 	hangs        map[string]bool
 	pullRequests []pullRequest
-	// createdAt holds the creation time of each pull request, in seconds after the Unix epoch.
+	// createdAt holds the creation time of each issue and pull request, in seconds after the Unix epoch.
 	createdAt map[issueKey]int64
 	behind    map[issueKey]bool
 	// mergeRefusals holds the reason that the merge of a pull request gets, for each pull request that refuses a merge.
