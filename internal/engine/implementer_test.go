@@ -240,6 +240,53 @@ func TestCannotDoGoesToTheLeadAndTheNextStartMergesABranchThatDiverged(t *testin
 	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
 }
 
+func TestAMergeWithConflictsStopsTheTaskWithNoRestartAndLeavesACleanWorktree(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"comment on #41\"\n" + startImplementer + "\n[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"ok\"]\n\n" + leadStarts
+	server, dataDir := connectTask(t, fake, lead, "[[prompts]]\nwhen = \"Try again\"\nreply = [\"ok\"]\n\n[[prompts]]\n"+cannotDoCall, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForLeadPrompt(t, server, " cannot_do on #41 \"Add plan model\" by the Implementer:")
+
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
+	if err := os.WriteFile(filepath.Join(worktree, "plan.txt"), []byte("rewritten\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, worktree, "add", "plan.txt")
+	testkit.Git(t, worktree, "commit", "-q", "-m", "Add plan model")
+	pushed := t.TempDir()
+	testkit.Git(t, pushed, "clone", "--branch=main", fake.Remote(shop), ".")
+	if err := os.WriteFile(filepath.Join(pushed, "plan.txt"), []byte("pushed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, pushed, "add", "plan.txt")
+	testkit.Git(t, pushed, "commit", "-q", "-m", "Add plan model")
+	testkit.Git(t, pushed, "push", "origin", "HEAD:refs/heads/mobius/41")
+	fake.AddComment(shop, 41, "owner", "Try again.")
+
+	prompt := waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the local branch diverged from origin/mobius/41, and the merge had conflicts. Mobius pushed nothing")
+	if !strings.Contains(prompt, "merge conflict in plan.txt") {
+		t.Errorf("prompt = %s", prompt)
+	}
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+	if !hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+	if status := testkit.Git(t, worktree, "status", "--porcelain"); status != "" {
+		t.Errorf("status = %s", status)
+	}
+	sessions := roleSessions(t, server, engine.ImplementerRole)
+	if len(sessions) != 2 || sessions[1].EndReason.String != "merge_conflict" {
+		t.Errorf("sessions = %+v", sessions)
+	}
+	if stops := strings.Count(strings.Join(leadPrompts(t, server), "\n"), " stop of #41 "); stops != 1 {
+		t.Errorf("stops = %d", stops)
+	}
+}
+
 func TestACommitOnTheBranchDuringARoundMergesBeforeThePush(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, commits, noChange)
