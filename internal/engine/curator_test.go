@@ -296,6 +296,7 @@ func TestTwoStartsDuringACuratorSessionGiveOneMoreCuratorSession(t *testing.T) {
 	if sessions := curatorSessions(t, server); len(sessions) != 2 {
 		t.Fatalf("Curators during the first session = %+v", sessions)
 	}
+	waitForPolls(t, fake)
 	end(t, holder, "done")
 
 	testkit.WaitFor(t, func() bool {
