@@ -55,15 +55,16 @@ type job struct {
 type outcome string
 
 const (
-	done         outcome = "done"
-	cannotDo     outcome = "cannot_do"
-	checkFailed  outcome = "check_failed"
-	notMerged    outcome = "not_merged"
-	pushRejected outcome = "push_rejected"
+	done          outcome = "done"
+	cannotDo      outcome = "cannot_do"
+	checkFailed   outcome = "check_failed"
+	notMerged     outcome = "not_merged"
+	pushRejected  outcome = "push_rejected"
+	mergeConflict outcome = "merge_conflict"
 )
 
 // result is the outcome of an Implementer session with its text: the reason of cannot_do, the end of the output of
-// the failed check, or the error of the rejected push.
+// the failed check, the error of the rejected push, or the error of the merge with conflicts.
 type result struct {
 	outcome outcome
 	text    string
@@ -664,6 +665,8 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		return e.handOver(ended, task, j.title, fmt.Sprintf(".mobius/check failed %d times. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.", e.config.MaxCheckAttempts))
 	case notMerged:
 		return e.handOver(ended, task, j.title, "the conflict round did not merge the base branch. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.")
+	case mergeConflict:
+		return e.handOver(ended, task, j.title, fmt.Sprintf("the local branch diverged from origin/%s, and the merge had conflicts. Mobius pushed nothing and added mobius:needs-human. Git gave this error: %s. Resume gives the same conflict. First, in %s, merge origin/%s into the local branch and resolve the conflicts, or reset the local branch to origin/%s.", j.branch, r.text, a.spec.Dir, j.branch, j.branch))
 	}
 	return e.handOver(ended, task, j.title, fmt.Sprintf("GitHub rejected the push. Mobius added mobius:needs-human. Git gave this error:\n\n```\n%s\n```", r.text))
 }
@@ -707,7 +710,9 @@ func stopText(number int64, title, reason string) string {
 func (e *Engine) implement(ctx context.Context, a *Agent, j *job) (result, error) {
 	dataDir := e.config.DataDir
 	worktree := a.spec.Dir
-	if err := e.prepareWorktree(ctx, j, worktree); err != nil {
+	if err := e.prepareWorktree(ctx, j, worktree); errors.Is(err, runner.ErrMergeConflict) {
+		return result{outcome: mergeConflict, text: err.Error()}, nil
+	} else if err != nil {
 		return result{}, err
 	}
 	repository, err := e.repository(j.task.Repository)
@@ -1005,6 +1010,9 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		err = runner.Pull(ctx, dataDir, worktree, j.branch)
 	}
 	e.gitMu.Unlock()
+	if errors.Is(err, runner.ErrMergeConflict) {
+		return result{outcome: mergeConflict, text: err.Error()}, nil
+	}
 	if err != nil {
 		return result{}, err
 	}

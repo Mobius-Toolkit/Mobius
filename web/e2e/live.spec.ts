@@ -92,7 +92,9 @@ for (const [device, size] of Object.entries(viewports)) {
 
     await context.setOffline(true);
     await expect(status).toHaveText("Offline");
+    const reopened = page.waitForResponse("/api/events");
     await context.setOffline(false);
+    await reopened;
     await expect(status).toBeEmpty();
 
     hold = true;

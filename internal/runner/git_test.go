@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -188,5 +189,49 @@ func TestFetchSendsTheTokenHeader(t *testing.T) {
 	want := "basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:secret"))
 	if got, _ := header.Load().(string); !strings.EqualFold(got, want) {
 		t.Errorf("Authorization = %q, want %q", got, want)
+	}
+}
+
+func TestPullAbortsAMergeWithConflicts(t *testing.T) {
+	t.Setenv("GIT_COMMITTER_NAME", "Test")
+	t.Setenv("GIT_COMMITTER_EMAIL", "test@example.com")
+	dataDir := t.TempDir()
+	source := filepath.Join(dataDir, "source")
+	if err := os.Mkdir(source, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	write := func(dir, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitIn(t, source, "init", "--initial-branch=main")
+	write(source, "base\n")
+	gitIn(t, source, "add", ".")
+	gitIn(t, source, "commit", "-m", "first")
+	gitIn(t, dataDir, "clone", "--bare", source, bareDir(dataDir, "acme/shop"))
+	worktree := filepath.Join(dataDir, "worktree")
+	if err := AddDetachedWorktree(context.Background(), dataDir, "acme/shop", worktree, "main"); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, worktree, "checkout", "-b", "pushed")
+	write(worktree, "pushed\n")
+	gitIn(t, worktree, "commit", "-am", "pushed")
+	gitIn(t, worktree, "update-ref", "refs/remotes/origin/feature", "HEAD")
+	gitIn(t, worktree, "checkout", "-b", "feature", "main")
+	write(worktree, "rewritten\n")
+	gitIn(t, worktree, "commit", "-am", "rewritten")
+
+	err := Pull(context.Background(), dataDir, worktree, "feature")
+
+	if !errors.Is(err, ErrMergeConflict) {
+		t.Fatalf("Pull = %v, want ErrMergeConflict", err)
+	}
+	if status, err := run(git(context.Background(), dataDir, worktree, "", "status", "--porcelain")); err != nil || status != "" {
+		t.Errorf("status = %q, %v, want clean", status, err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "repos", "acme", "shop.git", "worktrees", "worktree", "MERGE_HEAD")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("stat MERGE_HEAD = %v, want not exist", err)
 	}
 }

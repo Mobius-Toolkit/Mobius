@@ -82,15 +82,25 @@ func detect(harness config.Harness, err *acp.RequestError, hint, now time.Time) 
 	return reset, true
 }
 
-// resetsAt reads "resets 3pm" or "resets 17:30" in text, and gives the next such time in UTC, or zero. A time that has just passed gives zero too.
+// resetsAt reads "resets 3pm" or "resets 17:30" in text, and gives the next such time in UTC, or zero. The clock time
+// is in the time zone that follows it in parentheses, for example "resets 5:10pm (Europe/Warsaw)". It is in UTC when
+// the text has no time zone or the time zone is not known. A time that has just passed gives zero too.
 func resetsAt(text string, now time.Time) time.Time {
 	_, rest, ok := strings.Cut(text, "resets ")
 	if !ok {
 		return time.Time{}
 	}
+	zone := time.UTC
 	if end := strings.IndexFunc(rest, func(r rune) bool {
 		return r > unicode.MaxASCII || !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != ':'
 	}); end >= 0 {
+		if name, ok := strings.CutPrefix(rest[end:], " ("); ok {
+			if name, _, ok := strings.Cut(name, ")"); ok {
+				if loaded, err := time.LoadLocation(name); err == nil {
+					zone = loaded
+				}
+			}
+		}
 		rest = rest[:end]
 	}
 	clock := strings.ToLower(rest)
@@ -120,15 +130,15 @@ func resetsAt(text string, now time.Time) time.Time {
 	if hour > 23 || minute > 59 {
 		return time.Time{}
 	}
-	now = now.UTC()
-	today := time.Date(now.Year(), now.Month(), now.Day(), int(hour), int(minute), 0, 0, time.UTC)
+	now = now.In(zone)
+	today := time.Date(now.Year(), now.Month(), now.Day(), int(hour), int(minute), 0, 0, zone)
 	if today.After(now) {
-		return today
+		return today.UTC()
 	}
 	if now.Sub(today) <= resetTolerance {
 		return time.Time{}
 	}
-	return today.AddDate(0, 0, 1)
+	return today.AddDate(0, 0, 1).UTC()
 }
 
 // resetIn reads "reset in 2 days, 3 hours" in text, and gives now plus that time, or zero.
@@ -168,14 +178,22 @@ func (a *Agent) waitOutLimit(ctx context.Context, err error) (bool, error) {
 	a.mu.Lock()
 	hint := a.resetHint
 	a.mu.Unlock()
+	reported, hintState := "none", "missing"
+	if !hint.IsZero() {
+		reported = hint.UTC().Format(timeFormat)
+	}
 	// A reset time that is not later than now is an old hint.
-	if !hint.After(now) {
-		hint = time.Time{}
+	if !hint.IsZero() && !hint.After(now) {
+		hint, hintState = time.Time{}, "too old"
 	}
 	until, ok := detect(a.harness, requestErr, hint, now)
 	if !ok {
 		return false, nil
 	}
+	if !hint.IsZero() {
+		hintState = "used"
+	}
+	log.Printf("usage limit of %s: reset time of the usage update %s (%s), pause until %s", a.harness, reported, hintState, until.UTC().Format(timeFormat))
 	if err := a.engine.pause(ctx, a, until); err != nil {
 		return false, err
 	}
