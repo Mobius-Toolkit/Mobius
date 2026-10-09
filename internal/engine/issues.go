@@ -19,6 +19,10 @@ func hasLabel(issue *gh.Issue, name string) bool {
 	return slices.ContainsFunc(issue.Labels, func(label *gh.Label) bool { return label.GetName() == name })
 }
 
+func hasPullRequestLabel(pullRequest *gh.PullRequest, name string) bool {
+	return slices.ContainsFunc(pullRequest.Labels, func(label *gh.Label) bool { return label.GetName() == name })
+}
+
 // inOtherRepository tells if the issue is in another repository than repository. After a transfer,
 // GitHub gives the issue with the URL of its new repository.
 func inOtherRepository(issue *gh.Issue, repository string) bool {

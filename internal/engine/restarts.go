@@ -10,6 +10,7 @@ import (
 
 	gh "github.com/google/go-github/v92/github"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -66,7 +67,8 @@ func tail(text string, count int) string {
 }
 
 // handToHuman moves the task from working, queued or checks to needs_human, and the issue of the task from mobius:working
-// or mobius:review to mobius:needs-human. It gives false when the task is not working, queued or checks, for example after a decline.
+// or mobius:review to mobius:needs-human, with the pull request of the task. It gives false when the task is not working,
+// queued or checks, for example after a decline. It reads the task again, because task can be older than its pull request.
 func (e *Engine) handToHuman(ctx context.Context, task store.Task) (bool, error) {
 	moved := int64(0)
 	for _, from := range []string{"working", "queued", "checks"} {
@@ -90,5 +92,31 @@ func (e *Engine) handToHuman(ctx context.Context, task store.Task) (bool, error)
 	if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
 		return false, err
 	}
-	return true, repository.AddLabel(ctx, task.Issue, needsHumanLabel)
+	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+	if err != nil {
+		return false, err
+	}
+	return true, addNeedsHuman(ctx, repository, current)
+}
+
+// addNeedsHuman adds mobius:needs-human to the issue of the task, and to its pull request when it has one.
+func addNeedsHuman(ctx context.Context, repository github.Repository, task store.Task) error {
+	if err := repository.AddLabel(ctx, task.Issue, needsHumanLabel); err != nil {
+		return err
+	}
+	if !task.PullRequest.Valid {
+		return nil
+	}
+	return repository.AddLabel(ctx, task.PullRequest.Int64, needsHumanLabel)
+}
+
+// removeNeedsHuman removes mobius:needs-human from the issue of the task, and from its pull request when it has one.
+func removeNeedsHuman(ctx context.Context, repository github.Repository, task store.Task) error {
+	if err := repository.RemoveLabel(ctx, task.Issue, needsHumanLabel); err != nil {
+		return err
+	}
+	if !task.PullRequest.Valid {
+		return nil
+	}
+	return repository.RemoveLabel(ctx, task.PullRequest.Int64, needsHumanLabel)
 }
