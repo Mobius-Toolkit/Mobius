@@ -40,6 +40,8 @@ type Engine struct {
 	// ciWait holds the head of each task in checks that has no CI, with the time of its first poll, by the id of the task.
 	// Only the poll uses it.
 	ciWait map[int64]ciWait
+	// clock gives the time of the long waits. A nil clock is time.Now.
+	clock atomic.Pointer[func() time.Time]
 
 	workers workers
 	drain   drain
@@ -109,6 +111,13 @@ type Agents struct {
 	Addr string
 	// Path is the PATH of the Harness commands.
 	Path string
+}
+
+func (e *Engine) timeNow() time.Time {
+	if clock := e.clock.Load(); clock != nil {
+		return (*clock)()
+	}
+	return time.Now()
 }
 
 // New gives the Engine of the database db and of the GitHub Apps of gh with the settings of cfg.

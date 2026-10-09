@@ -184,6 +184,7 @@ func TestTheTaskStateMigrationKeepsTheRowsAndRefusesAnUnknownState(t *testing.T)
 		ReviewRounds:   3,
 		ReviewComment:  sql.NullInt64{Int64: 77, Valid: true},
 		CheckHead:      sql.NullString{String: "abc", Valid: true},
+		StateAt:        tasks[1].StateAt,
 	}
 	if tasks[1] != want {
 		t.Errorf("task = %+v, want %+v", tasks[1], want)

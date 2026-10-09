@@ -424,8 +424,9 @@ func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session
 }
 
 const addTask = `-- name: AddTask :one
-INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES (?, ?, ?, 'dispatched', ?)
-RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head
+INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at)
+VALUES (?, ?, ?, 'dispatched', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at
 `
 
 type AddTaskParams struct {
@@ -466,6 +467,8 @@ func (q *Queries) AddTask(ctx context.Context, arg AddTaskParams) (Task, error) 
 		&i.NeedsHumanAt,
 		&i.ConflictHead,
 		&i.CiFailedHead,
+		&i.StateAt,
+		&i.LongWaitAt,
 	)
 	return i, err
 }
@@ -944,7 +947,7 @@ func (q *Queries) EndSession(ctx context.Context, arg EndSessionParams) (Session
 }
 
 const endTask = `-- name: EndTask :exec
-UPDATE tasks SET state = 'ended' WHERE id = ?
+UPDATE tasks SET state = 'ended', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?
 `
 
 func (q *Queries) EndTask(ctx context.Context, id int64) error {
@@ -1072,7 +1075,7 @@ func (q *Queries) GetLastDoneCuratorStart(ctx context.Context, repository string
 }
 
 const getLiveTask = `-- name: GetLiveTask :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
 `
 
 type GetLiveTaskParams struct {
@@ -1106,12 +1109,14 @@ func (q *Queries) GetLiveTask(ctx context.Context, arg GetLiveTaskParams) (Task,
 		&i.NeedsHumanAt,
 		&i.ConflictHead,
 		&i.CiFailedHead,
+		&i.StateAt,
+		&i.LongWaitAt,
 	)
 	return i, err
 }
 
 const getLiveTaskByPullRequest = `-- name: GetLiveTaskByPullRequest :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
 `
 
 type GetLiveTaskByPullRequestParams struct {
@@ -1145,6 +1150,8 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 		&i.NeedsHumanAt,
 		&i.ConflictHead,
 		&i.CiFailedHead,
+		&i.StateAt,
+		&i.LongWaitAt,
 	)
 	return i, err
 }
@@ -1284,7 +1291,7 @@ func (q *Queries) GetSyncCursor(ctx context.Context, arg GetSyncCursorParams) (G
 }
 
 const handTaskToHuman = `-- name: HandTaskToHuman :execrows
-UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = ?1 AND state = ?2
 `
 
@@ -2268,7 +2275,7 @@ func (q *Queries) ListLiveTaskRepositories(ctx context.Context) ([]string, error
 }
 
 const listLiveTasks = `-- name: ListLiveTasks :many
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
 `
 
 func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task, error) {
@@ -2303,6 +2310,8 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 			&i.NeedsHumanAt,
 			&i.ConflictHead,
 			&i.CiFailedHead,
+			&i.StateAt,
+			&i.LongWaitAt,
 		); err != nil {
 			return nil, err
 		}
@@ -3006,7 +3015,8 @@ func (q *Queries) MarkCommentAnswered(ctx context.Context, arg MarkCommentAnswer
 }
 
 const queueTask = `-- name: QueueTask :execrows
-UPDATE tasks SET state = 'queued', queued_at = ?1 WHERE id = ?2 AND state = ?3
+UPDATE tasks SET state = 'queued', queued_at = ?1, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+WHERE id = ?2 AND state = ?3
 `
 
 type QueueTaskParams struct {
@@ -3074,7 +3084,7 @@ func (q *Queries) ReopenInboxItem(ctx context.Context, arg ReopenInboxItemParams
 }
 
 const requeueTask = `-- name: RequeueTask :execrows
-UPDATE tasks SET state = 'queued' WHERE id = ? AND state IN ('queued', 'working')
+UPDATE tasks SET state = 'queued', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state IN ('queued', 'working')
 `
 
 // A restart keeps the place of the task in the queue.
@@ -3316,6 +3326,20 @@ func (q *Queries) SetTaskConflictHead(ctx context.Context, arg SetTaskConflictHe
 	return err
 }
 
+const setTaskLongWaitAt = `-- name: SetTaskLongWaitAt :exec
+UPDATE tasks SET long_wait_at = ? WHERE id = ?
+`
+
+type SetTaskLongWaitAtParams struct {
+	LongWaitAt sql.NullString
+	ID         int64
+}
+
+func (q *Queries) SetTaskLongWaitAt(ctx context.Context, arg SetTaskLongWaitAtParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskLongWaitAt, arg.LongWaitAt, arg.ID)
+	return err
+}
+
 const setTaskPullRequest = `-- name: SetTaskPullRequest :exec
 UPDATE tasks SET pull_request = ? WHERE id = ?
 `
@@ -3345,7 +3369,8 @@ func (q *Queries) SetTaskRefusedReview(ctx context.Context, arg SetTaskRefusedRe
 }
 
 const setTaskState = `-- name: SetTaskState :execrows
-UPDATE tasks SET state = ?1 WHERE id = ?2 AND state = ?3
+UPDATE tasks SET state = ?1, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+WHERE id = ?2 AND state = ?3
 `
 
 type SetTaskStateParams struct {
@@ -3456,7 +3481,7 @@ func (q *Queries) StartSession(ctx context.Context, arg StartSessionParams) (Ses
 }
 
 const startTaskWorker = `-- name: StartTaskWorker :execrows
-UPDATE tasks SET state = 'working', worker = ?1, worker_input = ?2
+UPDATE tasks SET state = 'working', worker = ?1, worker_input = ?2, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = ?3 AND state = ?4
 `
 
@@ -3481,7 +3506,7 @@ func (q *Queries) StartTaskWorker(ctx context.Context, arg StartTaskWorkerParams
 }
 
 const stopTask = `-- name: StopTask :execrows
-UPDATE tasks SET state = 'stopped' WHERE id = ? AND state NOT IN ('stopped', 'ended')
+UPDATE tasks SET state = 'stopped', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state NOT IN ('stopped', 'ended')
 `
 
 func (q *Queries) StopTask(ctx context.Context, id int64) (int64, error) {

@@ -129,10 +129,11 @@ WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
 SELECT id, queued_at FROM tasks WHERE state = 'queued' ORDER BY queued_at, id;
 
 -- name: SetTaskState :execrows
-UPDATE tasks SET state = sqlc.arg(state) WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
+UPDATE tasks SET state = sqlc.arg(state), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: HandTaskToHuman :execrows
-UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: AddWorkerRestart :one
@@ -257,7 +258,8 @@ SELECT text FROM (
 SELECT DISTINCT repository, workstream FROM lead_events WHERE delivered_at IS NULL ORDER BY repository, workstream;
 
 -- name: AddTask :one
-INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES (?, ?, ?, 'dispatched', ?)
+INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at)
+VALUES (?, ?, ?, 'dispatched', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 RETURNING *;
 
 -- An ended task counts too.
@@ -271,20 +273,21 @@ SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
 UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;
 
 -- name: EndTask :exec
-UPDATE tasks SET state = 'ended' WHERE id = ?;
+UPDATE tasks SET state = 'ended', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?;
 
 -- name: QueueTask :execrows
-UPDATE tasks SET state = 'queued', queued_at = sqlc.arg(queued_at) WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
+UPDATE tasks SET state = 'queued', queued_at = sqlc.arg(queued_at), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
+WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- A restart keeps the place of the task in the queue.
 -- name: RequeueTask :execrows
-UPDATE tasks SET state = 'queued' WHERE id = ? AND state IN ('queued', 'working');
+UPDATE tasks SET state = 'queued', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state IN ('queued', 'working');
 
 -- name: SetTaskWorker :exec
 UPDATE tasks SET worker = ?, worker_input = ? WHERE id = ?;
 
 -- name: StartTaskWorker :execrows
-UPDATE tasks SET state = 'working', worker = sqlc.arg(worker), worker_input = sqlc.arg(worker_input)
+UPDATE tasks SET state = 'working', worker = sqlc.arg(worker), worker_input = sqlc.arg(worker_input), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: SetTaskBranch :exec
@@ -318,7 +321,7 @@ UPDATE tasks SET review_comment = ? WHERE id = ?;
 UPDATE tasks SET judged_at = ? WHERE id = ?;
 
 -- name: StopTask :execrows
-UPDATE tasks SET state = 'stopped' WHERE id = ? AND state NOT IN ('stopped', 'ended');
+UPDATE tasks SET state = 'stopped', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state NOT IN ('stopped', 'ended');
 
 -- name: ListLiveTaskRepositories :many
 SELECT DISTINCT repository FROM tasks WHERE state <> 'ended' ORDER BY repository;
@@ -549,3 +552,6 @@ SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review =
 -- name: MarkCommentAnswered :exec
 INSERT INTO answered_comments (repository, review, comment) VALUES (?, ?, ?)
 ON CONFLICT (repository, review, comment) DO NOTHING;
+
+-- name: SetTaskLongWaitAt :exec
+UPDATE tasks SET long_wait_at = ? WHERE id = ?;
