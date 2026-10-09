@@ -243,6 +243,13 @@ func (g *FakeGitHub) FailAddComment(repository string, number int64, fail bool) 
 	g.failedComments[issueKey{repository, number}] = fail
 }
 
+// FailAddLabels makes each new label that Mobius adds to the issue fail, or work again when fail is false.
+func (g *FakeGitHub) FailAddLabels(repository string, number int64, fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedLabels[issueKey{repository, number}] = fail
+}
+
 // Issue gives the title and the body of the issue.
 func (g *FakeGitHub) Issue(repository string, number int64) (string, string) {
 	g.mu.Lock()
@@ -924,6 +931,10 @@ func (g *FakeGitHub) addLabels(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	key, ok := g.issue(w, r)
 	if !ok {
+		return
+	}
+	if g.failedLabels[key] {
+		message(w, http.StatusInternalServerError, "Server Error")
 		return
 	}
 	for _, label := range labels {

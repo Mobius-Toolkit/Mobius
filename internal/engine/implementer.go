@@ -373,10 +373,10 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		worker = checkRoundWorker
 	}
 	e.runPreparedWorker(j.task, &j.title, "Implementer", func(ctx context.Context) (bool, error) {
-		if err := resumeWork(ctx, repository, r.task); err != nil {
+		if err := e.setWorker(ctx, r.task.ID, worker, j.prompt); err != nil {
 			return false, err
 		}
-		if err := e.setWorker(ctx, r.task.ID, worker, j.prompt); err != nil {
+		if err := resumeWork(ctx, repository, r.task); err != nil {
 			return false, err
 		}
 		if r.failedCheck {
