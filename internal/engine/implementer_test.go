@@ -264,7 +264,7 @@ func TestAMergeWithConflictsStopsTheTaskWithNoRestartAndLeavesACleanWorktree(t *
 	fake.AddComment(shop, 41, "owner", "Try again.")
 
 	prompt := waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the local branch diverged from origin/mobius/41, and the merge had conflicts. Mobius pushed nothing")
-	if !strings.Contains(prompt, "merge conflict in plan.txt") {
+	if !strings.Contains(prompt, "merge conflict in plan.txt") || !strings.Contains(prompt, "Resume gives the same conflict. First, in "+worktree+", merge origin/mobius/41 into the local branch") {
 		t.Errorf("prompt = %s", prompt)
 	}
 	waitForPolls(t, fake)
@@ -293,9 +293,10 @@ func TestARewrittenPushedCommitStopsTheTaskBeforeThePushWithNoRestartAndLeavesAC
 	rewrites := fmt.Sprintf("[[prompts]]\nshell = '''echo rewritten > plan.txt && git add plan.txt && %s && other=$(mktemp -d) && git clone -q --branch=main '%s' \"$other\" && cd \"$other\" && echo pushed > plan.txt && git add plan.txt && %s && git push -q origin HEAD:refs/heads/mobius/41'''\n", commitAs, fake.Remote(shop), commitAs)
 	server, dataDir := connectTask(t, fake, leadStarts, rewrites, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
 
 	prompt := waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the local branch diverged from origin/mobius/41, and the merge had conflicts. Mobius pushed nothing")
-	if !strings.Contains(prompt, "merge conflict in plan.txt") {
+	if !strings.Contains(prompt, "merge conflict in plan.txt") || !strings.Contains(prompt, "Resume gives the same conflict. First, in "+worktree+", merge origin/mobius/41 into the local branch") {
 		t.Errorf("prompt = %s", prompt)
 	}
 	waitForPolls(t, fake)
@@ -303,7 +304,6 @@ func TestARewrittenPushedCommitStopsTheTaskBeforeThePushWithNoRestartAndLeavesAC
 	if state := taskState(t, server); state != "needs_human" {
 		t.Errorf("state = %s", state)
 	}
-	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
 	if status := testkit.Git(t, worktree, "status", "--porcelain"); status != "" {
 		t.Errorf("status = %s", status)
 	}
