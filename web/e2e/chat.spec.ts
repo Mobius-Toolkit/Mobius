@@ -197,6 +197,19 @@ test("Enter sends, and Shift+Enter adds a line on a desktop", async ({ page }) =
   await expect(input).toHaveValue("");
 });
 
+const fontSize = (selector: string) =>
+  `parseFloat(getComputedStyle(document.querySelector('${selector}')).fontSize)`;
+
+test("the chat text is 14px, and the chat input is at least 16px on a phone", async ({ page }) => {
+  await page.goto(shop);
+  await expect(page.locator("[data-message]").first()).toBeVisible();
+  expect(await page.evaluate(fontSize("[data-message] p"))).toBe(14);
+  expect(await page.evaluate(fontSize("textarea"))).toBe(14);
+  await page.setViewportSize(phone);
+  expect(await page.evaluate(fontSize("[data-message] p"))).toBe(14);
+  expect(await page.evaluate(fontSize("textarea"))).toBeGreaterThanOrEqual(16);
+});
+
 test.describe("images", () => {
   test("a pasted image and an uploaded image show, and the Owner removes one", async ({ page }) => {
     await page.goto(shop);
@@ -397,7 +410,7 @@ test.describe("on a touch screen", () => {
         const buttons = [...document.querySelectorAll('main form button')]
         return buttons.length > 0 && buttons.every((button) => {
           const box = button.getBoundingClientRect()
-          return box.height >= 40 && (box.left >= field.right || box.right <= field.left)
+          return box.height >= 40 && box.top >= field.bottom
         })
       })()`),
     ).toBe(true);
@@ -578,7 +591,7 @@ test("the Triager chat stays open after its actions", async ({ page }) => {
     if (size) {
       await page.setViewportSize(size);
     }
-    await page.goto("/workstreams/new");
+    await page.goto("/chat");
     await input.fill(create);
     await send.click();
     // The side bar of a phone is hidden, and it has the link.
@@ -587,7 +600,7 @@ test("the Triager chat stays open after its actions", async ({ page }) => {
     await input.fill(move);
     await send.click();
     await expect(page.getByText(`Moved #${issue} to the Workstream #12.`)).toBeVisible();
-    await expect(page).toHaveURL("/workstreams/new");
+    await expect(page).toHaveURL("/chat");
     await expect(link).toBeAttached();
   }
 });
@@ -636,14 +649,14 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
     if (size) {
       await page.setViewportSize(size);
     }
-    // A live task waits for a slot, or its agent works.
+    // A live task waits for a slot, or its agent works, or it waits for the Lead to start an Implementer.
     const live = async (number: number) => {
       const tasks = await get<{ number: number; state: string }[]>(
         page,
         `/api/workstreams/plants/garden/${workstream}/tasks`,
       );
       const state = tasks.find((task) => task.number === number)?.state;
-      return state === "queued" || state === "working";
+      return state === "queued" || state === "working" || state === "waits for start_implementer";
     };
     await page.goto(`/workstreams/plants/garden/${workstream}`);
     const resume = main.getByRole("button", { name: "Resume" });
@@ -696,6 +709,52 @@ test("Start gives only an open task with no blocker a button, and the row shows 
   await expect(start).toHaveCount(0);
 });
 
+test("Resume gives a needs-human task with no blocker a button that waits for the request", async ({
+  page,
+}) => {
+  await page.goto("/api/github/user-callback?code=user-code");
+  // The route adds #73, a needs-human task with a blocker.
+  await page.route("**/api/workstreams/plants/garden/19/tasks", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: object[] };
+    body.data.push({
+      number: 73,
+      title: "Rake the bark",
+      state: "needs-human",
+      depth: 0,
+      otherRepository: false,
+      url: "https://github.com/plants/garden/issues/73",
+      blockedBy: [{ number: 70, workstreamTitle: "" }],
+    });
+    await route.fulfill({ response, json: body });
+  });
+  const requests: Route[] = [];
+  await page.route("**/api/repositories/plants/garden/issues/*/resume", (route) => {
+    requests.push(route);
+  });
+  await page.goto("/workstreams/plants/garden/19");
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  const rows = page.getByRole("listitem");
+  const resume = page.getByRole("button", { name: /^Resume #/ });
+  await expect(rows.filter({ hasText: "#73 Rake the bark" })).toBeVisible();
+  await expect(rows.filter({ hasText: "#73 Rake the bark" }).getByRole("button")).toHaveCount(0);
+  await expect(resume).toHaveCount(1);
+  await expect(resume).toHaveAccessibleName("Resume #72");
+  await expect(resume).toHaveAttribute("title", "Resume #72");
+
+  await resume.click();
+  await expect(resume).toBeDisabled();
+  await expect(resume.locator('[data-slot="spinner"]')).toBeVisible();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].request().url()).toMatch(/\/issues\/72\/resume$/);
+
+  await requests[0].fulfill({ status: 204 });
+  await expect(resume).toHaveCount(0);
+  await expect(
+    rows.filter({ hasText: "#72 Water the bark" }).getByText("needs-human"),
+  ).toBeVisible();
+});
+
 test("the Tasks tab shows the closed tasks muted, with no Start button, when the switch is on", async ({
   page,
 }) => {
@@ -724,7 +783,7 @@ test("the voice button adds the spoken text to the message", async ({ page }) =>
     start() { window.recognition = this }
     stop() { this.dispatchEvent(new Event('end')) }
   }`);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   const mic = main.getByRole("button", { name: "Start voice input", exact: true });
@@ -773,7 +832,7 @@ const result = (page: Page, ...transcripts: string[]) =>
   page.evaluate(
     `recognitions[0].dispatchEvent(Object.assign(new Event('result'), {
       results: ${JSON.stringify(transcripts)}.map((transcript) =>
-        Object.assign([{ transcript }], {
+        Object.assign([{ transcript: transcript.replace(/\\.\\.\\.$/, '') }], {
           isFinal: !transcript.endsWith('...'),
         }),
       ),
@@ -790,7 +849,7 @@ const selection = (page: Page) =>
 
 test("two result events add the spoken text once", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
@@ -798,7 +857,7 @@ test("two result events add the spoken text once", async ({ page }) => {
   await expect(input).toHaveValue("red");
   await result(page, "red");
   await result(page, "red", "roses...");
-  await expect(input).toHaveValue("red");
+  await expect(input).toHaveValue("red roses");
   await result(page, "red", "roses");
   await expect(input).toHaveValue("red roses");
 });
@@ -807,11 +866,11 @@ test("a final result that repeats the final result before it adds only the new t
   page,
 }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
-  await result(page, "red", "red");
+  await result(page, "red", "red...");
   await expect(input).toHaveValue("red");
   await result(page, "red", "red", "red roses");
   await expect(input).toHaveValue("red roses");
@@ -821,7 +880,7 @@ test("a final result that repeats the final result before it adds only the new t
 
 test("two final results in one event that extend each other add one space", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
@@ -829,9 +888,231 @@ test("two final results in one event that extend each other add one space", asyn
   await expect(input).toHaveValue("red roses");
 });
 
+test("an interim result shows in the field and a later interim result replaces it", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await input.fill("Plant");
+  await input.blur();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red...");
+  await expect(input).toHaveValue("Plant red");
+  await result(page, "red rows...");
+  await expect(input).toHaveValue("Plant red rows");
+  await result(page, "red roses...");
+  await expect(input).toHaveValue("Plant red roses");
+});
+
+test("a final result replaces the draft and does not repeat it", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses...");
+  await result(page, "red roses");
+  await expect(input).toHaveValue("red roses");
+  await result(page, "red roses", "and white...");
+  await expect(input).toHaveValue("red roses and white");
+  await result(page, "red roses", "and white lilies");
+  await expect(input).toHaveValue("red roses and white lilies");
+});
+
+test("an end with only a draft keeps the draft text and the next run adds after it", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await emit(page, "audiostart");
+  await result(page, "red roses...");
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "start"]);
+  await expect(input).toHaveValue("red roses");
+
+  await result(page, "and white...");
+  await expect(input).toHaveValue("red roses and white");
+  await result(page, "and white lilies");
+  await expect(input).toHaveValue("red roses and white lilies");
+});
+
+test("a final result after Stop and before the end adds the text one time", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses...");
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await result(page, "red roses");
+  await emit(page, "end");
+  await expect(input).toHaveValue("red roses");
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  expect(await page.evaluate("calls")).toEqual(["start", "stop"]);
+});
+
+test("a result after Send does not put text in the field", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/workstreams/owner/shop/12");
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "Add a plan...");
+  await expect(input).toHaveValue("Add a plan");
+  await main.getByRole("button", { name: "Send" }).click();
+  await expect(input).toHaveValue("");
+  await result(page, "Add a plan");
+  await result(page, "Add a plan", "today");
+  await expect(input).toHaveValue("");
+});
+
+test("the field scrolls to the end of the voice text", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await input.fill(Array.from({ length: 20 }, (_, index) => `Line ${index}`).join("\n"));
+  await input.blur();
+  await input.evaluate((field) => {
+    field.scrollTop = 0;
+  });
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses...");
+  await expect(input).toHaveValue(/Line 19 red roses$/);
+  const atEnd = () =>
+    input.evaluate((field) => field.scrollTop + field.clientHeight - field.scrollHeight);
+  expect(Math.abs(await atEnd())).toBeLessThanOrEqual(1);
+
+  await result(
+    page,
+    "red roses and so many white lilies that the text needs a new line in the field...",
+  );
+  await expect(input).toHaveValue(/lilies/);
+  expect(await input.evaluate((field) => field.scrollHeight > field.clientHeight)).toBe(true);
+  expect(Math.abs(await atEnd())).toBeLessThanOrEqual(1);
+  expect(await page.evaluate("document.activeElement === document.querySelector('textarea')")).toBe(
+    false,
+  );
+});
+
+test("text that the user types during a recording stays", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses...");
+  await expect(input).toHaveValue("red roses");
+
+  await input.pressSequentially(" really");
+  await result(page, "red roses and white...");
+  await expect(input).toHaveValue("red roses really and white");
+  await result(page, "red roses and white lilies");
+  await expect(input).toHaveValue("red roses really and white lilies");
+});
+
+test("a final result with other words than the draft does not move the new words after a touch", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "send an e mail...");
+  await expect(input).toHaveValue("send an e mail");
+
+  await input.pressSequentially(" now");
+  await result(page, "send an email");
+  await expect(input).toHaveValue("send an e mail now");
+  await result(page, "send an email", "to Bob...");
+  await expect(input).toHaveValue("send an e mail now to Bob");
+});
+
+test("a draft with more than one result does not repeat its words after a touch", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "hello world...", "how...");
+  await expect(input).toHaveValue("hello world how");
+
+  await input.pressSequentially(" now");
+  await result(page, "hello world", "how are...");
+  await expect(input).toHaveValue("hello world how now are");
+});
+
+test("a draft that repeats the last final text does not show the repeated words", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red", "red...");
+  await expect(input).toHaveValue("red");
+  await result(page, "red", "red roses...");
+  await expect(input).toHaveValue("red roses");
+});
+
+test("a run that ends with a draft that repeats the last final text keeps the words one time", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red", "red roses...");
+  await emit(page, "end");
+  await expect(input).toHaveValue("red roses");
+});
+
+test("the field scrolls to the voice text that goes in at the cursor before other text", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  const lines = Array.from({ length: 20 }, (_, index) => `Line ${index}`);
+  await input.fill(lines.join("\n"));
+  const cursor = lines.slice(0, 13).join("\n").length;
+  await select(page, cursor, cursor);
+  await input.evaluate((field) => {
+    field.scrollTop = 0;
+  });
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(
+    page,
+    "red roses and so many white lilies that the text needs a new line in the field and then a few more words to be sure...",
+  );
+  await expect(input).toHaveValue(/Line 12 red roses.*words to be sure\nLine 13/);
+  const gap = await page.evaluate<number>(`(() => {
+    const field = document.querySelector('textarea');
+    const probe = field.cloneNode();
+    field.after(probe);
+    probe.value = field.value.slice(0, field.selectionStart);
+    const end = probe.scrollHeight;
+    probe.remove();
+    return field.scrollTop + field.clientHeight - end;
+  })()`);
+  expect(await input.evaluate((field) => field.scrollTop)).toBeGreaterThan(0);
+  expect(Math.abs(gap)).toBeLessThanOrEqual(1);
+});
+
 test("the spoken text goes in at the cursor", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await input.fill("Plant roses");
@@ -849,7 +1130,7 @@ test("the spoken text goes in at the cursor", async ({ page }) => {
 
 test("the spoken text replaces the selection", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await input.fill("Plant red roses.");
@@ -865,7 +1146,7 @@ test.describe("with a German browser", () => {
 
   test("the voice input gets the language of the browser", async ({ page }) => {
     await page.addInitScript(fakeRecognition);
-    await page.goto("/workstreams/new");
+    await page.goto("/chat");
     await page
       .getByRole("main")
       .getByRole("button", { name: "Start voice input", exact: true })
@@ -895,6 +1176,26 @@ test("Send stops a voice input that the voice button stopped", async ({ page }) 
   await main.getByRole("button", { name: "Send" }).click();
   await expect(main.getByLabel("Message to the Lead")).toHaveValue("");
   expect(await page.evaluate("calls")).toEqual(["start", "stop", "abort"]);
+});
+
+test("a result of the old run after a new start does not come into the new recording", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto("/chat");
+  const main = page.getByRole("main");
+  const input = page.getByLabel("Message to the Triager");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "hello world...");
+  await expect(input).toHaveValue("hello world");
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "hello world");
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "stop", "start"]);
+  await expect(input).toHaveValue("hello world");
+  await result(page, "again");
+  await expect(input).toHaveValue("hello world again");
 });
 
 test("the voice button lets a new voice input start after the end of the old run", async ({
@@ -939,7 +1240,7 @@ test("a tap after an error starts a new voice input after the end of the old run
 
 test("the voice input keeps the session open across pauses", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   await page
     .getByRole("main")
     .getByRole("button", { name: "Start voice input", exact: true })
@@ -949,7 +1250,7 @@ test("the voice input keeps the session open across pauses", async ({ page }) =>
 
 test("each recording adds its text after the existing text", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   const mic = main.getByRole("button", { name: "Start voice input", exact: true });
@@ -978,7 +1279,7 @@ test("each recording adds its text after the existing text", async ({ page }) =>
 
 test("the spoken text goes at the end when the textarea has no focus", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await input.fill("Plant roses");
@@ -992,7 +1293,7 @@ test("the spoken text goes at the end when the textarea has no focus", async ({ 
 
 test("a session that the browser ends restarts", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Triager");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
@@ -1013,7 +1314,7 @@ test("a session that the browser ends restarts", async ({ page }) => {
 
 test("a session that the browser ends after an aborted error restarts", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await emit(page, "audiostart");
@@ -1029,7 +1330,7 @@ test("the voice button goes back to the start state when the browser refuses the
   page,
 }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   const mic = main.getByRole("button", { name: "Start voice input", exact: true });
   await mic.click();
@@ -1048,7 +1349,7 @@ test("the voice button goes back to the start state when the browser refuses the
 
 test("a session that never heard audio does not restart", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await emit(page, "end");
@@ -1058,7 +1359,7 @@ test("a session that never heard audio does not restart", async ({ page }) => {
 
 test("a session that ends with an error does not restart", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await emit(page, "audiostart");
@@ -1072,7 +1373,7 @@ test("a session that ends with an error does not restart", async ({ page }) => {
 
 test("a session that the user stops does not restart", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.goto("/workstreams/new");
+  await page.goto("/chat");
   const main = page.getByRole("main");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await emit(page, "audiostart");
@@ -1080,6 +1381,123 @@ test("a session that the user stops does not restart", async ({ page }) => {
   await emit(page, "end");
   await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
   expect(await page.evaluate("calls")).toEqual(["start", "stop"]);
+});
+
+// The history change opens the page with no reload, so the page keeps its recognition object.
+const open = (page: Page, path: string) =>
+  page.evaluate(
+    `history.pushState({}, '', '${path}'); dispatchEvent(new PopStateEvent('popstate'))`,
+  );
+
+const plants = "/workstreams/plants/garden/12";
+const seasonal = "/workstreams/owner/shop/13";
+
+test("the voice input works in each Workstream after a switch", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  const stop = main.getByRole("button", { name: "Stop voice input" });
+
+  await mic.click();
+  await result(page, "red");
+  await expect(input).toHaveValue("red");
+  await stop.click();
+  await emit(page, "end");
+  await expect(mic).toBeVisible();
+
+  await open(page, seasonal);
+  await expect(input).toHaveValue("");
+  await mic.click();
+  await result(page, "roses");
+  await expect(input).toHaveValue("roses");
+  await stop.click();
+  await emit(page, "end");
+  await expect(mic).toBeVisible();
+
+  await open(page, shop);
+  await mic.click();
+  await result(page, "today");
+  await expect(input).toHaveValue("today");
+  await stop.click();
+  await emit(page, "end");
+  await expect(mic).toBeVisible();
+
+  await open(page, plants);
+  await mic.click();
+  await result(page, "lilies");
+  await expect(input).toHaveValue("lilies");
+  expect(await page.evaluate("recognitions.length")).toBe(1);
+});
+
+test("a switch during a voice input stops it and shows the start state", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+
+  await open(page, plants);
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  expect(await page.evaluate("calls")).toEqual(["start", "abort"]);
+});
+
+test("a voice result of the old run after a switch does not go into the new field", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await open(page, seasonal);
+  await expect(input).toHaveValue("");
+
+  await result(page, "red");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "roses");
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "abort", "start"]);
+  await result(page, "today");
+  await expect(input).toHaveValue("today");
+});
+
+test("a voice button tap after a switch during a run starts after the end of the old run", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await open(page, seasonal);
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  expect(await page.evaluate("calls")).toEqual(["start", "abort"]);
+
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "abort", "start"]);
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await expect(main.getByText("The voice input did not start.")).toHaveCount(0);
+  expect(await page.evaluate("recognitions.length")).toBe(1);
+});
+
+test("a voice error of the old run after a switch does not show in the new Workstream", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await open(page, seasonal);
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'no-speech' }))",
+  );
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "abort", "start"]);
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await expect(main.getByText("The microphone did not hear speech.")).toHaveCount(0);
 });
 
 test("the voice input shows a message when it does not start", async ({ page }) => {
@@ -1176,6 +1594,129 @@ test("a successful send removes the voice error", async ({ page }) => {
   await main.getByLabel("Message to the Lead").fill("Add a plan");
   await main.getByRole("button", { name: "Send" }).click();
   await expect(main.getByRole("alert")).toHaveCount(0);
+});
+
+// The fake wake lock keeps each lock in locks. A lock has released true after its release().
+const fakeWakeLock = `window.locks = []
+  Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: {
+    request: async (type) => {
+      if (window.wakeLockError) throw new Error(window.wakeLockError)
+      const lock = { type, released: false, release: async () => { lock.released = true } }
+      window.locks.push(lock)
+      return lock
+    },
+  } })`;
+
+const heldLocks = (page: Page) =>
+  page.evaluate("locks.filter((lock) => !lock.released).map((lock) => lock.type)");
+
+const wakeLockTest = (name: string, run: (page: Page) => Promise<void>) =>
+  test(name, async ({ page }) => {
+    await page.addInitScript(fakeRecognition);
+    await page.addInitScript(fakeWakeLock);
+    await page.goto(shop);
+    await run(page);
+  });
+
+wakeLockTest("a voice input start requests the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+});
+
+wakeLockTest("the voice button stop releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("Send releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses");
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await main.getByRole("button", { name: "Send" }).click();
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("a voice error releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await page.evaluate(
+    "recognitions[0].dispatchEvent(Object.assign(new Event('error'), { error: 'network' }))",
+  );
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("an end without a restart releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await emit(page, "end");
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("a restart after an end keeps the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await emit(page, "audiostart");
+  await emit(page, "end");
+  await expect.poll(() => page.evaluate("calls")).toEqual(["start", "start"]);
+  expect(await heldLocks(page)).toEqual(["screen"]);
+  expect(await page.evaluate("locks.length")).toBe(1);
+});
+
+wakeLockTest("a switch during a voice input releases the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await open(page, plants);
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
+  await expect.poll(() => heldLocks(page)).toEqual([]);
+});
+
+wakeLockTest("a page that becomes visible again requests the screen wake lock", async (page) => {
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  await page.evaluate(
+    "locks[0].released = true; document.dispatchEvent(new Event('visibilitychange'))",
+  );
+  await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
+  expect(await page.evaluate("locks.length")).toBe(2);
+});
+
+wakeLockTest("a page that becomes visible while not listening requests no lock", async (page) => {
+  await page.evaluate("document.dispatchEvent(new Event('visibilitychange'))");
+  await page.getByRole("main").getByLabel("Message to the Lead").click();
+  expect(await page.evaluate("locks.length")).toBe(0);
+});
+
+wakeLockTest("a refused wake lock request shows no error", async (page) => {
+  await page.evaluate("window.wakeLockError = 'NotAllowedError'");
+  const main = page.getByRole("main");
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses");
+  await expect(main.getByLabel("Message to the Lead")).toHaveValue("red roses");
+  await expect(main.getByRole("button", { name: "Stop voice input" })).toBeVisible();
+  await expect(main.getByRole("alert")).toHaveCount(0);
+});
+
+test("the voice input works without navigator.wakeLock", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.addInitScript("delete Navigator.prototype.wakeLock");
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  expect(await page.evaluate("navigator.wakeLock")).toBeUndefined();
+  await main.getByRole("button", { name: "Start voice input", exact: true }).click();
+  await result(page, "red roses");
+  await expect(main.getByLabel("Message to the Lead")).toHaveValue("red roses");
+  await main.getByRole("button", { name: "Stop voice input" }).click();
+  await expect(main.getByRole("button", { name: "Start voice input", exact: true })).toBeVisible();
 });
 
 test("the note closes the Workstream when all tasks are closed", async ({ page }) => {
@@ -1288,10 +1829,146 @@ test("the voice button shows an icon, a name and its state", async ({ page }) =>
   await expect(start).toHaveAttribute("aria-pressed", "false");
 });
 
+const writingNow = (page: Page) =>
+  page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { writing: boolean } };
+    body.data.writing = true;
+    await route.fulfill({ response, json: body });
+  });
+
+test("the send button follows the text and the writing agent", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await writingNow(page);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const send = main.getByRole("button", { name: "Send", exact: true });
+  const stop = main.getByRole("button", { name: "Stop the reply", exact: true });
+
+  await expect(stop).toBeEnabled();
+  await expect(stop).toHaveAttribute("title", "Stop the reply");
+  await expect(send).toHaveCount(0);
+  await input.fill("   ");
+  await expect(stop).toBeEnabled();
+  await input.fill("Add a plan");
+  await expect(send).toBeEnabled();
+  await expect(send).toHaveAttribute("title", "Send");
+  await expect(stop).toHaveCount(0);
+
+  await input.fill("");
+  const stopped = page.waitForRequest((request) => request.url().endsWith("/api/chat/stop"));
+  await stop.click();
+  await stopped;
+});
+
+test("the send button is disabled with no text while the agent does not write", async ({
+  page,
+}) => {
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const send = main.getByRole("button", { name: "Send", exact: true });
+  await expect(send).toBeDisabled();
+  await expect(main.getByRole("button", { name: "Stop the reply" })).toHaveCount(0);
+  await input.fill("  ");
+  await expect(send).toBeDisabled();
+  await input.fill("Add a plan");
+  await expect(send).toBeEnabled();
+});
+
+test("the box holds the text area, the attach button, the voice button and the send button", async ({
+  page,
+}) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const box = input.locator("..");
+  const attach = main.getByRole("button", { name: "Attach images", exact: true });
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  const send = main.getByRole("button", { name: "Send", exact: true });
+  await expect(input).toHaveCSS("border-top-width", "0px");
+  await expect(box).toHaveCSS("border-top-width", "1px");
+  const frame = (await box.boundingBox())!;
+  const field = (await input.boundingBox())!;
+  const attachBox = (await attach.boundingBox())!;
+  const micBox = (await mic.boundingBox())!;
+  const sendBox = (await send.boundingBox())!;
+  for (const button of [attachBox, micBox, sendBox]) {
+    expect(button.x).toBeGreaterThanOrEqual(frame.x);
+    expect(button.x + button.width).toBeLessThanOrEqual(frame.x + frame.width);
+    expect(button.y).toBeGreaterThanOrEqual(frame.y);
+    expect(button.y + button.height).toBeLessThanOrEqual(frame.y + frame.height);
+    expect(button.y).toBeGreaterThanOrEqual(field.y + field.height);
+  }
+  expect(field.width).toBeGreaterThan(frame.width - 24);
+  expect(attachBox.x).toBeLessThan(micBox.x);
+  expect(micBox.x + micBox.width).toBeLessThanOrEqual(sendBox.x);
+  expect(attachBox.x).toBeLessThan(frame.x + 16);
+  expect(sendBox.x + sendBox.width).toBeGreaterThan(frame.x + frame.width - 16);
+  for (const button of [attach, mic, send]) {
+    await expect(button).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+  }
+  await expect(send).toHaveCSS("border-top-left-radius", /e\+07px$/);
+
+  const border = (await page.evaluate(
+    "getComputedStyle(document.querySelector('main form textarea').parentElement).borderTopColor",
+  )) as string;
+  await input.focus();
+  await expect(box).not.toHaveCSS("border-top-color", border);
+  await expect(box).toHaveCSS("box-shadow", "none");
+});
+
+for (const [device, size] of [
+  ["desktop", undefined],
+  ["phone", phone],
+] as const) {
+  test(`a long text grows the box and stays above the buttons on a ${device}`, async ({ page }) => {
+    await page.addInitScript(fakeRecognition);
+    if (size) {
+      await page.setViewportSize(size);
+    }
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const input = main.getByLabel("Message to the Lead");
+    const attach = main.getByRole("button", { name: "Attach images", exact: true });
+    const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+    const send = main.getByRole("button", { name: "Send", exact: true });
+    const short = (await input.boundingBox())!.height;
+    await input.fill("A long line without a break. ".repeat(80));
+    const long = (await input.boundingBox())!;
+    expect(long.height).toBeGreaterThan(short);
+    expect(long.height).toBeLessThanOrEqual(160);
+    expect(await input.evaluate((field) => field.scrollHeight > field.clientHeight)).toBe(true);
+    for (const button of [attach, mic, send]) {
+      const buttonBox = (await button.boundingBox())!;
+      expect(buttonBox.y).toBeGreaterThanOrEqual(long.y + long.height);
+      if (size) {
+        expect(buttonBox.width).toBeGreaterThanOrEqual(44);
+        expect(buttonBox.height).toBeGreaterThanOrEqual(44);
+      }
+    }
+  });
+}
+
+test("the voice button in the listening state has a red background", async ({ page }) => {
+  await page.addInitScript(fakeRecognition);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const mic = main.getByRole("button", { name: "Start voice input", exact: true });
+  await expect(mic).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await mic.click();
+  const listening = main.getByRole("button", { name: "Stop voice input", exact: true });
+  await expect(listening).toBeVisible();
+  await expect(listening).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(listening).toHaveAttribute("aria-pressed", "true");
+});
+
 test.describe("on a phone", () => {
   test.use({ viewport: phone });
 
-  test("the textarea stays wide with the Stop, voice and Send buttons", async ({ page }) => {
+  test("the textarea stays wide with the voice button and the Stop button", async ({ page }) => {
     await page.addInitScript(fakeRecognition);
     await page.route("**/api/chat?*", async (route) => {
       const response = await route.fetch();
@@ -1301,9 +1978,8 @@ test.describe("on a phone", () => {
     });
     await page.goto(shop);
     const main = page.getByRole("main");
-    await expect(main.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+    await expect(main.getByRole("button", { name: "Stop the reply", exact: true })).toBeVisible();
     await expect(main.getByRole("button", { name: "Start voice input" })).toBeVisible();
-    await expect(main.getByRole("button", { name: "Send" })).toBeVisible();
     const width = await page.evaluate("document.querySelector('textarea').clientWidth");
     expect(width).toBeGreaterThanOrEqual(120);
     expect(
@@ -1311,5 +1987,156 @@ test.describe("on a phone", () => {
         "document.querySelector('form').scrollWidth <= document.querySelector('form').clientWidth",
       ),
     ).toBe(true);
+  });
+});
+
+test("the chat shows one separator before the first message of each day", async ({ page }) => {
+  const times = [
+    "2025-12-30T20:00:00Z",
+    "2026-09-28T09:30:00Z",
+    "2026-09-28T21:40:00Z",
+    "2026-10-14T09:12:00Z",
+    "2026-10-15T08:37:00Z",
+    "2026-10-15T08:38:00Z",
+  ];
+  await page.clock.setFixedTime("2026-10-15T12:00:00Z");
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { messages: unknown[] } };
+    body.data.messages = times.map((time, index) => ({
+      id: index + 1,
+      author: "Lead",
+      text: `Message ${index + 1}`,
+      time,
+      images: 0,
+      organization: "owner",
+      repository: "owner/shop",
+      workstream: 12,
+    }));
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await expect(main.getByText("Message 6")).toBeVisible();
+
+  const order = await main
+    .locator("[role=separator], [data-message]")
+    .evaluateAll((elements) =>
+      elements.map((element) =>
+        element.getAttribute("role") === "separator"
+          ? (element.getAttribute("aria-label") ?? "")
+          : (element.textContent ?? "").match(/Message \d/)?.[0],
+      ),
+    );
+  expect(order).toEqual([
+    "Tue, Dec 30, 2025",
+    "Message 1",
+    "Mon, Sep 28",
+    "Message 2",
+    "Message 3",
+    "Yesterday",
+    "Message 4",
+    "Today",
+    "Message 5",
+    "Message 6",
+  ]);
+  await expect(main.getByRole("separator", { name: "Mon, Sep 28" })).toHaveText("Mon, Sep 28");
+});
+
+async function longHistory(page: Page) {
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { messages: unknown[] } };
+    body.data.messages = Array.from({ length: 60 }, (_, index) => ({
+      id: 900000 + index,
+      author: index % 2 === 0 ? "Owner" : "Lead",
+      text: `History ${index} ${"word ".repeat(30)}`,
+      time: "2026-10-15T08:37:00Z",
+      images: 0,
+      organization: "owner",
+      repository: "owner/shop",
+      workstream: 12,
+    }));
+    await route.fulfill({ response, json: body });
+  });
+}
+
+// The page and the content area must not scroll, and only the message list does.
+const pageScroll = `(() => ({
+  window: window.scrollY,
+  document: document.scrollingElement.scrollHeight - document.scrollingElement.clientHeight,
+  content: document.getElementById('content').scrollTop,
+  contentOverflow: document.getElementById('content').scrollHeight - document.getElementById('content').clientHeight,
+}))()`;
+
+for (const [device, size] of [
+  ["desktop", undefined],
+  ["phone", phone],
+] as const) {
+  test(`the message list scrolls and the page does not on a ${device}`, async ({ page }) => {
+    if (size) {
+      await page.setViewportSize(size);
+    }
+    await longHistory(page);
+    await page.goto(shop);
+    const list = page.locator("[data-message]").first().locator("..");
+    await expect(page.getByText("History 59 ")).toBeVisible();
+    await expect.poll(() => page.evaluate(shows("History 59 ", "end"))).toBe(true);
+
+    const end = await list.evaluate((element) => element.scrollTop);
+    expect(end).toBeGreaterThan(0);
+    await list.hover();
+    // A wheel scroll is animated, and a long one can stop before the end of the list.
+    const scrollBy = (delta: number) =>
+      expect.poll(async () => {
+        await page.mouse.wheel(0, delta);
+        return list.evaluate((element) => element.scrollTop);
+      });
+    await scrollBy(-100000).toBe(0);
+    await scrollBy(100000).toBeGreaterThanOrEqual(end);
+    await expect(list).toHaveCSS("overscroll-behavior-y", "contain");
+    expect(await page.evaluate(pageScroll)).toEqual({
+      window: 0,
+      document: 0,
+      content: 0,
+      contentOverflow: 0,
+    });
+  });
+}
+
+test.describe("on a phone with the keyboard", () => {
+  test.use({ viewport: phone, isMobile: true, hasTouch: true });
+
+  test("the input stays on the tab bar after a send and after the focus leaves", async ({
+    page,
+  }) => {
+    await longHistory(page);
+    await page.goto(shop);
+    await expect.poll(() => page.evaluate(shows("History 59 ", "end"))).toBe(true);
+    const form = page.getByRole("main").locator("form");
+    const tabBar = page.locator("nav").last();
+    const gap = async () =>
+      (await tabBar.boundingBox())!.y -
+      (await form.boundingBox())!.y -
+      (await form.boundingBox())!.height;
+    expect(await gap()).toBeCloseTo(0, 0);
+
+    const input = page.getByLabel("Message to the Lead");
+    await input.tap();
+    await page.keyboard.type("keyboard");
+    await page.getByRole("button", { name: "Send" }).tap();
+    await expect.poll(() => sent(page)).toContain("keyboard");
+    await expect.poll(() => page.evaluate(shows("keyboard", "end"))).toBe(true);
+    expect(await gap()).toBeCloseTo(0, 0);
+
+    await input.blur();
+    await page.getByRole("main").locator("[data-message]").first().tap();
+    expect(await gap()).toBeCloseTo(0, 0);
+    expect(await page.evaluate(pageScroll)).toEqual({
+      window: 0,
+      document: 0,
+      content: 0,
+      contentOverflow: 0,
+    });
   });
 });

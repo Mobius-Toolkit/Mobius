@@ -22,11 +22,21 @@ export default defineConfig({
       testMatch: "installations.spec.ts",
       dependencies: ["navigation"],
     },
+    // The memory test edits the memory file of plants/garden and reverts the edit.
+    { name: "memory", testMatch: "memory.spec.ts", dependencies: ["installations"] },
+    { name: "agents", testMatch: "agents.spec.ts", dependencies: ["installations"] },
+    // The Checkup tests give their own data with page.route, and they need the Apps of the screenshots test.
+    { name: "checkup", testMatch: "checkup.spec.ts", dependencies: ["agents"] },
+    // The live tests change no data, but they need the Apps of the screenshots test.
+    { name: "live", testMatch: "live.spec.ts", dependencies: ["checkup"] },
   ],
   use: {
     baseURL: `http://${addr}`,
     trace: "retain-on-failure",
     userAgent: "Mobius screenshots",
+    // The chat day separators and the clocks show the local time zone and the locale.
+    timezoneId: "UTC",
+    locale: "en-US",
     // page.route does not see the requests that pass through a service worker.
     serviceWorkers: "block",
     // With partial raster, Chrome paints only the changed part of a tile again, and the edges of that part can differ from run to run.

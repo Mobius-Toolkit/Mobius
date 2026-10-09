@@ -100,16 +100,19 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 	researcher.Role = engine.ResearcherRole
 	judge := leadSpec(t)
 	judge.Role = engine.JudgeRole
+	curator := leadSpec(t)
+	curator.Role = engine.CuratorRole
 
 	for _, c := range []struct {
 		spec engine.Spec
 		want []string
 	}{
-		{triager, []string{"create_workstream", "message_lead", "move_issue", "start_researcher"}},
+		{triager, []string{"create_workstream", "message_lead", "move_issue", "start_researcher", "tell_curator"}},
 		{reviewer, []string{"submit_review"}},
 		{implementer, []string{"cannot_do", "reply_thread"}},
 		{researcher, []string{}},
 		{judge, []string{"submit_verdicts"}},
+		{curator, []string{"edit_memory"}},
 	} {
 		session := run(t, server, c.spec, "List the tools")
 		if got := toolNames(t, reply(t, server, session)); !reflect.DeepEqual(got, c.want) {
@@ -508,14 +511,16 @@ func TestMessageLeadSendsTheMessageToTheLeadOfAnOpenWorkstream(t *testing.T) {
 
 func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("message_lead", `{ workstream = 20, text = "Create the task issues." }`)+
-		call("message_lead", `{ workstream = 12, text = "Create the task issues." }`)+
-		call("message_lead", `{ workstream = 21, text = "Create the task issues." }`))
+	// Only these prompts play a call, so a Lead that the engine starts for an event does not repeat the messages.
+	messages := "[[prompts]]\nwhen = \"Message 1.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 20, text = \"Create the task issues.\" } }\n\n" +
+		"[[prompts]]\nwhen = \"Message 2.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 12, text = \"Create the task issues.\" } }\n\n" +
+		"[[prompts]]\nwhen = \"Message 3.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 21, text = \"Create the task issues.\" } }\n"
+	server, _ := connect(t, fake, messages)
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 21, "Not a Workstream")
 
-	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ")
+	session := run(t, server, leadSpec(t), "Message 1.", "Message 2.", "Message 3.")
 
 	want := "Sent the message to the Lead of #20." +
 		"error: A Lead cannot send a message to its own Workstream." +
@@ -650,6 +655,22 @@ func TestSendDetailsRefusesAnIssueOfAnotherWorkstreamAndATaskWithNoOpenImplement
 
 	want := "error: No Implementer session of #41 is open now. A later session reads the updated issue body." +
 		"error: #42 has no live task in this Workstream."
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q", got)
+	}
+}
+
+func TestSendDetailsTellsTheLeadToStartAnImplementerForADispatchedTask(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("send_details", `{ n = 41, text = "Round prices down." }`))
+	addTask(t, server, fake, 41, 12, 45)
+	if _, err := server.DB.Exec(`UPDATE tasks SET state = 'dispatched'`); err != nil {
+		t.Fatal(err)
+	}
+
+	session := run(t, server, leadSpec(t), "1. ")
+
+	want := "error: No Implementer of #41 runs. The issue body has the new details. Call `start_implementer` to continue the task."
 	if got := reply(t, server, session); got != want {
 		t.Errorf("reply = %q", got)
 	}

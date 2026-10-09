@@ -4,7 +4,9 @@ SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS 
                WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number)
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
                        WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number
-                         AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed
+                         AND i.state != 'closed') AS BOOLEAN) AS all_tasks_closed,
+       CAST(EXISTS (SELECT 1 FROM tasks t
+               WHERE t.repository = w.repository AND t.workstream = w.number AND t.state = 'ready_for_review') AS BOOLEAN) AS ready_to_merge
 FROM copied_workstreams w
 ORDER BY w.repository, w.number DESC;
 
@@ -55,9 +57,14 @@ INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES (?, ?, ?, ?)
 ON CONFLICT (repository, endpoint) DO UPDATE SET since = excluded.since, etag = excluded.etag;
 
 -- name: AddSession :one
-INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, parent, started_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO sessions (role, harness, model, effort, organization, repository, workstream, issue, parent, started_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
+
+-- name: AddTurnUsage :exec
+INSERT INTO turn_usage (session, task, issue, workstream, organization, repository, role, harness, model, reported_model,
+                        effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: SetACPSessionID :exec
 UPDATE sessions SET acp_session_id = ? WHERE id = ?;
@@ -124,6 +131,10 @@ SELECT id, queued_at FROM tasks WHERE state = 'queued' ORDER BY queued_at, id;
 -- name: SetTaskState :execrows
 UPDATE tasks SET state = sqlc.arg(state) WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
+-- name: HandTaskToHuman :execrows
+UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
+
 -- name: AddWorkerRestart :one
 UPDATE tasks SET worker_restarts = worker_restarts + 1 WHERE id = sqlc.arg(id) AND worker_restarts < sqlc.arg(max)
 RETURNING worker_restarts;
@@ -170,10 +181,10 @@ DELETE FROM chat_messages WHERE id = ?;
 UPDATE chat_messages SET text = text || sqlc.arg(text) WHERE id = sqlc.arg(id)
 RETURNING *;
 
--- The chat shows no Researcher message.
+-- The chat shows no Researcher message and no Curator message.
 -- name: ListChatMessages :many
 SELECT * FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Researcher'
+WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator')
 ORDER BY id;
 
 -- name: ListChatMessagesBefore :many
@@ -185,25 +196,25 @@ ORDER BY id DESC LIMIT ?;
 INSERT INTO chat_seen (organization, repository, workstream, message) VALUES (?, ?, ?, ?)
 ON CONFLICT (organization, repository, workstream) DO UPDATE SET message = max(message, excluded.message);
 
--- The messages of the Owner, of a Researcher and of an event are never unread.
+-- The messages of the Owner, of a Researcher, of a Curator and of an event are never unread.
 -- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
 LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
-WHERE m.author NOT IN ('Owner', 'Researcher', 'Event') AND m.id > coalesce(s.message, 0)
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Event') AND m.id > coalesce(s.message, 0)
 GROUP BY m.organization, m.repository, m.workstream
 ORDER BY m.organization, m.repository, m.workstream;
 
 -- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = sqlc.arg(organization) AND m.repository = sqlc.arg(repository) AND m.workstream = sqlc.arg(workstream)
-  AND m.author NOT IN ('Owner', 'Researcher', 'Event')
+  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Event')
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0);
 
 -- name: AddLeadEvent :exec
-INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message)
-VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message, comment, review)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: DeliverLeadEvents :exec
 UPDATE lead_events SET delivered_at = ? WHERE repository = ? AND workstream = ? AND delivered_at IS NULL;
@@ -247,7 +258,7 @@ SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?);
 SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
 
 -- name: ResetTaskCounters :exec
-UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0 WHERE id = ?;
+UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;
 
 -- name: EndTask :exec
 UPDATE tasks SET state = 'ended' WHERE id = ?;
@@ -407,13 +418,118 @@ SELECT position, name FROM copied_issue_labels WHERE repository = ? AND workstre
 SELECT position, number, blocker_workstream, blocker_workstream_title FROM copied_blockers
 WHERE repository = ? AND workstream = ? ORDER BY position, number;
 
--- name: ListCopiedIssuesWithLabel :many
-SELECT i.repository, i.workstream, i.number, i.title, i.state, i.author, i.html_url, i.repository_url FROM copied_issues i
-WHERE EXISTS (
-    SELECT 1 FROM copied_issue_labels l
-    WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(name)
-)
+-- name: ListCopiedIssuesWithLabels :many
+SELECT i.repository, i.workstream, i.number, i.title, i.state, i.author, i.html_url, i.repository_url,
+    EXISTS (
+        SELECT 1 FROM copied_issue_labels l
+        WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(needs_human)
+    ) AS has_needs_human,
+    EXISTS (
+        SELECT 1 FROM copied_issue_labels l
+        WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(question)
+    ) AS has_question
+FROM copied_issues i
+WHERE has_needs_human OR has_question
 ORDER BY i.repository, i.workstream, i.number;
 
 -- name: AddMemoryVersion :exec
-INSERT INTO memory_versions (repository, time, author, text) VALUES (?, ?, ?, ?);
+INSERT INTO memory_versions (repository, time, author, reason, text) VALUES (?, ?, ?, ?, ?);
+
+-- name: SetTaskApprovedReview :exec
+UPDATE tasks SET approved_review = ? WHERE id = ?;
+
+-- name: SetTaskRefusedReview :exec
+UPDATE tasks SET refused_review = ? WHERE id = ?;
+
+-- name: HoldTriager :exec
+INSERT INTO held_triagers (repository, issue) VALUES (?, ?)
+ON CONFLICT (repository, issue) DO NOTHING;
+
+-- name: ListHeldTriagers :many
+SELECT issue FROM held_triagers WHERE repository = ? ORDER BY issue;
+
+-- name: ReleaseTriager :exec
+DELETE FROM held_triagers WHERE repository = ? AND issue = ?;
+
+-- name: ListMemoryVersions :many
+SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? ORDER BY id DESC;
+
+-- name: GetMemoryVersion :one
+SELECT id, repository, time, author, text FROM memory_versions WHERE id = ?;
+
+-- name: GetMemoryVersionBefore :one
+SELECT text FROM memory_versions WHERE repository = ? AND id < ? ORDER BY id DESC LIMIT 1;
+
+-- name: GetNewestMemoryVersionID :one
+SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ?;
+
+-- name: ListCuratorReasonsAfter :many
+SELECT reason FROM memory_versions WHERE repository = ? AND author = 'curator' AND id > ? ORDER BY id;
+
+-- name: AddCuratorRequest :one
+INSERT INTO curator_requests (repository, text) VALUES (?, ?) RETURNING id;
+
+-- name: ListCuratorRequests :many
+SELECT id, text FROM curator_requests WHERE repository = ? ORDER BY id;
+
+-- name: DeleteCuratorRequestsUpTo :exec
+DELETE FROM curator_requests WHERE repository = ? AND id <= ?;
+
+-- name: DeleteCuratorRequest :exec
+DELETE FROM curator_requests WHERE id = ?;
+
+-- name: ListRecentMemoryVersions :many
+SELECT time, author, reason FROM memory_versions WHERE repository = ? ORDER BY id DESC LIMIT 20;
+
+-- name: CountSessionsEndedSinceCurator :one
+SELECT count(*) FROM sessions s
+WHERE s.repository = sqlc.arg(repository) AND s.role <> 'curator' AND s.ended_at IS NOT NULL
+  AND julianday(s.ended_at) > coalesce((
+      SELECT max(julianday(c.started_at)) FROM sessions c
+      WHERE c.repository = s.repository AND c.role = 'curator' AND (c.ended_at IS NULL OR c.end_reason IN ('done', 'failed', 'hung'))
+  ), 0);
+
+-- name: GetLastDoneCuratorStart :one
+SELECT started_at FROM sessions
+WHERE repository = ? AND role = 'curator' AND end_reason = 'done'
+ORDER BY julianday(started_at) DESC LIMIT 1;
+
+-- name: ListOwnerMessagesSince :many
+SELECT m.workstream, m.time, m.text,
+       CAST(COALESCE((SELECT p.text FROM chat_messages p
+                      WHERE p.organization = m.organization AND p.repository = m.repository AND p.workstream = m.workstream
+                        AND p.id < m.id AND p.author IN ('Lead', 'tell_owner')
+                      ORDER BY p.id DESC LIMIT 1), '') AS TEXT) AS lead_text
+FROM chat_messages m
+WHERE m.repository = sqlc.arg(repository) AND m.author = 'Owner' AND julianday(m.time) > julianday(CAST(sqlc.arg(since) AS TEXT))
+ORDER BY m.id;
+
+-- name: ListToolCallsSince :many
+SELECT s.role, s.issue, t.time, t.json FROM transcript t
+JOIN sessions s ON s.id = t.session
+WHERE s.repository = sqlc.arg(repository) AND s.role <> 'curator' AND t.kind = 'mcp_call'
+  AND julianday(t.time) > julianday(CAST(sqlc.arg(since) AS TEXT))
+  AND json_extract(t.json, '$.tool') IN ('cannot_do', 'submit_review', 'start_fix_round')
+  AND json_extract(t.json, '$.error') IS NULL
+ORDER BY t.id;
+
+-- name: ListHungSessionsSince :many
+SELECT id, role, issue, ended_at FROM sessions
+WHERE repository = sqlc.arg(repository) AND role <> 'curator' AND end_reason = 'hung'
+  AND julianday(ended_at) > julianday(CAST(sqlc.arg(since) AS TEXT))
+ORDER BY id;
+
+-- name: ListRetryPromptsSince :many
+SELECT s.role, s.issue, t.time, CAST(json_extract(t.json, '$.text') AS TEXT) AS text FROM transcript t
+JOIN sessions s ON s.id = t.session
+WHERE s.repository = sqlc.arg(repository) AND s.role <> 'curator' AND t.kind = 'prompt'
+  AND julianday(t.time) > julianday(CAST(sqlc.arg(since) AS TEXT))
+  AND substr(json_extract(t.json, '$.text'), 1, length(CAST(sqlc.arg(prefix) AS TEXT))) = CAST(sqlc.arg(prefix) AS TEXT)
+ORDER BY t.id;
+
+-- name: IsCommentAnswered :one
+SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review = ? AND comment = ?);
+
+-- name: MarkCommentAnswered :exec
+INSERT INTO answered_comments (repository, review, comment) VALUES (?, ?, ?)
+ON CONFLICT (repository, review, comment) DO NOTHING;

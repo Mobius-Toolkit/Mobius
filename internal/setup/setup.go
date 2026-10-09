@@ -52,6 +52,7 @@ type configFile struct {
 		Researcher  binding `toml:"researcher,inline"`
 		Reviewer    binding `toml:"reviewer,inline"`
 		Judge       binding `toml:"judge,inline"`
+		Curator     binding `toml:"curator,inline"`
 	} `toml:"roles"`
 }
 
@@ -128,6 +129,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath, path stri
 		{"Researcher", &file.Roles.Researcher},
 		{"Reviewer", &file.Roles.Reviewer},
 		{"Judge", &file.Roles.Judge},
+		{"Curator", &file.Roles.Curator},
 	}
 	for _, role := range roles {
 		for {

@@ -433,6 +433,37 @@ func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxIte
 	}
 }
 
+func TestAWorkstreamsChangeGoesOutWhenATaskEntersAndLeavesReadyForReview(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadApproves+leadFindings+leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
+	if list := workstreams(t, server); list[0].ReadyToMerge {
+		t.Fatalf("workstreams = %+v", list)
+	}
+	changes := listen(t, server)
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	waitForReadyToMerge(t, server, changes, true)
+	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got it for review.")
+
+	sendChat(t, server, leadChat, "Send the findings to #41")
+
+	waitForReadyToMerge(t, server, changes, false)
+}
+
+// waitForReadyToMerge reads the Workstream list after each change of the list until the first Workstream has ready.
+func waitForReadyToMerge(t *testing.T, server *testserver.Server, changes <-chan engine.Change, ready bool) {
+	t.Helper()
+	for {
+		waitForWorkstreams(t, changes)
+		if workstreams(t, server)[0].ReadyToMerge == ready {
+			return
+		}
+	}
+}
+
 func TestApprovePullRequestRefusesATaskInChecksAndChangesNothing(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, longGrace)
@@ -494,8 +525,8 @@ func TestApprovePullRequestRefusesANewHeadAndMovesTheTaskBackToChecks(t *testing
 	}
 }
 
-func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLead(t *testing.T) {
-	for state, want := range map[string]string{"checks": "waits for CI", "approval": "waits for Lead"} {
+func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLeadAndTheWaitForStartImplementer(t *testing.T) {
+	for state, want := range map[string]string{"checks": "waits for CI", "approval": "waits for Lead", "dispatched": "waits for start_implementer"} {
 		t.Run(state, func(t *testing.T) {
 			fake := testkit.NewFakeGitHub(t)
 			server, _ := seedWaitingWith(t, fake, state, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")

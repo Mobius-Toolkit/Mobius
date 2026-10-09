@@ -134,7 +134,10 @@ func TestAnImplementerThatChecksItsWorkLongerThanTheHangTimeGetsNoRetryPrompt(t 
 func TestASessionThatWaitsForASlotLongerThanTheHangTimeGetsNoRetryPrompt(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "[[prompts]]\nwhen = \"Work\"\nbusy = \"1s\"\n", func(cfg *config.Config) { cfg.MaxAgents = 1 })
+	server, _ := connectWith(t, fake, "[[prompts]]\nwhen = \"Work\"\nbusy = \"1s\"\n", func(cfg *config.Config) {
+		cfg.MaxAgents = 1
+		cfg.Roles.Judge.CountsInMaxAgents = true
+	})
 	first := start(t, server, implementerSpec(t, server, fake, 41))
 	working := make(chan error, 1)
 	go func() { working <- first.Prompt(t.Context(), "Work", nil) }()

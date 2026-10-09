@@ -7,6 +7,8 @@
 //	image_support = true    # the agent declares that it reads the images of a prompt
 //	skip_tools_list = 1     # the first 1 agent processes of the script do not list the tools after session/new;
 //	                        # the file "starts" next to the script counts the processes
+//	hang_start = 1          # the first 1 agent processes of the script never answer initialize;
+//	                        # the file "hung_starts" next to the script counts the processes
 //
 //	[options]               # one select option for each id, in id order; the first value is current
 //	model = ["sonnet", "opus"]
@@ -20,6 +22,8 @@
 //	                        # calls the tool of the Mobius MCP server; the reply gets the text of the result,
 //	                        # after "error: " for an error result; {shell} becomes the trimmed stdout of shell
 //	list_tools = true       # the reply gets the JSON of the tool list of the Mobius MCP server
+//	usage = '{"inputTokens": 10, "outputTokens": 2}'  # the usage field of the response
+//	meta = '{"quota": {}}'  # the _meta field of the response
 //	error = { code = -32000, message = "Usage limit", data = "..." }  # the turn ends with this error
 //	hang = true             # the turn ends only at session/cancel
 //	busy = "300ms"          # before the reply, the agent sends a tool_call_update every 10 ms for this long
@@ -70,6 +74,7 @@ type script struct {
 	LoginWorks    bool                `toml:"login_works"`
 	ImageSupport  bool                `toml:"image_support"`
 	SkipToolsList int                 `toml:"skip_tools_list"`
+	HangStart     int                 `toml:"hang_start"`
 	Options       map[string][]string `toml:"options"`
 	Prompts       []prompt            `toml:"prompts"`
 }
@@ -84,7 +89,15 @@ type prompt struct {
 	Call      *call        `toml:"call"`
 	Shell     string       `toml:"shell"`
 	Error     *scriptError `toml:"error"`
+	Usage     string       `toml:"usage"`
+	Meta      string       `toml:"meta"`
 	Later     *later       `toml:"later"`
+}
+
+type promptResult struct {
+	StopReason acp.StopReason  `json:"stopReason"`
+	Usage      json.RawMessage `json:"usage,omitempty"`
+	Meta       json.RawMessage `json:"_meta,omitempty"`
 }
 
 type later struct {
@@ -185,6 +198,14 @@ func Serve(path string, r io.Reader, w io.Writer) error {
 func (a *agent) handle(ctx context.Context, method string, params json.RawMessage) (any, *acp.RequestError) {
 	switch method {
 	case acp.AgentMethodInitialize:
+		hang, err := a.within("hung_starts", a.script.HangStart)
+		if err != nil {
+			return nil, acp.NewInternalError(err.Error())
+		}
+		if hang {
+			<-ctx.Done()
+			return nil, acp.NewInternalError("the start ended")
+		}
 		var request acp.InitializeRequest
 		if err := json.Unmarshal(params, &request); err != nil {
 			return nil, acp.NewInvalidParams(err.Error())
@@ -254,7 +275,7 @@ func (a *agent) newSession(params json.RawMessage) (any, *acp.RequestError) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(a.path), "mcp_url"), []byte(a.mcpURL), 0o600); err != nil {
 		return nil, acp.NewInternalError(err.Error())
 	}
-	skip, err := a.skipToolsList()
+	skip, err := a.within("starts", a.script.SkipToolsList)
 	if err != nil {
 		return nil, acp.NewInternalError(err.Error())
 	}
@@ -264,20 +285,20 @@ func (a *agent) newSession(params json.RawMessage) (any, *acp.RequestError) {
 	return map[string]any{"sessionId": "fake-session", "configOptions": a.options}, nil
 }
 
-// skipToolsList counts this agent process in the file "starts" next to the script, and tells if the process is one
-// of the first skip_tools_list processes.
-func (a *agent) skipToolsList() (bool, error) {
-	if a.script.SkipToolsList == 0 {
+// within counts this agent process in the file name next to the script, and tells if the process is one of the
+// first limit processes.
+func (a *agent) within(name string, limit int) (bool, error) {
+	if limit == 0 {
 		return false, nil
 	}
-	path := filepath.Join(filepath.Dir(a.path), "starts")
+	path := filepath.Join(filepath.Dir(a.path), name)
 	text, err := os.ReadFile(filepath.Clean(path))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, err
 	}
 	starts, _ := strconv.Atoi(string(text))
 	starts++
-	return starts <= a.script.SkipToolsList, os.WriteFile(path, []byte(strconv.Itoa(starts)), 0o600)
+	return starts <= limit, os.WriteFile(path, []byte(strconv.Itoa(starts)), 0o600)
 }
 
 // listTools lists the tools of the MCP server at url. As in Claude Code, a failed list only leaves the session with no tools.
@@ -398,7 +419,14 @@ func (a *agent) prompt(ctx context.Context, params json.RawMessage) (any, *acp.R
 			return nil, acp.NewInternalError(err.Error())
 		}
 	}
-	return acp.PromptResponse{StopReason: stopReason}, nil
+	result := promptResult{StopReason: stopReason}
+	if turn.Usage != "" {
+		result.Usage = json.RawMessage(turn.Usage)
+	}
+	if turn.Meta != "" {
+		result.Meta = json.RawMessage(turn.Meta)
+	}
+	return result, nil
 }
 
 // absorb gives the channel that closes at a session/cancel, and the later with absorb that waited for this prompt, or nil.

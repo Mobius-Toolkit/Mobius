@@ -2,6 +2,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import {
   listAgents,
   listTasks,
+  resumeIssue,
   startIssue,
   type Agent,
   type LiveEvents,
@@ -14,11 +15,12 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { queueState, queueText } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
 import { clock, dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { paused, Transcript } from "./Agents";
+import { Transcript } from "./Agents";
 
 type Row = { agent: Agent; depth: number };
 
@@ -65,8 +67,9 @@ function shownAgents(agents: Agent[], showStopped: boolean) {
 
 function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void }) {
   const agent = row.agent;
+  const state = queueState(agent.queueReason);
   const started = `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ""}`;
-  const detail = agent.queueReason ? `${started} · ${agent.queueReason}` : started;
+  const detail = agent.queueReason ? `${started} · ${queueText(agent)}` : started;
   return (
     <li>
       <button
@@ -78,11 +81,7 @@ function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void 
         <span
           className={cn(
             "size-2 shrink-0 rounded-full",
-            agent.queueReason
-              ? "bg-amber-500"
-              : agent.endedAt
-                ? "border border-muted-foreground"
-                : "bg-green-600",
+            agent.endedAt ? "border border-muted-foreground" : state.dot,
           )}
         />
         <span className="grid min-w-0 grow gap-0.5">
@@ -94,11 +93,7 @@ function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void 
           </span>
         </span>
         {agent.endedAt && <Badge variant="secondary">stopped</Badge>}
-        {agent.queueReason && (
-          <Badge variant="outline">
-            {agent.queueReason.startsWith(paused) ? "paused" : "queued"}
-          </Badge>
-        )}
+        {state.badge && <Badge variant="outline">{state.badge}</Badge>}
       </button>
     </li>
   );
@@ -142,6 +137,7 @@ function AgentTree({
     if (!source) {
       return;
     }
+    load();
     source.addEventListener("open", load);
     const remove = onEvent<LiveEvents, "agent">(source, "agent", (agent) => {
       if (agent.repository === `${owner}/${name}` && agent.workstream === number) {
@@ -178,9 +174,11 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const state = started && line.state === "open" ? "ready" : line.state;
+  const resumes = line.state === "needs-human";
+  const label = `${resumes ? "Resume" : "Start"} #${line.number}`;
   const start = () => {
     setStarting(true);
-    startIssue(owner, name, line.number)
+    (resumes ? resumeIssue : startIssue)(owner, name, line.number)
       .then((res) => {
         if (res.status === 204) {
           setError("");
@@ -213,18 +211,22 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
           ))}
           <Badge variant={state === "open" ? "outline" : "secondary"}>{state}</Badge>
         </a>
-        {state === "open" && !line.otherRepository && line.blockedBy.length === 0 && (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="shrink-0"
-            aria-label={`Start #${line.number}`}
-            disabled={starting}
-            onClick={start}
-          >
-            {starting ? <Spinner aria-hidden /> : <PlayIcon />}
-          </Button>
-        )}
+        {!started &&
+          (state === "open" || resumes) &&
+          !line.otherRepository &&
+          line.blockedBy.length === 0 && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="shrink-0"
+              aria-label={label}
+              title={label}
+              disabled={starting}
+              onClick={start}
+            >
+              {starting ? <Spinner aria-hidden /> : <PlayIcon />}
+            </Button>
+          )}
       </div>
       {error && (
         <Badge variant="destructive" className="h-auto w-full justify-start whitespace-normal">
@@ -282,13 +284,14 @@ function Tasks({
       .catch((err: unknown) => setError(String(err)));
   }, [owner, name, number, showLogin]);
 
-  useEffect(load, [load]);
-
-  // The workstreams event also tells of a change of the tasks.
+  // The workstreams event also tells of a change of the tasks. An event that comes before the listener or while the
+  // connection is down is lost, so each connection reads the tasks.
   useEffect(() => {
+    load();
     if (!source) {
       return;
     }
+    load();
     source.addEventListener("open", load);
     const remove = onEvent<LiveEvents, "workstreams">(source, "workstreams", load);
     return () => {
@@ -308,7 +311,7 @@ function Tasks({
       {shown?.length === 0 && <p className="px-2 text-sm text-muted-foreground">No tasks.</p>}
       <ul>
         {shown?.map((line) => (
-          <TaskEntry key={line.url} owner={owner} name={name} line={line} />
+          <TaskEntry key={`${line.url} ${line.state}`} owner={owner} name={name} line={line} />
         ))}
       </ul>
     </div>
@@ -333,7 +336,7 @@ export function AgentPanel({
         <TabsTrigger value="agents">Agents</TabsTrigger>
         <TabsTrigger value="tasks">Tasks</TabsTrigger>
       </TabsList>
-      <TabsContent value="agents" className="overflow-y-auto p-2">
+      <TabsContent value="agents" className="flex flex-col overflow-y-auto p-2">
         <AgentTree owner={owner} name={name} number={number} source={source} />
       </TabsContent>
       <TabsContent value="tasks" className="overflow-y-auto p-2">

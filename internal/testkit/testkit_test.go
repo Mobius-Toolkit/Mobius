@@ -55,13 +55,13 @@ shell = "pwd"
 	if err := session.Configure(context.Background(), "opus", "low"); err != nil {
 		t.Fatal(err)
 	}
-	stopReason, err := session.Prompt(context.Background(), "Hi.", nil)
+	result, err := session.Prompt(context.Background(), "Hi.", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if stopReason != acp.StopReasonEndTurn {
-		t.Errorf("stop reason = %s", stopReason)
+	if result.StopReason != acp.StopReasonEndTurn {
+		t.Errorf("stop reason = %s", result.StopReason)
 	}
 	cwd, err := filepath.EvalSymlinks(work)
 	if err != nil {

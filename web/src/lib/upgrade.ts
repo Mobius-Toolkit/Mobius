@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   cancelDrain,
   getDrain,
@@ -13,6 +13,11 @@ import { onEvent } from "./events";
 
 export type Upgrade = ReturnType<typeof useUpgrade>;
 
+// hasUpgradeControls is true when UpgradeControls shows something.
+export function hasUpgradeControls(upgrade: Upgrade, newBuild: boolean) {
+  return Boolean(upgrade.drain?.on || upgrade.version || upgrade.failure || newBuild);
+}
+
 export function useUpgrade(source?: EventSource) {
   const [version, setVersion] = useState("");
   const [drain, setDrain] = useState<Drain>();
@@ -21,21 +26,22 @@ export function useUpgrade(source?: EventSource) {
   const [cancelling, setCancelling] = useState(false);
   const [changesShown, setChangesShown] = useState(false);
 
+  // A failed check keeps the version of the last good check.
+  const check = useCallback(() => {
+    getRelease()
+      .then((res) => {
+        if (res.status === 200) {
+          setVersion(res.data.data.version);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
-    // A failed check keeps the version of the last good check.
-    const check = () => {
-      getRelease()
-        .then((res) => {
-          if (res.status === 200) {
-            setVersion(res.data.data.version);
-          }
-        })
-        .catch(() => {});
-    };
     check();
     const timer = setInterval(check, 60 * 60 * 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [check]);
 
   useEffect(() => {
     if (!source) {
@@ -76,6 +82,11 @@ export function useUpgrade(source?: EventSource) {
       removeUpgrade();
     };
   }, [source]);
+
+  const showChanges = () => {
+    check();
+    setChangesShown(true);
+  };
 
   const start = () => {
     setChangesShown(false);
@@ -121,6 +132,7 @@ export function useUpgrade(source?: EventSource) {
     cancelling,
     changesShown,
     setChangesShown,
+    showChanges,
     start,
     cancel,
   };

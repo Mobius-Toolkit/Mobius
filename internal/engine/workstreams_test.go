@@ -22,6 +22,7 @@ type workstream struct {
 	Brief          string `json:"brief"`
 	Autopilot      bool   `json:"autopilot"`
 	AllTasksClosed bool   `json:"allTasksClosed"`
+	ReadyToMerge   bool   `json:"readyToMerge"`
 }
 
 type activity struct {

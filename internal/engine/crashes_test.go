@@ -14,6 +14,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -258,12 +259,38 @@ func TestAWorkerThatDiesStartsAgainAndDoesTheWork(t *testing.T) {
 	}
 }
 
+func TestAWorkerWhoseHarnessStartDoesNotAnswerStartsAgainAfterStartTimeout(t *testing.T) {
+	defer func(limit time.Duration) { runner.StartTimeout = limit }(runner.StartTimeout)
+	runner.StartTimeout = 2 * time.Second
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectTask(t, fake, leadStarts, "", noChange)
+	testkit.InstallFakeHarness(t, dataDir, "devin", "hang_start = 1\n"+options+"[[prompts]]\n"+"shell = \""+commitShell+"\"\n")
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
+	sessions := endedImplementers(t, server, 2)
+	if sessions[0].EndReason.String != "failed" || sessions[1].EndReason.String != "done" {
+		t.Errorf("sessions = %+v", sessions)
+	}
+	if restarts := liveTask(t, server, 41).WorkerRestarts; restarts != 1 {
+		t.Errorf("Worker restarts = %d", restarts)
+	}
+}
+
+// startHandToHuman starts a server with an Implementer and max_worker_restarts 1, and dispatches #41.
+func startHandToHuman(t *testing.T, fake *testkit.FakeGitHub, implementer string) *testserver.Server {
+	t.Helper()
+	server, _ := connectTask(t, fake, leadStarts, implementer, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	return server
+}
+
 // handedToHuman starts a server with an Implementer that always dies and max_worker_restarts 1, dispatches #41, and
 // waits until its task waits for a human.
 func handedToHuman(t *testing.T, fake *testkit.FakeGitHub, implementer string) *testserver.Server {
 	t.Helper()
-	server, _ := connectTask(t, fake, leadStarts, implementer, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	server := startHandToHuman(t, fake, implementer)
 	testkit.WaitFor(t, func() bool {
 		return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:working")
 	})

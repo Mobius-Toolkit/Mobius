@@ -15,7 +15,7 @@ type TaskLine struct {
 	Number int64 `gork:"number"`
 	// Title is the title of the task issue
 	Title string `gork:"title"`
-	// State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead".
+	// State is the Mobius label of the issue with no "mobius:", or open, or closed for a closed issue. A task that waits for a slot shows "queued". A task that waits for CI shows "waits for CI". A task that waits for the Lead shows "waits for Lead". A task that waits for start_implementer shows "waits for start_implementer".
 	State string `gork:"state"`
 	// URL is the GitHub URL of the task issue
 	URL string `gork:"url"`
@@ -77,7 +77,7 @@ func (h *handlers) ListTasks(ctx context.Context, req ListTasksRequest) (*ListTa
 	return &ListTasksResponse{Body: Envelope[[]TaskLine]{Data: tasks}}, nil
 }
 
-// NeedsHuman is an open task issue with mobius:needs-human.
+// NeedsHuman is an open task issue with mobius:needs-human or mobius:question.
 type NeedsHuman struct {
 	// Repository is the repository as "owner/name"
 	Repository string `gork:"repository"`
@@ -89,6 +89,10 @@ type NeedsHuman struct {
 	Title string `gork:"title"`
 	// URL is the GitHub URL of the issue
 	URL string `gork:"url"`
+	// Stopped is true when the issue has mobius:needs-human: the task stopped
+	Stopped bool `gork:"stopped"`
+	// Question is true when the issue has mobius:question: the Lead waits for an answer
+	Question bool `gork:"question"`
 	// PullRequest is the pull request of the live task of the issue, or null
 	PullRequest *int64 `gork:"pullRequest"`
 	// PullRequestURL is the GitHub URL of the pull request, or null
@@ -103,8 +107,8 @@ type ListNeedsHumanResponse struct {
 	Body Envelope[[]NeedsHuman]
 }
 
-// ListNeedsHuman returns the open issues of trusted authors with mobius:needs-human in the trees of all Workstreams,
-// from the local copy of GitHub, by repository, Workstream and number.
+// ListNeedsHuman returns the open issues of trusted authors with mobius:needs-human or mobius:question in the trees of
+// all Workstreams, from the local copy of GitHub, by repository, Workstream and number.
 func (h *handlers) ListNeedsHuman(ctx context.Context, _ ListNeedsHumanRequest) (*ListNeedsHumanResponse, error) {
 	found, err := h.engine.NeedsHuman(ctx)
 	if err != nil {
@@ -112,7 +116,7 @@ func (h *handlers) ListNeedsHuman(ctx context.Context, _ ListNeedsHumanRequest) 
 	}
 	issues := make([]NeedsHuman, 0, len(found))
 	for _, issue := range found {
-		row := NeedsHuman{Repository: issue.Repository, Workstream: issue.Workstream, Number: issue.Number, Title: issue.Title, URL: issue.URL}
+		row := NeedsHuman{Repository: issue.Repository, Workstream: issue.Workstream, Number: issue.Number, Title: issue.Title, URL: issue.URL, Stopped: issue.Stopped, Question: issue.Question}
 		if issue.PullRequest != 0 {
 			row.PullRequest = &issue.PullRequest
 			row.PullRequestURL = &issue.PullRequestURL

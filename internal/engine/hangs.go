@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -58,7 +59,10 @@ func (a *Agent) sendPrompt(ctx context.Context, text string, images []Image) err
 	absorbed := make(chan bool, 1)
 	go func() { hung <- a.watch(promptCtx, stop) }()
 	go func() { absorbed <- a.watchAbsorbed(promptCtx) }()
-	_, err := a.session.Prompt(promptCtx, text, images)
+	result, err := a.session.Prompt(promptCtx, text, images)
+	if usageErr := a.addUsage(context.WithoutCancel(ctx), result, err); usageErr != nil {
+		log.Printf("add the usage of the session %d: %v", a.id, usageErr)
+	}
 	stop()
 	if <-hung {
 		<-absorbed
@@ -116,7 +120,7 @@ func (a *Agent) endHung(ctx context.Context) error {
 	if spec.Issue.Valid {
 		text += fmt.Sprintf(" The session worked on #%d.", spec.Issue.Int64)
 	}
-	_, err := a.engine.addInboxItem(ctx, store.AddInboxItemParams{
+	err := a.engine.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         stoppedKind,
 		Organization: spec.Organization,
 		Repository:   spec.Repository,

@@ -1,10 +1,11 @@
 import { use, useState } from "react";
 import { dismiss, InboxItemKind, resume, type InboxItem, type Workstream } from "@/api/api.gen";
+import { ErrorBadge, inset, List, Row } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoginContext } from "@/lib/login";
 import { dayClock } from "@/lib/time";
+import { cn } from "@/lib/utils";
 
 export function Inbox({
   organization,
@@ -21,24 +22,17 @@ export function Inbox({
     .toSorted((a, b) => b.id - a.id);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Inbox</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-2">
-        {error && (
-          <Badge variant="destructive" className="h-auto w-full justify-start whitespace-normal">
-            {error}
-          </Badge>
-        )}
-        {shown.length === 0 && <p className="text-muted-foreground">Nothing waits for you.</p>}
-        <ul className="divide-y">
-          {shown.map((item) => (
-            <InboxRow key={item.id} item={item} workstreams={workstreams} setError={setError} />
-          ))}
-        </ul>
-      </CardContent>
-    </Card>
+    <div className="grid gap-2">
+      {error && <ErrorBadge>{error}</ErrorBadge>}
+      {shown.length === 0 && (
+        <p className={cn("text-muted-foreground", inset)}>Nothing waits for you.</p>
+      )}
+      <List>
+        {shown.map((item) => (
+          <InboxRow key={item.id} item={item} workstreams={workstreams} setError={setError} />
+        ))}
+      </List>
+    </div>
   );
 }
 
@@ -76,7 +70,7 @@ function InboxRow({
   };
 
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
+    <Row className="flex-wrap gap-x-3 gap-y-2 py-3">
       <Badge variant="secondary">{item.kind}</Badge>
       <div className="grid min-w-0 grow basis-60 gap-0.5">
         <span className="break-words">{item.text}</span>
@@ -92,6 +86,7 @@ function InboxRow({
             </>
           )}
           {dayClock(item.time)}
+          {item.pausedUntil && ` · paused until ${dayClock(item.pausedUntil)}`}
         </span>
       </div>
       <div className="flex items-center gap-2">
@@ -123,6 +118,6 @@ function InboxRow({
           Dismiss
         </Button>
       </div>
-    </li>
+    </Row>
   );
 }

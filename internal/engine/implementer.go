@@ -101,6 +101,7 @@ func (e *Engine) startImplementer(ctx context.Context, repository github.Reposit
 	if err != nil {
 		return "", err
 	}
+	defer e.holdWorker(task.ID)()
 	brief, err := brief(ctx, repository, workstream)
 	if err != nil {
 		return "", err
@@ -166,6 +167,7 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if err != nil {
 		return "", err
 	}
+	defer e.holdWorker(task.ID)()
 	if !task.PullRequest.Valid || !task.Branch.Valid {
 		return "", refuse("The task of #%d has no pull request.", input.N)
 	}
@@ -180,7 +182,7 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if task.State != "checks" && task.State != "approval" && task.State != "ready_for_review" {
 		return "", refuse("The task of #%d is %s, not checks, approval or ready_for_review.", input.N, task.State)
 	}
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
 	if err != nil {
 		return "", err
 	}
@@ -189,7 +191,7 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	}
 	r := round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: "\nFindings of the Lead:\n" + input.Findings + "\n", parent: sql.NullInt64{Int64: c.session, Valid: true}}
 	if err := e.fixRound(ctx, repository, r); err != nil {
-		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "working"})
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "working"})
 		return "", errors.Join(err, stateErr)
 	}
 	return fmt.Sprintf("Sent the findings to a fix round of #%d. At max_fix_rounds, Mobius stops the task instead.", input.N), nil
@@ -224,7 +226,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 		return "", err
 	}
 	if checkRun == 0 {
-		if _, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"}); err != nil {
+		if _, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"}); err != nil {
 			return "", err
 		}
 		return "", refuse("The head of the pull request of #%d changed after the CI passed. The task waits for the CI of the new head.", input.N)
@@ -233,7 +235,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if err != nil {
 		return "", err
 	}
-	moved, err := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "approval"})
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "ready_for_review", ID: task.ID, FromState: "approval"})
 	if err != nil {
 		return "", err
 	}
@@ -241,7 +243,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 		return "", refuse("The task of #%d is not approval any more.", input.N)
 	}
 	if err := e.approve(ctx, repository, task, issue.GetTitle(), pullRequest, checkRun); err != nil {
-		_, stateErr := e.queries.SetTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
 		return "", errors.Join(err, stateErr)
 	}
 	return fmt.Sprintf("Approved pull request #%d of #%d. The Owner got it for review.", pullRequest.GetNumber(), input.N), nil
@@ -277,7 +279,7 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
-	_, err := e.addInboxItem(ctx, store.AddInboxItemParams{
+	err := e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         readyForReviewKind,
 		Organization: repository.Owner(),
 		Repository:   task.Repository,
@@ -290,9 +292,20 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 }
 
 // cannotDo ends the turn of the Implementer with the reason for the Lead.
-func (e *Engine) cannotDo(ctx context.Context, c caller, _ github.Repository, input reasonInput) (string, error) {
+func (e *Engine) cannotDo(ctx context.Context, c caller, repository github.Repository, input reasonInput) (string, error) {
 	if empty(input.Reason) {
 		return "", refuse("reason must not be empty.")
+	}
+	task, err := e.workstreamTask(ctx, repository, c.workstream, c.agent.spec.Issue.Int64)
+	if err != nil {
+		return "", err
+	}
+	unpushed, err := runner.HasUnpushedWork(ctx, e.config.DataDir, c.agent.spec.Dir, task.Branch.String, repository.DefaultBranch)
+	if err != nil {
+		return "", err
+	}
+	if unpushed {
+		return "", refuse("Your worktree has work that Mobius did not push. Commit your work and end the turn normally. Mobius then runs the check and pushes the work. Do not call `cannot_do` to wait for a command or for the check.")
 	}
 	c.agent.mu.Lock()
 	c.agent.cannotDo = input.Reason
@@ -324,7 +337,8 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 
 // fixRound starts a fix round of the Implementer on the pull request of the working task. The pull request is a draft
 // during the round. At max_fix_rounds, a round that counts hands the task to a human instead. A task that is not
-// working, for example after a decline, gets no round.
+// working, for example after a decline, gets no round. The steps after the queue step run in the Worker, so an error
+// there starts the Implementer of the round again.
 func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r round) error {
 	if err := makeDraft(ctx, repository, r.pullRequest); err != nil {
 		return err
@@ -358,9 +372,6 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err != nil || queued == 0 {
 		return err
 	}
-	if err := resumeWork(ctx, repository, r.task); err != nil {
-		return err
-	}
 	j := job{
 		task:        r.task,
 		title:       r.title,
@@ -374,13 +385,18 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if r.failedCheck {
 		worker = checkRoundWorker
 	}
-	if err := e.setWorker(ctx, r.task.ID, worker, j.prompt); err != nil {
-		return err
-	}
-	if r.failedCheck {
-		e.addWork(r.task.ID, pullRequestWork(repository, r.pullRequest))
-	}
-	e.runImplementer(j)
+	e.runPreparedWorker(j.task, &j.title, "Implementer", false, func(ctx context.Context) (bool, error) {
+		if err := e.setWorker(ctx, r.task.ID, worker, j.prompt); err != nil {
+			return false, err
+		}
+		if err := resumeWork(ctx, repository, r.task); err != nil {
+			return false, err
+		}
+		if r.failedCheck {
+			e.addWork(r.task.ID, pullRequestWork(repository, r.pullRequest))
+		}
+		return true, nil
+	}, func(ctx context.Context) error { return e.implementer(ctx, &j) })
 	return nil
 }
 
@@ -439,6 +455,7 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err != nil || queued == 0 {
 		return err
 	}
+	e.publishReadyForReview(task.State, "queued")
 	if err := resumeWork(ctx, repository, task); err != nil {
 		return err
 	}
@@ -461,39 +478,44 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 }
 
 // restartImplementer starts the Implementer of the queued or working task again with the same prompt, after a
-// restart of the server. The task keeps its place in the queue.
-func (e *Engine) restartImplementer(ctx context.Context, repository github.Repository, task store.Task) error {
+// restart of the server, or after the poll found it with no Worker (lost). The task keeps its place in the queue. An
+// error in the steps before the session starts the Worker again.
+func (e *Engine) restartImplementer(repository github.Repository, task store.Task, lost bool) {
 	if !task.WorkerInput.Valid {
-		return nil
+		return
 	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
-	if err != nil {
-		return err
-	}
-	var pullRequest *gh.PullRequest
-	if task.PullRequest.Valid {
-		if pullRequest, err = repository.PullRequest(ctx, task.PullRequest.Int64); err != nil {
-			return err
+	var j job
+	e.runPreparedWorker(task, &j.title, "Implementer", lost, func(ctx context.Context) (bool, error) {
+		issue, err := existingIssue(ctx, repository, task.Issue)
+		if err != nil {
+			return false, err
 		}
-	}
-	parent, err := e.restartParent(ctx, task, ImplementerRole)
-	if err != nil {
-		return err
-	}
-	queued, err := e.queries.RequeueTask(ctx, task.ID)
-	if err != nil || queued == 0 {
-		return err
-	}
-	e.runImplementer(job{
-		task:          task,
-		title:         issue.GetTitle(),
-		branch:        task.Branch.String,
-		pullRequest:   pullRequest,
-		conflictRound: task.Worker.String == conflictRoundWorker,
-		prompt:        task.WorkerInput.String,
-		parent:        parent,
-	})
-	return nil
+		j.title = issue.GetTitle()
+		var pullRequest *gh.PullRequest
+		if task.PullRequest.Valid {
+			if pullRequest, err = repository.PullRequest(ctx, task.PullRequest.Int64); err != nil {
+				return false, err
+			}
+		}
+		parent, err := e.restartParent(ctx, task, ImplementerRole)
+		if err != nil {
+			return false, err
+		}
+		queued, err := e.queries.RequeueTask(ctx, task.ID)
+		if err != nil || queued == 0 {
+			return false, err
+		}
+		j = job{
+			task:          task,
+			title:         j.title,
+			branch:        task.Branch.String,
+			pullRequest:   pullRequest,
+			conflictRound: task.Worker.String == conflictRoundWorker,
+			prompt:        task.WorkerInput.String,
+			parent:        parent,
+		}
+		return true, nil
+	}, func(ctx context.Context) error { return e.implementer(ctx, &j) })
 }
 
 func (e *Engine) setWorker(ctx context.Context, task int64, worker, input string) error {
@@ -507,25 +529,68 @@ func (e *Engine) setWorker(ctx context.Context, task int64, worker, input string
 // runImplementer runs the job in the background until the task stops. After a failure, the Implementer starts again
 // after the wait of RestartWorker.
 func (e *Engine) runImplementer(j job) {
-	e.runWorker(j.task, j.title, "Implementer", func(ctx context.Context) error { return e.implementer(ctx, &j) })
+	e.runWorker(j.task, &j.title, "Implementer", false, func(ctx context.Context) error { return e.implementer(ctx, &j) })
 }
 
-// runWorker runs work, the Worker name of the task with title, in the background until the task stops. An error of
-// work tells that the Worker must start again: after the wait of RestartWorker, the task goes back to the queue and
-// work runs again.
-func (e *Engine) runWorker(task store.Task, title, name string, work func(context.Context) error) {
-	e.startWorker(task.ID, func(ctx context.Context) {
+// runPreparedWorker runs work like runWorker, after prepare. prepare gives false when the task stopped, and then work
+// does not run. After an error of prepare, prepare runs again before work. After its success, only work runs again.
+func (e *Engine) runPreparedWorker(task store.Task, title *string, name string, lost bool, prepare func(context.Context) (bool, error), work func(context.Context) error) {
+	prepared := false
+	e.runWorker(task, title, name, lost, func(ctx context.Context) error {
+		if !prepared {
+			ok, err := prepare(ctx)
+			if err != nil || !ok {
+				return err
+			}
+			prepared = true
+		}
+		return work(ctx)
+	})
+}
+
+// runWorker runs work, the Worker name of the task, in the background until the task stops. title points to the title
+// of the issue of the task, which is empty until work reads it. An error of work tells that the Worker must start
+// again: after the wait of RestartWorker, the queued or working task goes to the queue and work runs again. A task in
+// another state, for example after a decline, does not start again. A Worker that a newer Worker replaced, for example
+// the Reviewer after it started a fix round, does not start again, also when it started during the wait.
+//
+// lost tells that the poll found the task with no Worker. Then runWorker starts only when no Worker of the task runs.
+// The first run of work reads the task again, because a Worker can end between the poll and the start. When the task is
+// still queued or working, that run is an error, so that the restart counts and waits like the restart after any other
+// error. Otherwise the Worker ends with no count.
+func (e *Engine) runWorker(task store.Task, title *string, name string, lost bool, work func(context.Context) error) {
+	begin := e.startNumberedWorker
+	if lost {
+		begin = e.startIdleWorker
+		run := work
+		work = func(ctx context.Context) error {
+			work = run
+			current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+			if errors.Is(err, sql.ErrNoRows) || err == nil && (current.ID != task.ID || current.State != "queued" && current.State != "working") {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			return errWorkerLost
+		}
+	}
+	begin(task.ID, func(ctx context.Context, start int) {
 		for {
 			err := work(ctx)
 			if err == nil {
 				return
 			}
 			log.Printf("%s of %s#%d: %v", name, task.Repository, task.Issue, err)
-			again, err := e.RestartWorker(ctx, task, title, err)
+			if e.startedAfter(task.ID, start) {
+				return
+			}
+			again, err := e.RestartWorker(ctx, task, *title, err)
 			if err == nil && again {
-				var queued int64
-				queued, err = e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: "working"})
-				again = queued > 0
+				if e.startedAfter(task.ID, start) {
+					return
+				}
+				again, err = e.queueAgain(ctx, task.ID)
 			}
 			if err != nil && ctx.Err() == nil {
 				log.Printf("restart of %s#%d: %v", task.Repository, task.Issue, err)
@@ -535,6 +600,16 @@ func (e *Engine) runWorker(task store.Task, title, name string, work func(contex
 			}
 		}
 	})
+}
+
+// queueAgain puts a working task at the end of the queue, and keeps the place of a queued task. It tells if the task
+// was working or queued.
+func (e *Engine) queueAgain(ctx context.Context, task int64) (bool, error) {
+	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task, FromState: "working"})
+	if err == nil && queued == 0 {
+		queued, err = e.queries.RequeueTask(ctx, task)
+	}
+	return queued > 0, err
 }
 
 // implementer runs one Implementer session of the job, and acts on its outcome. The end of ctx stops the session.
@@ -579,7 +654,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		return e.review(ended, j, r.pushed, a.id)
 	case cannotDo:
 		// A task that the Lead declined during the turn gets no event.
-		moved, err := e.queries.SetTaskState(ended, store.SetTaskStateParams{State: "dispatched", ID: task.ID, FromState: "working"})
+		moved, err := e.setTaskState(ended, store.SetTaskStateParams{State: "dispatched", ID: task.ID, FromState: "working"})
 		if err != nil || moved == 0 {
 			return err
 		}
@@ -813,6 +888,9 @@ func (e *Engine) sendDetails(ctx context.Context, c caller, repository github.Re
 		return "", err
 	}
 	if !e.addDetails(e.implementers, task.ID, input.Text) {
+		if task.State == "dispatched" {
+			return "", refuse("No Implementer of #%d runs. The issue body has the new details. Call `start_implementer` to continue the task.", input.N)
+		}
 		return "", refuse("No Implementer session of #%d is open now. A later session reads the updated issue body.", input.N)
 	}
 	return fmt.Sprintf("Sent the details to the Implementer of #%d.", input.N), nil
@@ -836,7 +914,7 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job) (string, bool, err
 			}
 		}
 		started := time.Now()
-		err := a.checkPhase(ctx, "runs .mobius/check", ".mobius/check started.")
+		err := a.checkPhase(ctx, checkRunsReason, ".mobius/check started.")
 		var output string
 		var passed bool
 		if err == nil {
@@ -880,7 +958,7 @@ func (a *Agent) checkPhase(ctx context.Context, phase, text string) error {
 	if err != nil {
 		return err
 	}
-	e.publish(Change{Node: new(node(session))})
+	e.publish(Change{Node: new(e.node(session))})
 	row, err := compact(map[string]string{"text": text})
 	if err != nil {
 		return err
@@ -966,7 +1044,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		if err != nil {
 			return result{}, err
 		}
-		e.publish(Change{Node: new(node(session))})
+		e.publish(Change{Node: new(e.node(session))})
 	}
 	if err := a.postReplies(ctx, repository, int64(j.pullRequest.GetNumber())); err != nil {
 		return result{}, err

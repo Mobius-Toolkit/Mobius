@@ -65,7 +65,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				"Start an Implementer for a dispatched task. The Implementer sees only the Brief, the issue, and your instructions. Mobius pushes its commits and opens a draft pull request. Returns at once.",
 				map[string]any{
 					"n":            map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"instructions": map[string]any{"type": "string", "minLength": 1, "description": "The goal, the limits, and what \"done\" means."},
+					"instructions": map[string]any{"type": "string", "minLength": 1, "description": "Notes for the Implementer, for example the files to read first. The issue body has all the requirements. Do not add a requirement here."},
 				},
 				e.startImplementerTool),
 			tool(e, c, "start_fix_round",
@@ -114,7 +114,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.stopResearcher),
 			tool(e, c, "ask",
-				"Ask the people on a task issue a question. Mobius posts the question as a comment, adds mobius:needs-human, and adds an Inbox item for the Owner. The reply arrives later as an event.",
+				"Ask the people on a task issue a question. Mobius posts the question as a comment, adds mobius:question, and adds an Inbox item for the Owner. The reply arrives later as an event.",
 				map[string]any{
 					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue."},
@@ -131,7 +131,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				"Create an issue below an issue of the Workstream. Mobius adds the blockers as native issue dependencies.",
 				map[string]any{
 					"title":      map[string]any{"type": "string", "minLength": 1, "description": "The title of the issue."},
-					"body":       map[string]any{"type": "string", "description": "The body of the issue: the goal, the limits, and what \"done\" means."},
+					"body":       map[string]any{"type": "string", "description": "The body of the issue, with the sections Goal, Today (optional), Change, Limits, and Done, in this order."},
 					"parent":     map[string]any{"type": "integer", "minimum": 1, "description": "The Workstream issue or an issue below it."},
 					"blocked_by": map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}, "description": "The issues that block this issue. They can be in another Workstream."},
 				},
@@ -188,7 +188,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 	case ImplementerRole:
 		return []mcp.Tool{
 			tool(e, c, "cannot_do",
-				"Tell the Lead that you cannot do the task. Mobius ends your turn and pushes nothing.",
+				"Tell the Lead that you cannot do the task. Mobius ends your turn and pushes nothing. Use it only for a task that you cannot do. Do not use it to wait, for example for a background command or for the check. Mobius refuses it when your worktree has work that Mobius did not push.",
 				map[string]any{
 					"reason": map[string]any{"type": "string", "minLength": 1, "description": "The reason for the Lead."},
 				},
@@ -256,6 +256,17 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.submitVerdicts),
 		}
+	case CuratorRole:
+		return []mcp.Tool{
+			tool(e, c, "edit_memory",
+				"Change one part of the memory file of the repository. Give an old text that occurs one time in the file, and the new text. An empty old text adds the new text at the end of the file. An empty new text removes the old text. Give the reason of the change. The tool refuses an empty reason and a result of more than 200 lines.",
+				map[string]any{
+					"old":    map[string]any{"type": "string", "description": "The text to replace. It occurs one time in the memory file. Empty to add the new text at the end."},
+					"new":    map[string]any{"type": "string", "description": "The replacement text. Empty to remove the old text."},
+					"reason": map[string]any{"type": "string", "minLength": 1, "description": "Why you make the change. Name the type of change (add, merge, change or remove) and the evidence, for example the Workstream, the issue or the pull request."},
+				},
+				e.editMemory),
+		}
 	case TriagerRole:
 		return []mcp.Tool{
 			tool(e, c, "create_workstream",
@@ -282,6 +293,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"question": map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
 				},
 				e.startResearcher),
+			toolOf(e, c, noRepository, "tell_curator",
+				"Send a request to the Curator of a repository. The Curator changes the memory file of the repository. In the chat, call it only after the Owner approves the exact message. The tool returns at once, and the result arrives later.",
+				map[string]any{
+					"repository": map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository (owner/name) in the organization of the chat."},
+					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The request for the Curator."},
+				},
+				e.tellCurator),
 		}
 	}
 	return nil
@@ -295,13 +313,24 @@ var workstreamProperties = map[string]any{
 // tool gives the Mobius tool name of c. The tool decodes the arguments into In for run, and adds the call
 // with its result or its error to the Transcript of the session.
 func tool[In any](e *Engine, c caller, name, description string, properties map[string]any, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
+	return toolOf(e, c, e.callerRepository, name, description, properties, run)
+}
+
+// noRepository is the resolve of a tool that takes the repository as an input. The run of the tool gets the zero
+// Repository.
+func noRepository(caller) (github.Repository, error) {
+	return github.Repository{}, nil
+}
+
+// toolOf is tool for a tool whose run gets the repository that resolve gives.
+func toolOf[In any](e *Engine, c caller, resolve func(caller) (github.Repository, error), name, description string, properties map[string]any, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
 	return mcp.Tool{
 		Name:        name,
 		Description: description,
 		Properties:  properties,
 		Run: func(ctx context.Context, arguments json.RawMessage) (string, error) {
 			c.agent.touch()
-			text, err := call(ctx, e, c, name, arguments, run)
+			text, err := call(ctx, c, resolve, name, arguments, run)
 			if recordErr := e.recordCall(ctx, c.session, name, arguments, text, err); recordErr != nil {
 				return "", recordErr
 			}
@@ -310,8 +339,8 @@ func tool[In any](e *Engine, c caller, name, description string, properties map[
 	}
 }
 
-func call[In any](ctx context.Context, e *Engine, c caller, name string, arguments json.RawMessage, run func(context.Context, caller, github.Repository, In) (string, error)) (string, error) {
-	repository, err := e.callerRepository(c)
+func call[In any](ctx context.Context, c caller, resolve func(caller) (github.Repository, error), name string, arguments json.RawMessage, run func(context.Context, caller, github.Repository, In) (string, error)) (string, error) {
+	repository, err := resolve(c)
 	if err != nil {
 		return "", err
 	}

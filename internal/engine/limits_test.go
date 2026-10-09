@@ -40,6 +40,14 @@ reply = ["Noted."]
 reply = ["Noted."]
 `
 
+// The first prompt of Claude Code sends the reset time in a usage update and then hits the usage limit with another
+// reset time in the text. 4102444800 is 2100-01-01 00:00:00 UTC.
+const claudeCodeLimitWithResetTime = `
+[[prompts]]
+updates = ['{"sessionUpdate": "usage_update", "used": 78345, "size": 1000000, "_meta": {"_claude/rateLimit": {"status": "rejected", "resetsAt": 4102444800}}}']
+error = { code = -32603, message = "You've hit your session limit · resets 5:10pm (Europe/Warsaw)", data = { errorKind = "rate_limit" } }
+`
+
 // seed runs the SQL statements on the database in dataDir, as a server of an earlier run.
 func seed(t *testing.T, dataDir string, statements ...string) {
 	t.Helper()
@@ -93,6 +101,12 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	prompted := make(chan error, 1)
 	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 
+	waitForChange(t, changes, func(change engine.Change) bool { return change.Message != nil && change.Message.Author == "Mobius" })
+	change := waitForChange(t, changes, func(change engine.Change) bool { return change.Inbox != nil })
+	pausedUntil, err := server.Engine.InboxPausedUntil(t.Context(), *change.Inbox)
+	if err != nil || pausedUntil == nil {
+		t.Errorf("the pause at the Inbox change = %v: %v", pausedUntil, err)
+	}
 	var item struct {
 		id               int64
 		kind, text, link string
@@ -119,8 +133,9 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	if got := inbox(t, server); len(got) != 1 || got[0].ID != item.id {
 		t.Errorf("inbox = %+v", got)
 	}
-	waitForChange(t, changes, func(change engine.Change) bool { return change.Inbox != nil && change.Inbox.ID == item.id })
-	waitForChange(t, changes, func(change engine.Change) bool { return change.Message != nil && change.Message.Author == "Mobius" })
+	if change.Inbox.ID != item.id || pausedUntil != nil && !pausedUntil.Equal(until) {
+		t.Errorf("the Inbox change = %d with the pause %v, want %d with %v", change.Inbox.ID, pausedUntil, item.id, until)
+	}
 	reason := "paused until " + until.UTC().Format("2006-01-02 15:04 UTC")
 	testkit.WaitFor(t, func() bool { return session(t, server, agent.ID()).QueueReason.String == reason })
 	// The pause also holds a Worker of the paused Harness in the queue.
@@ -421,5 +436,21 @@ func TestAnEventForAPausedLeadGoesToThatLeadAfterThePause(t *testing.T) {
 	}
 	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 1 {
 		t.Errorf("sessions = %+v", got)
+	}
+}
+
+func TestAClaudeCodePauseEndsAtTheResetTimeOfTheUsageUpdate(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, claudeCodeLimitWithResetTime, keepSessionOpen)
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	until := testkit.WaitForValue(t, func() (string, bool) {
+		var until string
+		err := server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'claude-code'").Scan(&until)
+		return until, err == nil
+	})
+	if got := parseTime(t, until); !got.Equal(time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("until = %v", got)
 	}
 }

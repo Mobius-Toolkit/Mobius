@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -90,11 +91,16 @@ type FakeGitHub struct {
 	installationTokensGiven int
 	installationTokenLife   time.Duration
 	repositories            []string
+	cloneURLs               map[string]string
 	issues                  map[issueKey]*issue
 	// commentsAfterList holds the comments that the next issue list adds after it builds its page.
 	commentsAfterList []listedComment
 	// The comment ids of all issues are different, as on GitHub.
-	lastCommentID    int64
+	lastCommentID int64
+	lastReviewID  int64
+	// graphqlPageSize is the most nodes in a page of a GraphQL connection, or 0 for no limit.
+	graphqlPageSize  int
+	pullRequestReads int
 	repositoryLabels map[labelKey]Label
 	labelPatches     []labelKey
 	notModified      int
@@ -102,17 +108,34 @@ type FakeGitHub struct {
 	singleCommentReads, repositoryCommentReads int
 	failedCloses                               map[issueKey]bool
 	failedSubIssues                            map[issueKey]bool
+	failedParents                              map[issueKey]bool
+	failedComments                             map[issueKey]bool
+	failedLabels                               map[issueKey]bool
+	labelWrites                                map[issueKey]int
+	reactions                                  map[reactionKey][]Reaction
+	failedReactions                            map[string]bool
 	// The ids of the first comments of the resolved review threads.
 	resolvedThreads map[int64]bool
 	latestRelease   *releaseJSON
 	comparedCommits []string
 	holds           map[issueKey]*hold
-	threadHolds     map[issueKey]*hold
+	threadHolds     map[issueKey][]*hold
 	issueHolds      map[issueKey]*hold
-	pullRequests    []pullRequest
+	// hangs holds the route patterns whose next request gets no answer.
+	hangs        map[string]bool
+	pullRequests []pullRequest
 	// createdAt holds the creation time of each issue and pull request, in seconds after the Unix epoch.
 	createdAt map[issueKey]int64
 	behind    map[issueKey]bool
+	// mergeRefusals holds the reason that the merge of a pull request gets, for each pull request that refuses a merge.
+	mergeRefusals map[issueKey]string
+	// mergeCalls and checkRunReads are the numbers of requests to merge a pull request and to list the check runs of a
+	// commit.
+	mergeCalls, checkRunReads int
+	// afterCheckRunRead runs once at the end of the first request for the check runs of a commit after a GraphQL answer
+	// gave a review of a pull request. reviewRead tells if such an answer was given.
+	afterCheckRunRead func()
+	reviewRead        bool
 	// unknownMergeable holds the pull requests whose mergeable GitHub still calculates.
 	unknownMergeable map[issueKey]bool
 	// The id of a check run is its index plus 1.
@@ -163,20 +186,29 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		installationTokenLife:   time.Hour,
 		issues:                  map[issueKey]*issue{},
 		repositoryLabels:        map[labelKey]Label{},
+		reactions:               map[reactionKey][]Reaction{},
+		failedReactions:         map[string]bool{},
 		resolvedThreads:         map[int64]bool{},
 		failedCloses:            map[issueKey]bool{},
 		failedSubIssues:         map[issueKey]bool{},
+		failedParents:           map[issueKey]bool{},
+		failedComments:          map[issueKey]bool{},
+		failedLabels:            map[issueKey]bool{},
+		labelWrites:             map[issueKey]int{},
 		holds:                   map[issueKey]*hold{},
-		threadHolds:             map[issueKey]*hold{},
+		threadHolds:             map[issueKey][]*hold{},
 		issueHolds:              map[issueKey]*hold{},
+		hangs:                   map[string]bool{},
 		createdAt:               map[issueKey]int64{},
 		behind:                  map[issueKey]bool{},
+		mergeRefusals:           map[issueKey]string{},
 		unknownMergeable:        map[issueKey]bool{},
 		annotations:             map[int64][]annotationJSON{},
+		cloneURLs:               map[string]string{},
 		checkRunApps:            map[int64]string{},
 		jobLogs:                 map[int64]string{},
 	}
-	server := httptest.NewServer(g.routes())
+	server := httptest.NewServer(g.hanging(g.routes()))
 	t.Cleanup(server.Close)
 	g.URL = server.URL
 	return g
@@ -208,6 +240,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}/comments", g.withToken(g.issueComments))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/comments", g.withToken(g.addComment))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/issues/comments/{id}", g.withToken(g.updateComment))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/comments/{id}/reactions", g.withToken(g.addIssueCommentReaction))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/labels", g.withToken(g.addLabels))
 	mux.HandleFunc("DELETE /repos/{owner}/{repo}/issues/{number}/labels/{name}", g.withToken(g.removeLabel))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/labels", g.withToken(g.listRepositoryLabels))
@@ -216,11 +249,13 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls", g.withToken(g.createPullRequest))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.getPullRequest))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.closeIssue))
+	mux.HandleFunc("PUT /repos/{owner}/{repo}/pulls/{number}/merge", g.withToken(g.mergePullRequest))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/reviews", g.withToken(g.reviews))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/{number}/reviews", g.withToken(g.submitReview))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/comments", g.withToken(g.repositoryReviewComments))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.reviewComments))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.replyToReviewComment))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/comments/{id}/reactions", g.withToken(g.addReviewCommentReaction))
 	mux.HandleFunc("POST /graphql", g.withToken(g.graphql))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/check-runs", g.withToken(g.createCheckRun))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/check-runs/{id}", g.withToken(g.updateCheckRun))
@@ -233,6 +268,31 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/compare/{basehead}", g.compare)
 	mux.HandleFunc("GET /{owner}/{repo}/releases/download/{tag}/{name}", g.downloadReleaseFile)
 	return mux
+}
+
+// HangNext makes the next request to the route pattern, for example "POST /repos/{owner}/{repo}/pulls", wait until the
+// request ends.
+func (g *FakeGitHub) HangNext(pattern string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.hangs[pattern] = true
+}
+
+func (g *FakeGitHub) hanging(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, pattern := mux.Handler(r)
+		g.mu.Lock()
+		hang := g.hangs[pattern]
+		delete(g.hangs, pattern)
+		g.mu.Unlock()
+		if hang {
+			// The server sees the end of the connection only after the handler reads the whole body.
+			_, _ = io.Copy(io.Discard, r.Body)
+			<-r.Context().Done()
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 // Now gives the time of the last write.

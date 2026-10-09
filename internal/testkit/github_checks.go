@@ -103,6 +103,37 @@ func (g *FakeGitHub) MergePullRequest(repository string, number int64) {
 	found.updatedAt = now
 }
 
+// RefuseMerge makes the pull request refuse a merge with reason, for example for a rule of the base branch. An empty
+// reason lifts the refusal.
+func (g *FakeGitHub) RefuseMerge(repository string, number int64, reason string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.mergeRefusals[issueKey{repository, number}] = reason
+}
+
+// MergeCalls gives the number of requests to merge a pull request.
+func (g *FakeGitHub) MergeCalls() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.mergeCalls
+}
+
+// CheckRunReads gives the number of requests for the check runs of a commit.
+func (g *FakeGitHub) CheckRunReads() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.checkRunReads
+}
+
+// AfterNextReviewedCheckRunRead makes the fake run f once, at the end of the first request for the check runs of a
+// commit after a GraphQL answer gave a review of a pull request. The function must not call a method that takes the
+// lock of the fake.
+func (g *FakeGitHub) AfterNextReviewedCheckRunRead(f func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.afterCheckRunRead = f
+}
+
 // SetCreatedAt sets the creation time of the issue or the pull request to seconds after the Unix epoch.
 func (g *FakeGitHub) SetCreatedAt(repository string, number, seconds int64) {
 	g.mu.Lock()
@@ -235,10 +266,6 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 	pull := g.pullRequests[index]
 	remote := g.Remote(repository)
 	mergeable := gitCommand(remote, "merge-tree", "--write-tree", pull.Base, pull.Head).Run() == nil
-	head, err := gitCommand(remote, "rev-parse", pull.Head).Output()
-	if err != nil {
-		g.t.Errorf("rev-parse %s: %v", pull.Head, err)
-	}
 	state := "clean"
 	if g.behind[key] && gitCommand(remote, "merge-base", "--is-ancestor", pull.Base, pull.Head).Run() != nil {
 		state = "behind"
@@ -254,12 +281,27 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		"html_url":        fmt.Sprintf("https://github.com/%s/pull/%d", repository, number),
 		"state":           found.state,
 		"merged":          found.merged,
-		"head":            map[string]string{"sha": strings.TrimSpace(string(head)), "ref": pull.Head},
+		"head":            map[string]string{"sha": g.headOf(repository, number), "ref": pull.Head},
 		"draft":           pull.Draft,
 		"mergeable":       mergeableValue,
 		"mergeable_state": state,
 		"created_at":      timestamp(g.createdAt[key]),
+		"labels":          g.issueJSON(key).Labels,
 	}
+}
+
+// headOf gives the id of the head commit of the pull request, or "" for a pull request with no branch. The caller must
+// hold the lock.
+func (g *FakeGitHub) headOf(repository string, number int64) string {
+	index := slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == repository && pull.Number == number })
+	if index < 0 {
+		return ""
+	}
+	head, err := gitCommand(g.Remote(repository), "rev-parse", g.pullRequests[index].Head).Output()
+	if err != nil {
+		g.t.Errorf("rev-parse %s: %v", g.pullRequests[index].Head, err)
+	}
+	return strings.TrimSpace(string(head))
 }
 
 func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {
@@ -271,6 +313,57 @@ func (g *FakeGitHub) getPullRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, g.pullRequestJSON(repository(r), number))
+}
+
+// mergePullRequest squash merges the pull request into its base branch: it adds one commit with the merge tree of the
+// base and the head, and sets the pull request to merged. It refuses with status 409 a sha that is not the head, and
+// with status 405 a pull request that is closed, a draft, in conflict, or set to refuse by RefuseMerge.
+func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		SHA           string `json:"sha"`
+		MergeMethod   string `json:"merge_method"`
+		CommitTitle   string `json:"commit_title"`
+		CommitMessage string `json:"commit_message"`
+	}
+	if !decode(w, r, &request) {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.mergeCalls++
+	key, ok := g.issue(w, r)
+	if !ok {
+		return
+	}
+	pull := g.pullRequests[slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == key.repository && pull.Number == key.number })]
+	found := g.issues[key]
+	remote := g.Remote(key.repository)
+	tree, treeErr := gitCommand(remote, "merge-tree", "--write-tree", pull.Base, pull.Head).Output()
+	switch {
+	case request.SHA != g.headOf(key.repository, key.number):
+		message(w, http.StatusConflict, "Head branch was modified. Review and try the merge again.")
+		return
+	case g.mergeRefusals[key] != "":
+		message(w, http.StatusMethodNotAllowed, g.mergeRefusals[key])
+		return
+	case found.state != "open" || pull.Draft || treeErr != nil:
+		message(w, http.StatusMethodNotAllowed, "Pull Request is not mergeable")
+		return
+	}
+	if request.MergeMethod != "squash" {
+		message(w, http.StatusBadRequest, "The fake GitHub merges with merge_method squash only")
+		return
+	}
+	squash, err := gitCommand(remote, "commit-tree", strings.Fields(string(tree))[0], "-p", pull.Base, "-m", pull.Title).Output()
+	if err != nil {
+		g.t.Errorf("commit-tree: %v", err)
+	}
+	sha := strings.TrimSpace(string(squash))
+	g.git(remote, "update-ref", "refs/heads/"+pull.Base, sha)
+	found.state = "closed"
+	found.merged = true
+	found.updatedAt = g.tick()
+	writeJSON(w, http.StatusOK, map[string]any{"sha": sha, "merged": true, "message": "Pull Request successfully merged"})
 }
 
 // markReadyForReview answers the GraphQL mutation markPullRequestReadyForReview. The caller must hold the lock.
@@ -346,6 +439,13 @@ func (g *FakeGitHub) updateCheckRun(w http.ResponseWriter, r *http.Request) {
 func (g *FakeGitHub) commitCheckRuns(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.checkRunReads++
+	defer func() {
+		if g.afterCheckRunRead != nil && g.reviewRead {
+			g.afterCheckRunRead()
+			g.afterCheckRunRead = nil
+		}
+	}()
 	runs := []map[string]any{}
 	for index, run := range g.checkRuns {
 		if run.repository != repository(r) || run.HeadSHA != r.PathValue("sha") {

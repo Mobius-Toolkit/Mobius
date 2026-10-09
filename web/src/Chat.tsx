@@ -8,8 +8,8 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { Switch } from "@/components/ui/switch";
 import type { Workstreams } from "@/lib/workstreams";
 import { AgentPanel } from "./AgentPanel";
-import { BackButton } from "./BackButton";
 import { Conversation } from "./Conversation";
+import { TopBar } from "./TopBar";
 
 function NeedsHumanList({
   issues,
@@ -62,9 +62,22 @@ function NeedsHumanList({
               PR #{issue.pullRequest}
             </a>
           )}
-          <Button size="sm" pending={pending.includes(issue.number)} onClick={() => resume(issue)}>
-            Resume
-          </Button>
+          {issue.question && (
+            <Button size="sm" asChild>
+              <a href={issue.url} target="_blank" rel="noreferrer">
+                Answer
+              </a>
+            </Button>
+          )}
+          {issue.stopped && (
+            <Button
+              size="sm"
+              pending={pending.includes(issue.number)}
+              onClick={() => resume(issue)}
+            >
+              Resume
+            </Button>
+          )}
         </div>
       ))}
     </div>
@@ -125,9 +138,39 @@ export function Chat({
       });
   };
 
+  const autopilot = (id: string) => (
+    <>
+      <Switch
+        id={id}
+        checked={workstream?.autopilot ?? false}
+        disabled={!workstream || autopilotBusy}
+        onCheckedChange={switchAutopilot}
+      />
+      <Label htmlFor={id}>Autopilot</Label>
+    </>
+  );
   const panel = <AgentPanel owner={owner} name={name} number={number} source={source} />;
   return (
     <div className="flex min-h-0 min-w-0 grow">
+      <TopBar title={workstream?.title ?? ""} back="/workstreams">
+        <span className="shrink-0 text-sm text-muted-foreground">#{number}</span>
+        {autopilot("autopilot-top-bar")}
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button variant="outline" size="sm" className="ml-auto shrink-0">
+              Agents
+            </Button>
+          </SheetTrigger>
+          <SheetContent
+            side="bottom"
+            aria-describedby={undefined}
+            className="pt-2 data-[side=bottom]:h-[80svh]"
+          >
+            <SheetTitle className="sr-only">Agents and tasks</SheetTitle>
+            {panel}
+          </SheetContent>
+        </Sheet>
+      </TopBar>
       <Conversation
         organization={owner}
         repository={repository}
@@ -138,34 +181,10 @@ export function Chat({
         brief={workstream}
         head={
           <>
-            <BackButton parent="/workstreams" />
-            <h2 className="min-w-0 truncate font-semibold">{workstream?.title}</h2>
+            <h2 className="min-w-0 truncate text-base font-semibold">{workstream?.title}</h2>
             <span className="text-sm text-muted-foreground">#{number}</span>
-            <Switch
-              id="autopilot"
-              checked={workstream?.autopilot ?? false}
-              disabled={!workstream || autopilotBusy}
-              onCheckedChange={switchAutopilot}
-            />
-            <Label htmlFor="autopilot">Autopilot</Label>
+            {autopilot("autopilot")}
           </>
-        }
-        tail={
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="sm" className="md:hidden">
-                Agents
-              </Button>
-            </SheetTrigger>
-            <SheetContent
-              side="bottom"
-              aria-describedby={undefined}
-              className="pt-2 data-[side=bottom]:h-[80svh]"
-            >
-              <SheetTitle className="sr-only">Agents and tasks</SheetTitle>
-              {panel}
-            </SheetContent>
-          </Sheet>
         }
         note={
           <>

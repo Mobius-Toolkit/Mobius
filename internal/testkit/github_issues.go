@@ -237,6 +237,34 @@ func (g *FakeGitHub) FailSubIssues(repository string, number int64, fail bool) {
 	g.failedSubIssues[issueKey{repository, number}] = fail
 }
 
+// FailParents makes each read of the parent of the issue fail, or work again when fail is false.
+func (g *FakeGitHub) FailParents(repository string, number int64, fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedParents[issueKey{repository, number}] = fail
+}
+
+// FailAddComment makes each new comment that Mobius writes on the issue fail, or work again when fail is false.
+func (g *FakeGitHub) FailAddComment(repository string, number int64, fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedComments[issueKey{repository, number}] = fail
+}
+
+// FailAddLabels makes each new label that Mobius adds to the issue fail, or work again when fail is false.
+func (g *FakeGitHub) FailAddLabels(repository string, number int64, fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedLabels[issueKey{repository, number}] = fail
+}
+
+// LabelWrites gives the number of label additions and removals that Mobius sent for the issue, with or without an effect.
+func (g *FakeGitHub) LabelWrites(repository string, number int64) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.labelWrites[issueKey{repository, number}]
+}
+
 // Issue gives the title and the body of the issue.
 func (g *FakeGitHub) Issue(repository string, number int64) (string, string) {
 	g.mu.Lock()
@@ -331,14 +359,15 @@ func (g *FakeGitHub) AddCommentAfterNextList(repository string, number int64, au
 }
 
 // AddAppComment adds a comment with body of author to the issue number, written through the Mobius App, as the gh of
-// the Lead writes it.
-func (g *FakeGitHub) AddAppComment(repository string, number int64, author, body string) {
+// the Lead writes it. It gives the id of the comment.
+func (g *FakeGitHub) AddAppComment(repository string, number int64, author, body string) int64 {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	key := issueKey{repository, number}
 	g.comment(key, author, body)
 	comments := g.issues[key].comments
 	comments[len(comments)-1].PerformedViaGitHubApp = &slugJSON{AppSlug}
+	return comments[len(comments)-1].ID
 }
 
 // AddLabel adds label to the issue as actor.
@@ -642,6 +671,10 @@ func (g *FakeGitHub) parent(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if g.failedParents[key] {
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
 	for other, found := range g.issues {
 		if other.repository == key.repository && slices.Contains(found.subIssues, key) {
 			writeJSON(w, http.StatusOK, g.issueJSON(other))
@@ -817,6 +850,10 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if g.failedComments[key] {
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
 	writeJSON(w, http.StatusCreated, g.comment(key, caller.login, request.Body))
 }
 
@@ -913,6 +950,11 @@ func (g *FakeGitHub) addLabels(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	g.labelWrites[key]++
+	if g.failedLabels[key] {
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
 	for _, label := range labels {
 		g.label(key, label, caller.login)
 	}
@@ -927,6 +969,7 @@ func (g *FakeGitHub) removeLabel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	g.labelWrites[key]++
 	if !g.unlabel(key, r.PathValue("name"), caller.login) {
 		notFound(w)
 		return

@@ -140,7 +140,7 @@ The config file is a TOML file. Mobius reads it one time when it starts, so you 
 
 - `access_password`: the password of the web UI.
 - `trusted_users`: the GitHub logins of the users that the agents act for.
-- `roles`: the `harness`, the `model` and the `effort` of each Role (`lead`, `triager`, `implementer`, `researcher`, `reviewer` and `judge`). A Devin or Claude Code Role must have an effort. An Antigravity Role must not have an effort.
+- `roles`: the `harness`, the `model` and the `effort` of each Role (`lead`, `triager`, `implementer`, `researcher`, `reviewer`, `judge` and `curator`). A Devin or Claude Code Role must have an effort. An Antigravity Role must not have an effort.
 
 You can add these keys:
 
@@ -165,7 +165,7 @@ A duration is a text with a number and a unit for each part: `s`, `m` or `h`. Fo
 Each Role can also have these keys:
 
 - `max`: the maximum number of agents of the Role that run at the same time. The default is 8 for the Lead, and 2 for each other Role.
-- `counts_in_max_agents`: `true` when the agents of the Role count in `max_agents`. The default is `false` for the Lead and the Triager, and `true` for each other Role.
+- `counts_in_max_agents`: `true` when the agents of the Role count in `max_agents`. The default is `false` for the Lead, the Triager, and the Judge, and `true` for each other Role.
 
 ## 6. Start
 

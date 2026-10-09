@@ -265,7 +265,7 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 			}
 			number := int64(issue.GetNumber())
 			parents = append(parents, number)
-			for _, label := range []string{readyLabel, workingLabel, needsHumanLabel, reviewLabel} {
+			for _, label := range []string{readyLabel, workingLabel, needsHumanLabel, questionLabel, reviewLabel} {
 				if !hasLabel(issue, label) {
 					continue
 				}

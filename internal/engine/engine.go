@@ -35,6 +35,8 @@ type Engine struct {
 	// quiet holds the newest item of the Judge of each task in its quiet period, by the id of the task. Only the poll
 	// uses it.
 	quiet map[int64]quietItem
+	// pulls holds what the poll read of each pull request, for the Judge. Only the poll uses it.
+	pulls map[pullKey]*pullState
 	// ciWait holds the head of each task in checks that has no CI, with the time of its first poll, by the id of the task.
 	// Only the poll uses it.
 	ciWait map[int64]ciWait
@@ -58,6 +60,8 @@ type Engine struct {
 	// triages holds the Triager of each issue.
 	triagesMu sync.Mutex
 	triages   map[triageKey]triage
+	// memoryMu makes the read and the write of the memory files, and the checks before a write, run one after the other.
+	memoryMu sync.Mutex
 	// gitMu makes the git commands of the bare clones run one after the other. Two git commands that write the refs of
 	// a clone at the same time can fail on a ref lock.
 	gitMu sync.Mutex
@@ -66,11 +70,15 @@ type Engine struct {
 	// diskFreed wakes the checks that wait for free disk space.
 	diskFreed signal
 
-	// stopsMu guards stops and closed.
+	// stopsMu guards stops, live and closed.
 	stopsMu sync.Mutex
-	// stops holds the context of the Workers of each task, by the id of the task, and of each Researcher, by its
-	// researcherKey. A stop of the task or the Researcher ends the context.
+	// stops holds the context of the Workers of each task, by the id of the task, of each Researcher, by its
+	// researcherKey, and of each Curator, by its curatorKey. A stop of the task, the Researcher or the Curator ends
+	// the context.
 	stops map[any]stopper
+	// live counts the goroutines of the Workers of each key that run now, and the holds of the key. A goroutine counts
+	// from its start to its return, also after a stop of its key.
+	live map[any]int
 	// closed tells that Run ended, so no new Worker starts.
 	closed bool
 	// running counts the Workers that run.
@@ -82,6 +90,11 @@ type Engine struct {
 	implementers map[int64]*Agent
 	// researchers holds the session of each Researcher that runs, by the id of its session.
 	researchers map[int64]*Agent
+
+	// curatorsMu guards curators.
+	curatorsMu sync.Mutex
+	// curators holds each repository with a Curator that runs. The value tells that one more Curator waits.
+	curators map[string]bool
 
 	mu        sync.Mutex
 	listeners map[chan Change]bool
@@ -110,6 +123,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		recovered:    map[string]bool{},
 		copied:       map[string]bool{},
 		quiet:        map[int64]quietItem{},
+		pulls:        map[pullKey]*pullState{},
 		ciWait:       map[int64]ciWait{},
 		limitItems:   map[config.Harness]int64{},
 		workers:      newWorkers(),
@@ -117,33 +131,97 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		triages:      map[triageKey]triage{},
 		checks:       make(chan struct{}, cfg.MaxChecks),
 		stops:        map[any]stopper{},
+		live:         map[any]int{},
 		implementers: map[int64]*Agent{},
 		researchers:  map[int64]*Agent{},
+		curators:     map[string]bool{},
 		listeners:    map[chan Change]bool{},
 	}
 }
 
-// stopper is a context of Workers with the function that ends it.
+// stopper is a context of Workers with the function that ends it. starts is the number of Workers that started with
+// the context.
 type stopper struct {
-	ctx  context.Context
-	stop context.CancelFunc
+	ctx    context.Context
+	stop   context.CancelFunc
+	starts int
 }
 
-// startWorker runs work in the background with the context of key, a task id or a researcherKey. The context
+// startWorker runs work in the background with the context of key, a task id, a researcherKey or a curatorKey. The context
 // ends at the next stop of key and at the end of Run. After the end of Run, startWorker does nothing and gives false.
 func (e *Engine) startWorker(key any, work func(context.Context)) bool {
+	return e.startNumberedWorker(key, func(ctx context.Context, _ int) { work(ctx) })
+}
+
+// startNumberedWorker runs work like startWorker. work gets the number of its start, which startedAfter compares.
+func (e *Engine) startNumberedWorker(key any, work func(context.Context, int)) bool {
+	return e.start(key, false, work)
+}
+
+// startIdleWorker runs work like startNumberedWorker, and gives false with no start when a Worker of key runs. The
+// check and the start are one step, so a key never gets a second Worker from it.
+func (e *Engine) startIdleWorker(key any, work func(context.Context, int)) bool {
+	return e.start(key, true, work)
+}
+
+func (e *Engine) start(key any, idle bool, work func(context.Context, int)) bool {
 	e.stopsMu.Lock()
 	defer e.stopsMu.Unlock()
-	if e.closed {
+	if e.closed || idle && e.live[key] > 0 {
 		return false
 	}
 	found, ok := e.stops[key]
 	if !ok {
 		found.ctx, found.stop = context.WithCancel(context.Background())
-		e.stops[key] = found
 	}
-	e.running.Go(func() { work(found.ctx) })
+	found.starts++
+	e.stops[key] = found
+	e.live[key]++
+	e.running.Go(func() {
+		defer e.uncount(key)
+		work(found.ctx, found.starts)
+	})
 	return true
+}
+
+// uncount removes one goroutine of a Worker of key, or one hold of key, from the count.
+func (e *Engine) uncount(key any) {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	if e.live[key]--; e.live[key] == 0 {
+		delete(e.live, key)
+	}
+}
+
+// holdWorker makes key count as a key with a Worker until the returned function runs. A step that changes the state of
+// a task to queued or working before it starts the goroutine of the Worker holds the key, so that the poll does not
+// start a second Worker in between.
+func (e *Engine) holdWorker(key any) func() {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	e.live[key]++
+	return func() { e.uncount(key) }
+}
+
+// hasWorker tells if a goroutine of a Worker of key runs, or a step holds key. A Worker that waits for a free slot runs.
+func (e *Engine) hasWorker(key any) bool {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	return e.live[key] > 0
+}
+
+// startedAfter tells if a Worker of key started after the Worker with the start number start.
+func (e *Engine) startedAfter(key any, start int) bool {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	return e.stops[key].starts > start
+}
+
+// ended tells that Run ended.
+func (e *Engine) ended() bool {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	return e.closed
 }
 
 // stop ends the context of the Workers of key.

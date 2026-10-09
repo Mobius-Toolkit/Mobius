@@ -82,15 +82,25 @@ func detect(harness config.Harness, err *acp.RequestError, hint, now time.Time) 
 	return reset, true
 }
 
-// resetsAt reads "resets 3pm" or "resets 17:30" in text, and gives the next such time in UTC, or zero. A time that has just passed gives zero too.
+// resetsAt reads "resets 3pm" or "resets 17:30" in text, and gives the next such time in UTC, or zero. The clock time
+// is in the time zone that follows it in parentheses, for example "resets 5:10pm (Europe/Warsaw)". It is in UTC when
+// the text has no time zone or the time zone is not known. A time that has just passed gives zero too.
 func resetsAt(text string, now time.Time) time.Time {
 	_, rest, ok := strings.Cut(text, "resets ")
 	if !ok {
 		return time.Time{}
 	}
+	zone := time.UTC
 	if end := strings.IndexFunc(rest, func(r rune) bool {
 		return r > unicode.MaxASCII || !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != ':'
 	}); end >= 0 {
+		if name, ok := strings.CutPrefix(rest[end:], " ("); ok {
+			if name, _, ok := strings.Cut(name, ")"); ok {
+				if loaded, err := time.LoadLocation(name); err == nil {
+					zone = loaded
+				}
+			}
+		}
 		rest = rest[:end]
 	}
 	clock := strings.ToLower(rest)
@@ -120,15 +130,15 @@ func resetsAt(text string, now time.Time) time.Time {
 	if hour > 23 || minute > 59 {
 		return time.Time{}
 	}
-	now = now.UTC()
-	today := time.Date(now.Year(), now.Month(), now.Day(), int(hour), int(minute), 0, 0, time.UTC)
+	now = now.In(zone)
+	today := time.Date(now.Year(), now.Month(), now.Day(), int(hour), int(minute), 0, 0, zone)
 	if today.After(now) {
-		return today
+		return today.UTC()
 	}
 	if now.Sub(today) <= resetTolerance {
 		return time.Time{}
 	}
-	return today.AddDate(0, 0, 1)
+	return today.AddDate(0, 0, 1).UTC()
 }
 
 // resetIn reads "reset in 2 days, 3 hours" in text, and gives now plus that time, or zero.
@@ -168,14 +178,22 @@ func (a *Agent) waitOutLimit(ctx context.Context, err error) (bool, error) {
 	a.mu.Lock()
 	hint := a.resetHint
 	a.mu.Unlock()
+	reported, hintState := "none", "missing"
+	if !hint.IsZero() {
+		reported = hint.UTC().Format(timeFormat)
+	}
 	// A reset time that is not later than now is an old hint.
-	if !hint.After(now) {
-		hint = time.Time{}
+	if !hint.IsZero() && !hint.After(now) {
+		hint, hintState = time.Time{}, "too old"
 	}
 	until, ok := detect(a.harness, requestErr, hint, now)
 	if !ok {
 		return false, nil
 	}
+	if !hint.IsZero() {
+		hintState = "used"
+	}
+	log.Printf("usage limit of %s: reset time of the usage update %s (%s), pause until %s", a.harness, reported, hintState, until.UTC().Format(timeFormat))
 	if err := a.engine.pause(ctx, a, until); err != nil {
 		return false, err
 	}
@@ -205,13 +223,13 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	spec := a.spec
 	switch {
 	case err == nil:
-		e.publish(Change{Inbox: &item})
 	case errors.Is(err, sql.ErrNoRows):
-		item, err = e.addInboxItem(ctx, store.AddInboxItemParams{
+		item, err = e.queries.AddInboxItem(ctx, store.AddInboxItemParams{
 			Kind:         usageLimitKind,
 			Organization: spec.Organization,
 			Repository:   spec.Repository,
 			Text:         text,
+			Time:         now(),
 		})
 		if err != nil {
 			return err
@@ -227,6 +245,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
 		return err
 	}
+	e.publish(Change{Inbox: &item})
 	return e.timer(pause)
 }
 
@@ -314,6 +333,44 @@ func pausedReason(pause store.HarnessPause) (string, error) {
 	return pausedPrefix + until.UTC().Format(timeFormat), nil
 }
 
+// PausedUntil gives the end of the pause that session waits for, or nil when the session does not wait for a pause.
+func (e *Engine) PausedUntil(ctx context.Context, session store.Session) (*time.Time, error) {
+	if !strings.HasPrefix(session.QueueReason.String, pausedPrefix) {
+		return nil, nil
+	}
+	pause, err := e.harnessPause(ctx, config.Harness(session.Harness))
+	if err != nil || pause == nil {
+		return nil, err
+	}
+	return pauseEnd(*pause)
+}
+
+// InboxPausedUntil gives the end of the pause of the usage-limit Inbox item, or nil for another item, a dismissed
+// item, and an item whose pause ended.
+func (e *Engine) InboxPausedUntil(ctx context.Context, item store.InboxItem) (*time.Time, error) {
+	if item.Kind != usageLimitKind || item.DismissedAt.Valid {
+		return nil, nil
+	}
+	pauses, err := e.queries.ListHarnessPauses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, pause := range pauses {
+		if pause.InboxItem == item.ID {
+			return pauseEnd(pause)
+		}
+	}
+	return nil, nil
+}
+
+func pauseEnd(pause store.HarnessPause) (*time.Time, error) {
+	until, err := time.Parse(time.RFC3339Nano, pause.PausedUntil)
+	if err != nil {
+		return nil, err
+	}
+	return &until, nil
+}
+
 // waitForPause holds until the Harness of a has no pause. The session shows the pause in its queue reason while it
 // waits. While the drain is on, the drain does not count the session. After the end of the pause, the session counts
 // again before it goes on. After seal, it does not go on: it waits until abortDrain or the restart ends it.
@@ -339,7 +396,7 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			e.publish(Change{Node: new(node(cleared))})
+			e.publish(Change{Node: new(e.node(cleared))})
 			return nil
 		}
 		if err != nil {
@@ -354,7 +411,7 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			e.publish(Change{Node: new(node(queued))})
+			e.publish(Change{Node: new(e.node(queued))})
 			shown = true
 		}
 		a.setUncounted(e.draining())

@@ -15,6 +15,14 @@ import (
 	"syscall"
 )
 
+// LowSpeedLimit and LowSpeedTime are the stall limit of a git transfer over HTTP: git stops the transfer when its
+// speed stays below LowSpeedLimit bytes per second for LowSpeedTime seconds. The time is long, because a server can
+// send no pack data while it counts the objects of a large repository or resolves the deltas of a push.
+var (
+	LowSpeedLimit = 1000
+	LowSpeedTime  = 120
+)
+
 // git gives the git command with args in dir. The token goes to git only in the environment of the process, so no
 // file and no process list shows it. No hook runs, so no code of the repository gets that environment. The command
 // leads its own process group, so the end of ctx also stops the git processes that it started, for example of a fetch.
@@ -26,9 +34,17 @@ func git(ctx context.Context, dataDir, dir, token string, args ...string) *exec.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+filepath.Join(agentEnv(dataDir), "gitconfig"), "GIT_TERMINAL_PROMPT=0")
+	settings := [][2]string{
+		{"http.lowSpeedLimit", strconv.Itoa(LowSpeedLimit)},
+		{"http.lowSpeedTime", strconv.Itoa(LowSpeedTime)},
+	}
 	if token != "" {
 		credentials := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-		cmd.Env = append(cmd.Env, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=http.extraHeader", "GIT_CONFIG_VALUE_0=AUTHORIZATION: basic "+credentials)
+		settings = append(settings, [2]string{"http.extraHeader", "AUTHORIZATION: basic " + credentials})
+	}
+	cmd.Env = append(cmd.Env, "GIT_CONFIG_COUNT="+strconv.Itoa(len(settings)))
+	for i, setting := range settings {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i, setting[0]), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i, setting[1]))
 	}
 	return cmd
 }
@@ -121,6 +137,11 @@ func TaskDir(dataDir, repository string, number int64) string {
 // ResearchDir gives the worktree of the Researcher session id of repository below dataDir.
 func ResearchDir(dataDir, repository string, id int64) string {
 	return filepath.Join(dataDir, "worktrees", repository, "research-"+strconv.FormatInt(id, 10))
+}
+
+// CuratorDir gives the worktree of the Curator session id of repository below dataDir.
+func CuratorDir(dataDir, repository string, id int64) string {
+	return filepath.Join(dataDir, "worktrees", repository, "curator-"+strconv.FormatInt(id, 10))
 }
 
 // ReviewDir gives the worktree of the Reviewer session id of repository below dataDir.
@@ -279,4 +300,23 @@ func RevParse(ctx context.Context, dataDir, worktree, name string) (string, erro
 // HeadContains tells if HEAD of the worktree contains commit.
 func HeadContains(ctx context.Context, dataDir, worktree, commit string) (bool, error) {
 	return succeeds(git(ctx, dataDir, worktree, "", "merge-base", "--is-ancestor", commit, "HEAD"))
+}
+
+// HasUnpushedWork tells if the worktree has uncommitted changes, or commits that origin/branch does not have. Before
+// the first push, origin/branch does not exist, and the worktree is compared with origin/base.
+func HasUnpushedWork(ctx context.Context, dataDir, worktree, branch, base string) (bool, error) {
+	status, err := run(git(ctx, dataDir, worktree, "", "--no-optional-locks", "status", "--porcelain"))
+	if err != nil || status != "" {
+		return status != "", err
+	}
+	remote := "origin/" + branch
+	found, err := hasRef(ctx, dataDir, worktree, "refs/remotes/"+remote)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		remote = "origin/" + base
+	}
+	commits, err := run(git(ctx, dataDir, worktree, "", "rev-list", "--count", remote+"..HEAD"))
+	return commits != "0", err
 }
