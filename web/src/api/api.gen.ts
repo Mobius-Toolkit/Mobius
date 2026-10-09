@@ -178,13 +178,15 @@ export interface ChatMessage {
 }
 
 /**
- * Chat is a Lead chat or the Triager chat with its messages.
+ * Chat is a page of the messages of a Lead chat or of the Triager chat.
  */
 export interface Chat {
   /** Harness is the Harness of the agent of the chat, for example claude-code */
   harness: string;
-  /** Messages are the messages, the oldest first */
+  /** Messages are the messages of the page, the oldest first */
   messages: ChatMessage[];
+  /** Older is true when the chat has an older message than the first message of the page */
+  older: boolean;
   /** Writing is true while the agent has a turn that runs or a message that waits */
   writing: boolean;
 }
@@ -1005,6 +1007,10 @@ repository?: string;
  * Workstream is the number of the Workstream issue. It is 0 for the Triager chat
  */
 workstream?: number;
+/**
+ * Before is the id of a message. The page has at most 20 messages with an id below Before. With no Before, the page has the newest 20 messages
+ */
+before?: number;
 };
 
 export type GetCheckupParams = {
@@ -1212,7 +1218,7 @@ export const getGetChatUrl = (params?: GetChatParams,) => {
 }
 
 /**
- * GetChat returns the Lead chat of a Workstream, or the Triager chat of an organization.
+ * GetChat returns a page of the messages of the Lead chat of a Workstream, or of the Triager chat of an organization.
  */
 export const getChat = async (params?: GetChatParams, ): Promise<getChatResponse> => {
 

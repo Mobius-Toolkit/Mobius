@@ -1369,21 +1369,28 @@ func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredPa
 	return exists, err
 }
 
-const listChatMessages = `-- name: ListChatMessages :many
+const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
 SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator')
-ORDER BY id
+WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
+ORDER BY id DESC LIMIT ?
 `
 
-type ListChatMessagesParams struct {
+type ListChatMessagesBeforeParams struct {
 	Organization string
 	Repository   string
 	Workstream   int64
+	ID           int64
+	Limit        int64
 }
 
-// The chat shows no Researcher message and no Curator message.
-func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesParams) ([]ChatMessage, error) {
-	rows, err := q.db.QueryContext(ctx, listChatMessages, arg.Organization, arg.Repository, arg.Workstream)
+func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessagesBeforeParams) ([]ChatMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listChatMessagesBefore,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.ID,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1413,13 +1420,13 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 	return items, nil
 }
 
-const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
+const listChatMessagesPage = `-- name: ListChatMessagesPage :many
 SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
+WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator') AND id < ?
 ORDER BY id DESC LIMIT ?
 `
 
-type ListChatMessagesBeforeParams struct {
+type ListChatMessagesPageParams struct {
 	Organization string
 	Repository   string
 	Workstream   int64
@@ -1427,8 +1434,9 @@ type ListChatMessagesBeforeParams struct {
 	Limit        int64
 }
 
-func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessagesBeforeParams) ([]ChatMessage, error) {
-	rows, err := q.db.QueryContext(ctx, listChatMessagesBefore,
+// The chat shows no Researcher message and no Curator message.
+func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessagesPageParams) ([]ChatMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listChatMessagesPage,
 		arg.Organization,
 		arg.Repository,
 		arg.Workstream,

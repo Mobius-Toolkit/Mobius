@@ -108,7 +108,7 @@
     },
     "/api/chat": {
       "get": {
-        "description": "GetChat returns the Lead chat of a Workstream, or the Triager chat of an organization.",
+        "description": "GetChat returns a page of the messages of the Lead chat of a Workstream, or of the Triager chat of an organization.",
         "operationId": "GetChat",
         "parameters": [
           {
@@ -133,6 +133,15 @@
             "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat",
             "in": "query",
             "name": "workstream",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Before is the id of a message. The page has at most 20 messages with an id below Before. With no Before, the page has the newest 20 messages",
+            "in": "query",
+            "name": "before",
             "required": false,
             "schema": {
               "type": "integer"
@@ -2893,10 +2902,14 @@
           "messages": {
             "type": "array",
             "title": "[]ChatMessage",
-            "description": "Messages are the messages, the oldest first",
+            "description": "Messages are the messages of the page, the oldest first",
             "items": {
               "$ref": "#/components/schemas/ChatMessage"
             }
+          },
+          "older": {
+            "type": "boolean",
+            "description": "Older is true when the chat has an older message than the first message of the page"
           },
           "writing": {
             "type": "boolean",
@@ -2905,10 +2918,11 @@
         },
         "required": [
           "messages",
+          "older",
           "writing",
           "harness"
         ],
-        "description": "Chat is a Lead chat or the Triager chat with its messages."
+        "description": "Chat is a page of the messages of a Lead chat or of the Triager chat."
       },
       "ChatMessage": {
         "type": "object",

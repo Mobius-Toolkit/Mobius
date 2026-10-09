@@ -467,7 +467,7 @@ test("a new message scrolls the chat to its end", async ({ page }) => {
     }
     await page.goto(shop);
     // The chat shows its messages after the live connection opens.
-    await expect(page.getByText("What is the state of the plans?").first()).toBeVisible();
+    await expect(page.locator("[data-message]").first()).toBeVisible();
     await page.evaluate(`(async () => {
       for (let n = 0; n < 20; n++) {
         const form = new FormData()
@@ -579,6 +579,80 @@ test("a switch to a chat shows its first unread message", async ({ page }) => {
     await switchTo(second[1]);
     await expectShown(`Note 12 of #${second[0]}.`, "end");
   }
+});
+
+// The chat of plants/garden#60 has 50 messages in pages of 20, and the Owner saw the first 15. The first test opens the
+// chat, and the page marks all messages as seen.
+const seeds = "/workstreams/plants/garden/60";
+
+// The tests have no DOM types, so the check is a script. It gives the number of messages in the list.
+const messageCount = `document.querySelectorAll('[data-message]').length`;
+
+// The distance of the message with text from the top of the list.
+const topOf = (text: string) => `(() => {
+  const message = [...document.querySelectorAll('[data-message]')].find((element) => element.textContent.includes(${JSON.stringify(text)}))
+  return message.getBoundingClientRect().top - message.parentElement.getBoundingClientRect().top
+})()`;
+
+test("a chat opens at the first unread message when it is in an older page", async ({ page }) => {
+  await page.goto(seeds);
+  await expect.poll(() => page.evaluate(shows("Seed note 16.", "top"))).toBe(true);
+  expect(await page.evaluate(messageCount)).toBeGreaterThan(20);
+  await expect.poll(() => unread(page, 60)).toBe(0);
+  await expect.poll(() => page.evaluate(shows("Seed note 16.", "top"))).toBe(true);
+});
+
+test("a chat shows its newest 20 messages", async ({ page }) => {
+  for (const size of [undefined, phone]) {
+    if (size) {
+      await page.setViewportSize(size);
+    }
+    await page.goto(seeds);
+    await expect.poll(() => page.evaluate(shows("Seed note 50.", "end"))).toBe(true);
+    expect(await page.evaluate(messageCount)).toBe(20);
+    await expect(page.getByText("Seed note 31.")).toBeVisible();
+    await expect(page.getByText("Seed note 30.")).toHaveCount(0);
+  }
+});
+
+test("a scroll up loads older messages and keeps the position", async ({ page }) => {
+  await page.goto(seeds);
+  await expect.poll(() => page.evaluate(shows("Seed note 50.", "end"))).toBe(true);
+  // The scroll starts the load of the older page, and the script reads the place of the message before it ends.
+  const scrollToTop = (text: string) =>
+    page.evaluate<number>(`(() => {
+      const list = document.querySelector('[data-message]').parentElement
+      list.scrollTop = 0
+      return ${topOf(text)}
+    })()`);
+
+  const first = await scrollToTop("Seed note 31.");
+  await expect.poll(() => page.evaluate(messageCount)).toBe(40);
+  await expect(page.getByText("Seed note 11.")).toBeAttached();
+  await expect.poll(() => page.evaluate(topOf("Seed note 31."))).toBe(first);
+
+  const second = await scrollToTop("Seed note 11.");
+  await expect.poll(() => page.evaluate(messageCount)).toBe(50);
+  await expect.poll(() => page.evaluate(topOf("Seed note 11."))).toBe(second);
+  await expect(page.getByText("Seed note 1.")).toBeAttached();
+});
+
+test("the messages that came while the connection was down show after the reconnect", async ({
+  page,
+  context,
+}) => {
+  await page.goto(seeds);
+  await expect.poll(() => page.evaluate(shows("Seed note 50.", "end"))).toBe(true);
+  await context.setOffline(true);
+  await expect(page.getByRole("status")).toHaveText("Offline");
+  const added = await page.request.post("/e2e/seed-notes/25");
+  expect(added.ok()).toBe(true);
+  await context.setOffline(false);
+  await expect.poll(() => page.evaluate(messageCount)).toBe(45);
+  await expect(page.getByText("Late note 25.")).toBeAttached();
+  await expect(page.getByText("Late note 1.")).toBeAttached();
+  await expect(page.getByText("Seed note 50.")).toBeAttached();
+  await expect(page.getByText("Seed note 30.")).toHaveCount(0);
 });
 
 test("the Triager chat stays open after its actions", async ({ page }) => {
@@ -2048,7 +2122,7 @@ async function longHistory(page: Page) {
     const response = await route.fetch();
     const body = (await response.json()) as { data: { messages: unknown[] } };
     body.data.messages = Array.from({ length: 60 }, (_, index) => ({
-      id: 900000 + index,
+      id: 1 + index,
       author: index % 2 === 0 ? "Owner" : "Lead",
       text: `History ${index} ${"word ".repeat(30)}`,
       time: "2026-10-15T08:37:00Z",

@@ -182,10 +182,10 @@ UPDATE chat_messages SET text = text || sqlc.arg(text) WHERE id = sqlc.arg(id)
 RETURNING *;
 
 -- The chat shows no Researcher message and no Curator message.
--- name: ListChatMessages :many
+-- name: ListChatMessagesPage :many
 SELECT * FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator')
-ORDER BY id;
+WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator') AND id < ?
+ORDER BY id DESC LIMIT ?;
 
 -- name: ListChatMessagesBefore :many
 SELECT * FROM chat_messages

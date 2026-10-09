@@ -65,7 +65,7 @@ func stopChat(t *testing.T, server *testserver.Server, key engine.ChatKey) {
 
 func chatView(t *testing.T, server *testserver.Server, key engine.ChatKey) engine.ChatView {
 	t.Helper()
-	view, err := server.Engine.ChatView(t.Context(), key)
+	view, err := server.Engine.ChatView(t.Context(), key, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,6 +267,57 @@ func TestARefusedModelEndsTheChatSessionBeforeTheFirstPrompt(t *testing.T) {
 		t.Errorf("errors = %v", errors)
 	}
 	testkit.WaitFor(t, func() bool { return !chatView(t, server, leadChat).Writing })
+}
+
+func TestAChatViewGivesPagesOf20MessagesWithoutResearcherAndCuratorMessages(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	var visible []int64
+	for number := 1; number <= 53; number++ {
+		author := "Lead"
+		switch {
+		case number%10 == 0:
+			author = "Researcher"
+		case number%5 == 0:
+			author = "Curator"
+		}
+		message, err := store.New(server.DB).AddChatMessage(t.Context(), store.AddChatMessageParams{
+			Organization: "owner", Repository: shop, Workstream: 12, Author: author, Time: time.Now().UTC().Format(time.RFC3339Nano), Text: fmt.Sprintf("message %d", number),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if author == "Lead" {
+			visible = append(visible, message.ID)
+		}
+	}
+	ids := func(view engine.ChatView) []int64 {
+		var found []int64
+		for _, message := range view.Messages {
+			found = append(found, message.ID)
+		}
+		return found
+	}
+	page := func(before int64) engine.ChatView {
+		view, err := server.Engine.ChatView(t.Context(), leadChat, before)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return view
+	}
+
+	newest := page(0)
+	if got := ids(newest); !slices.Equal(got, visible[23:]) || !newest.Older {
+		t.Errorf("newest page = %v, older = %v, want %v and true", got, newest.Older, visible[23:])
+	}
+	middle := page(newest.Messages[0].ID)
+	if got := ids(middle); !slices.Equal(got, visible[3:23]) || !middle.Older {
+		t.Errorf("older page = %v, older = %v, want %v and true", got, middle.Older, visible[3:23])
+	}
+	oldest := page(middle.Messages[0].ID)
+	if got := ids(oldest); !slices.Equal(got, visible[:3]) || oldest.Older {
+		t.Errorf("oldest page = %v, older = %v, want %v and false", got, oldest.Older, visible[:3])
+	}
 }
 
 func TestAHarnessThatNeedsALoginFailsTheChatSession(t *testing.T) {
