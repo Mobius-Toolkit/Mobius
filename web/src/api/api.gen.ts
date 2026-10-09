@@ -35,6 +35,11 @@ export interface Agent {
      * @nullable
      */
   parent: number | null;
+  /**
+     * PausedUntil is the end of the usage-limit pause that the session waits for, or null while the session does not wait for a pause
+     * @nullable
+     */
+  pausedUntil: string | null;
   /** QueueReason tells why the session waits, for example for a slot or for the end of a usage limit. It is empty while the session does not wait */
   queueReason: string;
   /** Repository is the repository as "owner/name". It is empty for the Triager chat */
@@ -454,6 +459,11 @@ export interface InboxItem {
   link: string;
   /** Organization is the owner of the repository */
   organization: string;
+  /**
+     * PausedUntil is the end of the pause of a usage limit item, or null for another item and after the pause ends
+     * @nullable
+     */
+  pausedUntil: string | null;
   /** Repository is the repository as "owner/name" */
   repository: string;
   /** Text is the text of the item */
@@ -491,6 +501,8 @@ export interface MemoryVersion {
   author: MemoryVersionAuthor;
   /** ID is the id of the version */
   id: number;
+  /** Reason is the type of change and the evidence of the Curator, "Revert of version N" for a revert, and empty for an edit of the Owner */
+  reason: string;
   /** RevertProblem is the reason why the revert is not possible, and empty when it is possible */
   revert_problem: string;
   /** Revertible tells if the revert of the version is possible */

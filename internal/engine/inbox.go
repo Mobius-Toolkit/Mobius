@@ -21,14 +21,14 @@ const (
 )
 
 // addInboxItem adds the Inbox item at the time now, and sends it to the listeners.
-func (e *Engine) addInboxItem(ctx context.Context, params store.AddInboxItemParams) (store.InboxItem, error) {
+func (e *Engine) addInboxItem(ctx context.Context, params store.AddInboxItemParams) error {
 	params.Time = now()
 	item, err := e.queries.AddInboxItem(ctx, params)
 	if err != nil {
-		return store.InboxItem{}, err
+		return err
 	}
 	e.publish(Change{Inbox: &item})
-	return item, nil
+	return nil
 }
 
 // Inbox gives the Inbox items that the Owner did not dismiss, the oldest first.

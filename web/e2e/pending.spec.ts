@@ -55,7 +55,7 @@ test("Resume in the Lead chat shows the spinner while the request runs", async (
 
 test("Resume now in the Inbox shows the spinner while the request runs", async ({ page }) => {
   await page.goto("/inbox");
-  const row = page.getByRole("listitem").filter({ hasText: "claude-code reached a usage limit." });
+  const row = page.getByRole("listitem").filter({ hasText: "antigravity reached a usage limit." });
   const held = await hold(page, "**/api/inbox/*/resume", "POST");
 
   await checkPending(row.getByRole("button", { name: "Resume now" }), held);
@@ -64,7 +64,7 @@ test("Resume now in the Inbox shows the spinner while the request runs", async (
 
 test("a tap on Resume now or Dismiss disables both buttons of the row", async ({ page }) => {
   await page.goto("/inbox");
-  const row = page.getByRole("listitem").filter({ hasText: "claude-code reached a usage limit." });
+  const row = page.getByRole("listitem").filter({ hasText: "antigravity reached a usage limit." });
   const resume = row.getByRole("button", { name: "Resume now" });
   const dismiss = row.getByRole("button", { name: "Dismiss" });
   const other = page

@@ -16,6 +16,7 @@ type memoryVersion struct {
 	ID     int64  `json:"id"`
 	Time   string `json:"time"`
 	Author string `json:"author"`
+	Reason string `json:"reason"`
 	Text   string `json:"text"`
 
 	Revertible    bool   `json:"revertible"`
@@ -91,6 +92,31 @@ func TestTheMemoryRouteGivesTheVersionsNewestFirst(t *testing.T) {
 	}
 	if versions[0].ID <= versions[1].ID || versions[0].Time == "" {
 		t.Errorf("versions = %+v", versions)
+	}
+}
+
+func TestTheMemoryRouteGivesTheReasonOfEachVersion(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "Add: three fix rounds repeated the same format error", "Run make fmt.\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", "Run make fmt.\nRun make check.\n"); err != nil {
+		t.Fatal(err)
+	}
+	first := listMemory(t, server, shop)[1]
+	if err := server.Engine.RevertMemory(t.Context(), shop, first.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	versions := listMemory(t, server, shop)
+
+	var got []string
+	for _, version := range versions {
+		got = append(got, version.Reason)
+	}
+	want := []string{"Revert of version " + strconv.FormatInt(first.ID, 10), "", "Add: three fix rounds repeated the same format error"}
+	if !slices.Equal(got, want) {
+		t.Errorf("reasons = %q, want %q", got, want)
 	}
 }
 

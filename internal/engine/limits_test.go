@@ -101,6 +101,12 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	prompted := make(chan error, 1)
 	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 
+	waitForChange(t, changes, func(change engine.Change) bool { return change.Message != nil && change.Message.Author == "Mobius" })
+	change := waitForChange(t, changes, func(change engine.Change) bool { return change.Inbox != nil })
+	pausedUntil, err := server.Engine.InboxPausedUntil(t.Context(), *change.Inbox)
+	if err != nil || pausedUntil == nil {
+		t.Errorf("the pause at the Inbox change = %v: %v", pausedUntil, err)
+	}
 	var item struct {
 		id               int64
 		kind, text, link string
@@ -127,8 +133,9 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	if got := inbox(t, server); len(got) != 1 || got[0].ID != item.id {
 		t.Errorf("inbox = %+v", got)
 	}
-	waitForChange(t, changes, func(change engine.Change) bool { return change.Inbox != nil && change.Inbox.ID == item.id })
-	waitForChange(t, changes, func(change engine.Change) bool { return change.Message != nil && change.Message.Author == "Mobius" })
+	if change.Inbox.ID != item.id || pausedUntil != nil && !pausedUntil.Equal(until) {
+		t.Errorf("the Inbox change = %d with the pause %v, want %d with %v", change.Inbox.ID, pausedUntil, item.id, until)
+	}
 	reason := "paused until " + until.UTC().Format("2006-01-02 15:04 UTC")
 	testkit.WaitFor(t, func() bool { return session(t, server, agent.ID()).QueueReason.String == reason })
 	// The pause also holds a Worker of the paused Harness in the queue.

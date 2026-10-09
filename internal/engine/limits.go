@@ -220,13 +220,13 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	spec := a.spec
 	switch {
 	case err == nil:
-		e.publish(Change{Inbox: &item})
 	case errors.Is(err, sql.ErrNoRows):
-		item, err = e.addInboxItem(ctx, store.AddInboxItemParams{
+		item, err = e.queries.AddInboxItem(ctx, store.AddInboxItemParams{
 			Kind:         usageLimitKind,
 			Organization: spec.Organization,
 			Repository:   spec.Repository,
 			Text:         text,
+			Time:         now(),
 		})
 		if err != nil {
 			return err
@@ -242,6 +242,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
 		return err
 	}
+	e.publish(Change{Inbox: &item})
 	return e.timer(pause)
 }
 
@@ -327,6 +328,44 @@ func pausedReason(pause store.HarnessPause) (string, error) {
 		return "", err
 	}
 	return pausedPrefix + until.UTC().Format(timeFormat), nil
+}
+
+// PausedUntil gives the end of the pause that session waits for, or nil when the session does not wait for a pause.
+func (e *Engine) PausedUntil(ctx context.Context, session store.Session) (*time.Time, error) {
+	if !strings.HasPrefix(session.QueueReason.String, pausedPrefix) {
+		return nil, nil
+	}
+	pause, err := e.harnessPause(ctx, config.Harness(session.Harness))
+	if err != nil || pause == nil {
+		return nil, err
+	}
+	return pauseEnd(*pause)
+}
+
+// InboxPausedUntil gives the end of the pause of the usage-limit Inbox item, or nil for another item, a dismissed
+// item, and an item whose pause ended.
+func (e *Engine) InboxPausedUntil(ctx context.Context, item store.InboxItem) (*time.Time, error) {
+	if item.Kind != usageLimitKind || item.DismissedAt.Valid {
+		return nil, nil
+	}
+	pauses, err := e.queries.ListHarnessPauses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, pause := range pauses {
+		if pause.InboxItem == item.ID {
+			return pauseEnd(pause)
+		}
+	}
+	return nil, nil
+}
+
+func pauseEnd(pause store.HarnessPause) (*time.Time, error) {
+	until, err := time.Parse(time.RFC3339Nano, pause.PausedUntil)
+	if err != nil {
+		return nil, err
+	}
+	return &until, nil
 }
 
 // waitForPause holds until the Harness of a has no pause. The session shows the pause in its queue reason while it

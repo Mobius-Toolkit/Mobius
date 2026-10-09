@@ -1,6 +1,10 @@
 package engine
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
+)
 
 func TestACuratorThatStartsAfterTheShutdownAddsNoSession(t *testing.T) {
 	e := researchEngine(t)
@@ -16,5 +20,27 @@ func TestACuratorThatStartsAfterTheShutdownAddsNoSession(t *testing.T) {
 	}
 	if _, err := e.queries.GetSession(t.Context(), 1); err == nil {
 		t.Error("the session of the Curator exists")
+	}
+}
+
+func TestARequestStaysInTheStoreWhenTheDrainIsSealedAtTheDeliveryOfTheResult(t *testing.T) {
+	e := researchEngine(t)
+	if _, err := e.queries.AddCuratorRequest(t.Context(), store.AddCuratorRequestParams{Repository: "owner/shop", Text: "Add the lesson."}); err != nil {
+		t.Fatal(err)
+	}
+	requests, err := e.queries.ListCuratorRequests(t.Context(), "owner/shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.drain.sealed = true
+	a := &Agent{id: 1, spec: Spec{Role: CuratorRole, Organization: "owner", Repository: "owner/shop"}}
+
+	err = e.answerRequests(t.Context(), a, requests, 0, "")
+
+	if err == nil {
+		t.Error("no error")
+	}
+	if kept, err := e.queries.ListCuratorRequests(t.Context(), "owner/shop"); err != nil || len(kept) != 1 {
+		t.Errorf("requests = %+v, error = %v", kept, err)
 	}
 }
