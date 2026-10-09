@@ -2768,6 +2768,14 @@
             ],
             "description": "Parent is the id of the session of the agent that started this session, or null"
           },
+          "pausedUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PausedUntil is the end of the usage-limit pause that the session waits for, or null while the session does not wait for a pause",
+            "format": "date-time"
+          },
           "queueReason": {
             "type": "string",
             "description": "QueueReason tells why the session waits, for example for a slot or for the end of a usage limit. It is empty while the session does not wait"
@@ -2814,6 +2822,7 @@
           "endedAt",
           "endReason",
           "queueReason",
+          "pausedUntil",
           "working"
         ],
         "description": "Agent is the session of an agent."
@@ -3653,6 +3662,14 @@
             "type": "string",
             "description": "Organization is the owner of the repository"
           },
+          "pausedUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PausedUntil is the end of the pause of a usage limit item, or null for another item and after the pause ends",
+            "format": "date-time"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository as \"owner/name\""
@@ -3681,6 +3698,7 @@
           "text",
           "link",
           "time",
+          "pausedUntil",
           "dismissedAt"
         ],
         "description": "InboxItem is an item of the Inbox of the Owner."
@@ -4073,6 +4091,10 @@
             "type": "integer",
             "description": "ID is the id of the version"
           },
+          "reason": {
+            "type": "string",
+            "description": "Reason is the type of change and the evidence of the Curator, \"Revert of version N\" for a revert, and empty for an edit of the Owner"
+          },
           "revert_problem": {
             "type": "string",
             "description": "RevertProblem is the reason why the revert is not possible, and empty when it is possible"
@@ -4094,6 +4116,7 @@
           "id",
           "time",
           "author",
+          "reason",
           "text",
           "revertible",
           "revert_problem"

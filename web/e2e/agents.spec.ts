@@ -7,10 +7,11 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByLabel("Access password")).toBeHidden();
 });
 
+// The Curators of the repositories use the paused Harness too, so more than one entry shows the pause.
 const states = [
   { reason: "runs .mobius/check", badge: "checks", dot: /bg-green-600/ },
   { reason: "waits for a check slot", badge: "waits for check", dot: /bg-amber-500/ },
-  { reason: "paused until 2026-09-28 12:00 UTC", badge: "paused", dot: /bg-amber-500/ },
+  { reason: /paused until Sep 28, 12:00\sPM/, badge: "paused", dot: /bg-amber-500/ },
   { reason: "no free Implementer slot (2/2)", badge: "queued", dot: /bg-amber-500/ },
 ];
 
@@ -18,7 +19,7 @@ test("the Agents page shows the state of each agent with a queue reason", async 
   const main = page.getByRole("main");
   await page.goto("/agents");
   for (const { reason, badge, dot } of states) {
-    const entry = main.getByRole("button").filter({ hasText: reason });
+    const entry = main.getByRole("button").filter({ hasText: reason }).first();
     await expect(entry.getByText(badge, { exact: true })).toBeVisible();
     await expect(entry.locator("span.rounded-full")).toHaveClass(dot);
   }
@@ -34,7 +35,7 @@ test("the Agents tab of a Workstream shows the state of each agent with a queue 
   await page.goto("/workstreams/owner/shop/12");
   const tree = page.getByRole("complementary");
   for (const { reason, badge, dot } of states) {
-    const entry = tree.getByRole("button").filter({ hasText: reason });
+    const entry = tree.getByRole("button").filter({ hasText: reason }).first();
     await expect(entry.getByText(badge, { exact: true })).toBeVisible();
     await expect(entry.locator("span.rounded-full")).toHaveClass(dot);
   }

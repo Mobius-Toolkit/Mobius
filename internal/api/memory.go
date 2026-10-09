@@ -20,6 +20,8 @@ type MemoryVersion struct {
 	Time string `gork:"time"`
 	// Author is curator or owner
 	Author string `gork:"author" validate:"oneof=curator owner"`
+	// Reason is the type of change and the evidence of the Curator, "Revert of version N" for a revert, and empty for an edit of the Owner
+	Reason string `gork:"reason"`
 	// Text is the text of the memory file in this version
 	Text string `gork:"text"`
 	// Revertible tells if the revert of the version is possible
@@ -60,7 +62,7 @@ func (h *handlers) ListMemoryVersions(ctx context.Context, req ListMemoryVersion
 		if err != nil {
 			return nil, err
 		}
-		versions = append(versions, MemoryVersion{ID: row.ID, Time: row.Time, Author: row.Author, Text: row.Text, Revertible: problem == "", RevertProblem: problem})
+		versions = append(versions, MemoryVersion{ID: row.ID, Time: row.Time, Author: row.Author, Reason: row.Reason, Text: row.Text, Revertible: problem == "", RevertProblem: problem})
 	}
 	return &ListMemoryVersionsResponse{Body: Envelope[[]MemoryVersion]{Data: versions}}, nil
 }

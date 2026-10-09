@@ -33,7 +33,7 @@ async function screenshot(
 const queueReasons = [
   "runs .mobius/check",
   "waits for a check slot",
-  "paused until 2026-09-28 12:00 UTC",
+  /paused until Sep 28, 12:00\sPM/,
   "no free Implementer slot (2/2)",
 ];
 
@@ -302,7 +302,8 @@ test("screenshots", async ({ page }) => {
     main.getByRole("tab", { name: "To do 2" }),
     main.getByText("#45 needs a decision"),
     main.getByText("Integrate loyalty plans ·"),
-    main.getByText("claude-code reached a usage limit."),
+    main.getByText("antigravity reached a usage limit."),
+    main.getByText(/· paused until Sep 28, 12:00\sPM/),
   ]);
   await screenshot(page, "inbox-activity", "/inbox/activity", (device) => [
     chatCount,
@@ -461,6 +462,7 @@ test("screenshots", async ({ page }) => {
     main.getByText("- Run make fmt before each commit."),
     main.getByText("+ Wait for a condition with testkit.WaitFor."),
     main.getByText("A later version changed this part. Edit the file."),
+    main.getByText("Add: three fix rounds repeated the same wait with a fixed sleep in tests"),
   ]);
 
   // The note closes a Workstream whose tasks are all closed.

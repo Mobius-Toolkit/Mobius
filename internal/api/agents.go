@@ -39,6 +39,8 @@ type Agent struct {
 	EndReason string `gork:"endReason"`
 	// QueueReason tells why the session waits, for example for a slot or for the end of a usage limit. It is empty while the session does not wait
 	QueueReason string `gork:"queueReason"`
+	// PausedUntil is the end of the usage-limit pause that the session waits for, or null while the session does not wait for a pause
+	PausedUntil *time.Time `gork:"pausedUntil"`
 	// Working is true while the session works. A chat session works while a turn runs. Another open session works
 	// while it does not wait for a slot, for a check slot or for the end of a usage limit
 	Working bool `gork:"working"`
@@ -93,7 +95,7 @@ func (h *handlers) ListAgents(ctx context.Context, req ListAgentsRequest) (*List
 	}
 	agents := make([]Agent, 0, len(nodes))
 	for _, node := range nodes {
-		agent, err := agentOf(node)
+		agent, err := h.agentOf(ctx, node)
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +156,7 @@ func (h *handlers) ListActiveAgents(ctx context.Context, _ ListActiveAgentsReque
 	for _, group := range found.Groups {
 		agents := make([]ActiveAgent, 0, len(group.Agents))
 		for _, found := range group.Agents {
-			agent, err := agentOf(found.Node)
+			agent, err := h.agentOf(ctx, found.Node)
 			if err != nil {
 				return nil, err
 			}
@@ -201,7 +203,7 @@ func (h *handlers) GetTranscript(ctx context.Context, req GetTranscriptRequest) 
 	return &GetTranscriptResponse{Body: Envelope[[]TranscriptLine]{Data: transcript}}, nil
 }
 
-func agentOf(node engine.Node) (Agent, error) {
+func (h *handlers) agentOf(ctx context.Context, node engine.Node) (Agent, error) {
 	session := node.Session
 	agent := Agent{
 		ID:           session.ID,
@@ -224,6 +226,9 @@ func agentOf(node engine.Node) (Agent, error) {
 		agent.Parent = &session.Parent.Int64
 	}
 	var err error
+	if agent.PausedUntil, err = h.engine.PausedUntil(ctx, session); err != nil {
+		return Agent{}, err
+	}
 	if agent.StartedAt, err = time.Parse(time.RFC3339Nano, session.StartedAt); err != nil {
 		return Agent{}, err
 	}

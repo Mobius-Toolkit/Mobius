@@ -48,7 +48,7 @@ func (e *Engine) handLostTasksWith(ctx context.Context, repository github.Reposi
 		if err != nil {
 			return err
 		}
-		if _, err := e.addInboxItem(ctx, store.AddInboxItemParams{
+		if err := e.addInboxItem(ctx, store.AddInboxItemParams{
 			Kind:         stoppedKind,
 			Organization: repository.Owner(),
 			Repository:   repository.FullName,
