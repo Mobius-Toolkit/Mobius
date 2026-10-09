@@ -543,15 +543,24 @@ func (e *Engine) runPreparedWorker(task store.Task, title *string, name string, 
 // another state, for example after a decline, does not start again. A Worker that a newer Worker replaced, for example
 // the Reviewer after it started a fix round, does not start again, also when it started during the wait.
 //
-// lost tells that the poll found the task with no Worker. Then runWorker starts only when no Worker of the task runs,
-// and the first run of work is an error, so that the restart counts and waits like the restart after any other error.
+// lost tells that the poll found the task with no Worker. Then runWorker starts only when no Worker of the task runs.
+// The first run of work reads the task again, because a Worker can end between the poll and the start. When the task is
+// still queued or working, that run is an error, so that the restart counts and waits like the restart after any other
+// error. Otherwise the Worker ends with no count.
 func (e *Engine) runWorker(task store.Task, title *string, name string, lost bool, work func(context.Context) error) {
 	begin := e.startNumberedWorker
 	if lost {
 		begin = e.startIdleWorker
 		run := work
-		work = func(context.Context) error {
+		work = func(ctx context.Context) error {
 			work = run
+			current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+			if errors.Is(err, sql.ErrNoRows) || err == nil && (current.ID != task.ID || current.State != "queued" && current.State != "working") {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
 			return errWorkerLost
 		}
 	}

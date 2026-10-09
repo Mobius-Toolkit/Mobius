@@ -81,3 +81,21 @@ func TestATaskThatAStepHoldsGetsNoSecondWorker(t *testing.T) {
 		t.Errorf("starts = %d, %d", held, starts)
 	}
 }
+
+func TestAWorkerThatTheStateChangeEndedBeforeTheLostStartGetsNoRestart(t *testing.T) {
+	e, task := lostTaskEngine(t)
+	setLostState(t, e, task, "checks")
+	ran := false
+	title := "Add plan model"
+
+	e.runWorker(task, &title, "Implementer", true, func(context.Context) error { ran = true; return nil })
+	e.running.Wait()
+
+	live, err := e.queries.GetLiveTask(t.Context(), store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ran || live.WorkerRestarts != 0 || live.State != "checks" {
+		t.Errorf("ran = %v, restarts = %d, state = %s", ran, live.WorkerRestarts, live.State)
+	}
+}
