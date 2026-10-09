@@ -290,9 +290,20 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 }
 
 // cannotDo ends the turn of the Implementer with the reason for the Lead.
-func (e *Engine) cannotDo(ctx context.Context, c caller, _ github.Repository, input reasonInput) (string, error) {
+func (e *Engine) cannotDo(ctx context.Context, c caller, repository github.Repository, input reasonInput) (string, error) {
 	if empty(input.Reason) {
 		return "", refuse("reason must not be empty.")
+	}
+	task, err := e.workstreamTask(ctx, repository, c.workstream, c.agent.spec.Issue.Int64)
+	if err != nil {
+		return "", err
+	}
+	unpushed, err := runner.HasUnpushedWork(ctx, e.config.DataDir, c.agent.spec.Dir, task.Branch.String, repository.DefaultBranch)
+	if err != nil {
+		return "", err
+	}
+	if unpushed {
+		return "", refuse("Your worktree has work that Mobius did not push. Commit your work and end the turn normally. Mobius then runs the check and pushes the work. Do not call `cannot_do` to wait for a command or for the check.")
 	}
 	c.agent.mu.Lock()
 	c.agent.cannotDo = input.Reason
@@ -851,6 +862,9 @@ func (e *Engine) sendDetails(ctx context.Context, c caller, repository github.Re
 		return "", err
 	}
 	if !e.addDetails(e.implementers, task.ID, input.Text) {
+		if task.State == "dispatched" {
+			return "", refuse("No Implementer of #%d runs. The issue body has the new details. Call `start_implementer` to continue the task.", input.N)
+		}
 		return "", refuse("No Implementer session of #%d is open now. A later session reads the updated issue body.", input.N)
 	}
 	return fmt.Sprintf("Sent the details to the Implementer of #%d.", input.N), nil

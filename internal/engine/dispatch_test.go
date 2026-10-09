@@ -138,7 +138,7 @@ func TestTheFirstPromptHasTheContextAndEachLaterTurnHasOneEvent(t *testing.T) {
 		"You are the Lead of one Workstream. The Owner talks to you in this chat.",
 		"# Brief\n\nShip loyalty plans to all shops.\n",
 		"# MEMORY.md\n\n- [Plans](plans.md)\n",
-		"# Task list\n\n#41 Add plan model: working\n\n",
+		"# Task list\n\n#41 Add plan model: waits for start_implementer\n\n",
 		"# Chat history\n\n",
 		"\n# Event\n\n",
 	)
