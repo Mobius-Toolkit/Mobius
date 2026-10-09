@@ -163,7 +163,11 @@ export function Frame({
         <div className="grow" />
         <UpgradeControls upgrade={upgrade} newBuild={newBuild} />
         {settingsPages.map((page) => (
-          <SideLink key={page.path} link={{ to: page.path }} fuzzy>
+          <SideLink
+            key={page.path}
+            link={{ to: page.path }}
+            fuzzy={page.path === "/settings/checkup"}
+          >
             {page.title}
           </SideLink>
         ))}
