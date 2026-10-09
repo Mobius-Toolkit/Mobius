@@ -70,12 +70,15 @@ type Engine struct {
 	// diskFreed wakes the checks that wait for free disk space.
 	diskFreed signal
 
-	// stopsMu guards stops and closed.
+	// stopsMu guards stops, live and closed.
 	stopsMu sync.Mutex
 	// stops holds the context of the Workers of each task, by the id of the task, of each Researcher, by its
 	// researcherKey, and of each Curator, by its curatorKey. A stop of the task, the Researcher or the Curator ends
 	// the context.
 	stops map[any]stopper
+	// live counts the goroutines of the Workers of each key that run now, and the holds of the key. A goroutine counts
+	// from its start to its return, also after a stop of its key.
+	live map[any]int
 	// closed tells that Run ended, so no new Worker starts.
 	closed bool
 	// running counts the Workers that run.
@@ -128,6 +131,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		triages:      map[triageKey]triage{},
 		checks:       make(chan struct{}, cfg.MaxChecks),
 		stops:        map[any]stopper{},
+		live:         map[any]int{},
 		implementers: map[int64]*Agent{},
 		researchers:  map[int64]*Agent{},
 		curators:     map[string]bool{},
@@ -151,9 +155,19 @@ func (e *Engine) startWorker(key any, work func(context.Context)) bool {
 
 // startNumberedWorker runs work like startWorker. work gets the number of its start, which startedAfter compares.
 func (e *Engine) startNumberedWorker(key any, work func(context.Context, int)) bool {
+	return e.start(key, false, work)
+}
+
+// startIdleWorker runs work like startNumberedWorker, and gives false with no start when a Worker of key runs. The
+// check and the start are one step, so a key never gets a second Worker from it.
+func (e *Engine) startIdleWorker(key any, work func(context.Context, int)) bool {
+	return e.start(key, true, work)
+}
+
+func (e *Engine) start(key any, idle bool, work func(context.Context, int)) bool {
 	e.stopsMu.Lock()
 	defer e.stopsMu.Unlock()
-	if e.closed {
+	if e.closed || idle && e.live[key] > 0 {
 		return false
 	}
 	found, ok := e.stops[key]
@@ -162,8 +176,38 @@ func (e *Engine) startNumberedWorker(key any, work func(context.Context, int)) b
 	}
 	found.starts++
 	e.stops[key] = found
-	e.running.Go(func() { work(found.ctx, found.starts) })
+	e.live[key]++
+	e.running.Go(func() {
+		defer e.uncount(key)
+		work(found.ctx, found.starts)
+	})
 	return true
+}
+
+// uncount removes one goroutine of a Worker of key, or one hold of key, from the count.
+func (e *Engine) uncount(key any) {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	if e.live[key]--; e.live[key] == 0 {
+		delete(e.live, key)
+	}
+}
+
+// holdWorker makes key count as a key with a Worker until the returned function runs. A step that changes the state of
+// a task to queued or working before it starts the goroutine of the Worker holds the key, so that the poll does not
+// start a second Worker in between.
+func (e *Engine) holdWorker(key any) func() {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	e.live[key]++
+	return func() { e.uncount(key) }
+}
+
+// hasWorker tells if a goroutine of a Worker of key runs, or a step holds key. A Worker that waits for a free slot runs.
+func (e *Engine) hasWorker(key any) bool {
+	e.stopsMu.Lock()
+	defer e.stopsMu.Unlock()
+	return e.live[key] > 0
 }
 
 // startedAfter tells if a Worker of key started after the Worker with the start number start.

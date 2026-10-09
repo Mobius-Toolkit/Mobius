@@ -30,7 +30,7 @@ func waitForApproval(t *testing.T, server *testserver.Server, fake *testkit.Fake
 func noTaskLabels(t *testing.T, fake *testkit.FakeGitHub) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
-		return !hasLabel(fake, "mobius:working") && !hasLabel(fake, "mobius:review") && !hasLabel(fake, "mobius:needs-human")
+		return !hasLabel(fake, "mobius:working") && !hasLabel(fake, "mobius:review") && !hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:question")
 	})
 }
 
@@ -85,6 +85,7 @@ func TestACloseOfTheIssueBeforeAPullRequestStopsTheImplementerAndEndsTheTask(t *
 		return len(sessions) > 0 && sessions[0].AcpSessionID.Valid
 	})
 
+	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
 	fake.CloseIssue(shop, 41)
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "" })
@@ -106,6 +107,7 @@ func TestARemovalOfTheWorkingLabelStopsTheTask(t *testing.T) {
 	waitForApproval(t, server, fake)
 	items := len(inbox(t, server))
 
+	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
 	fake.RemoveLabel(shop, 41, "mobius:working", "mallory")
 
 	last := testkit.WaitForValue(t, func() (activity, bool) {

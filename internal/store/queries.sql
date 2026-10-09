@@ -57,9 +57,14 @@ INSERT INTO sync_cursors (repository, endpoint, since, etag) VALUES (?, ?, ?, ?)
 ON CONFLICT (repository, endpoint) DO UPDATE SET since = excluded.since, etag = excluded.etag;
 
 -- name: AddSession :one
-INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, parent, started_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO sessions (role, harness, model, effort, organization, repository, workstream, issue, parent, started_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
+
+-- name: AddTurnUsage :exec
+INSERT INTO turn_usage (session, task, issue, workstream, organization, repository, role, harness, model, reported_model,
+                        effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: SetACPSessionID :exec
 UPDATE sessions SET acp_session_id = ? WHERE id = ?;
@@ -409,12 +414,18 @@ SELECT position, name FROM copied_issue_labels WHERE repository = ? AND workstre
 SELECT position, number, blocker_workstream, blocker_workstream_title FROM copied_blockers
 WHERE repository = ? AND workstream = ? ORDER BY position, number;
 
--- name: ListCopiedIssuesWithLabel :many
-SELECT i.repository, i.workstream, i.number, i.title, i.state, i.author, i.html_url, i.repository_url FROM copied_issues i
-WHERE EXISTS (
-    SELECT 1 FROM copied_issue_labels l
-    WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(name)
-)
+-- name: ListCopiedIssuesWithLabels :many
+SELECT i.repository, i.workstream, i.number, i.title, i.state, i.author, i.html_url, i.repository_url,
+    EXISTS (
+        SELECT 1 FROM copied_issue_labels l
+        WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(needs_human)
+    ) AS has_needs_human,
+    EXISTS (
+        SELECT 1 FROM copied_issue_labels l
+        WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(question)
+    ) AS has_question
+FROM copied_issues i
+WHERE has_needs_human OR has_question
 ORDER BY i.repository, i.workstream, i.number;
 
 -- name: AddMemoryVersion :exec

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -24,9 +23,10 @@ const issuesEndpoint = "issues"
 // Apps, it removes the copy of each repository that it did not find. Then, for each repository, it fixes the labels
 // at the first sight in this run of the server, copies the open Workstreams until that step works one time, hands
 // the lost tasks to a human and starts the Workers of the earlier run again until that step works one time, reads the
-// changed issues, dispatches the ready issues, starts the tasks of the Workstreams with Autopilot, and checks the live
-// tasks. The work of a repository starts again at its first poll, because the work needs GitHub. At the end, the
-// pull requests with work for an agent replace the ones of the last poll. With no App, the poll does nothing.
+// changed issues, dispatches the ready issues, starts the tasks of the Workstreams with Autopilot, checks the live
+// tasks, and starts the Worker again of each task that has none. The work of a repository starts again at its first
+// poll, because the work needs GitHub. At the end, the pull requests with work for an agent replace the ones of the
+// last poll. With no App, the poll does nothing.
 func (e *Engine) poll(ctx context.Context) {
 	apps, err := e.queries.ListGitHubApps(ctx)
 	if err != nil || len(apps) == 0 {
@@ -93,7 +93,7 @@ func repositoryKeys(repositories []github.Repository) []string {
 
 // recover hands the lost tasks of repository to a human, gives the events that wait from the earlier run of the
 // server to the Leads, starts a Curator for the requests of the Owner that wait, and starts each Worker of the earlier
-// run again. The Workers start only one time.
+// run again.
 func (e *Engine) recover(ctx context.Context, repository github.Repository) error {
 	if err := e.handLostTasks(ctx, repository); err != nil {
 		return err
@@ -120,28 +120,7 @@ func (e *Engine) recover(ctx context.Context, repository github.Repository) erro
 		}
 	}
 	e.recovered[repository.FullName] = true
-	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
-	if err != nil {
-		return err
-	}
-	for _, task := range tasks {
-		if task.State != "queued" && task.State != "working" {
-			continue
-		}
-		switch task.Worker.String {
-		case ImplementerRole, checkRoundWorker, conflictRoundWorker:
-			e.restartImplementer(repository, task)
-		case ReviewerRole:
-			e.restartReviewer(repository, task)
-		// The poll gives the items to a new Judge.
-		case JudgeRole:
-			before := cmp.Or(task.WorkerInput.String, "reviewed")
-			if _, err := e.setTaskState(ctx, store.SetTaskStateParams{State: before, ID: task.ID, FromState: "working"}); err != nil {
-				log.Printf("start the %s of %s#%d again: %v", task.Worker.String, repository.FullName, task.Issue, err)
-			}
-		}
-	}
-	return nil
+	return e.restartLost(ctx, repository, true)
 }
 
 // pollRepository recovers the work of the earlier run until that works one time, and then acts on the changes of the
@@ -164,7 +143,10 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.startAutopilot(ctx, repository); err != nil {
 		return err
 	}
-	return e.checkTasks(ctx, repository, work)
+	if err := e.checkTasks(ctx, repository, work); err != nil {
+		return err
+	}
+	return e.restartLost(ctx, repository, false)
 }
 
 // changedIssues reads the issues and pull requests that changed at or after the `since` cursor, reads the new comments

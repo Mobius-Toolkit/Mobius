@@ -446,7 +446,7 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 		if err := repository.AddLabel(ctx, j.task.Issue, workingLabel); err != nil {
 			return err
 		}
-		if err := repository.RemoveLabel(ctx, j.task.Issue, needsHumanLabel); err != nil {
+		if err := removeNeedsHuman(ctx, repository, j.task); err != nil {
 			return err
 		}
 	}

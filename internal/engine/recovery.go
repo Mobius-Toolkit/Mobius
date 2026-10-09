@@ -12,6 +12,7 @@ import (
 const (
 	workingLabel    = "mobius:working"
 	needsHumanLabel = "mobius:needs-human"
+	questionLabel   = "mobius:question"
 	reviewLabel     = "mobius:review"
 	// stoppedKind is the kind of the Inbox item of a task that stopped.
 	stoppedKind = "stopped"
