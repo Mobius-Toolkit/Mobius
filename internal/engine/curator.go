@@ -25,6 +25,19 @@ var curatorPrompt string
 // curatorEvery is the number of ended sessions of a repository, with no Curator session, that start a Curator.
 const curatorEvery = 10
 
+const (
+	// curatorMaxText is the maximum number of characters of the text of one item in the prompt of the Curator.
+	curatorMaxText = 1000
+	// curatorMaxItems is the maximum number of items of each kind in the prompt of the Curator.
+	curatorMaxItems = 20
+	// curatorCut ends the text of an item that was cut to curatorMaxText characters.
+	curatorCut = " (cut)"
+	// curatorRepeatedFixRounds is the number of fix rounds of a task from which the Curator gets the task.
+	curatorRepeatedFixRounds = 2
+	// curatorMaxRounds is the maximum number of rounds of one task in the prompt of the Curator.
+	curatorMaxRounds = 6
+)
+
 // curatorKey is the key in e.stops of the Worker of the Curator with this session id.
 type curatorKey int64
 
@@ -229,7 +242,15 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent, requests []store.List
 	if err != nil {
 		return err
 	}
-	leads, err := e.leadMemories(ctx, repository.FullName)
+	since, err := e.lastDoneCuratorStart(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	leads, err := e.leadMemories(repository.FullName, since)
+	if err != nil {
+		return err
+	}
+	problems, err := e.sessionProblems(ctx, repository.FullName, since)
 	if err != nil {
 		return err
 	}
@@ -240,7 +261,7 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent, requests []store.List
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	return a.Prompt(ctx, curatorPrompt+"\n"+requestsSection(requests)+sections+versions+leads, nil)
+	return a.Prompt(ctx, curatorPrompt+"\n"+requestsSection(requests)+sections+versions+problems+leads, nil)
 }
 
 // requestsSection gives the requests of the Owner as a prompt section, or "" for no request.
@@ -278,20 +299,22 @@ func claudeMemoryDir(home, leadDir string) string {
 	return filepath.Join(home, ".claude", "projects", notAlphanumeric.ReplaceAllString(leadDir, "-"), "memory")
 }
 
-// leadMemories gives the .md files of each Lead of repository as prompt sections. A Lead has a section only when one
-// of its files changed after the start of the last Curator session that ended "done".
-func (e *Engine) leadMemories(ctx context.Context, repository string) (string, error) {
+// lastDoneCuratorStart gives the start of the last Curator session of repository that ended "done". With no such
+// session, it gives the zero time.
+func (e *Engine) lastDoneCuratorStart(ctx context.Context, repository string) (time.Time, error) {
 	started, err := e.queries.GetLastDoneCuratorStart(ctx, repository)
-	var since time.Time
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-	case err != nil:
-		return "", err
-	default:
-		if since, err = time.Parse(time.RFC3339Nano, started); err != nil {
-			return "", err
-		}
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, nil
 	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Parse(time.RFC3339Nano, started)
+}
+
+// leadMemories gives the .md files of each Lead of repository as prompt sections. A Lead has a section only when one
+// of its files changed after since.
+func (e *Engine) leadMemories(repository string, since time.Time) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

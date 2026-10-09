@@ -2035,6 +2035,53 @@ func (q *Queries) ListHeldTriagers(ctx context.Context, repository string) ([]in
 	return items, nil
 }
 
+const listHungSessionsSince = `-- name: ListHungSessionsSince :many
+SELECT id, role, issue, ended_at FROM sessions
+WHERE repository = ?1 AND role <> 'curator' AND end_reason = 'hung'
+  AND julianday(ended_at) > julianday(CAST(?2 AS TEXT))
+ORDER BY id
+`
+
+type ListHungSessionsSinceParams struct {
+	Repository string
+	Since      string
+}
+
+type ListHungSessionsSinceRow struct {
+	ID      int64
+	Role    string
+	Issue   sql.NullInt64
+	EndedAt sql.NullString
+}
+
+func (q *Queries) ListHungSessionsSince(ctx context.Context, arg ListHungSessionsSinceParams) ([]ListHungSessionsSinceRow, error) {
+	rows, err := q.db.QueryContext(ctx, listHungSessionsSince, arg.Repository, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListHungSessionsSinceRow
+	for rows.Next() {
+		var i ListHungSessionsSinceRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Role,
+			&i.Issue,
+			&i.EndedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLatestEvents = `-- name: ListLatestEvents :many
 SELECT id, time, repository, workstream, issue, actor, text, link FROM events ORDER BY id DESC LIMIT ?
 `
@@ -2311,6 +2358,57 @@ func (q *Queries) ListOpenSessions(ctx context.Context) ([]ListOpenSessionsRow, 
 	return items, nil
 }
 
+const listOwnerMessagesSince = `-- name: ListOwnerMessagesSince :many
+SELECT m.workstream, m.time, m.text,
+       CAST(COALESCE((SELECT p.text FROM chat_messages p
+                      WHERE p.organization = m.organization AND p.repository = m.repository AND p.workstream = m.workstream
+                        AND p.id < m.id AND p.author IN ('Lead', 'tell_owner')
+                      ORDER BY p.id DESC LIMIT 1), '') AS TEXT) AS lead_text
+FROM chat_messages m
+WHERE m.repository = ?1 AND m.author = 'Owner' AND julianday(m.time) > julianday(CAST(?2 AS TEXT))
+ORDER BY m.id
+`
+
+type ListOwnerMessagesSinceParams struct {
+	Repository string
+	Since      string
+}
+
+type ListOwnerMessagesSinceRow struct {
+	Workstream int64
+	Time       string
+	Text       string
+	LeadText   string
+}
+
+func (q *Queries) ListOwnerMessagesSince(ctx context.Context, arg ListOwnerMessagesSinceParams) ([]ListOwnerMessagesSinceRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOwnerMessagesSince, arg.Repository, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOwnerMessagesSinceRow
+	for rows.Next() {
+		var i ListOwnerMessagesSinceRow
+		if err := rows.Scan(
+			&i.Workstream,
+			&i.Time,
+			&i.Text,
+			&i.LeadText,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listQueuedTasks = `-- name: ListQueuedTasks :many
 SELECT id, queued_at FROM tasks WHERE state = 'queued' ORDER BY queued_at, id
 `
@@ -2429,6 +2527,56 @@ func (q *Queries) ListRecentMemoryVersions(ctx context.Context, repository strin
 	return items, nil
 }
 
+const listRetryPromptsSince = `-- name: ListRetryPromptsSince :many
+SELECT s.role, s.issue, t.time, CAST(json_extract(t.json, '$.text') AS TEXT) AS text FROM transcript t
+JOIN sessions s ON s.id = t.session
+WHERE s.repository = ?1 AND s.role <> 'curator' AND t.kind = 'prompt'
+  AND julianday(t.time) > julianday(CAST(?2 AS TEXT))
+  AND substr(json_extract(t.json, '$.text'), 1, length(CAST(?3 AS TEXT))) = CAST(?3 AS TEXT)
+ORDER BY t.id
+`
+
+type ListRetryPromptsSinceParams struct {
+	Repository string
+	Since      string
+	Prefix     string
+}
+
+type ListRetryPromptsSinceRow struct {
+	Role  string
+	Issue sql.NullInt64
+	Time  string
+	Text  string
+}
+
+func (q *Queries) ListRetryPromptsSince(ctx context.Context, arg ListRetryPromptsSinceParams) ([]ListRetryPromptsSinceRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRetryPromptsSince, arg.Repository, arg.Since, arg.Prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRetryPromptsSinceRow
+	for rows.Next() {
+		var i ListRetryPromptsSinceRow
+		if err := rows.Scan(
+			&i.Role,
+			&i.Issue,
+			&i.Time,
+			&i.Text,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSessions = `-- name: ListSessions :many
 SELECT id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent FROM sessions WHERE organization = ? AND repository = ? AND workstream = ? ORDER BY id
 `
@@ -2499,6 +2647,56 @@ func (q *Queries) ListTaskPullRequests(ctx context.Context, arg ListTaskPullRequ
 			return nil, err
 		}
 		items = append(items, pull_request)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listToolCallsSince = `-- name: ListToolCallsSince :many
+SELECT s.role, s.issue, t.time, t.json FROM transcript t
+JOIN sessions s ON s.id = t.session
+WHERE s.repository = ?1 AND s.role <> 'curator' AND t.kind = 'mcp_call'
+  AND julianday(t.time) > julianday(CAST(?2 AS TEXT))
+  AND json_extract(t.json, '$.tool') IN ('cannot_do', 'submit_review', 'start_fix_round')
+  AND json_extract(t.json, '$.error') IS NULL
+ORDER BY t.id
+`
+
+type ListToolCallsSinceParams struct {
+	Repository string
+	Since      string
+}
+
+type ListToolCallsSinceRow struct {
+	Role  string
+	Issue sql.NullInt64
+	Time  string
+	Json  string
+}
+
+func (q *Queries) ListToolCallsSince(ctx context.Context, arg ListToolCallsSinceParams) ([]ListToolCallsSinceRow, error) {
+	rows, err := q.db.QueryContext(ctx, listToolCallsSince, arg.Repository, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListToolCallsSinceRow
+	for rows.Next() {
+		var i ListToolCallsSinceRow
+		if err := rows.Scan(
+			&i.Role,
+			&i.Issue,
+			&i.Time,
+			&i.Json,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

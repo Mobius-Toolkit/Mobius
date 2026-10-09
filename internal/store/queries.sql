@@ -479,6 +479,39 @@ SELECT started_at FROM sessions
 WHERE repository = ? AND role = 'curator' AND end_reason = 'done'
 ORDER BY julianday(started_at) DESC LIMIT 1;
 
+-- name: ListOwnerMessagesSince :many
+SELECT m.workstream, m.time, m.text,
+       CAST(COALESCE((SELECT p.text FROM chat_messages p
+                      WHERE p.organization = m.organization AND p.repository = m.repository AND p.workstream = m.workstream
+                        AND p.id < m.id AND p.author IN ('Lead', 'tell_owner')
+                      ORDER BY p.id DESC LIMIT 1), '') AS TEXT) AS lead_text
+FROM chat_messages m
+WHERE m.repository = sqlc.arg(repository) AND m.author = 'Owner' AND julianday(m.time) > julianday(CAST(sqlc.arg(since) AS TEXT))
+ORDER BY m.id;
+
+-- name: ListToolCallsSince :many
+SELECT s.role, s.issue, t.time, t.json FROM transcript t
+JOIN sessions s ON s.id = t.session
+WHERE s.repository = sqlc.arg(repository) AND s.role <> 'curator' AND t.kind = 'mcp_call'
+  AND julianday(t.time) > julianday(CAST(sqlc.arg(since) AS TEXT))
+  AND json_extract(t.json, '$.tool') IN ('cannot_do', 'submit_review', 'start_fix_round')
+  AND json_extract(t.json, '$.error') IS NULL
+ORDER BY t.id;
+
+-- name: ListHungSessionsSince :many
+SELECT id, role, issue, ended_at FROM sessions
+WHERE repository = sqlc.arg(repository) AND role <> 'curator' AND end_reason = 'hung'
+  AND julianday(ended_at) > julianday(CAST(sqlc.arg(since) AS TEXT))
+ORDER BY id;
+
+-- name: ListRetryPromptsSince :many
+SELECT s.role, s.issue, t.time, CAST(json_extract(t.json, '$.text') AS TEXT) AS text FROM transcript t
+JOIN sessions s ON s.id = t.session
+WHERE s.repository = sqlc.arg(repository) AND s.role <> 'curator' AND t.kind = 'prompt'
+  AND julianday(t.time) > julianday(CAST(sqlc.arg(since) AS TEXT))
+  AND substr(json_extract(t.json, '$.text'), 1, length(CAST(sqlc.arg(prefix) AS TEXT))) = CAST(sqlc.arg(prefix) AS TEXT)
+ORDER BY t.id;
+
 -- name: IsCommentAnswered :one
 SELECT EXISTS (SELECT 1 FROM answered_comments WHERE repository = ? AND review = ? AND comment = ?);
 
