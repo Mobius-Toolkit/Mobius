@@ -11,6 +11,7 @@ import (
 )
 
 func TestAPollGivesATaskInNeedsHumanTheLabelsAfterAFailedHandToHuman(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	goFile := filepath.Join(t.TempDir(), "go")
 	server := startHandToHuman(t, fake, fmt.Sprintf("[[prompts]]\nshell = \"while [ ! -e '%s' ]; do sleep 0.1; done; kill -9 $PPID; sleep 5\"\n", goFile))
@@ -38,6 +39,7 @@ func TestAPollGivesATaskInNeedsHumanTheLabelsAfterAFailedHandToHuman(t *testing.
 }
 
 func TestAPollRemovesTheWorkingAndReviewLabelsOfATaskInNeedsHuman(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := seedWaiting(t, fake, "needs_human")
 	fake.AddLabel(shop, 41, "mobius:review", testkit.AppSlug+"[bot]")
@@ -51,6 +53,7 @@ func TestAPollRemovesTheWorkingAndReviewLabelsOfATaskInNeedsHuman(t *testing.T) 
 }
 
 func TestAPollWritesNoLabelOfATaskInNeedsHumanWithTheRightLabels(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := handedToHuman(t, fake, dies)
 	waitForPolls(t, fake)
@@ -67,6 +70,7 @@ func TestAPollWritesNoLabelOfATaskInNeedsHumanWithTheRightLabels(t *testing.T) {
 }
 
 func TestAPollKeepsTheNeedsHumanLabelOffATaskInNeedsHumanWithTheReadyLabel(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	goFile := filepath.Join(t.TempDir(), "go")
 	server := handedToHuman(t, fake, fmt.Sprintf("[[prompts]]\nshell = \"if [ -e '%s' ]; then %s; else kill -9 $PPID; sleep 5; fi\"\n", goFile, commitShell))

@@ -14,6 +14,7 @@ import (
 const lesson = "Run make fmt before each commit."
 
 func TestEachRoleGetsTheSameMemorySectionAfterTheRoleInstructions(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"" + question + "\"\ncall = { tool = \"start_researcher\", arguments = { question = \"" + question + "\" } }\n\n" + leadStarts
 	server, dataDir := connectTask(t, fake, lead, commits, noChange)
@@ -43,6 +44,7 @@ func TestEachRoleGetsTheSameMemorySectionAfterTheRoleInstructions(t *testing.T) 
 }
 
 func TestAPromptHasNoMemorySectionWhenTheMemoryFileDoesNotExist(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 
 	prompt := firstLeadPrompt(t, fake, [2]string{"AGENTS.md", fact})
@@ -53,6 +55,7 @@ func TestAPromptHasNoMemorySectionWhenTheMemoryFileDoesNotExist(t *testing.T) {
 }
 
 func TestASaveAddsOneVersionAndASaveOfTheSameTextAddsNone(t *testing.T) {
+	t.Parallel()
 	server, dataDir := connect(t, testkit.NewFakeGitHub(t), "")
 	versions := func() (authors []string) {
 		rows, err := server.DB.Query("SELECT author FROM memory_versions WHERE repository = ? ORDER BY id", shop)
@@ -83,6 +86,7 @@ func TestASaveAddsOneVersionAndASaveOfTheSameTextAddsNone(t *testing.T) {
 }
 
 func TestASaveRefusesATextOf201Lines(t *testing.T) {
+	t.Parallel()
 	server, dataDir := connect(t, testkit.NewFakeGitHub(t), "")
 
 	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", strings.Repeat("A lesson.\n", 200)); err != nil {
@@ -101,6 +105,7 @@ func TestASaveRefusesATextOf201Lines(t *testing.T) {
 }
 
 func TestTwoEditsFromTheSameVersionSaveOnlyOne(t *testing.T) {
+	t.Parallel()
 	server, _ := connect(t, testkit.NewFakeGitHub(t), "")
 	if err := server.Engine.SaveMemory(t.Context(), shop, "curator", "", lesson+"\n"); err != nil {
 		t.Fatal(err)

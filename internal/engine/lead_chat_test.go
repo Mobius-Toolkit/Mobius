@@ -190,6 +190,7 @@ func eventDelivered(t *testing.T, server *testserver.Server) bool {
 }
 
 func TestAnOwnerMessageGetsTheLeadReplyInTheChat(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hello\", \" there\"]\n")
 
@@ -207,6 +208,7 @@ func TestAnOwnerMessageGetsTheLeadReplyInTheChat(t *testing.T) {
 }
 
 func TestTheLeadWorksInTheLeadDirectoryWithTheGHOfTheOwner(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connect(t, fake, "[[prompts]]\nreply = [\"Hello\"]\n")
 
@@ -235,6 +237,7 @@ func TestTheLeadWorksInTheLeadDirectoryWithTheGHOfTheOwner(t *testing.T) {
 }
 
 func TestAChatSessionGetsTheModelTheEffortAndTheFullAutoMode(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hello\"]\n")
 
@@ -249,6 +252,7 @@ func TestAChatSessionGetsTheModelTheEffortAndTheFullAutoMode(t *testing.T) {
 }
 
 func TestARefusedModelEndsTheChatSessionBeforeTheFirstPrompt(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connect(t, fake, "")
 	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", "[options]\nmodel = [\"sonnet\", \"haiku\"]\n")
@@ -270,6 +274,7 @@ func TestARefusedModelEndsTheChatSessionBeforeTheFirstPrompt(t *testing.T) {
 }
 
 func TestAHarnessThatNeedsALoginFailsTheChatSession(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connect(t, fake, "")
 	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", "login_required = true\n"+options)
@@ -284,6 +289,7 @@ func TestAHarnessThatNeedsALoginFailsTheChatSession(t *testing.T) {
 }
 
 func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connect(t, fake, "")
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
@@ -378,6 +384,7 @@ func TestANewOwnerMessageWaitsForTheTurnAndAStopEndsTheTurn(t *testing.T) {
 }
 
 func TestAnIdleLeadSavesItsMemoryAndTheNextMessageStartsANewSession(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First answer\"]\n")
 	sendChat(t, server, leadChat, "Plan the loyalty API")
@@ -406,6 +413,7 @@ func TestAnIdleLeadSavesItsMemoryAndTheNextMessageStartsANewSession(t *testing.T
 }
 
 func TestTheReplyOfTheMemorySaveTurnGoesOnlyToTheTranscript(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First answer\"]\n\n[[prompts]]\nreply = [\"Memory saved\"]\n")
 	sendChat(t, server, leadChat, "Plan the loyalty API")
@@ -422,6 +430,7 @@ func TestTheReplyOfTheMemorySaveTurnGoesOnlyToTheTranscript(t *testing.T) {
 }
 
 func TestALeadReplyIsUnreadUntilTheOwnerSeesIt(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hello\"]\n")
 	changes := listen(t, server)
@@ -488,6 +497,7 @@ func TestAStopBeforeTheFirstTurnStartsNoTurn(t *testing.T) {
 }
 
 func TestTheLeadChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, `
 [[prompts]]
@@ -535,6 +545,7 @@ call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "
 }
 
 func TestTheLeadChatCreatesAWorkstreamAndMovesATaskToIt(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	// The first prompt of a new session has the earlier messages in its history, so the prompt of the newest message comes first.
 	server, _ := connect(t, fake, `
@@ -573,6 +584,7 @@ call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "
 }
 
 func TestTheLeadGetsAnEventAndTheNextOwnerQuestionInTheSameSession(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"The Owner dispatched #41.\"]\n", keepSessionOpen)
 
@@ -653,6 +665,7 @@ func TestAnEventKeepsItsPlaceBeforeALaterOwnerMessage(t *testing.T) {
 }
 
 func TestAnEventAndAnOwnerMessageMakeOneLeadSession(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Hello\"]\n", keepSessionOpen)
 
@@ -731,6 +744,7 @@ func held(t *testing.T, server *testserver.Server, events int) bool {
 const holdEvent = "call = { tool = \"hold_event\", arguments = {} }"
 
 func TestAHeldEventReturnsAfterEachTurnForAnOwnerMessageWithTheLaterEventsOfItsTask(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, fmt.Sprintf(`
 [[prompts]]
@@ -830,6 +844,7 @@ reply = ["Noted."]
 }
 
 func TestAHeldEventStaysHeldAfterARestartUntilATurnForAnOwnerMessageEnds(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	seed(t, dataDir,
@@ -856,6 +871,7 @@ func TestAHeldEventStaysHeldAfterARestartUntilATurnForAnOwnerMessageEnds(t *test
 }
 
 func TestHoldEventInATurnForAnOwnerMessageGivesAnError(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\n"+holdEvent+"\n")
 
@@ -1055,6 +1071,7 @@ func sendMessage(t *testing.T, server *testserver.Server, fields map[string]stri
 }
 
 func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hello\"]\n")
 	messages := liveEvents(t, server, "message")
@@ -1104,6 +1121,7 @@ type chatState struct {
 }
 
 func TestTheLeadChatRefusesToMoveATaskWhenTheTaskOrTheTargetDoesNotFit(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	// The first prompt of a new session has the earlier messages in its history, so the prompt of the newest message comes first.
 	server, _ := connect(t, fake, `
@@ -1170,6 +1188,7 @@ call = { tool = "move_task", arguments = { n = 21, workstream = 20 } }
 }
 
 func TestTheLeadGetsTheImagesOfAnOwnerMessageAndTheTranscriptHasOnlyTheirMetadata(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectScript(t, fake, imageReading+options+"[[prompts]]\nreply = [\"Seen\"]\n", func(*config.Config) {})
 
@@ -1223,6 +1242,7 @@ func TestAQueuedOwnerMessageKeepsItsImages(t *testing.T) {
 }
 
 func TestAnAgentThatCannotReadImagesGetsATextNote(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
@@ -1241,6 +1261,7 @@ func TestAnAgentThatCannotReadImagesGetsATextNote(t *testing.T) {
 }
 
 func TestAnOwnerMessageWithAnUnknownImageTypeIsNotAdded(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
@@ -1255,6 +1276,7 @@ func TestAnOwnerMessageWithAnUnknownImageTypeIsNotAdded(t *testing.T) {
 }
 
 func TestAListenerThatGetsAnOwnerMessageFindsItsImages(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectScript(t, fake, imageReading+options+"[[prompts]]\nreply = [\"Seen\"]\n", func(*config.Config) {})
 	changes, stop := server.Engine.Listen()
@@ -1269,6 +1291,7 @@ func TestAListenerThatGetsAnOwnerMessageFindsItsImages(t *testing.T) {
 }
 
 func TestAnOwnerMessageWithNoTextAndNoImageIsNotAdded(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 

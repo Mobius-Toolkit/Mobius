@@ -15,6 +15,7 @@ import (
 // when it is not zero, and with no trailing zero.
 
 func TestARestartReadsTheQueueTimeAndThePauseThatTheRustVersionWrote(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	const prompt = "You are the Implementer of one task. Store plans in cents."
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) {
@@ -42,6 +43,7 @@ func TestARestartReadsTheQueueTimeAndThePauseThatTheRustVersionWrote(t *testing.
 }
 
 func TestTheJudgeReadsTheTimeOfTheLastItemThatTheRustVersionWrote(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "shell = \"true\"\n", "", func(cfg *config.Config) { cfg.ReviewQuietPeriod = 500 * time.Millisecond })
 	fake.AddComment(shop, 42, "owner", "Old comment.")

@@ -12,6 +12,7 @@ import (
 var limitNow = time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
 
 func TestClaudeCodeTakesTheResetTimeOfTheUsageUpdate(t *testing.T) {
+	t.Parallel()
 	limit := &acp.RequestError{Code: -32603, Message: "Internal error", Data: map[string]any{"errorKind": "rate_limit"}}
 	hint := time.Date(2026, 9, 28, 13, 0, 0, 0, time.UTC)
 
@@ -21,6 +22,7 @@ func TestClaudeCodeTakesTheResetTimeOfTheUsageUpdate(t *testing.T) {
 }
 
 func TestClaudeCodeReadsTheResetTimeInTheText(t *testing.T) {
+	t.Parallel()
 	limit := &acp.RequestError{Code: -32603, Message: "Claude usage limit reached. Your limit resets 3pm.", Data: map[string]any{"errorKind": "rate_limit"}}
 	early := &acp.RequestError{Code: -32603, Message: "Your limit resets 9:30am", Data: map[string]any{"errorKind": "rate_limit"}}
 
@@ -33,6 +35,7 @@ func TestClaudeCodeReadsTheResetTimeInTheText(t *testing.T) {
 }
 
 func TestClaudeCodeWithNoTimeWaits30MinutesAndAnotherErrorIsNoLimit(t *testing.T) {
+	t.Parallel()
 	limit := &acp.RequestError{Code: -32603, Message: "Rate limit", Data: map[string]any{"errorKind": "rate_limit"}}
 	other := &acp.RequestError{Code: -32603, Message: "Internal error", Data: map[string]any{"errorKind": "overloaded"}}
 
@@ -45,6 +48,7 @@ func TestClaudeCodeWithNoTimeWaits30MinutesAndAnotherErrorIsNoLimit(t *testing.T
 }
 
 func TestAntigravityReadsTheDaysAndHours(t *testing.T) {
+	t.Parallel()
 	limit := &acp.RequestError{Code: -32603, Message: "Usage Limit Reached. Your quota will reset in 2 days, 3 hours."}
 	other := &acp.RequestError{Code: -32603, Message: "Model is busy"}
 
@@ -57,6 +61,7 @@ func TestAntigravityReadsTheDaysAndHours(t *testing.T) {
 }
 
 func TestDevinTakesTheRetryTimeAndWaits30MinutesWithNoTime(t *testing.T) {
+	t.Parallel()
 	limit := &acp.RequestError{Code: -32011, Message: "Rate limited", Data: map[string]any{"retryAfterSeconds": 600}}
 	noTime := &acp.RequestError{Code: -32011, Message: "Rate limited"}
 	other := &acp.RequestError{Code: -32603, Message: "Internal error", Data: map[string]any{"retryAfterSeconds": 600}}
@@ -73,6 +78,7 @@ func TestDevinTakesTheRetryTimeAndWaits30MinutesWithNoTime(t *testing.T) {
 }
 
 func TestAResetTimeThatJustPassedGivesTheWaitWithNoTimeAndALaterOneMovesToTheNextDay(t *testing.T) {
+	t.Parallel()
 	limit := &acp.RequestError{Code: -32603, Message: "Your limit resets 10am", Data: map[string]any{"errorKind": "rate_limit"}}
 	justPassed := limitNow.Add(30 * time.Second)
 	hoursLater := limitNow.Add(3 * time.Hour)

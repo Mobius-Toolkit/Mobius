@@ -10,6 +10,7 @@ import (
 const app = "mobius-app[bot]"
 
 func TestTheReadyActorIsTheActorOfTheLastReadyLabel(t *testing.T) {
+	t.Parallel()
 	events := []*gh.IssueEvent{
 		labelEvent("labeled", "mobius:ready", "mallory"),
 		labelEvent("unlabeled", "mobius:ready", "mallory"),
@@ -24,6 +25,7 @@ func TestTheReadyActorIsTheActorOfTheLastReadyLabel(t *testing.T) {
 }
 
 func TestAfterATriageTheActorOfTheFirstReadyLabelCounts(t *testing.T) {
+	t.Parallel()
 	events := []*gh.IssueEvent{
 		labelEvent("labeled", "mobius:ready", "owner"),
 		labelEvent("labeled", "mobius:no-workstream", app),
@@ -38,6 +40,7 @@ func TestAfterATriageTheActorOfTheFirstReadyLabelCounts(t *testing.T) {
 }
 
 func TestAnOldTriageOrATriageOfAPersonDoesNotCount(t *testing.T) {
+	t.Parallel()
 	old := []*gh.IssueEvent{
 		labelEvent("labeled", "mobius:ready", "owner"),
 		labelEvent("labeled", "mobius:no-workstream", app),
@@ -61,12 +64,14 @@ func TestAnOldTriageOrATriageOfAPersonDoesNotCount(t *testing.T) {
 }
 
 func TestAReadyLabelOfTheMobiusAppWithNoTriageHasTheMobiusAppAsActor(t *testing.T) {
+	t.Parallel()
 	if actor, ok := readyActor([]*gh.IssueEvent{labelEvent("labeled", "mobius:ready", app)}, app); actor != app || !ok {
 		t.Errorf("actor = %s, %t", actor, ok)
 	}
 }
 
 func TestAnIssueWithNoReadyLabelEventHasNoReadyActor(t *testing.T) {
+	t.Parallel()
 	if actor, ok := readyActor([]*gh.IssueEvent{labelEvent("labeled", "bug", "owner")}, app); ok {
 		t.Errorf("actor = %s", actor)
 	}
@@ -81,6 +86,7 @@ func comment(author string, viaApp string, seconds int64) *gh.IssueComment {
 }
 
 func TestACommentOfATrustedUserIsAnEvent(t *testing.T) {
+	t.Parallel()
 	for _, c := range []*gh.IssueComment{comment("Owner", "", 0), comment("owner", "other-app", 0)} {
 		if !trustingEngine().commentIsEvent("mobius-app", c) {
 			t.Errorf("comment of %s via %s is no event", c.GetUser().GetLogin(), c.GetPerformedViaGithubApp().GetSlug())
@@ -89,6 +95,7 @@ func TestACommentOfATrustedUserIsAnEvent(t *testing.T) {
 }
 
 func TestACommentOfTheLeadABotOrAStrangerIsNoEvent(t *testing.T) {
+	t.Parallel()
 	for _, c := range []*gh.IssueComment{comment("owner", "mobius-app", 0), comment("coderabbitai[bot]", "", 0), comment(app, "", 0), comment("mallory", "", 0)} {
 		if trustingEngine().commentIsEvent("mobius-app", c) {
 			t.Errorf("comment of %s via %s is an event", c.GetUser().GetLogin(), c.GetPerformedViaGithubApp().GetSlug())
@@ -97,6 +104,7 @@ func TestACommentOfTheLeadABotOrAStrangerIsNoEvent(t *testing.T) {
 }
 
 func TestAReplyAfterTheLastCommentOfTheMobiusAppAnswersIt(t *testing.T) {
+	t.Parallel()
 	comments := []*gh.IssueComment{comment("owner", "", 1), comment(app, "", 2), comment("owner", "", 3)}
 
 	replies, answered := trustingEngine().replies("mobius-app", comments)
@@ -107,6 +115,7 @@ func TestAReplyAfterTheLastCommentOfTheMobiusAppAnswersIt(t *testing.T) {
 }
 
 func TestAReplyBeforeTheLastCommentOfTheMobiusAppDoesNotAnswerIt(t *testing.T) {
+	t.Parallel()
 	comments := []*gh.IssueComment{comment("owner", "", 1), comment(app, "", 2), comment("mallory", "", 3)}
 
 	replies, answered := trustingEngine().replies("mobius-app", comments)
@@ -117,6 +126,7 @@ func TestAReplyBeforeTheLastCommentOfTheMobiusAppDoesNotAnswerIt(t *testing.T) {
 }
 
 func TestACommentOfATrustedUserCounts(t *testing.T) {
+	t.Parallel()
 	e := trustingEngine()
 	if !e.trustedUser("Owner") || !e.trustedUser("owner") {
 		t.Error("the user is not trusted")
@@ -124,6 +134,7 @@ func TestACommentOfATrustedUserCounts(t *testing.T) {
 }
 
 func TestACommentOfABotOrAStrangerDoesNotCount(t *testing.T) {
+	t.Parallel()
 	e := trustingEngine()
 	for _, login := range []string{"coderabbitai[bot]", app, "mallory"} {
 		if e.trustedUser(login) {
@@ -133,6 +144,7 @@ func TestACommentOfABotOrAStrangerDoesNotCount(t *testing.T) {
 }
 
 func TestTheEventTextHasTheTimeTheKindTheIssueAndTheQuotedText(t *testing.T) {
+	t.Parallel()
 	issue := &gh.Issue{Number: new(42), Title: new("Plan API")}
 
 	got := eventText(time.Date(2026, 9, 27, 14, 2, 0, 0, time.UTC), "comment on", issue, "owner", "Use cents.\nRound down.")

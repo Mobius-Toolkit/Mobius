@@ -80,6 +80,7 @@ func resolved(t *testing.T, fake *testkit.FakeGitHub, root int64) testkit.Thread
 }
 
 func TestTheJudgeRoutesOneItemOfEachVerdict(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, verdicts, renames, noChange)
 
@@ -138,6 +139,7 @@ func TestTheJudgeRoutesOneItemOfEachVerdict(t *testing.T) {
 }
 
 func TestAFixRoundHasTheCommentsOfTrustedAuthorsOnThePullRequest(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, verdicts, renames, noChange)
 
@@ -166,6 +168,7 @@ func TestAFixRoundHasTheCommentsOfTrustedAuthorsOnThePullRequest(t *testing.T) {
 }
 
 func TestAnImplementerReplyWithAnAnswerAndNoCommitResolvesTheThread(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, question2, answers, noChange)
 
@@ -178,6 +181,7 @@ func TestAnImplementerReplyWithAnAnswerAndNoCommitResolvesTheThread(t *testing.T
 }
 
 func TestAnImplementerReplyToAConversationCommentResolvesNothing(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, question2, answers, noChange)
 
@@ -194,6 +198,7 @@ func TestAnImplementerReplyToAConversationCommentResolvesNothing(t *testing.T) {
 }
 
 func TestACommentInAnUnresolvedThreadMakesTheJudgeRunAgain(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, `call = { tool = "submit_verdicts", arguments = { items = [
     { item = 2, actions = [{ verdict = "reject", text = "The API needs this name." }] },
@@ -232,6 +237,7 @@ func judgeToHuman(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 }
 
 func TestAFixRoundOfTheJudgeFromNeedsHumanPutsTheWorkingLabelBack(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	judgeToHuman(t, fake)
 
@@ -241,6 +247,7 @@ func TestAFixRoundOfTheJudgeFromNeedsHumanPutsTheWorkingLabelBack(t *testing.T) 
 }
 
 func TestMobiusReadyOnATaskInNeedsHumanStartsAFixRoundOnTheSamePullRequest(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := judgeToHuman(t, fake)
 	stopped := liveTask(t, server, 41)
@@ -271,6 +278,7 @@ func TestMobiusReadyOnATaskInNeedsHumanStartsAFixRoundOnTheSamePullRequest(t *te
 }
 
 func TestARemovalOfTheWorkingLabelStopsATaskWhileTheJudgeRunsFromAStateOtherThanNeedsHuman(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "hang = true\n", "", noChange)
 	fake.AddComment(shop, 42, "owner", "Why cents?")
@@ -287,6 +295,7 @@ func TestARemovalOfTheWorkingLabelStopsATaskWhileTheJudgeRunsFromAStateOtherThan
 
 // A comment on the pull request of a task in approval goes to the Judge, and not to the Lead (Mobius-rust#274).
 func TestACommentOnThePullRequestOfATaskInApprovalGoesOnlyToTheJudge(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
 

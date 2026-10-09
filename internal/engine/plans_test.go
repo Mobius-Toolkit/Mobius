@@ -42,6 +42,7 @@ func autopilotOfBilling(t *testing.T, server *testserver.Server) bool {
 }
 
 func TestSetAutopilotOnAddsTheLabelAsTheOwner(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := authorizeOwner(t, fake)
 	changes := listen(t, server)
@@ -63,6 +64,7 @@ func TestSetAutopilotOnAddsTheLabelAsTheOwner(t *testing.T) {
 // GitHub records no labeled event when the issue has the label, so an add alone keeps the App bot as the last actor.
 // The switch removes first.
 func TestSetAutopilotOnReplacesALabelOfTheApp(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := authorizeOwner(t, fake)
 	fake.AddLabel(shop, 20, "mobius:autopilot", "mobius-test[bot]")
@@ -78,6 +80,7 @@ func TestSetAutopilotOnReplacesALabelOfTheApp(t *testing.T) {
 }
 
 func TestSetAutopilotOffRemovesTheLabel(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	fake.AddIssue(shop, 20, "Billing")
@@ -100,6 +103,7 @@ func TestSetAutopilotOffRemovesTheLabel(t *testing.T) {
 }
 
 func TestSetAutopilotNeedsAnAuthorizedOwner(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithBilling(t, fake)
 
@@ -151,6 +155,7 @@ call = { tool = "mark_ready", arguments = { n = 31 } }
 }
 
 func TestTheLeadCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithLeadPlans(t, fake)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
@@ -177,6 +182,7 @@ func TestTheLeadCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T) {
 }
 
 func TestMarkReadyStartsTheTaskWhenTheWorkstreamHasNoAutopilot(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithLeadPlans(t, fake)
 	fake.AddIssue(shop, 13, "Plan prices")
@@ -193,6 +199,7 @@ func TestMarkReadyStartsTheTaskWhenTheWorkstreamHasNoAutopilot(t *testing.T) {
 }
 
 func TestMarkReadyOfAnIssueWithAnOpenBlockerWaitsWhenTheWorkstreamHasNoAutopilot(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithLeadPlans(t, fake)
 	fake.AddIssue(shop, 14, "Plan limits")

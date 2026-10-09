@@ -10,6 +10,7 @@ import (
 )
 
 func TestANewerReleaseTagCountsEachNumber(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		current, latest string
 		want            bool
@@ -58,6 +59,7 @@ func content(t *testing.T, path string) string {
 }
 
 func TestASwapReplacesTheProgram(t *testing.T) {
+	t.Parallel()
 	staging, exe := staged(t)
 
 	if err := swap(staging, exe); err != nil {
@@ -70,6 +72,7 @@ func TestASwapReplacesTheProgram(t *testing.T) {
 }
 
 func TestAFailedSwapRestoresTheOldProgram(t *testing.T) {
+	t.Parallel()
 	staging, exe := staged(t)
 	// The directory staging has no new program, so the second rename of the swap fails.
 	if err := os.Remove(filepath.Join(staging, "mobius")); err != nil {
@@ -86,6 +89,7 @@ func TestAFailedSwapRestoresTheOldProgram(t *testing.T) {
 }
 
 func TestTheDownloadAndTheSwapInstallTheReleaseFileOfMobiusGo(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.SetLatestRelease("v0.3.0", "mobius-x86_64-unknown-linux-gnu.tar.gz")
 	gh, err := github.New(nil, fake.URL, fake.URL, nil)

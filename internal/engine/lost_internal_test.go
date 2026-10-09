@@ -11,6 +11,7 @@ import (
 )
 
 func TestAnIdleWorkerStartsOnlyWhenNoWorkerOfTheKeyRuns(t *testing.T) {
+	t.Parallel()
 	e := New(nil, nil, &config.Config{}, Agents{})
 	release := make(chan struct{})
 	returned := make(chan struct{})
@@ -58,6 +59,7 @@ func setLostState(t *testing.T, e *Engine, task store.Task, state string) {
 }
 
 func TestATaskThatAStepHoldsGetsNoSecondWorker(t *testing.T) {
+	t.Parallel()
 	e, task := lostTaskEngine(t)
 	repository := github.Repository{FullName: "owner/shop"}
 	setLostState(t, e, task, "queued")
@@ -83,6 +85,7 @@ func TestATaskThatAStepHoldsGetsNoSecondWorker(t *testing.T) {
 }
 
 func TestAWorkerThatTheStateChangeEndedBeforeTheLostStartGetsNoRestart(t *testing.T) {
+	t.Parallel()
 	e, task := lostTaskEngine(t)
 	setLostState(t, e, task, "checks")
 	ran := false

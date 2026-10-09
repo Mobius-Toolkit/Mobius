@@ -66,6 +66,7 @@ func waitForTasks(t *testing.T, server *testserver.Server, want []taskLine) {
 }
 
 func TestTheTasksTabShowsTheSubIssuesOfTheWorkstream(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -89,6 +90,7 @@ func TestTheTasksTabShowsTheSubIssuesOfTheWorkstream(t *testing.T) {
 // A sub-issue in another repository is a task of the Workstream, but its number names a different issue here, so this
 // repository cannot give its blockers, its task state or its sub-issues.
 func TestTheTasksTabShowsASubIssueOfAnotherRepository(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -118,6 +120,7 @@ func TestTheTasksTabShowsASubIssueOfAnotherRepository(t *testing.T) {
 // The Start button of the Tasks tab adds mobius:ready to the number in the repository of the Workstream, so an open
 // task of another repository must show that it is not in that repository.
 func TestTheTasksTabMarksAnOpenSubIssueOfAnotherRepository(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -132,6 +135,7 @@ func TestTheTasksTabMarksAnOpenSubIssueOfAnotherRepository(t *testing.T) {
 
 // A closed task has the state closed and keeps its place in the tree, so its sub-issue follows it one level deeper.
 func TestTheTasksTabShowsAClosedTaskWithItsSubIssues(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -149,6 +153,7 @@ func TestTheTasksTabShowsAClosedTaskWithItsSubIssues(t *testing.T) {
 }
 
 func TestTheTasksTabHidesAClosedTaskOfAnUntrustedAuthor(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -165,6 +170,7 @@ func TestTheTasksTabHidesAClosedTaskOfAnUntrustedAuthor(t *testing.T) {
 }
 
 func TestTheTasksTabShowsTheBlockersAndAQueuedTask(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
@@ -192,6 +198,7 @@ func TestTheTasksTabShowsTheBlockersAndAQueuedTask(t *testing.T) {
 }
 
 func TestTheNeedsHumanListHasTheOpenIssuesWithTheLabelInTheTrees(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -241,6 +248,7 @@ func TestTheNeedsHumanListHasTheOpenIssuesWithTheLabelInTheTrees(t *testing.T) {
 }
 
 func TestResumeReplacesMobiusNeedsHumanWithMobiusReadyAsTheOwnerAndKeepsMobiusQuestion(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	fake.AddIssue(shop, 41, "Add plan model")
@@ -268,6 +276,7 @@ func TestResumeReplacesMobiusNeedsHumanWithMobiusReadyAsTheOwnerAndKeepsMobiusQu
 }
 
 func TestStartAddsMobiusReadyAsTheOwner(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	fake.AddIssue(shop, 41, "Add plan model")
