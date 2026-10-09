@@ -79,8 +79,12 @@ func (e *Engine) restartReviewer(repository github.Repository, task store.Task, 
 		return
 	}
 	var j reviewJob
+	reason := "Mobius restarted before the run ended."
+	if lost {
+		reason = "The Worker of the task stopped before the run ended."
+	}
 	e.runPreparedWorker(task, &j.title, "Reviewer", lost, func(ctx context.Context) (bool, error) {
-		if err := e.abandonRound(ctx, repository, task, "Mobius restarted before the run ended."); err != nil {
+		if err := e.abandonRound(ctx, repository, task, reason); err != nil {
 			log.Printf("update the review comment of %s#%d: %v", task.Repository, task.Issue, err)
 		}
 		issue, err := existingIssue(ctx, repository, task.Issue)

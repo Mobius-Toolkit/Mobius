@@ -3,6 +3,8 @@ package engine_test
 import (
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
@@ -135,5 +137,31 @@ func TestAFixRoundThatWaitsForGitHubGetsNoSecondWorkerFromThePoll(t *testing.T) 
 	waitForPolls(t, fake)
 	if restarts := workerRestarts(t, server); restarts != 0 {
 		t.Errorf("worker restarts = %d", restarts)
+	}
+}
+
+func TestAReviewerThatTheServerRestartsAfterALossShowsAReasonWithNoServerRestart(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := seedReviewerWith(t, fake, hangs)
+	if number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41"); number != 42 {
+		t.Fatalf("pull request = %d", number)
+	}
+	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ReviewerRole)) == 1 })
+	comment := fake.AddComment(shop, 42, app, "Review started, round 1 of 7")
+	// The review comment of the run that the lost Worker left open appears with the count of the restart.
+	trigger := fmt.Sprintf("CREATE TRIGGER open_review_comment AFTER UPDATE OF worker_restarts ON tasks BEGIN UPDATE tasks SET review_comment = %d WHERE id = NEW.id; END", comment)
+	if _, err := server.DB.Exec(trigger); err != nil {
+		t.Fatal(err)
+	}
+
+	server.Engine.StopWorker(1)
+
+	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ReviewerRole)) == 2 })
+	comments := roundComments(fake)
+	if !slices.ContainsFunc(comments, func(comment string) bool {
+		return strings.HasSuffix(comment, "\n\nThe Worker of the task stopped before the run ended.")
+	}) ||
+		slices.ContainsFunc(comments, func(comment string) bool { return strings.Contains(comment, "Mobius restarted") }) {
+		t.Errorf("comments = %q", comments)
 	}
 }
