@@ -809,6 +809,16 @@ func (e *Engine) setTaskState(ctx context.Context, params store.SetTaskStatePara
 	return moved, err
 }
 
+// handTaskToHuman moves the task to needs_human like HandTaskToHuman, and stores the time of the move. Only a hand-off to
+// a human calls it. A return of the Judge to needs_human uses setTaskState.
+func (e *Engine) handTaskToHuman(ctx context.Context, id int64, from string) (int64, error) {
+	moved, err := e.queries.HandTaskToHuman(ctx, store.HandTaskToHumanParams{ID: id, FromState: from})
+	if err == nil && moved > 0 {
+		e.publishReadyForReview(from, "needs_human")
+	}
+	return moved, err
+}
+
 func (e *Engine) publishReadyForReview(from, to string) {
 	if from == "ready_for_review" || to == "ready_for_review" {
 		e.publish(Change{Workstreams: true})

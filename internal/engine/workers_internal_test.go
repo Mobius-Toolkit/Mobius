@@ -50,7 +50,7 @@ func TestAFullRoleGivesItsCount(t *testing.T) {
 func TestAFullGlobalLimitCountsTheCountedRoles(t *testing.T) {
 	running := map[string]int{ImplementerRole: 2, ReviewerRole: 2}
 
-	if got := limitReason(limits(t), running, nil, JudgeRole); got != "no free agent slot (4/4)" {
+	if got := limitReason(limits(t), running, nil, CuratorRole); got != "no free agent slot (4/4)" {
 		t.Errorf("reason = %q", got)
 	}
 }
