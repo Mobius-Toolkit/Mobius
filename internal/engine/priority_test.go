@@ -27,11 +27,14 @@ call = { tool = "start_implementer", arguments = { n = 45, instructions = "Add a
 
 // connectThree starts a server with the tasks #41, #43 and #45 of the Workstream #12, one agent slot, a short
 // review_quiet_period, and the Implementer.
-func connectThree(t *testing.T, fake *testkit.FakeGitHub, implementer string) (*testserver.Server, string) {
+func connectThree(t *testing.T, fake *testkit.FakeGitHub, implementer string, adjust ...func(*config.Config)) (*testserver.Server, string) {
 	t.Helper()
 	server, dataDir := connectTask(t, fake, leadStartsThree, implementer, func(cfg *config.Config) {
 		cfg.MaxAgents = 1
 		cfg.ReviewQuietPeriod = 200 * time.Millisecond
+		for _, change := range adjust {
+			change(cfg)
+		}
 	})
 	for _, number := range []int64{43, 45} {
 		fake.AddSubIssueOf(shop, 12, number, fmt.Sprintf("Task %d", number))
@@ -291,7 +294,7 @@ func TestAFailedCheckOnAHeadThatGotItsFixRoundDoesNotStopANewTicket(t *testing.T
 func TestAJudgeThatRunsFromNeedsHumanHoldsANewTicket(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, dataDir := connectThree(t, fake, fixes)
+	server, dataDir := connectThree(t, fake, fixes, func(cfg *config.Config) { cfg.Roles.Judge.CountsInMaxAgents = true })
 	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options+"[[prompts]]\nwhen = \"You are the Judge\"\nhang = true\n\n"+leadStartsThree)
 	_, pullRequest := readyPullRequest(t, server, fake)
 	fake.SetCreatedAt(shop, pullRequest, 0)

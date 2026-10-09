@@ -118,7 +118,7 @@ func Parse(text []byte) (*Config, error) {
 				Implementer: RoleBinding{Max: 2, CountsInMaxAgents: true},
 				Researcher:  RoleBinding{Max: 2, CountsInMaxAgents: true},
 				Reviewer:    RoleBinding{Max: 2, CountsInMaxAgents: true},
-				Judge:       RoleBinding{Max: 2, CountsInMaxAgents: true},
+				Judge:       RoleBinding{Max: 2},
 				Curator:     RoleBinding{Max: 2, CountsInMaxAgents: true},
 			},
 		},

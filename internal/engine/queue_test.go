@@ -150,7 +150,10 @@ func TestASecondImplementerWaitsForTheImplementerLimitWhileAResearcherStarts(t *
 func TestAJudgeWaitsForTheGlobalLimitBehindARunningImplementer(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxAgents = 1 })
+	server, _ := connectWith(t, fake, "", func(cfg *config.Config) {
+		cfg.MaxAgents = 1
+		cfg.Roles.Judge.CountsInMaxAgents = true
+	})
 	implementer := start(t, server, implementerSpec(t, server, fake, 41))
 	judge := startLater(t.Context(), server, roleSpec(t, engine.JudgeRole))
 
@@ -165,13 +168,10 @@ func TestAJudgeWaitsForTheGlobalLimitBehindARunningImplementer(t *testing.T) {
 	startsAfter(t, session(t, server, agent.ID()), session(t, server, implementer.ID()))
 }
 
-func TestAJudgeWithCountsInMaxAgentsFalseStartsWhileTheGlobalLimitIsFull(t *testing.T) {
+func TestAJudgeStartsWhileTheGlobalLimitIsFull(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "", func(cfg *config.Config) {
-		cfg.MaxAgents = 1
-		cfg.Roles.Judge.CountsInMaxAgents = false
-	})
+	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxAgents = 1 })
 	implementer := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, implementer, "stopped")
 
