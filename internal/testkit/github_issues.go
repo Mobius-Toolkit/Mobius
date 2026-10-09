@@ -337,14 +337,15 @@ func (g *FakeGitHub) AddCommentAfterNextList(repository string, number int64, au
 }
 
 // AddAppComment adds a comment with body of author to the issue number, written through the Mobius App, as the gh of
-// the Lead writes it.
-func (g *FakeGitHub) AddAppComment(repository string, number int64, author, body string) {
+// the Lead writes it. It gives the id of the comment.
+func (g *FakeGitHub) AddAppComment(repository string, number int64, author, body string) int64 {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	key := issueKey{repository, number}
 	g.comment(key, author, body)
 	comments := g.issues[key].comments
 	comments[len(comments)-1].PerformedViaGitHubApp = &slugJSON{AppSlug}
+	return comments[len(comments)-1].ID
 }
 
 // AddLabel adds label to the issue as actor.

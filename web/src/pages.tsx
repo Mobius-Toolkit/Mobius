@@ -103,8 +103,8 @@ export function GitHubPage() {
 }
 
 export function MemoryRepositoriesPage() {
-  const { apps, organization } = useShell();
-  return <MemoryRepositories apps={apps} organization={organization} />;
+  const { apps, organizations } = useShell();
+  return <MemoryRepositories apps={apps} organizations={organizations} />;
 }
 
 export function MemoryPage() {

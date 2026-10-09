@@ -24,6 +24,13 @@ func (g *FakeGitHub) Reactions(repository string, id int64) []Reaction {
 	return append([]Reaction(nil), g.reactions[reactionKey{repository, id}]...)
 }
 
+// FailReactions makes each new reaction with the content fail, or work again when fail is false.
+func (g *FakeGitHub) FailReactions(content string, fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedReactions[content] = fail
+}
+
 // addIssueCommentReaction adds a reaction of the token owner to a conversation comment.
 func (g *FakeGitHub) addIssueCommentReaction(w http.ResponseWriter, r *http.Request) {
 	g.addReaction(w, r, func(key issueKey, id int64) bool {
@@ -61,6 +68,10 @@ func (g *FakeGitHub) addReaction(w http.ResponseWriter, r *http.Request, has fun
 	caller, _ := g.validToken(r)
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.failedReactions[request.Content] {
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
 	found := false
 	for key := range g.issues {
 		if key.repository == repository(r) && has(key, id) {

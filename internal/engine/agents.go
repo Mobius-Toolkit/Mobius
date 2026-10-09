@@ -517,6 +517,11 @@ func (a *Agent) End(ctx context.Context, reason string) error {
 		return err
 	}
 	a.engine.publish(Change{Node: new(a.engine.node(session))})
+	if spec := a.spec; spec.Role != CuratorRole && spec.Repository != "" {
+		if err := a.engine.startCuratorAfterEnds(ctx, spec.Repository); err != nil {
+			log.Printf("start a Curator of %s: %v", spec.Repository, err)
+		}
+	}
 	return nil
 }
 
@@ -719,7 +724,7 @@ type AgentGroup struct {
 }
 
 // ActiveAgents is the open sessions of all organizations in one group for each Role, in the order Lead, Triager,
-// Implementer, Researcher, Reviewer, Judge. Count is the number of sessions that hold a slot and count in max_agents.
+// Implementer, Researcher, Reviewer, Judge, Curator. Count is the number of sessions that hold a slot and count in max_agents.
 type ActiveAgents struct {
 	Count  int
 	Max    int

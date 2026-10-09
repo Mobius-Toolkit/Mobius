@@ -94,7 +94,7 @@ export interface AgentGroup {
 export interface ActiveAgents {
   /** Count is the number of sessions that hold a slot and count in max_agents */
   count: number;
-  /** Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge */
+  /** Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge, Curator */
   groups: AgentGroup[];
   /** Max is max_agents */
   max: number;

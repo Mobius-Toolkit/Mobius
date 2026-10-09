@@ -516,7 +516,7 @@ test.describe("the bars of a phone", () => {
     await expect(bar).not.toContainText("Lead:");
   });
 
-  test("show the organization switch at the top of the content of Chat, Workstreams, Inbox and Memory", async ({
+  test("show the organization switch at the top of the content of Chat, Workstreams and Inbox", async ({
     page,
   }) => {
     const content = page.locator("#content");
@@ -528,7 +528,8 @@ test.describe("the bars of a phone", () => {
       await expect(topBar(page).getByRole("button")).toHaveCount(0);
     }
     await page.goto("/settings/memory");
-    await expect(organization).toBeVisible();
+    await expect(page.getByRole("link", { name: "owner/shop" })).toBeVisible();
+    await expect(organization).toHaveCount(0);
     await page.goto("/settings");
     await expect(page.getByRole("link", { name: "Devices" })).toBeVisible();
     await expect(organization).toHaveCount(0);
