@@ -51,7 +51,8 @@ func TestAPollReadsTheReviewsAndThreadsOfManyChangedPullRequestsWithOneCall(t *t
 
 func TestAPollMakesNoJudgeCallForAPullRequestThatDidNotChange(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
+	server := connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
+	endedChatSession(t, server, 1)
 	waitForPolls(t, fake)
 	waitForPolls(t, fake)
 	single, repositories := fake.CommentReads()
