@@ -278,12 +278,19 @@ func TestAWorkerWhoseHarnessStartDoesNotAnswerStartsAgainAfterStartTimeout(t *te
 	}
 }
 
+// startHandToHuman starts a server with an Implementer and max_worker_restarts 1, and dispatches #41.
+func startHandToHuman(t *testing.T, fake *testkit.FakeGitHub, implementer string) *testserver.Server {
+	t.Helper()
+	server, _ := connectTask(t, fake, leadStarts, implementer, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	return server
+}
+
 // handedToHuman starts a server with an Implementer that always dies and max_worker_restarts 1, dispatches #41, and
 // waits until its task waits for a human.
 func handedToHuman(t *testing.T, fake *testkit.FakeGitHub, implementer string) *testserver.Server {
 	t.Helper()
-	server, _ := connectTask(t, fake, leadStarts, implementer, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	server := startHandToHuman(t, fake, implementer)
 	testkit.WaitFor(t, func() bool {
 		return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:working")
 	})

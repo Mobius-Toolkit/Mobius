@@ -413,9 +413,18 @@ func (s *Session) ImagesSupported() bool {
 	return s.images
 }
 
+// PromptResult is the result of session/prompt.
+type PromptResult struct {
+	StopReason acp.StopReason `json:"stopReason"`
+	// Usage is the raw usage field, a draft of ACP, or nil.
+	Usage json.RawMessage `json:"usage"`
+	// Meta is the raw _meta field, or nil.
+	Meta json.RawMessage `json:"_meta"`
+}
+
 // Prompt sends text and then each image, and holds until the turn ends. The updates of the turn go to the updates
 // function of Start before Prompt returns. A prompt with no text has no text block.
-func (s *Session) Prompt(ctx context.Context, text string, images []Image) (acp.StopReason, error) {
+func (s *Session) Prompt(ctx context.Context, text string, images []Image) (PromptResult, error) {
 	var blocks []acp.ContentBlock
 	if text != "" {
 		blocks = append(blocks, acp.TextBlock(text))
@@ -423,8 +432,7 @@ func (s *Session) Prompt(ctx context.Context, text string, images []Image) (acp.
 	for _, image := range images {
 		blocks = append(blocks, acp.ImageBlock(base64.StdEncoding.EncodeToString(image.Data), image.MIMEType))
 	}
-	response, err := acp.SendRequest[acp.PromptResponse](s.conn, ctx, acp.AgentMethodSessionPrompt, acp.PromptRequest{SessionId: s.id, Prompt: blocks})
-	return response.StopReason, err
+	return acp.SendRequest[PromptResult](s.conn, ctx, acp.AgentMethodSessionPrompt, acp.PromptRequest{SessionId: s.id, Prompt: blocks})
 }
 
 // Cancel asks the agent to end the turn of the session that runs.

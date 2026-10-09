@@ -566,7 +566,8 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 
 // resume continues the task of the issue that waits for a human, or the stopped task with a pull request, for the
 // actor: a pull request with a merge conflict gets a conflict round, another pull request gets a fix round with its
-// open review threads, and a task with no pull request goes back to the Lead with a dispatch event.
+// open review threads and the failed check runs of its head, and a task with no pull request goes back to the Lead
+// with a dispatch event.
 // mobius:ready goes away last, so a failure before the round starts leaves the issue in the ready list.
 func (e *Engine) resume(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string) error {
 	number := int64(issue.GetNumber())
@@ -595,14 +596,17 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		to = "working"
 	}
 	var parent sql.NullInt64
-	items := ""
+	items, ci := "", ""
 	if pullRequest != nil {
 		var err error
 		if parent, err = e.newestSession(ctx, task); err != nil {
 			return err
 		}
 		if !conflict {
-			if items, err = e.continueItems(ctx, repository, int64(pullRequest.GetNumber())); err != nil {
+			if ci, err = ciItems(ctx, repository, pullRequest.GetHead().GetSHA()); err != nil {
+				return err
+			}
+			if items, err = e.continueItems(ctx, repository, int64(pullRequest.GetNumber()), ci); err != nil {
 				return err
 			}
 		}
@@ -617,7 +621,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		task.State = to
 		err = e.conflictRound(ctx, repository, task, pullRequest)
 	case pullRequest != nil:
-		err = e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items, parent: parent})
+		err = e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items, parent: parent, failedCheck: ci != ""})
 	default:
 		text := eventText(time.Now(), "resume of", issue, actor, issue.GetBody())
 		err = e.addLeadEvent(ctx, repository.FullName, task.Workstream, sql.NullInt64{Int64: number, Valid: true}, "dispatch", text)
@@ -626,6 +630,12 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: from, ID: task.ID, FromState: to})
 		return errors.Join(err, stateErr)
 	}
+	if ci != "" {
+		head := sql.NullString{String: pullRequest.GetHead().GetSHA(), Valid: true}
+		if err := e.queries.SetTaskCheckHead(ctx, store.SetTaskCheckHeadParams{CheckHead: head, ID: task.ID}); err != nil {
+			return err
+		}
+	}
 	if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
 		return err
 	}
@@ -633,8 +643,8 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 }
 
 // continueItems gives the items of a fix round that continues the pull request number: each open review thread, with
-// the action fix. With no open thread, it tells the Implementer to finish the issue.
-func (e *Engine) continueItems(ctx context.Context, repository github.Repository, number int64) (string, error) {
+// the action fix, and then ci. With no open thread and no ci, it tells the Implementer to finish the issue.
+func (e *Engine) continueItems(ctx context.Context, repository github.Repository, number int64, ci string) (string, error) {
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
 	threads, err := repository.ReviewThreads(ctx, number)
 	if err != nil {
@@ -647,6 +657,7 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 		}
 	}
 	items, err := fixThreads(ctx, repository, number, open, trusted)
+	items += ci
 	if items == "" && err == nil {
 		return "\nThe human continued the task. Finish the issue and make `.mobius/check` pass.\n", nil
 	}
