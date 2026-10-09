@@ -16,6 +16,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: '1.27'
+          # Each job hashes a different set of files, so each job saves its own Go cache.
           cache-dependency-path: |
             go.mod
             go.sum
@@ -48,6 +49,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: '1.27'
+          # Each job hashes a different set of files, so each job saves its own Go cache.
           cache-dependency-path: |
             go.sum
             web/embed.go
