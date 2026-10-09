@@ -268,7 +268,11 @@ func Prune(ctx context.Context, dataDir, repository string) error {
 	return err
 }
 
-// Pull merges origin/branch of the last Fetch into the worktree, also when the two branches diverged.
+// ErrMergeConflict is the error of a Pull whose merge has conflicts.
+var ErrMergeConflict = errors.New("merge conflict")
+
+// Pull merges origin/branch of the last Fetch into the worktree, also when the two branches diverged. A failed merge
+// is aborted, so the worktree has no unmerged files. A merge with conflicts gives ErrMergeConflict.
 func Pull(ctx context.Context, dataDir, worktree, branch string) error {
 	remote := "refs/remotes/origin/" + branch
 	found, err := hasRef(ctx, dataDir, worktree, remote)
@@ -276,6 +280,16 @@ func Pull(ctx context.Context, dataDir, worktree, branch string) error {
 		return err
 	}
 	_, err = run(git(ctx, dataDir, worktree, "", "merge", "--no-edit", remote))
+	if err == nil {
+		return nil
+	}
+	conflicts, conflictsErr := run(git(ctx, dataDir, worktree, "", "diff", "--name-only", "--diff-filter=U"))
+	if _, abortErr := run(git(ctx, dataDir, worktree, "", "merge", "--abort")); abortErr != nil {
+		return errors.Join(err, conflictsErr, abortErr)
+	}
+	if conflictsErr == nil && conflicts != "" {
+		return fmt.Errorf("%w in %s", ErrMergeConflict, strings.ReplaceAll(conflicts, "\n", ", "))
+	}
 	return err
 }
 
