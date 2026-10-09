@@ -659,3 +659,19 @@ func TestSendDetailsRefusesAnIssueOfAnotherWorkstreamAndATaskWithNoOpenImplement
 		t.Errorf("reply = %q", got)
 	}
 }
+
+func TestSendDetailsTellsTheLeadToStartAnImplementerForADispatchedTask(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("send_details", `{ n = 41, text = "Round prices down." }`))
+	addTask(t, server, fake, 41, 12, 45)
+	if _, err := server.DB.Exec(`UPDATE tasks SET state = 'dispatched'`); err != nil {
+		t.Fatal(err)
+	}
+
+	session := run(t, server, leadSpec(t), "1. ")
+
+	want := "error: No Implementer of #41 runs. The issue body has the new details. Call `start_implementer` to continue the task."
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q", got)
+	}
+}

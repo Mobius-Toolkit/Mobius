@@ -72,43 +72,48 @@ func (e *Engine) review(ctx context.Context, j *job, p pushed, session int64) er
 }
 
 // restartReviewer starts the Reviewer of the queued or working task again after a restart of the server. The head of
-// the pull request gets a new Mobius check run, because the store has no id of the old one.
-func (e *Engine) restartReviewer(ctx context.Context, repository github.Repository, task store.Task) error {
+// the pull request gets a new Mobius check run, because the store has no id of the old one. An error in the steps
+// before the session starts the Worker again.
+func (e *Engine) restartReviewer(repository github.Repository, task store.Task) {
 	if !task.PullRequest.Valid || !task.Branch.Valid {
-		return nil
+		return
 	}
-	if err := e.abandonRound(ctx, repository, task, "Mobius restarted before the run ended."); err != nil {
-		log.Printf("update the review comment of %s#%d: %v", task.Repository, task.Issue, err)
-	}
-	pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
-	if err != nil {
-		return err
-	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
-	if err != nil {
-		return err
-	}
-	parent, err := e.restartParent(ctx, task, ReviewerRole)
-	if err != nil {
-		return err
-	}
-	queued, err := e.queries.RequeueTask(ctx, task.ID)
-	if err != nil || queued == 0 {
-		return err
-	}
-	head := pullRequest.GetHead().GetSHA()
-	checkRun, err := repository.CreateCheckRun(ctx, checkRunName, head, "in_progress")
-	if err != nil {
-		return err
-	}
-	e.runReviewer(reviewJob{task: task, title: issue.GetTitle(), pullRequest: pullRequest, head: head, checkRun: checkRun, parent: parent})
-	return nil
+	var j reviewJob
+	e.runPreparedWorker(task, &j.title, "Reviewer", func(ctx context.Context) (bool, error) {
+		if err := e.abandonRound(ctx, repository, task, "Mobius restarted before the run ended."); err != nil {
+			log.Printf("update the review comment of %s#%d: %v", task.Repository, task.Issue, err)
+		}
+		issue, err := existingIssue(ctx, repository, task.Issue)
+		if err != nil {
+			return false, err
+		}
+		j.title = issue.GetTitle()
+		pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
+		if err != nil {
+			return false, err
+		}
+		parent, err := e.restartParent(ctx, task, ReviewerRole)
+		if err != nil {
+			return false, err
+		}
+		queued, err := e.queries.RequeueTask(ctx, task.ID)
+		if err != nil || queued == 0 {
+			return false, err
+		}
+		head := pullRequest.GetHead().GetSHA()
+		checkRun, err := repository.CreateCheckRun(ctx, checkRunName, head, "in_progress")
+		if err != nil {
+			return false, err
+		}
+		j = reviewJob{task: task, title: j.title, pullRequest: pullRequest, head: head, checkRun: checkRun, parent: parent}
+		return true, nil
+	}, func(ctx context.Context) error { return e.reviewer(ctx, &j) })
 }
 
 // runReviewer runs the review job in the background until the task stops. After a failure, the Reviewer starts again
 // after the wait of RestartWorker.
 func (e *Engine) runReviewer(j reviewJob) {
-	e.runWorker(j.task, j.title, "Reviewer", func(ctx context.Context) error { return e.reviewer(ctx, &j) })
+	e.runWorker(j.task, &j.title, "Reviewer", func(ctx context.Context) error { return e.reviewer(ctx, &j) })
 }
 
 // reviewer runs one Reviewer session of the job, and acts on the open review threads after its turn. At

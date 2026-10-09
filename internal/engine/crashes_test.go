@@ -14,6 +14,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -255,6 +256,25 @@ func TestAWorkerThatDiesStartsAgainAndDoesTheWork(t *testing.T) {
 	sessions := endedImplementers(t, server, 2)
 	if sessions[0].EndReason.String != "failed" || sessions[1].EndReason.String != "done" {
 		t.Errorf("sessions = %+v", sessions)
+	}
+}
+
+func TestAWorkerWhoseHarnessStartDoesNotAnswerStartsAgainAfterStartTimeout(t *testing.T) {
+	defer func(limit time.Duration) { runner.StartTimeout = limit }(runner.StartTimeout)
+	runner.StartTimeout = 2 * time.Second
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectTask(t, fake, leadStarts, "", noChange)
+	testkit.InstallFakeHarness(t, dataDir, "devin", "hang_start = 1\n"+options+"[[prompts]]\n"+"shell = \""+commitShell+"\"\n")
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
+	sessions := endedImplementers(t, server, 2)
+	if sessions[0].EndReason.String != "failed" || sessions[1].EndReason.String != "done" {
+		t.Errorf("sessions = %+v", sessions)
+	}
+	if restarts := liveTask(t, server, 41).WorkerRestarts; restarts != 1 {
+		t.Errorf("Worker restarts = %d", restarts)
 	}
 }
 

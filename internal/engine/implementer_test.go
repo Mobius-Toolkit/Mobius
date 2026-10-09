@@ -211,7 +211,7 @@ func TestTheImplementerCommitsAndMobiusOpensADraftPullRequest(t *testing.T) {
 func TestCannotDoGoesToTheLeadAndTheNextStartMergesABranchThatDiverged(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"comment on #41\"\n" + startImplementer + "\n[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"ok\"]\n\n" + leadStarts
-	server, dataDir := connectTask(t, fake, lead, "[[prompts]]\n"+cannotDoCall+commitCents, noChange)
+	server, dataDir := connectTask(t, fake, lead, "[[prompts]]\nwhen = \"Try again\"\nreply = [\"ok\"]\n\n[[prompts]]\n"+cannotDoCall, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForLeadPrompt(t, server, " cannot_do on #41 \"Add plan model\" by the Implementer:\n\n> The plan table does not exist.")
 	if session := endedImplementers(t, server, 1)[0]; session.EndReason.String != "cannot_do" {
@@ -221,19 +221,23 @@ func TestCannotDoGoesToTheLeadAndTheNextStartMergesABranchThatDiverged(t *testin
 		t.Errorf("state = %s", state)
 	}
 
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
+	if err := os.WriteFile(filepath.Join(worktree, "local.txt"), []byte("local\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, worktree, "add", "local.txt")
+	testkit.Git(t, worktree, "commit", "-q", "-m", "Add plan model")
 	fake.PushCommit(shop, "mobius/41", "Add the plan table")
 	fake.AddComment(shop, 41, "owner", "I added the table. Try again.")
 
-	if session := endedImplementers(t, server, 2)[1]; session.EndReason.String != "cannot_do" {
+	if session := endedImplementers(t, server, 2)[1]; session.EndReason.String != "done" {
 		t.Errorf("end reason = %s", session.EndReason.String)
 	}
-	log := testkit.Git(t, filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41"), "log", "--format=%s")
+	log := testkit.Git(t, worktree, "log", "--format=%s")
 	if !strings.Contains(log, "Add plan model") || !strings.Contains(log, "Add the plan table") {
 		t.Errorf("log = %s", log)
 	}
-	if len(fake.PullRequests(shop)) != 0 {
-		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
-	}
+	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
 }
 
 func TestACommitOnTheBranchDuringARoundMergesBeforeThePush(t *testing.T) {
@@ -703,4 +707,30 @@ func TestAFetchThatStallsFailsTheWorkerAndTheWorkerRestarts(t *testing.T) {
 		}
 		return restarts > 0
 	})
+}
+
+func TestCannotDoIsRefusedWhenTheWorktreeHasWorkThatMobiusDidNotPush(t *testing.T) {
+	const refusal = "error: Your worktree has work that Mobius did not push. Commit your work and end the turn normally."
+	for name, shell := range map[string]string{
+		"an unpushed commit":    commitCents,
+		"an uncommitted change": "shell = \"echo cents > plan.txt\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\n"+shell+cannotDoCall, noChange)
+			fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+			ended := endedImplementers(t, server, 1)[0]
+
+			if ended.EndReason.String != "done" {
+				t.Errorf("end reason = %s", ended.EndReason.String)
+			}
+			if got := reply(t, server, ended.ID); !strings.Contains(got, refusal) {
+				t.Errorf("reply = %q", got)
+			}
+			if state := taskState(t, server); state == "dispatched" {
+				t.Errorf("state = %s", state)
+			}
+		})
+	}
 }

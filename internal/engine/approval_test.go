@@ -525,8 +525,8 @@ func TestApprovePullRequestRefusesANewHeadAndMovesTheTaskBackToChecks(t *testing
 	}
 }
 
-func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLead(t *testing.T) {
-	for state, want := range map[string]string{"checks": "waits for CI", "approval": "waits for Lead"} {
+func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLeadAndTheWaitForStartImplementer(t *testing.T) {
+	for state, want := range map[string]string{"checks": "waits for CI", "approval": "waits for Lead", "dispatched": "waits for start_implementer"} {
 		t.Run(state, func(t *testing.T) {
 			fake := testkit.NewFakeGitHub(t)
 			server, _ := seedWaitingWith(t, fake, state, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")

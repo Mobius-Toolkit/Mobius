@@ -301,3 +301,22 @@ func RevParse(ctx context.Context, dataDir, worktree, name string) (string, erro
 func HeadContains(ctx context.Context, dataDir, worktree, commit string) (bool, error) {
 	return succeeds(git(ctx, dataDir, worktree, "", "merge-base", "--is-ancestor", commit, "HEAD"))
 }
+
+// HasUnpushedWork tells if the worktree has uncommitted changes, or commits that origin/branch does not have. Before
+// the first push, origin/branch does not exist, and the worktree is compared with origin/base.
+func HasUnpushedWork(ctx context.Context, dataDir, worktree, branch, base string) (bool, error) {
+	status, err := run(git(ctx, dataDir, worktree, "", "--no-optional-locks", "status", "--porcelain"))
+	if err != nil || status != "" {
+		return status != "", err
+	}
+	remote := "origin/" + branch
+	found, err := hasRef(ctx, dataDir, worktree, "refs/remotes/"+remote)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		remote = "origin/" + base
+	}
+	commits, err := run(git(ctx, dataDir, worktree, "", "rev-list", "--count", remote+"..HEAD"))
+	return commits != "0", err
+}

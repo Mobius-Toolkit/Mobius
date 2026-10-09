@@ -65,7 +65,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				"Start an Implementer for a dispatched task. The Implementer sees only the Brief, the issue, and your instructions. Mobius pushes its commits and opens a draft pull request. Returns at once.",
 				map[string]any{
 					"n":            map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"instructions": map[string]any{"type": "string", "minLength": 1, "description": "The goal, the limits, and what \"done\" means."},
+					"instructions": map[string]any{"type": "string", "minLength": 1, "description": "Notes for the Implementer, for example the files to read first. The issue body has all the requirements. Do not add a requirement here."},
 				},
 				e.startImplementerTool),
 			tool(e, c, "start_fix_round",
@@ -188,7 +188,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 	case ImplementerRole:
 		return []mcp.Tool{
 			tool(e, c, "cannot_do",
-				"Tell the Lead that you cannot do the task. Mobius ends your turn and pushes nothing.",
+				"Tell the Lead that you cannot do the task. Mobius ends your turn and pushes nothing. Use it only for a task that you cannot do. Do not use it to wait, for example for a background command or for the check. Mobius refuses it when your worktree has work that Mobius did not push.",
 				map[string]any{
 					"reason": map[string]any{"type": "string", "minLength": 1, "description": "The reason for the Lead."},
 				},
