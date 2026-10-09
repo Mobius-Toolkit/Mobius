@@ -1192,20 +1192,27 @@ func (q *Queries) GetNewestMemoryVersionID(ctx context.Context, repository strin
 	return column_1, err
 }
 
-const getNewestStopEvent = `-- name: GetNewestStopEvent :one
-SELECT payload FROM lead_events WHERE repository = ? AND issue = ? AND kind = 'stop' ORDER BY id DESC LIMIT 1
+const getNewestStopText = `-- name: GetNewestStopText :one
+SELECT text FROM (
+    SELECT payload AS text, time FROM lead_events
+    WHERE lead_events.repository = ?1 AND lead_events.issue = ?2 AND lead_events.kind IN ('stop', 'stale_pull_request')
+    UNION ALL
+    SELECT text, time FROM inbox_items
+    WHERE inbox_items.repository = ?1 AND inbox_items.issue = ?2 AND inbox_items.kind IN ('question', 'stopped')
+) ORDER BY time DESC LIMIT 1
 `
 
-type GetNewestStopEventParams struct {
+type GetNewestStopTextParams struct {
 	Repository string
 	Issue      sql.NullInt64
 }
 
-func (q *Queries) GetNewestStopEvent(ctx context.Context, arg GetNewestStopEventParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, getNewestStopEvent, arg.Repository, arg.Issue)
-	var payload string
-	err := row.Scan(&payload)
-	return payload, err
+// A stop writes a stop event, a stale_pull_request event, or an Inbox item of the kind question or stopped.
+func (q *Queries) GetNewestStopText(ctx context.Context, arg GetNewestStopTextParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getNewestStopText, arg.Repository, arg.Issue)
+	var text string
+	err := row.Scan(&text)
+	return text, err
 }
 
 const getReviewComment = `-- name: GetReviewComment :one

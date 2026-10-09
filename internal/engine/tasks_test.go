@@ -246,9 +246,15 @@ func TestTheNeedsHumanListHasTheReasonOfTheNewestStopOfTheIssue(t *testing.T) {
 	fake.AddSubIssue(shop, 12, 42)
 	fake.AddLabel(shop, 41, "mobius:needs-human", "owner")
 	fake.AddLabel(shop, 42, "mobius:needs-human", "owner")
-	stop := func(issue int64, text string) {
+	stop := func(issue int64, time, text string) {
 		t.Helper()
-		if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, ?, 'stop', ?, '2026-10-04T10:00:00Z')`, issue, text); err != nil {
+		if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, ?, 'stop', ?, ?)`, issue, text, time); err != nil {
+			t.Fatal(err)
+		}
+	}
+	question := func(issue int64, time, text string) {
+		t.Helper()
+		if _, err := server.DB.Exec(`INSERT INTO inbox_items (kind, repository, workstream, issue, text, link, time) VALUES ('question', 'owner/shop', 12, ?, ?, '', ?)`, issue, text, time); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -259,15 +265,20 @@ func TestTheNeedsHumanListHasTheReasonOfTheNewestStopOfTheIssue(t *testing.T) {
 		}
 		return reasons
 	}
-	stop(41, "the CI of the head commit failed")
-	stop(42, "the agent did not push")
+	stop(41, "2026-10-04T10:00:00Z", "the CI of the head commit failed")
+	stop(42, "2026-10-04T10:00:00Z", "the agent did not push")
 	testkit.WaitFor(t, func() bool {
 		return reflect.DeepEqual(reasons(), map[int64]string{41: "the CI of the head commit failed", 42: "the agent did not push"})
 	})
 
-	stop(41, "the pull request has open items after 3 fix rounds")
+	stop(41, "2026-10-04T11:00:00Z", "the pull request has open items after 3 fix rounds")
 	testkit.WaitFor(t, func() bool {
 		return reflect.DeepEqual(reasons(), map[int64]string{41: "the pull request has open items after 3 fix rounds", 42: "the agent did not push"})
+	})
+
+	question(41, "2026-10-04T12:00:00Z", "Which plan model do you want?")
+	testkit.WaitFor(t, func() bool {
+		return reflect.DeepEqual(reasons(), map[int64]string{41: "Which plan model do you want?", 42: "the agent did not push"})
 	})
 }
 
