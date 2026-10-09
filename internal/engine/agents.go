@@ -588,8 +588,10 @@ func (a *Agent) record(params json.RawMessage) error {
 	a.track(notification, kind)
 	a.readUsage(notification, kind)
 	// The unit of resetsAt is Unix seconds.
-	if resetsAt, ok := field(notification, "update", "_meta", "_claude/rateLimit", "resetsAt").(float64); ok {
-		a.resetHint = time.Unix(int64(resetsAt), 0)
+	if resetsAt, ok := field(notification, "update", "_meta", "_claude/rateLimit", "resetsAt").(json.Number); ok {
+		if seconds, err := resetsAt.Int64(); err == nil {
+			a.resetHint = time.Unix(seconds, 0)
+		}
 	}
 	if isChunk && a.chunk != nil && stringField(a.chunk, "update", "sessionUpdate") == kind {
 		update := a.chunk["update"].(map[string]any)

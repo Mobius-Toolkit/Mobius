@@ -84,3 +84,35 @@ func TestAResetTimeThatJustPassedGivesTheWaitWithNoTimeAndALaterOneMovesToTheNex
 		t.Errorf("until = %v, %v", until, ok)
 	}
 }
+
+func TestAResetTimeWithATimeZoneIsInThatTimeZone(t *testing.T) {
+	text := "You've hit your session limit · resets 5:10pm (Europe/Warsaw)"
+	before := time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC)
+	after := time.Date(2026, 10, 8, 16, 0, 0, 0, time.UTC)
+	acrossMidnight := time.Date(2026, 10, 8, 22, 30, 0, 0, time.UTC)
+	want := time.Date(2026, 10, 8, 15, 10, 0, 0, time.UTC)
+
+	if got := resetsAt(text, before); !got.Equal(want) {
+		t.Errorf("before = %v", got)
+	}
+	if got := resetsAt(text, after); !got.Equal(want.AddDate(0, 0, 1)) {
+		t.Errorf("after = %v", got)
+	}
+	if got := resetsAt(text, acrossMidnight); !got.Equal(want.AddDate(0, 0, 1)) {
+		t.Errorf("across midnight = %v", got)
+	}
+	if got := resetsAt("resets 1:30am (Europe/Warsaw)", acrossMidnight); !got.Equal(time.Date(2026, 10, 8, 23, 30, 0, 0, time.UTC)) {
+		t.Errorf("early morning = %v", got)
+	}
+}
+
+func TestAResetTimeWithNoKnownTimeZoneIsInUTC(t *testing.T) {
+	now := time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC)
+	want := time.Date(2026, 10, 8, 17, 10, 0, 0, time.UTC)
+
+	for _, text := range []string{"resets 5:10pm", "resets 5:10pm (Mars/Olympus)", "resets 5:10pm (Europe/Warsaw"} {
+		if got := resetsAt(text, now); !got.Equal(want) {
+			t.Errorf("%q = %v", text, got)
+		}
+	}
+}
