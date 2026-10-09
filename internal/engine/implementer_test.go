@@ -1,18 +1,24 @@
 package engine_test
 
 import (
+	"database/sql"
 	"fmt"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -655,4 +661,46 @@ func TestSendDetailsStopsTheTurnAndSendsTheDetailsInTheSameSession(t *testing.T)
 	if len(fake.PullRequests(shop)) != 1 {
 		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
 	}
+}
+
+func TestAFetchThatStallsFailsTheWorkerAndTheWorkerRestarts(t *testing.T) {
+	limit, seconds := runner.LowSpeedLimit, runner.LowSpeedTime
+	runner.LowSpeedLimit, runner.LowSpeedTime = 1000, 1
+	t.Cleanup(func() { runner.LowSpeedLimit, runner.LowSpeedTime = limit, seconds })
+	fake := testkit.NewFakeGitHub(t)
+	var database atomic.Pointer[sql.DB]
+	files := http.FileServer(http.Dir(fake.Remote(shop)))
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var started int
+		if db := database.Load(); db != nil {
+			if err := db.QueryRow("SELECT count(*) FROM tasks WHERE state IN ('queued', 'working')").Scan(&started); err != nil {
+				t.Error(err)
+			}
+		}
+		if started > 0 {
+			<-r.Context().Done()
+			return
+		}
+		files.ServeHTTP(w, r)
+	}))
+	t.Cleanup(remote.Close)
+	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 20 })
+	database.Store(server.DB)
+	fake.SetCloneURL(shop, remote.URL)
+	cmd := exec.Command("git", "update-server-info")
+	cmd.Dir = fake.Remote(shop)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("update-server-info: %v: %s", err, out)
+	}
+	waitForPolls(t, fake)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool {
+		var restarts int
+		if err := server.DB.QueryRow("SELECT coalesce(max(worker_restarts), 0) FROM tasks WHERE issue = 41").Scan(&restarts); err != nil {
+			t.Fatal(err)
+		}
+		return restarts > 0
+	})
 }

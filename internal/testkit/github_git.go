@@ -14,6 +14,13 @@ func (g *FakeGitHub) Remote(fullName string) string {
 	return filepath.Join(g.remotes, fullName+".git")
 }
 
+// SetCloneURL makes url the clone URL of the repository fullName in the repository lists.
+func (g *FakeGitHub) SetCloneURL(fullName, url string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.cloneURLs[fullName] = url
+}
+
 // addRemote makes the bare git repository of fullName with one commit on main.
 func (g *FakeGitHub) addRemote(fullName string) {
 	remote := g.Remote(fullName)

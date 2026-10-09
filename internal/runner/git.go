@@ -15,6 +15,14 @@ import (
 	"syscall"
 )
 
+// LowSpeedLimit and LowSpeedTime are the stall limit of a git transfer over HTTP: git stops the transfer when its
+// speed stays below LowSpeedLimit bytes per second for LowSpeedTime seconds. The time is long, because a server can
+// send no pack data while it counts the objects of a large repository or resolves the deltas of a push.
+var (
+	LowSpeedLimit = 1000
+	LowSpeedTime  = 120
+)
+
 // git gives the git command with args in dir. The token goes to git only in the environment of the process, so no
 // file and no process list shows it. No hook runs, so no code of the repository gets that environment. The command
 // leads its own process group, so the end of ctx also stops the git processes that it started, for example of a fetch.
@@ -26,9 +34,17 @@ func git(ctx context.Context, dataDir, dir, token string, args ...string) *exec.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+filepath.Join(agentEnv(dataDir), "gitconfig"), "GIT_TERMINAL_PROMPT=0")
+	settings := [][2]string{
+		{"http.lowSpeedLimit", strconv.Itoa(LowSpeedLimit)},
+		{"http.lowSpeedTime", strconv.Itoa(LowSpeedTime)},
+	}
 	if token != "" {
 		credentials := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-		cmd.Env = append(cmd.Env, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=http.extraHeader", "GIT_CONFIG_VALUE_0=AUTHORIZATION: basic "+credentials)
+		settings = append(settings, [2]string{"http.extraHeader", "AUTHORIZATION: basic " + credentials})
+	}
+	cmd.Env = append(cmd.Env, "GIT_CONFIG_COUNT="+strconv.Itoa(len(settings)))
+	for i, setting := range settings {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i, setting[0]), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i, setting[1]))
 	}
 	return cmd
 }

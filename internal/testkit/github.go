@@ -90,6 +90,7 @@ type FakeGitHub struct {
 	installationTokensGiven int
 	installationTokenLife   time.Duration
 	repositories            []string
+	cloneURLs               map[string]string
 	issues                  map[issueKey]*issue
 	// commentsAfterList holds the comments that the next issue list adds after it builds its page.
 	commentsAfterList []listedComment
@@ -195,6 +196,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		mergeRefusals:           map[issueKey]string{},
 		unknownMergeable:        map[issueKey]bool{},
 		annotations:             map[int64][]annotationJSON{},
+		cloneURLs:               map[string]string{},
 		checkRunApps:            map[int64]string{},
 		jobLogs:                 map[int64]string{},
 	}
