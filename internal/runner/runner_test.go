@@ -8,8 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/coder/acp-go-sdk"
 
@@ -110,7 +113,8 @@ func TestPermissionWithNoAllowOptionIsCancelled(t *testing.T) {
 	}
 }
 
-func startFakeAgent(t *testing.T, updates func(json.RawMessage)) *Session {
+// fakeAgentDir gives a directory with the fake agent as the program of Claude Code.
+func fakeAgentDir(t *testing.T) string {
 	t.Setenv("MOBIUS_FAKE_AGENT", "1")
 	dir := t.TempDir()
 	exe, err := os.Executable()
@@ -120,6 +124,11 @@ func startFakeAgent(t *testing.T, updates func(json.RawMessage)) *Session {
 	if err := os.Symlink(exe, filepath.Join(dir, Program(config.ClaudeCode))); err != nil {
 		t.Fatal(err)
 	}
+	return dir
+}
+
+func startFakeAgent(t *testing.T, updates func(json.RawMessage)) *Session {
+	dir := fakeAgentDir(t)
 	session, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", updates)
 	if err != nil {
 		t.Fatal(err)
@@ -165,6 +174,27 @@ func TestSessionGivesTheMCPServerSetsTheOptionsAndAllowsTools(t *testing.T) {
 	}
 }
 
+func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testing.T) {
+	dir := fakeAgentDir(t)
+	t.Setenv("MOBIUS_FAKE_HANG", "1")
+	defer func(limit time.Duration) { StartTimeout = limit }(StartTimeout)
+	StartTimeout = 200 * time.Millisecond
+
+	_, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", func(json.RawMessage) {})
+
+	if want := "claude-agent-acp: the start took longer than 200ms"; err == nil || err.Error() != want {
+		t.Errorf("error = %v, want %s", err, want)
+	}
+	text, readErr := os.ReadFile(filepath.Clean(filepath.Join(dir, "pid")))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	pid, _ := strconv.Atoi(string(text))
+	if killErr := syscall.Kill(pid, 0); !errors.Is(killErr, syscall.ESRCH) {
+		t.Errorf("the agent runs: %v", killErr)
+	}
+}
+
 func TestConfigureRefusesAnUnknownModel(t *testing.T) {
 	session := startFakeAgent(t, func(json.RawMessage) {})
 
@@ -198,7 +228,14 @@ func runFakeAgent() {
 	<-agent.conn.Done()
 }
 
-func (a *fakeAgent) Initialize(context.Context, acp.InitializeRequest) (acp.InitializeResponse, error) {
+func (a *fakeAgent) Initialize(ctx context.Context, _ acp.InitializeRequest) (acp.InitializeResponse, error) {
+	if os.Getenv("MOBIUS_FAKE_HANG") == "1" {
+		if err := os.WriteFile("pid", []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+			return acp.InitializeResponse{}, err
+		}
+		<-ctx.Done()
+		return acp.InitializeResponse{}, ctx.Err()
+	}
 	return acp.InitializeResponse{ProtocolVersion: acp.ProtocolVersionNumber}, nil
 }
 
