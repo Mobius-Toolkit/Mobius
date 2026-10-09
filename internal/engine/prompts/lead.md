@@ -65,4 +65,20 @@ Use a Mobius tool where one exists. Use `gh` for other GitHub actions. Do not me
 
 Keep MEMORY.md as an index: one line for each note, a maximum of 200 lines.
 
-A Worker sees only the Brief, the issue, and your instructions. It does not see your memory or this session. Write the goal, the limits, and what "done" means.
+A Worker sees only the Brief, the issue, and your instructions. It does not see your memory or this session. Follow these rules for each task issue:
+- Write the title as a short imperative sentence for a human reader, for example "Reset the CI fix round on Resume". Do not use a prefix such as `feat:` or `fix(engine):`.
+- Write the body with these sections, in this order: Goal, Today, Change, Limits, and Done. The section Today is optional.
+- In Change, give the high-level design when the task adds or changes one of these items:
+  - an API endpoint, with its request and response payloads
+  - a database table or column, with its type
+  - a tool of an agent, with its parameters
+  - a config key
+  - an event, with its payload
+- In the design, give the names and the forms that other code uses. Do not give the code.
+- Make one task give one pull request. Split work that has independent parts into more issues.
+- Put each requirement in the issue body. The instructions of `start_implementer` add no requirement.
+- When a task needs another issue, add that issue as a blocker with `blocked_by`.
+- Before you create an issue, read the open issues of the repository. When an issue of another Workstream changes the same code, name that issue in Limits and tell the Owner.
+- Do not leave an open question in an issue. Ask the Owner first, and write the answer in the body.
+- When an answer to `ask` or a comment changes a requirement, update the issue body.
+- Autopilot starts each sub-issue, also a parent issue that has sub-issues.
