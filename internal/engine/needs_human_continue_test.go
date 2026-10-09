@@ -106,6 +106,32 @@ func TestAFailedAutomaticConflictRoundStartsNoSecondRoundOnTheSameHead(t *testin
 	}
 }
 
+func TestAFailedAutomaticConflictRoundThatPushedACommitStartsNoSecondRound(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := staleConflictInNeedsHuman(t, fake, commits+"\n"+conflictWhen+"shell = \"echo extra > extra.txt && git add extra.txt && git commit -q -m Extra\"\n")
+	first := head(t, fake, "mobius/41")
+
+	fake.SetCreatedAt(shop, pullRequestNumber, time.Now().Unix())
+
+	waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the conflict round did not merge the base branch.")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	pushed := head(t, fake, "mobius/41")
+	waitForPolls(t, fake)
+
+	if pushed == first {
+		t.Errorf("head = %s", pushed)
+	}
+	if got := head(t, fake, "mobius/41"); got != pushed {
+		t.Errorf("head = %s", got)
+	}
+	if count := implementers(t, server); count != 2 {
+		t.Errorf("Implementers = %d", count)
+	}
+	if state := taskState(t, server); state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+}
+
 func TestAPassedCIOnTheHeadOfAStopOnFailedCIMovesTheTaskToApprovalWithNoNeedsHumanLabel(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, id := stoppedOnFailedCI(t, fake, noChange)
