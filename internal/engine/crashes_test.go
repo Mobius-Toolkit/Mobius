@@ -288,9 +288,9 @@ func startHandToHuman(t *testing.T, fake *testkit.FakeGitHub, implementer string
 
 // handedToHuman starts a server with an Implementer that always dies and max_worker_restarts 1, dispatches #41, and
 // waits until its task waits for a human.
-func handedToHuman(t *testing.T, fake *testkit.FakeGitHub, implementer string) *testserver.Server {
+func handedToHuman(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
-	server := startHandToHuman(t, fake, implementer)
+	server := startHandToHuman(t, fake, dies)
 	testkit.WaitFor(t, func() bool {
 		return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:working")
 	})
@@ -299,7 +299,7 @@ func handedToHuman(t *testing.T, fake *testkit.FakeGitHub, implementer string) *
 
 func TestATaskInNeedsHumanStaysInNeedsHumanAfterTheNextPolls(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server := handedToHuman(t, fake, dies)
+	server := handedToHuman(t, fake)
 
 	waitForPolls(t, fake)
 
@@ -361,7 +361,7 @@ func TestMobiusReadyOnATaskInNeedsHumanWithNoPullRequestGivesTheTaskBackToTheLea
 
 func TestMobiusReadyOfTheAppOnATaskInNeedsHumanHasNoEffectWhenAutopilotIsOff(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server := handedToHuman(t, fake, dies)
+	server := handedToHuman(t, fake)
 	implementers := len(roleSessions(t, server, engine.ImplementerRole))
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")

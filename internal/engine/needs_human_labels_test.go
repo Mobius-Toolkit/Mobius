@@ -54,7 +54,7 @@ func TestAPollRemovesTheWorkingAndReviewLabelsOfATaskInNeedsHuman(t *testing.T) 
 
 func TestAPollWritesNoLabelOfATaskInNeedsHumanWithTheRightLabels(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server := handedToHuman(t, fake, dies)
+	server := handedToHuman(t, fake)
 	waitForPolls(t, fake)
 	writes := fake.LabelWrites(shop, 41)
 
