@@ -200,7 +200,8 @@ func (e *Engine) labelsOfNeedsHuman(ctx context.Context, repository github.Repos
 //     moves to checks. The review of the head was clean before the stop. A task that stopped for another reason, for
 //     example the round limit, stays.
 //
-// The issue keeps mobius:needs-human, so labelsOfNeedsHuman removes it when the task is in approval.
+// After a conflict round, the issue keeps mobius:needs-human until labelsOfNeedsHuman removes it in approval. The CI
+// branch removes the label at once.
 func (e *Engine) continueNeedsHuman(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, conflict bool) (store.Task, bool, error) {
 	head := pullRequest.GetHead().GetSHA()
 	if conflict {
