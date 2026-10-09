@@ -52,7 +52,7 @@ func (e *Engine) stale(ctx context.Context, repository github.Repository, task s
 	}
 	age := fmt.Sprintf("%g days", e.config.StalePRAge.Hours()/24)
 	number := pullRequest.GetNumber()
-	_, err = e.addInboxItem(ctx, store.AddInboxItemParams{
+	err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         stalePullRequestKind,
 		Organization: repository.Owner(),
 		Repository:   task.Repository,

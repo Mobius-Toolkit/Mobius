@@ -116,7 +116,7 @@ func (a *Agent) endHung(ctx context.Context) error {
 	if spec.Issue.Valid {
 		text += fmt.Sprintf(" The session worked on #%d.", spec.Issue.Int64)
 	}
-	_, err := a.engine.addInboxItem(ctx, store.AddInboxItemParams{
+	err := a.engine.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         stoppedKind,
 		Organization: spec.Organization,
 		Repository:   spec.Repository,

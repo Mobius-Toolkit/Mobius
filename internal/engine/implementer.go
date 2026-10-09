@@ -277,7 +277,7 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
-	_, err := e.addInboxItem(ctx, store.AddInboxItemParams{
+	err := e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         readyForReviewKind,
 		Organization: repository.Owner(),
 		Repository:   task.Repository,

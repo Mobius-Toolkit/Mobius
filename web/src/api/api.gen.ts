@@ -35,6 +35,11 @@ export interface Agent {
      * @nullable
      */
   parent: number | null;
+  /**
+     * PausedUntil is the end of the usage-limit pause that the session waits for, or null while the session does not wait for a pause
+     * @nullable
+     */
+  pausedUntil: string | null;
   /** QueueReason tells why the session waits, for example for a slot or for the end of a usage limit. It is empty while the session does not wait */
   queueReason: string;
   /** Repository is the repository as "owner/name". It is empty for the Triager chat */
@@ -454,6 +459,11 @@ export interface InboxItem {
   link: string;
   /** Organization is the owner of the repository */
   organization: string;
+  /**
+     * PausedUntil is the end of the pause of a usage limit item, or null for another item and after the pause ends
+     * @nullable
+     */
+  pausedUntil: string | null;
   /** Repository is the repository as "owner/name" */
   repository: string;
   /** Text is the text of the item */

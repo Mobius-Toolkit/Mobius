@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { queueState } from "@/lib/agents";
+import { queueState, queueText } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
 import { clock, dayClock } from "@/lib/time";
@@ -69,7 +69,7 @@ function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void 
   const agent = row.agent;
   const state = queueState(agent.queueReason);
   const started = `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ""}`;
-  const detail = agent.queueReason ? `${started} · ${agent.queueReason}` : started;
+  const detail = agent.queueReason ? `${started} · ${queueText(agent)}` : started;
   return (
     <li>
       <button

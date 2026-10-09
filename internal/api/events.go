@@ -143,7 +143,7 @@ func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, st
 			if !ok {
 				return nil
 			}
-			if err := h.sendChange(stream, change); err != nil {
+			if err := h.sendChange(ctx, stream, change); err != nil {
 				return err
 			}
 		case <-pings.C:
@@ -159,7 +159,7 @@ func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, st
 	}
 }
 
-func (h *handlers) sendChange(stream *api.Stream[LiveEvents], change engine.Change) error {
+func (h *handlers) sendChange(ctx context.Context, stream *api.Stream[LiveEvents], change engine.Change) error {
 	switch {
 	case change.Line != nil:
 		return stream.Send(LiveEvents{Transcript: new(transcriptLineOf(*change.Line))})
@@ -189,7 +189,7 @@ func (h *handlers) sendChange(stream *api.Stream[LiveEvents], change engine.Chan
 			Error:        change.Chat.Error,
 		}})
 	case change.Inbox != nil:
-		item, err := inboxItemOf(*change.Inbox)
+		item, err := h.inboxItemOf(ctx, *change.Inbox)
 		if err != nil {
 			return err
 		}
@@ -197,7 +197,7 @@ func (h *handlers) sendChange(stream *api.Stream[LiveEvents], change engine.Chan
 	case change.Created != nil:
 		return stream.Send(LiveEvents{WorkstreamCreated: &WorkstreamRef{Repository: change.Created.Repository, Number: change.Created.Number}})
 	}
-	agent, err := agentOf(*change.Node)
+	agent, err := h.agentOf(ctx, *change.Node)
 	if err != nil {
 		return err
 	}
