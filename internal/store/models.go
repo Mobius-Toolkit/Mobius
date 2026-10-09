@@ -113,6 +113,8 @@ type Task struct {
 	ApprovedReview sql.NullString
 	RefusedReview  sql.NullString
 	NeedsHumanAt   sql.NullString
+	ConflictHead   sql.NullString
+	CiFailedHead   sql.NullString
 }
 
 type Transcript struct {

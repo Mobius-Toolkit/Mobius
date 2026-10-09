@@ -426,7 +426,9 @@ func makeDraft(ctx context.Context, repository github.Repository, pullRequest *g
 }
 
 // conflictRound starts a conflict round of the Implementer on the pull request of the task in task.State, which is
-// ready_for_review, checks or approval. The pull request is a draft during the round. The prompt has the issue body, and the round makes no change other than
+// ready_for_review, checks, approval or needs_human. It stores the head of the pull request in conflict_head, so that
+// the poll starts no automatic round of a task in needs_human on the same head again. A round that fails stores the
+// head that it pushed. The pull request is a draft during the round. The prompt has the issue body, and the round makes no change other than
 // the merge of the base branch (Mobius-rust#227).
 func (e *Engine) conflictRound(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
 	brief, err := brief(ctx, repository, task.Workstream)
@@ -454,6 +456,10 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	}
 	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: task.State})
 	if err != nil || queued == 0 {
+		return err
+	}
+	head := sql.NullString{String: pullRequest.GetHead().GetSHA(), Valid: true}
+	if err := e.queries.SetTaskConflictHead(ctx, store.SetTaskConflictHeadParams{ConflictHead: head, ID: task.ID}); err != nil {
 		return err
 	}
 	e.publishReadyForReview(task.State, "queued")
@@ -1056,6 +1062,11 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	}
 	if err := a.postReplies(ctx, repository, int64(j.pullRequest.GetNumber())); err != nil {
 		return result{}, err
+	}
+	if j.conflictRound && (failedLog != "" || !merged) {
+		if err := e.queries.SetTaskConflictHead(ctx, store.SetTaskConflictHeadParams{ConflictHead: sql.NullString{String: head, Valid: true}, ID: j.task.ID}); err != nil {
+			return result{}, err
+		}
 	}
 	if failedLog == "" && !merged {
 		summary := fmt.Sprintf("The Implementer did not merge `origin/%s`.", repository.DefaultBranch)
