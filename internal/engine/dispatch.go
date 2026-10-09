@@ -574,7 +574,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	if err := repository.AddLabel(ctx, number, workingLabel); err != nil {
 		return err
 	}
-	if err := repository.RemoveLabel(ctx, number, needsHumanLabel); err != nil {
+	if err := removeNeedsHuman(ctx, repository, task); err != nil {
 		return err
 	}
 	if err := e.queries.ResetTaskCounters(ctx, task.ID); err != nil {

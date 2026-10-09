@@ -373,6 +373,9 @@ func TestAfterMaxCheckAttemptsMobiusPushesFailsTheCheckRunAndStopsTheTask(t *tes
 	if !hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:working") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
+	if !pullRequestHasNeedsHuman(fake) {
+		t.Errorf("labels of the pull request = %v", fake.Labels(shop, pullRequestNumber))
+	}
 	if state := taskState(t, server); state != "needs_human" {
 		t.Errorf("state = %s", state)
 	}

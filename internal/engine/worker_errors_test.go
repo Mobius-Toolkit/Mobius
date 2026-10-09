@@ -188,6 +188,7 @@ func TestAnErrorInTheRestartOfTheReviewerStartsTheReviewerAgain(t *testing.T) {
 
 func TestARestartOfTheReviewerThatFailsEachTimeGoesToAHumanAtMaxWorkerRestarts(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
+	fake.AddPullRequest(shop, 42, "Add plan model")
 	server := seedReviewer(t, fake, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
 
 	waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the Worker failed after 1 restarts.")
