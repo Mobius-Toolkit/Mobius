@@ -101,6 +101,7 @@ func (e *Engine) startImplementer(ctx context.Context, repository github.Reposit
 	if err != nil {
 		return "", err
 	}
+	defer e.holdWorker(task.ID)()
 	brief, err := brief(ctx, repository, workstream)
 	if err != nil {
 		return "", err
@@ -166,6 +167,7 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if err != nil {
 		return "", err
 	}
+	defer e.holdWorker(task.ID)()
 	if !task.PullRequest.Valid || !task.Branch.Valid {
 		return "", refuse("The task of #%d has no pull request.", input.N)
 	}
@@ -372,7 +374,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if r.failedCheck {
 		worker = checkRoundWorker
 	}
-	e.runPreparedWorker(j.task, &j.title, "Implementer", func(ctx context.Context) (bool, error) {
+	e.runPreparedWorker(j.task, &j.title, "Implementer", false, func(ctx context.Context) (bool, error) {
 		if err := e.setWorker(ctx, r.task.ID, worker, j.prompt); err != nil {
 			return false, err
 		}
@@ -465,14 +467,14 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 }
 
 // restartImplementer starts the Implementer of the queued or working task again with the same prompt, after a
-// restart of the server. The task keeps its place in the queue. An error in the steps before the session starts the
-// Worker again.
-func (e *Engine) restartImplementer(repository github.Repository, task store.Task) {
+// restart of the server, or after the poll found it with no Worker (lost). The task keeps its place in the queue. An
+// error in the steps before the session starts the Worker again.
+func (e *Engine) restartImplementer(repository github.Repository, task store.Task, lost bool) {
 	if !task.WorkerInput.Valid {
 		return
 	}
 	var j job
-	e.runPreparedWorker(task, &j.title, "Implementer", func(ctx context.Context) (bool, error) {
+	e.runPreparedWorker(task, &j.title, "Implementer", lost, func(ctx context.Context) (bool, error) {
 		issue, err := existingIssue(ctx, repository, task.Issue)
 		if err != nil {
 			return false, err
@@ -516,14 +518,14 @@ func (e *Engine) setWorker(ctx context.Context, task int64, worker, input string
 // runImplementer runs the job in the background until the task stops. After a failure, the Implementer starts again
 // after the wait of RestartWorker.
 func (e *Engine) runImplementer(j job) {
-	e.runWorker(j.task, &j.title, "Implementer", func(ctx context.Context) error { return e.implementer(ctx, &j) })
+	e.runWorker(j.task, &j.title, "Implementer", false, func(ctx context.Context) error { return e.implementer(ctx, &j) })
 }
 
 // runPreparedWorker runs work like runWorker, after prepare. prepare gives false when the task stopped, and then work
 // does not run. After an error of prepare, prepare runs again before work. After its success, only work runs again.
-func (e *Engine) runPreparedWorker(task store.Task, title *string, name string, prepare func(context.Context) (bool, error), work func(context.Context) error) {
+func (e *Engine) runPreparedWorker(task store.Task, title *string, name string, lost bool, prepare func(context.Context) (bool, error), work func(context.Context) error) {
 	prepared := false
-	e.runWorker(task, title, name, func(ctx context.Context) error {
+	e.runWorker(task, title, name, lost, func(ctx context.Context) error {
 		if !prepared {
 			ok, err := prepare(ctx)
 			if err != nil || !ok {
@@ -539,9 +541,21 @@ func (e *Engine) runPreparedWorker(task store.Task, title *string, name string, 
 // of the issue of the task, which is empty until work reads it. An error of work tells that the Worker must start
 // again: after the wait of RestartWorker, the queued or working task goes to the queue and work runs again. A task in
 // another state, for example after a decline, does not start again. A Worker that a newer Worker replaced, for example
-// the Reviewer after it started a fix round, does not start again.
-func (e *Engine) runWorker(task store.Task, title *string, name string, work func(context.Context) error) {
-	e.startNumberedWorker(task.ID, func(ctx context.Context, start int) {
+// the Reviewer after it started a fix round, does not start again, also when it started during the wait.
+//
+// lost tells that the poll found the task with no Worker. Then runWorker starts only when no Worker of the task runs,
+// and the first run of work is an error, so that the restart counts and waits like the restart after any other error.
+func (e *Engine) runWorker(task store.Task, title *string, name string, lost bool, work func(context.Context) error) {
+	begin := e.startNumberedWorker
+	if lost {
+		begin = e.startIdleWorker
+		run := work
+		work = func(context.Context) error {
+			work = run
+			return errWorkerLost
+		}
+	}
+	begin(task.ID, func(ctx context.Context, start int) {
 		for {
 			err := work(ctx)
 			if err == nil {
@@ -553,6 +567,9 @@ func (e *Engine) runWorker(task store.Task, title *string, name string, work fun
 			}
 			again, err := e.RestartWorker(ctx, task, *title, err)
 			if err == nil && again {
+				if e.startedAfter(task.ID, start) {
+					return
+				}
 				again, err = e.queueAgain(ctx, task.ID)
 			}
 			if err != nil && ctx.Err() == nil {
