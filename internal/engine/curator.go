@@ -16,6 +16,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 //go:embed prompts/curator.md
@@ -26,6 +27,11 @@ const curatorEvery = 10
 
 // curatorKey is the key in e.stops of the Worker of the Curator with this session id.
 type curatorKey int64
+
+type tellCuratorInput struct {
+	Repository string `json:"repository"`
+	Text       string `json:"text"`
+}
 
 type editMemoryInput struct {
 	Old    string `json:"old"`
@@ -53,6 +59,34 @@ func (e *Engine) startCurator(ctx context.Context, repository string) error {
 	return e.startCuratorLocked(ctx, repository)
 }
 
+// tellCurator saves the request of the Owner and gives it to a Curator of the repository of the input. While a Curator
+// of the repository runs, the request waits for the next Curator. The result goes to the Triager chat.
+func (e *Engine) tellCurator(ctx context.Context, c caller, _ github.Repository, input tellCuratorInput) (string, error) {
+	if c.repository != "" {
+		return "", refuse("Only the Triager chat tells the Curator, after the Owner approves it.")
+	}
+	if empty(input.Text) {
+		return "", refuse("text must not be empty.")
+	}
+	repository, err := e.repository(input.Repository)
+	if err != nil {
+		return "", err
+	}
+	if repository.Owner() != c.organization {
+		return "", refuse("%s is not in the organization %s.", input.Repository, c.organization)
+	}
+	e.curatorsMu.Lock()
+	defer e.curatorsMu.Unlock()
+	id, err := e.queries.AddCuratorRequest(ctx, store.AddCuratorRequestParams{Repository: input.Repository, Text: input.Text})
+	if err != nil {
+		return "", err
+	}
+	if err := e.startCuratorLocked(ctx, input.Repository); err != nil {
+		return "", errors.Join(err, e.queries.DeleteCuratorRequest(ctx, id))
+	}
+	return "Sent the request to the Curator. The result arrives later.", nil
+}
+
 // startCuratorLocked is startCurator for a caller that holds curatorsMu.
 func (e *Engine) startCuratorLocked(ctx context.Context, repository string) error {
 	if _, running := e.curators[repository]; running {
@@ -63,8 +97,9 @@ func (e *Engine) startCuratorLocked(ctx context.Context, repository string) erro
 	return e.runCurator(ctx, repository)
 }
 
-// runCurator adds a Curator session for repository and runs it in the background. At its end, the Curator that
-// waits starts. The caller holds curatorsMu and has set e.curators[repository].
+// runCurator adds a Curator session for repository and runs it in the background. It takes the requests of the Owner
+// that wait. A request stays in the store until the Triager chat gets the result, so a restart of Mobius keeps it. At
+// its end, the Curator that waits starts. The caller holds curatorsMu and has set e.curators[repository].
 func (e *Engine) runCurator(ctx context.Context, repository string) error {
 	if e.ended() {
 		delete(e.curators, repository)
@@ -76,10 +111,15 @@ func (e *Engine) runCurator(ctx context.Context, repository string) error {
 		delete(e.curators, repository)
 		return err
 	}
+	requests, err := e.queries.ListCuratorRequests(ctx, repository)
+	if err != nil {
+		delete(e.curators, repository)
+		return a.Fail(context.WithoutCancel(ctx), err)
+	}
 	key := curatorKey(a.id)
 	started := e.startWorker(key, func(ctx context.Context) {
 		defer e.stop(key)
-		if err := e.curate(ctx, a); err != nil {
+		if err := e.curate(ctx, a, requests); err != nil {
 			log.Printf("Curator %d of %s: %v", a.id, repository, err)
 		}
 		e.curatorsMu.Lock()
@@ -100,33 +140,84 @@ func (e *Engine) runCurator(ctx context.Context, repository string) error {
 	return nil
 }
 
-// curate runs the session a of the Curator in a worktree that is detached at the default branch.
-func (e *Engine) curate(ctx context.Context, a *Agent) error {
+// curate runs the session a of the Curator in a worktree that is detached at the default branch. When requests of the
+// Owner are not empty, the Triager chat gets the result.
+func (e *Engine) curate(ctx context.Context, a *Agent, requests []store.ListCuratorRequestsRow) error {
+	repository := a.spec.Repository
+	newest, err := e.queries.GetNewestMemoryVersionID(ctx, repository)
+	if err != nil {
+		return errors.Join(a.Fail(context.WithoutCancel(ctx), err), e.answerRequests(ctx, a, requests, newest, "The Curator failed: "+err.Error()))
+	}
 	if err := a.waitForSlot(ctx); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
-		return err
+		return errors.Join(err, e.answerRequests(ctx, a, requests, newest, "The Curator failed: "+err.Error()))
 	}
-	repository := a.spec.Repository
 	a.spec.Dir = runner.CuratorDir(e.config.DataDir, repository, a.id)
-	err := e.curateTurn(ctx, a)
+	err = e.curateTurn(ctx, a, requests)
 	a.closeHarness()
 	ended := context.WithoutCancel(ctx)
 	err = errors.Join(err, e.removeCopy(ended, repository, a.spec.Dir))
+	var endErr error
+	var failure string
 	switch {
 	case ctx.Err() != nil:
 		return a.End(ended, "stopped")
 	case errors.Is(err, errHung):
-		return a.endHung(ended)
+		endErr, failure = a.endHung(ended), "The Curator hung: "+err.Error()
 	case err != nil:
-		return a.Fail(ended, err)
+		endErr, failure = a.Fail(ended, err), "The Curator failed: "+err.Error()
+	default:
+		endErr = a.End(ended, "done")
 	}
-	return a.End(ended, "done")
+	return errors.Join(endErr, e.answerRequests(ended, a, requests, newest, failure))
+}
+
+// answerRequests gives the result of the session a of the Curator on requests to the Triager chat, and then removes the
+// requests from the store. When the delivery fails, the requests stay, so the next Curator or the next run of Mobius
+// answers them. A stop of Mobius does not call it, so the next run of Mobius starts a Curator for them.
+func (e *Engine) answerRequests(ctx context.Context, a *Agent, requests []store.ListCuratorRequestsRow, newest int64, failure string) error {
+	if len(requests) == 0 {
+		return nil
+	}
+	if err := e.deliverCuratorResult(ctx, a, requests, newest, failure); err != nil {
+		return err
+	}
+	return e.queries.DeleteCuratorRequestsUpTo(ctx, store.DeleteCuratorRequestsUpToParams{Repository: a.spec.Repository, ID: requests[len(requests)-1].ID})
+}
+
+// deliverCuratorResult gives the result of the session a of the Curator on requests to the Triager chat as a Curator
+// message. newest is the newest version of the memory file before the session. failure is "" when the session is done.
+func (e *Engine) deliverCuratorResult(ctx context.Context, a *Agent, requests []store.ListCuratorRequestsRow, newest int64, failure string) error {
+	reasons, err := e.queries.ListCuratorReasonsAfter(ctx, store.ListCuratorReasonsAfterParams{Repository: a.spec.Repository, ID: newest})
+	if err != nil {
+		return err
+	}
+	var text strings.Builder
+	fmt.Fprintf(&text, "Result of the Curator %d on the requests of the Owner:\n\n", a.id)
+	for _, request := range requests {
+		fmt.Fprintf(&text, "- %s\n", request.Text)
+	}
+	if len(reasons) == 0 {
+		text.WriteString("\nThe Curator did not change the memory file.\n")
+	} else {
+		text.WriteString("\nThe Curator changed the memory file. The reasons of the changes:\n\n")
+		for _, reason := range reasons {
+			fmt.Fprintf(&text, "- %s\n", reason)
+		}
+	}
+	if failure != "" {
+		fmt.Fprintf(&text, "\n%s\n", failure)
+	}
+	if reply := strings.TrimSpace(a.replyText()); reply != "" {
+		fmt.Fprintf(&text, "\nReply of the Curator:\n\n%s", reply)
+	}
+	return e.postChat(ctx, ChatKey{Organization: a.spec.Organization}, curatorAuthor, text.String(), nil)
 }
 
 // curateTurn makes the worktree of the Curator a and runs its turn.
-func (e *Engine) curateTurn(ctx context.Context, a *Agent) error {
+func (e *Engine) curateTurn(ctx context.Context, a *Agent, requests []store.ListCuratorRequestsRow) error {
 	repository, err := e.repository(a.spec.Repository)
 	if err != nil {
 		return err
@@ -149,7 +240,20 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent) error {
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	return a.Prompt(ctx, curatorPrompt+"\n"+sections+versions+leads, nil)
+	return a.Prompt(ctx, curatorPrompt+"\n"+requestsSection(requests)+sections+versions+leads, nil)
+}
+
+// requestsSection gives the requests of the Owner as a prompt section, or "" for no request.
+func requestsSection(requests []store.ListCuratorRequestsRow) string {
+	if len(requests) == 0 {
+		return ""
+	}
+	var section strings.Builder
+	section.WriteString("# Requests of the Owner\n\n")
+	for i, request := range requests {
+		fmt.Fprintf(&section, "## Request %d\n\n%s\n\n", i+1, request.Text)
+	}
+	return section.String()
 }
 
 // memoryHistory gives the last versions of the memory file of repository as a prompt section, newest first.

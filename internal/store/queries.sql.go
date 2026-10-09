@@ -156,6 +156,22 @@ func (q *Queries) AddCopiedWorkstream(ctx context.Context, arg AddCopiedWorkstre
 	return err
 }
 
+const addCuratorRequest = `-- name: AddCuratorRequest :one
+INSERT INTO curator_requests (repository, text) VALUES (?, ?) RETURNING id
+`
+
+type AddCuratorRequestParams struct {
+	Repository string
+	Text       string
+}
+
+func (q *Queries) AddCuratorRequest(ctx context.Context, arg AddCuratorRequestParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, addCuratorRequest, arg.Repository, arg.Text)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const addDeviceLogin = `-- name: AddDeviceLogin :exec
 INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)
 VALUES (?, ?, ?, ?)
@@ -577,7 +593,7 @@ func (q *Queries) CountSessionsEndedSinceCurator(ctx context.Context, repository
 const countUnread = `-- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = ?1 AND m.repository = ?2 AND m.workstream = ?3
-  AND m.author NOT IN ('Owner', 'Researcher', 'Event')
+  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Event')
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0)
 `
@@ -725,6 +741,29 @@ DELETE FROM copied_workstreams WHERE repository = ?
 
 func (q *Queries) DeleteCopiedWorkstreamsOf(ctx context.Context, repository string) error {
 	_, err := q.db.ExecContext(ctx, deleteCopiedWorkstreamsOf, repository)
+	return err
+}
+
+const deleteCuratorRequest = `-- name: DeleteCuratorRequest :exec
+DELETE FROM curator_requests WHERE id = ?
+`
+
+func (q *Queries) DeleteCuratorRequest(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteCuratorRequest, id)
+	return err
+}
+
+const deleteCuratorRequestsUpTo = `-- name: DeleteCuratorRequestsUpTo :exec
+DELETE FROM curator_requests WHERE repository = ? AND id <= ?
+`
+
+type DeleteCuratorRequestsUpToParams struct {
+	Repository string
+	ID         int64
+}
+
+func (q *Queries) DeleteCuratorRequestsUpTo(ctx context.Context, arg DeleteCuratorRequestsUpToParams) error {
+	_, err := q.db.ExecContext(ctx, deleteCuratorRequestsUpTo, arg.Repository, arg.ID)
 	return err
 }
 
@@ -1231,7 +1270,7 @@ func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredPa
 
 const listChatMessages = `-- name: ListChatMessages :many
 SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND author <> 'Researcher'
+WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator')
 ORDER BY id
 `
 
@@ -1241,7 +1280,7 @@ type ListChatMessagesParams struct {
 	Workstream   int64
 }
 
-// The chat shows no Researcher message.
+// The chat shows no Researcher message and no Curator message.
 func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesParams) ([]ChatMessage, error) {
 	rows, err := q.db.QueryContext(ctx, listChatMessages, arg.Organization, arg.Repository, arg.Workstream)
 	if err != nil {
@@ -1763,6 +1802,70 @@ func (q *Queries) ListCopiedWorkstreamsWithLabelChange(ctx context.Context, arg 
 			return nil, err
 		}
 		items = append(items, workstream)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCuratorReasonsAfter = `-- name: ListCuratorReasonsAfter :many
+SELECT reason FROM memory_versions WHERE repository = ? AND author = 'curator' AND id > ? ORDER BY id
+`
+
+type ListCuratorReasonsAfterParams struct {
+	Repository string
+	ID         int64
+}
+
+func (q *Queries) ListCuratorReasonsAfter(ctx context.Context, arg ListCuratorReasonsAfterParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listCuratorReasonsAfter, arg.Repository, arg.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var reason string
+		if err := rows.Scan(&reason); err != nil {
+			return nil, err
+		}
+		items = append(items, reason)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCuratorRequests = `-- name: ListCuratorRequests :many
+SELECT id, text FROM curator_requests WHERE repository = ? ORDER BY id
+`
+
+type ListCuratorRequestsRow struct {
+	ID   int64
+	Text string
+}
+
+func (q *Queries) ListCuratorRequests(ctx context.Context, repository string) ([]ListCuratorRequestsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCuratorRequests, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCuratorRequestsRow
+	for rows.Next() {
+		var i ListCuratorRequestsRow
+		if err := rows.Scan(&i.ID, &i.Text); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -2488,7 +2591,7 @@ const listUnread = `-- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
 LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
-WHERE m.author NOT IN ('Owner', 'Researcher', 'Event') AND m.id > coalesce(s.message, 0)
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Event') AND m.id > coalesce(s.message, 0)
 GROUP BY m.organization, m.repository, m.workstream
 ORDER BY m.organization, m.repository, m.workstream
 `
@@ -2500,7 +2603,7 @@ type ListUnreadRow struct {
 	Count        int64
 }
 
-// The messages of the Owner, of a Researcher and of an event are never unread.
+// The messages of the Owner, of a Researcher, of a Curator and of an event are never unread.
 func (q *Queries) ListUnread(ctx context.Context) ([]ListUnreadRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUnread)
 	if err != nil {
