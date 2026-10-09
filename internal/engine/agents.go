@@ -104,6 +104,11 @@ type Agent struct {
 	// chunk is the JSON of the last Transcript row while that row is a message chunk or a thought chunk, and chunkID is its id.
 	chunk   map[string]any
 	chunkID int64
+	// turnUsage is the usage data of the turn that runs, or of the last turn.
+	turnUsage turnUsage
+	// costTotal is the last cost total of the session. costBase is the cost total at the end of the last turn with a cost.
+	costTotal float64
+	costBase  float64
 	// resetHint is the last _claude/rateLimit.resetsAt of a usage update of the session, or zero.
 	resetHint time.Time
 	// author is the author of the chat messages that the reply text adds to the chat of the session, or "" when the
@@ -232,6 +237,7 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		Role:         spec.Role,
 		Harness:      string(binding.Harness),
 		Model:        binding.Model,
+		Effort:       sql.NullString{String: binding.Effort, Valid: binding.Effort != ""},
 		Organization: spec.Organization,
 		Repository:   spec.Repository,
 		Workstream:   spec.Workstream,
@@ -403,6 +409,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 			return err
 		}
 		a.turn = true
+		a.turnUsage = turnUsage{started: now()}
 		a.subagent = false
 		a.autonomousEnd = time.Time{}
 		a.activity = time.Now()
@@ -507,6 +514,9 @@ func (a *Agent) setAuthor(author string) {
 func (a *Agent) End(ctx context.Context, reason string) error {
 	a.closeHarness()
 	defer a.release()
+	if err := a.addAutonomousUsage(context.WithoutCancel(ctx)); err != nil {
+		log.Printf("add the usage of the session %d: %v", a.id, err)
+	}
 	if a.scratch != "" {
 		if err := os.RemoveAll(a.scratch); err != nil {
 			return err
@@ -576,6 +586,7 @@ func (a *Agent) record(params json.RawMessage) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.track(notification, kind)
+	a.readUsage(notification, kind)
 	// The unit of resetsAt is Unix seconds.
 	if resetsAt, ok := field(notification, "update", "_meta", "_claude/rateLimit", "resetsAt").(float64); ok {
 		a.resetHint = time.Unix(int64(resetsAt), 0)

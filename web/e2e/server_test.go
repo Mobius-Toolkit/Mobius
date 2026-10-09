@@ -149,7 +149,7 @@ const question = "What is the state of the plans? The full report is at " +
 // Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, and
 // the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55. The
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
-// The Workstream owner/shop#12 has two closed tasks. It also has four Implementer sessions with the queue reasons of a
+// The Workstream owner/shop#12 has two closed tasks and a task with a question of the Lead. It also has four Implementer sessions with the queue reasons of a
 // check that runs, a check that waits for a slot, a pause, and a full Role.
 // POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
 // /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event.
@@ -192,6 +192,8 @@ func TestServer(t *testing.T) {
 	github.AddSubIssueOf("owner/shop", 12, 41, "Add plan model")
 	github.AddSubIssueOf("owner/shop", 12, 42, "Let customers change plans")
 	github.AddSubIssueOf("owner/shop", 12, 45, "Pick the plan limits")
+	github.AddSubIssueOf("owner/shop", 12, 30, "Name the plan tiers")
+	github.AddLabel("owner/shop", 30, "mobius:question", "owner")
 	github.AddSubIssueOf("owner/shop", 13, 43, "Add season table")
 	github.CloseIssue("owner/shop", 43)
 	github.AddSubIssueOf("owner/shop", 41, 36, "Rename the plan table")

@@ -76,6 +76,7 @@ func TestACloseEndsTheTasksAndClosesThePullRequestsAndIssuesBelow(t *testing.T) 
 	fake.AddIssue(shop, 44, "Price table")
 	fake.AddBlockedBy(shop, 43, 44)
 	fake.AddLabel(shop, 43, "mobius:ready", "owner")
+	fake.AddLabel(shop, 43, "mobius:question", "mobius-test[bot]")
 	server := startWithLiveTask(t, fake)
 	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, kind, payload, time) VALUES ('owner/shop', 12, 'stop', 'An old event', '2026-10-04T10:00:00Z')`); err != nil {
 		t.Fatal(err)

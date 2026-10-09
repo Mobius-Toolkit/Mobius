@@ -71,16 +71,20 @@ func (e *Engine) review(ctx context.Context, j *job, p pushed, session int64) er
 	return nil
 }
 
-// restartReviewer starts the Reviewer of the queued or working task again after a restart of the server. The head of
-// the pull request gets a new Mobius check run, because the store has no id of the old one. An error in the steps
-// before the session starts the Worker again.
-func (e *Engine) restartReviewer(repository github.Repository, task store.Task) {
+// restartReviewer starts the Reviewer of the queued or working task again after a restart of the server, or after the
+// poll found it with no Worker (lost). The head of the pull request gets a new Mobius check run, because the store has
+// no id of the old one. An error in the steps before the session starts the Worker again.
+func (e *Engine) restartReviewer(repository github.Repository, task store.Task, lost bool) {
 	if !task.PullRequest.Valid || !task.Branch.Valid {
 		return
 	}
 	var j reviewJob
-	e.runPreparedWorker(task, &j.title, "Reviewer", func(ctx context.Context) (bool, error) {
-		if err := e.abandonRound(ctx, repository, task, "Mobius restarted before the run ended."); err != nil {
+	reason := "Mobius restarted before the run ended."
+	if lost {
+		reason = "The Worker of the task stopped before the run ended."
+	}
+	e.runPreparedWorker(task, &j.title, "Reviewer", lost, func(ctx context.Context) (bool, error) {
+		if err := e.abandonRound(ctx, repository, task, reason); err != nil {
 			log.Printf("update the review comment of %s#%d: %v", task.Repository, task.Issue, err)
 		}
 		issue, err := existingIssue(ctx, repository, task.Issue)
@@ -113,7 +117,7 @@ func (e *Engine) restartReviewer(repository github.Repository, task store.Task) 
 // runReviewer runs the review job in the background until the task stops. After a failure, the Reviewer starts again
 // after the wait of RestartWorker.
 func (e *Engine) runReviewer(j reviewJob) {
-	e.runWorker(j.task, &j.title, "Reviewer", func(ctx context.Context) error { return e.reviewer(ctx, &j) })
+	e.runWorker(j.task, &j.title, "Reviewer", false, func(ctx context.Context) error { return e.reviewer(ctx, &j) })
 }
 
 // reviewer runs one Reviewer session of the job, and acts on the open review threads after its turn. At
