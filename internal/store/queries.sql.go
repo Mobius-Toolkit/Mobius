@@ -1254,6 +1254,24 @@ func (q *Queries) GetSyncCursor(ctx context.Context, arg GetSyncCursorParams) (G
 	return i, err
 }
 
+const handTaskToHuman = `-- name: HandTaskToHuman :execrows
+UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?1 AND state = ?2
+`
+
+type HandTaskToHumanParams struct {
+	ID        int64
+	FromState string
+}
+
+func (q *Queries) HandTaskToHuman(ctx context.Context, arg HandTaskToHumanParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, handTaskToHuman, arg.ID, arg.FromState)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const hasCopiedWorkstream = `-- name: HasCopiedWorkstream :one
 SELECT EXISTS (SELECT 1 FROM copied_workstreams WHERE repository = ? AND number = ?)
 `
@@ -3268,9 +3286,7 @@ func (q *Queries) SetTaskRefusedReview(ctx context.Context, arg SetTaskRefusedRe
 }
 
 const setTaskState = `-- name: SetTaskState :execrows
-UPDATE tasks SET state = ?1,
-    needs_human_at = CASE WHEN ?1 = 'needs_human' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE needs_human_at END
-WHERE id = ?2 AND state = ?3
+UPDATE tasks SET state = ?1 WHERE id = ?2 AND state = ?3
 `
 
 type SetTaskStateParams struct {

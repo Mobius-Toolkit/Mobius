@@ -129,8 +129,10 @@ WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
 SELECT id, queued_at FROM tasks WHERE state = 'queued' ORDER BY queued_at, id;
 
 -- name: SetTaskState :execrows
-UPDATE tasks SET state = sqlc.arg(state),
-    needs_human_at = CASE WHEN sqlc.arg(state) = 'needs_human' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE needs_human_at END
+UPDATE tasks SET state = sqlc.arg(state) WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
+
+-- name: HandTaskToHuman :execrows
+UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
 
 -- name: AddWorkerRestart :one

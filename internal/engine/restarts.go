@@ -74,7 +74,7 @@ func (e *Engine) handToHuman(ctx context.Context, task store.Task) (bool, error)
 	for _, from := range []string{"working", "queued", "checks"} {
 		if moved == 0 {
 			var err error
-			if moved, err = e.setTaskState(ctx, store.SetTaskStateParams{State: "needs_human", ID: task.ID, FromState: from}); err != nil {
+			if moved, err = e.handTaskToHuman(ctx, task.ID, from); err != nil {
 				return false, err
 			}
 		}
