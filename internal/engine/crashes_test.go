@@ -218,6 +218,7 @@ func TestALeadThatCrashesGetsTheSameEventInANewSession(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 0 })
 }
 
+// Serial: in parallel, the inbox item "Lead failed" can show before the event is marked as delivered.
 func TestALeadThatAlwaysCrashesSendsTheEventToTheInbox(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"kill -9 $PPID; sleep 5\"\n")

@@ -134,6 +134,7 @@ func TestAnIssueWithNoWorkstreamGoesToTheTriagerThatMovesIt(t *testing.T) {
 	}
 }
 
+// Serial: in parallel, the session can end with "failed" and not with "stopped", because a stop during waitForSlot cancels the context of StartSession.
 func TestARemovalOfTheLabelStopsTheTriagerAndAProposalGoesToTheIssue(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)

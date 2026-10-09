@@ -439,6 +439,7 @@ func TestACompletionOfAnIssueWithoutTheWorkstreamLabelClosesNothing(t *testing.T
 	}
 }
 
+// Serial: in parallel, a poll at the same time can overwrite the copy of the Workstreams with older data.
 func TestCreateWorkstreamAddsTheWorkstreamToTheListAtOnce(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
