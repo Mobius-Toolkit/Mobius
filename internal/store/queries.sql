@@ -437,7 +437,7 @@ SELECT issue FROM held_triagers WHERE repository = ? ORDER BY issue;
 DELETE FROM held_triagers WHERE repository = ? AND issue = ?;
 
 -- name: ListMemoryVersions :many
-SELECT id, time, author, text FROM memory_versions WHERE repository = ? ORDER BY id DESC;
+SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? ORDER BY id DESC;
 
 -- name: GetMemoryVersion :one
 SELECT id, repository, time, author, text FROM memory_versions WHERE id = ?;

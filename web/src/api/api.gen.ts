@@ -491,6 +491,8 @@ export interface MemoryVersion {
   author: MemoryVersionAuthor;
   /** ID is the id of the version */
   id: number;
+  /** Reason is the type of change and the evidence of the Curator, "Revert of version N" for a revert, and empty for an edit of the Owner */
+  reason: string;
   /** RevertProblem is the reason why the revert is not possible, and empty when it is possible */
   revert_problem: string;
   /** Revertible tells if the revert of the version is possible */

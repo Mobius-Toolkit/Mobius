@@ -461,6 +461,7 @@ test("screenshots", async ({ page }) => {
     main.getByText("- Run make fmt before each commit."),
     main.getByText("+ Wait for a condition with testkit.WaitFor."),
     main.getByText("A later version changed this part. Edit the file."),
+    main.getByText("Add: three fix rounds repeated the same wait with a fixed sleep in tests"),
   ]);
 
   // The note closes a Workstream whose tasks are all closed.
