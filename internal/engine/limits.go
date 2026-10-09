@@ -178,7 +178,10 @@ func (a *Agent) waitOutLimit(ctx context.Context, err error) (bool, error) {
 	a.mu.Lock()
 	hint := a.resetHint
 	a.mu.Unlock()
-	hintState := "missing"
+	reported, hintState := "none", "missing"
+	if !hint.IsZero() {
+		reported = hint.UTC().Format(timeFormat)
+	}
 	// A reset time that is not later than now is an old hint.
 	if !hint.IsZero() && !hint.After(now) {
 		hint, hintState = time.Time{}, "too old"
@@ -190,7 +193,7 @@ func (a *Agent) waitOutLimit(ctx context.Context, err error) (bool, error) {
 	if !hint.IsZero() {
 		hintState = "used"
 	}
-	log.Printf("usage limit of %s: reset time of the usage update %s, pause until %s", a.harness, hintState, until.UTC().Format(timeFormat))
+	log.Printf("usage limit of %s: reset time of the usage update %s (%s), pause until %s", a.harness, reported, hintState, until.UTC().Format(timeFormat))
 	if err := a.engine.pause(ctx, a, until); err != nil {
 		return false, err
 	}
