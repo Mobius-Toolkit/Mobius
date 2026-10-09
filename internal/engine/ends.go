@@ -148,31 +148,35 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 
 // continueByRemoval resumes the task in needs_human when an actor removed mobius:needs-human from its issue or from its
 // pull request, and the actor is a trusted user, or the Mobius App with Autopilot on. It reads the label events only
-// when one of the two items lacks the label. A removal counts only when it is newer than the last addition of the label
-// to the other item, because handToHuman adds the label to the issue and to the pull request after the move to
-// needs_human, and resume removes it from both. An issue with mobius:ready waits for the dispatch.
+// when one of the two items lacks the label. A removal counts only when it is newer than the move of the task to
+// needs_human, because resume removes the label from both items. An issue with mobius:ready waits for the dispatch.
 func (e *Engine) continueByRemoval(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest) (bool, error) {
 	issueHas := hasLabel(issue, needsHumanLabel)
 	pullHas := pullRequest == nil || hasPullRequestLabel(pullRequest, needsHumanLabel)
 	if task.State != "needs_human" || hasLabel(issue, readyLabel) || issueHas && pullHas {
 		return false, nil
 	}
-	issueEvents, err := repository.IssueEvents(ctx, task.Issue)
-	if err != nil {
-		return false, err
-	}
-	var pullEvents []*gh.IssueEvent
-	if pullRequest != nil {
-		if pullEvents, err = repository.IssueEvents(ctx, task.PullRequest.Int64); err != nil {
+	var since time.Time
+	if task.NeedsHumanAt.Valid {
+		var err error
+		if since, err = time.Parse(time.RFC3339Nano, task.NeedsHumanAt.String); err != nil {
 			return false, err
 		}
 	}
 	var actors []string
 	if !issueHas {
-		actors = append(actors, removalActor(issueEvents, pullEvents))
+		issueEvents, err := repository.IssueEvents(ctx, task.Issue)
+		if err != nil {
+			return false, err
+		}
+		actors = append(actors, removalActor(issueEvents, since))
 	}
 	if !pullHas {
-		actors = append(actors, removalActor(pullEvents, issueEvents))
+		pullEvents, err := repository.IssueEvents(ctx, task.PullRequest.Int64)
+		if err != nil {
+			return false, err
+		}
+		actors = append(actors, removalActor(pullEvents, since))
 	}
 	for _, actor := range actors {
 		if actor == "" || !e.TrustedAuthor(repository.AppSlug, actor) {
@@ -193,13 +197,10 @@ func (e *Engine) continueByRemoval(ctx context.Context, repository github.Reposi
 }
 
 // removalActor gives the actor of the last removal of mobius:needs-human in events, or "" when events have no removal
-// that is newer than the last addition of the label in other.
-func removalActor(events, other []*gh.IssueEvent) string {
+// that is newer than since.
+func removalActor(events []*gh.IssueEvent, since time.Time) string {
 	_, removed := lastEvent(events, "unlabeled", needsHumanLabel)
-	if removed == nil {
-		return ""
-	}
-	if _, added := lastEvent(other, "labeled", needsHumanLabel); added != nil && !removed.GetCreatedAt().After(added.GetCreatedAt().Time) {
+	if removed == nil || !removed.GetCreatedAt().After(since) {
 		return ""
 	}
 	return removed.GetActor().GetLogin()

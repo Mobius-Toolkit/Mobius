@@ -93,11 +93,21 @@ func TestARemovalOfNeedsHumanByAnUntrustedUserHasNoEffect(t *testing.T) {
 	hasNoEffect(t, fake, server)
 }
 
+// moveToNeedsHumanLater makes the move of the task to needs_human newer than each label event that the test writes
+// after the call.
+func moveToNeedsHumanLater(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	if _, err := server.DB.Exec("UPDATE tasks SET needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 hour') WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestARemovalOfNeedsHumanFromBeforeTheMoveToNeedsHumanHasNoEffect(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	fake.FailAddLabels(shop, 41, true)
 	fake.FailAddLabels(shop, pullRequestNumber, true)
 	server, _ := seedWaiting(t, fake, "needs_human")
+	moveToNeedsHumanLater(t, server)
 	fake.AddLabel(shop, pullRequestNumber, "mobius:needs-human", app)
 	fake.RemoveLabel(shop, pullRequestNumber, "mobius:needs-human", app)
 	fake.AddLabel(shop, 41, "mobius:needs-human", app)
@@ -105,6 +115,38 @@ func TestARemovalOfNeedsHumanFromBeforeTheMoveToNeedsHumanHasNoEffect(t *testing
 	waitForPolls(t, fake)
 
 	fake.FailAddLabels(shop, pullRequestNumber, false)
+
+	hasNoEffect(t, fake, server)
+}
+
+func TestARemovalOfNeedsHumanFromBeforeTheMoveHasNoEffectWhenTheTaskHasNoPullRequest(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server := needsHumanWithLabels(t, fake, false)
+	if _, err := server.DB.Exec("UPDATE tasks SET pull_request = NULL WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	moveToNeedsHumanLater(t, server)
+	fake.FailAddLabels(shop, 41, true)
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+	waitForPolls(t, fake)
+
+	fake.FailAddLabels(shop, 41, false)
+
+	hasNoEffect(t, fake, server)
+}
+
+func TestARemovalOfNeedsHumanFromBeforeTheMoveHasNoEffectWhenTheIssueLacksTheLabelAfterTheMove(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	fake.FailAddLabels(shop, 41, true)
+	fake.FailAddLabels(shop, pullRequestNumber, true)
+	server, _ := seedWaiting(t, fake, "needs_human")
+	moveToNeedsHumanLater(t, server)
+	fake.AddLabel(shop, pullRequestNumber, "mobius:needs-human", app)
+	fake.AddLabel(shop, 41, "mobius:needs-human", app)
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+	waitForPolls(t, fake)
+
+	fake.FailAddLabels(shop, 41, false)
 
 	hasNoEffect(t, fake, server)
 }

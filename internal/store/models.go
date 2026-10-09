@@ -112,6 +112,7 @@ type Task struct {
 	CheckHead      sql.NullString
 	ApprovedReview sql.NullString
 	RefusedReview  sql.NullString
+	NeedsHumanAt   sql.NullString
 }
 
 type Transcript struct {
