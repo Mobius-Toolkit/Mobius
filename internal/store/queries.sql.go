@@ -1192,6 +1192,22 @@ func (q *Queries) GetNewestMemoryVersionID(ctx context.Context, repository strin
 	return column_1, err
 }
 
+const getNewestStopEvent = `-- name: GetNewestStopEvent :one
+SELECT payload FROM lead_events WHERE repository = ? AND issue = ? AND kind = 'stop' ORDER BY id DESC LIMIT 1
+`
+
+type GetNewestStopEventParams struct {
+	Repository string
+	Issue      sql.NullInt64
+}
+
+func (q *Queries) GetNewestStopEvent(ctx context.Context, arg GetNewestStopEventParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getNewestStopEvent, arg.Repository, arg.Issue)
+	var payload string
+	err := row.Scan(&payload)
+	return payload, err
+}
+
 const getReviewComment = `-- name: GetReviewComment :one
 SELECT review_comment FROM tasks WHERE id = ?
 `

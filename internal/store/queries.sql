@@ -239,6 +239,9 @@ UPDATE lead_events SET held = 1 WHERE id = ?;
 UPDATE lead_events SET held = 0 WHERE repository = ? AND workstream = ? AND held = 1
 RETURNING *;
 
+-- name: GetNewestStopEvent :one
+SELECT payload FROM lead_events WHERE repository = ? AND issue = ? AND kind = 'stop' ORDER BY id DESC LIMIT 1;
+
 -- name: ListWaitingLeadWorkstreams :many
 SELECT DISTINCT repository, workstream FROM lead_events WHERE delivered_at IS NULL ORDER BY repository, workstream;
 

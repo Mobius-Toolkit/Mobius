@@ -537,6 +537,8 @@ export interface NeedsHuman {
      * @nullable
      */
   pullRequestUrl: string | null;
+  /** Reason is the text of the newest stop of the task, or an empty string */
+  reason: string;
   /** Repository is the repository as "owner/name" */
   repository: string;
   /** Title is the title of the issue */

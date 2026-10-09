@@ -93,6 +93,8 @@ type NeedsHuman struct {
 	PullRequest *int64 `gork:"pullRequest"`
 	// PullRequestURL is the GitHub URL of the pull request, or null
 	PullRequestURL *string `gork:"pullRequestUrl"`
+	// Reason is the text of the newest stop of the task, or an empty string
+	Reason string `gork:"reason"`
 }
 
 // ListNeedsHumanRequest is the request of ListNeedsHuman.
@@ -112,7 +114,7 @@ func (h *handlers) ListNeedsHuman(ctx context.Context, _ ListNeedsHumanRequest) 
 	}
 	issues := make([]NeedsHuman, 0, len(found))
 	for _, issue := range found {
-		row := NeedsHuman{Repository: issue.Repository, Workstream: issue.Workstream, Number: issue.Number, Title: issue.Title, URL: issue.URL}
+		row := NeedsHuman{Repository: issue.Repository, Workstream: issue.Workstream, Number: issue.Number, Title: issue.Title, URL: issue.URL, Reason: issue.Reason}
 		if issue.PullRequest != 0 {
 			row.PullRequest = &issue.PullRequest
 			row.PullRequestURL = &issue.PullRequestURL

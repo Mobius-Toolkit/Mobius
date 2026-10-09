@@ -437,6 +437,10 @@ func TestServer(t *testing.T) {
 		VALUES ('owner/shop', 40, 14, 'ready_for_review', ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, delivered_at)
+		VALUES ('owner/shop', 12, 41, 'stop', '2026-09-28 09:30 UTC stop of #41 "Add plan model": the CI of the head commit failed, and a fix round cannot change it.', '2026-09-28T09:30:00Z', '2026-09-28T09:30:00Z')`); err != nil {
+		t.Fatal(err)
+	}
 	for _, version := range []struct{ author, reason, text string }{
 		{"curator", "Add: two Implementer sessions used npm and not pnpm", "Run make fmt before each commit.\nUse pnpm for the frontend.\n"},
 		{"curator", "Add: three fix rounds repeated the same wait with a fixed sleep in tests", "Run make fmt before each commit.\nUse pnpm for the frontend.\nWait for a condition with testkit.WaitFor.\n"},

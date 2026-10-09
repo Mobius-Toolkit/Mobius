@@ -34,6 +34,7 @@ type needsHuman struct {
 	URL            string  `json:"url"`
 	PullRequest    *int64  `json:"pullRequest"`
 	PullRequestURL *string `json:"pullRequestUrl"`
+	Reason         string  `json:"reason"`
 }
 
 // apiData gives the data of the API path as T.
@@ -230,6 +231,43 @@ func TestTheNeedsHumanListHasTheOpenIssuesWithTheLabelInTheTrees(t *testing.T) {
 	testkit.WaitFor(t, func() bool {
 		got = apiData[[]needsHuman](t, server, "/api/needs-human")
 		return reflect.DeepEqual(got, want)
+	})
+}
+
+func TestTheNeedsHumanListHasTheReasonOfTheNewestStopOfTheIssue(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddIssue(shop, 42, "Let customers change plans")
+	server := startServer(t, fake, t.TempDir(), "")
+	server.WaitForFirstPoll(t, shop)
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddSubIssue(shop, 12, 42)
+	fake.AddLabel(shop, 41, "mobius:needs-human", "owner")
+	fake.AddLabel(shop, 42, "mobius:needs-human", "owner")
+	stop := func(issue int64, text string) {
+		t.Helper()
+		if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, ?, 'stop', ?, '2026-10-04T10:00:00Z')`, issue, text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reasons := func() map[int64]string {
+		reasons := map[int64]string{}
+		for _, issue := range apiData[[]needsHuman](t, server, "/api/needs-human") {
+			reasons[issue.Number] = issue.Reason
+		}
+		return reasons
+	}
+	stop(41, "the CI of the head commit failed")
+	stop(42, "the agent did not push")
+	testkit.WaitFor(t, func() bool {
+		return reflect.DeepEqual(reasons(), map[int64]string{41: "the CI of the head commit failed", 42: "the agent did not push"})
+	})
+
+	stop(41, "the pull request has open items after 3 fix rounds")
+	testkit.WaitFor(t, func() bool {
+		return reflect.DeepEqual(reasons(), map[int64]string{41: "the pull request has open items after 3 fix rounds", 42: "the agent did not push"})
 	})
 }
 

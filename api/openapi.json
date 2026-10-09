@@ -4145,6 +4145,10 @@
             ],
             "description": "PullRequestURL is the GitHub URL of the pull request, or null"
           },
+          "reason": {
+            "type": "string",
+            "description": "Reason is the text of the newest stop of the task, or an empty string"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository as \"owner/name\""
@@ -4169,7 +4173,8 @@
           "title",
           "url",
           "pullRequest",
-          "pullRequestUrl"
+          "pullRequestUrl",
+          "reason"
         ],
         "description": "NeedsHuman is an open task issue with mobius:needs-human."
       },
