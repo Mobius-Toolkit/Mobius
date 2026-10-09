@@ -203,14 +203,19 @@ func TestMobiusReadyOnATaskThatStoppedOnFailedCIStartsANewCIFixRoundOnTheSameHea
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
-	testkit.WaitFor(t, func() bool { return implementers(t, server) == 4 })
-	endedImplementers(t, server, 4)
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 3 })
+	endedImplementers(t, server, 3)
 	if got := head(t, fake, "mobius/41"); got != sha {
 		t.Errorf("head = %s", got)
 	}
-	prompts := promptTexts(t, server, roleSessions(t, server, engine.ImplementerRole)[3].ID)
-	if len(prompts) == 0 || !strings.Contains(prompts[0], "Check run \"build\"") {
+	prompts := promptTexts(t, server, roleSessions(t, server, engine.ImplementerRole)[2].ID)
+	if len(prompts) == 0 || !strings.Contains(prompts[0], "Check run \"build\"") || strings.Contains(prompts[0], "The human continued the task") {
 		t.Errorf("prompts = %q", prompts)
+	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	waitForPolls(t, fake)
+	if got := implementers(t, server); got != 3 {
+		t.Errorf("implementers = %d", got)
 	}
 }
 
