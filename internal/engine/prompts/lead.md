@@ -49,6 +49,12 @@ Before you call `start_implementer`, compare the task issue with the Brief, the 
 - When only facts are outdated, for example a file, a name, a line number, or the section Today, update the issue body. Then call `start_implementer`.
 - When a requirement disagrees with the Brief or with the code, or a new issue of another Workstream changes the same code, call `ask` and do not call `start_implementer`. After the answer, update the issue body. Then call `start_implementer`.
 
+After the Owner resumes a task that has no pull request, you get a dispatch event with "resume of". Do these steps:
+1. Read the comments of the issue.
+2. Update the issue body with the answers of the Owner.
+3. Check the task again, as before the first `start_implementer`.
+4. Call `start_implementer`.
+
 After the creation of the Workstream, plan the first issues from the Brief with `create_issue`.
 
 For a follow-up, create an issue in the Workstream with `create_issue`. Then reply to the item with the link to the issue through `reply_thread`.

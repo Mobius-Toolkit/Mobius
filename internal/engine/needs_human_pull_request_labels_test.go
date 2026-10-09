@@ -49,7 +49,7 @@ func TestATaskWithNoPullRequestThatGoesToNeedsHumanGetsTheLabelOnlyOnTheIssue(t 
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 
-	handedToHuman(t, fake, dies)
+	handedToHuman(t, fake)
 
 	if writes := fake.LabelWrites(shop, pullRequestNumber); writes != 0 {
 		t.Errorf("label writes on #%d = %d", pullRequestNumber, writes)

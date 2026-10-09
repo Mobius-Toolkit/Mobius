@@ -7,6 +7,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
@@ -55,7 +57,7 @@ func TestAPollRemovesTheWorkingAndReviewLabelsOfATaskInNeedsHuman(t *testing.T) 
 func TestAPollWritesNoLabelOfATaskInNeedsHumanWithTheRightLabels(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := handedToHuman(t, fake, dies)
+	server := handedToHuman(t, fake)
 	waitForPolls(t, fake)
 	writes := fake.LabelWrites(shop, 41)
 
@@ -72,21 +74,25 @@ func TestAPollWritesNoLabelOfATaskInNeedsHumanWithTheRightLabels(t *testing.T) {
 func TestAPollKeepsTheNeedsHumanLabelOffATaskInNeedsHumanWithTheReadyLabel(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	goFile := filepath.Join(t.TempDir(), "go")
-	server := handedToHuman(t, fake, fmt.Sprintf("[[prompts]]\nshell = \"if [ -e '%s' ]; then %s; else kill -9 $PPID; sleep 5; fi\"\n", goFile, commitShell))
-	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	// The prompt of a new session has the earlier events in its history, so the rule of the newest event comes first.
+	lead := "[[prompts]]\nwhen = \"resume of #41\"\nreply = [\"I check the task.\"]\n\n" + leadStarts
+	server, _ := connectTask(t, fake, lead, dies, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	implementers := len(roleSessions(t, server, engine.ImplementerRole))
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
-	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 && !hasLabel(fake, "mobius:ready") })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" && !hasLabel(fake, "mobius:ready") })
 	waitForPolls(t, fake)
-	if labels := fake.Labels(shop, 41); hasLabel(fake, "mobius:needs-human") || !hasLabel(fake, "mobius:working") {
-		t.Errorf("labels = %v", labels)
+	if hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
-	if state := taskState(t, server); state == "needs_human" {
-		t.Errorf("state = %s", state)
+	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 0 {
+		t.Errorf("pull requests = %+v", pullRequests)
+	}
+	if got := len(roleSessions(t, server, engine.ImplementerRole)); got != implementers {
+		t.Errorf("Implementers = %d, want %d", got, implementers)
 	}
 }
