@@ -65,7 +65,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				"Start an Implementer for a dispatched task. The Implementer sees only the Brief, the issue, and your instructions. Mobius pushes its commits and opens a draft pull request. Returns at once.",
 				map[string]any{
 					"n":            map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"instructions": map[string]any{"type": "string", "minLength": 1, "description": "The goal, the limits, and what \"done\" means."},
+					"instructions": map[string]any{"type": "string", "minLength": 1, "description": "Notes for the Implementer, for example the files to read first. The issue body has all the requirements. Do not add a requirement here."},
 				},
 				e.startImplementerTool),
 			tool(e, c, "start_fix_round",
