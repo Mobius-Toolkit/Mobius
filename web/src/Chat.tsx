@@ -62,9 +62,22 @@ function NeedsHumanList({
               PR #{issue.pullRequest}
             </a>
           )}
-          <Button size="sm" pending={pending.includes(issue.number)} onClick={() => resume(issue)}>
-            Resume
-          </Button>
+          {issue.question && (
+            <Button size="sm" asChild>
+              <a href={issue.url} target="_blank" rel="noreferrer">
+                Answer
+              </a>
+            </Button>
+          )}
+          {issue.stopped && (
+            <Button
+              size="sm"
+              pending={pending.includes(issue.number)}
+              onClick={() => resume(issue)}
+            >
+              Resume
+            </Button>
+          )}
           {issue.reason && <p className="w-full text-sm text-muted-foreground">{issue.reason}</p>}
         </div>
       ))}

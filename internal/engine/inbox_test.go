@@ -76,7 +76,7 @@ reply = ["Seen"]
 	if got := fake.Comments(shop, 41); !slices.Equal(got, []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: "Cents or dollars?"}}) {
 		t.Errorf("comments = %v", got)
 	}
-	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:working", "mobius:needs-human"}) {
+	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:working", "mobius:question"}) {
 		t.Errorf("labels = %v", got)
 	}
 	items := inbox(t, server)

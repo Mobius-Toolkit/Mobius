@@ -522,7 +522,7 @@ export interface EnvelopeArrayMemoryVersion {
 }
 
 /**
- * NeedsHuman is an open task issue with mobius:needs-human.
+ * NeedsHuman is an open task issue with mobius:needs-human or mobius:question.
  */
 export interface NeedsHuman {
   /** Number is the number of the issue */
@@ -537,10 +537,14 @@ export interface NeedsHuman {
      * @nullable
      */
   pullRequestUrl: string | null;
+  /** Question is true when the issue has mobius:question: the Lead waits for an answer */
+  question: boolean;
   /** Reason is the text of the newest stop of the task, or an empty string */
   reason: string;
   /** Repository is the repository as "owner/name" */
   repository: string;
+  /** Stopped is true when the issue has mobius:needs-human: the task stopped */
+  stopped: boolean;
   /** Title is the title of the issue */
   title: string;
   /** URL is the GitHub URL of the issue */
@@ -2705,7 +2709,7 @@ export const getListNeedsHumanUrl = () => {
 }
 
 /**
- * ListNeedsHuman returns the open issues of trusted authors with mobius:needs-human in the trees of all Workstreams, from the local copy of GitHub, by repository, Workstream and number.
+ * ListNeedsHuman returns the open issues of trusted authors with mobius:needs-human or mobius:question in the trees of all Workstreams, from the local copy of GitHub, by repository, Workstream and number.
  */
 export const listNeedsHuman = async ( ): Promise<listNeedsHumanResponse> => {
 

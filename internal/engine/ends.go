@@ -59,7 +59,8 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 //   - A removal of the label that the state needs by a person stops the task: mobius:review for a task in ready_for_review,
 //     and mobius:working for a task in another state. A Judge that runs from ready_for_review needs mobius:review, and a
 //     Judge that runs from needs_human needs no label.
-//   - A task in needs_human gets the labels that handToHuman sets (labelsOfNeedsHuman).
+//   - A task in needs_human gets the labels that handToHuman sets, and a live task in another state loses
+//     mobius:needs-human on its pull request (labelsOfNeedsHuman).
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
 //     conflict round. A failed check run of another App on its head gets a fix round.
 //   - Else a task in checks moves to approval when the CI of the head passed (onChecks).
@@ -95,7 +96,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	if task.State != "stopped" && task.State != "needs_human" && !judgeOfHuman && !hasLabel(issue, needed) {
 		return Work{}, false, e.labelRemoved(ctx, repository, task, issue, needed)
 	}
-	if err := e.labelsOfNeedsHuman(ctx, repository, task, issue); err != nil {
+	if err := e.labelsOfNeedsHuman(ctx, repository, task, issue, pullRequest, judgeOfHuman); err != nil {
 		return Work{}, false, err
 	}
 	if pullRequest == nil {
@@ -140,10 +141,17 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	return work, judged, err
 }
 
-// labelsOfNeedsHuman gives the issue of a task in needs_human the labels that handToHuman sets, and writes nothing when
-// the issue has them. A mobius:ready label waits for the dispatch, which resumes the task.
-func (e *Engine) labelsOfNeedsHuman(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue) error {
-	if task.State != "needs_human" || hasLabel(issue, readyLabel) {
+// labelsOfNeedsHuman gives the issue and the pull request of a task in needs_human the labels that handToHuman sets, and
+// writes nothing when they have them. A mobius:ready label waits for the dispatch, which resumes the task. The pull
+// request of a task in another state, except a task with the Judge of a human task, loses mobius:needs-human.
+func (e *Engine) labelsOfNeedsHuman(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, judgeOfHuman bool) error {
+	if task.State != "needs_human" {
+		if pullRequest == nil || judgeOfHuman || !hasPullRequestLabel(pullRequest, needsHumanLabel) {
+			return nil
+		}
+		return repository.RemoveLabel(ctx, task.PullRequest.Int64, needsHumanLabel)
+	}
+	if hasLabel(issue, readyLabel) {
 		return nil
 	}
 	for _, label := range []string{workingLabel, reviewLabel} {
@@ -153,10 +161,15 @@ func (e *Engine) labelsOfNeedsHuman(ctx context.Context, repository github.Repos
 			}
 		}
 	}
-	if hasLabel(issue, needsHumanLabel) {
+	if !hasLabel(issue, needsHumanLabel) {
+		if err := repository.AddLabel(ctx, task.Issue, needsHumanLabel); err != nil {
+			return err
+		}
+	}
+	if pullRequest == nil || hasPullRequestLabel(pullRequest, needsHumanLabel) {
 		return nil
 	}
-	return repository.AddLabel(ctx, task.Issue, needsHumanLabel)
+	return repository.AddLabel(ctx, task.PullRequest.Int64, needsHumanLabel)
 }
 
 // afterReview tells if the state is one of the states of a task whose Reviewer has no open finding: the task waits for
@@ -219,7 +232,10 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
-	if err := repository.RemoveLabel(ctx, task.Issue, needsHumanLabel); err != nil {
+	if err := removeNeedsHuman(ctx, repository, task); err != nil {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, task.Issue, questionLabel); err != nil {
 		return err
 	}
 	if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
@@ -277,7 +293,10 @@ func (e *Engine) endTask(ctx context.Context, repository github.Repository, task
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
-	if err := repository.RemoveLabel(ctx, task.Issue, needsHumanLabel); err != nil {
+	if err := removeNeedsHuman(ctx, repository, task); err != nil {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, task.Issue, questionLabel); err != nil {
 		return err
 	}
 	return repository.RemoveLabel(ctx, task.Issue, reviewLabel)

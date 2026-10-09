@@ -50,3 +50,8 @@ func (a *Agent) CannotDo() string {
 func ClaudeMemoryDir(home, leadDir string) string {
 	return claudeMemoryDir(home, leadDir)
 }
+
+// StopWorker ends the Worker goroutines of the task with no state change.
+func (e *Engine) StopWorker(task int64) {
+	e.stop(task)
+}

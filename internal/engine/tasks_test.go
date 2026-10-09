@@ -32,6 +32,8 @@ type needsHuman struct {
 	Number         int64   `json:"number"`
 	Title          string  `json:"title"`
 	URL            string  `json:"url"`
+	Stopped        bool    `json:"stopped"`
+	Question       bool    `json:"question"`
 	PullRequest    *int64  `json:"pullRequest"`
 	PullRequestURL *string `json:"pullRequestUrl"`
 	Reason         string  `json:"reason"`
@@ -209,6 +211,7 @@ func TestTheNeedsHumanListHasTheOpenIssuesWithTheLabelInTheTrees(t *testing.T) {
 	fake.AddSubIssue(shop, 41, 50)
 	fake.AddLabel(shop, 50, "mobius:working", "owner")
 	fake.AddLabel(shop, 50, "mobius:needs-human", "owner")
+	fake.AddLabel(shop, 50, "mobius:question", "owner")
 	fake.AddIssue(shop, 42, "Let customers change plans")
 	fake.AddSubIssue(shop, 12, 42)
 	fake.AddLabel(shop, 42, "mobius:working", "owner")
@@ -220,12 +223,16 @@ func TestTheNeedsHumanListHasTheOpenIssuesWithTheLabelInTheTrees(t *testing.T) {
 	fake.AddSubIssue(shop, 13, 44)
 	fake.SetAuthor(shop, 44, "mallory")
 	fake.AddLabel(shop, 44, "mobius:needs-human", "owner")
+	fake.AddIssue(shop, 51, "Cents or dollars?")
+	fake.AddSubIssue(shop, 12, 51)
+	fake.AddLabel(shop, 51, "mobius:question", "owner")
 
 	pullRequest := int64(45)
 	pullRequestURL := "https://github.com/owner/shop/pull/45"
 	want := []needsHuman{
-		{Repository: shop, Workstream: 12, Number: 41, Title: "Add plan model", URL: "https://github.com/owner/shop/issues/41", PullRequest: &pullRequest, PullRequestURL: &pullRequestURL},
-		{Repository: shop, Workstream: 12, Number: 50, Title: "Store the price in cents", URL: "https://github.com/owner/shop/issues/50"},
+		{Repository: shop, Workstream: 12, Number: 41, Title: "Add plan model", URL: "https://github.com/owner/shop/issues/41", Stopped: true, PullRequest: &pullRequest, PullRequestURL: &pullRequestURL},
+		{Repository: shop, Workstream: 12, Number: 50, Title: "Store the price in cents", URL: "https://github.com/owner/shop/issues/50", Stopped: true, Question: true},
+		{Repository: shop, Workstream: 12, Number: 51, Title: "Cents or dollars?", URL: "https://github.com/owner/shop/issues/51", Question: true},
 	}
 	var got []needsHuman
 	testkit.WaitFor(t, func() bool {
@@ -282,11 +289,12 @@ func TestTheNeedsHumanListHasTheReasonOfTheNewestStopOfTheIssue(t *testing.T) {
 	})
 }
 
-func TestResumeReplacesMobiusNeedsHumanWithMobiusReadyAsTheOwner(t *testing.T) {
+func TestResumeReplacesMobiusNeedsHumanWithMobiusReadyAsTheOwnerAndKeepsMobiusQuestion(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddLabel(shop, 41, "mobius:needs-human", testkit.AppSlug+"[bot]")
+	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
 	server := startCopied(t, fake)
 
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/resume", ""); status != http.StatusConflict {
@@ -298,7 +306,7 @@ func TestResumeReplacesMobiusNeedsHumanWithMobiusReadyAsTheOwner(t *testing.T) {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:ready"}) {
+	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:question", "mobius:ready"}) {
 		t.Errorf("labels = %v", got)
 	}
 	for _, label := range []string{"mobius:needs-human", "mobius:ready"} {
