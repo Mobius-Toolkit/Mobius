@@ -425,7 +425,7 @@ func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session
 
 const addTask = `-- name: AddTask :one
 INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES (?, ?, ?, 'dispatched', ?)
-RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review
+RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, conflict_head, ci_failed_head
 `
 
 type AddTaskParams struct {
@@ -463,6 +463,8 @@ func (q *Queries) AddTask(ctx context.Context, arg AddTaskParams) (Task, error) 
 		&i.CheckHead,
 		&i.ApprovedReview,
 		&i.RefusedReview,
+		&i.ConflictHead,
+		&i.CiFailedHead,
 	)
 	return i, err
 }
@@ -1069,7 +1071,7 @@ func (q *Queries) GetLastDoneCuratorStart(ctx context.Context, repository string
 }
 
 const getLiveTask = `-- name: GetLiveTask :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, conflict_head, ci_failed_head FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
 `
 
 type GetLiveTaskParams struct {
@@ -1100,12 +1102,14 @@ func (q *Queries) GetLiveTask(ctx context.Context, arg GetLiveTaskParams) (Task,
 		&i.CheckHead,
 		&i.ApprovedReview,
 		&i.RefusedReview,
+		&i.ConflictHead,
+		&i.CiFailedHead,
 	)
 	return i, err
 }
 
 const getLiveTaskByPullRequest = `-- name: GetLiveTaskByPullRequest :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, conflict_head, ci_failed_head FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
 `
 
 type GetLiveTaskByPullRequestParams struct {
@@ -1136,6 +1140,8 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 		&i.CheckHead,
 		&i.ApprovedReview,
 		&i.RefusedReview,
+		&i.ConflictHead,
+		&i.CiFailedHead,
 	)
 	return i, err
 }
@@ -2218,7 +2224,7 @@ func (q *Queries) ListLiveTaskRepositories(ctx context.Context) ([]string, error
 }
 
 const listLiveTasks = `-- name: ListLiveTasks :many
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, conflict_head, ci_failed_head FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
 `
 
 func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task, error) {
@@ -2250,6 +2256,8 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 			&i.CheckHead,
 			&i.ApprovedReview,
 			&i.RefusedReview,
+			&i.ConflictHead,
+			&i.CiFailedHead,
 		); err != nil {
 			return nil, err
 		}
@@ -3232,6 +3240,34 @@ type SetTaskCheckHeadParams struct {
 
 func (q *Queries) SetTaskCheckHead(ctx context.Context, arg SetTaskCheckHeadParams) error {
 	_, err := q.db.ExecContext(ctx, setTaskCheckHead, arg.CheckHead, arg.ID)
+	return err
+}
+
+const setTaskCiFailedHead = `-- name: SetTaskCiFailedHead :exec
+UPDATE tasks SET ci_failed_head = ? WHERE id = ?
+`
+
+type SetTaskCiFailedHeadParams struct {
+	CiFailedHead sql.NullString
+	ID           int64
+}
+
+func (q *Queries) SetTaskCiFailedHead(ctx context.Context, arg SetTaskCiFailedHeadParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskCiFailedHead, arg.CiFailedHead, arg.ID)
+	return err
+}
+
+const setTaskConflictHead = `-- name: SetTaskConflictHead :exec
+UPDATE tasks SET conflict_head = ? WHERE id = ?
+`
+
+type SetTaskConflictHeadParams struct {
+	ConflictHead sql.NullString
+	ID           int64
+}
+
+func (q *Queries) SetTaskConflictHead(ctx context.Context, arg SetTaskConflictHeadParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskConflictHead, arg.ConflictHead, arg.ID)
 	return err
 }
 

@@ -116,6 +116,7 @@ func TestAnApprovedPullRequestWithAMergeConflictInNeedsHumanMergesAfterTheConfli
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := seedWaiting(t, fake, "needs_human")
+	fake.SetCreatedAt(shop, 42, 0)
 	work := t.TempDir()
 	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
 	if err := os.WriteFile(filepath.Join(work, "plan.txt"), []byte("cents\n"), 0o600); err != nil {

@@ -285,6 +285,12 @@ UPDATE tasks SET fix_rounds = fix_rounds + 1 WHERE id = sqlc.arg(id) AND fix_rou
 -- name: SetTaskCheckHead :exec
 UPDATE tasks SET check_head = ? WHERE id = ?;
 
+-- name: SetTaskConflictHead :exec
+UPDATE tasks SET conflict_head = ? WHERE id = ?;
+
+-- name: SetTaskCiFailedHead :exec
+UPDATE tasks SET ci_failed_head = ? WHERE id = ?;
+
 -- name: AddReviewRound :exec
 UPDATE tasks SET review_rounds = review_rounds + 1 WHERE id = ?;
 

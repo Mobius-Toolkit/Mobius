@@ -121,6 +121,9 @@ func (e *Engine) handToHuman(ctx context.Context, task store.Task) (bool, error)
 	if moved == 0 {
 		return false, nil
 	}
+	if err := e.queries.SetTaskCiFailedHead(ctx, store.SetTaskCiFailedHeadParams{ID: task.ID}); err != nil {
+		return false, err
+	}
 	repository, err := e.repository(task.Repository)
 	if err != nil {
 		return false, err

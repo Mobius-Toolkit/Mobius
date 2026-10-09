@@ -60,7 +60,10 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 //     and mobius:working for a task in another state. A Judge that runs from ready_for_review needs mobius:review, and a
 //     Judge that runs from needs_human needs no label.
 //   - A task in needs_human gets the labels that handToHuman sets, and a live task in another state loses
-//     mobius:needs-human on its pull request (labelsOfNeedsHuman).
+//     mobius:needs-human on its pull request. A task in approval or ready_for_review also loses it on its issue
+//     (labelsOfNeedsHuman).
+//   - A task in needs_human continues with no Resume when its pull request has a merge conflict, or when the CI of the
+//     head that stopped it passes (continueNeedsHuman).
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
 //     conflict round. A failed check run of another App on its head gets a fix round.
 //   - Else a task in checks moves to approval when the CI of the head passed (onChecks).
@@ -107,6 +110,12 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	work := pullRequestWork(repository, pullRequest)
 	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest)
+	if task.State == "needs_human" {
+		var round bool
+		if task, round, err = e.continueNeedsHuman(ctx, repository, task, pullRequest, conflict); err != nil || round {
+			return work, round, err
+		}
+	}
 	switch {
 	case task.State == "queued" || task.State == "working":
 		return work, slices.Contains([]string{checkRoundWorker, conflictRoundWorker}, task.Worker.String), nil
@@ -143,10 +152,20 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 
 // labelsOfNeedsHuman gives the issue and the pull request of a task in needs_human the labels that handToHuman sets, and
 // writes nothing when they have them. A mobius:ready label waits for the dispatch, which resumes the task. The pull
-// request of a task in another state, except a task with the Judge of a human task, loses mobius:needs-human.
+// request of a task in another state, except a task with the Judge of a human task, loses mobius:needs-human. The
+// issue of such a task keeps the label until the task is in approval or ready_for_review, so the issue of a task that
+// continued after a stop shows the stop during its rounds.
 func (e *Engine) labelsOfNeedsHuman(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, judgeOfHuman bool) error {
 	if task.State != "needs_human" {
-		if pullRequest == nil || judgeOfHuman || !hasPullRequestLabel(pullRequest, needsHumanLabel) {
+		if judgeOfHuman {
+			return nil
+		}
+		if (task.State == "approval" || task.State == "ready_for_review") && hasLabel(issue, needsHumanLabel) {
+			if err := repository.RemoveLabel(ctx, task.Issue, needsHumanLabel); err != nil {
+				return err
+			}
+		}
+		if pullRequest == nil || !hasPullRequestLabel(pullRequest, needsHumanLabel) {
 			return nil
 		}
 		return repository.RemoveLabel(ctx, task.PullRequest.Int64, needsHumanLabel)
@@ -170,6 +189,45 @@ func (e *Engine) labelsOfNeedsHuman(ctx context.Context, repository github.Repos
 		return nil
 	}
 	return repository.AddLabel(ctx, task.PullRequest.Int64, needsHumanLabel)
+}
+
+// continueNeedsHuman continues the task in needs_human with no Resume, and gives the task in its new state, and true
+// when a conflict round started. Counters stay as they are.
+//   - A pull request with a merge conflict, or behind its base, gets a conflict round. A head gets one automatic round
+//     (conflict_head), so a round that fails does not start again on each poll. A pull request older than stale_pr_age
+//     gets no round, and no new event or Inbox item.
+//   - A pull request with no conflict, whose CI failed on its head (ci_failed_head) and passes now on the same head,
+//     moves to checks. The review of the head was clean before the stop. A task that stopped for another reason, for
+//     example the round limit, stays.
+//
+// The issue keeps mobius:needs-human, so labelsOfNeedsHuman removes it when the task is in approval.
+func (e *Engine) continueNeedsHuman(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, conflict bool) (store.Task, bool, error) {
+	head := pullRequest.GetHead().GetSHA()
+	if conflict {
+		if task.ConflictHead.String == head || time.Since(pullRequest.GetCreatedAt().Time) > e.config.StalePRAge {
+			return task, false, nil
+		}
+		if err := repository.AddLabel(ctx, task.Issue, workingLabel); err != nil {
+			return task, false, err
+		}
+		return task, true, e.conflictRound(ctx, repository, task, pullRequest)
+	}
+	if task.CiFailedHead.String != head || pullRequest.Mergeable == nil {
+		return task, false, nil
+	}
+	state, err := ciOf(ctx, repository, head)
+	if err != nil || state.failedCheck || state.failedWorkflow || state.running || state.absent {
+		return task, false, err
+	}
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "needs_human"})
+	if err != nil || moved == 0 {
+		return task, false, err
+	}
+	task.State = "checks"
+	if err := repository.AddLabel(ctx, task.Issue, workingLabel); err != nil {
+		return task, false, err
+	}
+	return task, false, removeNeedsHuman(ctx, repository, task)
 }
 
 // afterReview tells if the state is one of the states of a task whose Reviewer has no open finding: the task waits for

@@ -165,10 +165,15 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
 }
 
-// ciFailed hands the task in checks to a human, with a failed Mobius check and a stop event for the Lead.
+// ciFailed hands the task in checks to a human, with a failed Mobius check and a stop event for the Lead. The task
+// keeps the head in ci_failed_head, so that continueNeedsHuman can tell this stop from another stop.
 func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
 	handed, err := e.handToHuman(ctx, task)
 	if err != nil || !handed {
+		return err
+	}
+	head := sql.NullString{String: pullRequest.GetHead().GetSHA(), Valid: true}
+	if err := e.queries.SetTaskCiFailedHead(ctx, store.SetTaskCiFailedHeadParams{CiFailedHead: head, ID: task.ID}); err != nil {
 		return err
 	}
 	issue, err := existingIssue(ctx, repository, task.Issue)

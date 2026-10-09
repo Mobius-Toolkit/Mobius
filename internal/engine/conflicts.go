@@ -33,6 +33,9 @@ func (e *Engine) stale(ctx context.Context, repository github.Repository, task s
 	if err != nil || moved == 0 {
 		return err
 	}
+	if err := e.queries.SetTaskCiFailedHead(ctx, store.SetTaskCiFailedHeadParams{ID: task.ID}); err != nil {
+		return err
+	}
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
