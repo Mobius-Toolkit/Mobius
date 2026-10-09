@@ -649,14 +649,14 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
     if (size) {
       await page.setViewportSize(size);
     }
-    // A live task waits for a slot, or its agent works.
+    // A live task waits for a slot, or its agent works, or it waits for the Lead to start an Implementer.
     const live = async (number: number) => {
       const tasks = await get<{ number: number; state: string }[]>(
         page,
         `/api/workstreams/plants/garden/${workstream}/tasks`,
       );
       const state = tasks.find((task) => task.number === number)?.state;
-      return state === "queued" || state === "working";
+      return state === "queued" || state === "working" || state === "waits for start_implementer";
     };
     await page.goto(`/workstreams/plants/garden/${workstream}`);
     const resume = main.getByRole("button", { name: "Resume" });
