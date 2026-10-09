@@ -43,12 +43,12 @@ function NeedsHumanList({
         </Badge>
       )}
       {issues.map((issue) => (
-        <div key={issue.number} className="flex items-center gap-3">
+        <div key={issue.number} className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <a
             href={issue.url}
             target="_blank"
             rel="noreferrer"
-            className="grow text-primary underline-offset-4 hover:underline"
+            className="min-w-0 flex-1 text-primary underline-offset-4 hover:underline"
           >
             #{issue.number} {issue.title}
           </a>
@@ -78,6 +78,7 @@ function NeedsHumanList({
               Resume
             </Button>
           )}
+          {issue.reason && <p className="w-full text-sm text-muted-foreground">{issue.reason}</p>}
         </div>
       ))}
     </div>

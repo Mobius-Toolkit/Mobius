@@ -4149,6 +4149,10 @@
             "type": "boolean",
             "description": "Question is true when the issue has mobius:question: the Lead waits for an answer"
           },
+          "reason": {
+            "type": "string",
+            "description": "Reason is the text of the newest stop of the task when Stopped is true, or an empty string"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository as \"owner/name\""
@@ -4179,7 +4183,8 @@
           "stopped",
           "question",
           "pullRequest",
-          "pullRequestUrl"
+          "pullRequestUrl",
+          "reason"
         ],
         "description": "NeedsHuman is an open task issue with mobius:needs-human or mobius:question."
       },

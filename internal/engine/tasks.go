@@ -271,6 +271,8 @@ type NeedsHuman struct {
 	// PullRequest is the pull request of the live task of the issue, or 0.
 	PullRequest    int64
 	PullRequestURL string
+	// Reason is the text of the newest stop of the issue when Stopped is true, or empty.
+	Reason string
 }
 
 // NeedsHuman gives the open issues of trusted authors with mobius:needs-human or mobius:question in the trees of the
@@ -295,6 +297,13 @@ func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
 			issue.PullRequest = task.PullRequest.Int64
 			// The web URL of a pull request differs from the web URL of its issue only in the path.
 			issue.PullRequestURL = strings.TrimSuffix(row.HtmlUrl, fmt.Sprintf("/issues/%d", row.Number)) + fmt.Sprintf("/pull/%d", task.PullRequest.Int64)
+		}
+		if issue.Stopped {
+			reason, err := e.queries.GetNewestStopText(ctx, store.GetNewestStopTextParams{Repository: row.Repository, Issue: sql.NullInt64{Int64: row.Number, Valid: true}})
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return nil, err
+			}
+			issue.Reason = reason
 		}
 		issues = append(issues, issue)
 	}

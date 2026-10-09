@@ -539,6 +539,8 @@ export interface NeedsHuman {
   pullRequestUrl: string | null;
   /** Question is true when the issue has mobius:question: the Lead waits for an answer */
   question: boolean;
+  /** Reason is the text of the newest stop of the task when Stopped is true, or an empty string */
+  reason: string;
   /** Repository is the repository as "owner/name" */
   repository: string;
   /** Stopped is true when the issue has mobius:needs-human: the task stopped */
