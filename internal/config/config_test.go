@@ -64,7 +64,7 @@ func TestParseGivesTheDefaults(t *testing.T) {
 		{"check_timeout", config.CheckTimeout, 15 * time.Minute},
 		{"review_quiet_period", config.ReviewQuietPeriod, 10 * time.Minute},
 		{"stale_pr_age", config.StalePRAge, 7 * 24 * time.Hour},
-		{"lead_idle_timeout", config.LeadIdleTimeout, time.Hour},
+		{"lead_idle_timeout", config.LeadIdleTimeout, 50 * time.Minute},
 		{"poll_interval", config.PollInterval, 30 * time.Second},
 		{"housekeeper_interval", config.HousekeeperInterval, time.Hour},
 		{"roles.researcher.harness", config.Roles.Researcher.Harness, Antigravity},

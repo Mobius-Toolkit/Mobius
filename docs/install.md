@@ -156,7 +156,7 @@ You can add these keys:
 | `check_timeout` | `"15m"` | The time limit of one local check |
 | `review_quiet_period` | `"10m"` | The Judge starts when the reviews of a pull request have no change for this time |
 | `stale_pr_age` | `"168h"` | A pull request with a conflict that is older than this time gets no conflict round |
-| `lead_idle_timeout` | `"1h"` | A Lead session with no new message or event ends after this time |
+| `lead_idle_timeout` | `"50m"` | A Lead session with no new message or event ends after this time |
 | `poll_interval` | `"30s"` | The time between two polls of GitHub |
 | `housekeeper_interval` | `"1h"` | The time between two runs of the Housekeeper |
 
