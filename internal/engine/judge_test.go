@@ -101,7 +101,7 @@ func TestTheJudgeRoutesOneItemOfEachVerdict(t *testing.T) {
 	}
 	for _, part := range []string{
 		"You are the Judge",
-		"# Issue\n\n#41 Add plan model\n\nPlans have a price.\n",
+		"# Brief\n\nShip loyalty plans to all shops.\n\n# Issue\n\n#41 Add plan model\n\nPlans have a price.\n",
 		"# Items\n",
 		"Thread 2, src/plan.rs line 12:\n\n@owner, ",
 		"Thread 4, src/plan.rs line 12:",
