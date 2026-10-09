@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -117,7 +118,9 @@ type FakeGitHub struct {
 	holds           map[issueKey]*hold
 	threadHolds     map[issueKey][]*hold
 	issueHolds      map[issueKey]*hold
-	pullRequests    []pullRequest
+	// hangs holds the route patterns whose next request gets no answer.
+	hangs        map[string]bool
+	pullRequests []pullRequest
 	// createdAt holds the creation time of each pull request, in seconds after the Unix epoch.
 	createdAt map[issueKey]int64
 	behind    map[issueKey]bool
@@ -190,6 +193,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		holds:                   map[issueKey]*hold{},
 		threadHolds:             map[issueKey][]*hold{},
 		issueHolds:              map[issueKey]*hold{},
+		hangs:                   map[string]bool{},
 		createdAt:               map[issueKey]int64{},
 		behind:                  map[issueKey]bool{},
 		mergeRefusals:           map[issueKey]string{},
@@ -198,7 +202,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		checkRunApps:            map[int64]string{},
 		jobLogs:                 map[int64]string{},
 	}
-	server := httptest.NewServer(g.routes())
+	server := httptest.NewServer(g.hanging(g.routes()))
 	t.Cleanup(server.Close)
 	g.URL = server.URL
 	return g
@@ -258,6 +262,31 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/compare/{basehead}", g.compare)
 	mux.HandleFunc("GET /{owner}/{repo}/releases/download/{tag}/{name}", g.downloadReleaseFile)
 	return mux
+}
+
+// HangNext makes the next request to the route pattern, for example "POST /repos/{owner}/{repo}/pulls", wait until the
+// request ends.
+func (g *FakeGitHub) HangNext(pattern string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.hangs[pattern] = true
+}
+
+func (g *FakeGitHub) hanging(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, pattern := mux.Handler(r)
+		g.mu.Lock()
+		hang := g.hangs[pattern]
+		delete(g.hangs, pattern)
+		g.mu.Unlock()
+		if hang {
+			// The server sees the end of the connection only after the handler reads the whole body.
+			_, _ = io.Copy(io.Discard, r.Body)
+			<-r.Context().Done()
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 // Now gives the time of the last write.

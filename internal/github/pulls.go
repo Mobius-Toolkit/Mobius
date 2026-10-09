@@ -118,7 +118,7 @@ func (r Repository) JobLog(ctx context.Context, id int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	response, err := http.DefaultClient.Do(request)
+	response, err := (&http.Client{Timeout: Timeout}).Do(request)
 	if err != nil {
 		return "", err
 	}
