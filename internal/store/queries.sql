@@ -414,12 +414,18 @@ SELECT position, name FROM copied_issue_labels WHERE repository = ? AND workstre
 SELECT position, number, blocker_workstream, blocker_workstream_title FROM copied_blockers
 WHERE repository = ? AND workstream = ? ORDER BY position, number;
 
--- name: ListCopiedIssuesWithLabel :many
-SELECT i.repository, i.workstream, i.number, i.title, i.state, i.author, i.html_url, i.repository_url FROM copied_issues i
-WHERE EXISTS (
-    SELECT 1 FROM copied_issue_labels l
-    WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(name)
-)
+-- name: ListCopiedIssuesWithLabels :many
+SELECT i.repository, i.workstream, i.number, i.title, i.state, i.author, i.html_url, i.repository_url,
+    EXISTS (
+        SELECT 1 FROM copied_issue_labels l
+        WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(needs_human)
+    ) AS has_needs_human,
+    EXISTS (
+        SELECT 1 FROM copied_issue_labels l
+        WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(question)
+    ) AS has_question
+FROM copied_issues i
+WHERE has_needs_human OR has_question
 ORDER BY i.repository, i.workstream, i.number;
 
 -- name: AddMemoryVersion :exec

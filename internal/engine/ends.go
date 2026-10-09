@@ -235,6 +235,9 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 	if err := removeNeedsHuman(ctx, repository, task); err != nil {
 		return err
 	}
+	if err := repository.RemoveLabel(ctx, task.Issue, questionLabel); err != nil {
+		return err
+	}
 	if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
 		return err
 	}
@@ -291,6 +294,9 @@ func (e *Engine) endTask(ctx context.Context, repository github.Repository, task
 		return err
 	}
 	if err := removeNeedsHuman(ctx, repository, task); err != nil {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, task.Issue, questionLabel); err != nil {
 		return err
 	}
 	return repository.RemoveLabel(ctx, task.Issue, reviewLabel)

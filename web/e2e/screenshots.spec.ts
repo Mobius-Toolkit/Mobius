@@ -159,6 +159,7 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain),
     main.getByText("#42 and #45 wait for your decision."),
     main.getByRole("link", { name: "PR #44" }),
+    main.getByRole("link", { name: "Answer" }),
     ...(device === "desktop"
       ? [page.getByRole("complementary").getByText("Lead chat session").first()]
       : []),
