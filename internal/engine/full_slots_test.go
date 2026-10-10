@@ -19,7 +19,7 @@ func fullSlotsServer(t *testing.T, numbers ...int64) (*testkit.FakeGitHub, *test
 	fake := testkit.NewFakeGitHub(t)
 	prepareAutopilot(fake, true)
 	addTaskIssue(fake, 41, "Add plan model")
-	server := startAutopilot(t, fake, func(cfg *config.Config) { cfg.MaxAgents = 1 }, "")
+	server := startAutopilot(t, fake, func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 }, "")
 	liveTaskOf(t, server, 41)
 	for _, number := range numbers {
 		addTaskIssue(fake, number, "Add plan price")

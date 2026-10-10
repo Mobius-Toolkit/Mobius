@@ -147,56 +147,18 @@ func TestASecondImplementerWaitsForTheImplementerLimitWhileAResearcherStarts(t *
 	}
 }
 
-func TestAJudgeWaitsForTheGlobalLimitBehindARunningImplementer(t *testing.T) {
+func TestAResearcherStartsWhileTheImplementerSlotsAreFull(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "", func(cfg *config.Config) {
-		cfg.MaxAgents = 1
-		cfg.Roles.Judge.CountsInMaxAgents = true
-	})
-	implementer := start(t, server, implementerSpec(t, server, fake, 41))
-	judge := startLater(t.Context(), server, roleSpec(t, engine.JudgeRole))
-
-	waiting := queued(t, server, engine.JudgeRole)
-
-	if waiting.QueueReason.String != "no free agent slot (1/1)" {
-		t.Errorf("queue reason = %q", waiting.QueueReason.String)
-	}
-	end(t, implementer, "stopped")
-	agent := await(t, judge)
-	defer end(t, agent, "done")
-	startsAfter(t, session(t, server, agent.ID()), session(t, server, implementer.ID()))
-}
-
-func TestAJudgeStartsWhileTheGlobalLimitIsFull(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxAgents = 1 })
+	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
 	implementer := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, implementer, "stopped")
 
-	judge := start(t, server, roleSpec(t, engine.JudgeRole))
+	researcher := start(t, server, roleSpec(t, engine.ResearcherRole))
 
-	end(t, judge, "done")
-	if got := session(t, server, judge.ID()); got.QueueReason.Valid || got.EndReason.String != "done" {
-		t.Errorf("judge = %+v", got)
-	}
-}
-
-func TestALeadAndATriagerStartWhileTheGlobalLimitIsFull(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxAgents = 1 })
-	implementer := start(t, server, implementerSpec(t, server, fake, 41))
-	defer end(t, implementer, "stopped")
-
-	lead := start(t, server, leadSpec(t))
-	triager := start(t, server, engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()})
-
-	end(t, lead, "idle")
-	end(t, triager, "done")
-	if got := session(t, server, lead.ID()); got.QueueReason.Valid {
-		t.Errorf("lead = %+v", got)
+	end(t, researcher, "done")
+	if got := session(t, server, researcher.ID()); got.QueueReason.Valid || got.EndReason.String != "done" {
+		t.Errorf("researcher = %+v", got)
 	}
 }
 

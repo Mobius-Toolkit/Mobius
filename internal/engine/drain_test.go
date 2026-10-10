@@ -116,7 +116,7 @@ func waitForDrain(t *testing.T, states <-chan drainState, state drainState) {
 func TestTheDrainHoldsNewWorkersWaitsForTheRunningSessionsAndACancelReleasesThem(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "[[prompts]]\nhang = true\n", func(cfg *config.Config) { cfg.MaxAgents = 1 })
+	server, _ := connectWith(t, fake, "[[prompts]]\nhang = true\n", func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
 	states := drainEvents(t, server)
 	implementer := start(t, server, implementerSpec(t, server, fake, 41))
 	go func() { _ = implementer.Prompt(t.Context(), "Store plans in cents.", nil) }()

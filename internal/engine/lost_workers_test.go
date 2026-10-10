@@ -68,12 +68,12 @@ func TestAWorkingTaskThatLostItsWorkerGetsANewWorkerAndTheRestartCounts(t *testi
 func TestAQueuedTaskThatLostItsWorkerGetsANewWorkerAndATaskInTheQueueDoesNotRestart(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server := connectLost(t, fake, func(cfg *config.Config) { cfg.MaxAgents = 1 }, func(dataDir string) {
+	server := connectLost(t, fake, func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 }, func(dataDir string) {
 		seedWorkerTask(t, fake, dataDir, 1, 41, "working")
 		seedWorkerTask(t, fake, dataDir, 2, 43, "queued")
 	})
 	waiting := queued(t, server, engine.ImplementerRole)
-	if waiting.QueueReason.String != "no free agent slot (1/1)" {
+	if waiting.QueueReason.String != "no free implementer slot (1/1)" {
 		t.Fatalf("queue reason = %q", waiting.QueueReason.String)
 	}
 
