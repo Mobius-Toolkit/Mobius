@@ -2252,6 +2252,37 @@ test("the chat shows one separator before the first message of each day", async 
   await expect(main.getByRole("separator", { name: "Mon, Sep 28" })).toHaveText("Mon, Sep 28");
 });
 
+test.describe("a time zone east of UTC", () => {
+  test.use({ timezoneId: "Europe/Warsaw" });
+
+  test("the chat shows the UTC times of a Mobius text in the local time", async ({ page }) => {
+    await page.route("**/api/chat?*", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { data: { messages: unknown[] } };
+      body.data.messages = [
+        {
+          id: 1,
+          author: "Event",
+          text: "2026-09-28 09:30 UTC stop of #42\n\nSince 2026-09-28 23:45 UTC the check fails. Keep 09:30 UTC.",
+          time: "2026-09-28T09:30:00Z",
+          images: 0,
+          organization: "owner",
+          repository: "owner/shop",
+          workstream: 12,
+        },
+      ];
+      await route.fulfill({ response, json: body });
+    });
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    await expect(main.getByText("Sep 28, 11:30 AM stop of #42")).toBeVisible();
+    await main.getByText("Sep 28, 11:30 AM stop of #42").click();
+    await expect(
+      main.getByText("Since Sep 29, 01:45 AM the check fails. Keep 09:30 UTC."),
+    ).toBeVisible();
+  });
+});
+
 async function longHistory(page: Page) {
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();

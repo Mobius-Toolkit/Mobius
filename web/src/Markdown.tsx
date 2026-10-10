@@ -1,4 +1,5 @@
 import MarkdownToJSX from "markdown-to-jsx/react";
+import { localTimes } from "@/lib/time";
 import { Fragment, type ComponentProps } from "react";
 
 function Link(props: ComponentProps<"a">) {
@@ -32,7 +33,7 @@ export function Markdown({ text }: { text: string }) {
           overrides: { a: Link, img: Image },
         }}
       >
-        {text}
+        {localTimes(text)}
       </MarkdownToJSX>
     </div>
   );

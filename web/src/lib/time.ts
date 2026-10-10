@@ -41,3 +41,9 @@ export function dayLabel(time: string) {
     year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
   });
 }
+
+const utcTime = /(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC/g;
+
+export function localTimes(text: string) {
+  return text.replace(utcTime, (_, date: string, time: string) => dayClock(`${date}T${time}:00Z`));
+}

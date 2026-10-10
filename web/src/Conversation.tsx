@@ -41,7 +41,7 @@ import { fitImage, maxImages } from "@/lib/images";
 import { LoginContext } from "@/lib/login";
 import { addQueued, listQueued, postQueued, removeQueued, type Queued } from "@/lib/outbox";
 import { atEnd } from "@/lib/scroll";
-import { clock, clockSeconds, dayLabel } from "@/lib/time";
+import { clock, clockSeconds, dayLabel, localTimes } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
 import { useVoice } from "@/lib/voice";
@@ -97,7 +97,7 @@ const Message = memo(function Message({ message }: { message: ChatMessage }) {
         <Collapsible>
           <CollapsibleTrigger className="group flex w-full min-w-0 items-start gap-1 text-left break-words">
             <ChevronRightIcon className="mt-0.5 size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-            <span className="min-w-0">{summary}</span>
+            <span className="min-w-0">{localTimes(summary)}</span>
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-2">
             <Markdown text={body} />
