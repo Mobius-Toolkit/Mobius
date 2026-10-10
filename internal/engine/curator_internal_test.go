@@ -7,6 +7,7 @@ import (
 )
 
 func TestACuratorThatStartsAfterTheShutdownAddsNoSession(t *testing.T) {
+	t.Parallel()
 	e := researchEngine(t)
 	e.stopWorkers()
 
@@ -24,6 +25,7 @@ func TestACuratorThatStartsAfterTheShutdownAddsNoSession(t *testing.T) {
 }
 
 func TestARequestStaysInTheStoreWhenTheDrainIsSealedAtTheDeliveryOfTheResult(t *testing.T) {
+	t.Parallel()
 	e := researchEngine(t)
 	if _, err := e.queries.AddCuratorRequest(t.Context(), store.AddCuratorRequestParams{Repository: "owner/shop", Text: "Add the lesson."}); err != nil {
 		t.Fatal(err)

@@ -120,6 +120,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue."},
 				},
 				e.ask),
+			tool(e, c, "hold_task",
+				"Stop a dispatched task before its Implementer starts, because the task has a problem. The task waits for the Owner and holds no Worker slot. Mobius posts the reason as a comment, adds mobius:needs-human, and adds an Inbox item for the Owner. After the Owner resumes the task, you get a dispatch event again.",
+				map[string]any{
+					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"reason": map[string]any{"type": "string", "minLength": 1, "description": "The question or the explanation for the Owner."},
+				},
+				e.holdTask),
 			tool(e, c, "decline",
 				"Decline a task. Mobius posts the reason as a comment on the issue, removes mobius:working, and ends the task.",
 				map[string]any{

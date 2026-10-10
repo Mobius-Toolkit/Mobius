@@ -17,6 +17,7 @@ func labelEvent(event, label, actor string) *gh.IssueEvent {
 }
 
 func TestAutopilotOfATrustedUserCounts(t *testing.T) {
+	t.Parallel()
 	events := []*gh.IssueEvent{labelEvent("labeled", "mobius:autopilot", "Owner"), labelEvent("labeled", "bug", "mallory")}
 
 	if !trustingEngine().addedByTrustedUser(events) {
@@ -25,6 +26,7 @@ func TestAutopilotOfATrustedUserCounts(t *testing.T) {
 }
 
 func TestAutopilotOfABotTheMobiusAppOrAStrangerDoesNotCount(t *testing.T) {
+	t.Parallel()
 	for _, actor := range []string{"coderabbitai[bot]", "mobius-app[bot]", "mallory"} {
 		events := []*gh.IssueEvent{
 			labelEvent("labeled", "mobius:autopilot", "owner"),

@@ -92,6 +92,7 @@ func dismissed(t *testing.T, server *testserver.Server, item int64) bool {
 }
 
 func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimit)
 	changes := listen(t, server)
@@ -206,6 +207,7 @@ func count(t *testing.T, server *testserver.Server, query string) int {
 }
 
 func TestARetryThatHitsTheUsageLimitAgainUsesTheInboxItemAndTheChatMessageAgain(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimitTwice)
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
@@ -246,6 +248,7 @@ func TestARetryThatHitsTheUsageLimitAgainUsesTheInboxItemAndTheChatMessageAgain(
 }
 
 func TestARetryThatHitsTheUsageLimitAfterARestartUsesTheInboxItemAgain(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	until := time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
 	server, _ := connectWith(t, fake, usageLimit, func(cfg *config.Config) {
@@ -281,6 +284,7 @@ func TestARetryThatHitsTheUsageLimitAfterARestartUsesTheInboxItemAgain(t *testin
 }
 
 func TestAUsageLimitOfAnotherHarnessGetsItsOwnInboxItem(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, usageLimitOfTwoHarnesses, keepSessionOpen)
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
@@ -299,6 +303,7 @@ func TestAUsageLimitOfAnotherHarnessGetsItsOwnInboxItem(t *testing.T) {
 }
 
 func TestAPauseOfTheEarlierRunEndsAtItsTime(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	until := time.Now().Add(300 * time.Millisecond).UTC().Format(time.RFC3339Nano)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) {
@@ -316,6 +321,7 @@ func TestAPauseOfTheEarlierRunEndsAtItsTime(t *testing.T) {
 }
 
 func TestAUsageLimitOfTheImplementerHoldsThePullRequestUntilResume(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	limited := "[[prompts]]\nerror = { code = -32011, message = \"Rate limited\", data = { retryAfterSeconds = 3600 } }\n\n" + commits
 	server, _ := connectTask(t, fake, leadStarts, limited, noChange)
@@ -350,6 +356,7 @@ func TestAUsageLimitOfTheImplementerHoldsThePullRequestUntilResume(t *testing.T)
 }
 
 func TestASuccessfulPromptEndsThePauseOfItsHarness(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Done.\"]\n")
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
@@ -374,6 +381,7 @@ func TestASuccessfulPromptEndsThePauseOfItsHarness(t *testing.T) {
 }
 
 func TestASuccessfulPromptKeepsAPauseThatStartedDuringThePrompt(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	dir := t.TempDir()
 	started, release := filepath.Join(dir, "started"), filepath.Join(dir, "release")
@@ -406,6 +414,7 @@ func TestASuccessfulPromptKeepsAPauseThatStartedDuringThePrompt(t *testing.T) {
 }
 
 func TestAnEventForAPausedLeadGoesToThatLeadAfterThePause(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, claudeCodeLimit, keepSessionOpen)
 	sendChat(t, server, leadChat, "Plan the API")

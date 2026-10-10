@@ -13,6 +13,11 @@ var (
 	HangTimeout   = &hangTimeout
 	ErrHung       = errHung
 	AbsorbTimeout = &absorbTimeout
+	LoadAverage   = &loadAverage
+	CheckGap      = &checkGap
+	LoadPoll      = &loadPoll
+	LoadWaitEvent = &loadWaitEvent
+	Cores         = cores
 )
 
 // SetClock makes the long waits read the time from clock.

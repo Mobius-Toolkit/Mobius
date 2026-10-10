@@ -125,7 +125,7 @@ func Parse(text []byte) (*Config, error) {
 		CheckTimeout:        "15m",
 		ReviewQuietPeriod:   "10m",
 		StalePRAge:          "168h",
-		LeadIdleTimeout:     "1h",
+		LeadIdleTimeout:     "50m",
 		PollInterval:        "30s",
 		HousekeeperInterval: "1h",
 	}

@@ -59,6 +59,7 @@ func connectResearcher(t *testing.T, fake *testkit.FakeGitHub, lead, researcher 
 }
 
 func TestAReportOfTheResearcherGoesToTheLeadChat(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectResearch(t, fake, researchLead)
 
@@ -107,6 +108,7 @@ func TestAReportOfTheResearcherGoesToTheLeadChat(t *testing.T) {
 }
 
 func TestTheDrainRefusesANewResearcher(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectResearch(t, fake, researchLead)
 	if end := <-startDrain(t, server); end != "drained" {
@@ -189,6 +191,7 @@ func waitForResearchers(t *testing.T, server *testserver.Server, replies ...stri
 }
 
 func TestSendResearcherDetailsStopsTheTurnAndGivesTheReportOfTheNewTurn(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectResearcher(t, fake, researchLeadOfDetails, hangingResearcher)
 	sendChat(t, server, leadChat, "Begin alpha.")
@@ -220,6 +223,7 @@ func TestSendResearcherDetailsStopsTheTurnAndGivesTheReportOfTheNewTurn(t *testi
 }
 
 func TestStopResearcherStopsOneResearcherAndTheOtherGivesItsReport(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectResearcher(t, fake, researchLeadOfDetails, hangingResearcher)
 	sendChat(t, server, leadChat, "Begin alpha.")
@@ -253,6 +257,7 @@ func TestStopResearcherStopsOneResearcherAndTheOtherGivesItsReport(t *testing.T)
 }
 
 func TestTheResearcherToolsRefuseAResearcherOfAnotherWorkstream(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 20, "Add coupons")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
@@ -301,6 +306,7 @@ reply = ["Plans have a price.\n"]
 ` + hangingResearcher
 
 func TestDetailsForAResearcherThatWaitsForASlotGoToItsSecondPrompt(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectResearcher(t, fake, waitingResearcherLead, answeringGammaResearcher)
 	sendChat(t, server, leadChat, "Begin alpha.")

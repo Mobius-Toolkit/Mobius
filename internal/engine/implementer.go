@@ -924,8 +924,11 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job) (string, bool, err
 				return "", false, ctx.Err()
 			}
 		}
+		err := e.waitForLowLoad(ctx, a, j)
 		started := time.Now()
-		err := a.checkPhase(ctx, checkRunsReason, ".mobius/check started.")
+		if err == nil {
+			err = a.checkPhase(ctx, checkRunsReason, ".mobius/check started.")
+		}
 		var output string
 		var passed bool
 		if err == nil {

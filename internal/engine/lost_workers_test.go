@@ -46,6 +46,7 @@ func taskRestarts(t *testing.T, server *testserver.Server, number int64) int64 {
 }
 
 func TestAWorkingTaskThatLostItsWorkerGetsANewWorkerAndTheRestartCounts(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectLost(t, fake, noChange, func(dataDir string) { seedWorkerTask(t, fake, dataDir, 1, 41, "working") })
 	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ImplementerRole)) == 1 })
@@ -65,6 +66,7 @@ func TestAWorkingTaskThatLostItsWorkerGetsANewWorkerAndTheRestartCounts(t *testi
 }
 
 func TestAQueuedTaskThatLostItsWorkerGetsANewWorkerAndATaskInTheQueueDoesNotRestart(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectLost(t, fake, func(cfg *config.Config) { cfg.MaxAgents = 1 }, func(dataDir string) {
 		seedWorkerTask(t, fake, dataDir, 1, 41, "working")
@@ -98,6 +100,7 @@ func TestAQueuedTaskThatLostItsWorkerGetsANewWorkerAndATaskInTheQueueDoesNotRest
 }
 
 func TestATaskThatLosesItsWorkerAfterMaxWorkerRestartsGoesToAHuman(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectLost(t, fake, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 }, func(dataDir string) {
 		seedWorkerTask(t, fake, dataDir, 1, 41, "working")

@@ -68,6 +68,7 @@ func startWithLiveTask(t *testing.T, fake *testkit.FakeGitHub) *testserver.Serve
 }
 
 func TestACloseEndsTheTasksAndClosesThePullRequestsAndIssuesBelow(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addLiveTask(fake)
 	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
@@ -112,6 +113,7 @@ func TestACloseEndsTheTasksAndClosesThePullRequestsAndIssuesBelow(t *testing.T) 
 }
 
 func TestACompletionClosesTheWorkstreamAndEndsTheLiveTask(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addLiveTask(fake)
 	server := startWithLiveTask(t, fake)
@@ -140,6 +142,7 @@ func TestACompletionClosesTheWorkstreamAndEndsTheLiveTask(t *testing.T) {
 }
 
 func TestARemovalOfTheWorkstreamLabelEndsTheTasksAndClosesNothing(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addLiveTask(fake)
 	server := startWithLiveTask(t, fake)
@@ -156,6 +159,7 @@ func TestARemovalOfTheWorkstreamLabelEndsTheTasksAndClosesNothing(t *testing.T) 
 }
 
 func TestAReopenAddsAnEventForTheLeadAndReopensNoIssue(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	server := startCopied(t, fake)
@@ -202,6 +206,7 @@ func stoppedLead(t *testing.T, server *testserver.Server) {
 }
 
 func TestACloseStopsTheLeadAndKeepsItsDirectory(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := startWithLead(t, fake)
 
@@ -214,6 +219,7 @@ func TestACloseStopsTheLeadAndKeepsItsDirectory(t *testing.T) {
 }
 
 func TestACompletionStopsTheLead(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := startWithLead(t, fake)
 	fake.CloseIssue(shop, 41)
@@ -227,6 +233,7 @@ func TestACompletionStopsTheLead(t *testing.T) {
 }
 
 func TestAFailedCompletionKeepsTheLeadRunning(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := startWithLead(t, fake)
 	fake.CloseIssue(shop, 41)
@@ -245,6 +252,7 @@ func TestAFailedCompletionKeepsTheLeadRunning(t *testing.T) {
 }
 
 func TestAReopenStartsALeadWithTheEvent(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
 	fake.AddIssue(shop, 41, "Add plan model")
@@ -266,6 +274,7 @@ func TestAReopenStartsALeadWithTheEvent(t *testing.T) {
 }
 
 func TestACloseKeepsTheBranchOfTheClosedPullRequest(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
 	waitForApproval(t, server, fake)
@@ -284,6 +293,7 @@ func TestACloseKeepsTheBranchOfTheClosedPullRequest(t *testing.T) {
 }
 
 func TestARemovalOfTheWorkstreamLabelStopsTheRunningImplementer(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, hangs, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -306,6 +316,7 @@ func TestARemovalOfTheWorkstreamLabelStopsTheRunningImplementer(t *testing.T) {
 }
 
 func TestACompletionStopsTheRunningReviewer(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, "[[prompts]]\nwhen = \"You are the Reviewer\"\nhang = true\n\n"+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")

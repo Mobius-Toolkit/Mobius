@@ -32,6 +32,7 @@ curator     = { harness = "claude-code", model = "sonnet",  effort = "medium" }
 }
 
 func TestAnAgentWithFreeSlotsStarts(t *testing.T) {
+	t.Parallel()
 	running := map[string]int{ImplementerRole: 1}
 
 	if got := limitReason(limits(t), running, nil, ImplementerRole); got != "" {
@@ -40,6 +41,7 @@ func TestAnAgentWithFreeSlotsStarts(t *testing.T) {
 }
 
 func TestAFullRoleGivesItsCount(t *testing.T) {
+	t.Parallel()
 	running := map[string]int{ImplementerRole: 2}
 
 	if got := limitReason(limits(t), running, nil, ImplementerRole); got != "no free implementer slot (2/2)" {
@@ -48,6 +50,7 @@ func TestAFullRoleGivesItsCount(t *testing.T) {
 }
 
 func TestAFullGlobalLimitCountsTheCountedRoles(t *testing.T) {
+	t.Parallel()
 	running := map[string]int{ImplementerRole: 2, ReviewerRole: 2}
 
 	if got := limitReason(limits(t), running, nil, CuratorRole); got != "no free agent slot (4/4)" {
@@ -56,6 +59,7 @@ func TestAFullGlobalLimitCountsTheCountedRoles(t *testing.T) {
 }
 
 func TestTheLeadAndTheTriagerDoNotCountTowardTheGlobalLimit(t *testing.T) {
+	t.Parallel()
 	running := map[string]int{ImplementerRole: 2, ReviewerRole: 2}
 
 	for _, role := range []string{LeadRole, TriagerRole} {
@@ -66,6 +70,7 @@ func TestTheLeadAndTheTriagerDoNotCountTowardTheGlobalLimit(t *testing.T) {
 }
 
 func TestAFullLeadLimitBlocksALeadSession(t *testing.T) {
+	t.Parallel()
 	running := map[string]int{LeadRole: 8}
 
 	if got := limitReason(limits(t), running, nil, LeadRole); got != "no free lead slot (8/8)" {
@@ -74,6 +79,7 @@ func TestAFullLeadLimitBlocksALeadSession(t *testing.T) {
 }
 
 func TestAnEarlierAgentThatFitsTakesTheLastSlot(t *testing.T) {
+	t.Parallel()
 	running := map[string]int{ImplementerRole: 1}
 
 	if got := limitReason(limits(t), running, []string{ImplementerRole}, ImplementerRole); got != "no free implementer slot (2/2)" {
@@ -82,6 +88,7 @@ func TestAnEarlierAgentThatFitsTakesTheLastSlot(t *testing.T) {
 }
 
 func TestAnEarlierAgentOfAFullRoleDoesNotBlockALaterAgent(t *testing.T) {
+	t.Parallel()
 	running := map[string]int{ImplementerRole: 2}
 
 	if got := limitReason(limits(t), running, []string{ImplementerRole}, ReviewerRole); got != "" {
@@ -114,12 +121,14 @@ func order(work map[int64]Work, queue [][2]int64) []int64 {
 }
 
 func TestWithNoWorkTheQueueKeepsTheOrderOfTheTimeInTheQueue(t *testing.T) {
+	t.Parallel()
 	if got := order(nil, [][2]int64{{3, 10}, {1, 30}, {2, 20}}); !reflect.DeepEqual(got, []int64{3, 2, 1}) {
 		t.Errorf("order = %v", got)
 	}
 }
 
 func TestATaskWithWorkComesBeforeAnOlderTaskWithNoWork(t *testing.T) {
+	t.Parallel()
 	queue := [][2]int64{{1, 10}, {2, 20}, {3, 30}}
 
 	if got := order(map[int64]Work{2: work(7, 500)}, queue); !reflect.DeepEqual(got, []int64{2, 1, 3}) {
@@ -128,6 +137,7 @@ func TestATaskWithWorkComesBeforeAnOlderTaskWithNoWork(t *testing.T) {
 }
 
 func TestTasksWithWorkFollowTheCreationTimeOfTheirPullRequest(t *testing.T) {
+	t.Parallel()
 	queue := [][2]int64{{1, 10}, {2, 20}, {3, 30}}
 	tasksWithWork := map[int64]Work{1: work(7, 500), 2: work(8, 100), 3: work(9, 300)}
 
@@ -137,6 +147,7 @@ func TestTasksWithWorkFollowTheCreationTimeOfTheirPullRequest(t *testing.T) {
 }
 
 func TestAWaitingSessionWithNoTaskComesAfterEachTaskWithWork(t *testing.T) {
+	t.Parallel()
 	tasksWithWork := map[int64]Work{2: work(7, 500)}
 	session := waiterRank(waiter{at(5), 9})
 

@@ -13,6 +13,7 @@ import (
 )
 
 func TestAPollGivesATaskInNeedsHumanTheLabelsAfterAFailedHandToHuman(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	goFile := filepath.Join(t.TempDir(), "go")
 	server := startHandToHuman(t, fake, fmt.Sprintf("[[prompts]]\nshell = \"while [ ! -e '%s' ]; do sleep 0.1; done; kill -9 $PPID; sleep 5\"\n", goFile))
@@ -40,6 +41,7 @@ func TestAPollGivesATaskInNeedsHumanTheLabelsAfterAFailedHandToHuman(t *testing.
 }
 
 func TestAPollRemovesTheWorkingAndReviewLabelsOfATaskInNeedsHuman(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := seedWaiting(t, fake, "needs_human")
 	fake.AddLabel(shop, 41, "mobius:review", testkit.AppSlug+"[bot]")
@@ -53,6 +55,7 @@ func TestAPollRemovesTheWorkingAndReviewLabelsOfATaskInNeedsHuman(t *testing.T) 
 }
 
 func TestAPollWritesNoLabelOfATaskInNeedsHumanWithTheRightLabels(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := handedToHuman(t, fake)
 	waitForPolls(t, fake)
@@ -69,6 +72,7 @@ func TestAPollWritesNoLabelOfATaskInNeedsHumanWithTheRightLabels(t *testing.T) {
 }
 
 func TestAPollKeepsTheNeedsHumanLabelOffATaskInNeedsHumanWithTheReadyLabel(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	// The prompt of a new session has the earlier events in its history, so the rule of the newest event comes first.
 	lead := "[[prompts]]\nwhen = \"resume of #41\"\nreply = [\"I check the task.\"]\n\n" + leadStarts

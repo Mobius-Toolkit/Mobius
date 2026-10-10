@@ -206,6 +206,7 @@ func noWorkstreams(t *testing.T, changes <-chan engine.Change) {
 }
 
 func TestTheFullSyncCopiesTheOpenWorkstreams(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -226,6 +227,7 @@ func TestTheFullSyncCopiesTheOpenWorkstreams(t *testing.T) {
 }
 
 func TestTheFullSyncCopiesAutopilotOnlyFromATrustedUser(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	for number, actor := range map[int64]string{12: "owner", 13: "mallory"} {
 		fake.AddIssue(shop, number, "Workstream")
@@ -247,6 +249,7 @@ func TestTheFullSyncCopiesAutopilotOnlyFromATrustedUser(t *testing.T) {
 }
 
 func TestTheFullSyncCopiesTheNestedSubIssuesWithStateLabelsAndAuthor(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -286,6 +289,7 @@ func TestTheFullSyncCopiesTheNestedSubIssuesWithStateLabelsAndAuthor(t *testing.
 }
 
 func TestTheFullSyncCopiesTheOpenBlockersWithTheWorkstreamOfEachBlocker(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -322,6 +326,7 @@ func TestTheFullSyncCopiesTheOpenBlockersWithTheWorkstreamOfEachBlocker(t *testi
 }
 
 func TestTheFullSyncCopiesASubIssueOfAnotherRepositoryAsALeaf(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -355,6 +360,7 @@ func TestTheFullSyncCopiesASubIssueOfAnotherRepositoryAsALeaf(t *testing.T) {
 }
 
 func TestTheFullSyncForgetsTheRowsOfARepositoryThatIsNotPolled(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -375,6 +381,7 @@ func TestTheFullSyncForgetsTheRowsOfARepositoryThatIsNotPolled(t *testing.T) {
 }
 
 func TestANewIssueUnderAWorkstreamIsCopiedInTheWalkOrder(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 
@@ -384,6 +391,7 @@ func TestANewIssueUnderAWorkstreamIsCopiedInTheWalkOrder(t *testing.T) {
 }
 
 func TestANewIssueUnderANestedTaskIsCopiedBelowItsParent(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 	fake.AddSubIssueOf(shop, 12, 42, "Let customers change plans")
@@ -402,6 +410,7 @@ func TestANewIssueUnderANestedTaskIsCopiedBelowItsParent(t *testing.T) {
 }
 
 func TestANewLabelAndARemovedLabelChangeTheLabelsOfTheCopiedIssue(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 
@@ -416,6 +425,7 @@ func TestANewLabelAndARemovedLabelChangeTheLabelsOfTheCopiedIssue(t *testing.T) 
 }
 
 func TestAClosedIssueHasTheStateClosedInTheCopy(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 
@@ -425,6 +435,7 @@ func TestAClosedIssueHasTheStateClosedInTheCopy(t *testing.T) {
 }
 
 func TestANewTitleAndANewBodyChangeTheCopiedIssueAndTheCopiedWorkstream(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 
@@ -439,6 +450,7 @@ func TestANewTitleAndANewBodyChangeTheCopiedIssueAndTheCopiedWorkstream(t *testi
 }
 
 func TestANewWorkstreamIsCopiedWithItsTree(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 	fake.AddIssue(shop, 13, "Billing")
@@ -453,6 +465,7 @@ func TestANewWorkstreamIsCopiedWithItsTree(t *testing.T) {
 }
 
 func TestAClosedWorkstreamIsRemovedWithItsTree(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 
@@ -468,6 +481,7 @@ func TestAClosedWorkstreamIsRemovedWithItsTree(t *testing.T) {
 }
 
 func TestAWorkstreamThatLosesTheLabelIsRemovedWithItsTree(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 	fake.AddLabel(shop, 41, "bug", "owner")
@@ -485,6 +499,7 @@ func TestAWorkstreamThatLosesTheLabelIsRemovedWithItsTree(t *testing.T) {
 }
 
 func TestAutopilotIsOnAfterATrustedUserAddsTheLabelAndOffAfterTheRemoval(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 	autopilot := func() bool { return copiedWorkstreams(t, server)[0].Autopilot }
@@ -499,6 +514,7 @@ func TestAutopilotIsOnAfterATrustedUserAddsTheLabelAndOffAfterTheRemoval(t *test
 }
 
 func TestAutopilotStaysOffAfterAnUntrustedUserAddsTheLabel(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 
@@ -511,6 +527,7 @@ func TestAutopilotStaysOffAfterAnUntrustedUserAddsTheLabel(t *testing.T) {
 }
 
 func TestAChangeOfALocalIssueDoesNotChangeTheForeignRowWithTheSameNumber(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -528,6 +545,7 @@ func TestAChangeOfALocalIssueDoesNotChangeTheForeignRowWithTheSameNumber(t *test
 }
 
 func TestATaskThatGetsTheWorkstreamLabelBecomesALeafOfItsWorkstream(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 
@@ -541,6 +559,7 @@ func TestATaskThatGetsTheWorkstreamLabelBecomesALeafOfItsWorkstream(t *testing.T
 }
 
 func TestATaskThatLosesTheWorkstreamLabelGetsItsTreeBackInItsWorkstream(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -565,6 +584,7 @@ func TestATaskThatLosesTheWorkstreamLabelGetsItsTreeBackInItsWorkstream(t *testi
 }
 
 func TestAClosedIssueOfAnotherRepositoryHasTheStateClosedInTheCopy(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddRepository("other/repo")
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
@@ -580,6 +600,7 @@ func TestAClosedIssueOfAnotherRepositoryHasTheStateClosedInTheCopy(t *testing.T)
 }
 
 func TestAPollWithNoChangeInTheCopySendsNoWorkstreamsChange(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 	changes := listen(t, server)
@@ -592,6 +613,7 @@ func TestAPollWithNoChangeInTheCopySendsNoWorkstreamsChange(t *testing.T) {
 }
 
 func TestAChangeInTheCopySendsAWorkstreamsChange(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 	changes := listen(t, server)
@@ -605,6 +627,7 @@ func TestAChangeInTheCopySendsAWorkstreamsChange(t *testing.T) {
 }
 
 func TestAFailedUpdateOfTheCopyDoesNotRepeatTheEventsOfThePoll(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 	fake.AddIssue(shop, 13, "Billing")
@@ -627,6 +650,7 @@ func TestAFailedUpdateOfTheCopyDoesNotRepeatTheEventsOfThePoll(t *testing.T) {
 
 // After a failed update, the next polls copy the repository again until the copy works.
 func TestARepositoryWithAFailedUpdateGetsAFullCopyThatSendsAWorkstreamsChange(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithTasks(t, fake)
 	fake.FailSubIssues(shop, 12, true)
@@ -643,6 +667,7 @@ func TestARepositoryWithAFailedUpdateGetsAFullCopyThatSendsAWorkstreamsChange(t 
 }
 
 func TestAClosedBlockerIsRemovedFromTheCopy(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithBlocker(t, fake)
 	if got := copiedBlockers(t, server); len(got) != 1 {
@@ -655,6 +680,7 @@ func TestAClosedBlockerIsRemovedFromTheCopy(t *testing.T) {
 }
 
 func TestANewTitleOfAWorkstreamChangesTheTitleInTheBlockersOfTheCopy(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithBlocker(t, fake)
 
@@ -699,6 +725,7 @@ func startWithBlockerBelowATask(t *testing.T, fake *testkit.FakeGitHub) *testser
 }
 
 func TestATaskThatGetsTheWorkstreamLabelChangesTheWorkstreamOfABlockerInAnotherTree(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithBlockerBelowATask(t, fake)
 	if got, want := copiedBlockers(t, server), []copiedBlocker{blocker(60, 50, 12, "Integrate loyalty plans")}; !reflect.DeepEqual(got, want) {
@@ -713,6 +740,7 @@ func TestATaskThatGetsTheWorkstreamLabelChangesTheWorkstreamOfABlockerInAnotherT
 }
 
 func TestATaskThatLosesTheWorkstreamLabelChangesTheWorkstreamOfABlockerInAnotherTree(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithBlockerBelowATask(t, fake)
 	fake.AddLabel(shop, 41, "mobius:workstream", "owner")
@@ -728,6 +756,7 @@ func TestATaskThatLosesTheWorkstreamLabelChangesTheWorkstreamOfABlockerInAnother
 }
 
 func TestANewWorkstreamChangesTheWorkstreamOfABlockerInAnotherTree(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddIssue(shop, 50, "Store the price in cents")

@@ -61,6 +61,7 @@ func checkLabels(t *testing.T, repository github.Repository) []status {
 }
 
 func TestFixLabelsCreatesTheMissingLabelsAndSetsTheFixedColors(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	// mobius:ready has the fixed color in lowercase and its own description.
 	fake.AddRepositoryLabel(shop, "mobius:ready", "0e8a16", "Ready, says the Owner")
@@ -114,6 +115,7 @@ func TestFixLabelsCreatesTheMissingLabelsAndSetsTheFixedColors(t *testing.T) {
 
 // GitHub compares label names with no regard to case, so a POST for a label in a different case fails.
 func TestFixLabelsSkipsALabelWithANameInADifferentCase(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddRepositoryLabel(shop, "Mobius:Ready", "0E8A16", "Ready")
 	fake.AddRepositoryLabel(shop, "MOBIUS:WORKING", "ededed", "Working")

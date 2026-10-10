@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -151,6 +152,8 @@ const question = "What is the state of the plans? The full report is at " +
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
 // The Workstream owner/shop#12 has two closed tasks and a task with a question of the Lead. It also has four Implementer sessions with the queue reasons of a
 // check that runs, a check that waits for a slot, a pause, and a full Role.
+// The Workstream plants/garden#60 has a Lead chat of 50 messages, and the Owner saw the first 15. POST
+// /e2e/seed-notes/{count} adds count Lead messages to that chat, with no event.
 // POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
 // /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event.
 func TestServer(t *testing.T) {
@@ -184,6 +187,7 @@ func TestServer(t *testing.T) {
 		{"plants/garden", 30, "Plant lilies"},
 		{"plants/garden", 50, "Plant daisies"},
 		{"plants/garden", 55, "Plant asters"},
+		{"plants/garden", 60, "Sort the seeds"},
 	} {
 		github.AddIssue(workstream.repository, workstream.number, workstream.title)
 		github.AddLabel(workstream.repository, workstream.number, "mobius:workstream", "owner")
@@ -303,7 +307,7 @@ func TestServer(t *testing.T) {
 	// unread count of the Chat tab.
 	chat(ctx, t, server, engine.ChatKey{Organization: "plants"}, "Start a Workstream for gift cards.", "Triager")
 	for _, key := range []engine.ChatKey{shop, triager} {
-		view, err := server.Engine.ChatView(ctx, key)
+		view, err := server.Engine.ChatView(ctx, key, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -336,6 +340,41 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	seeds := engine.ChatKey{Organization: "plants", Repository: "plants/garden", Workstream: 60}
+	addSeedNote := func(text string) store.ChatMessage {
+		message, err := queries.AddChatMessage(ctx, store.AddChatMessageParams{
+			Organization: seeds.Organization,
+			Repository:   seeds.Repository,
+			Workstream:   seeds.Workstream,
+			Author:       "Lead",
+			Time:         time.Now().UTC().Format(time.RFC3339Nano),
+			Text:         text + " " + strings.Repeat("word ", 100),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return message
+	}
+	var seen int64
+	for n := 1; n <= 50; n++ {
+		message := addSeedNote(fmt.Sprintf("Seed note %d.", n))
+		if n == 15 {
+			seen = message.ID
+		}
+	}
+	if err := server.Engine.SeeChat(ctx, seeds, seen); err != nil {
+		t.Fatal(err)
+	}
+	server.Mux.HandleFunc("POST /e2e/seed-notes/{count}", func(w http.ResponseWriter, r *http.Request) {
+		count, err := strconv.Atoi(r.PathValue("count"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		for n := 1; n <= count; n++ {
+			addSeedNote(fmt.Sprintf("Late note %d.", n))
+		}
+	})
 	// The first event has a word that is wider than a phone.
 	for _, text := range []string{
 		"A comment arrived: " + strings.Repeat("word", 60) + "\n\nThe rest of the comment.",
@@ -501,7 +540,7 @@ func chat(ctx context.Context, t *testing.T, server *testserver.Server, key engi
 func waitForChat(t *testing.T, server *testserver.Server, key engine.ChatKey, author string) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
-		view, err := server.Engine.ChatView(t.Context(), key)
+		view, err := server.Engine.ChatView(t.Context(), key, 0)
 		if err != nil {
 			t.Fatal(err)
 		}

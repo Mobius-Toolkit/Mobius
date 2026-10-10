@@ -28,6 +28,7 @@ func researchEngine(t *testing.T) *Engine {
 }
 
 func TestAResearcherThatStartsAfterTheShutdownIsDeclined(t *testing.T) {
+	t.Parallel()
 	e := researchEngine(t)
 	e.stopWorkers()
 
@@ -49,6 +50,7 @@ func TestAResearcherThatStartsAfterTheShutdownIsDeclined(t *testing.T) {
 }
 
 func TestAReportBeforeTheStopRefusesTheStop(t *testing.T) {
+	t.Parallel()
 	e := researchEngine(t)
 	gh, err := github.New(e.queries, "http://127.0.0.1", "http://127.0.0.1", nil)
 	if err != nil {

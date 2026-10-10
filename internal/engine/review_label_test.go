@@ -29,6 +29,7 @@ func inReview(fake *testkit.FakeGitHub) bool {
 }
 
 func TestApprovePullRequestReplacesTheWorkingLabelWithTheReviewLabel(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 
 	server := approved(t, fake, "", "", noChange)
@@ -43,6 +44,7 @@ func TestApprovePullRequestReplacesTheWorkingLabelWithTheReviewLabel(t *testing.
 }
 
 func TestATaskInReadyForReviewWithNoWorkingLabelStaysInReadyForReview(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approved(t, fake, "", "", noChange)
 
@@ -57,6 +59,7 @@ func TestATaskInReadyForReviewWithNoWorkingLabelStaysInReadyForReview(t *testing
 }
 
 func TestARemovalOfTheReviewLabelStopsATaskInReadyForReview(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approved(t, fake, "", "", noChange)
 
@@ -73,6 +76,7 @@ func TestARemovalOfTheReviewLabelStopsATaskInReadyForReview(t *testing.T) {
 }
 
 func TestAJudgeThatRunsFromReadyForReviewNeedsTheReviewLabel(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, "[[prompts]]\nwhen = \"You are the Judge\"\nhang = true\n\n"+noFinding+leadApproves+leadStarts, commits, func(cfg *config.Config) {
 		cfg.ReviewQuietPeriod = 200 * time.Millisecond
@@ -100,6 +104,7 @@ func TestAJudgeThatRunsFromReadyForReviewNeedsTheReviewLabel(t *testing.T) {
 }
 
 func TestAFixRoundOfTheJudgeFromReadyForReviewPutsTheWorkingLabelBack(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "shell = \"true\"\n", fixesEach, noChange)
 	sendChat(t, server, leadChat, "Approve #41")
@@ -112,6 +117,7 @@ func TestAFixRoundOfTheJudgeFromReadyForReviewPutsTheWorkingLabelBack(t *testing
 }
 
 func TestAFixRoundForAFailedCheckRunFromReadyForReviewPutsTheWorkingLabelBack(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approved(t, fake, "", fixes, noChange)
 	sha := head(t, fake, "mobius/41")
@@ -123,6 +129,7 @@ func TestAFixRoundForAFailedCheckRunFromReadyForReviewPutsTheWorkingLabelBack(t 
 }
 
 func TestAFixRoundOfTheLeadFromReadyForReviewPutsTheWorkingLabelBack(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approved(t, fake, leadFindings, "", noChange)
 
@@ -133,6 +140,7 @@ func TestAFixRoundOfTheLeadFromReadyForReviewPutsTheWorkingLabelBack(t *testing.
 }
 
 func TestAFixRoundThatFailsToPutTheWorkingLabelBackSetsTheWorkerBeforeTheRestart(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approved(t, fake, leadFindings, "", func(cfg *config.Config) { cfg.MaxWorkerRestarts = 10 })
 	fake.FailAddLabels(shop, 41, true)
@@ -153,6 +161,7 @@ func TestAFixRoundThatFailsToPutTheWorkingLabelBackSetsTheWorkerBeforeTheRestart
 }
 
 func TestAConflictRoundFromReadyForReviewPutsTheWorkingLabelBack(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	// A new Lead session has the chat history in its first prompt, and the history has "Approve #41". Thus the session
 	// stays open, or the Lead approves the pull request again at the second event.
@@ -167,6 +176,7 @@ func TestAConflictRoundFromReadyForReviewPutsTheWorkingLabelBack(t *testing.T) {
 }
 
 func TestAMergeRemovesTheReviewLabel(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approved(t, fake, "", "", noChange)
 
@@ -177,6 +187,7 @@ func TestAMergeRemovesTheReviewLabel(t *testing.T) {
 }
 
 func TestAHandOverToAHumanFromReadyForReviewRemovesTheReviewLabel(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approved(t, fake, leadFindings, "", func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
 	if _, err := server.DB.Exec("UPDATE tasks SET fix_rounds = 1 WHERE issue = 41"); err != nil {
@@ -192,6 +203,7 @@ func TestAHandOverToAHumanFromReadyForReviewRemovesTheReviewLabel(t *testing.T) 
 }
 
 func TestAStalePullRequestFromReadyForReviewGoesToAHumanAndLosesTheReviewLabel(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := approved(t, fake, "", "", noChange)
 	fake.SetCreatedAt(shop, 42, 0)
@@ -205,6 +217,7 @@ func TestAStalePullRequestFromReadyForReviewGoesToAHumanAndLosesTheReviewLabel(t
 }
 
 func TestAStartWithAnEmptyStoreHandsAnIssueWithTheReviewLabelToAHuman(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 
 	server, _ := connectWith(t, fake, "", func(*config.Config) {

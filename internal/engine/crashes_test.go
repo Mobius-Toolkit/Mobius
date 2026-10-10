@@ -45,6 +45,7 @@ func dieOnce(t *testing.T, server *testserver.Server, spec engine.Spec) error {
 }
 
 func TestAWorkerThatDiesStartsAgainAfterAGrowingWait(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, dies)
 	spec := implementerSpec(t, server, fake, 41)
@@ -72,6 +73,7 @@ func TestAWorkerThatDiesStartsAgainAfterAGrowingWait(t *testing.T) {
 }
 
 func TestAWorkerThatDiesAfterMaxWorkerRestartsGoesToAHuman(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectWith(t, fake, dies, func(cfg *config.Config) {
 		cfg.MaxWorkerRestarts = 1
@@ -130,6 +132,7 @@ func TestAWorkerThatDiesAfterMaxWorkerRestartsGoesToAHuman(t *testing.T) {
 
 // A Claude Code session with no Mobius tools must not run (Mobius-rust#254).
 func TestAClaudeCodeSessionWithNoToolsListStartsAgain(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
 	testkit.InstallFakeAgent(t, dataDir, "skip_tools_list = 1\n"+options+"[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
@@ -149,6 +152,7 @@ func TestAClaudeCodeSessionWithNoToolsListStartsAgain(t *testing.T) {
 }
 
 func TestAClaudeCodeSessionWithNoToolsListAfterEachRestartFails(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
 	testkit.InstallFakeAgent(t, dataDir, "skip_tools_list = 2\n"+options)
@@ -164,6 +168,7 @@ func TestAClaudeCodeSessionWithNoToolsListAfterEachRestartFails(t *testing.T) {
 }
 
 func TestTheHousekeeperRemovesTheDirectoriesThatNothingOwns(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	var stale, owned []string
 	connectWith(t, fake, "", func(cfg *config.Config) {
@@ -196,6 +201,7 @@ func TestTheHousekeeperRemovesTheDirectoriesThatNothingOwns(t *testing.T) {
 }
 
 func TestALeadThatCrashesGetsTheSameEventInANewSession(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	flag := filepath.Join(t.TempDir(), "died")
 	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"if [ -e '"+flag+"' ]; then true; else touch '"+flag+"'; kill -9 $PPID; sleep 5; fi\"\n")
@@ -212,6 +218,7 @@ func TestALeadThatCrashesGetsTheSameEventInANewSession(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 0 })
 }
 
+// Serial: in parallel, the inbox item "Lead failed" can show before the event is marked as delivered.
 func TestALeadThatAlwaysCrashesSendsTheEventToTheInbox(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"kill -9 $PPID; sleep 5\"\n")
@@ -246,6 +253,7 @@ func dieOnceThen(flag, then string) string {
 const commitShell = "echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'"
 
 func TestAWorkerThatDiesStartsAgainAndDoesTheWork(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, "", noChange)
 	testkit.InstallFakeHarness(t, dataDir, "devin", options+dieOnceThen(filepath.Join(dataDir, "died"), commitShell))
@@ -298,6 +306,7 @@ func handedToHuman(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 }
 
 func TestATaskInNeedsHumanStaysInNeedsHumanAfterTheNextPolls(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := handedToHuman(t, fake)
 
@@ -309,6 +318,7 @@ func TestATaskInNeedsHumanStaysInNeedsHumanAfterTheNextPolls(t *testing.T) {
 }
 
 func TestMobiusReadyOnATaskInNeedsHumanWithNoPullRequestGivesTheTaskBackToTheLead(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	goFile := filepath.Join(t.TempDir(), "go")
 	// The prompt of a new session has the earlier events in its history, so the rule of the newest event comes first.
@@ -360,6 +370,7 @@ func TestMobiusReadyOnATaskInNeedsHumanWithNoPullRequestGivesTheTaskBackToTheLea
 }
 
 func TestMobiusReadyOfTheAppOnATaskInNeedsHumanHasNoEffectWhenAutopilotIsOff(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := handedToHuman(t, fake)
 	implementers := len(roleSessions(t, server, engine.ImplementerRole))
