@@ -28,6 +28,14 @@ test("the Agents page shows the state of each agent with a queue reason", async 
   await expect(running.getByText("queued")).toBeHidden();
 });
 
+test("the Agents page shows the count of each Role and no global count", async ({ page }) => {
+  await page.goto("/agents");
+  await expect(page.getByRole("heading", { name: "Implementer 2 / 2" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Reviewer 0 / 2" })).toBeVisible();
+  await expect(page.getByRole("banner").getByText(/^\d+ \/ \d+$/)).toBeHidden();
+  await expect(page.getByRole("main").getByText(/^\d+ \/ \d+$/)).toBeHidden();
+});
+
 test("the Agents tab of a Workstream shows the state of each agent with a queue reason", async ({
   page,
 }) => {

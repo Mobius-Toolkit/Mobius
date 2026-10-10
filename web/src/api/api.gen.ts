@@ -97,12 +97,8 @@ export interface AgentGroup {
  * ActiveAgents are the open sessions of all organizations.
  */
 export interface ActiveAgents {
-  /** Count is the number of sessions that hold a slot and count in max_agents */
-  count: number;
   /** Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge, Curator */
   groups: AgentGroup[];
-  /** Max is max_agents */
-  max: number;
 }
 
 /**
