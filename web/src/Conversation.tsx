@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import {
   Fragment,
+  memo,
   use,
   useCallback,
   useEffect,
@@ -58,7 +59,7 @@ function upsert(list: ChatMessage[], message: ChatMessage) {
 const countsAsUnread = (message: ChatMessage) =>
   message.author !== "Owner" && message.author !== "Event";
 
-function Message({ message }: { message: ChatMessage }) {
+const Message = memo(function Message({ message }: { message: ChatMessage }) {
   const event = message.author === "Event";
   const [summary, ...rest] = message.text.split("\n");
   const body = rest.join("\n").trim();
@@ -104,7 +105,7 @@ function Message({ message }: { message: ChatMessage }) {
       )}
     </div>
   );
-}
+});
 
 function DaySeparator({ label }: { label: string }) {
   return (
