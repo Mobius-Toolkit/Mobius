@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"net/http"
 	"time"
+
+	"github.com/gork-labs/gork/pkg/api"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 )
@@ -130,10 +133,6 @@ type AgentGroup struct {
 
 // ActiveAgents are the open sessions of all organizations.
 type ActiveAgents struct {
-	// Count is the number of sessions that hold a slot and count in max_agents
-	Count int64 `gork:"count"`
-	// Max is max_agents
-	Max int64 `gork:"max"`
 	// Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge, Curator
 	Groups []AgentGroup `gork:"groups"`
 }
@@ -152,7 +151,7 @@ func (h *handlers) ListActiveAgents(ctx context.Context, _ ListActiveAgentsReque
 	if err != nil {
 		return nil, err
 	}
-	active := ActiveAgents{Count: int64(found.Count), Max: int64(found.Max), Groups: make([]AgentGroup, 0, len(found.Groups))}
+	active := ActiveAgents{Groups: make([]AgentGroup, 0, len(found.Groups))}
 	for _, group := range found.Groups {
 		agents := make([]ActiveAgent, 0, len(group.Agents))
 		for _, found := range group.Agents {
@@ -255,4 +254,22 @@ func transcriptLineOf(line engine.Line) TranscriptLine {
 		Error:           line.Error,
 		Raw:             line.Raw,
 	}
+}
+
+// StartCheckRequest is the request of StartCheck.
+type StartCheckRequest struct {
+	Path struct {
+		// ID is the id of the session
+		ID int64 `gork:"id"`
+	}
+}
+
+// StartCheck starts the local check of a session that waits for a low load at once. The check ignores the load for
+// this run. It returns 409 when the session does not wait for a low load.
+func (h *handlers) StartCheck(ctx context.Context, req StartCheckRequest) error {
+	err := h.engine.StartCheckNow(ctx, req.Path.ID)
+	if engine.Refused(err) {
+		return api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	return err
 }

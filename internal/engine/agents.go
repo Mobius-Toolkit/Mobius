@@ -113,6 +113,9 @@ type Agent struct {
 	costBase  float64
 	// resetHint is the last _claude/rateLimit.resetsAt of a usage update of the session, or zero.
 	resetHint time.Time
+	// limited tells that a usage update of the turn of a prompt has the rate limit status "rejected" with no overage in
+	// use. The agent message chunks that follow are the raw text of the usage limit. It ends with the turn.
+	limited bool
 	// author is the author of the chat messages that the reply text adds to the chat of the session, or "" when the
 	// reply text goes only to the Transcript.
 	author string
@@ -413,6 +416,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		a.message = 0
 		a.reply.Reset()
 		a.cannotDo = ""
+		a.limited = false
 		if err != nil {
 			a.mu.Unlock()
 			return err
@@ -437,6 +441,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		if !retrying {
 			a.mu.Lock()
 			a.turn = false
+			a.limited = false
 			a.mu.Unlock()
 		}
 		if err == nil {
@@ -602,6 +607,12 @@ func (a *Agent) record(params json.RawMessage) error {
 			a.resetHint = time.Unix(seconds, 0)
 		}
 	}
+	// With overage in use, the status "rejected" does not end the turn. An autonomous turn has no prompt error that
+	// starts a pause, so its raw text stays in the reply.
+	if a.turn && stringField(notification, "update", "_meta", "_claude/rateLimit", "status") == "rejected" &&
+		field(notification, "update", "_meta", "_claude/rateLimit", "isUsingOverage") != true {
+		a.limited = true
+	}
 	if isChunk && a.chunk != nil && stringField(a.chunk, "update", "sessionUpdate") == kind {
 		update := a.chunk["update"].(map[string]any)
 		update["content"].(map[string]any)["text"] = stringField(a.chunk, "update", "content", "text") + content
@@ -633,6 +644,7 @@ func (a *Agent) record(params json.RawMessage) error {
 }
 
 // addReply adds content of an agent message chunk to the reply text, and to the chat when the session has an author.
+// After a usage update with the rate limit status "rejected", it adds nothing: the Transcript keeps the raw text.
 // A tool call starts a new reply text and a new chat message. The caller holds a.mu.
 func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 	switch kind {
@@ -642,7 +654,7 @@ func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 	case "tool_call_update":
 		a.reply.Reset()
 	}
-	if kind != "agent_message_chunk" {
+	if kind != "agent_message_chunk" || a.limited {
 		return nil
 	}
 	a.reply.WriteString(content)
@@ -744,10 +756,8 @@ type AgentGroup struct {
 }
 
 // ActiveAgents is the open sessions of all organizations in one group for each Role, in the order Lead, Triager,
-// Implementer, Researcher, Reviewer, Judge, Curator. Count is the number of sessions that hold a slot and count in max_agents.
+// Implementer, Researcher, Reviewer, Judge, Curator.
 type ActiveAgents struct {
-	Count  int
-	Max    int
 	Groups []AgentGroup
 }
 
@@ -769,12 +779,9 @@ func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 		}
 		agents[role] = append(agents[role], ActiveAgent{e.node(row.Session), row.WorkstreamTitle, row.IssueTitle, row.PullRequest})
 	}
-	active := ActiveAgents{Max: e.config.MaxAgents}
+	var active ActiveAgents
 	for _, g := range groups {
 		binding, _ := roleBinding(e.config, g.role)
-		if binding.CountsInMaxAgents {
-			active.Count += running[g.role]
-		}
 		active.Groups = append(active.Groups, AgentGroup{Title: g.title, Count: running[g.role], Max: binding.Max, Agents: agents[g.role]})
 	}
 	return active, nil

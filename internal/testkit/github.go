@@ -107,6 +107,7 @@ type FakeGitHub struct {
 	// The numbers of reads of a comment list of one issue or pull request, and of a comment list of a repository.
 	singleCommentReads, repositoryCommentReads int
 	failedCloses                               map[issueKey]bool
+	failedIssueReads                           map[issueKey]int
 	failedSubIssues                            map[issueKey]bool
 	failedParents                              map[issueKey]bool
 	failedComments                             map[issueKey]bool
@@ -190,6 +191,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedReactions:         map[string]bool{},
 		resolvedThreads:         map[int64]bool{},
 		failedCloses:            map[issueKey]bool{},
+		failedIssueReads:        map[issueKey]int{},
 		failedSubIssues:         map[issueKey]bool{},
 		failedParents:           map[issueKey]bool{},
 		failedComments:          map[issueKey]bool{},

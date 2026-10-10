@@ -368,8 +368,6 @@ test("a Workstream with only a paused agent shows no dot", async ({ page }) => {
     route.fulfill({
       json: {
         data: {
-          count: 1,
-          max: 8,
           groups: [
             {
               name: "Implementer",

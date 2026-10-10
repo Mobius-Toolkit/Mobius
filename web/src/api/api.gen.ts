@@ -97,12 +97,8 @@ export interface AgentGroup {
  * ActiveAgents are the open sessions of all organizations.
  */
 export interface ActiveAgents {
-  /** Count is the number of sessions that hold a slot and count in max_agents */
-  count: number;
   /** Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge, Curator */
   groups: AgentGroup[];
-  /** Max is max_agents */
-  max: number;
 }
 
 /**
@@ -438,7 +434,7 @@ export interface EnvelopeArrayGitHubApp {
 }
 
 /**
- * Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space
+ * Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, full disk for a local check that waits for free disk space, and check errors for a task whose check failed on 10 polls in a row
  */
 export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
 
@@ -452,6 +448,7 @@ export const InboxItemKind = {
   Lead_failed: 'Lead failed',
   stopped: 'stopped',
   full_disk: 'full disk',
+  check_errors: 'check errors',
 } as const;
 
 /**
@@ -467,7 +464,7 @@ export interface InboxItem {
   id: number;
   /** Issue is the number of the issue of the item */
   issue: number;
-  /** Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space */
+  /** Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, full disk for a local check that waits for free disk space, and check errors for a task whose check failed on 10 polls in a row */
   kind: InboxItemKind;
   /** Link is the GitHub URL of the item, or empty */
   link: string;
@@ -1276,6 +1273,76 @@ export const listActiveAgents = async ( ): Promise<listActiveAgentsResponse> => 
 
   const data: listActiveAgentsResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listActiveAgentsResponse
+}
+
+
+
+export type startCheckResponse204 = {
+  data: void
+  status: 204
+}
+
+export type startCheckResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type startCheckResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type startCheckResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type startCheckResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type startCheckResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type startCheckResponseSuccess = (startCheckResponse204) & {
+  headers: Headers;
+};
+export type startCheckResponseError = (startCheckResponse400 | startCheckResponse401 | startCheckResponse409 | startCheckResponse422 | startCheckResponse500) & {
+  headers: Headers;
+};
+
+export type startCheckResponse = (startCheckResponseSuccess | startCheckResponseError)
+
+export const getStartCheckUrl = (id: number,) => {
+
+
+
+
+  return `/api/agents/${id}/start-check`
+}
+
+/**
+ * StartCheck starts the local check of a session that waits for a low load at once. The check ignores the load for this run. It returns 409 when the session does not wait for a low load.
+ */
+export const startCheck = async (id: number, ): Promise<startCheckResponse> => {
+
+  const res = await fetch(getStartCheckUrl(id),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: startCheckResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as startCheckResponse
 }
 
 

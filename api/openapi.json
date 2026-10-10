@@ -50,6 +50,65 @@
         ]
       }
     },
+    "/api/agents/{id}/start-check": {
+      "post": {
+        "description": "StartCheck starts the local check of a session that waits for a low load at once. The check ignores the load for this run. It returns 409 when the session does not wait for a low load.",
+        "operationId": "StartCheck",
+        "parameters": [
+          {
+            "description": "ID is the id of the session",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "agents"
+        ]
+      }
+    },
     "/api/agents/{id}/transcript": {
       "get": {
         "description": "GetTranscript returns the Transcript of a session, the oldest row first.",
@@ -2899,10 +2958,6 @@
         "type": "object",
         "title": "ActiveAgents",
         "properties": {
-          "count": {
-            "type": "integer",
-            "description": "Count is the number of sessions that hold a slot and count in max_agents"
-          },
           "groups": {
             "type": "array",
             "title": "[]AgentGroup",
@@ -2910,15 +2965,9 @@
             "items": {
               "$ref": "#/components/schemas/AgentGroup"
             }
-          },
-          "max": {
-            "type": "integer",
-            "description": "Max is max_agents"
           }
         },
         "required": [
-          "count",
-          "max",
           "groups"
         ],
         "description": "ActiveAgents are the open sessions of all organizations."
@@ -3953,7 +4002,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space",
+            "description": "Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, full disk for a local check that waits for free disk space, and check errors for a task whose check failed on 10 polls in a row",
             "enum": [
               "question",
               "Lead",
@@ -3962,7 +4011,8 @@
               "usage limit",
               "Lead failed",
               "stopped",
-              "full disk"
+              "full disk",
+              "check errors"
             ]
           },
           "link": {

@@ -122,3 +122,15 @@ func TestAResetTimeWithNoKnownTimeZoneIsInUTC(t *testing.T) {
 		}
 	}
 }
+
+func TestTheUsageLimitMessageHasTheSameFormForEachHarness(t *testing.T) {
+	t.Parallel()
+	until := time.Date(2026, 10, 8, 15, 10, 0, 0, time.UTC)
+
+	for _, harness := range config.Harnesses {
+		want := string(harness) + " reached a usage limit. Mobius sends the prompt again at 2026-10-08 15:10 UTC."
+		if got := limitText(harness, until.In(time.FixedZone("CEST", 2*60*60))); got != want {
+			t.Errorf("%s: %q, want %q", harness, got, want)
+		}
+	}
+}

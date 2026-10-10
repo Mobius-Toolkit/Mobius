@@ -18,6 +18,7 @@ const (
 	readyForReviewKind   = "ready for review"
 	stalePullRequestKind = "stale pull request"
 	fullDiskKind         = "full disk"
+	checkErrorsKind      = "check errors"
 )
 
 // addInboxItem adds the Inbox item at the time now, and sends it to the listeners.
