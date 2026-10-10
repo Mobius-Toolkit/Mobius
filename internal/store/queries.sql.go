@@ -992,6 +992,15 @@ func (q *Queries) DismissInboxItem(ctx context.Context, arg DismissInboxItemPara
 	return i, err
 }
 
+const endFullSlots = `-- name: EndFullSlots :exec
+DELETE FROM full_slots
+`
+
+func (q *Queries) EndFullSlots(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, endFullSlots)
+	return err
+}
+
 const endSession = `-- name: EndSession :one
 UPDATE sessions SET ended_at = ?, end_reason = ?, queue_reason = NULL WHERE id = ?
 RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort
@@ -1108,6 +1117,17 @@ func (q *Queries) GetCopiedIssueWorkstream(ctx context.Context, arg GetCopiedIss
 	var workstream int64
 	err := row.Scan(&workstream)
 	return workstream, err
+}
+
+const getFullSlots = `-- name: GetFullSlots :one
+SELECT id, since, item_at FROM full_slots
+`
+
+func (q *Queries) GetFullSlots(ctx context.Context) (FullSlot, error) {
+	row := q.db.QueryRowContext(ctx, getFullSlots)
+	var i FullSlot
+	err := row.Scan(&i.ID, &i.Since, &i.ItemAt)
+	return i, err
 }
 
 const getGitHubApp = `-- name: GetGitHubApp :one
@@ -1497,6 +1517,45 @@ func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredPa
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const listActiveTasks = `-- name: ListActiveTasks :many
+SELECT repository, issue, state, state_at FROM tasks WHERE state IN ('dispatched', 'queued', 'working') ORDER BY id
+`
+
+type ListActiveTasksRow struct {
+	Repository string
+	Issue      int64
+	State      string
+	StateAt    string
+}
+
+func (q *Queries) ListActiveTasks(ctx context.Context) ([]ListActiveTasksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listActiveTasks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveTasksRow
+	for rows.Next() {
+		var i ListActiveTasksRow
+		if err := rows.Scan(
+			&i.Repository,
+			&i.Issue,
+			&i.State,
+			&i.StateAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
@@ -3379,6 +3438,15 @@ func (q *Queries) SetCopiedAutopilot(ctx context.Context, arg SetCopiedAutopilot
 	return err
 }
 
+const setFullSlotsItemAt = `-- name: SetFullSlotsItemAt :exec
+UPDATE full_slots SET item_at = ? WHERE item_at IS NULL
+`
+
+func (q *Queries) SetFullSlotsItemAt(ctx context.Context, itemAt sql.NullString) error {
+	_, err := q.db.ExecContext(ctx, setFullSlotsItemAt, itemAt)
+	return err
+}
+
 const setHarnessPause = `-- name: SetHarnessPause :exec
 INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES (?, ?, ?)
 ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until, inbox_item = excluded.inbox_item
@@ -3680,6 +3748,15 @@ func (q *Queries) SetUserTokens(ctx context.Context, arg SetUserTokensParams) er
 		arg.UserTokenExpiresAt,
 		arg.AppID,
 	)
+	return err
+}
+
+const startFullSlots = `-- name: StartFullSlots :exec
+INSERT INTO full_slots (id, since) VALUES (1, ?) ON CONFLICT DO NOTHING
+`
+
+func (q *Queries) StartFullSlots(ctx context.Context, since string) error {
+	_, err := q.db.ExecContext(ctx, startFullSlots, since)
 	return err
 }
 

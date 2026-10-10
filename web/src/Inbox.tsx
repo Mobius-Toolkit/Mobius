@@ -4,7 +4,7 @@ import { ErrorBadge, inset, List, Row } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LoginContext } from "@/lib/login";
-import { dayClock } from "@/lib/time";
+import { dayClock, localTimes } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 export function Inbox({
@@ -73,7 +73,7 @@ function InboxRow({
     <Row className="flex-wrap gap-x-3 gap-y-2 py-3">
       <Badge variant="secondary">{item.kind}</Badge>
       <div className="grid min-w-0 grow basis-60 gap-0.5">
-        <span className="break-words">{item.text}</span>
+        <span className="break-words">{localTimes(item.text)}</span>
         <span className="text-sm text-muted-foreground">
           {item.kind !== InboxItemKind.usage_limit && (
             <>
