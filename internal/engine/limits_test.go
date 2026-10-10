@@ -601,12 +601,12 @@ func TestALeadThatHitsTheUsageLimitAgainAfterThePauseGetsTheMobiusMessageAgain(t
 		return inboxItem{}, false
 	})
 	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 1 })
-	testkit.WaitFor(t, func() bool { _, paused := claudeCodePause(t, server); return paused })
+	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
 	if err := server.Engine.Resume(t.Context(), item.ID); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Lead")) == 1 })
-	testkit.WaitFor(t, func() bool { _, paused := claudeCodePause(t, server); return !paused })
+	testkit.WaitFor(t, func() bool { return !claudeCodePaused(t, server) })
 
 	sendChat(t, server, leadChat, "Plan the UI")
 
@@ -671,15 +671,11 @@ func TestTheRawUsageLimitTextOfAnAutonomousTurnShowsInTheChat(t *testing.T) {
 	})
 }
 
-func claudeCodePause(t *testing.T, server *testserver.Server) (string, bool) {
+func claudeCodePaused(t *testing.T, server *testserver.Server) bool {
 	t.Helper()
-	var until string
-	err := server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'claude-code'").Scan(&until)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false
-	}
-	if err != nil {
+	var n int
+	if err := server.DB.QueryRow("SELECT COUNT(*) FROM harness_pauses WHERE harness = 'claude-code'").Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	return until, true
+	return n > 0
 }
