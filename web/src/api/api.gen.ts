@@ -835,6 +835,97 @@ export interface EnvelopeUpgrade {
 }
 
 /**
+ * UsageValues are the sums of the turn usage of a set of rows. A sum of tokens or of cost is null when no row has a value.
+ */
+export interface UsageValues {
+  /**
+     * CacheReadTokens is the sum of the cache read tokens
+     * @nullable
+     */
+  cacheReadTokens: number | null;
+  /**
+     * CacheWriteTokens is the sum of the cache write tokens
+     * @nullable
+     */
+  cacheWriteTokens: number | null;
+  /**
+     * CostUSD is the sum of the cost in USD
+     * @nullable
+     */
+  costUsd: number | null;
+  /**
+     * InputTokens is the sum of the input tokens
+     * @nullable
+     */
+  inputTokens: number | null;
+  /**
+     * OutputTokens is the sum of the output tokens
+     * @nullable
+     */
+  outputTokens: number | null;
+  /** Sessions is the number of distinct sessions of the rows */
+  sessions: number;
+}
+
+/**
+ * UsageDay is the usage of one group on one day.
+ */
+export interface UsageDay {
+  /** Day is the day of the start of the turns, as "YYYY-MM-DD" in the time zone of the request */
+  day: string;
+  /** Group is the value of the group, or empty when the request has no group or the value is not set */
+  group: string;
+  values: UsageValues;
+}
+
+/**
+ * UsageGroup is the usage of one group in the period.
+ */
+export interface UsageGroup {
+  /** Group is the value of the group, or empty when the request has no group or the value is not set */
+  group: string;
+  values: UsageValues;
+}
+
+/**
+ * UsageOptions are the values that each filter can take in the period.
+ */
+export interface UsageOptions {
+  /** Efforts are the efforts of the rows. A request cannot filter for the rows with no effort */
+  efforts: string[];
+  /** Harnesses are the Harnesses of the rows */
+  harnesses: string[];
+  /** Models are the models that the Harness reports, or the models of the config when the Harness reports none */
+  models: string[];
+  /** Repositories are the repositories of the rows as "owner/name" */
+  repositories: string[];
+  /** Roles are the roles of the rows */
+  roles: string[];
+}
+
+/**
+ * Usage is the token and cost statistics of the turns in a period.
+ */
+export interface Usage {
+  /** Days are the values of each day and each group, the oldest day first */
+  days: UsageDay[];
+  /** Groups are the values of each group */
+  groups: UsageGroup[];
+  /** Options are the values that each filter can take, before the filters */
+  options: UsageOptions;
+  /** Totals are the values of all rows that pass the filters */
+  totals: UsageValues;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeUsage {
+  /** Data is the payload of the response */
+  data: Usage;
+}
+
+/**
  * WorkstreamDetails is the details of a Workstream.
  */
 export interface WorkstreamDetails {
@@ -1068,6 +1159,56 @@ export type UserCallbackParams = {
  */
 code: string;
 };
+
+export type GetUsageParams = {
+/**
+ * From is the start of the period. A turn is in the period when it started at From or later
+ */
+from: string;
+/**
+ * To is the end of the period. A turn is in the period when it started before To
+ */
+to: string;
+/**
+ * Tz is the IANA name of the time zone for the days. The default is UTC
+ */
+tz?: string;
+/**
+ * Array of string
+ */
+harness?: string[];
+/**
+ * Array of string
+ */
+model?: string[];
+/**
+ * Array of string
+ */
+effort?: string[];
+/**
+ * Array of string
+ */
+role?: string[];
+/**
+ * Array of string
+ */
+repository?: string[];
+/**
+ * Group is the value that splits the days and the groups. With no Group, all rows are in one group
+ */
+group?: GetUsageGroup;
+};
+
+export type GetUsageGroup = typeof GetUsageGroup[keyof typeof GetUsageGroup];
+
+
+export const GetUsageGroup = {
+  harness: 'harness',
+  model: 'model',
+  effort: 'effort',
+  role: 'role',
+  repository: 'repository',
+} as const;
 
 export type listActiveAgentsResponse200 = {
   data: EnvelopeActiveAgents
@@ -3612,6 +3753,86 @@ export const startUpgrade = async ( ): Promise<startUpgradeResponse> => {
 
   const data: startUpgradeResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as startUpgradeResponse
+}
+
+
+
+export type getUsageResponse200 = {
+  data: EnvelopeUsage
+  status: 200
+}
+
+export type getUsageResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getUsageResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getUsageResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getUsageResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getUsageResponseSuccess = (getUsageResponse200) & {
+  headers: Headers;
+};
+export type getUsageResponseError = (getUsageResponse400 | getUsageResponse401 | getUsageResponse422 | getUsageResponse500) & {
+  headers: Headers;
+};
+
+export type getUsageResponse = (getUsageResponseSuccess | getUsageResponseError)
+
+export const getGetUsageUrl = (params: GetUsageParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const explodeParameters = ["harness","model","effort","role","repository"];
+
+    if (Array.isArray(value) && explodeParameters.includes(key)) {
+      value.forEach((v) => {
+        normalizedParams.append(key, v === null ? 'null' : String(v));
+      });
+      return;
+    }
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/usage?${stringifiedParams}` : `/api/usage`
+}
+
+/**
+ * GetUsage returns the tokens and the cost of the turns that started in the period.
+ */
+export const getUsage = async (params: GetUsageParams, ): Promise<getUsageResponse> => {
+
+  const res = await fetch(getGetUsageUrl(params),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getUsageResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getUsageResponse
 }
 
 

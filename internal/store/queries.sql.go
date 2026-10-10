@@ -428,6 +428,51 @@ func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session
 	return i, err
 }
 
+const addStepTime = `-- name: AddStepTime :exec
+INSERT INTO step_times (kind, session, task, issue, workstream, organization, repository, role, harness, model, effort,
+                        started_at, ended_at, attempt, result)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddStepTimeParams struct {
+	Kind         string
+	Session      sql.NullInt64
+	Task         sql.NullInt64
+	Issue        sql.NullInt64
+	Workstream   int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Model        string
+	Effort       sql.NullString
+	StartedAt    string
+	EndedAt      string
+	Attempt      sql.NullInt64
+	Result       sql.NullString
+}
+
+func (q *Queries) AddStepTime(ctx context.Context, arg AddStepTimeParams) error {
+	_, err := q.db.ExecContext(ctx, addStepTime,
+		arg.Kind,
+		arg.Session,
+		arg.Task,
+		arg.Issue,
+		arg.Workstream,
+		arg.Organization,
+		arg.Repository,
+		arg.Role,
+		arg.Harness,
+		arg.Model,
+		arg.Effort,
+		arg.StartedAt,
+		arg.EndedAt,
+		arg.Attempt,
+		arg.Result,
+	)
+	return err
+}
+
 const addTask = `-- name: AddTask :one
 INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at)
 VALUES (?, ?, ?, 'dispatched', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
@@ -2908,6 +2953,58 @@ func (q *Queries) ListTranscript(ctx context.Context, session int64) ([]Transcri
 			&i.Time,
 			&i.Kind,
 			&i.Json,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTurnUsageBetween = `-- name: ListTurnUsageBetween :many
+SELECT id, session, task, issue, workstream, organization, repository, role, harness, model, reported_model, effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd FROM turn_usage WHERE started_at >= ?1 AND started_at < ?2
+`
+
+type ListTurnUsageBetweenParams struct {
+	After  string
+	Before string
+}
+
+func (q *Queries) ListTurnUsageBetween(ctx context.Context, arg ListTurnUsageBetweenParams) ([]TurnUsage, error) {
+	rows, err := q.db.QueryContext(ctx, listTurnUsageBetween, arg.After, arg.Before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TurnUsage
+	for rows.Next() {
+		var i TurnUsage
+		if err := rows.Scan(
+			&i.ID,
+			&i.Session,
+			&i.Task,
+			&i.Issue,
+			&i.Workstream,
+			&i.Organization,
+			&i.Repository,
+			&i.Role,
+			&i.Harness,
+			&i.Model,
+			&i.ReportedModel,
+			&i.Effort,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.CacheReadTokens,
+			&i.CacheWriteTokens,
+			&i.CostUsd,
 		); err != nil {
 			return nil, err
 		}
