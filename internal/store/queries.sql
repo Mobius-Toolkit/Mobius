@@ -282,6 +282,21 @@ SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?);
 -- name: CountActiveTasks :one
 SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
 
+-- name: ListActiveTasks :many
+SELECT repository, issue, state, state_at FROM tasks WHERE state IN ('dispatched', 'queued', 'working') ORDER BY id;
+
+-- name: StartFullSlots :exec
+INSERT INTO full_slots (id, since) VALUES (1, ?) ON CONFLICT DO NOTHING;
+
+-- name: GetFullSlots :one
+SELECT * FROM full_slots;
+
+-- name: SetFullSlotsItemAt :execrows
+UPDATE full_slots SET item_at = ? WHERE item_at IS NULL;
+
+-- name: EndFullSlots :exec
+DELETE FROM full_slots;
+
 -- name: ResetTaskCounters :exec
 UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;
 
