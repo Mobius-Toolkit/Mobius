@@ -831,3 +831,59 @@ func TestCannotDoIsRefusedWhenTheWorktreeHasWorkThatMobiusDidNotPush(t *testing.
 		})
 	}
 }
+
+const askCents = "call = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n"
+
+func TestStartImplementerRemovesTheQuestionLabelOfTheIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"dispatch of #41\"\n" + askCents +
+		"later = { after = \"100ms\", call = { tool = \"start_implementer\", arguments = { n = 41, instructions = \"Store plans in cents.\" } } }\n"
+	server, _ := connectTask(t, fake, lead, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	endedImplementers(t, server, 1)
+	if hasLabel(fake, "mobius:question") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+}
+
+func TestStartImplementerAfterATrustedAnswerWorksWithNoQuestionLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"comment on #41\"\n" + startImplementer +
+		"\n[[prompts]]\nwhen = \"dispatch of #41\"\n" + askCents
+	server, _ := connectTask(t, fake, lead, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:question") })
+	fake.AddComment(shop, 41, "owner", "Cents.")
+
+	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:question") })
+	endedImplementers(t, server, 1)
+	for _, call := range leadCalls(t, server) {
+		if call["error"] != nil {
+			t.Errorf("call = %v", call)
+		}
+	}
+}
+
+func TestAnAskAfterStartImplementerAddsTheQuestionLabelAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"dispatch of #41\"\n" + startImplementer +
+		"later = { after = \"100ms\", call = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } } }\n"
+	server, _ := connectTask(t, fake, lead, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:question", "owner")
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool {
+		calls := leadCalls(t, server)
+		return len(calls) == 2 && calls[1]["result"] == "Asked on #41."
+	})
+	if !hasLabel(fake, "mobius:question") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+}

@@ -132,6 +132,9 @@ func (e *Engine) startImplementer(ctx context.Context, repository github.Reposit
 	if queued == 0 {
 		return "", refuse("The task of #%d is %s, not dispatched.", number, task.State)
 	}
+	if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
+		log.Printf("remove %s from %s#%d: %v", questionLabel, repository.FullName, number, err)
+	}
 	j := job{
 		task:        task,
 		title:       issue.GetTitle(),
