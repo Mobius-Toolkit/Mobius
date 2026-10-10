@@ -124,7 +124,9 @@ type FakeGitHub struct {
 	threadHolds     map[issueKey][]*hold
 	issueHolds      map[issueKey]*hold
 	// hangs holds the route patterns whose next request gets no answer.
-	hangs        map[string]bool
+	hangs map[string]bool
+	// routeHolds holds the route patterns whose next request waits for the close of the channel.
+	routeHolds   map[string]chan struct{}
 	pullRequests []pullRequest
 	// createdAt holds the creation time of each issue and pull request, in seconds after the Unix epoch.
 	createdAt map[issueKey]int64
@@ -202,6 +204,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		threadHolds:             map[issueKey][]*hold{},
 		issueHolds:              map[issueKey]*hold{},
 		hangs:                   map[string]bool{},
+		routeHolds:              map[string]chan struct{}{},
 		createdAt:               map[issueKey]int64{},
 		behind:                  map[issueKey]bool{},
 		mergeRefusals:           map[issueKey]string{},
@@ -285,13 +288,31 @@ func (g *FakeGitHub) HangNext(pattern string) {
 	g.hangs[pattern] = true
 }
 
+// HoldNext makes the next request to the route pattern wait until the returned function is called.
+func (g *FakeGitHub) HoldNext(pattern string) (release func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	hold := make(chan struct{})
+	g.routeHolds[pattern] = hold
+	return func() { close(hold) }
+}
+
 func (g *FakeGitHub) hanging(mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, pattern := mux.Handler(r)
 		g.mu.Lock()
 		hang := g.hangs[pattern]
 		delete(g.hangs, pattern)
+		routeHold := g.routeHolds[pattern]
+		delete(g.routeHolds, pattern)
 		g.mu.Unlock()
+		if routeHold != nil {
+			select {
+			case <-routeHold:
+			case <-r.Context().Done():
+				return
+			}
+		}
 		if hang {
 			// The server sees the end of the connection only after the handler reads the whole body.
 			_, _ = io.Copy(io.Discard, r.Body)

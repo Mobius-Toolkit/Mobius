@@ -214,7 +214,11 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 	}
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
-	message, err := e.addChatMessage(ctx, key, author, text, saved, browserID)
+	earlier, err := e.earlierMessages(ctx, key.Organization, key.Repository, key)
+	var message store.ChatMessage
+	if err == nil {
+		message, err = e.addChatMessage(ctx, key, author, text, saved, browserID)
+	}
 	if err != nil {
 		if saved != "" {
 			_ = os.RemoveAll(saved)
@@ -224,7 +228,8 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 		}
 		return err
 	}
-	e.give(key, false, item{message: &message})
+	e.handedChats[key] = true
+	e.give(key, false, append(earlier[key], item{message: &message})...)
 	return nil
 }
 
@@ -347,6 +352,42 @@ func (e *Engine) sendEvents(ctx context.Context, repository string, workstream i
 	}
 	e.give(key, !running, items...)
 	return nil
+}
+
+// giveEarlierMessages gives the messages of the Owner that the earlier run of the server stored and did not deliver
+// to the chats of organization and repository that no message of this run reached, in the order of their ids. Like
+// postChat, it does not wait for the drain.
+func (e *Engine) giveEarlierMessages(ctx context.Context, organization, repository string) error {
+	e.chatOrder.Lock()
+	defer e.chatOrder.Unlock()
+	chats, err := e.earlierMessages(ctx, organization, repository, ChatKey{})
+	if err != nil {
+		return err
+	}
+	for key, items := range chats {
+		e.handedChats[key] = true
+		e.give(key, false, items...)
+	}
+	return nil
+}
+
+// earlierMessages lists the undelivered messages of the Owner that the earlier run of the server stored in the chats
+// of organization and repository, for each chat whose messages the poll or postChat did not give yet. A message with
+// no browser id is from before the browser ids, so the agent does not get it again. It lists only the chat of only,
+// unless only is the zero value. The caller holds e.chatOrder.
+func (e *Engine) earlierMessages(ctx context.Context, organization, repository string, only ChatKey) (map[ChatKey][]item, error) {
+	messages, err := e.queries.ListUndeliveredOwnerMessages(ctx, store.ListUndeliveredOwnerMessagesParams{Organization: organization, Repository: repository, ID: e.earlierMessage})
+	if err != nil {
+		return nil, err
+	}
+	chats := map[ChatKey][]item{}
+	for _, message := range messages {
+		key := ChatKey{message.Organization, message.Repository, message.Workstream}
+		if !e.handedChats[key] && (only == ChatKey{} || key == only) {
+			chats[key] = append(chats[key], item{message: &message})
+		}
+	}
+	return chats, nil
 }
 
 // StopChat stops the turn of the chat that answers a message of the Owner. A turn for an event goes on. A chat

@@ -3208,6 +3208,53 @@ func (q *Queries) ListUndeliveredLeadEvents(ctx context.Context, arg ListUndeliv
 	return items, nil
 }
 
+const listUndeliveredOwnerMessages = `-- name: ListUndeliveredOwnerMessages :many
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
+WHERE organization = ? AND repository = ? AND id <= ? AND author = 'Owner' AND browser_id IS NOT NULL
+  AND delivered_at IS NULL AND stopped_at IS NULL
+ORDER BY id
+`
+
+type ListUndeliveredOwnerMessagesParams struct {
+	Organization string
+	Repository   string
+	ID           int64
+}
+
+func (q *Queries) ListUndeliveredOwnerMessages(ctx context.Context, arg ListUndeliveredOwnerMessagesParams) ([]ChatMessage, error) {
+	rows, err := q.db.QueryContext(ctx, listUndeliveredOwnerMessages, arg.Organization, arg.Repository, arg.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChatMessage
+	for rows.Next() {
+		var i ChatMessage
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Author,
+			&i.Time,
+			&i.Text,
+			&i.Organization,
+			&i.BrowserID,
+			&i.DeliveredAt,
+			&i.StoppedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnread = `-- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
@@ -3299,6 +3346,17 @@ type MarkCommentAnsweredParams struct {
 func (q *Queries) MarkCommentAnswered(ctx context.Context, arg MarkCommentAnsweredParams) error {
 	_, err := q.db.ExecContext(ctx, markCommentAnswered, arg.Repository, arg.Review, arg.Comment)
 	return err
+}
+
+const maxChatMessageID = `-- name: MaxChatMessageID :one
+SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM chat_messages
+`
+
+func (q *Queries) MaxChatMessageID(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxChatMessageID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const queueTask = `-- name: QueueTask :execrows

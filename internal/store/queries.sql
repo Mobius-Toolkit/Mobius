@@ -192,6 +192,15 @@ RETURNING *;
 UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL
 RETURNING *;
 
+-- name: MaxChatMessageID :one
+SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM chat_messages;
+
+-- name: ListUndeliveredOwnerMessages :many
+SELECT * FROM chat_messages
+WHERE organization = ? AND repository = ? AND id <= ? AND author = 'Owner' AND browser_id IS NOT NULL
+  AND delivered_at IS NULL AND stopped_at IS NULL
+ORDER BY id;
+
 -- name: GetLastChatMessageOf :one
 SELECT * FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
