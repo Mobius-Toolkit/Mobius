@@ -303,10 +303,16 @@ export function Agents({ source }: { source?: EventSource }) {
   const [agents, setAgents] = useState<ActiveAgents>();
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<Agent>();
+  const newest = useRef(0);
 
+  // The list requests can finish in another order than they start. Only the answer to the newest request counts.
   const load = useCallback(() => {
+    const request = ++newest.current;
     listActiveAgents()
       .then((res) => {
+        if (request !== newest.current) {
+          return;
+        }
         if (res.status === 401) {
           showLogin();
         } else if (res.status === 200) {
@@ -325,7 +331,6 @@ export function Agents({ source }: { source?: EventSource }) {
     if (!source) {
       return;
     }
-    load();
     source.addEventListener("open", load);
     const remove = onEvent<LiveEvents, "agent">(source, "agent", load);
     return () => {
