@@ -20,6 +20,10 @@ const (
 	app = "mobius-test[bot]"
 	// finding is a Reviewer with one finding on line 1 of plan.txt.
 	finding = "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"submit_review\", arguments = { body = \"One finding.\", comments = [{ path = \"plan.txt\", line = 1, body = \"Store the unit.\" }] } }\n\n"
+	// followUp is a Reviewer with one follow-up on line 1 of plan.txt.
+	followUp = "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"submit_review\", arguments = { body = \"One follow-up.\", comments = [{ path = \"plan.txt\", line = 1, body = \"Name the unit.\", follow_up = true }] } }\n\n"
+	// findingAndFollowUp is a Reviewer with a finding and a follow-up on line 1 of plan.txt.
+	findingAndFollowUp = "[[prompts]]\nwhen = \"You are the Reviewer\"\ncall = { tool = \"submit_review\", arguments = { body = \"One finding and one follow-up.\", comments = [{ path = \"plan.txt\", line = 1, body = \"Store the unit.\" }, { path = \"plan.txt\", line = 1, body = \"Name the unit.\", follow_up = true }] } }\n\n"
 	// fixReplies is an Implementer that fixes the finding in a fix round and replies in the thread 2 with the commit.
 	fixReplies = "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"echo 'cents per month' > plan.txt && git commit -q -am 'Store the unit' && git rev-parse HEAD\"\ncall = { tool = \"reply_thread\", arguments = { thread = 2, text = \"Fixed in {shell}.\" } }\n\n"
 	// eachFix is an Implementer that commits a change in each fix round.
@@ -527,5 +531,61 @@ func TestACommentOfATrustedUserDuringTheLastRoundResetsTheLimitOfTheRound(t *tes
 	})
 	if !strings.HasPrefix(comments[1], "Review ended, round 1 of 2\n\nResult: A fix round started.\n") {
 		t.Errorf("comment = %q", comments[1])
+	}
+}
+
+func TestAReviewWithOnlyFollowUpsResolvesTheirThreadsSendsThemToTheLeadAndStartsNoFixRound(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, followUp+leadStarts, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForLeadPrompt(t, server, " follow-up on pull request #42 of #41 \"Add plan model\", item 2, plan.txt line 1:\n\n> Name the unit.")
+	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
+	sha := head(t, fake, "mobius/41")
+	review := testkit.SubmittedReview{CommitID: sha, Body: "One follow-up.", Event: "COMMENT", Comments: []testkit.InlineComment{{Path: "plan.txt", Line: 1, Body: "Name the unit."}}}
+	if reviews := fake.SubmittedReviews(shop, 42); !reflect.DeepEqual(reviews, []testkit.SubmittedReview{review}) {
+		t.Errorf("reviews = %+v", reviews)
+	}
+	want := testkit.Thread{Resolved: true, Comments: []testkit.Comment{{Author: app, Body: "Name the unit."}}}
+	if thread := fake.ReviewThread(shop, 42, 2); !reflect.DeepEqual(thread, want) {
+		t.Errorf("thread = %+v", thread)
+	}
+	if task := liveTask(t, server, 41); task.FixRounds != 0 || task.State != "approval" {
+		t.Errorf("task = %+v", task)
+	}
+	if implementers := roleSessions(t, server, engine.ImplementerRole); len(implementers) != 1 {
+		t.Errorf("Implementers = %+v", implementers)
+	}
+}
+
+func TestAReviewWithAFindingAndAFollowUpStartsAFixRoundWithOnlyTheFinding(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"Thread 2, plan.txt line 1:\"\nshell = \"true\"\n\n" + findingAndFollowUp + leadStarts
+	server, _ := connectTask(t, fake, lead, fixReplies+commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForLeadPrompt(t, server, " follow-up on pull request #42 of #41 \"Add plan model\", item 3, plan.txt line 1:\n\n> Name the unit.")
+	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\"")
+	if thread := fake.ReviewThread(shop, 42, 3); !thread.Resolved || len(thread.Comments) != 1 {
+		t.Errorf("thread = %+v", thread)
+	}
+	if task := liveTask(t, server, 41); task.FixRounds != 1 {
+		t.Errorf("task = %+v", task)
+	}
+	implementers := roleSessions(t, server, engine.ImplementerRole)
+	if len(implementers) != 2 {
+		t.Fatalf("Implementers = %+v", implementers)
+	}
+	prompts := promptTexts(t, server, implementers[1].ID)
+	if len(prompts) != 1 {
+		t.Fatalf("prompts = %q", prompts)
+	}
+	_, items, _ := strings.Cut(prompts[0], "# Open items")
+	if !strings.Contains(items, "Thread 2, plan.txt line 1:") || strings.Contains(items, "Name the unit.") {
+		t.Errorf("open items = %q", items)
 	}
 }

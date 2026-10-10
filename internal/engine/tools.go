@@ -211,18 +211,19 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 	case ReviewerRole:
 		return []mcp.Tool{
 			tool(e, c, "submit_review",
-				"Post your review on the pull request as one GitHub review with inline comments. Call it one time. With no findings, do not call it.",
+				"Post your review on the pull request as one GitHub review with inline comments. Call it one time. With no findings and no follow-ups, do not call it.",
 				map[string]any{
 					"body": map[string]any{"type": "string", "minLength": 1, "description": "The summary of the review."},
 					"comments": map[string]any{
 						"type":        "array",
-						"description": "One inline comment for each finding.",
+						"description": "One inline comment for each finding and each follow-up.",
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
-								"path": map[string]any{"type": "string", "minLength": 1, "description": "The file path, relative to the repository root."},
-								"line": map[string]any{"type": "integer", "minimum": 1, "description": "The line in the new version of the file. It must be in the diff."},
-								"body": map[string]any{"type": "string", "minLength": 1, "description": "The finding."},
+								"path":      map[string]any{"type": "string", "minLength": 1, "description": "The file path, relative to the repository root."},
+								"line":      map[string]any{"type": "integer", "minimum": 1, "description": "The line in the new version of the file. It must be in the diff."},
+								"body":      map[string]any{"type": "string", "minLength": 1, "description": "The finding."},
+								"follow_up": map[string]any{"type": "boolean", "description": "True for a correct finding outside the scope of the task. The Lead decides what to do with it. The default is false."},
 							},
 							"required":             []string{"path", "line", "body"},
 							"additionalProperties": false,

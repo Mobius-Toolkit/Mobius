@@ -49,6 +49,8 @@ type InlineComment struct {
 	// Line is a line of the new version of the file. It must be in the diff.
 	Line int    `json:"line"`
 	Body string `json:"body"`
+	// FollowUp marks a finding outside the scope of the task. SubmitReview does not send it to GitHub.
+	FollowUp bool `json:"follow_up"`
 }
 
 // SubmitReview posts a review of the commit of the pull request number with body and the inline comments. The
