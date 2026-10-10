@@ -118,15 +118,17 @@ function TranscriptEntry({ line }: { line: TranscriptLine }) {
 }
 
 function StartCheckButton({ agent }: { agent: Agent }) {
+  return agent.queueReason === lowLoadReason ? <StartCheckControl id={agent.id} /> : null;
+}
+
+// The state of this control ends with the wait, because the control unmounts when the reason changes.
+function StartCheckControl({ id }: { id: number }) {
   const showLogin = use(LoginContext);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
-  if (agent.queueReason !== lowLoadReason) {
-    return null;
-  }
   const start = () => {
     setStarting(true);
-    startCheck(agent.id)
+    startCheck(id)
       .then((res) => {
         if (res.status === 401) {
           showLogin();
