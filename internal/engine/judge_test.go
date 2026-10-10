@@ -400,6 +400,46 @@ func TestAFixRoundOfTheJudgeFromNeedsHumanResetsTheCountersOfTheTask(t *testing.
 	}
 }
 
+func TestAFollowUpOfTheJudgeFromNeedsHumanContinuesTheTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dir := t.TempDir()
+	start, running, release := filepath.Join(dir, "start"), filepath.Join(dir, "running"), filepath.Join(dir, "release")
+	waits := fmt.Sprintf("shell = \"if [ -e '%[1]s' ]; then touch '%[2]s'; while [ ! -e '%[3]s' ]; do sleep 0.05; done; fi\"\n"+
+		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 5, actions = [{ verdict = \"follow-up\", text = \"Later.\" }] }] } }\n",
+		start, running, release)
+	server := judgeToHumanWith(t, fake, waits)
+	rounds := implementerRounds(t, server)
+	if err := os.WriteFile(start, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if comment := fake.AddComment(shop, 42, "owner", "Later."); comment != 5 {
+		t.Fatalf("comment = %d", comment)
+	}
+	testkit.WaitFor(t, func() bool { _, err := os.Stat(running); return err == nil })
+	waitForPolls(t, fake)
+	if _, err := server.DB.Exec("UPDATE tasks SET fix_rounds = 1, review_rounds = 2, worker_restarts = 1, check_head = 'stale' WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForLeadPrompt(t, server, "follow-up on pull request #42 of #41")
+	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) > rounds })
+	task := testkit.WaitForValue(t, func() (store.Task, bool) {
+		task := liveTask(t, server, 41)
+		return task, task.ReviewRounds >= 1
+	})
+	if task.ReviewRounds != 1 || task.FixRounds != 1 || task.WorkerRestarts != 0 || task.CheckHead.String == "stale" {
+		t.Errorf("task = %+v", task)
+	}
+	if !hasLabel(fake, "mobius:working") || hasLabel(fake, "mobius:needs-human") || pullRequestHasNeedsHuman(fake) {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+}
+
 func TestAFailedJudgeStopsTheTaskWithItsOwnReason(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "error = { code = -32000, message = \"The Judge crashed.\" }\n", fixesEach, func(*config.Config) {})

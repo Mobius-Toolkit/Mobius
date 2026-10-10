@@ -679,81 +679,108 @@ func (e *Engine) noteFullSlots(ctx context.Context, repository github.Repository
 }
 
 // resume continues the task of the issue that waits for a human, or the stopped task with a pull request, for the
-// actor: a pull request with a merge conflict gets a conflict round, another pull request gets a fix round with its
-// open review threads and the failed check runs of its head, and a task with no pull request goes back to the Lead
-// with a dispatch event.
+// actor: a task with a pull request continues as continueTask says, and a task with no pull request goes back to the
+// Lead with a dispatch event.
 // mobius:ready goes away last, so a failure before the round starts leaves the issue in the ready list.
 func (e *Engine) resume(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string) error {
-	number := int64(issue.GetNumber())
-	if err := repository.AddLabel(ctx, number, workingLabel); err != nil {
+	var moved bool
+	var err error
+	if task.PullRequest.Valid {
+		var pullRequest *gh.PullRequest
+		if pullRequest, err = repository.PullRequest(ctx, task.PullRequest.Int64); err != nil {
+			return err
+		}
+		moved, err = e.continueTask(ctx, repository, issue.GetTitle(), task, pullRequest, task.State, task.State)
+	} else {
+		moved, err = e.redispatch(ctx, repository, issue, task, actor)
+	}
+	if err != nil || !moved {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, int64(issue.GetNumber()), readyLabel); err != nil {
+		return err
+	}
+	return e.addActivity(ctx, repository.FullName, task.Workstream, issue, actor, fmt.Sprintf("Continued \"%s\"", issue.GetTitle()))
+}
+
+// redispatch gives the stopped task with no pull request back to the Lead with a dispatch event. It tells if the task
+// moved.
+func (e *Engine) redispatch(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string) (bool, error) {
+	if err := e.unstop(ctx, repository, task); err != nil {
+		return false, err
+	}
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "dispatched", ID: task.ID, FromState: task.State})
+	if err != nil || moved == 0 {
+		return false, err
+	}
+	text := eventText(time.Now(), "resume of", issue, actor, issue.GetBody())
+	err = e.addLeadEvent(ctx, repository.FullName, task.Workstream, sql.NullInt64{Int64: int64(issue.GetNumber()), Valid: true}, "dispatch", text)
+	if err != nil {
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "dispatched"})
+		return false, errors.Join(err, stateErr)
+	}
+	return true, nil
+}
+
+// unstop marks the task as working again: it adds mobius:working, removes mobius:needs-human, and resets the counters
+// of the task.
+func (e *Engine) unstop(ctx context.Context, repository github.Repository, task store.Task) error {
+	if err := repository.AddLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
 	if err := removeNeedsHuman(ctx, repository, task); err != nil {
 		return err
 	}
-	if err := e.queries.ResetTaskCounters(ctx, task.ID); err != nil {
-		return err
+	return e.queries.ResetTaskCounters(ctx, task.ID)
+}
+
+// continueTask continues the task with the pull request. A pull request with a merge conflict gets a conflict round.
+// Another pull request gets a fix round with its open review threads and the failed check runs of its head. The task
+// moves from the state from, and goes back to the state back when the round fails to start. It tells if the task
+// moved.
+func (e *Engine) continueTask(ctx context.Context, repository github.Repository, title string, task store.Task, pullRequest *gh.PullRequest, from, back string) (bool, error) {
+	if err := e.unstop(ctx, repository, task); err != nil {
+		return false, err
 	}
-	var pullRequest *gh.PullRequest
-	if task.PullRequest.Valid {
-		var err error
-		if pullRequest, err = repository.PullRequest(ctx, task.PullRequest.Int64); err != nil {
-			return err
-		}
-	}
-	conflict := pullRequest != nil && (pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest))
-	to := "dispatched"
-	switch {
-	case conflict:
+	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest)
+	to := "working"
+	if conflict {
 		to = "checks"
-	case pullRequest != nil:
-		to = "working"
 	}
-	var parent sql.NullInt64
+	parent, err := e.newestSession(ctx, task)
+	if err != nil {
+		return false, err
+	}
 	items, ci := "", ""
-	if pullRequest != nil {
-		var err error
-		if parent, err = e.newestSession(ctx, task); err != nil {
-			return err
+	if !conflict {
+		if ci, err = ciItems(ctx, repository, pullRequest.GetHead().GetSHA()); err != nil {
+			return false, err
 		}
-		if !conflict {
-			if ci, err = ciItems(ctx, repository, pullRequest.GetHead().GetSHA()); err != nil {
-				return err
-			}
-			if items, err = e.continueItems(ctx, repository, int64(pullRequest.GetNumber()), ci); err != nil {
-				return err
-			}
+		if items, err = e.continueItems(ctx, repository, int64(pullRequest.GetNumber()), ci); err != nil {
+			return false, err
 		}
 	}
-	from := task.State
 	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: to, ID: task.ID, FromState: from})
 	if err != nil || moved == 0 {
-		return err
+		return false, err
 	}
-	switch {
-	case conflict:
+	if conflict {
 		task.State = to
 		err = e.conflictRound(ctx, repository, task, pullRequest)
-	case pullRequest != nil:
-		err = e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items, parent: parent, failedCheck: ci != ""})
-	default:
-		text := eventText(time.Now(), "resume of", issue, actor, issue.GetBody())
-		err = e.addLeadEvent(ctx, repository.FullName, task.Workstream, sql.NullInt64{Int64: number, Valid: true}, "dispatch", text)
+	} else {
+		err = e.fixRound(ctx, repository, round{task: task, title: title, pullRequest: pullRequest, counts: true, items: items, parent: parent, failedCheck: ci != ""})
 	}
 	if err != nil {
-		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: from, ID: task.ID, FromState: to})
-		return errors.Join(err, stateErr)
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: back, ID: task.ID, FromState: to})
+		return false, errors.Join(err, stateErr)
 	}
 	if ci != "" {
 		head := sql.NullString{String: pullRequest.GetHead().GetSHA(), Valid: true}
 		if err := e.queries.SetTaskCheckHead(ctx, store.SetTaskCheckHeadParams{CheckHead: head, ID: task.ID}); err != nil {
-			return err
+			return false, err
 		}
 	}
-	if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
-		return err
-	}
-	return e.addActivity(ctx, repository.FullName, task.Workstream, issue, actor, fmt.Sprintf("Continued \"%s\"", issue.GetTitle()))
+	return true, nil
 }
 
 // continueItems gives the items of a fix round that continues the pull request number: each open review thread, with
