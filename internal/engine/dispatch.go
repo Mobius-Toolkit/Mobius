@@ -736,7 +736,7 @@ func (e *Engine) unstop(ctx context.Context, repository github.Repository, task 
 
 // continueTask continues the task with the pull request. A pull request with a merge conflict gets a conflict round.
 // Another pull request gets a fix round with its open review threads and the failed check runs of its head. The task
-// moves from the state from, and goes back to the state from when the round fails to start. It tells if the task
+// moves from the state from, and goes back to that state when the round fails to start. It tells if the task
 // moved.
 func (e *Engine) continueTask(ctx context.Context, repository github.Repository, title string, task store.Task, pullRequest *gh.PullRequest, from string) (bool, error) {
 	if err := e.unstop(ctx, repository, task); err != nil {
