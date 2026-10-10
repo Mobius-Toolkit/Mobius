@@ -311,8 +311,9 @@ func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
 }
 
 // ResumeIssue removes mobius:needs-human from the issue number of repositoryName, and from the pull request of its
-// task. The next poll continues the task. The label change uses the user token of the Owner, because the poll
-// continues the task only for a removal by a trusted user.
+// task. The next poll continues the task. An issue with no live task has lost its task: ResumeIssue adds mobius:ready
+// instead, so the dispatch starts a new task. The label change uses the user token of the Owner, because the poll
+// trusts a label change only from a trusted user.
 func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number int64) error {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
@@ -325,8 +326,12 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 	}
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
 	if errors.Is(err, sql.ErrNoRows) {
-		task = store.Task{Issue: number}
-	} else if err != nil {
+		if err := asOwner.RemoveLabel(ctx, number, needsHumanLabel); err != nil {
+			return err
+		}
+		return asOwner.AddLabel(ctx, number, readyLabel)
+	}
+	if err != nil {
 		return err
 	}
 	return removeNeedsHuman(ctx, asOwner, task)

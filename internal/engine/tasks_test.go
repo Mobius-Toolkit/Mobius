@@ -301,7 +301,7 @@ func TestTheNeedsHumanListHasTheReasonOfTheNewestStopOfTheIssue(t *testing.T) {
 	})
 }
 
-func TestResumeRemovesMobiusNeedsHumanAsTheOwnerAndKeepsMobiusQuestion(t *testing.T) {
+func TestResumeReplacesMobiusNeedsHumanWithMobiusReadyAsTheOwnerAndKeepsMobiusQuestion(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
@@ -319,11 +319,13 @@ func TestResumeRemovesMobiusNeedsHumanAsTheOwnerAndKeepsMobiusQuestion(t *testin
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
-	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:question"}) {
+	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:question", "mobius:ready"}) {
 		t.Errorf("labels = %v", got)
 	}
-	if got := fake.LabelActor(shop, 41, "mobius:needs-human"); got != "owner" {
-		t.Errorf("actor of mobius:needs-human = %s", got)
+	for _, label := range []string{"mobius:needs-human", "mobius:ready"} {
+		if got := fake.LabelActor(shop, 41, label); got != "owner" {
+			t.Errorf("actor of %s = %s", label, got)
+		}
 	}
 }
 
