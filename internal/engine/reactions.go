@@ -30,11 +30,25 @@ const (
 // acknowledge adds the reaction of an agent that gets the conversation comments.
 func acknowledge(ctx context.Context, repository github.Repository, comments []*gh.IssueComment) error {
 	for _, comment := range comments {
-		if err := repository.ReactToComment(ctx, comment.GetID(), gotReaction); err != nil {
+		if err := acknowledgeComment(ctx, repository, false, comment.GetID()); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// acknowledgeComment adds the reaction of an agent that gets the comment id. A comment that has the reaction of an agent
+// that started its work stays as it is, because a poll that runs again reads the comment again.
+func acknowledgeComment(ctx context.Context, repository github.Repository, review bool, id int64) error {
+	react, reacted := repository.ReactToComment, repository.ReactedToComment
+	if review {
+		react, reacted = repository.ReactToReviewComment, repository.ReactedToReviewComment
+	}
+	started, err := reacted(ctx, id, launchedReaction)
+	if err != nil || started {
+		return err
+	}
+	return react(ctx, id, gotReaction)
 }
 
 // declineComments adds the reaction of a refusal to each conversation comment, and replies with reply on the issue or the pull
@@ -124,7 +138,7 @@ func (e *Engine) answerReviewComments(ctx context.Context, repository github.Rep
 // acknowledgeReviewComments adds the reaction of an agent that gets the review comments.
 func acknowledgeReviewComments(ctx context.Context, repository github.Repository, comments []*gh.PullRequestComment) error {
 	for _, comment := range comments {
-		if err := repository.ReactToReviewComment(ctx, comment.GetID(), gotReaction); err != nil {
+		if err := acknowledgeComment(ctx, repository, true, comment.GetID()); err != nil {
 			return err
 		}
 	}
@@ -132,8 +146,7 @@ func acknowledgeReviewComments(ctx context.Context, repository github.Repository
 }
 
 // launched adds the reaction of an agent that starts its work on the comment id, and removes the reaction of an agent
-// that gets the comment. A failed call does not stop the agent. GitHub keeps one reaction of a kind for each user, so a
-// second call changes nothing.
+// that gets the comment. A failed call does not stop the agent. A second call changes nothing.
 func launched(ctx context.Context, repository github.Repository, review bool, id int64) {
 	react, unreact := repository.ReactToComment, repository.UnreactToComment
 	if review {

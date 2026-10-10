@@ -134,6 +134,29 @@ func TestACommentOfATrustedUserGetsARocketWhenTheJudgeSessionStarts(t *testing.T
 	}
 }
 
+func TestAnAcknowledgeAfterARocketOfTheAppAddsNoEyes(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectSeen(t, fake)
+	conversation := fake.AddComment(shop, 12, "stranger", "Add the tiers too.")
+	review := fake.AddReviewComment(shop, openPullRequest(fake), 0, "stranger", "Use price_cents.")
+	fake.AddReaction(shop, conversation, testkit.AppSlug+"[bot]", "rocket")
+	fake.AddReaction(shop, review, testkit.AppSlug+"[bot]", "rocket")
+
+	if err := server.Engine.AcknowledgeComment(t.Context(), shop, false, conversation); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Engine.AcknowledgeComment(t.Context(), shop, true, review); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []int64{conversation, review} {
+		if got := fake.Reactions(shop, id); !slices.Equal(got, reactions("rocket")) {
+			t.Errorf("reactions of comment %d = %+v", id, got)
+		}
+	}
+}
+
 func TestEachNewCommentOfATrustedUserInAThreadGetsARocketWhenTheJudgeSessionStarts(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
