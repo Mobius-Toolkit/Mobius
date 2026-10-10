@@ -118,6 +118,7 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
 //     conflict round. A failed check run of another App on its head gets a fix round.
 //   - Else a task in checks moves to approval when the CI of the head passed (onChecks).
+//   - Else a task in approval for more than 2 hours gives the Lead a reminder (remindApproval).
 //   - Else a pull request with the approval of a trusted user gets a squash merge when its head agrees with the
 //     conditions (mergeApproved), and the next poll ends the task.
 //   - Else the new comments of the pull request of a task in checks, approval, ready_for_review, reviewed or needs_human
@@ -185,6 +186,11 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 		}
 		if task.State == "checks" {
 			if err := e.onChecks(ctx, repository, task, pullRequest); err != nil {
+				return Work{}, false, err
+			}
+		}
+		if task.State == "approval" {
+			if err := e.remindApproval(ctx, repository, task, pullRequest); err != nil {
 				return Work{}, false, err
 			}
 		}
