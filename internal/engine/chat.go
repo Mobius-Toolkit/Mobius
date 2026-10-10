@@ -334,18 +334,47 @@ func (e *Engine) sendEvents(ctx context.Context, repository string, workstream i
 	if err != nil || len(events) == 0 {
 		return err
 	}
-	key := leadChat(repository, workstream)
-	e.chatsMu.Lock()
-	_, running := e.chats[key]
-	e.chatsMu.Unlock()
-	if !running && !e.tryTrack() {
-		return nil
-	}
 	items := make([]item, 0, len(events))
 	for _, event := range events {
 		items = append(items, item{event: &event})
 	}
+	e.giveTracked(leadChat(repository, workstream), items)
+	return nil
+}
+
+// giveTracked gives the items to the chat of key like give. The drain holds a new chat, so the items stay undelivered.
+// The caller holds e.chatOrder.
+func (e *Engine) giveTracked(key ChatKey, items []item) {
+	e.chatsMu.Lock()
+	_, running := e.chats[key]
+	e.chatsMu.Unlock()
+	if !running && !e.tryTrack() {
+		return
+	}
 	e.give(key, !running, items...)
+}
+
+// giveEarlierMessages gives the messages of the Owner that the earlier run of the server stored and did not deliver
+// to the chats of organization and repository, in the order of their ids. It gives them to each chat one time in a
+// run. A message with no browser id is from before the browser ids, so the agent does not get it again.
+func (e *Engine) giveEarlierMessages(ctx context.Context, organization, repository string) error {
+	e.chatOrder.Lock()
+	defer e.chatOrder.Unlock()
+	messages, err := e.queries.ListUndeliveredOwnerMessages(ctx, store.ListUndeliveredOwnerMessagesParams{Organization: organization, Repository: repository, ID: e.earlierMessage})
+	if err != nil {
+		return err
+	}
+	chats := map[ChatKey][]item{}
+	for _, message := range messages {
+		key := ChatKey{message.Organization, message.Repository, message.Workstream}
+		if !e.handedChats[key] {
+			chats[key] = append(chats[key], item{message: &message})
+		}
+	}
+	for key, items := range chats {
+		e.giveTracked(key, items)
+		e.handedChats[key] = true
+	}
 	return nil
 }
 

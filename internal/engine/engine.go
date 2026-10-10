@@ -30,6 +30,11 @@ type Engine struct {
 	labelsFixed map[string]bool
 	// recovered holds the full names of the repositories whose lost tasks the poll handed to a human. Only the poll uses it.
 	recovered map[string]bool
+	// earlierMessage is the highest chat message id of the earlier run of the server. Only the poll reads it.
+	earlierMessage int64
+	// handedChats holds the chats whose undelivered messages of the earlier run the poll gave to the agent. Only the
+	// poll uses it.
+	handedChats map[ChatKey]bool
 	// copied holds the full names of the repositories whose copy is complete. Only the poll uses it.
 	copied map[string]bool
 	// copyWrite makes syncCopy, which reads all Workstreams and then replaces the copy, and createWorkstream, which
@@ -143,6 +148,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		agents:       agents,
 		labelsFixed:  map[string]bool{},
 		recovered:    map[string]bool{},
+		handedChats:  map[ChatKey]bool{},
 		copied:       map[string]bool{},
 		quiet:        map[int64]quietItem{},
 		pulls:        map[pullKey]*pullState{},
@@ -269,7 +275,8 @@ func (e *Engine) stopWorkers() {
 	e.running.Wait()
 }
 
-// Recover ends the sessions of the earlier run of the server, and starts the timer of each pause.
+// Recover ends the sessions of the earlier run of the server, notes its last chat message, and starts the timer of
+// each pause.
 // The sessions of the earlier run have no Harness process. Call Recover before Run and before the first session.
 func (e *Engine) Recover(ctx context.Context) error {
 	ids, err := e.queries.ListOpenSessionIDs(ctx)
@@ -280,6 +287,9 @@ func (e *Engine) Recover(ctx context.Context) error {
 		if _, err := e.queries.EndSession(ctx, endParams(id, "restart")); err != nil {
 			return err
 		}
+	}
+	if e.earlierMessage, err = e.queries.MaxChatMessageID(ctx); err != nil {
+		return err
 	}
 	pauses, err := e.queries.ListHarnessPauses(ctx)
 	if err != nil {

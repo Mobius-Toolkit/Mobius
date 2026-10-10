@@ -8,6 +8,7 @@ import (
 	"log"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	gh "github.com/google/go-github/v92/github"
@@ -91,11 +92,18 @@ func repositoryKeys(repositories []github.Repository) []string {
 	return keys
 }
 
-// recover hands the lost tasks of repository to a human, gives the events that wait from the earlier run of the
-// server to the Leads, starts a Curator for the requests of the Owner that wait, and starts each Worker of the earlier
+// recover hands the lost tasks of repository to a human, gives the messages of the Owner and the events that wait
+// from the earlier run of the server to the agents of the chats, starts a Curator for the requests of the Owner that wait, and starts each Worker of the earlier
 // run again.
 func (e *Engine) recover(ctx context.Context, repository github.Repository) error {
 	if err := e.handLostTasks(ctx, repository); err != nil {
+		return err
+	}
+	organization, _, _ := strings.Cut(repository.FullName, "/")
+	if err := e.giveEarlierMessages(ctx, organization, repository.FullName); err != nil {
+		return err
+	}
+	if err := e.giveEarlierMessages(ctx, organization, ""); err != nil {
 		return err
 	}
 	waiting, err := e.queries.ListWaitingLeadWorkstreams(ctx)
