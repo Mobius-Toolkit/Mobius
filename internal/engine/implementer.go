@@ -382,9 +382,10 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 
 // fixRound starts a fix round of the Implementer on the pull request of the working task. The pull request is a draft
 // during the round. The round gets the findings that the Lead kept on the task, and it counts then. At max_fix_rounds, a
-// round that counts hands the task to a human instead, and the kept findings stay. A task that is not working, for
-// example after a decline, gets no round. The steps after the queue step run in the Worker, so an error there starts the
-// Implementer of the round again. The Worker drops the kept findings after it stores the prompt that has them.
+// round that counts hands the task to a human instead, and the kept findings stay. The count comes after the GitHub
+// reads, so a failed start does not use a round. A task that is not working, for example after a decline, gets no round.
+// The steps after the queue step run in the Worker, so an error there starts the Implementer of the round again. The
+// Worker drops the kept findings after it stores the prompt that has them.
 func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r round) error {
 	if err := makeDraft(ctx, repository, r.pullRequest); err != nil {
 		return err
@@ -395,15 +396,6 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	}
 	if kept != "" {
 		r.items += "\nFindings of the Lead:\n" + kept
-	}
-	if r.counts || kept != "" {
-		added, err := e.queries.AddFixRound(ctx, store.AddFixRoundParams{ID: r.task.ID, Max: int64(e.config.MaxFixRounds)})
-		if err != nil {
-			return err
-		}
-		if added == 0 {
-			return e.stopAtLimit(ctx, repository, r, "fix")
-		}
 	}
 	brief, err := brief(ctx, repository, r.task.Workstream)
 	if err != nil {
@@ -420,6 +412,15 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	comments, err := e.readPullRequestComments(ctx, repository, int64(r.pullRequest.GetNumber()))
 	if err != nil {
 		return err
+	}
+	if r.counts || kept != "" {
+		added, err := e.queries.AddFixRound(ctx, store.AddFixRoundParams{ID: r.task.ID, Max: int64(e.config.MaxFixRounds)})
+		if err != nil {
+			return err
+		}
+		if added == 0 {
+			return e.stopAtLimit(ctx, repository, r, "fix")
+		}
 	}
 	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: r.task.ID, FromState: "working"})
 	if err != nil || queued == 0 {
