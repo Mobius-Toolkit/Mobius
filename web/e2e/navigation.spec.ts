@@ -250,6 +250,59 @@ test("a new page starts at the top", async ({ page }) => {
 
 const back = (page: Page) => page.getByRole("banner").getByRole("button", { name: "Back" });
 
+test.describe("the list of a phone after a back navigation", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("keeps the scroll position, and a new navigation starts at the top", async ({ page }) => {
+    const workstreams = Array.from({ length: 40 }, (_, index) => ({
+      repository: "owner/shop",
+      number: 100 + index,
+      title: `Workstream number ${index + 1}`,
+      brief: "",
+      autopilot: false,
+      allTasksClosed: false,
+      readyToMerge: false,
+    }));
+    await page.route("**/api/workstreams", (route) =>
+      route.fulfill({ json: { data: workstreams } }),
+    );
+    const last = page.locator('a[href="/workstreams/owner/shop/139"]').filter({ visible: true });
+
+    await page.goto("/workstreams");
+    await expect(last).toBeAttached();
+    await page.evaluate("document.getElementById('content').scrollTo(0, 100000)");
+    await expect(last).toBeInViewport();
+    const position = await scrollTop(page);
+    expect(position).toBeGreaterThan(0);
+
+    await last.click();
+    await expect(page).toHaveURL("/workstreams/owner/shop/139");
+    await page.goBack();
+    await expect(page).toHaveURL("/workstreams");
+    await expect(last).toBeInViewport();
+    expect(await scrollTop(page)).toBe(position);
+
+    await last.click();
+    await expect(page).toHaveURL("/workstreams/owner/shop/139");
+    await back(page).click();
+    await expect(page).toHaveURL("/workstreams");
+    await expect(last).toBeInViewport();
+    expect(await scrollTop(page)).toBe(position);
+
+    await page.getByRole("link", { name: "Inbox" }).filter({ visible: true }).click();
+    await expect(page).toHaveURL("/inbox");
+    await page
+      .getByRole("link", { name: /^Workstreams/ })
+      .filter({ visible: true })
+      .click();
+    await expect(page).toHaveURL("/workstreams");
+    await expect(
+      page.locator('a[href="/workstreams/owner/shop/100"]').filter({ visible: true }),
+    ).toBeInViewport();
+    expect(await scrollTop(page)).toBe(0);
+  });
+});
+
 test.describe("the back button of a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 

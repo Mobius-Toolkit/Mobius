@@ -181,6 +181,7 @@ export function Frame({
         </div>
         <div
           id="content"
+          data-scroll-restoration-id="content"
           className={cn(
             "flex min-h-0 grow flex-col overflow-y-auto md:overflow-visible",
             !fill && "md:p-6",
