@@ -1141,7 +1141,7 @@ func (q *Queries) GetHarnessPause(ctx context.Context, harness string) (HarnessP
 }
 
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
-SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
 ORDER BY id DESC LIMIT 1
 `
@@ -1169,6 +1169,8 @@ func (q *Queries) GetLastChatMessageOf(ctx context.Context, arg GetLastChatMessa
 		&i.Time,
 		&i.Text,
 		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
 	)
 	return i, err
 }
