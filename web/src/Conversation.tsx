@@ -600,13 +600,13 @@ export function Conversation({
   // its first message when the Owner is less than one list height from the top.
   useEffect(() => {
     const list = listRef.current;
-    if (!list || !loaded || !older) {
+    if (!list || !loaded || !queueLoaded || !older) {
       return;
     }
     if (waiting || (openUnread !== undefined && list.scrollTop < list.clientHeight)) {
       loadOlder();
     }
-  }, [loaded, older, waiting, openUnread, loadOlder]);
+  }, [loaded, queueLoaded, older, waiting, openUnread, loadOlder]);
 
   // The first scroll shows the first unread message, or the end. Then a new message scrolls to the end, and a longer
   // last message scrolls only while the Owner is at the end.
