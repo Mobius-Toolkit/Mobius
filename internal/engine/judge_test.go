@@ -227,7 +227,8 @@ func TestACommentInAnUnresolvedThreadMakesTheJudgeRunAgain(t *testing.T) {
 }
 
 // judgeToHuman starts a server whose Judge gives no verdicts, with max_fix_rounds 1. Two comments of the trusted bot
-// start a fix round, and the round limit then hands the task to a human.
+// start a fix round, and the round limit then hands the task to a human. It returns after Mobius posts its last comment
+// on the pull request.
 func judgeToHuman(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
 	return judgeToHumanWith(t, fake, "shell = \"true\"\n")
@@ -241,6 +242,11 @@ func judgeToHumanWith(t *testing.T, fake *testkit.FakeGitHub, judge string) *tes
 	fake.AddReviewComment(shop, 42, 0, bot, "Rename tier to plan.")
 	testkit.WaitFor(t, func() bool {
 		return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:working")
+	})
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(fake.Comments(shop, 42), func(comment testkit.Comment) bool {
+			return strings.HasPrefix(comment.Body, "Review not started.")
+		})
 	})
 	return server
 }
