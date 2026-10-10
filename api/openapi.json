@@ -2737,10 +2737,6 @@
         "type": "object",
         "title": "ActiveAgents",
         "properties": {
-          "count": {
-            "type": "integer",
-            "description": "Count is the number of sessions that hold a slot and count in max_agents"
-          },
           "groups": {
             "type": "array",
             "title": "[]AgentGroup",
@@ -2748,15 +2744,9 @@
             "items": {
               "$ref": "#/components/schemas/AgentGroup"
             }
-          },
-          "max": {
-            "type": "integer",
-            "description": "Max is max_agents"
           }
         },
         "required": [
-          "count",
-          "max",
           "groups"
         ],
         "description": "ActiveAgents are the open sessions of all organizations."

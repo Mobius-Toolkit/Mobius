@@ -130,10 +130,6 @@ type AgentGroup struct {
 
 // ActiveAgents are the open sessions of all organizations.
 type ActiveAgents struct {
-	// Count is the number of sessions that hold a slot and count in max_agents
-	Count int64 `gork:"count"`
-	// Max is max_agents
-	Max int64 `gork:"max"`
 	// Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge, Curator
 	Groups []AgentGroup `gork:"groups"`
 }
@@ -152,7 +148,7 @@ func (h *handlers) ListActiveAgents(ctx context.Context, _ ListActiveAgentsReque
 	if err != nil {
 		return nil, err
 	}
-	active := ActiveAgents{Count: int64(found.Count), Max: int64(found.Max), Groups: make([]AgentGroup, 0, len(found.Groups))}
+	active := ActiveAgents{Groups: make([]AgentGroup, 0, len(found.Groups))}
 	for _, group := range found.Groups {
 		agents := make([]ActiveAgent, 0, len(group.Agents))
 		for _, found := range group.Agents {

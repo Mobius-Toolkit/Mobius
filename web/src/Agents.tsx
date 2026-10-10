@@ -298,13 +298,7 @@ export function Agents({ source }: { source?: EventSource }) {
         title={selected ? `${selected.name} ${selected.title}` : "Agents"}
         back="/settings"
         onBack={selected && (() => setSelected(undefined))}
-      >
-        {agents && !selected && (
-          <span className="ml-auto text-muted-foreground">
-            {agents.count} / {agents.max}
-          </span>
-        )}
-      </TopBar>
+      />
       {selected ? (
         <>
           <PageHeader title={`${selected.name} ${selected.title}`}>
@@ -324,13 +318,7 @@ export function Agents({ source }: { source?: EventSource }) {
         </>
       ) : (
         <>
-          <PageHeader title="Agents">
-            {agents && (
-              <span className="text-muted-foreground">
-                {agents.count} / {agents.max}
-              </span>
-            )}
-          </PageHeader>
+          <PageHeader title="Agents" />
           {error && <ErrorBadge>{error}</ErrorBadge>}
           {agents?.groups.map((group) => (
             <Section key={group.name} title={`${group.name} ${group.count} / ${group.max}`}>

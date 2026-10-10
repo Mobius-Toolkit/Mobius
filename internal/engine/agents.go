@@ -744,10 +744,8 @@ type AgentGroup struct {
 }
 
 // ActiveAgents is the open sessions of all organizations in one group for each Role, in the order Lead, Triager,
-// Implementer, Researcher, Reviewer, Judge, Curator. Count is the number of sessions that hold a slot and count in max_agents.
+// Implementer, Researcher, Reviewer, Judge, Curator.
 type ActiveAgents struct {
-	Count  int
-	Max    int
 	Groups []AgentGroup
 }
 
@@ -769,12 +767,9 @@ func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 		}
 		agents[role] = append(agents[role], ActiveAgent{e.node(row.Session), row.WorkstreamTitle, row.IssueTitle, row.PullRequest})
 	}
-	active := ActiveAgents{Max: e.config.MaxAgents}
+	var active ActiveAgents
 	for _, g := range groups {
 		binding, _ := roleBinding(e.config, g.role)
-		if binding.CountsInMaxAgents {
-			active.Count += running[g.role]
-		}
 		active.Groups = append(active.Groups, AgentGroup{Title: g.title, Count: running[g.role], Max: binding.Max, Agents: agents[g.role]})
 	}
 	return active, nil
