@@ -66,6 +66,8 @@ type Agent struct {
 	harness config.Harness
 	key     string
 	session *runner.Session
+	// queuedAt is the time when the session was added.
+	queuedAt string
 	// slot is the Role of the slot that the session holds, or "".
 	slot string
 	// tracked tells that the drain counts the session.
@@ -252,7 +254,7 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, err
 	}
 	e.publish(Change{Node: new(e.node(session))})
-	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
+	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, queuedAt: session.StartedAt, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
 }
 
 // waitForSlot waits for a slot of the Role of a, and starts the session. A failed wait ends the session, like Start.
@@ -268,7 +270,8 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 		}
 		return a.Fail(ended, err)
 	}
-	started, err := e.queries.StartSession(ctx, store.StartSessionParams{StartedAt: now(), ID: a.id})
+	startedAt := now()
+	started, err := e.queries.StartSession(ctx, store.StartSessionParams{StartedAt: startedAt, ID: a.id})
 	if err != nil {
 		if ctx.Err() != nil {
 			return errors.Join(err, a.End(ended, "stopped"))
@@ -276,6 +279,9 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 		return a.Fail(ended, err)
 	}
 	e.publish(Change{Node: new(e.node(started))})
+	if err := a.addStep(ctx, "queue", a.queuedAt, startedAt, sql.NullInt64{}, ""); err != nil {
+		log.Printf("add the queue wait of the session %d: %v", a.id, err)
+	}
 	return nil
 }
 

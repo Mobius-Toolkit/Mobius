@@ -66,6 +66,11 @@ INSERT INTO turn_usage (session, task, issue, workstream, organization, reposito
                         effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- name: AddStepTime :exec
+INSERT INTO step_times (kind, session, task, issue, workstream, organization, repository, role, harness, model, effort,
+                        started_at, ended_at, attempt, result)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
 -- name: SetACPSessionID :exec
 UPDATE sessions SET acp_session_id = ? WHERE id = ?;
 
