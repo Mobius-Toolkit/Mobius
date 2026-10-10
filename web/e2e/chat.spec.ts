@@ -1667,7 +1667,7 @@ test("the voice input works in each Workstream after a switch", async ({ page })
   await open(page, shop);
   await mic.click();
   await result(page, "today");
-  await expect(input).toHaveValue("today");
+  await expect(input).toHaveValue("red today");
   await stop.click();
   await emit(page, "end");
   await expect(mic).toBeVisible();
