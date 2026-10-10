@@ -25,8 +25,8 @@ func (e *Engine) SetClock(clock func() time.Time) {
 	e.clock.Store(&clock)
 }
 
-// ListenerCount gives the number of listeners of the changes.
-func (e *Engine) ListenerCount() int {
+// Listeners gives the number of channels that wait for changes.
+func (e *Engine) Listeners() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return len(e.listeners)

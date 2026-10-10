@@ -150,7 +150,7 @@ You can add these keys:
 | `data_dir` | `~/.mobius` | The directory of `mobius.db` and of the work directories of the agents |
 | `max_agents` | `4` | The maximum number of agents of the Roles with `counts_in_max_agents` that run at the same time |
 | `max_checks` | `1` | The maximum number of local checks that run at the same time |
-| `max_fix_rounds` | `7` | The maximum number of fix rounds of a task |
+| `max_fix_rounds` | `10` | The maximum number of fix rounds of a task |
 | `max_check_attempts` | `3` | The maximum number of failed local checks in one Implementer round |
 | `max_worker_restarts` | `3` | The maximum number of restarts of a failed Worker. After the last restart, the task goes to a human |
 | `check_timeout` | `"15m"` | The time limit of one local check |

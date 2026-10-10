@@ -229,6 +229,7 @@ func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndEachTranscriptLine(t *
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hel\", \"lo\"]\n")
+	listeners := server.Engine.Listeners()
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/events", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -239,7 +240,8 @@ func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndEachTranscriptLine(t *
 	}
 	defer func() { _ = response.Body.Close() }()
 	events := bufio.NewReader(response.Body)
-	testkit.WaitFor(t, func() bool { return server.Engine.ListenerCount() == 1 })
+	// The server sends the headers before the stream handler listens for changes.
+	testkit.WaitFor(t, func() bool { return server.Engine.Listeners() > listeners })
 
 	session, _ := leadReply(t, server)
 
