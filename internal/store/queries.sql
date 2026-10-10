@@ -188,6 +188,11 @@ RETURNING *;
 UPDATE chat_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL
 RETURNING *;
 
+-- name: GetLastChatMessageOf :one
+SELECT * FROM chat_messages
+WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
+ORDER BY id DESC LIMIT 1;
+
 -- name: DeleteChatMessage :exec
 DELETE FROM chat_messages WHERE id = ?;
 
@@ -281,6 +286,21 @@ SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?);
 
 -- name: CountActiveTasks :one
 SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
+
+-- name: ListActiveTasks :many
+SELECT repository, issue, state, state_at FROM tasks WHERE state IN ('dispatched', 'queued', 'working') ORDER BY id;
+
+-- name: StartFullSlots :exec
+INSERT INTO full_slots (id, since) VALUES (1, ?) ON CONFLICT DO NOTHING;
+
+-- name: GetFullSlots :one
+SELECT * FROM full_slots;
+
+-- name: SetFullSlotsItemAt :exec
+UPDATE full_slots SET item_at = ? WHERE item_at IS NULL;
+
+-- name: EndFullSlots :exec
+DELETE FROM full_slots;
 
 -- name: ResetTaskCounters :exec
 UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;

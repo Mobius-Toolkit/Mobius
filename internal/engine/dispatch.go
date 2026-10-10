@@ -18,6 +18,10 @@ import (
 // readyEndpoint is the endpoint of the list of the issues with mobius:ready in the sync_cursors table.
 const readyEndpoint = "ready"
 
+// fullSlotsWait is the time with all Autopilot slots full before Mobius tells the Owner. A normal task leaves
+// dispatched in some minutes, so a full queue for 30 minutes shows that a task is stuck.
+const fullSlotsWait = 30 * time.Minute
+
 // dispatchReady acts on the open issues with mobius:ready of a trusted actor:
 //   - An issue with no Workstream goes to the Triager, also when it has open blockers.
 //   - A task that waits for a human, and a stopped task with a pull request, continues (Mobius-rust#225,
@@ -560,6 +564,15 @@ func (e *Engine) startAutopilot(ctx context.Context, repository github.Repositor
 	if e.draining() {
 		return nil
 	}
+	active, err := e.queries.CountActiveTasks(ctx)
+	if err != nil {
+		return err
+	}
+	if active < int64(e.config.Roles.Implementer.Max) {
+		if err := e.queries.EndFullSlots(ctx); err != nil {
+			return err
+		}
+	}
 	workstreams, err := repository.OpenIssuesWithLabel(ctx, workstreamLabel)
 	if err != nil {
 		return err
@@ -599,8 +612,11 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 			}
 			if !had {
 				active, err := e.queries.CountActiveTasks(ctx)
-				if err != nil || active >= int64(e.config.Roles.Implementer.Max) {
-					return true, err
+				if err != nil {
+					return false, err
+				}
+				if active >= int64(e.config.Roles.Implementer.Max) {
+					return true, e.noteFullSlots(ctx, repository, issue, workstream)
 				}
 				if err := e.dispatch(ctx, repository, issue, workstream, appLogin(repository.AppSlug)); err != nil {
 					return false, err
@@ -613,6 +629,53 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 		}
 	}
 	return false, nil
+}
+
+// noteFullSlots keeps the time when Autopilot first could not start a task because all slots were full. When
+// fullSlotsWait passed since then, it adds one Inbox item for the Owner with the issue that Autopilot could not start
+// and the tasks that hold the slots. It writes item_at after the item, so a failed step runs again on the next poll.
+func (e *Engine) noteFullSlots(ctx context.Context, repository github.Repository, issue *gh.Issue, workstream int64) error {
+	current := e.timeNow().UTC()
+	if err := e.queries.StartFullSlots(ctx, current.Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	full, err := e.queries.GetFullSlots(ctx)
+	if err != nil {
+		return err
+	}
+	since, err := time.Parse(time.RFC3339Nano, full.Since)
+	if err != nil {
+		return err
+	}
+	if full.ItemAt.Valid || current.Sub(since) < fullSlotsWait {
+		return nil
+	}
+	tasks, err := e.queries.ListActiveTasks(ctx)
+	if err != nil {
+		return err
+	}
+	var text strings.Builder
+	fmt.Fprintf(&text, "All %d Autopilot slots are full for %s. Autopilot could not start #%d \"%s\". These tasks hold the slots:", e.config.Roles.Implementer.Max, current.Sub(since).Round(time.Minute), issue.GetNumber(), issue.GetTitle())
+	for _, task := range tasks {
+		entered, err := time.Parse(time.RFC3339Nano, task.StateAt)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(&text, "\n- %s#%d is %s for %s", task.Repository, task.Issue, task.State, current.Sub(entered).Round(time.Minute))
+	}
+	err = e.addInboxItem(ctx, store.AddInboxItemParams{
+		Kind:         fullSlotsKind,
+		Organization: repository.Owner(),
+		Repository:   repository.FullName,
+		Workstream:   workstream,
+		Issue:        int64(issue.GetNumber()),
+		Text:         text.String(),
+		Link:         issue.GetHTMLURL(),
+	})
+	if err != nil {
+		return err
+	}
+	return e.queries.SetFullSlotsItemAt(ctx, sql.NullString{String: current.Format(time.RFC3339Nano), Valid: true})
 }
 
 // resume continues the task of the issue that waits for a human, or the stopped task with a pull request, for the

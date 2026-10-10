@@ -31,6 +31,12 @@ type Event struct {
 	Link       string
 }
 
+type FullSlot struct {
+	ID     int64
+	Since  string
+	ItemAt sql.NullString
+}
+
 type GithubApp struct {
 	AppID              int64
 	Slug               string
