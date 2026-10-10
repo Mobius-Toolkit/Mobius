@@ -61,8 +61,8 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 }
 
 // countCheckErrors adds 1 to the count of polls in a row with an error of checkTask for the task, or sets the count to
-// 0 when checkErr is nil. When the count becomes checkErrorPolls, it tells the Lead and the Owner with the last error.
-// It does not change the task.
+// 0 when checkErr is nil. It writes the count first. When the count becomes checkErrorPolls, it then tells the Lead and
+// the Owner with the last error, so a failed write loses the message and never repeats it. It does not change the task.
 func (e *Engine) countCheckErrors(ctx context.Context, repository github.Repository, task store.Task, checkErr error) error {
 	count := task.CheckErrors + 1
 	if checkErr == nil {
@@ -71,41 +71,39 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 	if count == task.CheckErrors {
 		return nil
 	}
-	if count == checkErrorPolls {
-		rows, err := e.queries.ListCopiedIssuesByNumber(ctx, store.ListCopiedIssuesByNumberParams{Repository: task.Repository, Workstream: task.Workstream, Number: task.Issue})
-		if err != nil {
-			return err
-		}
-		var copied store.ListCopiedIssuesByNumberRow
-		for _, row := range rows {
-			if !otherRepository(row.RepositoryUrl, task.Repository) {
-				copied = row
-				break
-			}
-		}
-		pullRequest := ""
-		if task.PullRequest.Valid {
-			pullRequest = fmt.Sprintf(", pull request #%d,", task.PullRequest.Int64)
-		}
-		text := fmt.Sprintf("Mobius failed to check #%d \"%s\"%s on %d polls in a row. The last error: %v.", task.Issue, copied.Title, pullRequest, checkErrorPolls, checkErr)
-		err = e.addInboxItem(ctx, store.AddInboxItemParams{
-			Kind:         checkErrorsKind,
-			Organization: repository.Owner(),
-			Repository:   task.Repository,
-			Workstream:   task.Workstream,
-			Issue:        task.Issue,
-			Text:         text,
-			Link:         copied.HtmlUrl,
-		})
-		if err != nil {
-			return err
-		}
-		err = e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "check_errors", time.Now().UTC().Format(timeFormat)+" "+text)
-		if err != nil {
-			return err
+	err := e.queries.SetTaskCheckErrors(ctx, store.SetTaskCheckErrorsParams{CheckErrors: count, ID: task.ID})
+	if err != nil || count != checkErrorPolls {
+		return err
+	}
+	rows, err := e.queries.ListCopiedIssuesByNumber(ctx, store.ListCopiedIssuesByNumberParams{Repository: task.Repository, Workstream: task.Workstream, Number: task.Issue})
+	if err != nil {
+		return err
+	}
+	var copied store.ListCopiedIssuesByNumberRow
+	for _, row := range rows {
+		if !otherRepository(row.RepositoryUrl, task.Repository) {
+			copied = row
+			break
 		}
 	}
-	return e.queries.SetTaskCheckErrors(ctx, store.SetTaskCheckErrorsParams{CheckErrors: count, ID: task.ID})
+	pullRequest := ""
+	if task.PullRequest.Valid {
+		pullRequest = fmt.Sprintf(", pull request #%d,", task.PullRequest.Int64)
+	}
+	text := fmt.Sprintf("Mobius failed to check #%d \"%s\"%s on %d polls in a row. The last error: %v.", task.Issue, copied.Title, pullRequest, checkErrorPolls, checkErr)
+	err = e.addInboxItem(ctx, store.AddInboxItemParams{
+		Kind:         checkErrorsKind,
+		Organization: repository.Owner(),
+		Repository:   task.Repository,
+		Workstream:   task.Workstream,
+		Issue:        task.Issue,
+		Text:         text,
+		Link:         copied.HtmlUrl,
+	})
+	if err != nil {
+		return err
+	}
+	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "check_errors", time.Now().UTC().Format(timeFormat)+" "+text)
 }
 
 // checkTask acts on the state of the issue and the pull request of the task, and gives the pull request when the task
