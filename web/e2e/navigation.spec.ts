@@ -156,6 +156,22 @@ test("a link marks only its own page as the current page", async ({ page }) => {
   await expect(current.filter({ visible: true })).toHaveCount(0);
 });
 
+test("the side link Checkup is the current page on each sub-screen of the checkup", async ({
+  page,
+}) => {
+  const current = page.locator('[aria-current="page"]').filter({ visible: true });
+
+  for (const path of [
+    "/settings/checkup",
+    "/settings/checkup/tools",
+    "/settings/checkup/owner/permissions",
+    "/settings/checkup/owner/labels",
+  ]) {
+    await page.goto(path);
+    await expect(current).toHaveText(["Checkup"]);
+  }
+});
+
 test("a click on another chat shows no state of the previous chat", async ({ page }) => {
   const main = page.getByRole("main");
   const input = page.getByLabel("Message to the Lead");
