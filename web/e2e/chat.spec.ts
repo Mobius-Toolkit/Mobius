@@ -3,6 +3,7 @@ import { pasteImage, png } from "./images.js";
 
 const phone = { width: 390, height: 844 };
 const shop = "/workstreams/owner/shop/12";
+const picture = /^Picture \d+ of /;
 
 async function logIn(page: Page) {
   await page.goto("/github");
@@ -258,13 +259,13 @@ test.describe("images", () => {
     const withText = main.locator("[data-message]", { hasText: "This is the new plan page." });
     const onlyImage = main
       .locator("[data-message]")
-      .filter({ has: page.getByRole("img") })
+      .filter({ has: page.getByRole("img", { name: picture }) })
       .last();
     for (const [message, count] of [
       [withText, 2],
       [onlyImage, 1],
     ] as const) {
-      const pictures = message.getByRole("img");
+      const pictures = message.getByRole("img", { name: picture });
       await expect(pictures).toHaveCount(count);
       for (let position = 0; position < count; position++) {
         await expect(pictures.nth(position)).toHaveJSProperty("naturalWidth", 200);
@@ -272,8 +273,11 @@ test.describe("images", () => {
     }
     await expect(onlyImage.locator(":scope > *")).toHaveCount(2);
     await page.reload();
-    await expect(withText.getByRole("img")).toHaveCount(2);
-    await expect(withText.getByRole("img").first()).toHaveJSProperty("naturalWidth", 200);
+    await expect(withText.getByRole("img", { name: picture })).toHaveCount(2);
+    await expect(withText.getByRole("img", { name: picture }).first()).toHaveJSProperty(
+      "naturalWidth",
+      200,
+    );
   });
 
   test("a sent message shows its images in the history with no reload", async ({ page }) => {
@@ -285,7 +289,7 @@ test.describe("images", () => {
     await expect(main.getByRole("img", { name: "Image 2" })).toBeVisible();
     await main.getByRole("button", { name: "Send" }).click();
     const message = main.locator("[data-message]", { hasText: "Live images" });
-    const pictures = message.getByRole("img");
+    const pictures = message.getByRole("img", { name: picture });
     await expect(pictures).toHaveCount(2);
     await expect(pictures.first()).toHaveJSProperty("naturalWidth", 40);
     await expect(pictures.last()).toHaveJSProperty("naturalWidth", 40);
@@ -2378,5 +2382,127 @@ test.describe("on a phone with the keyboard", () => {
       content: 0,
       contentOverflow: 0,
     });
+  });
+});
+
+async function expectStates(page: Page) {
+  const main = page.getByRole("main");
+  const message = (text: string) => main.locator("[data-message]", { hasText: text });
+  const stored = message("Stored note").getByRole("img", {
+    name: "Stored, waits for the agent",
+  });
+  await expect(stored).toBeVisible();
+  await expect(stored).toHaveAttribute("title", "Stored, waits for the agent");
+  const delivered = message("Delivered note").getByRole("img", {
+    name: "Delivered to the agent at 08:40 AM",
+  });
+  await expect(delivered).toBeVisible();
+  await expect(delivered).toHaveAttribute("title", "Delivered to the agent at 08:40 AM");
+  const stopped = message("Stopped note").getByRole("img", {
+    name: "Stopped, the agent did not get it, at 08:41 AM",
+  });
+  await expect(stopped).toBeVisible();
+  await expect(stopped).toHaveAttribute("title", "Stopped, the agent did not get it, at 08:41 AM");
+  await expect(message("Lead note").getByRole("img")).toHaveCount(0);
+}
+
+async function fulfillLoad(route: Route, deliveredAt: string | null) {
+  const response = await route.fetch();
+  const body = (await response.json()) as {
+    data: { messages: { text: string; deliveredAt: string | null }[] };
+  };
+  for (const other of body.data.messages) {
+    if (other.text === "Delivered by a load") {
+      other.deliveredAt = deliveredAt;
+    }
+  }
+  await route.fulfill({ response, json: body });
+}
+
+test.describe("the state of an Owner message", () => {
+  const states = [
+    { text: "Stored note", deliveredAt: null, stoppedAt: null },
+    { text: "Delivered note", deliveredAt: "2026-10-15T08:40:00Z", stoppedAt: null },
+    { text: "Stopped note", deliveredAt: null, stoppedAt: "2026-10-15T08:41:00Z" },
+  ];
+
+  async function showStates(
+    page: Page,
+    organization: string,
+    repository: string,
+    workstream: number,
+  ) {
+    await page.route("**/api/chat?*", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { data: { messages: unknown[] } };
+      body.data.messages = [
+        ...states.map((state, index) => ({
+          id: index + 1,
+          author: "Owner",
+          browserId: "",
+          text: state.text,
+          time: "2026-10-15T08:37:00Z",
+          deliveredAt: state.deliveredAt,
+          stoppedAt: state.stoppedAt,
+          images: 0,
+          organization,
+          repository,
+          workstream,
+        })),
+        {
+          id: 4,
+          author: "Lead",
+          browserId: "",
+          text: "Lead note",
+          time: "2026-10-15T08:37:00Z",
+          deliveredAt: null,
+          stoppedAt: null,
+          images: 0,
+          organization,
+          repository,
+          workstream,
+        },
+      ];
+      await route.fulfill({ response, json: body });
+    });
+  }
+
+  test("the Lead chat shows an icon for each state", async ({ page }) => {
+    await showStates(page, "owner", "owner/shop", 12);
+    await page.goto(shop);
+    await expectStates(page);
+  });
+
+  test("the Triager chat shows an icon for each state", async ({ page }) => {
+    await showStates(page, "owner", "", 0);
+    await page.goto("/chat");
+    await expectStates(page);
+  });
+
+  test("an older load does not take the delivery time from a message", async ({ page }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    await expect(main.locator("[data-message]").first()).toBeVisible();
+    const held: Route[] = [];
+    await page.route("**/api/chat?*", (route) => {
+      held.push(route);
+    });
+    const input = page.getByLabel("Message to the Lead");
+    const message = main.locator("[data-message]", { hasText: "Delivered by a load" });
+    const deliveredIcon = message.getByRole("img", { name: /^Delivered to the agent at / });
+
+    await input.fill("Delivered by a load");
+    await input.press("Enter");
+    await expect.poll(() => held.length).toBe(1);
+    await fulfillLoad(held[0], "2026-10-15T08:40:00Z");
+    await expect(deliveredIcon).toBeVisible();
+
+    await input.fill("Second message");
+    await input.press("Enter");
+    await expect.poll(() => held.length).toBe(2);
+    await fulfillLoad(held[1], null);
+    await expect(main.locator("[data-message]", { hasText: "Second message" })).toHaveCount(1);
+    await expect(deliveredIcon).toBeVisible();
+    await expect(message.getByRole("img", { name: "Stored, waits for the agent" })).toHaveCount(0);
   });
 });

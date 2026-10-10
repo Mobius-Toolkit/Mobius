@@ -641,7 +641,7 @@ func fixTimes(t *testing.T, server *testserver.Server) {
 		"UPDATE sessions SET started_at = ?1, ended_at = iif(ended_at IS NULL, NULL, ?1)",
 		"UPDATE transcript SET time = ?1",
 		"UPDATE turn_usage SET started_at = ?1, ended_at = ?1",
-		"UPDATE chat_messages SET time = ?1",
+		"UPDATE chat_messages SET time = ?1, delivered_at = iif(delivered_at IS NULL, NULL, ?1), stopped_at = iif(stopped_at IS NULL, NULL, ?1)",
 		"UPDATE inbox_items SET time = ?1",
 		"UPDATE memory_versions SET time = ?1",
 	} {
