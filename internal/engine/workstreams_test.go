@@ -132,6 +132,7 @@ func addWorkstream(fake *testkit.FakeGitHub) {
 }
 
 func TestAWorkstreamLabelShowsTheIssueInTheWorkstreamList(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddIssue(shop, 13, "Fix the footer")
@@ -149,6 +150,7 @@ func TestAWorkstreamLabelShowsTheIssueInTheWorkstreamList(t *testing.T) {
 }
 
 func TestANewWorkstreamAddsOneActivityThatGoesLive(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddIssue(shop, 13, "Price rounding")
@@ -173,6 +175,7 @@ func TestANewWorkstreamAddsOneActivityThatGoesLive(t *testing.T) {
 }
 
 func TestAWorkstreamLabelFromAnUntrustedAuthorAddsNoActivity(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Mine the servers")
 	fake.AddIssue(shop, 13, "Integrate loyalty plans")
@@ -189,6 +192,7 @@ func TestAWorkstreamLabelFromAnUntrustedAuthorAddsNoActivity(t *testing.T) {
 
 // The first poll cannot see which event is new, so the Lead gets no creation event.
 func TestAWorkstreamLabelFromBeforeTheFirstPollAddsAnActivity(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -203,6 +207,7 @@ func TestAWorkstreamLabelFromBeforeTheFirstPollAddsAnActivity(t *testing.T) {
 }
 
 func TestANewWorkstreamAddsACreationEventForTheLead(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 13, "Plan prices")
 	fake.SetBody(shop, 13, "Price each plan.\nRound to cents.")
@@ -221,6 +226,7 @@ func TestANewWorkstreamAddsACreationEventForTheLead(t *testing.T) {
 }
 
 func TestABodyEditSendsAWorkstreamsChangeAndTheListHasTheNewBrief(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -236,6 +242,7 @@ func TestABodyEditSendsAWorkstreamsChangeAndTheListHasTheNewBrief(t *testing.T) 
 }
 
 func TestTheLiveEventsGiveAWorkstreamsEventForAChangeOfTheList(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -255,6 +262,7 @@ func TestTheLiveEventsGiveAWorkstreamsEventForAChangeOfTheList(t *testing.T) {
 }
 
 func TestAWorkstreamWithNoSubIssueHasNotAllTasksClosed(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -267,6 +275,7 @@ func TestAWorkstreamWithNoSubIssueHasNotAllTasksClosed(t *testing.T) {
 }
 
 func TestAWorkstreamWithAnOpenSubIssueHasNotAllTasksClosed(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	fake.AddIssue(shop, 42, "Add plan price")
@@ -282,6 +291,7 @@ func TestAWorkstreamWithAnOpenSubIssueHasNotAllTasksClosed(t *testing.T) {
 }
 
 func TestAWorkstreamWithOnlyClosedSubIssuesHasAllTasksClosed(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	server := startCopied(t, fake)
@@ -293,6 +303,7 @@ func TestAWorkstreamWithOnlyClosedSubIssuesHasAllTasksClosed(t *testing.T) {
 
 // The list reads only the copy, so a failed read of GitHub does not change it.
 func TestAWorkstreamWhoseSubIssuesCannotBeReadStaysInTheList(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	server := startCopied(t, fake)
@@ -307,6 +318,7 @@ func TestAWorkstreamWhoseSubIssuesCannotBeReadStaysInTheList(t *testing.T) {
 }
 
 func TestAnOpenNestedSubIssueDoesNotCount(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	fake.AddIssue(shop, 43, "Price table")
@@ -319,6 +331,7 @@ func TestAnOpenNestedSubIssueDoesNotCount(t *testing.T) {
 }
 
 func TestTheCloseOfASubIssueGoesLiveAsAWorkstreamsChange(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	server := startCopied(t, fake)
@@ -333,6 +346,7 @@ func TestTheCloseOfASubIssueGoesLiveAsAWorkstreamsChange(t *testing.T) {
 }
 
 func TestTheNeedsHumanLabelOnANestedTaskGoesLiveAsAWorkstreamsChange(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	fake.AddIssue(shop, 43, "Price table")
@@ -346,6 +360,7 @@ func TestTheNeedsHumanLabelOnANestedTaskGoesLiveAsAWorkstreamsChange(t *testing.
 }
 
 func TestACompletionClosesTheWorkstreamIssueAndLeavesTheList(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	fake.CloseIssue(shop, 41)
@@ -367,6 +382,7 @@ func TestACompletionClosesTheWorkstreamIssueAndLeavesTheList(t *testing.T) {
 }
 
 func TestAFailedCompletionGivesTheErrorAndKeepsTheWorkstreamOpen(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	fake.CloseIssue(shop, 41)
@@ -387,6 +403,7 @@ func TestAFailedCompletionGivesTheErrorAndKeepsTheWorkstreamOpen(t *testing.T) {
 }
 
 func TestACompletionWithAnOpenSubIssueClosesNothing(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	server := startCopied(t, fake)
@@ -404,6 +421,7 @@ func TestACompletionWithAnOpenSubIssueClosesNothing(t *testing.T) {
 }
 
 func TestACompletionOfAnIssueWithoutTheWorkstreamLabelClosesNothing(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 13, "Fix the footer")
 	fake.AddIssue(shop, 42, "Round the price")
@@ -421,6 +439,7 @@ func TestACompletionOfAnIssueWithoutTheWorkstreamLabelClosesNothing(t *testing.T
 	}
 }
 
+// Serial: in parallel, a poll at the same time can overwrite the copy of the Workstreams with older data.
 func TestCreateWorkstreamAddsTheWorkstreamToTheListAtOnce(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
@@ -436,6 +455,7 @@ func TestCreateWorkstreamAddsTheWorkstreamToTheListAtOnce(t *testing.T) {
 }
 
 func TestMoveTaskMovesTheTaskInTheCopyAtOnce(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")

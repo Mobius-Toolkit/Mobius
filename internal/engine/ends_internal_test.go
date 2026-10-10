@@ -9,12 +9,14 @@ import (
 )
 
 func TestAnIssueOfTheSameRepositoryInEachLetterCaseIsNotInAnotherRepository(t *testing.T) {
+	t.Parallel()
 	if inOtherRepository(&gh.Issue{RepositoryURL: new("https://api.github.com/repos/Owner/Shop")}, "owner/shop") {
 		t.Error("the issue is in another repository")
 	}
 }
 
 func TestAnIssueOfAnotherRepositoryIsInAnotherRepository(t *testing.T) {
+	t.Parallel()
 	for _, url := range []string{"https://api.github.com/repos/owner/billing", "https://api.github.com/repos/owner/workshop"} {
 		if !inOtherRepository(&gh.Issue{RepositoryURL: &url}, "owner/shop") {
 			t.Errorf("%s is the same repository", url)
@@ -28,42 +30,49 @@ func openOf(resolved bool, authors ...string) bool {
 }
 
 func TestAFindingOfTheReviewerWithNoReplyIsOpen(t *testing.T) {
+	t.Parallel()
 	if !openOf(false, "mobius-app[bot]") {
 		t.Error("the finding is not open")
 	}
 }
 
 func TestAThreadWithALastReplyOfTheMobiusAppIsNotOpen(t *testing.T) {
+	t.Parallel()
 	if openOf(false, "mobius-app[bot]", "mobius-app[bot]") || openOf(false, "owner", "Mobius-App[bot]") {
 		t.Error("the thread is open")
 	}
 }
 
 func TestACommentOfATrustedUserAfterAReplyOfTheMobiusAppIsOpen(t *testing.T) {
+	t.Parallel()
 	if !openOf(false, "owner", "mobius-app[bot]", "owner") {
 		t.Error("the thread is not open")
 	}
 }
 
 func TestAResolvedThreadIsNotOpen(t *testing.T) {
+	t.Parallel()
 	if openOf(true, "owner") {
 		t.Error("the thread is open")
 	}
 }
 
 func TestAThreadThatAnUntrustedAuthorStartedIsNotOpen(t *testing.T) {
+	t.Parallel()
 	if openOf(false, "mallory", "owner") {
 		t.Error("the thread is open")
 	}
 }
 
 func TestAReplyOfAnUntrustedAuthorDoesNotCount(t *testing.T) {
+	t.Parallel()
 	if openOf(false, "owner", "mobius-app[bot]", "mallory") {
 		t.Error("the thread is open")
 	}
 }
 
 func TestTheReportIsTheTextAfterTheLastToolCall(t *testing.T) {
+	t.Parallel()
 	a := &Agent{}
 	for _, update := range [][2]string{
 		{"agent_message_chunk", "I read the code."},

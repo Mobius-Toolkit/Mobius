@@ -12,6 +12,7 @@ import (
 )
 
 func TestAListThatGivesACommentTwoTimesGivesItOneTime(t *testing.T) {
+	t.Parallel()
 	db, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
 	if err != nil {
 		t.Fatal(err)

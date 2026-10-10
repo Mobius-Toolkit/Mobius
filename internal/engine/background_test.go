@@ -42,6 +42,7 @@ func lineID(t *testing.T, server *testserver.Server, session int64, kind, part s
 }
 
 func TestAnAgentGetsNoPromptWhileAnAutonomousTurnRuns(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First\"]\n\n[[prompts]]\nreply = [\"Second\"]\n")
 	agent := start(t, server, leadSpec(t))

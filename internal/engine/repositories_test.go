@@ -46,6 +46,7 @@ func noRepositories(t *testing.T, changes <-chan engine.Change) {
 }
 
 func TestANewInstallationGivesAChangeOfTheRepositories(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	server := startCopied(t, fake)
@@ -57,6 +58,7 @@ func TestANewInstallationGivesAChangeOfTheRepositories(t *testing.T) {
 }
 
 func TestAChangeOfTheSelectedRepositoriesOfAnInstallationGivesAChangeOfTheRepositories(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	server := startCopied(t, fake)
@@ -69,6 +71,7 @@ func TestAChangeOfTheSelectedRepositoriesOfAnInstallationGivesAChangeOfTheReposi
 }
 
 func TestARemovedInstallationGivesAChangeOfTheRepositories(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	server := startCopied(t, fake)
@@ -82,6 +85,7 @@ func TestARemovedInstallationGivesAChangeOfTheRepositories(t *testing.T) {
 }
 
 func TestAPollWithNoChangeOfTheRepositoriesGivesNoChange(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	server := startCopied(t, fake)

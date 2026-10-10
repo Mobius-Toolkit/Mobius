@@ -48,6 +48,7 @@ func upgradeFailure(t *testing.T, server *testserver.Server) string {
 }
 
 func TestAnUpgradeOfALocalBuildFails(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
 	fake.SetLatestRelease("v0.3.0")

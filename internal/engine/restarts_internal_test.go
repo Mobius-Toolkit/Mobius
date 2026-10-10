@@ -10,6 +10,7 @@ import (
 )
 
 func TestTheWaitBeforeARestartGrowsWithEachRestart(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	failure := errors.New("exit 1")
 
@@ -21,6 +22,7 @@ func TestTheWaitBeforeARestartGrowsWithEachRestart(t *testing.T) {
 }
 
 func TestARestartAfterAGitHubRateLimitWaitsForItsReset(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	reset := now.Add(time.Hour)
 	limit := fmt.Errorf("read the issue: %w", &gh.RateLimitError{Rate: gh.Rate{Reset: gh.Timestamp{Time: reset}}, Message: "API rate limit exceeded"})
@@ -36,6 +38,7 @@ func TestARestartAfterAGitHubRateLimitWaitsForItsReset(t *testing.T) {
 }
 
 func TestTheStopEventKeepsTheEndOfALongError(t *testing.T) {
+	t.Parallel()
 	if got := tail("abcdé", 3); got != "cdé" {
 		t.Errorf("tail = %q", got)
 	}

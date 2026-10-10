@@ -57,6 +57,7 @@ func overview(t *testing.T, server *testserver.Server) activeAgents {
 }
 
 func TestTheAgentsPageCountsTheOpenSessionsOfEachRoleAgainstItsLimit(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) {
 		cfg.MaxAgents = 5
@@ -107,6 +108,7 @@ func TestTheAgentsPageCountsTheOpenSessionsOfEachRoleAgainstItsLimit(t *testing.
 }
 
 func TestEachRowShowsTheWorkstreamTheTicketAndThePullRequestWhenTheyExist(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
 	fake.AddSubIssueOf(shop, 12, 41, "Add plan model")

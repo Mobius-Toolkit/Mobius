@@ -67,6 +67,7 @@ usage = '{"inputTokens": ` + strconv.Itoa(input) + `, "outputTokens": ` + strcon
 }
 
 func TestAClaudeCodeTurnHasAUsageRowWithTheTokensTheModelAndTheCostOfTheTurn(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, claudeTurn(0.6, 100, 20, 3000, 400)+claudeTurn(0.9, 50, 10, 4000, 0))
 	spec := leadSpec(t)
@@ -125,6 +126,7 @@ func TestTheCostOfAnAutonomousTurnAfterTheLastPromptHasAUsageRowAtTheEndOfTheSes
 }
 
 func TestACostTotalThatFallsGivesTheNewTotalAsTheCostOfTheTurn(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, claudeTurn(0.9, 1, 1, 1, 1)+claudeTurn(0.2, 1, 1, 1, 1))
 
@@ -139,6 +141,7 @@ func TestACostTotalThatFallsGivesTheNewTotalAsTheCostOfTheTurn(t *testing.T) {
 }
 
 func TestATurnWithNoCostAndNoUsageFieldHasNoValueForThem(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, `
 [[prompts]]
@@ -159,6 +162,7 @@ usage = '{"inputTokens": 5, "outputTokens": 6}'
 }
 
 func TestATurnWithNoDataHasAUsageRowWithNullValues(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, `
 [[prompts]]
@@ -178,6 +182,7 @@ reply = ["Done."]
 }
 
 func TestATurnThatEndsWithAnErrorAndHasNoDataHasNoUsageRow(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, `
 [[prompts]]
@@ -195,6 +200,7 @@ error = { code = -32603, message = "Internal error" }
 }
 
 func TestATurnThatEndsWithAnErrorKeepsTheCostOfTheTurn(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, `
 [[prompts]]
@@ -218,6 +224,7 @@ error = { code = -32603, message = "Internal error" }
 }
 
 func TestADevinTurnAddsTheTokensOfEachModelCallAndSkipsTheCopies(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	call := func(input, output, cached int) string {
 		meta := `"cognition.ai/inputTokens": ` + strconv.Itoa(input) + `, "cognition.ai/outputTokens": ` + strconv.Itoa(output) + `, "cognition.ai/cachedReadTokens": ` + strconv.Itoa(cached)
@@ -245,6 +252,7 @@ func TestADevinTurnAddsTheTokensOfEachModelCallAndSkipsTheCopies(t *testing.T) {
 }
 
 func TestASessionHasTheEffortOfItsRoleBinding(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
 	researcher := leadSpec(t)

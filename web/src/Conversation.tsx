@@ -24,6 +24,7 @@ import {
   seeChat,
   sendChat,
   stopChat,
+  type Chat,
   type ChatMessage,
   type LiveEvents,
   type Workstream,
@@ -54,6 +55,9 @@ function upsert(list: ChatMessage[], message: ChatMessage) {
     (a, b) => a.id - b.id,
   );
 }
+
+const countsAsUnread = (message: ChatMessage) =>
+  message.author !== "Owner" && message.author !== "Event";
 
 const Message = memo(function Message({ message }: { message: ChatMessage }) {
   const event = message.author === "Event";
@@ -185,6 +189,8 @@ export function Conversation({
   const showLogin = use(LoginContext);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // older is true when the chat has messages before the first loaded message.
+  const [older, setOlder] = useState(false);
   const [harness, setHarness] = useState("");
   const [writing, setWriting] = useState(false);
   const [failure, setFailure] = useState("");
@@ -211,6 +217,11 @@ export function Conversation({
   };
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined);
+  const loadingOlder = useRef(false);
+  // The id of the last message that the list got, to find the messages that came while the connection was down.
+  const newest = useRef<number>(undefined);
+  // The place of a message on the screen before the list gets older messages at its start.
+  const anchor = useRef<{ id: number; offset: number }>(undefined);
   // The place of the voice text in the field. value and cursor describe what the voice input wrote last.
   const voiceInsert = useRef<{ lead: string; trail: string; value: string; cursor: number }>(
     undefined,
@@ -263,26 +274,80 @@ export function Conversation({
     },
   );
 
-  const load = useCallback(() => {
-    getChat({ organization, repository, workstream })
-      .then((res) => {
-        if (res.status === 401) {
-          showLogin();
-        } else if (res.status === 200) {
-          const chat = res.data.data;
-          setMessages((list) => chat.messages.reduce(upsert, list));
-          setHarness(chat.harness);
-          setWriting(chat.writing);
-          if (!chat.writing) {
-            setStopping(false);
-          }
-          setLoaded(true);
-        } else {
-          setError(res.data.error);
+  const fetchPage = useCallback(
+    async (before?: number): Promise<Chat | undefined> => {
+      const res = await getChat({ organization, repository, workstream, before });
+      if (res.status === 200) {
+        return res.data.data;
+      }
+      if (res.status === 401) {
+        showLogin();
+      } else {
+        setError(res.data.error);
+      }
+    },
+    [organization, repository, workstream, showLogin],
+  );
+
+  // The first load gets the newest page. A load after a reconnect gets pages until one has the last message that the
+  // list got before.
+  const load = useCallback(async () => {
+    const known = newest.current;
+    const newestPage = await fetchPage();
+    if (!newestPage) {
+      return;
+    }
+    const pages = [newestPage];
+    if (known !== undefined) {
+      while (pages[0].older && pages[0].messages[0].id > known) {
+        const page = await fetchPage(pages[0].messages[0].id);
+        if (!page) {
+          return;
         }
+        pages.unshift(page);
+      }
+    }
+    const added = pages.flatMap((page) => page.messages);
+    newest.current = Math.max(newest.current ?? 0, ...added.map((message) => message.id));
+    setMessages((list) => added.reduce(upsert, list));
+    if (known === undefined) {
+      setOlder(newestPage.older);
+    }
+    setHarness(newestPage.harness);
+    setWriting(newestPage.writing);
+    if (!newestPage.writing) {
+      setStopping(false);
+    }
+    setLoaded(true);
+  }, [fetchPage]);
+
+  const loadOlder = useCallback(() => {
+    const list = listRef.current;
+    if (!list || loadingOlder.current) {
+      return;
+    }
+    const first = messages[0].id;
+    loadingOlder.current = true;
+    fetchPage(first)
+      .then((page) => {
+        if (!page) {
+          return;
+        }
+        const element = list.querySelector(`[data-message="${first}"]`);
+        if (element && scrolledCount.current !== undefined) {
+          anchor.current = {
+            id: first,
+            offset: element.getBoundingClientRect().top - list.getBoundingClientRect().top,
+          };
+        }
+        setMessages((current) => page.messages.reduce(upsert, current));
+        setOlder(page.older);
       })
-      .catch((err: unknown) => setError(String(err)));
-  }, [organization, repository, workstream, showLogin]);
+      .catch((err: unknown) => setError(String(err)))
+      .finally(() => {
+        loadingOlder.current = false;
+      });
+  }, [fetchPage, messages]);
 
   // A message that comes while the connection is down is lost, so each connection reads the chat.
   useEffect(() => {
@@ -290,11 +355,18 @@ export function Conversation({
       return;
     }
     const key = { organization, repository, workstream };
-    load();
-    source.addEventListener("open", load);
+    const reload = () => {
+      load().catch((err: unknown) => setError(String(err)));
+    };
+    reload();
+    source.addEventListener("open", reload);
     const removeMessage = onEvent<LiveEvents, "message">(source, "message", (message) => {
       if (sameChat(message, key)) {
-        setMessages((list) => upsert(list, message));
+        newest.current = Math.max(newest.current ?? 0, message.id);
+        // A message before the first loaded message would leave a gap.
+        setMessages((list) =>
+          list.length > 0 && message.id < list[0].id ? list : upsert(list, message),
+        );
       }
     });
     const removeState = onEvent<LiveEvents, "chat">(source, "chat", (state) => {
@@ -307,15 +379,23 @@ export function Conversation({
       }
     });
     return () => {
-      source.removeEventListener("open", load);
+      source.removeEventListener("open", reload);
       removeMessage();
       removeState();
     };
   }, [source, load, organization, repository, workstream]);
 
+  // The count of unread messages when the chat opened. The first scroll and the mark as seen wait until the list has
+  // the first unread message.
+  const [openUnread, setOpenUnread] = useState<number>();
+  if (openUnread === undefined && unread !== undefined) {
+    setOpenUnread(unread);
+  }
+  const waiting =
+    older && openUnread !== undefined && messages.filter(countsAsUnread).length < openUnread;
   const lastAgentMessage = messages.findLast((message) => message.author !== "Owner")?.id;
   useEffect(() => {
-    if (unread && lastAgentMessage !== undefined) {
+    if (!waiting && unread && lastAgentMessage !== undefined) {
       // A failed call keeps the count, and the next message of the agent calls again.
       seeChat({
         organization,
@@ -324,7 +404,19 @@ export function Conversation({
         message: lastAgentMessage,
       }).catch(() => {});
     }
-  }, [unread, lastAgentMessage, organization, repository, workstream]);
+  }, [waiting, unread, lastAgentMessage, organization, repository, workstream]);
+
+  // The first scroll waits for the older pages up to the first unread message. Later, the list gets the page before
+  // its first message when the Owner is less than one list height from the top.
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || !loaded || !older) {
+      return;
+    }
+    if (waiting || (openUnread !== undefined && list.scrollTop < list.clientHeight)) {
+      loadOlder();
+    }
+  }, [loaded, older, waiting, openUnread, loadOlder]);
 
   // The first scroll shows the first unread message, or the end. Then a new message scrolls to the end, and a longer
   // last message scrolls only while the Owner is at the end.
@@ -334,10 +426,11 @@ export function Conversation({
       return;
     }
     if (scrolledCount.current === undefined) {
+      if (waiting) {
+        return;
+      }
+      const unreadMessages = messages.filter(countsAsUnread);
       scrolledCount.current = messages.length;
-      const unreadMessages = messages.filter(
-        (message) => message.author !== "Owner" && message.author !== "Event",
-      );
       const first = unread > 0 && unreadMessages[Math.max(0, unreadMessages.length - unread)];
       const element = first && list.querySelector(`[data-message="${first.id}"]`);
       if (element) {
@@ -347,6 +440,18 @@ export function Conversation({
         return;
       }
       scrollToEnd(list);
+      return;
+    }
+    if (anchor.current) {
+      const element = list.querySelector(`[data-message="${anchor.current.id}"]`);
+      if (element) {
+        list.scrollTop +=
+          element.getBoundingClientRect().top -
+          list.getBoundingClientRect().top -
+          anchor.current.offset;
+      }
+      anchor.current = undefined;
+      scrolledCount.current = messages.length;
       return;
     }
     if (messages.length > scrolledCount.current) {
@@ -477,6 +582,13 @@ export function Conversation({
         onScroll={(event) => {
           pinned.current =
             atEnd(event.currentTarget) || event.currentTarget.scrollTop === endTop.current;
+          if (
+            older &&
+            scrolledCount.current !== undefined &&
+            event.currentTarget.scrollTop < event.currentTarget.clientHeight
+          ) {
+            loadOlder();
+          }
         }}
         // An image has no height before it loads, and its load moves the end of the list.
         onLoadCapture={(event) => {

@@ -56,6 +56,7 @@ func unchanged(t *testing.T, fake *testkit.FakeGitHub, repository string, number
 }
 
 func TestACloseAsWontDoClosesTheOpenItemsAndKeepsTheOthers(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addLiveTask(fake)
 	fake.AddSubIssueOf(shop, 41, 42, "Store the price in cents")
@@ -125,6 +126,7 @@ func TestACloseAsWontDoClosesTheOpenItemsAndKeepsTheOthers(t *testing.T) {
 }
 
 func TestACloseAsWontDoOfAClosedWorkstreamIsRefused(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	server := startCopied(t, fake)
@@ -142,6 +144,7 @@ func TestACloseAsWontDoOfAClosedWorkstreamIsRefused(t *testing.T) {
 }
 
 func TestACloseAsWontDoStopsTheRunningImplementer(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, hangs, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -166,6 +169,7 @@ func TestACloseAsWontDoStopsTheRunningImplementer(t *testing.T) {
 }
 
 func TestACloseAsWontDoClosesTheOpenPullRequestOfAClosedTaskIssue(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	addWorkstream(fake)
 	fake.AddSubIssueOf(shop, 12, 42, "Store the price in cents")

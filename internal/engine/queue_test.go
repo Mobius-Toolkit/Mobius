@@ -120,6 +120,7 @@ func startsAfter(t *testing.T, later, earlier store.Session) {
 }
 
 func TestASecondImplementerWaitsForTheImplementerLimitWhileAResearcherStarts(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
 	first := start(t, server, implementerSpec(t, server, fake, 41))
@@ -147,6 +148,7 @@ func TestASecondImplementerWaitsForTheImplementerLimitWhileAResearcherStarts(t *
 }
 
 func TestAJudgeWaitsForTheGlobalLimitBehindARunningImplementer(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) {
 		cfg.MaxAgents = 1
@@ -167,6 +169,7 @@ func TestAJudgeWaitsForTheGlobalLimitBehindARunningImplementer(t *testing.T) {
 }
 
 func TestAJudgeStartsWhileTheGlobalLimitIsFull(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxAgents = 1 })
 	implementer := start(t, server, implementerSpec(t, server, fake, 41))
@@ -181,6 +184,7 @@ func TestAJudgeStartsWhileTheGlobalLimitIsFull(t *testing.T) {
 }
 
 func TestALeadAndATriagerStartWhileTheGlobalLimitIsFull(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.MaxAgents = 1 })
 	implementer := start(t, server, implementerSpec(t, server, fake, 41))
@@ -197,6 +201,7 @@ func TestALeadAndATriagerStartWhileTheGlobalLimitIsFull(t *testing.T) {
 }
 
 func TestASecondLeadWaitsForTheLeadLimit(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.Roles.Lead.Max = 1 })
 	first := start(t, server, leadSpec(t))
@@ -226,6 +231,7 @@ func TestASecondLeadWaitsForTheLeadLimit(t *testing.T) {
 }
 
 func TestAStopEndsAWaitingLead(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.Roles.Lead.Max = 1 })
 	first := start(t, server, leadSpec(t))
@@ -245,6 +251,7 @@ func TestAStopEndsAWaitingLead(t *testing.T) {
 }
 
 func TestASessionWhoseTaskLeavesTheQueueEndsAsDeclined(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
 	first := start(t, server, implementerSpec(t, server, fake, 41))

@@ -77,6 +77,7 @@ func seedReviewerAs(t *testing.T, fake *testkit.FakeGitHub, script string, adjus
 }
 
 func TestAnErrorInTheReviewerWhileTheTaskIsQueuedStartsTheReviewerAgain(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	implementer := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo more >> plan.txt && git commit -q -am 'Remove the lines'\"\n\n" + commits
 	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, implementer, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
@@ -104,6 +105,7 @@ func TestAnErrorInTheReviewerWhileTheTaskIsQueuedStartsTheReviewerAgain(t *testi
 }
 
 func TestAnErrorInAFixRoundAfterTheQueueStepStartsTheImplementerOfTheRoundAgain(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, finding+leadStarts, fixReplies+commits, func(cfg *config.Config) {
 		cfg.MaxFixRounds = 2
@@ -141,6 +143,7 @@ func TestAnErrorInAFixRoundAfterTheQueueStepStartsTheImplementerOfTheRoundAgain(
 }
 
 func TestAReviewerThatFailsAfterAFixRoundStartedDoesNotStartAgain(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, finding+leadStarts, fixReplies+commits, func(cfg *config.Config) {
 		cfg.MaxFixRounds = 2
@@ -157,6 +160,7 @@ func TestAReviewerThatFailsAfterAFixRoundStartedDoesNotStartAgain(t *testing.T) 
 }
 
 func TestAFixRoundThatFailsAfterTheQueueStepGoesToAHumanAtMaxWorkerRestarts(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, finding+leadStarts, fixReplies+commits, func(cfg *config.Config) {
 		cfg.MaxWorkerRestarts = 1

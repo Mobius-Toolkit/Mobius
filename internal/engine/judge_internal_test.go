@@ -14,6 +14,7 @@ func verdictsOf(id int64, actions ...action) itemVerdicts {
 }
 
 func TestFixAndQuestionGoToTheRoundAndTheOtherActionsToTheirRoutes(t *testing.T) {
+	t.Parallel()
 	items := []judgeItem{batchItem(1, false), batchItem(2, true)}
 	given := []itemVerdicts{
 		verdictsOf(1, action{fixVerdict, "Rename the field."}, action{followUpVerdict, "Move the parser."}, action{questionVerdict, "Why cents?"}),
@@ -31,6 +32,7 @@ func TestFixAndQuestionGoToTheRoundAndTheOtherActionsToTheirRoutes(t *testing.T)
 }
 
 func TestWithNoValidCallEachItemGoesToTheRoundAsFix(t *testing.T) {
+	t.Parallel()
 	items := []judgeItem{batchItem(1, false), batchItem(2, true)}
 
 	want := judgeRoutes{round: []itemVerdicts{verdictsOf(1, action{Verdict: fixVerdict}), verdictsOf(2, action{Verdict: fixVerdict})}}
@@ -40,6 +42,7 @@ func TestWithNoValidCallEachItemGoesToTheRoundAsFix(t *testing.T) {
 }
 
 func TestAValidCallGivesEachItemOneTimeWithAllowedActions(t *testing.T) {
+	t.Parallel()
 	items := []judgeItem{batchItem(1, false), batchItem(2, true)}
 
 	err := validateVerdicts(items, []itemVerdicts{
@@ -53,6 +56,7 @@ func TestAValidCallGivesEachItemOneTimeWithAllowedActions(t *testing.T) {
 }
 
 func TestACallWithAMissingARepeatedOrAnUnknownItemIsNotValid(t *testing.T) {
+	t.Parallel()
 	items := []judgeItem{batchItem(1, false), batchItem(2, false)}
 	fix := action{fixVerdict, "Rename the field."}
 
@@ -68,6 +72,7 @@ func TestACallWithAMissingARepeatedOrAnUnknownItemIsNotValid(t *testing.T) {
 }
 
 func TestABotItemTakesNoQuestionOrFollowUpAndAUserItemTakesNoReject(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		item   judgeItem
 		action action
@@ -83,6 +88,7 @@ func TestABotItemTakesNoQuestionOrFollowUpAndAUserItemTakesNoReject(t *testing.T
 }
 
 func TestAnActionNeedsATextAndAnItemNeedsAnAction(t *testing.T) {
+	t.Parallel()
 	items := []judgeItem{batchItem(1, false)}
 
 	for _, given := range []itemVerdicts{verdictsOf(1, action{fixVerdict, " "}), verdictsOf(1)} {
@@ -93,6 +99,7 @@ func TestAnActionNeedsATextAndAnItemNeedsAnAction(t *testing.T) {
 }
 
 func TestAnActionNeedsAKnownVerdict(t *testing.T) {
+	t.Parallel()
 	if validateVerdicts([]judgeItem{batchItem(1, false)}, []itemVerdicts{verdictsOf(1, action{"ignore", "Later."})}) == nil {
 		t.Error("the verdict ignore is valid")
 	}

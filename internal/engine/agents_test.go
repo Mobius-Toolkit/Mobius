@@ -27,6 +27,9 @@ func TestMain(m *testing.M) {
 	}
 	*engine.ToolsTimeout = 3 * time.Second
 	*engine.RestartDelays = []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 300 * time.Millisecond}
+	*engine.LoadAverage = func() (float64, error) { return 0, nil }
+	*engine.CheckGap = 0
+	*engine.LoadPoll = 10 * time.Millisecond
 	testkit.Main(m)
 }
 
@@ -150,6 +153,7 @@ func tree(t *testing.T, server *testserver.Server) []engine.Node {
 }
 
 func TestALeadSessionIsALeadNodeThatIsLiveUntilItEnds(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nhang = true\n")
 	agent := start(t, server, leadSpec(t))
@@ -222,6 +226,7 @@ type lineEvent struct {
 }
 
 func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndEachTranscriptLine(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hel\", \"lo\"]\n")
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/events", nil)
@@ -284,6 +289,7 @@ func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndEachTranscriptLine(t *
 }
 
 func TestTheTranscriptFoldsTheFirstPromptAndKeepsTheOthersOpen(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hello\"]\n")
 	first := "You are the Lead of one Workstream. The Owner talks to you in this chat.\n\n# Owner message\n\nRead the work"
@@ -315,6 +321,7 @@ func TestTheTranscriptFoldsTheFirstPromptAndKeepsTheOthersOpen(t *testing.T) {
 }
 
 func TestChunksOfOneKindJoinOneRow(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, `
 [[prompts]]
@@ -342,6 +349,7 @@ reply = ["One", " reply."]
 }
 
 func TestAMobiusCallShowsTheMobiusNameAndTheShortResult(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
 	fake.AddIssue(shop, 41, "Add plan model")
@@ -361,6 +369,7 @@ func TestAMobiusCallShowsTheMobiusNameAndTheShortResult(t *testing.T) {
 }
 
 func TestAValidationErrorIsAnErrorLine(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"read_issue\", arguments = { n = 0 } }\n")
 
@@ -393,6 +402,7 @@ func toolLines(t *testing.T, server *testserver.Server, session int64, prefix st
 }
 
 func TestAMobiusToolCallOfEachHarnessShowsTheMobiusNameAndTheHarnessName(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, `
 [[prompts]]
@@ -418,6 +428,7 @@ updates = [
 }
 
 func TestAnotherToolCallShowsItsTitleAndAShortOutput(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, `
 [[prompts]]
@@ -440,6 +451,7 @@ updates = [
 
 // The ACP SDK has no type for an update of a new kind, so the runner reads each update as raw JSON.
 func TestTheAPIGivesTheFullTranscriptWithAnUpdateOfAnUnknownKind(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	unknown := `{"sessionId":"fake-session","update":{"sessionUpdate":"a_future_kind","items":[1,2.5,"three"],"_meta":{"x":true}}}`
 	server, _ := connect(t, fake, `
@@ -495,6 +507,7 @@ reply = ["Done."]
 }
 
 func TestAFailedStartEndsTheSessionWithTheError(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.Roles.Lead.Model = "gpt-5" })
 
@@ -516,6 +529,7 @@ func TestAFailedStartEndsTheSessionWithTheError(t *testing.T) {
 }
 
 func TestTheAgentsOfAWorkstreamComeWithTheirParents(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
 	leadID := run(t, server, leadSpec(t))
@@ -573,6 +587,7 @@ func TestTheAgentsOfAWorkstreamComeWithTheirParents(t *testing.T) {
 }
 
 func TestTheTreeShowsEachAgentBelowTheAgentThatStartedIt(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
 	fake.SetCheck(shop, "grep -q cents plan.txt")

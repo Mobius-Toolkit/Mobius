@@ -492,6 +492,58 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	return fmt.Sprintf("Asked on #%d.", input.N), err
 }
 
+// holdTask moves the dispatched task of the issue to needs_human, so it holds no Worker slot, and tells the Owner the
+// reason: the comment, mobius:needs-human, an Inbox item, and a stop event for the Lead.
+func (e *Engine) holdTask(ctx context.Context, c caller, repository github.Repository, input declineInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	if empty(input.Reason) {
+		return "", refuse("reason must not be empty.")
+	}
+	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
+	if err != nil {
+		return "", err
+	}
+	if task.State != "dispatched" {
+		return "", refuse("The task of #%d is %s. Only a dispatched task can be held.", input.N, task.State)
+	}
+	issue, err := existingIssue(ctx, repository, input.N)
+	if err != nil {
+		return "", err
+	}
+	moved, err := e.handTaskToHuman(ctx, task.ID, "dispatched")
+	if err != nil {
+		return "", err
+	}
+	if moved == 0 {
+		return "", refuse("The state of the task of #%d changed. Read the task list.", input.N)
+	}
+	if err := repository.RemoveLabel(ctx, input.N, workingLabel); err != nil {
+		return "", err
+	}
+	if err := addNeedsHuman(ctx, repository, task); err != nil {
+		return "", err
+	}
+	if _, err := repository.AddComment(ctx, input.N, input.Reason); err != nil {
+		return "", err
+	}
+	err = e.addInboxItem(ctx, store.AddInboxItemParams{
+		Kind:         questionKind,
+		Organization: repository.Owner(),
+		Repository:   repository.FullName,
+		Workstream:   c.workstream,
+		Issue:        input.N,
+		Text:         input.Reason,
+		Link:         issue.GetHTMLURL(),
+	})
+	if err != nil {
+		return "", err
+	}
+	err = e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", stopText(task.Issue, issue.GetTitle(), input.Reason))
+	return fmt.Sprintf("Held #%d.", input.N), err
+}
+
 // workstreamTask gives the live task of the issue number in the Workstream.
 func (e *Engine) workstreamTask(ctx context.Context, repository github.Repository, workstream, number int64) (store.Task, error) {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})

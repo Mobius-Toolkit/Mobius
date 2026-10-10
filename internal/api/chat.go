@@ -37,10 +37,12 @@ type ChatMessage struct {
 	Images int64 `gork:"images"`
 }
 
-// Chat is a Lead chat or the Triager chat with its messages.
+// Chat is a page of the messages of a Lead chat or of the Triager chat.
 type Chat struct {
-	// Messages are the messages, the oldest first
+	// Messages are the messages of the page, the oldest first
 	Messages []ChatMessage `gork:"messages"`
+	// Older is true when the chat has an older message than the first message of the page
+	Older bool `gork:"older"`
 	// Writing is true while the agent has a turn that runs or a message that waits
 	Writing bool `gork:"writing"`
 	// Harness is the Harness of the agent of the chat, for example claude-code
@@ -56,6 +58,9 @@ type GetChatRequest struct {
 		Repository string `gork:"repository"`
 		// Workstream is the number of the Workstream issue. It is 0 for the Triager chat
 		Workstream int64 `gork:"workstream"`
+		// Before is the id of a message. The page has at most 20 messages with an id below Before. With no Before,
+		// the page has the newest 20 messages
+		Before int64 `gork:"before"`
 	}
 }
 
@@ -64,13 +69,14 @@ type GetChatResponse struct {
 	Body Envelope[Chat]
 }
 
-// GetChat returns the Lead chat of a Workstream, or the Triager chat of an organization.
+// GetChat returns a page of the messages of the Lead chat of a Workstream, or of the Triager chat of an organization.
 func (h *handlers) GetChat(ctx context.Context, req GetChatRequest) (*GetChatResponse, error) {
-	view, err := h.engine.ChatView(ctx, engine.ChatKey(req.Query))
+	query := req.Query
+	view, err := h.engine.ChatView(ctx, engine.ChatKey{Organization: query.Organization, Repository: query.Repository, Workstream: query.Workstream}, query.Before)
 	if err != nil {
 		return nil, err
 	}
-	chat := Chat{Messages: make([]ChatMessage, 0, len(view.Messages)), Writing: view.Writing, Harness: string(view.Harness)}
+	chat := Chat{Messages: make([]ChatMessage, 0, len(view.Messages)), Older: view.Older, Writing: view.Writing, Harness: string(view.Harness)}
 	for _, message := range view.Messages {
 		found, err := h.chatMessageOf(message)
 		if err != nil {
