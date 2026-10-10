@@ -169,6 +169,53 @@ func (r Repository) ReactToReviewComment(ctx context.Context, id int64, content 
 	return err
 }
 
+// ReactedToComment tells whether the Mobius App has the reaction content on the conversation comment id.
+func (r Repository) ReactedToComment(ctx context.Context, id int64, content string) (bool, error) {
+	reactions, _, err := r.Client.Reactions.ListIssueCommentReactions(ctx, r.Owner(), r.Name(), id, &gh.ListReactionOptions{Content: content, ListOptions: gh.ListOptions{PerPage: 100}})
+	return r.ownReaction(reactions) != nil, err
+}
+
+// ReactedToReviewComment tells whether the Mobius App has the reaction content on the review comment id.
+func (r Repository) ReactedToReviewComment(ctx context.Context, id int64, content string) (bool, error) {
+	reactions, _, err := r.Client.Reactions.ListPullRequestCommentReactions(ctx, r.Owner(), r.Name(), id, &gh.ListReactionOptions{Content: content, ListOptions: gh.ListOptions{PerPage: 100}})
+	return r.ownReaction(reactions) != nil, err
+}
+
+// UnreactToComment removes the reaction content of the Mobius App from the conversation comment id. It does nothing
+// when the App has no such reaction.
+func (r Repository) UnreactToComment(ctx context.Context, id int64, content string) error {
+	reactions, _, err := r.Client.Reactions.ListIssueCommentReactions(ctx, r.Owner(), r.Name(), id, &gh.ListReactionOptions{Content: content, ListOptions: gh.ListOptions{PerPage: 100}})
+	if err != nil {
+		return err
+	}
+	if reaction := r.ownReaction(reactions); reaction != nil {
+		_, err = r.Client.Reactions.DeleteIssueCommentReaction(ctx, r.Owner(), r.Name(), id, reaction.GetID())
+	}
+	return err
+}
+
+// UnreactToReviewComment removes the reaction content of the Mobius App from the review comment id. It does nothing
+// when the App has no such reaction.
+func (r Repository) UnreactToReviewComment(ctx context.Context, id int64, content string) error {
+	reactions, _, err := r.Client.Reactions.ListPullRequestCommentReactions(ctx, r.Owner(), r.Name(), id, &gh.ListReactionOptions{Content: content, ListOptions: gh.ListOptions{PerPage: 100}})
+	if err != nil {
+		return err
+	}
+	if reaction := r.ownReaction(reactions); reaction != nil {
+		_, err = r.Client.Reactions.DeletePullRequestCommentReaction(ctx, r.Owner(), r.Name(), id, reaction.GetID())
+	}
+	return err
+}
+
+func (r Repository) ownReaction(reactions []*gh.Reaction) *gh.Reaction {
+	for _, reaction := range reactions {
+		if reaction.GetUser().GetLogin() == r.AppSlug+"[bot]" {
+			return reaction
+		}
+	}
+	return nil
+}
+
 // ReplyToReviewComment adds a reply with body to the review thread that starts with the comment root of the pull
 // request number.
 func (r Repository) ReplyToReviewComment(ctx context.Context, number, root int64, body string) error {

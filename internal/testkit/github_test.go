@@ -666,3 +666,43 @@ func TestAFailedReactionContentGivesAServerErrorAndAddsNothing(t *testing.T) {
 		t.Errorf("reactions = %+v", got)
 	}
 }
+
+func TestAReactionOfAConversationCommentOrAReviewCommentHasAnIdAndGoesWhenItsIdIsDeleted(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+	github.AddIssue("owner/shop", 42, "Add plan model")
+	conversation := github.AddComment("owner/shop", 12, "owner", "Start with the model.")
+	review := github.AddReviewComment("owner/shop", 42, 0, "owner", "Rename plan to tier.")
+	github.AddReaction("owner/shop", conversation, "owner", "eyes")
+	github.AddReaction("owner/shop", review, "owner", "eyes")
+	token := installationToken(t, github)
+	base := github.URL + "/repos/owner/shop"
+
+	for _, kind := range []struct {
+		path string
+		id   int64
+	}{{"issues", conversation}, {"pulls", review}} {
+		url := fmt.Sprintf("%s/%s/comments/%d/reactions", base, kind.path, kind.id)
+		send(t, http.MethodPost, url, token, `{"content": "rocket"}`, nil)
+		var listed []struct {
+			ID   int64 `json:"id"`
+			User struct {
+				Login string `json:"login"`
+			} `json:"user"`
+		}
+		send(t, http.MethodGet, url+"?content=rocket", token, "", &listed)
+		if len(listed) != 1 || listed[0].ID == 0 || listed[0].User.Login != "mobius-test[bot]" {
+			t.Fatalf("listed %s reactions = %+v", kind.path, listed)
+		}
+
+		deleted := send(t, http.MethodDelete, fmt.Sprintf("%s/%d", url, listed[0].ID), token, "", nil)
+		missing := send(t, http.MethodDelete, fmt.Sprintf("%s/%d", url, listed[0].ID), token, "", nil)
+
+		if deleted.StatusCode != http.StatusNoContent || missing.StatusCode != http.StatusNotFound {
+			t.Errorf("%s statuses = %d, %d", kind.path, deleted.StatusCode, missing.StatusCode)
+		}
+		if got := github.Reactions("owner/shop", kind.id); !reflect.DeepEqual(got, []Reaction{{"owner", "eyes"}}) {
+			t.Errorf("%s reactions = %+v", kind.path, got)
+		}
+	}
+}

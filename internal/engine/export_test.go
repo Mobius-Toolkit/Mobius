@@ -78,3 +78,12 @@ func (e *Engine) StopWorker(task int64) {
 func (e *Engine) DeliverMessage(ctx context.Context, id int64) error {
 	return e.deliverMessage(ctx, id)
 }
+
+// AcknowledgeComment adds the reaction of an agent that gets the comment id of the repository.
+func (e *Engine) AcknowledgeComment(ctx context.Context, name string, review bool, id int64) error {
+	repository, err := e.repository(name)
+	if err != nil {
+		return err
+	}
+	return acknowledgeComment(ctx, repository, review, id)
+}
