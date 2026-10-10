@@ -153,6 +153,7 @@ func command(ctx context.Context, file, cwd, dataDir, path, ghTokenURL string) *
 type Session struct {
 	harness config.Harness
 	conn    *acp.Connection
+	wire    *wire
 	id      acp.SessionId
 	options []acp.SessionConfigOption
 	images  bool
@@ -183,25 +184,27 @@ func harnessCommand(ctx context.Context, harness config.Harness, cwd, dataDir, p
 }
 
 // connect starts cmd and gives the ACP connection to its stdin and stdout.
-func connect(cmd *exec.Cmd, updates func(json.RawMessage)) (*acp.Connection, error) {
+func connect(cmd *exec.Cmd, updates func(json.RawMessage, bool)) (*acp.Connection, *wire, error) {
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return acp.NewConnection(handler(updates), stdin, stdout), nil
+	w := &wire{src: stdout}
+	return acp.NewConnection(handler(updates, w), stdin, w), w, nil
 }
 
 // Start starts the agent of harness in cwd with the Mobius MCP server at mcpURL, and opens a session.
-// It gives the params of each session/update notification to updates, as the agent sent them.
+// It gives the params of each session/update notification to updates, as the agent sent them. The second argument is
+// true when the agent wrote the notification after the response to the last prompt.
 // The gh of the agent gets its token from ghTokenURL. With an empty ghTokenURL, the gh of the agent refuses to run.
-func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpURL, ghTokenURL string, updates func(json.RawMessage)) (*Session, error) {
+func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpURL, ghTokenURL string, updates func(json.RawMessage, bool)) (*Session, error) {
 	program := Program(harness)
 	processCtx, stop := context.WithCancel(context.Background())
 	cmd, err := harnessCommand(processCtx, harness, cwd, dataDir, path, ghTokenURL)
@@ -209,12 +212,12 @@ func Start(ctx context.Context, harness config.Harness, cwd, dataDir, path, mcpU
 		stop()
 		return nil, err
 	}
-	conn, err := connect(cmd, updates)
+	conn, w, err := connect(cmd, updates)
 	if err != nil {
 		stop()
 		return nil, fmt.Errorf("%s: %w", program, err)
 	}
-	session := &Session{harness: harness, conn: conn, cmd: cmd, stop: stop}
+	session := &Session{harness: harness, conn: conn, wire: w, cmd: cmd, stop: stop}
 	if err := session.limited(ctx, func(ctx context.Context) error { return session.open(ctx, cwd, mcpURL) }); err != nil {
 		session.Close()
 		if errors.Is(err, errStartTimeout) {
@@ -248,7 +251,7 @@ func LogInAntigravity(ctx context.Context, cwd, dataDir, path string) (bool, err
 		return false, err
 	}
 	cmd.Stderr = os.Stderr
-	conn, err := connect(cmd, func(json.RawMessage) {})
+	conn, _, err := connect(cmd, func(json.RawMessage, bool) {})
 	if err != nil {
 		return false, err
 	}
@@ -425,6 +428,7 @@ type PromptResult struct {
 // Prompt sends text and then each image, and holds until the turn ends. The updates of the turn go to the updates
 // function of Start before Prompt returns. A prompt with no text has no text block.
 func (s *Session) Prompt(ctx context.Context, text string, images []Image) (PromptResult, error) {
+	s.wire.beginPrompt()
 	var blocks []acp.ContentBlock
 	if text != "" {
 		blocks = append(blocks, acp.TextBlock(text))
@@ -449,11 +453,13 @@ func (s *Session) Close() {
 
 // handler gives the params of each session/update notification to updates, and allows each permission request.
 // The session gives the agent no file system and no terminal, so the agent must not call other methods.
-func handler(updates func(json.RawMessage)) acp.MethodHandler {
+func handler(updates func(json.RawMessage, bool), w *wire) acp.MethodHandler {
+	handled := 0
 	return func(_ context.Context, method string, params json.RawMessage) (any, *acp.RequestError) {
 		switch method {
 		case acp.ClientMethodSessionUpdate:
-			updates(params)
+			handled++
+			updates(params, w.after(handled))
 			return nil, nil
 		case acp.ClientMethodSessionRequestPermission:
 			var request acp.RequestPermissionRequest

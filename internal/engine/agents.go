@@ -575,15 +575,15 @@ func (a *Agent) addError(ctx context.Context, message string) error {
 	return a.engine.addRow(ctx, a.id, "error", row, false)
 }
 
-func (a *Agent) update(params json.RawMessage) {
-	if err := a.record(params); err != nil {
+func (a *Agent) update(params json.RawMessage, late bool) {
+	if err := a.record(params, late); err != nil {
 		log.Printf("record an update of the session %d: %v", a.id, err)
 	}
 }
 
 // record adds the update to the Transcript. A message chunk or a thought chunk that follows a chunk of the same kind
 // joins the row of that chunk.
-func (a *Agent) record(params json.RawMessage) error {
+func (a *Agent) record(params json.RawMessage, late bool) error {
 	notification, err := decodeObject(params)
 	if err != nil {
 		return err
@@ -594,7 +594,7 @@ func (a *Agent) record(params json.RawMessage) error {
 	ctx := context.Background()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.track(notification, kind)
+	a.track(notification, kind, late)
 	a.readUsage(notification, kind)
 	// The unit of resetsAt is Unix seconds.
 	if resetsAt, ok := field(notification, "update", "_meta", "_claude/rateLimit", "resetsAt").(json.Number); ok {

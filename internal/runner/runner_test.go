@@ -127,7 +127,7 @@ func fakeAgentDir(t *testing.T) string {
 	return dir
 }
 
-func startFakeAgent(t *testing.T, updates func(json.RawMessage)) *Session {
+func startFakeAgent(t *testing.T, updates func(json.RawMessage, bool)) *Session {
 	dir := fakeAgentDir(t)
 	session, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", updates)
 	if err != nil {
@@ -139,7 +139,7 @@ func startFakeAgent(t *testing.T, updates func(json.RawMessage)) *Session {
 
 func TestSessionGivesTheMCPServerSetsTheOptionsAndAllowsTools(t *testing.T) {
 	var message strings.Builder
-	session := startFakeAgent(t, func(params json.RawMessage) {
+	session := startFakeAgent(t, func(params json.RawMessage, _ bool) {
 		var notification struct {
 			Update struct {
 				SessionUpdate string `json:"sessionUpdate"`
@@ -180,7 +180,7 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 	defer func(limit time.Duration) { StartTimeout = limit }(StartTimeout)
 	StartTimeout = 200 * time.Millisecond
 
-	_, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", func(json.RawMessage) {})
+	_, err := Start(context.Background(), config.ClaudeCode, dir, dir, dir, "http://127.0.0.1:1/mcp/key", "", func(json.RawMessage, bool) {})
 
 	if want := "claude-agent-acp: the start took longer than 200ms"; err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %s", err, want)
@@ -196,7 +196,7 @@ func TestAStartThatDoesNotAnswerFailsAfterStartTimeoutAndKillsTheAgent(t *testin
 }
 
 func TestConfigureRefusesAnUnknownModel(t *testing.T) {
-	session := startFakeAgent(t, func(json.RawMessage) {})
+	session := startFakeAgent(t, func(json.RawMessage, bool) {})
 
 	err := session.Configure(context.Background(), "opus", "")
 

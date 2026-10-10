@@ -25,16 +25,6 @@ func (e *Engine) SetClock(clock func() time.Time) {
 	e.clock.Store(&clock)
 }
 
-// ChatAgent gives the agent of the chat of key, or nil when the chat has no agent.
-func (e *Engine) ChatAgent(key ChatKey) *Agent {
-	e.chatsMu.Lock()
-	defer e.chatsMu.Unlock()
-	if c, ok := e.chats[key]; ok {
-		return c.agent
-	}
-	return nil
-}
-
 // Listeners gives the number of channels that wait for changes.
 func (e *Engine) Listeners() int {
 	e.mu.Lock()
@@ -64,7 +54,7 @@ func (e *Engine) AbortDrain() {
 
 // Update gives params to the agent as a session/update of its Harness.
 func (a *Agent) Update(params json.RawMessage) {
-	a.update(params)
+	a.update(params, false)
 }
 
 // CannotDo gives the reason of the last cannot_do of the agent, or "".

@@ -36,7 +36,7 @@ shell = "pwd"
 	harnesses := filepath.Join(dataDir, "harnesses")
 	var mu sync.Mutex
 	var reply strings.Builder
-	session, err := runner.Start(context.Background(), config.ClaudeCode, work, dataDir, harnesses+":"+os.Getenv("PATH"), "http://127.0.0.1:1/mcp/key", "", func(params json.RawMessage) {
+	session, err := runner.Start(context.Background(), config.ClaudeCode, work, dataDir, harnesses+":"+os.Getenv("PATH"), "http://127.0.0.1:1/mcp/key", "", func(params json.RawMessage, _ bool) {
 		var notification acp.SessionNotification
 		if err := json.Unmarshal(params, &notification); err != nil {
 			t.Error(err)
