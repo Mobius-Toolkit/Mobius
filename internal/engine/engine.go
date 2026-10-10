@@ -32,6 +32,10 @@ type Engine struct {
 	recovered map[string]bool
 	// copied holds the full names of the repositories whose copy is complete. Only the poll uses it.
 	copied map[string]bool
+	// copyWrite makes syncCopy, which reads all Workstreams and then replaces the copy, and createWorkstream, which
+	// creates a Workstream and adds it to the copy, take turns. Else syncCopy can replace the copy with a list that
+	// does not have the new Workstream.
+	copyWrite sync.Mutex
 	// quiet holds the newest item of the Judge of each task in its quiet period, by the id of the task. Only the poll
 	// uses it.
 	quiet map[int64]quietItem
