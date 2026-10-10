@@ -46,7 +46,9 @@ type job struct {
 	// fix round or a conflict round works on the pull request of that round.
 	pullRequest   *gh.PullRequest
 	conflictRound bool
-	prompt        string
+	// oldHead is the head of the pull request before the first try to push, or "" before that try.
+	oldHead string
+	prompt  string
 	// parent is the session of the agent that started the work, or the newest session of the issue when Mobius started it.
 	parent sql.NullInt64
 }
@@ -1079,13 +1081,12 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 			failedLog = tail(output, logTail)
 		}
 	}
-	oldHead := ""
-	if j.pullRequest != nil {
+	if j.pullRequest != nil && j.oldHead == "" {
 		current, err := repository.PullRequest(ctx, int64(j.pullRequest.GetNumber()))
 		if err != nil {
 			return result{}, err
 		}
-		oldHead = current.GetHead().GetSHA()
+		j.oldHead = current.GetHead().GetSHA()
 	}
 	e.gitMu.Lock()
 	pushStartedAt := now()
@@ -1114,8 +1115,8 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		}
 		e.publish(Change{Node: new(e.node(session))})
 	}
-	if oldHead != head && oldHead != "" {
-		if err := replaceCheckRun(ctx, repository, oldHead); err != nil {
+	if j.oldHead != head && j.oldHead != "" {
+		if err := replaceCheckRun(ctx, repository, j.oldHead); err != nil {
 			return result{}, err
 		}
 	}
