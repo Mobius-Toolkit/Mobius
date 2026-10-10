@@ -116,7 +116,7 @@ func (e *Engine) stopResearcher(ctx context.Context, c caller, _ github.Reposito
 	e.stop(researcherKey(input.ID))
 	e.detailsMu.Unlock()
 	text := fmt.Sprintf("The Researcher %d stopped. No report arrives.", input.ID)
-	if err := e.postChat(ctx, leadChat(c.repository, c.workstream), researcherAuthor, text, nil); err != nil {
+	if err := e.postChat(ctx, leadChat(c.repository, c.workstream), researcherAuthor, "", text, nil); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Stopped the Researcher %d.", input.ID), nil
@@ -214,7 +214,7 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 // deliverReport gives the report of the Researcher id on the question to the chat of c as a Researcher message.
 func (e *Engine) deliverReport(ctx context.Context, c caller, id int64, question, report string) error {
 	text := fmt.Sprintf("Report of the Researcher %d on \"%s\":\n\n%s", id, question, report)
-	return e.postChat(ctx, ChatKey{c.organization, c.repository, c.workstream}, researcherAuthor, text, nil)
+	return e.postChat(ctx, ChatKey{c.organization, c.repository, c.workstream}, researcherAuthor, "", text, nil)
 }
 
 // addCopy adds the worktree dir of repository, detached at the default branch.

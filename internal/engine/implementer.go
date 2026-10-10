@@ -826,7 +826,7 @@ func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result,
 		if err != nil {
 			return nil, "", err
 		}
-		output, passed, err := e.check(ctx, a, j)
+		output, passed, err := e.check(ctx, a, j, sql.NullInt64{Int64: int64(attempts), Valid: true})
 		if err != nil {
 			return nil, "", err
 		}
@@ -910,7 +910,7 @@ func (e *Engine) sendDetails(ctx context.Context, c caller, repository github.Re
 // check runs the local check of the worktree of a in a check slot, and gives its output and true when it passes. A
 // check on a full disk waits for free space and runs again, with no new attempt (Mobius-rust#231). The session shows
 // each phase of the check in its queue reason and in its Transcript (Mobius-rust#401).
-func (e *Engine) check(ctx context.Context, a *Agent, j *job) (string, bool, error) {
+func (e *Engine) check(ctx context.Context, a *Agent, j *job, attempt sql.NullInt64) (string, bool, error) {
 	for {
 		select {
 		case e.checks <- struct{}{}:
@@ -931,20 +931,26 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job) (string, bool, err
 		}
 		var output string
 		var passed bool
+		var startedAt, endedAt string
 		if err == nil {
+			startedAt = now()
 			output, passed, err = runner.Check(ctx, e.config.DataDir, a.spec.Dir, e.agents.Path, e.config.CheckTimeout)
 		}
+		endedAt = now()
 		<-e.checks
 		if err != nil {
 			return "", false, err
 		}
 		elapsed := time.Since(started).Round(time.Millisecond)
-		text := fmt.Sprintf(".mobius/check failed in %s.", elapsed)
+		text, result := fmt.Sprintf(".mobius/check failed in %s.", elapsed), "fail"
 		switch {
 		case passed:
-			text = fmt.Sprintf(".mobius/check passed in %s.", elapsed)
+			text, result = fmt.Sprintf(".mobius/check passed in %s.", elapsed), "pass"
 		case elapsed >= e.config.CheckTimeout:
-			text = fmt.Sprintf(".mobius/check did not end in %s.", e.config.CheckTimeout)
+			text, result = fmt.Sprintf(".mobius/check did not end in %s.", e.config.CheckTimeout), "timeout"
+		}
+		if err := a.addStep(ctx, "check", startedAt, endedAt, attempt, result); err != nil {
+			log.Printf("add the check run of the session %d: %v", a.id, err)
 		}
 		if err := a.checkPhase(ctx, "", text); err != nil {
 			return "", false, err
@@ -1030,7 +1036,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		return result{}, err
 	}
 	if failedLog == "" && after != before {
-		output, passed, err := e.check(ctx, a, j)
+		output, passed, err := e.check(ctx, a, j, sql.NullInt64{})
 		if err != nil {
 			return result{}, err
 		}

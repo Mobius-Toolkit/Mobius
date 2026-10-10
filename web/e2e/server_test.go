@@ -530,7 +530,7 @@ func TestServer(t *testing.T) {
 // chat sends the Owner message text to the chat of key, and waits for the reply of author and the end of the session.
 func chat(ctx context.Context, t *testing.T, server *testserver.Server, key engine.ChatKey, text, author string) {
 	t.Helper()
-	if err := server.Engine.SendChat(ctx, key, text, nil); err != nil {
+	if err := server.Engine.SendChat(ctx, key, "", text, nil); err != nil {
 		t.Fatal(err)
 	}
 	waitForChat(t, server, key, author)

@@ -161,6 +161,13 @@ export const ChatMessageAuthor = {
 export interface ChatMessage {
   /** Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner with an Inbox item, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry */
   author: ChatMessageAuthor;
+  /** BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message */
+  browserId: string;
+  /**
+     * DeliveredAt is the time when the turn of the agent for the message of the Owner started, or null before that and for another message
+     * @nullable
+     */
+  deliveredAt: string | null;
   /** ID increases with each new message of all chats */
   id: number;
   /** Images is the number of images of the message. GetChatImage gives each image by its position, from 0 */
@@ -960,6 +967,8 @@ export interface SeeChatBody {
 }
 
 export interface SendChatBody {
+  /** ID is the id that the browser gives to the message. A message with an id that another message has is not stored again, and the response is the same */
+  id: string;
   /** Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB */
   images?: (Blob | File)[];
   /** Organization is the owner of the repository, or the organization of the Triager chat */
@@ -1310,10 +1319,11 @@ export const getSendChatUrl = () => {
 }
 
 /**
- * SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. It returns 400 when the request is larger than 4 images of 5 MB with the text. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
+ * SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. A message with the id of a stored message changes nothing and returns the same status. It returns 400 when the request is larger than 4 images of 5 MB with the text. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
  */
 export const sendChat = async (sendChatBody: SendChatBody, ): Promise<sendChatResponse> => {
     const formData = new FormData();
+formData.append(`id`, sendChatBody.id);
 if(sendChatBody.images !== undefined) {
  sendChatBody.images.forEach(value => formData.append(`images`, value));
  }

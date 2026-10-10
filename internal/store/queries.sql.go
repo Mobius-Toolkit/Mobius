@@ -11,9 +11,10 @@ import (
 )
 
 const addChatMessage = `-- name: AddChatMessage :one
-INSERT INTO chat_messages (organization, repository, workstream, author, time, text)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, repository, workstream, author, time, text, organization
+INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT DO NOTHING
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at
 `
 
 type AddChatMessageParams struct {
@@ -23,6 +24,7 @@ type AddChatMessageParams struct {
 	Author       string
 	Time         string
 	Text         string
+	BrowserID    sql.NullString
 }
 
 func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) (ChatMessage, error) {
@@ -33,6 +35,7 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		arg.Author,
 		arg.Time,
 		arg.Text,
+		arg.BrowserID,
 	)
 	var i ChatMessage
 	err := row.Scan(
@@ -43,6 +46,8 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		&i.Time,
 		&i.Text,
 		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
 	)
 	return i, err
 }
@@ -423,6 +428,51 @@ func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session
 	return i, err
 }
 
+const addStepTime = `-- name: AddStepTime :exec
+INSERT INTO step_times (kind, session, task, issue, workstream, organization, repository, role, harness, model, effort,
+                        started_at, ended_at, attempt, result)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddStepTimeParams struct {
+	Kind         string
+	Session      sql.NullInt64
+	Task         sql.NullInt64
+	Issue        sql.NullInt64
+	Workstream   int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Model        string
+	Effort       sql.NullString
+	StartedAt    string
+	EndedAt      string
+	Attempt      sql.NullInt64
+	Result       sql.NullString
+}
+
+func (q *Queries) AddStepTime(ctx context.Context, arg AddStepTimeParams) error {
+	_, err := q.db.ExecContext(ctx, addStepTime,
+		arg.Kind,
+		arg.Session,
+		arg.Task,
+		arg.Issue,
+		arg.Workstream,
+		arg.Organization,
+		arg.Repository,
+		arg.Role,
+		arg.Harness,
+		arg.Model,
+		arg.Effort,
+		arg.StartedAt,
+		arg.EndedAt,
+		arg.Attempt,
+		arg.Result,
+	)
+	return err
+}
+
 const addTask = `-- name: AddTask :one
 INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at)
 VALUES (?, ?, ?, 'dispatched', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
@@ -573,7 +623,7 @@ func (q *Queries) AddWorkerRestart(ctx context.Context, arg AddWorkerRestartPara
 
 const appendChatMessage = `-- name: AppendChatMessage :one
 UPDATE chat_messages SET text = text || ?1 WHERE id = ?2
-RETURNING id, repository, workstream, author, time, text, organization
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at
 `
 
 type AppendChatMessageParams struct {
@@ -592,6 +642,8 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		&i.Time,
 		&i.Text,
 		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
 	)
 	return i, err
 }
@@ -853,6 +905,33 @@ DELETE FROM device_logins WHERE password_fingerprint != ?
 func (q *Queries) DeleteOtherPasswordLogins(ctx context.Context, passwordFingerprint []byte) error {
 	_, err := q.db.ExecContext(ctx, deleteOtherPasswordLogins, passwordFingerprint)
 	return err
+}
+
+const deliverChatMessage = `-- name: DeliverChatMessage :one
+UPDATE chat_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at
+`
+
+type DeliverChatMessageParams struct {
+	DeliveredAt sql.NullString
+	ID          int64
+}
+
+func (q *Queries) DeliverChatMessage(ctx context.Context, arg DeliverChatMessageParams) (ChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, deliverChatMessage, arg.DeliveredAt, arg.ID)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
+	)
+	return i, err
 }
 
 const deliverLeadEvent = `-- name: DeliverLeadEvent :exec
@@ -1416,7 +1495,7 @@ func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredPa
 }
 
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
-SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
 ORDER BY id DESC LIMIT ?
 `
@@ -1452,6 +1531,8 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 			&i.Time,
 			&i.Text,
 			&i.Organization,
+			&i.BrowserID,
+			&i.DeliveredAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1467,7 +1548,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 }
 
 const listChatMessagesPage = `-- name: ListChatMessagesPage :many
-SELECT id, repository, workstream, author, time, text, organization FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator') AND id < ?
 ORDER BY id DESC LIMIT ?
 `
@@ -1504,6 +1585,8 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 			&i.Time,
 			&i.Text,
 			&i.Organization,
+			&i.BrowserID,
+			&i.DeliveredAt,
 		); err != nil {
 			return nil, err
 		}

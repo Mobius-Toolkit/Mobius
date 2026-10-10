@@ -66,3 +66,8 @@ func ClaudeMemoryDir(home, leadDir string) string {
 func (e *Engine) StopWorker(task int64) {
 	e.stop(task)
 }
+
+// DeliverMessage sets the delivery time of a message of the Owner.
+func (e *Engine) DeliverMessage(ctx context.Context, id int64) error {
+	return e.deliverMessage(ctx, id)
+}

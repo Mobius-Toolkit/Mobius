@@ -45,6 +45,11 @@ import { Markdown } from "./Markdown";
 
 const tooManyImages = `A message has at most ${maxImages} images.`;
 
+function newMessageId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function upsert(list: ChatMessage[], message: ChatMessage) {
   const known = list.find((other) => other.id === message.id);
   // The agent only adds text to a message, so the longer text is the newer text.
@@ -509,7 +514,14 @@ export function Conversation({
     setSending(true);
     setText("");
     changeImages(() => []);
-    sendChat({ organization, repository, workstream, text: sent, images: sentImages })
+    sendChat({
+      id: newMessageId(),
+      organization,
+      repository,
+      workstream,
+      text: sent,
+      images: sentImages,
+    })
       .then((res) => {
         if (res.status === 204) {
           setSendError("");
