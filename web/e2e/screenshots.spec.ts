@@ -51,6 +51,7 @@ const wide = (selector: string) =>
   `(document.querySelector('${selector}')?.scrollWidth ?? 0) > (document.querySelector('${selector}')?.clientWidth ?? 0)`;
 
 test("screenshots", async ({ page }) => {
+  test.setTimeout(90_000);
   const main = page.getByRole("main");
   // The day separator shows the year of a message that is not in the current year.
   await page.clock.setFixedTime("2026-10-15T12:00:00Z");
@@ -503,6 +504,32 @@ test("screenshots", async ({ page }) => {
     main.getByText("A later version changed this part. Edit the file."),
     main.getByText("Add: three fix rounds repeated the same wait with a fixed sleep in tests"),
   ]);
+  // The 7 days that end on the fixed date have the turns of three models in two repositories. devin has no cost.
+  await screenshot(page, "usage", "/usage?group=model", (device) => [
+    ...frame(device, release),
+    main.getByRole("tab", { name: "Cost", selected: true }),
+    main.getByRole("row", { name: /claude-opus-5-5 \d 23,000 6,400 330,000 37,000 \$5\.55$/ }),
+    main.getByRole("row", { name: /swe-1\.5 3 .* —$/ }),
+    main.locator(".recharts-bar-rectangle").first(),
+    main.getByText("Oct 15", { exact: true }),
+  ]);
+  await screenshot(
+    page,
+    "usage-tokens",
+    "/usage?tab=tokens&group=harness&role=%5B%22implementer%22%5D",
+    (device) => [
+      ...frame(device, release),
+      main.getByRole("tab", { name: "Tokens", selected: true }),
+      main.getByRole("row", { name: /devin 3 49,000 12,100 156,000 17,000 —$/ }),
+      main.locator(".recharts-bar-rectangle").first(),
+    ],
+  );
+  await page.setViewportSize(viewports.phone);
+  await page.goto("/usage?group=model");
+  await expect(main.getByRole("row", { name: /swe-1\.5/ })).toBeVisible();
+  expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
+    true,
+  );
 
   // The note closes a Workstream whose tasks are all closed.
   await page.setViewportSize(viewports.desktop);
