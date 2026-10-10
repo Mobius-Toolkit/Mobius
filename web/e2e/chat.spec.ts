@@ -6,6 +6,14 @@ const shop = "/workstreams/owner/shop/12";
 const picture = /^Picture \d+ of /;
 const started = /^(ready|waits for start_implementer|queued|working)$/;
 
+// The next poll dispatches an issue that started. The call puts the issue back in its first state.
+async function undoDispatch(page: Page, issue: number, label = "") {
+  const response = await page.request.delete(
+    `/e2e/dispatches/plants/garden/${issue}?label=${label}`,
+  );
+  expect(response.ok()).toBe(true);
+}
+
 async function logIn(page: Page) {
   await page.goto("/github");
   await page.getByLabel("Access password").fill("correct horse");
@@ -926,6 +934,8 @@ test("Start gives only an open task with no blocker a button, and the row shows 
   await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
   await expect(rows.filter({ hasText: "#70 Order the bark" }).getByText(started)).toBeVisible();
   await expect(start).toHaveCount(0);
+
+  await undoDispatch(page, 70);
 });
 
 test("Resume gives a needs-human task with no blocker a button that waits for the request, and the line leaves needs-human", async ({
@@ -971,6 +981,8 @@ test("Resume gives a needs-human task with no blocker a button that waits for th
   await expect(resume).toHaveCount(0);
   // The next poll dispatches the issue, so the badge can already show a later state.
   await expect(rows.filter({ hasText: "#72 Water the bark" }).getByText(started)).toBeVisible();
+
+  await undoDispatch(page, 72, "mobius:needs-human");
 });
 
 test("the Tasks tab shows the closed tasks muted, with no Start button, when the switch is on", async ({
