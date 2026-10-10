@@ -119,6 +119,12 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	if err != nil {
 		return false, err
 	}
+	implementer, found := store.Session{}, false
+	if task.State == "checks" {
+		if implementer, found, err = e.implementerSession(ctx, task); err != nil {
+			return false, err
+		}
+	}
 	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
 	if err != nil || moved == 0 {
 		return true, err
@@ -126,6 +132,9 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	if err := e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items, parent: parent, failedCheck: true}); err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "working"})
 		return false, errors.Join(err, stateErr)
+	}
+	if found {
+		e.addCIStep(ctx, task, implementer, "failure")
 	}
 	return true, e.queries.SetTaskCheckHead(ctx, store.SetTaskCheckHeadParams{CheckHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
 }
@@ -167,9 +176,16 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 			return err
 		}
 	}
+	implementer, found, err := e.implementerSession(ctx, task)
+	if err != nil {
+		return err
+	}
 	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "checks"})
 	if err != nil || moved == 0 {
 		return err
+	}
+	if found {
+		e.addCIStep(ctx, task, implementer, "success")
 	}
 	delete(e.ciWait, task.ID)
 	text := fmt.Sprintf("%s ready for Lead approval of #%d \"%s\": pull request #%d %s.", time.Now().UTC().Format(timeFormat), task.Issue, issue.GetTitle(), pullRequest.GetNumber(), pullRequest.GetHTMLURL())
@@ -238,9 +254,16 @@ func (e *Engine) remindLead(ctx context.Context, task store.Task, limit time.Dur
 // ciFailed hands the task in checks to a human, with a failed Mobius check and a stop event for the Lead. The task
 // keeps the head in ci_failed_head, so that continueNeedsHuman can tell this stop from another stop.
 func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
+	implementer, found, err := e.implementerSession(ctx, task)
+	if err != nil {
+		return err
+	}
 	handed, err := e.handToHuman(ctx, task)
 	if err != nil || !handed {
 		return err
+	}
+	if found {
+		e.addCIStep(ctx, task, implementer, "failure")
 	}
 	head := sql.NullString{String: pullRequest.GetHead().GetSHA(), Valid: true}
 	if err := e.queries.SetTaskCiFailedHead(ctx, store.SetTaskCiFailedHeadParams{CiFailedHead: head, ID: task.ID}); err != nil {
