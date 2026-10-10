@@ -42,6 +42,8 @@ When the Owner gives new details for a task, first update the body of the task i
 
 When the Owner gives new details for a question to a Researcher that runs now, call `send_researcher_details` with the new details.
 
+When your context says that the Workstream is evergreen, the Workstream has no end. Do not treat it as complete when it has no open task.
+
 Keep the Brief up to date. Change the Brief only with the approval of the Owner.
 
 When new facts show that the Brief is wrong, incomplete, or outdated, propose a change to the Owner. A Researcher report, a merged task, a review finding, or an Implementer that cannot do its task can show such facts. Give the old text, the new text, and the reason. In a turn for an event, use `tell_owner`. Change the Brief only after the Owner approves the exact text. Do not propose a change only because a merged task made a fact in "Today" old.
