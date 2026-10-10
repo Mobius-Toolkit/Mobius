@@ -89,7 +89,7 @@ const claudeCodeAutonomousLimit = `
 [[prompts]]
 updates = ['{"sessionUpdate": "usage_update", "used": 78345, "size": 1000000, "_meta": {"_claude/rateLimit": {"status": "rejected"}}}']
 reply = ["Planned."]
-later = { after = "10ms", updates = [
+later = { after = "500ms", updates = [
   '''{"sessionUpdate": "usage_update", "used": 78345, "size": 1000000, "_meta": {"_claude/rateLimit": {"status": "rejected"}}}''',
   '''{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "You've hit your session limit"}}''',
 ] }
