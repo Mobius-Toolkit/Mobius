@@ -174,6 +174,16 @@ test.describe("the agent log of a running Lead", () => {
   test("the log shows the entries that arrived while the live connection was down", async ({
     page,
   }) => {
+    await page.addInitScript(`
+      window.sources = [];
+      const add = EventSource.prototype.addEventListener;
+      EventSource.prototype.addEventListener = function (type, listener, options) {
+        if (this.url.endsWith('/transcript/events') && !window.sources.includes(this)) {
+          window.sources.push(this);
+        }
+        return add.call(this, type, listener, options);
+      };
+    `);
     await page.goto("/agents");
     const main = page.getByRole("main");
     await say(page, "Which lilies sell best?");
@@ -185,7 +195,8 @@ test.describe("the agent log of a running Lead", () => {
       refused++;
       return route.abort();
     });
-    await page.evaluate("window.dispatchEvent(new Event('online'))");
+    await page.evaluate(`window.sources.forEach((source) => source.close());
+      window.dispatchEvent(new Event('online'))`);
     await expect.poll(() => refused).toBeGreaterThan(0);
 
     await expect.poll(() => runningLeads(page), { timeout: 15_000 }).toBe(0);
