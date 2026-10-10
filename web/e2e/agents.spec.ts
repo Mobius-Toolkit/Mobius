@@ -11,6 +11,7 @@ test.beforeEach(async ({ page }) => {
 const states = [
   { reason: "runs .mobius/check", badge: "checks", dot: /bg-green-600/ },
   { reason: "waits for a check slot", badge: "waits for check", dot: /bg-amber-500/ },
+  { reason: "waits for a low load", badge: "waits for load", dot: /bg-amber-500/ },
   { reason: /paused until Sep 28, 12:00\sPM/, badge: "paused", dot: /bg-amber-500/ },
   { reason: "no free Implementer slot (2/2)", badge: "queued", dot: /bg-amber-500/ },
 ];
@@ -214,3 +215,42 @@ for (const { name: place, path, open } of places) {
     });
   }
 }
+
+test("the Transcript of a session that waits for a low load has a button that starts the check", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const requests: string[] = [];
+  let answer: { status: number; body: string } = { status: 204, body: "" };
+  await page.route(/\/api\/agents\/\d+\/start-check$/, (route) => {
+    requests.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+    return route.fulfill(answer);
+  });
+  await page.goto("/agents");
+  await main.getByRole("button", { name: /Ticket #36 Rename the plan table/ }).click();
+  const start = main.getByRole("button", { name: "Start the check now" });
+
+  answer = {
+    status: 409,
+    body: JSON.stringify({ error: "The check of session 3 does not wait for a low load." }),
+  };
+  await start.click();
+  await expect(
+    main.getByText("The check of session 3 does not wait for a low load."),
+  ).toBeVisible();
+
+  answer = { status: 204, body: "" };
+  await start.click();
+  await expect(main.getByText("does not wait for a low load.")).toBeHidden();
+  expect(requests).toHaveLength(2);
+  expect(requests[0]).toMatch(/^POST \/api\/agents\/\d+\/start-check$/);
+});
+
+test("the Transcript of a session that does not wait for a low load has no start button", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await page.goto("/agents");
+  await main.getByRole("button", { name: /Ticket #39/ }).click();
+  await expect(main.getByRole("button", { name: "Start the check now" })).toBeHidden();
+});

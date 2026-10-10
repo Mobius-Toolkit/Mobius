@@ -50,6 +50,65 @@
         ]
       }
     },
+    "/api/agents/{id}/start-check": {
+      "post": {
+        "description": "StartCheck starts the local check of a session that waits for a low load at once. The check ignores the load for this run. It returns 409 when the session does not wait for a low load.",
+        "operationId": "StartCheck",
+        "parameters": [
+          {
+            "description": "ID is the id of the session",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "agents"
+        ]
+      }
+    },
     "/api/agents/{id}/transcript": {
       "get": {
         "description": "GetTranscript returns the Transcript of a session, the oldest row first.",

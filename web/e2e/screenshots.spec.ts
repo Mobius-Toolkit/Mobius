@@ -33,6 +33,7 @@ async function screenshot(
 const queueReasons = [
   "runs .mobius/check",
   "waits for a check slot",
+  "waits for a low load",
   /paused until Sep 28, 12:00\sPM/,
   "no free Implementer slot (2/2)",
 ];
@@ -363,6 +364,17 @@ test("screenshots", async ({ page }) => {
     "/agents",
     (device) => [...frame(device, drain), main.getByText("The plan prices are in cents now.")],
     () => main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click(),
+  );
+
+  await screenshot(
+    page,
+    "transcript-start-check",
+    "/agents",
+    (device) => [
+      ...frame(device, drain),
+      main.getByRole("button", { name: "Start the check now" }),
+    ],
+    () => main.getByRole("button", { name: /Ticket #36 Rename the plan table/ }).click(),
   );
 
   await page.setViewportSize(viewports.desktop);

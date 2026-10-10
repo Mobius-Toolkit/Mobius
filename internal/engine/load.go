@@ -41,14 +41,39 @@ func (e *Engine) startCheck() (float64, bool, error) {
 	return load, true, nil
 }
 
+// StartCheckNow ends the wait for a low load of the check of the session, so the check starts at once with no regard
+// for the load and for checkGap. The check keeps its check slot.
+func (e *Engine) StartCheckNow(_ context.Context, session int64) error {
+	e.loadWaitsMu.Lock()
+	defer e.loadWaitsMu.Unlock()
+	now, ok := e.loadWaits[session]
+	if !ok {
+		return refuse("The check of session %d does not wait for a low load.", session)
+	}
+	select {
+	case now <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
 // waitForLowLoad holds until the load average is lower than cores and checkGap passed since the start of the last
-// check. It shows the wait in the queue reason and in the Transcript of a. After loadWaitEvent of one wait, the Lead
+// check, or until StartCheckNow. It shows the wait in the queue reason and in the Transcript of a. After loadWaitEvent of one wait, the Lead
 // gets one event.
 func (e *Engine) waitForLowLoad(ctx context.Context, a *Agent, j *job) error {
 	load, ready, err := e.startCheck()
 	if err != nil || ready {
 		return err
 	}
+	now := make(chan struct{}, 1)
+	e.loadWaitsMu.Lock()
+	e.loadWaits[a.id] = now
+	e.loadWaitsMu.Unlock()
+	defer func() {
+		e.loadWaitsMu.Lock()
+		delete(e.loadWaits, a.id)
+		e.loadWaitsMu.Unlock()
+	}()
 	if err := a.checkPhase(ctx, lowLoadReason, fmt.Sprintf("The check waits for a low load. The 1-minute load average is %.2f, and the machine has %d cores.", load, cores)); err != nil {
 		return err
 	}
@@ -60,6 +85,11 @@ func (e *Engine) waitForLowLoad(ctx context.Context, a *Agent, j *job) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-now:
+			e.checkStartMu.Lock()
+			e.checkStart = time.Now()
+			e.checkStartMu.Unlock()
+			return a.checkPhase(ctx, lowLoadReason, "The Owner started the check at once.")
 		case <-ticker.C:
 		}
 		load, ready, err = e.startCheck()
