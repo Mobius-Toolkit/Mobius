@@ -126,6 +126,71 @@ func TestAskOnAnIssueWithNoLiveTaskInTheWorkstreamChangesNothing(t *testing.T) {
 	}
 }
 
+func TestTheLeadHoldsADispatchedTaskAndTheTaskWaitsForTheOwnerWithNoWorkerSlot(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, `
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "hold_task", arguments = { n = 41, reason = "Cents or dollars?" } }
+
+[[prompts]]
+reply = ["Seen"]
+`)
+
+	dispatchTask(fake, 41, "Add plan model")
+
+	calls := testkit.WaitForValue(t, func() ([]map[string]any, bool) {
+		calls := leadCalls(t, server)
+		return calls, len(calls) > 0
+	})
+	if calls[0]["result"] != "Held #41." {
+		t.Errorf("call = %v", calls[0])
+	}
+	if state := taskState(t, server); state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:needs-human"}) {
+		t.Errorf("labels = %v", got)
+	}
+	if got := fake.Comments(shop, 41); !slices.Equal(got, []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: "Cents or dollars?"}}) {
+		t.Errorf("comments = %v", got)
+	}
+	items := inbox(t, server)
+	want := inboxItem{ID: items[0].ID, Kind: "question", Repository: shop, Workstream: 12, Issue: 41, Text: "Cents or dollars?", Link: "https://github.com/owner/shop/issues/41"}
+	if len(items) != 1 || items[0] != want {
+		t.Errorf("inbox = %+v", items)
+	}
+	if got := activeTasks(t, server); got != 0 {
+		t.Errorf("active tasks = %d", got)
+	}
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool {
+			return strings.Contains(prompt, ` stop of #41 "Add plan model": Cents or dollars?`)
+		})
+	})
+}
+
+func TestHoldTaskRefusesATaskThatIsNotDispatched(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("hold_task", `{ n = 41, reason = "Cents or dollars?" }`))
+	addTask(t, server, fake, 41, 12, 45)
+
+	session := run(t, server, leadSpec(t), "1. ")
+
+	if got := reply(t, server, session); got != "error: The task of #41 is ready_for_review. Only a dispatched task can be held." {
+		t.Errorf("reply = %q", got)
+	}
+	if state := taskState(t, server); state != "ready_for_review" {
+		t.Errorf("state = %s", state)
+	}
+	if got := fake.Comments(shop, 41); len(got) != 0 {
+		t.Errorf("comments = %v", got)
+	}
+	if got := inbox(t, server); len(got) != 0 {
+		t.Errorf("inbox = %+v", got)
+	}
+}
+
 func TestTellOwnerAddsAChatMessageAndAnInboxItem(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
