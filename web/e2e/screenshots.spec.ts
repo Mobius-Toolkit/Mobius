@@ -338,14 +338,14 @@ test("screenshots", async ({ page }) => {
   await page.unroute("/api/unread");
   await page.unroute("/api/chat/seen");
 
-  // The chat shows its last message, and the tree hides a stopped agent unless an agent below it runs.
+  // The chat shows its last message, and the agent list hides each stopped agent.
   await page.setViewportSize(viewports.desktop);
   await page.goto("/workstreams/owner/shop/12");
   await expect(main.getByText("#42 and #45 wait for your decision.")).toBeInViewport();
-  const tree = page.getByRole("complementary");
-  const stopped = tree.getByText("stopped", { exact: true });
-  await expect(stopped).toHaveCount(1);
-  await tree.getByRole("switch", { name: "Show stopped agents" }).click();
+  const agents = page.getByRole("complementary");
+  const stopped = agents.getByText("stopped", { exact: true });
+  await expect(stopped).toHaveCount(0);
+  await agents.getByRole("switch", { name: "Show stopped agents" }).click();
   await expect(stopped).toHaveCount(2);
 
   // A wide message scrolls inside the message. The page does not scroll to the side.

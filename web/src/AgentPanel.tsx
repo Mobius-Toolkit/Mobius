@@ -22,51 +22,13 @@ import { clock, dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Transcript } from "./Agents";
 
-type Row = { agent: Agent; depth: number };
-
-function compareTreePaths(a: number[], b: number[]) {
-  for (let i = 0; i < Math.min(a.length, b.length); i++) {
-    if (a[i] !== b[i]) {
-      return b[i] - a[i];
-    }
-  }
-  return a.length - b.length;
-}
-
-// Gives the agents in tree order with their depth: each agent follows its parent, and the newest agent comes first
-// among its siblings. An agent whose parent is not in the list has depth 0.
-function treeRows(agents: Agent[]): Row[] {
-  const byId = new Map(agents.map((agent) => [agent.id, agent]));
-  const treePath = (agent: Agent): number[] => {
-    const parent = agent.parent === null ? undefined : byId.get(agent.parent);
-    return parent ? [...treePath(parent), agent.id] : [agent.id];
-  };
-  return agents
-    .map((agent) => ({ agent, path: treePath(agent) }))
-    .toSorted((a, b) => compareTreePaths(a.path, b.path))
-    .map(({ agent, path }) => ({ agent, depth: path.length - 1 }));
-}
-
-// With no stopped agents shown, a stopped agent stays only when an agent below it on any level is live, so that each
-// live agent keeps its place below its parent.
 function shownAgents(agents: Agent[], showStopped: boolean) {
-  if (showStopped) {
-    return agents;
-  }
-  const byId = new Map(agents.map((agent) => [agent.id, agent]));
-  const kept = new Set<number>();
-  for (const live of agents.filter((agent) => agent.endedAt === null)) {
-    let next: Agent | undefined = live;
-    while (next && !kept.has(next.id)) {
-      kept.add(next.id);
-      next = next.parent === null ? undefined : byId.get(next.parent);
-    }
-  }
-  return agents.filter((agent) => kept.has(agent.id));
+  return agents
+    .filter((agent) => showStopped || agent.endedAt === null)
+    .toSorted((a, b) => b.id - a.id);
 }
 
-function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void }) {
-  const agent = row.agent;
+function AgentEntry({ agent, onOpen }: { agent: Agent; onOpen: (agent: Agent) => void }) {
   const state = queueState(agent.queueReason);
   const started = `${dayClock(agent.startedAt)}${agent.endedAt ? `–${clock(agent.endedAt)}` : ""}`;
   const detail = agent.queueReason ? `${started} · ${queueText(agent)}` : started;
@@ -75,8 +37,7 @@ function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void 
       <button
         type="button"
         onClick={() => onOpen(agent)}
-        style={{ paddingLeft: `${0.5 + row.depth * 1.25}rem` }}
-        className="flex w-full items-center gap-3 rounded-lg py-2 pr-2 text-left hover:bg-muted"
+        className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-muted"
       >
         <span
           className={cn(
@@ -99,7 +60,7 @@ function AgentEntry({ row, onOpen }: { row: Row; onOpen: (agent: Agent) => void 
   );
 }
 
-function AgentTree({
+function AgentList({
   owner,
   name,
   number,
@@ -131,7 +92,7 @@ function AgentTree({
   }, [owner, name, number, showLogin]);
 
   // An agent event that comes before the listener or while the connection is down is lost, so each connection reads
-  // the tree.
+  // the list.
   useEffect(() => {
     load();
     if (!source) {
@@ -162,8 +123,8 @@ function AgentTree({
         <Label htmlFor="stopped-agents">Show stopped agents</Label>
       </div>
       <ul>
-        {treeRows(shownAgents(agents, showStopped)).map((row) => (
-          <AgentEntry key={row.agent.id} row={row} onOpen={setSelected} />
+        {shownAgents(agents, showStopped).map((agent) => (
+          <AgentEntry key={agent.id} agent={agent} onOpen={setSelected} />
         ))}
       </ul>
     </div>
@@ -338,7 +299,7 @@ export function AgentPanel({
         <TabsTrigger value="tasks">Tasks</TabsTrigger>
       </TabsList>
       <TabsContent value="agents" className="flex flex-col overflow-y-auto p-2">
-        <AgentTree owner={owner} name={name} number={number} source={source} />
+        <AgentList owner={owner} name={name} number={number} source={source} />
       </TabsContent>
       <TabsContent value="tasks" className="overflow-y-auto p-2">
         <Tasks owner={owner} name={name} number={number} source={source} />
