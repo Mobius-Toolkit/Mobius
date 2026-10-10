@@ -756,7 +756,7 @@ func (e *Engine) continueTask(ctx context.Context, repository github.Repository,
 		if ci, err = ciItems(ctx, repository, pullRequest.GetHead().GetSHA()); err != nil {
 			return false, err
 		}
-		if items, err = e.continueItems(ctx, repository, int64(pullRequest.GetNumber()), ci); err != nil {
+		if items, err = e.continueItems(ctx, repository, task, title, pullRequest.GetNumber(), ci); err != nil {
 			return false, err
 		}
 	}
@@ -783,12 +783,16 @@ func (e *Engine) continueTask(ctx context.Context, repository github.Repository,
 	return true, nil
 }
 
-// continueItems gives the items of a fix round that continues the pull request number: each open review thread, with
-// the action fix, and then ci. With no open thread and no ci, it tells the Implementer to finish the issue.
-func (e *Engine) continueItems(ctx context.Context, repository github.Repository, number int64, ci string) (string, error) {
+// continueItems gives the items of a fix round that continues the pull request number of the task: each open review
+// thread, with the action fix, and then ci. It first sends the follow-up threads to the Lead. With no open thread and
+// no ci, it tells the Implementer to finish the issue.
+func (e *Engine) continueItems(ctx context.Context, repository github.Repository, task store.Task, title string, number int, ci string) (string, error) {
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
-	threads, err := repository.ReviewThreads(ctx, number)
+	threads, err := repository.ReviewThreads(ctx, int64(number))
 	if err != nil {
+		return "", err
+	}
+	if err := e.sendFollowUps(ctx, repository, task, title, number, threads, appLogin(repository.AppSlug)); err != nil {
 		return "", err
 	}
 	var open []int64
@@ -797,7 +801,7 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 			open = append(open, thread.Comment)
 		}
 	}
-	items, err := fixThreads(ctx, repository, number, open, trusted)
+	items, err := fixThreads(ctx, repository, int64(number), open, trusted)
 	items += ci
 	if items == "" && err == nil {
 		return "\nThe human continued the task. Finish the issue and make `.mobius/check` pass.\n", nil
@@ -807,7 +811,7 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 
 // openThread tells if the review thread is open: it is not resolved, a trusted author started it, and its last trusted
 // comment is not a reply of the Mobius App with the login app. The first comment of the Mobius App is a finding of the
-// Reviewer.
+// Reviewer, except in a follow-up thread, which is for the Lead.
 func openThread(thread github.ReviewThread, trusted func(string) bool, app string) bool {
 	var authors []string
 	for _, author := range thread.Authors {
@@ -815,7 +819,7 @@ func openThread(thread github.ReviewThread, trusted func(string) bool, app strin
 			authors = append(authors, author)
 		}
 	}
-	if thread.Resolved || len(authors) == 0 || thread.Authors[0] != authors[0] {
+	if _, isFollowUp := followUpBody(thread, app); thread.Resolved || isFollowUp || len(authors) == 0 || thread.Authors[0] != authors[0] {
 		return false
 	}
 	return len(authors) == 1 || !strings.EqualFold(authors[len(authors)-1], app)

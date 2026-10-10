@@ -290,7 +290,7 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 	if err != nil {
 		return err
 	}
-	if err := e.sendFollowUps(ctx, repository, j, reviewThreads, app); err != nil {
+	if err := e.sendFollowUps(ctx, repository, j.task, j.title, j.pullRequest.GetNumber(), reviewThreads, app); err != nil {
 		return err
 	}
 	open := slices.DeleteFunc(reviewThreads, func(thread github.ReviewThread) bool { return !openThread(thread, trusted, app) })
@@ -401,20 +401,26 @@ func (e *Engine) submitReview(ctx context.Context, c caller, repository github.R
 	return "Posted the review.", nil
 }
 
-// sendFollowUps sends each open follow-up thread of reviewThreads to the Lead, and then resolves the thread. A failure
-// leaves the thread open, so the next call sends it again.
-func (e *Engine) sendFollowUps(ctx context.Context, repository github.Repository, j *reviewJob, reviewThreads []github.ReviewThread, app string) error {
-	number := j.pullRequest.GetNumber()
+// followUpBody gives the body of the first comment of thread without followUpMarker. It tells if the thread is a
+// follow-up thread: the Mobius App with the login app started it with followUpMarker.
+func followUpBody(thread github.ReviewThread, app string) (string, bool) {
+	first := thread.Comments[0]
+	body, found := strings.CutSuffix(first.Body, followUpMarker)
+	return body, found && strings.EqualFold(first.Author, app)
+}
+
+// sendFollowUps sends each open follow-up thread of reviewThreads of the pull request number to the Lead, and then
+// resolves the thread. A failure leaves the thread open, so the next call sends it again.
+func (e *Engine) sendFollowUps(ctx context.Context, repository github.Repository, task store.Task, title string, number int, reviewThreads []github.ReviewThread, app string) error {
 	for i := range reviewThreads {
 		thread := &reviewThreads[i]
-		first := thread.Comments[0]
-		body, isFollowUp := strings.CutSuffix(first.Body, followUpMarker)
-		if thread.Resolved || !isFollowUp || !strings.EqualFold(first.Author, app) {
+		body, isFollowUp := followUpBody(*thread, app)
+		if thread.Resolved || !isFollowUp {
 			continue
 		}
 		event := fmt.Sprintf("%s follow-up on pull request #%d of #%d \"%s\", item %d, %s line %d:\n\n%s",
-			time.Now().UTC().Format(timeFormat), number, j.task.Issue, j.title, thread.Comment, thread.Path, thread.Line, quote(body))
-		if err := e.addLeadEvent(ctx, j.task.Repository, j.task.Workstream, sql.NullInt64{Int64: j.task.Issue, Valid: true}, "follow_up", event); err != nil {
+			time.Now().UTC().Format(timeFormat), number, task.Issue, title, thread.Comment, thread.Path, thread.Line, quote(body))
+		if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "follow_up", event); err != nil {
 			return err
 		}
 		if err := repository.ResolveReviewThread(ctx, thread.ID); err != nil {

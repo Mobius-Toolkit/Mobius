@@ -217,3 +217,23 @@ func TestARemovalOfNeedsHumanSendsTheOpenThreadOfTheMobiusAppToAFixRound(t *test
 		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
 	}
 }
+
+func TestARemovalOfNeedsHumanSendsAnOpenFollowUpThreadToTheLeadAndNotToAFixRound(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
+	waitForApproval(t, server, fake)
+	thread := fake.AddReviewComment(shop, 42, 0, "mobius-test[bot]", "Name the unit.\n\n<!-- mobius:follow-up -->")
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") })
+
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+
+	waitForLeadPrompt(t, server, " follow-up on pull request #42 of #41 \"Add plan model\", item "+itoa(thread)+", src/plan.rs line 12:\n\n> Name the unit.")
+	round := roundPrompt(t, server)
+	if !strings.Contains(round, "# Open items\n\nThe human continued the task. Finish the issue and make `.mobius/check` pass.\n") {
+		t.Errorf("round = %s", round)
+	}
+}
