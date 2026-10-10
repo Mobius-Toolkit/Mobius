@@ -525,7 +525,7 @@ func TestStartFixRoundWorksWhileTheTaskWaitsForCI(t *testing.T) {
 func TestApprovePullRequestRefusesANewHeadAndMovesTheTaskBackToChecks(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
+	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, keepSessionOpen)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForReadyEvents(t, server, 1)
 	work := t.TempDir()
