@@ -300,7 +300,8 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 			return err
 		}
 		task.State = "checks"
-		return e.startKeptRound(ctx, repository, j.round(task, "", sql.NullInt64{}))
+		_, err = e.startKeptRound(ctx, repository, j.round(task, "", sql.NullInt64{}))
+		return err
 	}
 	// A finding of the Reviewer has only comments of the Mobius App.
 	var findings []int64

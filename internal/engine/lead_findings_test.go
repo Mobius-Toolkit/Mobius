@@ -89,3 +89,32 @@ func TestStartFixRoundKeepsTheFindingsOfTheLeadOnAReviewedTaskAndStartsAFixRound
 		t.Errorf("task = %+v", task)
 	}
 }
+
+func TestThePollStartsAFixRoundForKeptFindingsOnATaskInApproval(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	round := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"true\"\n\n"
+	server, _ := connectTask(t, fake, noFinding+leadStarts, round+commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+
+	if _, err := server.DB.Exec("UPDATE tasks SET lead_findings = ? WHERE issue = 41", keptFindings); err != nil {
+		t.Fatal(err)
+	}
+
+	prompt := testkit.WaitForValue(t, func() (string, bool) {
+		for _, prompt := range implementerPrompts(t, server) {
+			if strings.Contains(prompt, "# Open items\n") {
+				return prompt, true
+			}
+		}
+		return "", false
+	})
+	if !strings.HasSuffix(prompt, "# Open items\n\nFindings of the Lead:\n"+keptFindings) {
+		t.Errorf("prompt = %s", prompt)
+	}
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).LeadFindings == "" })
+	if task := liveTask(t, server, 41); task.FixRounds != 1 {
+		t.Errorf("task = %+v", task)
+	}
+}

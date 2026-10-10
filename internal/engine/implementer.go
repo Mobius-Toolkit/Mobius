@@ -223,17 +223,17 @@ func (e *Engine) startRound(ctx context.Context, repository github.Repository, r
 
 // startKeptRound starts a fix round with the findings that the Lead kept on the task of the round, when it has some. The
 // task is in r.task.State now. The Lead keeps findings only in working and reviewed, so Mobius reads them after the task
-// left that state.
-func (e *Engine) startKeptRound(ctx context.Context, repository github.Repository, r round) error {
+// left that state. It tells if a round started. The poll calls it again for a task in checks, approval or
+// ready_for_review with kept findings, so a failed start gets a retry.
+func (e *Engine) startKeptRound(ctx context.Context, repository github.Repository, r round) (bool, error) {
 	kept, err := e.queries.GetLeadFindings(ctx, r.task.ID)
 	if err != nil || kept == "" {
-		return err
+		return false, err
 	}
 	if r.parent, err = e.newestSession(ctx, r.task); err != nil {
-		return err
+		return false, err
 	}
-	_, err = e.startRound(ctx, repository, r)
-	return err
+	return e.startRound(ctx, repository, r)
 }
 
 // approvePullRequest moves the task from approval to ready_for_review, sets the Mobius check of the head to success,

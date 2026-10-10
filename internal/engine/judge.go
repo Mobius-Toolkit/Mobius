@@ -257,7 +257,8 @@ func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, t
 		return true, err
 	}
 	task.State = "checks"
-	return true, e.startKeptRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest})
+	_, err = e.startKeptRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest})
+	return true, err
 }
 
 // runJudge moves the task to working and runs the Judge of the job until the task stops. The Worker of the task exists
@@ -458,7 +459,8 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 		if err != nil || moved == 0 || j.from == "reviewed" {
 			return err
 		}
-		return e.startKeptRound(ctx, repository, round{task: j.task, title: j.title, pullRequest: j.pullRequest})
+		_, err = e.startKeptRound(ctx, repository, round{task: j.task, title: j.title, pullRequest: j.pullRequest})
+		return err
 	}
 	if j.from == "needs_human" {
 		if err := e.unstop(ctx, repository, j.task); err != nil {
