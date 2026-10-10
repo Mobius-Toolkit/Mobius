@@ -163,7 +163,7 @@ A duration is a text with a number and a unit for each part: `s`, `m` or `h`. Fo
 
 Each Role can also have these keys:
 
-- `max`: the maximum number of agents of the Role that run at the same time. The default is 8 for the Lead, and 2 for each other Role.
+- `max`: the maximum number of agents of the Role that run at the same time. The default is 8 for the Lead, 12 for the Triager, and 2 for each other Role.
 
 ## 6. Start
 
