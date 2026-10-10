@@ -137,3 +137,40 @@ func TestAMessageOfThisRunWaitsBehindTheStoredMessageOfTheEarlierRun(t *testing.
 		t.Errorf("prompts = %q", prompts)
 	}
 }
+
+func TestAStoredOwnerMessageThatTheDrainHeldGoesToTheAgentAfterTheDrain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	seed(t, dataDir,
+		seedMessage(1, shop, 12, "Owner", "Lead message.", "a1", "", ""),
+		seedMessage(2, "", 0, "Owner", "Triager message.", "a2", "", ""))
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nreply = [\"Seen\"]\n")
+	release := fake.HoldNext("GET /repos/{owner}/{repo}/labels")
+	server := startServer(t, fake, dataDir, "")
+	startDrain(t, server)
+	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
+
+	release()
+	server.WaitForFirstPoll(t, shop)
+	if prompts := joinedLeadPrompts(t, server); prompts != "" {
+		t.Fatalf("the agent got a message during the drain: %s", prompts)
+	}
+	cancelDrain(t, server)
+
+	testkit.WaitFor(t, func() bool { return strings.Contains(joinedLeadPrompts(t, server), "Lead message.") })
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(triagerPrompts(t, server), func(prompt string) bool {
+			return strings.Contains(prompt, "Triager message.")
+		})
+	})
+	testkit.WaitFor(t, func() bool {
+		var undelivered int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM chat_messages WHERE id IN (1, 2) AND delivered_at IS NULL").Scan(&undelivered); err != nil {
+			t.Fatal(err)
+		}
+		return undelivered == 0
+	})
+}

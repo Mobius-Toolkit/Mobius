@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -348,23 +349,45 @@ func (e *Engine) sendEvents(ctx context.Context, repository string, workstream i
 }
 
 // giveTracked gives the items to the chat of key like give. The drain holds a new chat, so the items stay undelivered.
-// The caller holds e.chatOrder.
-func (e *Engine) giveTracked(key ChatKey, front bool, items []item) {
+// It tells if it gave the items. The caller holds e.chatOrder.
+func (e *Engine) giveTracked(key ChatKey, front bool, items []item) bool {
 	e.chatsMu.Lock()
 	_, running := e.chats[key]
 	e.chatsMu.Unlock()
 	if !running && !e.tryTrack() {
-		return
+		return false
 	}
 	e.give(key, !running, front, items...)
+	return true
 }
 
 // giveEarlierMessages gives the messages of the Owner that the earlier run of the server stored and did not deliver
 // to the chats of organization and repository, in the order of their ids. It gives them to each chat one time in a
 // run, before the items that a message of this run put in the queue of a chat. A message with no browser id is from before the browser ids, so the agent does not get it again.
+// The drain holds the messages of a chat with no session. Then releaseDrain gives them with giveHeldMessages.
 func (e *Engine) giveEarlierMessages(ctx context.Context, organization, repository string) error {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
+	return e.giveEarlierMessagesLocked(ctx, organization, repository)
+}
+
+// giveHeldMessages gives the earlier messages that the drain held.
+func (e *Engine) giveHeldMessages(ctx context.Context) error {
+	e.chatOrder.Lock()
+	defer e.chatOrder.Unlock()
+	scopes := slices.Collect(maps.Keys(e.heldMessages))
+	for _, scope := range scopes {
+		if err := e.giveEarlierMessagesLocked(ctx, scope[0], scope[1]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// giveEarlierMessagesLocked is giveEarlierMessages for a caller that holds e.chatOrder.
+func (e *Engine) giveEarlierMessagesLocked(ctx context.Context, organization, repository string) error {
+	scope := [2]string{organization, repository}
+	delete(e.heldMessages, scope)
 	messages, err := e.queries.ListUndeliveredOwnerMessages(ctx, store.ListUndeliveredOwnerMessagesParams{Organization: organization, Repository: repository, ID: e.earlierMessage})
 	if err != nil {
 		return err
@@ -377,8 +400,11 @@ func (e *Engine) giveEarlierMessages(ctx context.Context, organization, reposito
 		}
 	}
 	for key, items := range chats {
-		e.giveTracked(key, true, items)
-		e.handedChats[key] = true
+		if e.giveTracked(key, true, items) {
+			e.handedChats[key] = true
+		} else {
+			e.heldMessages[scope] = true
+		}
 	}
 	return nil
 }
