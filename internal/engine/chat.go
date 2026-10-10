@@ -82,10 +82,16 @@ type ChatState struct {
 	Error string
 }
 
-// ChatView is a chat with its messages.
+// chatPageSize is the number of messages in a page of a chat.
+const chatPageSize = 20
+
+// ChatView is a page of the messages of a chat.
 type ChatView struct {
+	// Messages are the messages of the page, the oldest first.
 	Messages []store.ChatMessage
-	Writing  bool
+	// Older is true when the chat has a message before the first message of the page.
+	Older   bool
+	Writing bool
 	// Harness is the Harness of the Lead, or of the Triager for the Triager chat.
 	Harness config.Harness
 }
@@ -408,13 +414,23 @@ func (e *Engine) closeChats() {
 	}
 }
 
-// ChatView gives the messages of the chat of key.
-func (e *Engine) ChatView(ctx context.Context, key ChatKey) (ChatView, error) {
-	messages, err := e.queries.ListChatMessages(ctx, store.ListChatMessagesParams{Organization: key.Organization, Repository: key.Repository, Workstream: key.Workstream})
+// ChatView gives the page of the chat of key with the messages before the message id before, or with the newest
+// messages when before is 0.
+func (e *Engine) ChatView(ctx context.Context, key ChatKey, before int64) (ChatView, error) {
+	if before == 0 {
+		before = math.MaxInt64
+	}
+	// One more message than the page tells if older messages exist.
+	messages, err := e.queries.ListChatMessagesPage(ctx, store.ListChatMessagesPageParams{Organization: key.Organization, Repository: key.Repository, Workstream: key.Workstream, ID: before, Limit: chatPageSize + 1})
 	if err != nil {
 		return ChatView{}, err
 	}
-	view := ChatView{Messages: messages, Harness: e.config.Roles.Lead.Harness}
+	view := ChatView{Older: len(messages) > chatPageSize, Harness: e.config.Roles.Lead.Harness}
+	if view.Older {
+		messages = messages[:chatPageSize]
+	}
+	slices.Reverse(messages)
+	view.Messages = messages
 	if key.Workstream == 0 {
 		view.Harness = e.config.Roles.Triager.Harness
 	}
