@@ -188,6 +188,11 @@ RETURNING *;
 UPDATE chat_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL
 RETURNING *;
 
+-- name: GetLastChatMessageOf :one
+SELECT * FROM chat_messages
+WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
+ORDER BY id DESC LIMIT 1;
+
 -- name: DeleteChatMessage :exec
 DELETE FROM chat_messages WHERE id = ?;
 
