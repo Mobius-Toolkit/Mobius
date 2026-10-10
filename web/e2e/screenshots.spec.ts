@@ -288,6 +288,43 @@ test("screenshots", async ({ page }) => {
       await page.getByLabel("Show closed tasks").filter({ visible: true }).click();
     },
   );
+  const openDetails = async (device: string) => {
+    if (device === "phone") {
+      await page.getByRole("banner").getByRole("button", { name: "Agents" }).click();
+    }
+    await page.getByRole("tab", { name: "Details" }).filter({ visible: true }).click();
+  };
+  const closeButton = page
+    .getByRole("tabpanel", { name: "Details" })
+    .getByRole("button", { name: "Close" });
+  const created = page.getByText("Sep 28, 2026").filter({ visible: true });
+  await screenshot(
+    page,
+    "chat-details",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      created,
+      page.getByText("Completed tasks").filter({ visible: true }),
+      closeButton,
+    ],
+    openDetails,
+  );
+  await screenshot(
+    page,
+    "chat-details-close",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...frame(device, drain),
+      page.getByRole("dialog").getByText("#41 Add plan model"),
+      page.getByRole("dialog").getByText("#12 Integrate loyalty plans"),
+    ],
+    async (device) => {
+      await openDetails(device);
+      await expect(created).toBeVisible();
+      await closeButton.click();
+    },
+  );
   // The Inbox of the organization plants has no item, so the frame has no Inbox count.
   await screenshot(
     page,

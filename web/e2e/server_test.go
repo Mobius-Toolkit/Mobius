@@ -508,7 +508,7 @@ func TestServer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	fixTimes(t, server)
+	fixTimes(t, server, github)
 	addTurnUsage(t, server)
 	go func() { _, _ = server.Engine.Drain(ctx) }()
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
@@ -633,8 +633,10 @@ func addTurnUsage(t *testing.T, server *testserver.Server) {
 
 // fixTimes gives one fixed time to each time that the UI shows, so each run gives the same screenshots. An event text
 // starts with its time in the format of the engine.
-func fixTimes(t *testing.T, server *testserver.Server) {
+func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHub) {
 	t.Helper()
+	github.SetCreatedAt("owner/shop", 12, 1790587800)
+	github.SetCreatedAt("plants/garden", 30, 1790587800)
 	for _, query := range []string{
 		"UPDATE device_logins SET created_at = ?1",
 		"UPDATE events SET time = ?1",
