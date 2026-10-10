@@ -66,6 +66,9 @@ INSERT INTO turn_usage (session, task, issue, workstream, organization, reposito
                         effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- name: ListTurnUsageBetween :many
+SELECT * FROM turn_usage WHERE started_at >= sqlc.arg(after) AND started_at < sqlc.arg(before);
+
 -- name: AddStepTime :exec
 INSERT INTO step_times (kind, session, task, issue, workstream, organization, repository, role, harness, model, effort,
                         started_at, ended_at, attempt, result)
@@ -445,6 +448,10 @@ DELETE FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND posi
 SELECT position, number, parent, title, state, author, html_url, repository_url FROM copied_issues
 WHERE repository = ? AND workstream = ? ORDER BY position;
 
+-- A tree can hold an issue of another repository with the same number, so the caller checks repository_url.
+-- name: ListCopiedIssuesByNumber :many
+SELECT title, html_url, repository_url FROM copied_issues WHERE repository = ? AND workstream = ? AND number = ?;
+
 -- name: ListCopiedTreeLabels :many
 SELECT position, name FROM copied_issue_labels WHERE repository = ? AND workstream = ? ORDER BY position, name;
 
@@ -570,3 +577,6 @@ ON CONFLICT (repository, review, comment) DO NOTHING;
 
 -- name: SetTaskLongWaitAt :exec
 UPDATE tasks SET long_wait_at = ? WHERE id = ?;
+
+-- name: SetTaskCheckErrors :exec
+UPDATE tasks SET check_errors = ? WHERE id = ?;

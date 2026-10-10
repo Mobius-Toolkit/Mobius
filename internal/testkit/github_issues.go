@@ -230,6 +230,20 @@ func (g *FakeGitHub) FailClose(repository string, number int64) {
 	g.failedCloses[issueKey{repository, number}] = true
 }
 
+// FailIssueReads makes the next times reads of the issue fail.
+func (g *FakeGitHub) FailIssueReads(repository string, number int64, times int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedIssueReads[issueKey{repository, number}] = times
+}
+
+// PendingIssueReadFailures gives the number of reads of the issue that FailIssueReads still makes fail.
+func (g *FakeGitHub) PendingIssueReadFailures(repository string, number int64) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.failedIssueReads[issueKey{repository, number}]
+}
+
 // FailSubIssues makes each read of the sub-issues of the issue fail, or work again when fail is false.
 func (g *FakeGitHub) FailSubIssues(repository string, number int64, fail bool) {
 	g.mu.Lock()
@@ -640,6 +654,11 @@ func (g *FakeGitHub) getIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.failedIssueReads[key] > 0 {
+		g.failedIssueReads[key]--
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
 	if key, ok := g.issue(w, r); ok {
 		writeJSON(w, http.StatusOK, g.issueJSON(key))
 	}

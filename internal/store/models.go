@@ -119,6 +119,7 @@ type Task struct {
 	CiFailedHead   sql.NullString
 	StateAt        string
 	LongWaitAt     sql.NullString
+	CheckErrors    int64
 }
 
 type Transcript struct {
@@ -127,4 +128,26 @@ type Transcript struct {
 	Time    string
 	Kind    string
 	Json    string
+}
+
+type TurnUsage struct {
+	ID               int64
+	Session          int64
+	Task             sql.NullInt64
+	Issue            sql.NullInt64
+	Workstream       int64
+	Organization     string
+	Repository       string
+	Role             string
+	Harness          string
+	Model            string
+	ReportedModel    sql.NullString
+	Effort           sql.NullString
+	StartedAt        string
+	EndedAt          string
+	InputTokens      sql.NullInt64
+	OutputTokens     sql.NullInt64
+	CacheReadTokens  sql.NullInt64
+	CacheWriteTokens sql.NullInt64
+	CostUsd          sql.NullFloat64
 }
