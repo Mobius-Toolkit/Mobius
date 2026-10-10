@@ -2482,6 +2482,7 @@ test.describe("the state of an Owner message", () => {
   test("an older load does not take the delivery time from a message", async ({ page }) => {
     await page.goto(shop);
     const main = page.getByRole("main");
+    await expect(main.locator("[data-message]").first()).toBeVisible();
     const held: Route[] = [];
     await page.route("**/api/chat?*", (route) => {
       held.push(route);
