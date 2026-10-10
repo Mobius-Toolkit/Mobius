@@ -79,6 +79,8 @@ func TestFixLabelsCreatesTheMissingLabelsAndSetsTheFixedColors(t *testing.T) {
 		{"mobius:review", engine.Missing, ""},
 		{"mobius:no-workstream", engine.Missing, ""},
 		{"mobius:wont-do", engine.Missing, ""},
+		{"mobius:evergreen", engine.Missing, ""},
+		{"mobius:maintenance", engine.Missing, ""},
 	}
 	if got := checkLabels(t, repository); !reflect.DeepEqual(got, want) {
 		t.Errorf("status = %v, want %v", got, want)
@@ -91,6 +93,8 @@ func TestFixLabelsCreatesTheMissingLabelsAndSetsTheFixedColors(t *testing.T) {
 	wantLabels := []testkit.Label{
 		{Name: "bug", Color: "d73a4a", Description: "Something is wrong"},
 		{Name: "mobius:autopilot", Color: "1D76DB", Description: "Mobius dispatches the ready tasks of this Workstream"},
+		{Name: "mobius:evergreen", Color: "0052CC", Description: "Mobius Workstream with no end: it is not complete when it has no open task"},
+		{Name: "mobius:maintenance", Color: "BFDADC", Description: "Mobius evergreen Workstream that gets the task issues of the Curator"},
 		{Name: "mobius:needs-human", Color: "D93F0B", Description: "The task stopped and needs a human"},
 		{Name: "mobius:no-workstream", Color: "BFD4F2", Description: "The Triager found no Workstream for this issue"},
 		{Name: "mobius:question", Color: "C5A3F5", Description: "Mobius waits for an answer from a human"},
@@ -131,6 +135,8 @@ func TestFixLabelsSkipsALabelWithANameInADifferentCase(t *testing.T) {
 		{"mobius:review", engine.Missing, ""},
 		{"mobius:no-workstream", engine.Missing, ""},
 		{"mobius:wont-do", engine.Missing, ""},
+		{"mobius:evergreen", engine.Missing, ""},
+		{"mobius:maintenance", engine.Missing, ""},
 	}
 	if got := checkLabels(t, repository); !reflect.DeepEqual(got, want) {
 		t.Errorf("status = %v, want %v", got, want)
@@ -148,6 +154,8 @@ func TestFixLabelsSkipsALabelWithANameInADifferentCase(t *testing.T) {
 		"MOBIUS:WORKING ededed Working",
 		"Mobius:Ready 0E8A16 Ready",
 		"mobius:autopilot 1D76DB Mobius dispatches the ready tasks of this Workstream",
+		"mobius:evergreen 0052CC Mobius Workstream with no end: it is not complete when it has no open task",
+		"mobius:maintenance BFDADC Mobius evergreen Workstream that gets the task issues of the Curator",
 		"mobius:needs-human D93F0B The task stopped and needs a human",
 		"mobius:no-workstream BFD4F2 The Triager found no Workstream for this issue",
 		"mobius:question C5A3F5 Mobius waits for an answer from a human",

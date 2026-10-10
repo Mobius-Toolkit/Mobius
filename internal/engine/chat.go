@@ -1054,7 +1054,11 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("# Brief\n\n%s\n\n# MEMORY.md\n\n%s\n\n# Task list\n\n%s\n\n", issue.GetBody(), memory, taskText(lines)), nil
+	evergreen := ""
+	if hasLabel(issue, evergreenLabel) {
+		evergreen = "This Workstream is evergreen: it has no end.\n\n"
+	}
+	return fmt.Sprintf("# Brief\n\n%s\n\n%s# MEMORY.md\n\n%s\n\n# Task list\n\n%s\n\n", issue.GetBody(), evergreen, memory, taskText(lines)), nil
 }
 
 // readMemory gives MEMORY.md of the Lead directory dir, or "" when the file does not exist. A longer file than

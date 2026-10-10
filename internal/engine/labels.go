@@ -25,6 +25,8 @@ const (
 	readyLabel        = "mobius:ready"
 	noWorkstreamLabel = "mobius:no-workstream"
 	wontDoLabel       = "mobius:wont-do"
+	evergreenLabel    = "mobius:evergreen"
+	maintenanceLabel  = "mobius:maintenance"
 )
 
 // Labels are the Mobius labels.
@@ -38,6 +40,8 @@ var Labels = []Label{
 	{"mobius:review", "006B75", "The pull request waits for a human review"},
 	{"mobius:no-workstream", "BFD4F2", "The Triager found no Workstream for this issue"},
 	{"mobius:wont-do", "CFD3D7", "The Owner closed the Workstream of this issue as \"won't do\""},
+	{"mobius:evergreen", "0052CC", "Mobius Workstream with no end: it is not complete when it has no open task"},
+	{"mobius:maintenance", "BFDADC", "Mobius evergreen Workstream that gets the task issues of the Curator"},
 }
 
 // The status values of a label check and of a permission check.
