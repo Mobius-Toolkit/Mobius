@@ -412,7 +412,7 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 
 // route acts on the verdicts of the Judge: a reject replies with its reason, a follow-up goes to the Lead, and the fix
 // and question actions go to a fix round. A round with no fix action does not count toward max_fix_rounds. With no
-// round, the task goes back to its state before the Judge.
+// round, a needs_human task continues as continueTask says, and another task goes back to its state before the Judge.
 func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts) error {
 	repository, err := e.repository(j.task.Repository)
 	if err != nil {
@@ -440,17 +440,15 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 		}
 	}
 	if len(routes.round) == 0 {
+		if j.from == "needs_human" {
+			_, err := e.continueTask(ctx, repository, j.title, j.task, j.pullRequest, "working")
+			return err
+		}
 		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: j.from, ID: j.task.ID, FromState: "working"})
 		return err
 	}
 	if j.from == "needs_human" {
-		if err := repository.AddLabel(ctx, j.task.Issue, workingLabel); err != nil {
-			return err
-		}
-		if err := removeNeedsHuman(ctx, repository, j.task); err != nil {
-			return err
-		}
-		if err := e.queries.ResetTaskCounters(ctx, j.task.ID); err != nil {
+		if err := e.unstop(ctx, repository, j.task); err != nil {
 			return err
 		}
 	}
