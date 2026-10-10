@@ -476,7 +476,7 @@ func (q *Queries) AddStepTime(ctx context.Context, arg AddStepTimeParams) error 
 const addTask = `-- name: AddTask :one
 INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at)
 VALUES (?, ?, ?, 'dispatched', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at
+RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors
 `
 
 type AddTaskParams struct {
@@ -519,6 +519,7 @@ func (q *Queries) AddTask(ctx context.Context, arg AddTaskParams) (Task, error) 
 		&i.CiFailedHead,
 		&i.StateAt,
 		&i.LongWaitAt,
+		&i.CheckErrors,
 	)
 	return i, err
 }
@@ -1154,7 +1155,7 @@ func (q *Queries) GetLastDoneCuratorStart(ctx context.Context, repository string
 }
 
 const getLiveTask = `-- name: GetLiveTask :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
 `
 
 type GetLiveTaskParams struct {
@@ -1190,12 +1191,13 @@ func (q *Queries) GetLiveTask(ctx context.Context, arg GetLiveTaskParams) (Task,
 		&i.CiFailedHead,
 		&i.StateAt,
 		&i.LongWaitAt,
+		&i.CheckErrors,
 	)
 	return i, err
 }
 
 const getLiveTaskByPullRequest = `-- name: GetLiveTaskByPullRequest :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
 `
 
 type GetLiveTaskByPullRequestParams struct {
@@ -1231,6 +1233,7 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 		&i.CiFailedHead,
 		&i.StateAt,
 		&i.LongWaitAt,
+		&i.CheckErrors,
 	)
 	return i, err
 }
@@ -1626,6 +1629,46 @@ func (q *Queries) ListCopiedIssueRows(ctx context.Context, arg ListCopiedIssueRo
 	for rows.Next() {
 		var i ListCopiedIssueRowsRow
 		if err := rows.Scan(&i.Repository, &i.Workstream, &i.Position); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCopiedIssuesByNumber = `-- name: ListCopiedIssuesByNumber :many
+SELECT title, html_url, repository_url FROM copied_issues WHERE repository = ? AND workstream = ? AND number = ?
+`
+
+type ListCopiedIssuesByNumberParams struct {
+	Repository string
+	Workstream int64
+	Number     int64
+}
+
+type ListCopiedIssuesByNumberRow struct {
+	Title         string
+	HtmlUrl       string
+	RepositoryUrl string
+}
+
+// A tree can hold an issue of another repository with the same number, so the caller checks repository_url.
+func (q *Queries) ListCopiedIssuesByNumber(ctx context.Context, arg ListCopiedIssuesByNumberParams) ([]ListCopiedIssuesByNumberRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCopiedIssuesByNumber, arg.Repository, arg.Workstream, arg.Number)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCopiedIssuesByNumberRow
+	for rows.Next() {
+		var i ListCopiedIssuesByNumberRow
+		if err := rows.Scan(&i.Title, &i.HtmlUrl, &i.RepositoryUrl); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2366,7 +2409,7 @@ func (q *Queries) ListLiveTaskRepositories(ctx context.Context) ([]string, error
 }
 
 const listLiveTasks = `-- name: ListLiveTasks :many
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
 `
 
 func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task, error) {
@@ -2403,6 +2446,7 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 			&i.CiFailedHead,
 			&i.StateAt,
 			&i.LongWaitAt,
+			&i.CheckErrors,
 		); err != nil {
 			return nil, err
 		}
@@ -3424,6 +3468,20 @@ type SetTaskBranchParams struct {
 
 func (q *Queries) SetTaskBranch(ctx context.Context, arg SetTaskBranchParams) error {
 	_, err := q.db.ExecContext(ctx, setTaskBranch, arg.Branch, arg.ID)
+	return err
+}
+
+const setTaskCheckErrors = `-- name: SetTaskCheckErrors :exec
+UPDATE tasks SET check_errors = ? WHERE id = ?
+`
+
+type SetTaskCheckErrorsParams struct {
+	CheckErrors int64
+	ID          int64
+}
+
+func (q *Queries) SetTaskCheckErrors(ctx context.Context, arg SetTaskCheckErrorsParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskCheckErrors, arg.CheckErrors, arg.ID)
 	return err
 }
 

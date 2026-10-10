@@ -119,6 +119,7 @@ type Task struct {
 	CiFailedHead   sql.NullString
 	StateAt        string
 	LongWaitAt     sql.NullString
+	CheckErrors    int64
 }
 
 type Transcript struct {
