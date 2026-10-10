@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 // The tests make these waits short.
@@ -18,6 +19,11 @@ var (
 	LoadWaitEvent = &loadWaitEvent
 	Cores         = cores
 )
+
+// SetClock makes the long waits read the time from clock.
+func (e *Engine) SetClock(clock func() time.Time) {
+	e.clock.Store(&clock)
+}
 
 // Seal seals the drain for the restart.
 func (e *Engine) Seal() DrainEnd {

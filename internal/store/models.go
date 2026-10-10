@@ -115,6 +115,8 @@ type Task struct {
 	NeedsHumanAt   sql.NullString
 	ConflictHead   sql.NullString
 	CiFailedHead   sql.NullString
+	StateAt        string
+	LongWaitAt     sql.NullString
 }
 
 type Transcript struct {
