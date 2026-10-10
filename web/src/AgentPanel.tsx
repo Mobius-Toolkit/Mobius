@@ -133,22 +133,15 @@ function AgentList({
 }
 
 function TaskEntry({ owner, name, line }: { owner: string; name: string; line: TaskLine }) {
-  const [started, setStarted] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
-  const state = started && line.state === "open" ? "ready" : line.state;
   const resumes = line.state === "needs-human";
   const label = `${resumes ? "Resume" : "Start"} #${line.number}`;
   const start = () => {
     setStarting(true);
     (resumes ? resumeIssue : startIssue)(owner, name, line.number)
       .then((res) => {
-        if (res.status === 204) {
-          setError("");
-          setStarted(true);
-        } else {
-          setError(res.data.error);
-        }
+        setError(res.status === 204 ? "" : res.data.error);
       })
       .catch((err: unknown) => setError(String(err)))
       .finally(() => setStarting(false));
@@ -163,7 +156,7 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
           style={{ paddingLeft: `${0.5 + line.depth * 1.25}rem` }}
           className="flex min-w-0 grow flex-wrap items-center gap-x-2 gap-y-1 rounded-lg py-2 pr-2 hover:bg-muted"
         >
-          <span className={cn("grow", state === "closed" && "text-muted-foreground")}>
+          <span className={cn("grow", line.state === "closed" && "text-muted-foreground")}>
             #{line.number} {line.title}
           </span>
           {line.blockedBy.map((blocker) => (
@@ -172,10 +165,9 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
               {blocker.workstreamTitle && ` (Workstream "${blocker.workstreamTitle}")`}
             </span>
           ))}
-          <Badge variant={state === "open" ? "outline" : "secondary"}>{state}</Badge>
+          <Badge variant={line.state === "open" ? "outline" : "secondary"}>{line.state}</Badge>
         </a>
-        {!started &&
-          (state === "open" || resumes) &&
+        {(line.state === "open" || resumes) &&
           !line.otherRepository &&
           line.blockedBy.length === 0 && (
             <Button
