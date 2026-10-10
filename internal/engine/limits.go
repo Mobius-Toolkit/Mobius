@@ -200,20 +200,35 @@ func (a *Agent) waitOutLimit(ctx context.Context, err error) (bool, error) {
 	return true, a.waitForPause(ctx)
 }
 
+// limitText is the Mobius message of a usage limit of harness with the end of the pause until. It has the same form
+// for each Harness.
+func limitText(harness config.Harness, until time.Time) string {
+	return fmt.Sprintf("%s reached a usage limit. Mobius sends the prompt again at %s.", harness, until.UTC().Format(timeFormat))
+}
+
 // pause pauses the Harness of a until the time until. A Harness has one usage-limit Inbox item. A second session at
 // the same pause, and a retry that fails again, use the item again. The first pause also adds a message in the chat of
-// the Workstream of a.
+// the Workstream of a. A session with a chat gets the message in its chat for a pause that another session started.
 func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	e.pausing.Lock()
 	defer e.pausing.Unlock()
-	_, err := e.queries.GetHarnessPause(ctx, string(a.harness))
+	current, err := e.queries.GetHarnessPause(ctx, string(a.harness))
 	if err == nil {
-		return nil
+		if a.author == "" {
+			return nil
+		}
+		currentEnd, err := pauseEnd(current)
+		if err != nil {
+			return err
+		}
+		spec := a.spec
+		_, err = e.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, mobiusAuthor, limitText(a.harness, *currentEnd), "")
+		return err
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	text := fmt.Sprintf("%s reached a usage limit. Mobius sends the prompt again at %s.", a.harness, until.UTC().Format(timeFormat))
+	text := limitText(a.harness, until)
 	item, err := e.queries.ReopenInboxItem(ctx, store.ReopenInboxItemParams{
 		Text:       text,
 		Time:       now(),

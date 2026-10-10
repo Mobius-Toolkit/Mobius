@@ -111,6 +111,9 @@ type Agent struct {
 	costBase  float64
 	// resetHint is the last _claude/rateLimit.resetsAt of a usage update of the session, or zero.
 	resetHint time.Time
+	// limited tells that a usage update of the turn has the rate limit status "rejected". The agent message chunks
+	// that follow are the raw text of the usage limit.
+	limited bool
 	// author is the author of the chat messages that the reply text adds to the chat of the session, or "" when the
 	// reply text goes only to the Transcript.
 	author string
@@ -407,6 +410,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		a.message = 0
 		a.reply.Reset()
 		a.cannotDo = ""
+		a.limited = false
 		if err != nil {
 			a.mu.Unlock()
 			return err
@@ -596,6 +600,9 @@ func (a *Agent) record(params json.RawMessage) error {
 			a.resetHint = time.Unix(seconds, 0)
 		}
 	}
+	if stringField(notification, "update", "_meta", "_claude/rateLimit", "status") == "rejected" {
+		a.limited = true
+	}
 	if isChunk && a.chunk != nil && stringField(a.chunk, "update", "sessionUpdate") == kind {
 		update := a.chunk["update"].(map[string]any)
 		update["content"].(map[string]any)["text"] = stringField(a.chunk, "update", "content", "text") + content
@@ -627,6 +634,7 @@ func (a *Agent) record(params json.RawMessage) error {
 }
 
 // addReply adds content of an agent message chunk to the reply text, and to the chat when the session has an author.
+// After a usage update with the rate limit status "rejected", it adds nothing: the Transcript keeps the raw text.
 // A tool call starts a new reply text and a new chat message. The caller holds a.mu.
 func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 	switch kind {
@@ -636,7 +644,7 @@ func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 	case "tool_call_update":
 		a.reply.Reset()
 	}
-	if kind != "agent_message_chunk" {
+	if kind != "agent_message_chunk" || a.limited {
 		return nil
 	}
 	a.reply.WriteString(content)
