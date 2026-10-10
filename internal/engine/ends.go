@@ -72,9 +72,16 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 		return nil
 	}
 	if count == checkErrorPolls {
-		copied, err := e.queries.GetCopiedIssueTitle(ctx, store.GetCopiedIssueTitleParams{Repository: task.Repository, Workstream: task.Workstream, Number: task.Issue})
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		rows, err := e.queries.ListCopiedIssuesByNumber(ctx, store.ListCopiedIssuesByNumberParams{Repository: task.Repository, Workstream: task.Workstream, Number: task.Issue})
+		if err != nil {
 			return err
+		}
+		var copied store.ListCopiedIssuesByNumberRow
+		for _, row := range rows {
+			if !otherRepository(row.RepositoryUrl, task.Repository) {
+				copied = row
+				break
+			}
 		}
 		pullRequest := ""
 		if task.PullRequest.Valid {

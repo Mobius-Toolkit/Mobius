@@ -1047,28 +1047,6 @@ func (q *Queries) FreeLeadEvents(ctx context.Context, arg FreeLeadEventsParams) 
 	return items, nil
 }
 
-const getCopiedIssueTitle = `-- name: GetCopiedIssueTitle :one
-SELECT title, html_url FROM copied_issues WHERE repository = ? AND workstream = ? AND number = ? LIMIT 1
-`
-
-type GetCopiedIssueTitleParams struct {
-	Repository string
-	Workstream int64
-	Number     int64
-}
-
-type GetCopiedIssueTitleRow struct {
-	Title   string
-	HtmlUrl string
-}
-
-func (q *Queries) GetCopiedIssueTitle(ctx context.Context, arg GetCopiedIssueTitleParams) (GetCopiedIssueTitleRow, error) {
-	row := q.db.QueryRowContext(ctx, getCopiedIssueTitle, arg.Repository, arg.Workstream, arg.Number)
-	var i GetCopiedIssueTitleRow
-	err := row.Scan(&i.Title, &i.HtmlUrl)
-	return i, err
-}
-
 const getCopiedIssueWorkstream = `-- name: GetCopiedIssueWorkstream :one
 SELECT workstream FROM copied_issues WHERE repository = ? AND number = ? AND repository_url = ? LIMIT 1
 `
@@ -1606,6 +1584,46 @@ func (q *Queries) ListCopiedIssueRows(ctx context.Context, arg ListCopiedIssueRo
 	for rows.Next() {
 		var i ListCopiedIssueRowsRow
 		if err := rows.Scan(&i.Repository, &i.Workstream, &i.Position); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCopiedIssuesByNumber = `-- name: ListCopiedIssuesByNumber :many
+SELECT title, html_url, repository_url FROM copied_issues WHERE repository = ? AND workstream = ? AND number = ?
+`
+
+type ListCopiedIssuesByNumberParams struct {
+	Repository string
+	Workstream int64
+	Number     int64
+}
+
+type ListCopiedIssuesByNumberRow struct {
+	Title         string
+	HtmlUrl       string
+	RepositoryUrl string
+}
+
+// A tree can hold an issue of another repository with the same number, so the caller checks repository_url.
+func (q *Queries) ListCopiedIssuesByNumber(ctx context.Context, arg ListCopiedIssuesByNumberParams) ([]ListCopiedIssuesByNumberRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCopiedIssuesByNumber, arg.Repository, arg.Workstream, arg.Number)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCopiedIssuesByNumberRow
+	for rows.Next() {
+		var i ListCopiedIssuesByNumberRow
+		if err := rows.Scan(&i.Title, &i.HtmlUrl, &i.RepositoryUrl); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
