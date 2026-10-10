@@ -55,6 +55,15 @@ func TestAValidCallGivesEachItemOneTimeWithAllowedActions(t *testing.T) {
 	}
 }
 
+func TestABotItemTakesFixFollowUpAndReject(t *testing.T) {
+	t.Parallel()
+	for _, verdict := range []string{fixVerdict, followUpVerdict, rejectVerdict} {
+		if err := validateVerdicts([]judgeItem{batchItem(1, true)}, []itemVerdicts{verdictsOf(1, action{verdict, "Text."})}); err != nil {
+			t.Errorf("%s: %v", verdict, err)
+		}
+	}
+}
+
 func TestACallWithAMissingARepeatedOrAnUnknownItemIsNotValid(t *testing.T) {
 	t.Parallel()
 	items := []judgeItem{batchItem(1, false), batchItem(2, false)}
@@ -71,14 +80,13 @@ func TestACallWithAMissingARepeatedOrAnUnknownItemIsNotValid(t *testing.T) {
 	}
 }
 
-func TestABotItemTakesNoQuestionOrFollowUpAndAUserItemTakesNoReject(t *testing.T) {
+func TestABotItemTakesNoQuestionAndAUserItemTakesNoReject(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
 		item   judgeItem
 		action action
 	}{
 		{batchItem(1, true), action{questionVerdict, "Why?"}},
-		{batchItem(1, true), action{followUpVerdict, "Later."}},
 		{batchItem(1, false), action{rejectVerdict, "No."}},
 	} {
 		if validateVerdicts([]judgeItem{c.item}, []itemVerdicts{verdictsOf(1, c.action)}) == nil {

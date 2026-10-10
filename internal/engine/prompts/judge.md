@@ -6,7 +6,12 @@ Give each item one or more actions:
 - `follow-up`: the comment asks for work that is not in the scope of this pull request. The text is the goal of a new issue. The Lead creates that issue.
 - `reject`: the comment of a bot is wrong. The text is the reason, and Mobius posts it as the reply.
 
-Items of trusted users take `fix`, `question`, and `follow-up`. Items of trusted bots take `fix` and `reject`. Do not accept a finding of a bot without a check against the code.
+Items of trusted users take `fix`, `question`, and `follow-up`. Items of trusted bots take `fix`, `follow-up`, and `reject`. Do not accept a finding of a bot without a check against the code.
+
+Choose between `fix` and `follow-up` with these rules:
+- A defect that the diff causes is always a `fix`.
+- A requirement of the issue that the pull request does not meet is always a `fix`.
+- A `follow-up` is only for a defect that was there before the diff, or for work outside the Limits and Done of the issue.
 
 The worktree is detached at the head commit of the pull request. Read the code, but do not change it, and do not commit.
 

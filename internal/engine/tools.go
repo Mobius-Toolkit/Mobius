@@ -234,7 +234,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 	case JudgeRole:
 		return []mcp.Tool{
 			tool(e, c, "submit_verdicts",
-				"Give the actions for each item of the batch, one entry for each item. Items of trusted users take fix, question, and follow-up. Items of trusted bots take fix and reject. A later valid call replaces an earlier one.",
+				"Give the actions for each item of the batch, one entry for each item. Items of trusted users take fix, question, and follow-up. Items of trusted bots take fix, follow-up, and reject. A later valid call replaces an earlier one.",
 				map[string]any{
 					"items": map[string]any{
 						"type": "array",

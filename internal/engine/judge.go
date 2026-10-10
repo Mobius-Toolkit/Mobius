@@ -510,7 +510,7 @@ func routesOf(items []judgeItem, verdicts []itemVerdicts) judgeRoutes {
 }
 
 // validateVerdicts checks that the verdicts give each item of the batch one time, with one action or more. Items of
-// trusted users take fix, question and follow-up, and items of trusted bots take fix and reject.
+// trusted users take fix, question and follow-up, and items of trusted bots take fix, follow-up and reject.
 func validateVerdicts(items []judgeItem, verdicts []itemVerdicts) error {
 	for _, item := range items {
 		if count := len(slices.DeleteFunc(slices.Clone(verdicts), func(v itemVerdicts) bool { return v.Item != item.id })); count != 1 {
@@ -531,10 +531,10 @@ func validateVerdicts(items []judgeItem, verdicts []itemVerdicts) error {
 				return refuse("Each action of item %d needs a text.", verdict.Item)
 			}
 			switch a.Verdict {
-			case fixVerdict:
-			case questionVerdict, followUpVerdict:
+			case fixVerdict, followUpVerdict:
+			case questionVerdict:
 				if bot {
-					return refuse("Item %d is from a trusted bot, so its actions are only fix and reject.", verdict.Item)
+					return refuse("Item %d is from a trusted bot, so its actions are only fix, follow-up, and reject.", verdict.Item)
 				}
 			case rejectVerdict:
 				if !bot {
