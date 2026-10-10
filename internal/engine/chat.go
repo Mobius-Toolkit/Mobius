@@ -92,6 +92,8 @@ type ChatView struct {
 	// Older is true when the chat has a message before the first message of the page.
 	Older   bool
 	Writing bool
+	// PausedUntil is the end of the usage-limit pause that the agent of the chat waits for, or nil.
+	PausedUntil *time.Time
 	// Harness is the Harness of the Lead, or of the Triager for the Triager chat.
 	Harness config.Harness
 }
@@ -460,11 +462,45 @@ func (e *Engine) ChatView(ctx context.Context, key ChatKey, before int64) (ChatV
 		view.Harness = e.config.Roles.Triager.Harness
 	}
 	e.chatsMu.Lock()
-	defer e.chatsMu.Unlock()
 	if c, ok := e.chats[key]; ok {
 		view.Writing = c.writing
 	}
-	return view, nil
+	e.chatsMu.Unlock()
+	view.PausedUntil, err = e.ChatPausedUntil(ctx, key)
+	return view, err
+}
+
+// ChatPausedUntil gives the end of the usage-limit pause that the agent of the chat of key waits for, or nil when the
+// agent does not wait for a pause.
+func (e *Engine) ChatPausedUntil(ctx context.Context, key ChatKey) (*time.Time, error) {
+	e.chatsMu.Lock()
+	var agent *Agent
+	if c, ok := e.chats[key]; ok {
+		agent = c.agent
+	}
+	e.chatsMu.Unlock()
+	if agent == nil {
+		return nil, nil
+	}
+	session, err := e.queries.GetSession(ctx, agent.id)
+	if err != nil {
+		return nil, err
+	}
+	return e.PausedUntil(ctx, session)
+}
+
+// publishChat sends the state of the chat of a, so the clients read its pause again. It does nothing for a session
+// that is not of a chat.
+func (e *Engine) publishChat(a *Agent) {
+	if a.spec.Role != LeadRole && a.spec.Role != TriagerRole {
+		return
+	}
+	key := ChatKey{a.spec.Organization, a.spec.Repository, a.spec.Workstream}
+	e.chatsMu.Lock()
+	c, ok := e.chats[key]
+	writing := ok && c.writing
+	e.chatsMu.Unlock()
+	e.publish(Change{Chat: &ChatState{Key: key, Writing: writing}})
 }
 
 // SeeChat records that the Owner saw the messages of the chat up to the message id.

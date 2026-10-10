@@ -433,6 +433,7 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 				return err
 			}
 			e.publish(Change{Node: new(e.node(cleared))})
+			e.publishChat(a)
 			return nil
 		}
 		if err != nil {
@@ -448,6 +449,7 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 				return err
 			}
 			e.publish(Change{Node: new(e.node(queued))})
+			e.publishChat(a)
 			shown = true
 		}
 		a.setUncounted(e.draining())
