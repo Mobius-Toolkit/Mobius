@@ -11,6 +11,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	gh "github.com/google/go-github/v92/github"
 
@@ -370,7 +371,8 @@ func (e *Engine) abandonRound(ctx context.Context, repository github.Repository,
 	return errors.Join(e.queries.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task.ID}), updateErr)
 }
 
-// submitReview posts the review of the Reviewer of c on its pull request, at the head that it reviews.
+// submitReview posts the review of the Reviewer of c on its pull request, at the head that it reviews. Then it resolves
+// the thread of each follow-up comment and sends the comment to the Lead.
 func (e *Engine) submitReview(ctx context.Context, c caller, repository github.Repository, input reviewInput) (string, error) {
 	if empty(input.Body) {
 		return "", refuse("body must not be empty.")
@@ -382,6 +384,39 @@ func (e *Engine) submitReview(ctx context.Context, c caller, repository github.R
 	}
 	if err := repository.SubmitReview(ctx, c.agent.spec.PullRequest, c.agent.head, input.Body, input.Comments); err != nil {
 		return "", err
+	}
+	if !slices.ContainsFunc(input.Comments, func(comment github.InlineComment) bool { return comment.FollowUp }) {
+		return "Posted the review.", nil
+	}
+	number := c.agent.spec.PullRequest
+	issue, err := existingIssue(ctx, repository, c.agent.spec.Issue.Int64)
+	if err != nil {
+		return "", err
+	}
+	reviewThreads, err := repository.ReviewThreads(ctx, number)
+	if err != nil {
+		return "", err
+	}
+	for _, comment := range input.Comments {
+		if !comment.FollowUp {
+			continue
+		}
+		index := slices.IndexFunc(reviewThreads, func(thread github.ReviewThread) bool {
+			return !thread.Resolved && thread.Path == comment.Path && thread.Line == comment.Line && thread.Comments[0].Body == comment.Body
+		})
+		if index < 0 {
+			return "", fmt.Errorf("the thread of the follow-up on %s line %d is not on the pull request", comment.Path, comment.Line)
+		}
+		thread := &reviewThreads[index]
+		if err := repository.ResolveReviewThread(ctx, thread.ID); err != nil {
+			return "", err
+		}
+		thread.Resolved = true
+		event := fmt.Sprintf("%s follow-up on pull request #%d of #%d \"%s\", item %d, %s line %d:\n\n%s",
+			time.Now().UTC().Format(timeFormat), number, issue.GetNumber(), issue.GetTitle(), thread.Comment, comment.Path, comment.Line, quote(comment.Body))
+		if err := e.addLeadEvent(ctx, c.repository, c.workstream, c.agent.spec.Issue, "follow_up", event); err != nil {
+			return "", err
+		}
 	}
 	return "Posted the review.", nil
 }

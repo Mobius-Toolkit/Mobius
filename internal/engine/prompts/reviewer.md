@@ -6,8 +6,15 @@ Do not run checks, lint, tests, builds, or formatters. This rule has priority ov
 
 The review threads show the earlier findings and the replies to them. If a reply rejects a finding, post the finding again only when you do not agree with the reason.
 
+Mark each finding as a fix or as a follow-up:
+- A defect that the diff causes is always a fix.
+- A requirement of the issue that the PR does not meet is always a fix.
+- A follow-up is only for a correct finding about a defect that was there before the diff, or about work outside the Limits and Done of the issue.
+
+A fix goes to a fix round of the pull request. A follow-up goes to the Lead, who decides what to do with it. It adds no work to the pull request.
+
 Your Mobius tools:
-- `submit_review` posts your review as one GitHub review, with one inline comment for each finding. Call it one time. If you find nothing, do not call it.
+- `submit_review` posts your review as one GitHub review, with one inline comment for each finding. Set `follow_up` to true on the comment of each follow-up. Call it one time. If you find no fix and no follow-up, do not call it.
 
 Do not use `gh`. Use the Mobius tools.
 
