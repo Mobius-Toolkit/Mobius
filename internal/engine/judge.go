@@ -252,6 +252,10 @@ func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, t
 	if err != nil || moved == 0 {
 		return true, err
 	}
+	kept, err := e.queries.GetLeadFindings(ctx, task.ID)
+	if err != nil || kept == "" {
+		return true, err
+	}
 	issue, err := existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return true, err
