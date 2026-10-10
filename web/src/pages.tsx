@@ -1,4 +1,4 @@
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useShell } from "@/lib/shell";
 import { unreadCount } from "@/lib/unread";
 import { Activity } from "./Activity";
@@ -10,6 +10,7 @@ import { Inbox } from "./Inbox";
 import { InboxTabs } from "./InboxTabs";
 import { Memory, MemoryRepositories } from "./Memory";
 import { TriagerChat } from "./TriagerChat";
+import { Usage } from "./Usage";
 import { Workstreams } from "./Workstreams";
 
 export function WorkstreamsPage() {
@@ -110,4 +111,15 @@ export function MemoryRepositoriesPage() {
 export function MemoryPage() {
   const { owner, name } = useParams({ from: "/settings/memory/$owner/$name" });
   return <Memory key={`${owner}/${name}`} owner={owner} name={name} />;
+}
+
+export function UsagePage() {
+  const search = useSearch({ from: "/usage" });
+  const navigate = useNavigate({ from: "/usage" });
+  return (
+    <Usage
+      search={search}
+      onSearch={(patch) => navigate({ search: (prev) => ({ ...prev, ...patch }), replace: true })}
+    />
+  );
 }
