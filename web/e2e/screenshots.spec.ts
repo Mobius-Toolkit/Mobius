@@ -189,6 +189,7 @@ test("screenshots", async ({ page }) => {
     (device) => [...chatReady(device), main.getByRole("button", { name: "Send", exact: true })],
     () => main.getByLabel("Message to the Lead").fill("Show the prices of the roses first."),
   );
+  await main.getByLabel("Message to the Lead").fill("");
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
     const body = (await response.json()) as { data: { writing: boolean } };
@@ -233,6 +234,7 @@ test("screenshots", async ({ page }) => {
       }
     },
   );
+  await main.getByLabel("Message to the Lead").fill("");
   await setQueueReason(page, "waits for a low load");
   await screenshot(
     page,

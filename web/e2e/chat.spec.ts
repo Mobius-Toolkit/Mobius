@@ -817,6 +817,42 @@ test("the Triager chat stays open after its actions", async ({ page }) => {
   }
 });
 
+test("each chat keeps the text that the Owner did not send", async ({ page }) => {
+  const lead = page.getByLabel("Message to the Lead");
+  const triager = page.getByLabel("Message to the Triager");
+  const devices = page.locator('nav a[href="/devices"]').filter({ visible: true });
+
+  await page.goto("/workstreams/plants/garden/19");
+  await lead.fill("Water the roses");
+  await devices.click();
+  await expect(page).toHaveURL("/devices");
+  await page.goBack();
+  await expect(lead).toHaveValue("Water the roses");
+  await page.reload();
+  await expect(lead).toHaveValue("Water the roses");
+
+  await page.goto("/workstreams/plants/garden/18");
+  await expect(lead).toHaveValue("");
+  await lead.fill("Cut the roses");
+  await page.goBack();
+  await expect(lead).toHaveValue("Water the roses");
+
+  await page.goto("/chat");
+  await triager.fill("Plan the garden");
+  await devices.click();
+  await expect(page).toHaveURL("/devices");
+  await page.goBack();
+  await expect(triager).toHaveValue("Plan the garden");
+  await page.reload();
+  await expect(triager).toHaveValue("Plan the garden");
+
+  await page.route("/api/chat/messages", (route) => route.fulfill({ status: 204 }));
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(triager).toHaveValue("");
+  await page.reload();
+  await expect(triager).toHaveValue("");
+});
+
 test("the open chat shows the messages that arrived while the live connection was down", async ({
   page,
   browser,
