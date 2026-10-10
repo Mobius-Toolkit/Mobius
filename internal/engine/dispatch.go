@@ -792,7 +792,7 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 	if err != nil {
 		return "", err
 	}
-	if err := e.sendFollowUps(ctx, repository, task, title, number, threads, appLogin(repository.AppSlug)); err != nil {
+	if err := e.sendFollowUps(ctx, repository, task, title, number, threads, appLogin(repository.AppSlug), trusted); err != nil {
 		return "", err
 	}
 	var open []int64
@@ -811,7 +811,7 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 
 // openThread tells if the review thread is open: it is not resolved, a trusted author started it, and its last trusted
 // comment is not a reply of the Mobius App with the login app. The first comment of the Mobius App is a finding of the
-// Reviewer, except in a follow-up thread, which is for the Lead.
+// Reviewer, except in a follow-up thread with no reply of a trusted user, which is for the Lead.
 func openThread(thread github.ReviewThread, trusted func(string) bool, app string) bool {
 	var authors []string
 	for _, author := range thread.Authors {
@@ -819,7 +819,7 @@ func openThread(thread github.ReviewThread, trusted func(string) bool, app strin
 			authors = append(authors, author)
 		}
 	}
-	if _, isFollowUp := followUpBody(thread, app); thread.Resolved || isFollowUp || len(authors) == 0 || thread.Authors[0] != authors[0] {
+	if _, isFollowUp := followUpBody(thread, app, trusted); thread.Resolved || isFollowUp || len(authors) == 0 || thread.Authors[0] != authors[0] {
 		return false
 	}
 	return len(authors) == 1 || !strings.EqualFold(authors[len(authors)-1], app)

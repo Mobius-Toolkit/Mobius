@@ -290,7 +290,7 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 	if err != nil {
 		return err
 	}
-	if err := e.sendFollowUps(ctx, repository, j.task, j.title, j.pullRequest.GetNumber(), reviewThreads, app); err != nil {
+	if err := e.sendFollowUps(ctx, repository, j.task, j.title, j.pullRequest.GetNumber(), reviewThreads, app, trusted); err != nil {
 		return err
 	}
 	open := slices.DeleteFunc(reviewThreads, func(thread github.ReviewThread) bool { return !openThread(thread, trusted, app) })
@@ -402,20 +402,24 @@ func (e *Engine) submitReview(ctx context.Context, c caller, repository github.R
 }
 
 // followUpBody gives the body of the first comment of thread without followUpMarker. It tells if the thread is a
-// follow-up thread: the Mobius App with the login app started it with followUpMarker.
-func followUpBody(thread github.ReviewThread, app string) (string, bool) {
+// follow-up thread: the Mobius App with the login app started it with followUpMarker, and no trusted user has replied.
+// A reply of a trusted user makes the thread a normal thread, so the Judge takes the reply.
+func followUpBody(thread github.ReviewThread, app string, trusted func(string) bool) (string, bool) {
 	first := thread.Comments[0]
 	body, found := strings.CutSuffix(first.Body, followUpMarker)
-	return body, found && strings.EqualFold(first.Author, app)
+	replied := slices.ContainsFunc(thread.Comments[1:], func(comment github.ThreadComment) bool {
+		return trusted(comment.Author) && !strings.EqualFold(comment.Author, app)
+	})
+	return body, found && strings.EqualFold(first.Author, app) && !replied
 }
 
 // sendFollowUps sends each open follow-up thread of reviewThreads of the pull request number to the Lead, and then
 // resolves the thread. A failure leaves the thread open, so the next call resolves it again. A thread with an event in
 // lead_events gets no second event.
-func (e *Engine) sendFollowUps(ctx context.Context, repository github.Repository, task store.Task, title string, number int, reviewThreads []github.ReviewThread, app string) error {
+func (e *Engine) sendFollowUps(ctx context.Context, repository github.Repository, task store.Task, title string, number int, reviewThreads []github.ReviewThread, app string, trusted func(string) bool) error {
 	for i := range reviewThreads {
 		thread := &reviewThreads[i]
-		body, isFollowUp := followUpBody(*thread, app)
+		body, isFollowUp := followUpBody(*thread, app, trusted)
 		if thread.Resolved || !isFollowUp {
 			continue
 		}
