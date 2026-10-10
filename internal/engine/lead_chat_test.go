@@ -1130,7 +1130,7 @@ func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 	unreads := liveEvents(t, server, "unread")
 	key := `"organization":"owner","repository":"owner/shop","workstream":12`
 
-	if status, body := sendMessage(t, server, map[string]string{"organization": "owner", "repository": shop, "workstream": "12", "text": "Plan the loyalty API"}); status != http.StatusNoContent {
+	if status, body := sendMessage(t, server, map[string]string{"id": "browser-1", "organization": "owner", "repository": shop, "workstream": "12", "text": "Plan the loyalty API"}); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -1160,7 +1160,7 @@ func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 	if status, body := send(t, server, http.MethodPost, "/api/chat/stop", `{`+key+`}`); status != http.StatusNoContent {
 		t.Errorf("status = %d: %s", status, body)
 	}
-	if status, body := sendMessage(t, server, map[string]string{"organization": "nobody", "text": "Hello"}); status != http.StatusConflict {
+	if status, body := sendMessage(t, server, map[string]string{"id": "browser-2", "organization": "nobody", "text": "Hello"}); status != http.StatusConflict {
 		t.Errorf("status = %d: %s", status, body)
 	}
 }
