@@ -534,13 +534,29 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "memory", "/settings/memory/owner/shop", (device) => [
     ...frame(device, release),
     page.getByText("Memory of owner/shop").filter({ visible: true }),
-    main.getByText("+ Run make fmt before each commit and each push."),
-    main.getByText("+ Write each message in Simplified Technical English."),
-    main.getByText("- Run make fmt before each commit."),
-    main.getByText("+ Wait for a condition with testkit.WaitFor."),
-    main.getByText("A later version changed this part. Edit the file."),
+    main.locator("ins", { hasText: "and each push" }),
+    main.locator("del", { hasText: "fix round" }),
+    main.locator('[data-kind="added"]', {
+      hasText: "Write each message in Simplified Technical English.",
+    }),
+    main.locator('[data-kind="added"]', { hasText: "Wait for a condition with testkit.WaitFor." }),
+    main.getByText("A later version changed this part. Edit the file.").first(),
     main.getByText("Add: three fix rounds repeated the same wait with a fixed sleep in tests"),
   ]);
+  await screenshot(
+    page,
+    "memory-full-screen",
+    "/settings/memory/owner/shop",
+    () => page.getByRole("dialog").locator('[data-kind="changed"]'),
+    async () => {
+      await main
+        .locator("li")
+        .filter({ hasText: "Change: the long line names the edit of a test" })
+        .getByRole("button", { name: "Full screen" })
+        .click();
+    },
+    () => page.keyboard.press("Escape"),
+  );
   // The 7 days that end on the fixed date have the turns of three models in two repositories. devin has no cost.
   await screenshot(page, "usage", "/usage?group=model", (device) => [
     ...frame(device, release),

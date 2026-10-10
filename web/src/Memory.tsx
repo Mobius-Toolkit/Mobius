@@ -1,4 +1,4 @@
-import { use, useCallback, useEffect, useState } from "react";
+import { Fragment, use, useCallback, useEffect, useState } from "react";
 import {
   listMemoryVersions,
   revertMemory,
@@ -9,8 +9,9 @@ import {
 import { inset, LinkRow, List, PageHeader, Section } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { diffLines } from "@/lib/diff";
+import { diffHunks, type DiffLine } from "@/lib/diff";
 import { LoginContext } from "@/lib/login";
 import { dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -59,27 +60,83 @@ export function MemoryRepositories({
   );
 }
 
+function DiffRows({ hunk, wrap }: { hunk: DiffLine[]; wrap: boolean }) {
+  return (
+    <div className={cn(wrap ? "w-full" : "w-max min-w-full")}>
+      {hunk.map((line, i) => (
+        <div
+          key={i}
+          data-kind={line.kind}
+          className={cn(
+            "min-h-5 px-2",
+            wrap ? "break-words whitespace-pre-wrap" : "whitespace-pre",
+            line.kind === "added" && "bg-green-500/15 text-green-800 dark:text-green-300",
+            line.kind === "removed" && "bg-red-500/15 text-red-800 dark:text-red-300",
+          )}
+        >
+          {line.kind === "changed"
+            ? line.parts.map((part, j) =>
+                part.kind === "added" ? (
+                  <ins key={j} className="bg-green-500/40 no-underline">
+                    {part.text}
+                  </ins>
+                ) : part.kind === "removed" ? (
+                  <del key={j} className="bg-red-500/40 no-underline">
+                    {part.text}
+                  </del>
+                ) : (
+                  part.text
+                ),
+              )
+            : line.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Hunk({ hunk }: { hunk: DiffLine[] }) {
+  return (
+    <div className="grid gap-1">
+      <div className="flex justify-end">
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm">
+              Full screen
+            </Button>
+          </DialogTrigger>
+          <DialogContent
+            aria-describedby={undefined}
+            className="top-0 left-0 grid h-dvh max-w-none translate-x-0 translate-y-0 grid-rows-[auto_1fr] rounded-none sm:max-w-none"
+          >
+            <DialogTitle className="pr-8">Diff</DialogTitle>
+            <pre className="overflow-y-auto rounded-lg border text-sm">
+              <DiffRows hunk={hunk} wrap />
+            </pre>
+          </DialogContent>
+        </Dialog>
+      </div>
+      <pre className="overflow-x-auto rounded-lg border text-sm">
+        <DiffRows hunk={hunk} wrap={false} />
+      </pre>
+    </div>
+  );
+}
+
 function Diff({ before, after }: { before: string; after: string }) {
-  const lines = diffLines(before, after);
-  if (lines.length === 0) {
+  const hunks = diffHunks(before, after);
+  if (hunks.length === 0) {
     return <p className="text-sm text-muted-foreground">Only the final newline changed.</p>;
   }
   return (
-    <pre className="overflow-x-auto rounded-lg border text-sm">
-      {lines.map((line, i) => (
-        <div
-          key={i}
-          className={
-            line.kind === "added"
-              ? "bg-green-500/15 px-2 text-green-800 dark:text-green-300"
-              : "bg-red-500/15 px-2 text-red-800 dark:text-red-300"
-          }
-        >
-          {line.kind === "added" ? "+ " : "- "}
-          {line.text}
-        </div>
+    <div className="grid gap-2">
+      {hunks.map((hunk, i) => (
+        <Fragment key={i}>
+          {i > 0 && <div role="separator" className="border-t border-dashed" />}
+          <Hunk hunk={hunk} />
+        </Fragment>
       ))}
-    </pre>
+    </div>
   );
 }
 
