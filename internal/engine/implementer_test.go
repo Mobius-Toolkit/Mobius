@@ -286,6 +286,9 @@ func TestAMergeWithConflictsStopsTheTaskWithNoRestartAndLeavesACleanWorktree(t *
 	if len(sessions) != 2 || sessions[1].EndReason.String != "merge_conflict" {
 		t.Errorf("sessions = %+v", sessions)
 	}
+	if results := stepResults(stepRows(t, server, "prepare")); !slices.Equal(results, []string{"", "fail"}) {
+		t.Errorf("prepare results = %q", results)
+	}
 	if stops := strings.Count(strings.Join(leadPrompts(t, server), "\n"), " stop of #41 "); stops != 1 {
 		t.Errorf("stops = %d", stops)
 	}
@@ -722,6 +725,9 @@ func TestAPushThatFailsAfterAPassedCheckTriesAgainWithNoNewSession(t *testing.T)
 		t.Errorf("check runs = %+v, pull requests = %+v", runs, fake.PullRequests(shop))
 	}
 	session := endedImplementers(t, server, 1)[0]
+	if results := stepResults(stepRows(t, server, "pull")); len(results) < 2 || results[0] != "fail" || results[len(results)-1] != "" {
+		t.Errorf("pull results = %q", results)
+	}
 	if session.EndReason.String != "done" || len(promptTexts(t, server, session.ID)) != 1 {
 		t.Errorf("session = %+v, prompts = %q", session, promptTexts(t, server, session.ID))
 	}
