@@ -549,8 +549,12 @@ func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *
 		return slices.DeleteFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Workstream != 20 || event.Kind != "lead" })
 	}
 	testkit.WaitFor(t, func() bool {
+		var open int
+		if err := server.DB.QueryRow("SELECT count(*) FROM sessions WHERE ended_at IS NULL").Scan(&open); err != nil {
+			t.Fatal(err)
+		}
 		events := toLead20()
-		return len(events) > 0 && events[0].Delivered
+		return open == 0 && len(events) > 0 && events[0].Delivered
 	})
 	text := "Message of the Lead of #12, approved by the Owner:\n\nCreate the task issues."
 	if events := toLead20(); !reflect.DeepEqual(events, []leadEvent{{Workstream: 20, Kind: "lead", Payload: text, Delivered: true}}) {
