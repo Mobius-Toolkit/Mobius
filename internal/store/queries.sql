@@ -466,6 +466,17 @@ WHERE number = sqlc.arg(number) AND repository_url = sqlc.arg(repository_url)
 -- name: ListCopiedIssueRows :many
 SELECT repository, workstream, position FROM copied_issues WHERE number = ? AND repository_url = ?;
 
+-- A tree can hold an issue of another repository with the same number, so the caller checks repository_url.
+-- name: ListCopiedIssueRowsByNumber :many
+SELECT repository, workstream, position, repository_url FROM copied_issues WHERE number = ?;
+
+-- name: AddCopiedIssueLabelIfMissing :exec
+INSERT INTO copied_issue_labels (repository, workstream, position, name) VALUES (?, ?, ?, ?)
+ON CONFLICT DO NOTHING;
+
+-- name: DeleteCopiedIssueLabel :exec
+DELETE FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND position = ? AND name = ?;
+
 -- name: ListCopiedIssueLabels :many
 SELECT name FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND position = ? ORDER BY name;
 

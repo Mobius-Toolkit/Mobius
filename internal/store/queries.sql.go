@@ -136,6 +136,28 @@ func (q *Queries) AddCopiedIssueLabel(ctx context.Context, arg AddCopiedIssueLab
 	return err
 }
 
+const addCopiedIssueLabelIfMissing = `-- name: AddCopiedIssueLabelIfMissing :exec
+INSERT INTO copied_issue_labels (repository, workstream, position, name) VALUES (?, ?, ?, ?)
+ON CONFLICT DO NOTHING
+`
+
+type AddCopiedIssueLabelIfMissingParams struct {
+	Repository string
+	Workstream int64
+	Position   int64
+	Name       string
+}
+
+func (q *Queries) AddCopiedIssueLabelIfMissing(ctx context.Context, arg AddCopiedIssueLabelIfMissingParams) error {
+	_, err := q.db.ExecContext(ctx, addCopiedIssueLabelIfMissing,
+		arg.Repository,
+		arg.Workstream,
+		arg.Position,
+		arg.Name,
+	)
+	return err
+}
+
 const addCopiedWorkstream = `-- name: AddCopiedWorkstream :exec
 INSERT INTO copied_workstreams (repository, number, title, body, autopilot)
 VALUES (?1, ?2, ?3, ?4, CAST(?5 AS BOOLEAN))
@@ -773,6 +795,27 @@ DELETE FROM copied_blockers WHERE repository = ?
 
 func (q *Queries) DeleteCopiedBlockersOf(ctx context.Context, repository string) error {
 	_, err := q.db.ExecContext(ctx, deleteCopiedBlockersOf, repository)
+	return err
+}
+
+const deleteCopiedIssueLabel = `-- name: DeleteCopiedIssueLabel :exec
+DELETE FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND position = ? AND name = ?
+`
+
+type DeleteCopiedIssueLabelParams struct {
+	Repository string
+	Workstream int64
+	Position   int64
+	Name       string
+}
+
+func (q *Queries) DeleteCopiedIssueLabel(ctx context.Context, arg DeleteCopiedIssueLabelParams) error {
+	_, err := q.db.ExecContext(ctx, deleteCopiedIssueLabel,
+		arg.Repository,
+		arg.Workstream,
+		arg.Position,
+		arg.Name,
+	)
 	return err
 }
 
@@ -1729,6 +1772,46 @@ func (q *Queries) ListCopiedIssueRows(ctx context.Context, arg ListCopiedIssueRo
 	for rows.Next() {
 		var i ListCopiedIssueRowsRow
 		if err := rows.Scan(&i.Repository, &i.Workstream, &i.Position); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCopiedIssueRowsByNumber = `-- name: ListCopiedIssueRowsByNumber :many
+SELECT repository, workstream, position, repository_url FROM copied_issues WHERE number = ?
+`
+
+type ListCopiedIssueRowsByNumberRow struct {
+	Repository    string
+	Workstream    int64
+	Position      int64
+	RepositoryUrl string
+}
+
+// A tree can hold an issue of another repository with the same number, so the caller checks repository_url.
+func (q *Queries) ListCopiedIssueRowsByNumber(ctx context.Context, number int64) ([]ListCopiedIssueRowsByNumberRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCopiedIssueRowsByNumber, number)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCopiedIssueRowsByNumberRow
+	for rows.Next() {
+		var i ListCopiedIssueRowsByNumberRow
+		if err := rows.Scan(
+			&i.Repository,
+			&i.Workstream,
+			&i.Position,
+			&i.RepositoryUrl,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

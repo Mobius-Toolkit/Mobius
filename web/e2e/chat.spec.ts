@@ -4,6 +4,7 @@ import { pasteImage, png } from "./images.js";
 const phone = { width: 390, height: 844 };
 const shop = "/workstreams/owner/shop/12";
 const picture = /^Picture \d+ of /;
+const started = /^(ready|waits for start_implementer|queued|working)$/;
 
 async function logIn(page: Page) {
   await page.goto("/github");
@@ -917,11 +918,17 @@ test("Start gives only an open task with no blocker a button, and the row shows 
   await expect(start).toHaveAccessibleName("Start #70");
 
   await start.click();
-  await expect(rows.filter({ hasText: "#70 Order the bark" }).getByText("ready")).toBeVisible();
+  // The next poll dispatches the issue, so the badge can already show a later state.
+  await expect(rows.filter({ hasText: "#70 Order the bark" }).getByText(started)).toBeVisible();
+  await expect(start).toHaveCount(0);
+
+  await page.reload();
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  await expect(rows.filter({ hasText: "#70 Order the bark" }).getByText(started)).toBeVisible();
   await expect(start).toHaveCount(0);
 });
 
-test("Resume gives a needs-human task with no blocker a button that waits for the request", async ({
+test("Resume gives a needs-human task with no blocker a button that waits for the request, and the line leaves needs-human", async ({
   page,
 }) => {
   await page.goto("/api/github/user-callback?code=user-code");
@@ -960,11 +967,10 @@ test("Resume gives a needs-human task with no blocker a button that waits for th
   await expect.poll(() => requests.length).toBe(1);
   expect(requests[0].request().url()).toMatch(/\/issues\/72\/resume$/);
 
-  await requests[0].fulfill({ status: 204 });
+  await requests[0].continue();
   await expect(resume).toHaveCount(0);
-  await expect(
-    rows.filter({ hasText: "#72 Water the bark" }).getByText("needs-human"),
-  ).toBeVisible();
+  // The next poll dispatches the issue, so the badge can already show a later state.
+  await expect(rows.filter({ hasText: "#72 Water the bark" }).getByText(started)).toBeVisible();
 });
 
 test("the Tasks tab shows the closed tasks muted, with no Start button, when the switch is on", async ({

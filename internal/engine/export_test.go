@@ -87,3 +87,8 @@ func (e *Engine) AcknowledgeComment(ctx context.Context, name string, review boo
 	}
 	return acknowledgeComment(ctx, repository, review, id)
 }
+
+// Poll runs one poll. The test config must have a poll interval that is longer than the test.
+func (e *Engine) Poll(ctx context.Context) {
+	e.poll(ctx)
+}
