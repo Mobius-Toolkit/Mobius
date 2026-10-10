@@ -227,7 +227,7 @@ func TestAStalePullRequestWithAMergeConflictGoesToAHuman(t *testing.T) {
 	}
 }
 
-func TestMobiusReadyOnATaskInNeedsHumanWithAMergeConflictStartsAConflictRoundOnTheSamePullRequest(t *testing.T) {
+func TestARemovalOfNeedsHumanFromATaskWithAMergeConflictStartsAConflictRoundOnTheSamePullRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := startReady(t, fake, "", mergesCents)
@@ -240,7 +240,6 @@ func TestMobiusReadyOnATaskInNeedsHumanWithAMergeConflictStartsAConflictRoundOnT
 	first := head(t, fake, "mobius/41")
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	waitForReadyEvents(t, server, 2)
 	merged := head(t, fake, "mobius/41")

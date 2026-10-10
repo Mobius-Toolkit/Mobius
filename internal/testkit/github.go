@@ -309,9 +309,10 @@ func (g *FakeGitHub) Now() time.Time {
 	return time.Unix(g.clock, 0)
 }
 
-// tick gives the time of a new write.
+// tick gives the time of a new write. A write is never older than the wall clock, because the engine compares the time
+// of an event with times that it wrote itself.
 func (g *FakeGitHub) tick() int64 {
-	g.clock++
+	g.clock = max(g.clock+1, time.Now().Unix()+1)
 	return g.clock
 }
 

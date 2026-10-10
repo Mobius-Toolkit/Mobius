@@ -144,7 +144,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.createIssue),
 			tool(e, c, "mark_ready",
-				"Add mobius:ready to an issue of the Workstream. Use it when the Owner tells you to start an issue.",
+				"Add mobius:ready to an issue of the Workstream. Use it when the Owner tells you to start an issue. For a task that waits for a human, with Autopilot on, it removes mobius:needs-human instead, so the task continues.",
 				map[string]any{
 					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
 				},
@@ -580,6 +580,22 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 	}
 	if !in {
 		return "", refuse("#%d is not in this Workstream.", input.N)
+	}
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: input.N})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	if err == nil && task.State == "needs_human" {
+		on, err := e.workstreamAutopilot(ctx, repository, c.workstream)
+		if err != nil {
+			return "", err
+		}
+		if on {
+			if err := removeNeedsHuman(ctx, repository, task); err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("Removed mobius:needs-human from #%d, so the task continues.", input.N), nil
+		}
 	}
 	if _, _, err := repository.Client.Issues.AddLabelsToIssue(ctx, repository.Owner(), repository.Name(), int(input.N), []string{readyLabel}); err != nil {
 		return "", err

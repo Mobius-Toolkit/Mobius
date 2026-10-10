@@ -224,11 +224,11 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 // continueByRemoval resumes the task in needs_human when an actor removed mobius:needs-human from its issue or from its
 // pull request, and the actor is a trusted user, or the Mobius App with Autopilot on. It reads the label events only
 // when one of the two items lacks the label. A removal counts only when it is newer than the move of the task to
-// needs_human, because resume removes the label from both items. An issue with mobius:ready waits for the dispatch.
+// needs_human, because resume removes the label from both items.
 func (e *Engine) continueByRemoval(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest) (bool, error) {
 	issueHas := hasLabel(issue, needsHumanLabel)
 	pullHas := pullRequest == nil || hasPullRequestLabel(pullRequest, needsHumanLabel)
-	if task.State != "needs_human" || hasLabel(issue, readyLabel) || issueHas && pullHas {
+	if task.State != "needs_human" || issueHas && pullHas {
 		return false, nil
 	}
 	var since time.Time
@@ -282,10 +282,9 @@ func removalActor(events []*gh.IssueEvent, since time.Time) string {
 }
 
 // labelsOfNeedsHuman gives the issue and the pull request of a task in needs_human the labels that handToHuman sets, and
-// writes nothing when they have them. A mobius:ready label waits for the dispatch, which resumes the task. The pull
-// request of a task in another state, except a task with the Judge of a human task, loses mobius:needs-human. The
-// issue of such a task keeps the label until the task is in approval or ready_for_review, so the issue of a task that
-// continued after a stop shows the stop during its rounds.
+// writes nothing when they have them. The pull request of a task in another state, except a task with the Judge of a
+// human task, loses mobius:needs-human. The issue of such a task keeps the label until the task is in approval or
+// ready_for_review, so the issue of a task that continued after a stop shows the stop during its rounds.
 func (e *Engine) labelsOfNeedsHuman(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, judgeOfHuman bool) error {
 	if task.State != "needs_human" {
 		if judgeOfHuman {
@@ -300,9 +299,6 @@ func (e *Engine) labelsOfNeedsHuman(ctx context.Context, repository github.Repos
 			return nil
 		}
 		return repository.RemoveLabel(ctx, task.PullRequest.Int64, needsHumanLabel)
-	}
-	if hasLabel(issue, readyLabel) {
-		return nil
 	}
 	for _, label := range []string{workingLabel, reviewLabel} {
 		if hasLabel(issue, label) {

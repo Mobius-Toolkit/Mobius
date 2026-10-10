@@ -31,14 +31,13 @@ func TestATaskWithAPullRequestThatGoesToNeedsHumanGetsTheLabelOnTheIssueAndOnThe
 	testkit.WaitFor(t, func() bool { return pullRequestHasNeedsHuman(fake) })
 }
 
-func TestTheLabelGoesAwayFromThePullRequestWhenTheTaskLeavesNeedsHumanThroughResume(t *testing.T) {
+func TestTheLabelGoesAwayFromThePullRequestWhenTheTaskLeavesNeedsHumanThroughTheRemoval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	staleInNeedsHuman(t, fake)
 	testkit.WaitFor(t, func() bool { return pullRequestHasNeedsHuman(fake) })
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	testkit.WaitFor(t, func() bool {
 		return !pullRequestHasNeedsHuman(fake) && hasLabel(fake, "mobius:working")

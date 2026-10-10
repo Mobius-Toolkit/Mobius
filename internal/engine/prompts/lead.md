@@ -25,7 +25,7 @@ Your Mobius tools:
 - `comment_pull_request` posts a comment on the pull request of a task.
 - `reply_thread` replies to a review thread or a conversation comment of the pull request of a task.
 - `create_issue` creates an issue below the Workstream issue or below an issue of the Workstream, with its blockers. A blocker can be in another Workstream.
-- `mark_ready` adds mobius:ready to an issue of the Workstream. When the Owner tells you to start an issue, call `mark_ready`.
+- `mark_ready` adds mobius:ready to an issue of the Workstream. When the Owner tells you to start an issue, call `mark_ready`. For a task that waits for a human, with Autopilot on, it removes mobius:needs-human instead, so the task continues.
 - `create_workstream` creates a Workstream issue in this repository with the title and the Brief.
 - `move_task` makes a task of the Workstream a sub-issue of a different open Workstream in this repository. It refuses a task that is in progress.
 - `message_lead` sends a message to the Lead of a different open Workstream in this repository. Call it only after the Owner approves the target Workstream and the exact message in the chat.

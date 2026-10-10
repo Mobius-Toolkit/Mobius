@@ -317,7 +317,7 @@ func TestATaskInNeedsHumanStaysInNeedsHumanAfterTheNextPolls(t *testing.T) {
 	}
 }
 
-func TestMobiusReadyOnATaskInNeedsHumanWithNoPullRequestGivesTheTaskBackToTheLead(t *testing.T) {
+func TestARemovalOfNeedsHumanFromATaskWithNoPullRequestGivesTheTaskBackToTheLead(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	goFile := filepath.Join(t.TempDir(), "go")
@@ -336,14 +336,12 @@ func TestMobiusReadyOnATaskInNeedsHumanWithNoPullRequestGivesTheTaskBackToTheLea
 	}
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool {
 			return strings.Contains(prompt, ` resume of #41 "Add plan model" by @owner:`+"\n\n> Plans have a price.")
 		})
 	})
-	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:ready") })
 	waitForPolls(t, fake)
 	if task := liveTask(t, server, 41); task.State != "dispatched" || task.ID != stopped.ID || task.WorkerRestarts != 0 {
 		t.Errorf("task = %+v", task)
@@ -369,23 +367,26 @@ func TestMobiusReadyOnATaskInNeedsHumanWithNoPullRequestGivesTheTaskBackToTheLea
 	}
 }
 
-func TestMobiusReadyOfTheAppOnATaskInNeedsHumanHasNoEffectWhenAutopilotIsOff(t *testing.T) {
+func TestMobiusReadyOnATaskInNeedsHumanHasNoEffect(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := handedToHuman(t, fake)
 	implementers := len(roleSessions(t, server, engine.ImplementerRole))
 
-	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
-	fake.AddLabel(shop, 41, "mobius:ready", testkit.AppSlug+"[bot]")
-	waitForPolls(t, fake)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
+	testkit.WaitFor(t, func() bool {
+		return slices.Contains(feedTexts(t, server), `No effect: "Add plan model" has a live task`)
+	})
+	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:ready") })
+	waitForPolls(t, fake)
 	if state := taskState(t, server); state != "needs_human" {
 		t.Errorf("state = %s", state)
 	}
 	if got := len(roleSessions(t, server, engine.ImplementerRole)); got != implementers {
 		t.Errorf("Implementers = %d", got)
 	}
-	if !hasLabel(fake, "mobius:ready") {
+	if !hasLabel(fake, "mobius:needs-human") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 }

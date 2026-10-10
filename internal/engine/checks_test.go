@@ -197,7 +197,7 @@ func TestAFailedCheckRunOnTheSameHeadStartsOneFixRoundAndThenHandsTheTaskToAHuma
 	}
 }
 
-func TestMobiusReadyOnATaskThatStoppedOnFailedCIStartsANewCIFixRoundOnTheSameHead(t *testing.T) {
+func TestARemovalOfNeedsHumanFromATaskThatStoppedOnFailedCIStartsANewCIFixRoundOnTheSameHead(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixesNothing, noChange)
@@ -208,7 +208,6 @@ func TestMobiusReadyOnATaskThatStoppedOnFailedCIStartsANewCIFixRoundOnTheSameHea
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	testkit.WaitFor(t, func() bool { return implementers(t, server) == 3 })
 	endedImplementers(t, server, 3)

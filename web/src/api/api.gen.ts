@@ -3243,7 +3243,7 @@ export const getResumeIssueUrl = (owner: string,
 }
 
 /**
- * ResumeIssue replaces mobius:needs-human of an issue with mobius:ready, so Mobius continues the task. Mobius changes the labels with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
+ * ResumeIssue removes mobius:needs-human from an issue and from the pull request of its task, so Mobius continues the task. Mobius changes the labels with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 409 with the steps when the Owner did not.
  */
 export const resumeIssue = async (owner: string,
     name: string,

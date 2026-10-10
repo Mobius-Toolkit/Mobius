@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -149,4 +150,43 @@ func TestARemovalOfNeedsHumanFromBeforeTheMoveHasNoEffectWhenTheIssueLacksTheLab
 	fake.FailAddLabels(shop, 41, false)
 
 	hasNoEffect(t, fake, server)
+}
+
+func TestResumeRemovesNeedsHumanFromTheIssueAndFromThePullRequestAsTheOwnerAndTheNextPollContinuesTheTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server := needsHumanWithLabels(t, fake, false)
+	authorize(t, server)
+
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/resume", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
+	if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:ready") {
+		t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
+	}
+	for _, number := range []int64{41, pullRequestNumber} {
+		if got := fake.LabelActor(shop, number, "mobius:needs-human"); got != "owner" {
+			t.Errorf("actor of mobius:needs-human on #%d = %s", number, got)
+		}
+	}
+}
+
+func TestMarkReadyRemovesNeedsHumanFromTheIssueAndFromThePullRequestOfATaskInNeedsHumanUnderAutopilotAndTheNextPollContinuesTheTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"Start #41.\"\ncall = { tool = \"mark_ready\", arguments = { n = 41 } }\n\n"
+	server, _ := seedWaitingWith(t, fake, "needs_human", lead)
+	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake) })
+	waitForPolls(t, fake)
+
+	sendChat(t, server, leadChat, "Start #41.")
+
+	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
+	if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:ready") {
+		t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
+	}
 }

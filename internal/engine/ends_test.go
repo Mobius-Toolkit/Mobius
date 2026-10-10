@@ -195,7 +195,7 @@ func TestAReadyLabelAfterAStopContinuesThePullRequestOnTheSameBranch(t *testing.
 }
 
 // A thread of the Reviewer stays open after a stop, so the next round gets it (Mobius-rust#253).
-func TestAReadyLabelOnATaskInNeedsHumanSendsTheOpenThreadOfTheMobiusAppToAFixRound(t *testing.T) {
+func TestARemovalOfNeedsHumanSendsTheOpenThreadOfTheMobiusAppToAFixRound(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, fixes, noChange)
@@ -205,8 +205,9 @@ func TestAReadyLabelOnATaskInNeedsHumanSendsTheOpenThreadOfTheMobiusAppToAFixRou
 	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
 		t.Fatal(err)
 	}
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") })
 
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 
 	round := roundPrompt(t, server)
 	_, items, _ := strings.Cut(round, "# Open items\n")
