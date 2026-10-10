@@ -118,6 +118,26 @@ func TestAnOpenBlockerHoldsTheTaskUntilItCloses(t *testing.T) {
 	liveTaskOf(t, server, 41)
 }
 
+func TestATriageLabelHoldsTheTaskUntilTheOwnerRemovesTheLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	prepareAutopilot(fake, true)
+	addTaskIssue(fake, 41, "Add plan model")
+	fake.AddLabel(shop, 41, "mobius:triage", "mobius-test[bot]")
+	server := startAutopilot(t, fake, func(*config.Config) {}, "")
+	server.WaitForFirstPoll(t, shop)
+
+	waitForPolls(t, fake)
+
+	if hasLiveTask(t, server, 41) {
+		t.Fatal("the task with mobius:triage started")
+	}
+
+	fake.RemoveLabel(shop, 41, "mobius:triage", "owner")
+
+	liveTaskOf(t, server, 41)
+}
+
 func TestTasksStartInTheOrderOfTheSubIssues(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

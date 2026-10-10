@@ -27,7 +27,7 @@ const fullSlotsWait = 30 * time.Minute
 //   - A stopped task with a pull request continues (Mobius-rust#225, Mobius-rust#253). A mobius:ready of the Mobius
 //     App needs Autopilot for that. Each other issue with a live task, also a task that waits for a human, loses
 //     mobius:ready.
-//   - An issue with an open blocker waits.
+//   - An issue with an open blocker or with mobius:triage waits.
 //   - Each other issue gets a new task. A stopped task with no pull request ends first.
 //
 // The drain holds each new dispatch and Triager, and then the next poll after the drain reads the same list again.
@@ -98,7 +98,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			held = held || !triaged
 			continue
 		}
-		if issue.GetIssueDependenciesSummary().GetBlockedBy() > 0 {
+		if issue.GetIssueDependenciesSummary().GetBlockedBy() > 0 || hasLabel(issue, triageLabel) {
 			continue
 		}
 		if live {
@@ -605,7 +605,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 			continue
 		}
 		number := int64(issue.GetNumber())
-		if issue.GetState() == "open" && e.TrustedAuthor(repository.AppSlug, issue.GetUser().GetLogin()) && issue.GetIssueDependenciesSummary().GetBlockedBy() == 0 {
+		if issue.GetState() == "open" && e.TrustedAuthor(repository.AppSlug, issue.GetUser().GetLogin()) && issue.GetIssueDependenciesSummary().GetBlockedBy() == 0 && !hasLabel(issue, triageLabel) {
 			had, err := e.queries.HasTask(ctx, store.HasTaskParams{Repository: repository.FullName, Issue: number})
 			if err != nil {
 				return false, err
