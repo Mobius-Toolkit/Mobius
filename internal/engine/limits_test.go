@@ -601,6 +601,7 @@ func TestALeadThatHitsTheUsageLimitAgainAfterThePauseGetsTheMobiusMessageAgain(t
 		return inboxItem{}, false
 	})
 	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 1 })
+	testkit.WaitFor(t, func() bool { _, paused := claudeCodePause(t, server); return paused })
 	if err := server.Engine.Resume(t.Context(), item.ID); err != nil {
 		t.Fatal(err)
 	}
