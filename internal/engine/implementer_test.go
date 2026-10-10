@@ -242,6 +242,39 @@ func TestCannotDoGoesToTheLeadAndTheNextStartMergesABranchThatDiverged(t *testin
 	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
 }
 
+func TestTheLeadHoldsATaskAfterACannotDoAndTheTaskFreesItsWorkerSlot(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = { tool = \"hold_task\", arguments = { n = 41, reason = \"The plan table needs a fix in Gork.\" } }\n\n" + leadStarts + "\n[[prompts]]\nreply = [\"Seen\"]\n"
+	server, _ := connectTask(t, fake, lead, "[[prompts]]\n"+cannotDoCall, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForLeadPrompt(t, server, " cannot_do on #41 \"Add plan model\" by the Implementer:\n\n> The plan table does not exist.")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	testkit.WaitFor(t, func() bool { return len(inbox(t, server)) == 1 })
+
+	if hasLabel(fake, "mobius:working") || !hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+	items := inbox(t, server)
+	want := inboxItem{ID: items[0].ID, Kind: "question", Repository: shop, Workstream: 12, Issue: 41, Text: "The plan table needs a fix in Gork.", Link: "https://github.com/owner/shop/issues/41"}
+	if items[0] != want {
+		t.Errorf("inbox = %+v", items)
+	}
+	if got := activeTasks(t, server); got != 0 {
+		t.Errorf("active tasks = %d", got)
+	}
+	testkit.WaitFor(t, func() bool {
+		var delivered bool
+		err := server.DB.QueryRow("SELECT delivered_at IS NOT NULL FROM lead_events WHERE repository = ? AND kind = 'cannot_do'", shop).Scan(&delivered)
+		return err == nil && delivered
+	})
+	var held bool
+	if err := server.DB.QueryRow("SELECT held FROM lead_events WHERE repository = ? AND kind = 'cannot_do'", shop).Scan(&held); err != nil || held {
+		t.Errorf("held = %t, %v", held, err)
+	}
+}
+
 func TestAMergeWithConflictsStopsTheTaskWithNoRestartAndLeavesACleanWorktree(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"comment on #41\"\n" + startImplementer + "\n[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"ok\"]\n\n" + leadStarts
