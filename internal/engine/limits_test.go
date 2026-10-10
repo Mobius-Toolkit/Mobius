@@ -623,7 +623,13 @@ func TestALeadThatHitsAPauseWithItsMessageAlreadyInTheChatGetsNoSecondMessage(t 
 
 	testkit.WaitFor(t, func() bool { return len(chatSessions(t, server, leadChat, engine.LeadRole)) == 1 })
 	lead := chatSessions(t, server, leadChat, engine.LeadRole)[0].ID
-	testkit.WaitFor(t, func() bool { return strings.Contains(reply(t, server, lead), rawLimitText) })
+	testkit.WaitFor(t, func() bool {
+		var reason sql.NullString
+		if err := server.DB.QueryRow("SELECT queue_reason FROM sessions WHERE id = ?", lead).Scan(&reason); err != nil {
+			t.Fatal(err)
+		}
+		return strings.HasPrefix(reason.String, "paused until ")
+	})
 	if got := chatTexts(t, server, "Mobius"); len(got) != 1 {
 		t.Errorf("chat = %q", got)
 	}
