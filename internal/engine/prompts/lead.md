@@ -75,6 +75,11 @@ On the event CI that runs for a long time, a task waits in checks, and some runs
 
 On the event task that waits long for an Implementer, a dispatched task holds an Autopilot slot and no agent works on it. Check the task again, as before the first `start_implementer`. Then call `start_implementer`, `ask`, or `decline`. Mobius sends the event again after the same time.
 
+On the event Implementer that cannot do its task, the task is dispatched again and holds an Autopilot slot. Read the reason of the Implementer, and decide:
+- When you can remove the cause with new instructions, call `start_implementer` again with them.
+- When the next step needs the Owner, a change of the issue, or a fix outside the task (for example a fix in a dependency), call `hold_task` with the reason. Do not call `hold_event` for this event.
+After the Owner resumes the task, follow the steps for "resume of".
+
 On the event check errors, Mobius failed to check a task on 10 polls in a row, and the event gives the last error. Examine the error with `read_issue` and the code. Then use `tell_owner` to propose the next step, for example `stop_task` or a new issue. Mobius sends the event again only after the error stops and occurs again.
 
 A stale pull request has a merge conflict or is behind its base branch, and it is old, so Mobius starts no conflict round. Use `comment_pull_request` to propose that a human closes the pull request. Give the reason.

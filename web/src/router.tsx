@@ -15,8 +15,10 @@ import {
   MemoryPage,
   MemoryRepositoriesPage,
   TriagerChatPage,
+  UsagePage,
   WorkstreamsPage,
 } from "./pages";
+import { validateUsageSearch } from "./lib/usage";
 import { Settings } from "./Settings";
 
 const rootRoute = createRootRoute({ component: App });
@@ -86,6 +88,13 @@ const agentsRoute = createRoute({
   component: AgentsPage,
 });
 
+const usageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/usage",
+  validateSearch: validateUsageSearch,
+  component: UsagePage,
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -148,6 +157,7 @@ const routeTree = rootRoute.addChildren([
   chatRoute,
   inboxRoute.addChildren([inboxTodoRoute, inboxActivityRoute]),
   agentsRoute,
+  usageRoute,
   settingsRoute,
   checkupRoute,
   checkupToolsRoute,

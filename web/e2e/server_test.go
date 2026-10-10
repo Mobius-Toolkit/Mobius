@@ -509,6 +509,7 @@ func TestServer(t *testing.T) {
 		}
 	}
 	fixTimes(t, server)
+	addTurnUsage(t, server)
 	go func() { _, _ = server.Engine.Drain(ctx) }()
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
 	held := implementerSpec(t, server, 42)
@@ -573,6 +574,63 @@ func fixTools(t *testing.T, dataDir string) {
 	t.Setenv("CLAUDE_CODE_EXECUTABLE", filepath.Join(harnesses, "claude"))
 }
 
+// addTurnUsage adds the turns of the Usage screen on the 7 days that end on 2026-10-15, the date that the screenshots
+// test sets. It runs after fixTimes, which moves the turns of the fake agents before these 7 days. The first turn is
+// before the 7 days too. The turns of devin have no cost. The turns use the sessions that exist, because a new
+// session changes the ids of the later sessions.
+func addTurnUsage(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	rows, err := server.DB.Query("SELECT id FROM sessions ORDER BY id LIMIT 4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sessions []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		sessions = append(sessions, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	type turn struct {
+		harness, model, reported, effort, role, repository, startedAt string
+		input, output, cacheRead, cacheWrite                          int64
+		cost                                                          sql.NullFloat64
+	}
+	price := func(cost float64) sql.NullFloat64 { return sql.NullFloat64{Float64: cost, Valid: true} }
+	turns := []turn{
+		{"claude-code", "sonnet", "claude-sonnet-5-5", "high", engine.ImplementerRole, "owner/shop", "2026-10-08T10:00:00Z", 11000, 2900, 190000, 16000, price(0.55)},
+		{"claude-code", "sonnet", "claude-sonnet-5-5", "high", engine.ImplementerRole, "owner/shop", "2026-10-09T10:00:00Z", 12000, 3400, 210000, 18000, price(0.62)},
+		{"claude-code", "sonnet", "claude-sonnet-5-5", "high", engine.ImplementerRole, "owner/shop", "2026-10-10T11:00:00Z", 20000, 5100, 340000, 25000, price(1.04)},
+		{"claude-code", "opus", "claude-opus-5-5", "medium", engine.LeadRole, "owner/shop", "2026-10-11T12:00:00Z", 9000, 2500, 120000, 15000, price(2.10)},
+		{"claude-code", "sonnet", "claude-sonnet-5-5", "high", engine.ImplementerRole, "owner/shop", "2026-10-12T09:30:00Z", 8000, 2100, 150000, 9000, price(0.41)},
+		{"claude-code", "sonnet", "claude-sonnet-5-5", "low", engine.ReviewerRole, "plants/garden", "2026-10-12T15:00:00Z", 6000, 1500, 90000, 7000, price(0.28)},
+		{"claude-code", "sonnet", "claude-sonnet-5-5", "high", engine.ImplementerRole, "owner/shop", "2026-10-13T14:00:00Z", 31000, 7800, 520000, 40000, price(1.58)},
+		{"claude-code", "opus", "claude-opus-5-5", "medium", engine.LeadRole, "owner/shop", "2026-10-14T16:00:00Z", 14000, 3900, 210000, 22000, price(3.45)},
+		{"claude-code", "sonnet", "claude-sonnet-5-5", "low", engine.ReviewerRole, "plants/garden", "2026-10-14T10:00:00Z", 7000, 1800, 110000, 8000, price(0.33)},
+		{"claude-code", "sonnet", "claude-sonnet-5-5", "high", engine.ImplementerRole, "owner/shop", "2026-10-15T08:00:00Z", 15000, 4300, 260000, 21000, price(0.83)},
+		{"devin", "swe-1.5", "", "", engine.ImplementerRole, "plants/garden", "2026-10-10T13:00:00Z", 18000, 4200, 52000, 6000, sql.NullFloat64{}},
+		{"devin", "swe-1.5", "", "", engine.ImplementerRole, "plants/garden", "2026-10-13T11:00:00Z", 22000, 5600, 71000, 8000, sql.NullFloat64{}},
+		{"devin", "swe-1.5", "", "", engine.ImplementerRole, "plants/garden", "2026-10-15T10:00:00Z", 9000, 2300, 33000, 3000, sql.NullFloat64{}},
+	}
+	for i, turn := range turns {
+		organization, _, _ := strings.Cut(turn.repository, "/")
+		if _, err := server.DB.Exec(`INSERT INTO turn_usage (session, workstream, organization, repository, role, harness, model,
+			reported_model, effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
+			VALUES (?, 12, ?, ?, ?, ?, ?, nullif(?, ''), nullif(?, ''), ?, ?, ?, ?, ?, ?, ?)`,
+			sessions[i%len(sessions)], organization, turn.repository, turn.role, turn.harness, turn.model, turn.reported, turn.effort,
+			turn.startedAt, turn.startedAt, turn.input, turn.output, turn.cacheRead, turn.cacheWrite, turn.cost); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // fixTimes gives one fixed time to each time that the UI shows, so each run gives the same screenshots. An event text
 // starts with its time in the format of the engine.
 func fixTimes(t *testing.T, server *testserver.Server) {
@@ -582,7 +640,8 @@ func fixTimes(t *testing.T, server *testserver.Server) {
 		"UPDATE events SET time = ?1",
 		"UPDATE sessions SET started_at = ?1, ended_at = iif(ended_at IS NULL, NULL, ?1)",
 		"UPDATE transcript SET time = ?1",
-		"UPDATE chat_messages SET time = ?1",
+		"UPDATE turn_usage SET started_at = ?1, ended_at = ?1",
+		"UPDATE chat_messages SET time = ?1, delivered_at = iif(delivered_at IS NULL, NULL, ?1), stopped_at = iif(stopped_at IS NULL, NULL, ?1)",
 		"UPDATE inbox_items SET time = ?1",
 		"UPDATE memory_versions SET time = ?1",
 	} {

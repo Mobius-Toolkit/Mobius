@@ -242,6 +242,39 @@ func TestCannotDoGoesToTheLeadAndTheNextStartMergesABranchThatDiverged(t *testin
 	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
 }
 
+func TestTheLeadHoldsATaskAfterACannotDoAndTheTaskFreesItsWorkerSlot(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = { tool = \"hold_task\", arguments = { n = 41, reason = \"The plan table needs a fix in Gork.\" } }\n\n" + leadStarts + "\n[[prompts]]\nreply = [\"Seen\"]\n"
+	server, _ := connectTask(t, fake, lead, "[[prompts]]\n"+cannotDoCall, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForLeadPrompt(t, server, " cannot_do on #41 \"Add plan model\" by the Implementer:\n\n> The plan table does not exist.")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	testkit.WaitFor(t, func() bool { return len(inbox(t, server)) == 1 })
+
+	if hasLabel(fake, "mobius:working") || !hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+	items := inbox(t, server)
+	want := inboxItem{ID: items[0].ID, Kind: "question", Repository: shop, Workstream: 12, Issue: 41, Text: "The plan table needs a fix in Gork.", Link: "https://github.com/owner/shop/issues/41"}
+	if items[0] != want {
+		t.Errorf("inbox = %+v", items)
+	}
+	if got := activeTasks(t, server); got != 0 {
+		t.Errorf("active tasks = %d", got)
+	}
+	testkit.WaitFor(t, func() bool {
+		var delivered bool
+		err := server.DB.QueryRow("SELECT delivered_at IS NOT NULL FROM lead_events WHERE repository = ? AND kind = 'cannot_do'", shop).Scan(&delivered)
+		return err == nil && delivered
+	})
+	var held bool
+	if err := server.DB.QueryRow("SELECT held FROM lead_events WHERE repository = ? AND kind = 'cannot_do'", shop).Scan(&held); err != nil || held {
+		t.Errorf("held = %t, %v", held, err)
+	}
+}
+
 func TestAMergeWithConflictsStopsTheTaskWithNoRestartAndLeavesACleanWorktree(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"comment on #41\"\n" + startImplementer + "\n[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"ok\"]\n\n" + leadStarts
@@ -283,6 +316,9 @@ func TestAMergeWithConflictsStopsTheTaskWithNoRestartAndLeavesACleanWorktree(t *
 	sessions := roleSessions(t, server, engine.ImplementerRole)
 	if len(sessions) != 2 || sessions[1].EndReason.String != "merge_conflict" {
 		t.Errorf("sessions = %+v", sessions)
+	}
+	if results := stepResults(stepRows(t, server, "prepare")); !slices.Equal(results, []string{"", "fail"}) {
+		t.Errorf("prepare results = %q", results)
 	}
 	if stops := strings.Count(strings.Join(leadPrompts(t, server), "\n"), " stop of #41 "); stops != 1 {
 		t.Errorf("stops = %d", stops)
@@ -710,6 +746,9 @@ func TestAPushThatFailsAfterAPassedCheckTriesAgainWithNoNewSession(t *testing.T)
 		t.Errorf("check runs = %+v, pull requests = %+v", runs, fake.PullRequests(shop))
 	}
 	session := endedImplementers(t, server, 1)[0]
+	if results := stepResults(stepRows(t, server, "pull")); len(results) < 2 || results[0] != "fail" || results[len(results)-1] != "" {
+		t.Errorf("pull results = %q", results)
+	}
 	if session.EndReason.String != "done" || len(promptTexts(t, server, session.ID)) != 1 {
 		t.Errorf("session = %+v, prompts = %q", session, promptTexts(t, server, session.ID))
 	}
@@ -823,5 +862,61 @@ func TestCannotDoIsRefusedWhenTheWorktreeHasWorkThatMobiusDidNotPush(t *testing.
 				t.Errorf("state = %s", state)
 			}
 		})
+	}
+}
+
+const askCents = "call = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n"
+
+func TestStartImplementerRemovesTheQuestionLabelOfTheIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"dispatch of #41\"\n" + askCents +
+		"later = { after = \"100ms\", call = { tool = \"start_implementer\", arguments = { n = 41, instructions = \"Store plans in cents.\" } } }\n"
+	server, _ := connectTask(t, fake, lead, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	endedImplementers(t, server, 1)
+	if hasLabel(fake, "mobius:question") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+}
+
+func TestStartImplementerAfterATrustedAnswerWorksWithNoQuestionLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"comment on #41\"\n" + startImplementer +
+		"\n[[prompts]]\nwhen = \"dispatch of #41\"\n" + askCents
+	server, _ := connectTask(t, fake, lead, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:question") })
+	fake.AddComment(shop, 41, "owner", "Cents.")
+
+	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:question") })
+	endedImplementers(t, server, 1)
+	for _, call := range leadCalls(t, server) {
+		if call["error"] != nil {
+			t.Errorf("call = %v", call)
+		}
+	}
+}
+
+func TestAnAskAfterStartImplementerAddsTheQuestionLabelAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"dispatch of #41\"\n" + startImplementer +
+		"later = { after = \"100ms\", call = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } } }\n"
+	server, _ := connectTask(t, fake, lead, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:question", "owner")
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	testkit.WaitFor(t, func() bool {
+		calls := leadCalls(t, server)
+		return len(calls) == 2 && calls[1]["result"] == "Asked on #41."
+	})
+	if !hasLabel(fake, "mobius:question") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 }

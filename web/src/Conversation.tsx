@@ -1,5 +1,8 @@
 import {
   ArrowUpIcon,
+  BanIcon,
+  CheckCheckIcon,
+  CheckIcon,
   ChevronRightIcon,
   CircleAlertIcon,
   ClockIcon,
@@ -62,8 +65,13 @@ function newMessageId() {
 
 function upsert(list: ChatMessage[], message: ChatMessage) {
   const known = list.find((other) => other.id === message.id);
-  // The agent only adds text to a message, so the longer text is the newer text.
-  if (known && known.text.length > message.text.length) {
+  // The agent only adds text to a message, so the longer text is the newer text. A message never loses a time.
+  if (
+    known &&
+    (known.text.length > message.text.length ||
+      (known.deliveredAt && !message.deliveredAt) ||
+      (known.stoppedAt && !message.stoppedAt))
+  ) {
     return list;
   }
   return [...list.filter((other) => other.id !== message.id), message].toSorted(
@@ -73,6 +81,30 @@ function upsert(list: ChatMessage[], message: ChatMessage) {
 
 const countsAsUnread = (message: ChatMessage) =>
   message.author !== "Owner" && message.author !== "Event";
+
+function OwnerState({ message }: { message: ChatMessage }) {
+  if (message.stoppedAt) {
+    const label = `Stopped, the agent did not get it, at ${clock(message.stoppedAt)}`;
+    return (
+      <span role="img" aria-label={label} title={label}>
+        <BanIcon className="size-3.5" />
+      </span>
+    );
+  }
+  if (message.deliveredAt) {
+    const label = `Delivered to the agent at ${clock(message.deliveredAt)}`;
+    return (
+      <span role="img" aria-label={label} title={label}>
+        <CheckCheckIcon className="size-3.5" />
+      </span>
+    );
+  }
+  return (
+    <span role="img" aria-label="Stored, waits for the agent" title="Stored, waits for the agent">
+      <CheckIcon className="size-3.5" />
+    </span>
+  );
+}
 
 const Message = memo(function Message({ message }: { message: ChatMessage }) {
   const event = message.author === "Event";
@@ -89,9 +121,10 @@ const Message = memo(function Message({ message }: { message: ChatMessage }) {
         event && "border-dashed bg-transparent text-muted-foreground",
       )}
     >
-      <div className="flex gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span>{message.author === "tell_owner" ? "Lead" : message.author}</span>
         <span>{clock(message.time)}</span>
+        {message.author === "Owner" && <OwnerState message={message} />}
       </div>
       {event && body ? (
         <Collapsible>
@@ -603,13 +636,13 @@ export function Conversation({
   // its first message when the Owner is less than one list height from the top.
   useEffect(() => {
     const list = listRef.current;
-    if (!list || !loaded || !older) {
+    if (!list || !loaded || !queueLoaded || !older) {
       return;
     }
     if (waiting || (openUnread !== undefined && list.scrollTop < list.clientHeight)) {
       loadOlder();
     }
-  }, [loaded, older, waiting, openUnread, loadOlder]);
+  }, [loaded, queueLoaded, older, waiting, openUnread, loadOlder]);
 
   // The first scroll shows the first unread message, or the end. Then a new message scrolls to the end, and a longer
   // last message scrolls only while the Owner is at the end.
