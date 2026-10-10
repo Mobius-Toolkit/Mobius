@@ -2380,3 +2380,116 @@ test.describe("on a phone with the keyboard", () => {
     });
   });
 });
+
+async function expectStates(page: Page) {
+  const main = page.getByRole("main");
+  const message = (text: string) => main.locator("[data-message]", { hasText: text });
+  const stored = message("Stored note").getByRole("img", {
+    name: "Stored, waits for the agent",
+  });
+  await expect(stored).toBeVisible();
+  await expect(stored).toHaveAttribute("title", "Stored, waits for the agent");
+  const delivered = message("Delivered note").getByRole("img", {
+    name: "Delivered to the agent at 08:40 AM",
+  });
+  await expect(delivered).toBeVisible();
+  await expect(delivered).toHaveAttribute("title", "Delivered to the agent at 08:40 AM");
+  const stopped = message("Stopped note").getByRole("img", {
+    name: "Stopped, the agent did not get it, at 08:41 AM",
+  });
+  await expect(stopped).toBeVisible();
+  await expect(stopped).toHaveAttribute("title", "Stopped, the agent did not get it, at 08:41 AM");
+  await expect(message("Lead note").getByRole("img")).toHaveCount(0);
+}
+
+test.describe("the state of an Owner message", () => {
+  const states = [
+    { text: "Stored note", deliveredAt: null, stoppedAt: null },
+    { text: "Delivered note", deliveredAt: "2026-10-15T08:40:00Z", stoppedAt: null },
+    { text: "Stopped note", deliveredAt: null, stoppedAt: "2026-10-15T08:41:00Z" },
+  ];
+
+  async function showStates(
+    page: Page,
+    organization: string,
+    repository: string,
+    workstream: number,
+  ) {
+    await page.route("**/api/chat?*", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { data: { messages: unknown[] } };
+      body.data.messages = [
+        ...states.map((state, index) => ({
+          id: index + 1,
+          author: "Owner",
+          browserId: "",
+          text: state.text,
+          time: "2026-10-15T08:37:00Z",
+          deliveredAt: state.deliveredAt,
+          stoppedAt: state.stoppedAt,
+          images: 0,
+          organization,
+          repository,
+          workstream,
+        })),
+        {
+          id: 4,
+          author: "Lead",
+          browserId: "",
+          text: "Lead note",
+          time: "2026-10-15T08:37:00Z",
+          deliveredAt: null,
+          stoppedAt: null,
+          images: 0,
+          organization,
+          repository,
+          workstream,
+        },
+      ];
+      await route.fulfill({ response, json: body });
+    });
+  }
+
+  test("the Lead chat shows an icon for each state", async ({ page }) => {
+    await showStates(page, "owner", "owner/shop", 12);
+    await page.goto(shop);
+    await expectStates(page);
+  });
+
+  test("the Triager chat shows an icon for each state", async ({ page }) => {
+    await showStates(page, "owner", "", 0);
+    await page.goto("/chat");
+    await expectStates(page);
+  });
+
+  test("an older load does not take the delivery time from a message", async ({ page }) => {
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const held: Route[] = [];
+    await page.route("**/api/chat?*", (route) => {
+      held.push(route);
+    });
+    const input = page.getByLabel("Message to the Lead");
+    await input.fill("Delivered live");
+    await input.press("Enter");
+    const message = main.locator("[data-message]", { hasText: "Delivered live" });
+    await expect(message.getByRole("img", { name: /^Delivered to the agent at / })).toBeVisible();
+    await expect.poll(() => held.length).toBeGreaterThan(0);
+
+    for (const route of held) {
+      const response = await route.fetch();
+      const body = (await response.json()) as {
+        data: { messages: { id: number; deliveredAt: string | null; stoppedAt: string | null }[] };
+      };
+      const last = body.data.messages.at(-1);
+      body.data.messages = [
+        ...body.data.messages.map((other) => ({ ...other, deliveredAt: null, stoppedAt: null })),
+        { ...last, id: (last?.id ?? 0) + 1000, author: "Lead", text: "Older load arrived" },
+      ] as never;
+      await route.fulfill({ response, json: body });
+    }
+    await expect(main.getByText("Older load arrived")).toBeVisible();
+    await expect(message.getByRole("img", { name: /^Delivered to the agent at / })).toBeVisible();
+    await expect(message.getByRole("img", { name: "Stored, waits for the agent" })).toHaveCount(0);
+  });
+});
