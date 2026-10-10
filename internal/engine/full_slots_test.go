@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func fullSlotsSince(t *testing.T, server *testserver.Server) time.Time {
 	return testkit.WaitForValue(t, func() (time.Time, bool) {
 		var text string
 		err := server.DB.QueryRow("SELECT since FROM full_slots WHERE item_at IS NULL").Scan(&text)
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return time.Time{}, false
 		}
 		if err != nil {
