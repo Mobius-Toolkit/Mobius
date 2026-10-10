@@ -203,10 +203,13 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 
 // approvePullRequest moves the task from approval to ready_for_review, sets the Mobius check of the head to success,
 // makes a draft pull request ready for review, replaces mobius:working with mobius:review, and adds the Inbox item for
-// the Owner.
-func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository github.Repository, input numberInput) (string, error) {
+// the Owner. Before the check, it posts the report of the Lead as a comment on the pull request.
+func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository github.Repository, input approveInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
+	}
+	if empty(input.Report) {
+		return "", refuse("report must not be empty.")
 	}
 	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
 	if err != nil {
@@ -246,7 +249,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if moved == 0 {
 		return "", refuse("The task of #%d is not approval any more.", input.N)
 	}
-	if err := e.approve(ctx, repository, task, issue.GetTitle(), pullRequest, checkRun); err != nil {
+	if err := e.approve(ctx, repository, task, issue.GetTitle(), pullRequest, checkRun, input.Report); err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
 		return "", errors.Join(err, stateErr)
 	}
@@ -268,7 +271,11 @@ func openCheckRun(ctx context.Context, repository github.Repository, head string
 	return 0, nil
 }
 
-func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, title string, pullRequest *gh.PullRequest, checkRun int64) error {
+func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, title string, pullRequest *gh.PullRequest, checkRun int64, report string) error {
+	comment, err := repository.AddComment(ctx, int64(pullRequest.GetNumber()), report)
+	if err != nil {
+		return err
+	}
 	if err := repository.CompleteCheckRun(ctx, checkRun, checkRunName, "success"); err != nil {
 		return err
 	}
@@ -283,16 +290,15 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
-	err := e.addInboxItem(ctx, store.AddInboxItemParams{
+	return e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         readyForReviewKind,
 		Organization: repository.Owner(),
 		Repository:   task.Repository,
 		Workstream:   task.Workstream,
 		Issue:        task.Issue,
 		Text:         fmt.Sprintf("Pull request #%d of #%d \"%s\" is ready for review.", pullRequest.GetNumber(), task.Issue, title),
-		Link:         pullRequest.GetHTMLURL(),
+		Link:         comment.GetHTMLURL(),
 	})
-	return err
 }
 
 // cannotDo ends the turn of the Implementer with the reason for the Lead.
