@@ -199,6 +199,18 @@ test("screenshots", async ({ page }) => {
     main.getByRole("button", { name: "Stop the reply" }),
   ]);
   await page.unroute("**/api/chat?*");
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { writing: boolean; pausedUntil: string } };
+    body.data.writing = true;
+    body.data.pausedUntil = "2026-09-28T12:00:00Z";
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(page, "chat-paused", "/workstreams/owner/shop/12", (device) => [
+    ...chatReady(device),
+    main.getByText(/waits for the usage limit until/),
+  ]);
+  await page.unroute("**/api/chat?*");
   const photos = [
     { name: "plan.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#2563eb") },
     { name: "cart.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#16a34a") },

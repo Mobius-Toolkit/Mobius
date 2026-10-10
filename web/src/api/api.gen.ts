@@ -172,6 +172,11 @@ export interface ChatMessage {
   organization: string;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
   repository: string;
+  /**
+     * StoppedAt is the time when a stop of the Owner dropped the message of the Owner before the turn of the agent started, or null for a message that no stop dropped and for another message
+     * @nullable
+     */
+  stoppedAt: string | null;
   /** Text is the text of the message */
   text: string;
   /** Time is the time of the message */
@@ -190,6 +195,11 @@ export interface Chat {
   messages: ChatMessage[];
   /** Older is true when the chat has an older message than the first message of the page */
   older: boolean;
+  /**
+     * PausedUntil is the end of the usage-limit pause that the agent waits for, or null while the agent does not wait for a pause
+     * @nullable
+     */
+  pausedUntil: string | null;
   /** Writing is true while the agent has a turn that runs or a message that waits */
   writing: boolean;
 }
@@ -202,6 +212,11 @@ export interface ChatState {
   error: string;
   /** Organization is the owner of the repository, or the organization of the Triager chat */
   organization: string;
+  /**
+     * PausedUntil is the end of the usage-limit pause that the agent waits for, or null while the agent does not wait for a pause
+     * @nullable
+     */
+  pausedUntil: string | null;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
   repository: string;
   /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */

@@ -561,6 +561,42 @@ func TestAClaudeCodeUsageLimitShowsTheMobiusMessageAndNotTheRawText(t *testing.T
 	}
 }
 
+func TestTheChatOfALeadThatWaitsForAPauseGivesTheEndOfThePauseUntilThePauseEnds(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, claudeCodeLimitWithRawText, keepSessionOpen)
+	chats := liveEvents(t, server, "chat")
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	want := time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
+	paused := nextEventData(t, chats, func(state chatState) bool { return state.PausedUntil != nil })
+	if !paused.Writing || !paused.PausedUntil.Equal(want) {
+		t.Errorf("event = %+v", paused)
+	}
+	view := chatView(t, server, leadChat)
+	if !view.Writing || view.PausedUntil == nil || !view.PausedUntil.Equal(want) {
+		t.Errorf("view = %+v", view)
+	}
+
+	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range inbox(t, server) {
+			if item.Kind == "usage limit" {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+	if err := server.Engine.Resume(t.Context(), item.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	nextEventData(t, chats, func(state chatState) bool { return state.PausedUntil == nil })
+	if view := chatView(t, server, leadChat); view.PausedUntil != nil {
+		t.Errorf("view = %+v", view)
+	}
+}
+
 func TestALeadThatHitsAPauseOfAnotherSessionGetsTheMobiusMessageInItsChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

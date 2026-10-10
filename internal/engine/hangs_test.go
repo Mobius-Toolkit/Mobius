@@ -134,15 +134,12 @@ func TestAnImplementerThatChecksItsWorkLongerThanTheHangTimeGetsNoRetryPrompt(t 
 func TestASessionThatWaitsForASlotLongerThanTheHangTimeGetsNoRetryPrompt(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "[[prompts]]\nwhen = \"Work\"\nbusy = \"1s\"\n", func(cfg *config.Config) {
-		cfg.MaxAgents = 1
-		cfg.Roles.Judge.CountsInMaxAgents = true
-	})
+	server, _ := connectWith(t, fake, "[[prompts]]\nwhen = \"Work\"\nbusy = \"1s\"\n", func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
 	first := start(t, server, implementerSpec(t, server, fake, 41))
 	working := make(chan error, 1)
 	go func() { working <- first.Prompt(t.Context(), "Work", nil) }()
-	second := startLater(t.Context(), server, roleSpec(t, engine.JudgeRole))
-	queued(t, server, engine.JudgeRole)
+	second := startLater(t.Context(), server, implementerSpec(t, server, fake, 43))
+	queued(t, server, engine.ImplementerRole)
 
 	if err := <-working; err != nil {
 		t.Fatal(err)
@@ -150,7 +147,7 @@ func TestASessionThatWaitsForASlotLongerThanTheHangTimeGetsNoRetryPrompt(t *test
 	end(t, first, "done")
 	agent := await(t, second)
 	defer end(t, agent, "done")
-	if err := agent.Prompt(t.Context(), "Judge", nil); err != nil {
+	if err := agent.Prompt(t.Context(), "Implement", nil); err != nil {
 		t.Fatal(err)
 	}
 

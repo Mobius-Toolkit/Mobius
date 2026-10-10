@@ -26,18 +26,19 @@ var autonomousOrigins = []string{"task-notification", "peer", "coordinator", "ob
 // track follows the autonomous turns of a Claude Code agent. An autonomous turn is a turn that the CLI starts alone,
 // for example when a background task ends. The caller holds a.mu.
 //
-// A turn that Mobius started sends all its updates before the response of its prompt, and Mobius handles them in
-// that order. Thus a work update while no prompt runs belongs to an autonomous turn.
-func (a *Agent) track(notification map[string]any, kind string) {
+// A turn that Mobius started sends all its updates before the response of its prompt. Thus a work update while no
+// prompt runs, or after the response of the prompt (late), belongs to an autonomous turn.
+func (a *Agent) track(notification map[string]any, kind string, late bool) {
 	update := notification["update"]
+	running := a.turn && !late
 	switch kind {
 	case "agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update", "plan":
 		a.activity = time.Now()
 		a.autonomousEnd = time.Time{}
-		if !a.turn {
+		if !running {
 			a.autonomous = true
 		}
-		if kind == "tool_call_update" && a.turn && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true {
+		if kind == "tool_call_update" && running && field(update, "_meta", "claudeCode", "toolResponse", "isAsync") == true {
 			a.subagent = true
 		}
 	case "usage_update":
@@ -47,7 +48,7 @@ func (a *Agent) track(notification map[string]any, kind string) {
 		}
 		a.autonomous = false
 		// The adapter holds the turn open for a background subagent, so the prompt is not absorbed.
-		if a.turn && !a.subagent {
+		if running && !a.subagent {
 			a.autonomousEnd = time.Now()
 			select {
 			case a.ended <- struct{}{}:

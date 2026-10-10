@@ -195,7 +195,7 @@ func offers(ctx context.Context, t terminal, path string) ([]offer, error) {
 			}
 		}
 		startCtx, cancel := context.WithTimeout(ctx, startTimeout)
-		session, err := runner.Start(startCtx, harness, dir, dir, path, noMCPURL, "", func(json.RawMessage) {})
+		session, err := runner.Start(startCtx, harness, dir, dir, path, noMCPURL, "", func(json.RawMessage, bool) {})
 		timedOut := startCtx.Err() != nil
 		cancel()
 		switch {

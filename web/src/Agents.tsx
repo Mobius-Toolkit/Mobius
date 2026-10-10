@@ -19,7 +19,7 @@ import { lowLoadReason, queueState, queueText } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
 import { atEnd } from "@/lib/scroll";
-import { clock, dayClock } from "@/lib/time";
+import { clock, dayClock, localTimes } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { TopBar } from "./TopBar";
 
@@ -92,7 +92,7 @@ function TranscriptEntry({ line }: { line: TranscriptLine }) {
         <span>{clock(line.time)}</span>
       </div>
       <span className="break-words">
-        {line.text}
+        {localTimes(line.text)}
         {line.harnessToolName && (
           <span className="text-sm text-muted-foreground"> {line.harnessToolName}</span>
         )}
@@ -109,7 +109,7 @@ function TranscriptEntry({ line }: { line: TranscriptLine }) {
       </span>
       {open && line.body && (
         <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs whitespace-pre-wrap">
-          {line.body}
+          {localTimes(line.body)}
         </pre>
       )}
       {raw && <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">{line.raw}</pre>}

@@ -18,6 +18,7 @@ type ChatMessage struct {
 	Organization string
 	BrowserID    sql.NullString
 	DeliveredAt  sql.NullString
+	StoppedAt    sql.NullString
 }
 
 type Event struct {
