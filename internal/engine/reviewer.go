@@ -270,9 +270,10 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	return e.endReview(ctx, repository, j, comment, a.id)
 }
 
-// endReview acts on the open review threads after the turn of the Reviewer session. With no open thread, the task waits
-// for the CI of the head. The findings of the Reviewer go to a fix round, or at max_fix_rounds the task goes to a
-// human. Each other open thread has a reply of a trusted user or bot, so the Judge takes it.
+// endReview acts on the open review threads after the turn of the Reviewer session. It first sends the follow-up
+// threads to the Lead and resolves them. With no other open thread, the task waits for the CI of the head. The findings
+// of the Reviewer go to a fix round, or at max_fix_rounds the task goes to a human. Each other open thread has a reply
+// of a trusted user or bot, so the Judge takes it.
 func (e *Engine) endReview(ctx context.Context, repository github.Repository, j *reviewJob, comment, session int64) error {
 	// A comment of a trusted user during the turn resets the counters of the task.
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: j.task.Repository, Issue: j.task.Issue})
@@ -287,6 +288,9 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 	app := appLogin(repository.AppSlug)
 	reviewThreads, err := repository.ReviewThreads(ctx, number)
 	if err != nil {
+		return err
+	}
+	if err := e.sendFollowUps(ctx, repository, j, reviewThreads, app); err != nil {
 		return err
 	}
 	open := slices.DeleteFunc(reviewThreads, func(thread github.ReviewThread) bool { return !openThread(thread, trusted, app) })
@@ -370,8 +374,12 @@ func (e *Engine) abandonRound(ctx context.Context, repository github.Repository,
 	return errors.Join(e.queries.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task.ID}), updateErr)
 }
 
-// submitReview posts the review of the Reviewer of c on its pull request, at the head that it reviews. Then it resolves
-// the thread of each follow-up comment and sends the comment to the Lead.
+// followUpMarker ends the body of a follow-up comment on GitHub. It is an HTML comment, so GitHub does not show it.
+// endReview finds the follow-up threads by it.
+const followUpMarker = "\n\n<!-- mobius:follow-up -->"
+
+// submitReview posts the review of the Reviewer of c on its pull request, at the head that it reviews. The body of
+// each follow-up comment gets followUpMarker.
 func (e *Engine) submitReview(ctx context.Context, c caller, repository github.Repository, input reviewInput) (string, error) {
 	if empty(input.Body) {
 		return "", refuse("body must not be empty.")
@@ -381,41 +389,38 @@ func (e *Engine) submitReview(ctx context.Context, c caller, repository github.R
 	}) {
 		return "", refuse("Each comment needs a path, a line of 1 or more, and a body.")
 	}
-	if err := repository.SubmitReview(ctx, c.agent.spec.PullRequest, c.agent.head, input.Body, input.Comments); err != nil {
+	comments := slices.Clone(input.Comments)
+	for i := range comments {
+		if comments[i].FollowUp {
+			comments[i].Body += followUpMarker
+		}
+	}
+	if err := repository.SubmitReview(ctx, c.agent.spec.PullRequest, c.agent.head, input.Body, comments); err != nil {
 		return "", err
-	}
-	if !slices.ContainsFunc(input.Comments, func(comment github.InlineComment) bool { return comment.FollowUp }) {
-		return "Posted the review.", nil
-	}
-	number := c.agent.spec.PullRequest
-	issue, err := existingIssue(ctx, repository, c.agent.spec.Issue.Int64)
-	if err != nil {
-		return "", err
-	}
-	reviewThreads, err := repository.ReviewThreads(ctx, number)
-	if err != nil {
-		return "", err
-	}
-	for _, comment := range input.Comments {
-		if !comment.FollowUp {
-			continue
-		}
-		index := slices.IndexFunc(reviewThreads, func(thread github.ReviewThread) bool {
-			return !thread.Resolved && thread.Path == comment.Path && thread.Line == comment.Line && thread.Comments[0].Body == comment.Body
-		})
-		if index < 0 {
-			return "", fmt.Errorf("the thread of the follow-up on %s line %d is not on the pull request", comment.Path, comment.Line)
-		}
-		thread := &reviewThreads[index]
-		if err := repository.ResolveReviewThread(ctx, thread.ID); err != nil {
-			return "", err
-		}
-		thread.Resolved = true
-		event := fmt.Sprintf("%s follow-up on pull request #%d of #%d \"%s\", item %d, %s line %d:\n\n%s",
-			time.Now().UTC().Format(timeFormat), number, issue.GetNumber(), issue.GetTitle(), thread.Comment, comment.Path, comment.Line, quote(comment.Body))
-		if err := e.addLeadEvent(ctx, c.repository, c.workstream, c.agent.spec.Issue, "follow_up", event); err != nil {
-			return "", err
-		}
 	}
 	return "Posted the review.", nil
+}
+
+// sendFollowUps sends each open follow-up thread of reviewThreads to the Lead, and then resolves the thread. A failure
+// leaves the thread open, so the next call sends it again.
+func (e *Engine) sendFollowUps(ctx context.Context, repository github.Repository, j *reviewJob, reviewThreads []github.ReviewThread, app string) error {
+	number := j.pullRequest.GetNumber()
+	for i := range reviewThreads {
+		thread := &reviewThreads[i]
+		first := thread.Comments[0]
+		body, isFollowUp := strings.CutSuffix(first.Body, followUpMarker)
+		if thread.Resolved || !isFollowUp || !strings.EqualFold(first.Author, app) {
+			continue
+		}
+		event := fmt.Sprintf("%s follow-up on pull request #%d of #%d \"%s\", item %d, %s line %d:\n\n%s",
+			time.Now().UTC().Format(timeFormat), number, j.task.Issue, j.title, thread.Comment, thread.Path, thread.Line, quote(body))
+		if err := e.addLeadEvent(ctx, j.task.Repository, j.task.Workstream, sql.NullInt64{Int64: j.task.Issue, Valid: true}, "follow_up", event); err != nil {
+			return err
+		}
+		if err := repository.ResolveReviewThread(ctx, thread.ID); err != nil {
+			return err
+		}
+		thread.Resolved = true
+	}
+	return nil
 }
