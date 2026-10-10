@@ -270,6 +270,9 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 	}
 	started, err := e.queries.StartSession(ctx, store.StartSessionParams{StartedAt: now(), ID: a.id})
 	if err != nil {
+		if ctx.Err() != nil {
+			return errors.Join(err, a.End(ended, "stopped"))
+		}
 		return a.Fail(ended, err)
 	}
 	e.publish(Change{Node: new(e.node(started))})
