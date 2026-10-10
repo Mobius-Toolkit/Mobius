@@ -25,6 +25,9 @@ const (
 	// run completes in much less time, and a run in waiting or action_required must not block a task for a full day
 	// before the Lead knows.
 	longCIWait = 2 * time.Hour
+	// approvalReminder is the time in approval, and the time between two reminders. A pull request that waits for the
+	// Lead approval must come back to the Lead after a short time, for fast iterations.
+	approvalReminder = 2 * time.Hour
 )
 
 // ciWait is the head that the poll saw first at a time, for a task in checks.
@@ -190,6 +193,36 @@ func (e *Engine) onLongCIWait(ctx context.Context, repository github.Repository,
 	}
 	text := fmt.Sprintf("%s the CI of #%d \"%s\" runs for more than %s: pull request #%d %s, head %s. These runs did not complete: %s.", now.UTC().Format(timeFormat), task.Issue, issue.GetTitle(), longCIWait, pullRequest.GetNumber(), pullRequest.GetHTMLURL(), pullRequest.GetHead().GetSHA(), strings.Join(incomplete, ", "))
 	if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "long_ci_wait", text); err != nil {
+		return err
+	}
+	return e.queries.SetTaskLongWaitAt(ctx, store.SetTaskLongWaitAtParams{LongWaitAt: sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}, ID: task.ID})
+}
+
+// remindApproval gives the Lead the event approval_reminder when approvalReminder passed since the task entered
+// approval, or since the last event of this kind. It does not change the task.
+func (e *Engine) remindApproval(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
+	since := task.StateAt
+	if task.LongWaitAt.Valid {
+		since = task.LongWaitAt.String
+	}
+	last, err := time.Parse(time.RFC3339Nano, since)
+	if err != nil {
+		return err
+	}
+	now := e.timeNow()
+	if now.Sub(last) < approvalReminder {
+		return nil
+	}
+	entered, err := time.Parse(time.RFC3339Nano, task.StateAt)
+	if err != nil {
+		return err
+	}
+	issue, err := existingIssue(ctx, repository, task.Issue)
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf("%s #%d \"%s\" waits for Lead approval for %s: pull request #%d %s.", now.UTC().Format(timeFormat), task.Issue, issue.GetTitle(), now.Sub(entered).Round(time.Minute), pullRequest.GetNumber(), pullRequest.GetHTMLURL())
+	if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "approval_reminder", text); err != nil {
 		return err
 	}
 	return e.queries.SetTaskLongWaitAt(ctx, store.SetTaskLongWaitAtParams{LongWaitAt: sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}, ID: task.ID})

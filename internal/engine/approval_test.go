@@ -352,8 +352,8 @@ func seedWaitingWith(t *testing.T, fake *testkit.FakeGitHub, state, script strin
 	fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
 	testkit.InstallFakeAgent(t, dataDir, options+script)
 	seed(t, dataDir,
-		`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, branch, pull_request)
-		 VALUES (1, 'owner/shop', 41, 12, '`+state+`', '2026-10-04T10:00:00Z', 'mobius/41', 42)`)
+		`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
+		 VALUES (1, 'owner/shop', 41, 12, '`+state+`', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'mobius/41', 42)`)
 	cfg := testserver.Config(t, dataDir)
 	cfg.ReviewQuietPeriod = time.Hour
 	server := startServerWith(t, fake, cfg, "")

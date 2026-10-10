@@ -1,6 +1,7 @@
 package testserver
 
 import (
+	"database/sql"
 	"net/http"
 	"testing"
 	"time"
@@ -27,18 +28,18 @@ func TestWaitForFirstPollWaitsForTheSinceCursorOfTheIssues(t *testing.T) {
 	if _, err := server.DB.Exec(`INSERT INTO sync_cursors (repository, endpoint, since) VALUES ('owner/shop', 'pulls', '2026-10-04T10:00:00Z'), ('owner/shop', 'issues', NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan struct{})
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		_, _ = server.DB.Exec(`UPDATE sync_cursors SET since = '2026-10-04T10:00:00Z' WHERE repository = 'owner/shop' AND endpoint = 'issues'`)
-		close(done)
 	}()
 
 	server.WaitForFirstPoll(t, "owner/shop")
 
-	select {
-	case <-done:
-	default:
+	var since sql.NullString
+	if err := server.DB.QueryRow(`SELECT since FROM sync_cursors WHERE repository = 'owner/shop' AND endpoint = 'issues'`).Scan(&since); err != nil {
+		t.Fatal(err)
+	}
+	if !since.Valid {
 		t.Error("the wait ended before the poll stored the cursor")
 	}
 }

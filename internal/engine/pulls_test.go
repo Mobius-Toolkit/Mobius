@@ -152,8 +152,8 @@ func TestARestartKeepsTheItemsOfTheJudge(t *testing.T) {
 	fake.AddComment(shop, 42, "owner", "Why cents?")
 	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nwhen = \"You are the Judge\"\nshell = \"true\"\n")
 	seed(t, dataDir,
-		`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, branch, pull_request)
-		 VALUES (1, 'owner/shop', 41, 12, 'approval', '2026-10-04T10:00:00Z', 'mobius/41', 42)`)
+		`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
+		 VALUES (1, 'owner/shop', 41, 12, 'approval', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'mobius/41', 42)`)
 	cfg := testserver.Config(t, dataDir)
 	cfg.ReviewQuietPeriod = 200 * time.Millisecond
 
