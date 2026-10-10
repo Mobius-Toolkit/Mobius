@@ -452,6 +452,34 @@ updates = [
 	}
 }
 
+func TestAStoredToolCallUpdateKeepsItsContentAndDropsTheDuplicateOutput(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, `
+[[prompts]]
+updates = [
+  '{"sessionUpdate":"tool_call_update","toolCallId":"toolu_4","status":"completed","rawOutput":"out","content":[{"type":"content","content":{"type":"text","text":"out"}}],"_meta":{"claudeCode":{"toolName":"Bash","toolResponse":{"stdout":"out"}}}}',
+  '{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"init","description":"Set up"}]}',
+]
+`)
+
+	session, _ := leadReply(t, server)
+
+	var stored []string
+	for _, line := range transcript(t, server, session) {
+		if line.Text == "tool call update" || line.Text == "available_commands_update" {
+			stored = append(stored, line.Raw)
+		}
+	}
+	want := []string{
+		`{"sessionId":"fake-session","update":{"_meta":{"claudeCode":{"toolName":"Bash"}},"content":[{"content":{"text":"out","type":"text"},"type":"content"}],"sessionUpdate":"tool_call_update","status":"completed","toolCallId":"toolu_4"}}`,
+		`{"sessionId":"fake-session","update":{"sessionUpdate":"available_commands_update"}}`,
+	}
+	if !reflect.DeepEqual(stored, want) {
+		t.Errorf("stored = %s", stored)
+	}
+}
+
 // The ACP SDK has no type for an update of a new kind, so the runner reads each update as raw JSON.
 func TestTheAPIGivesTheFullTranscriptWithAnUpdateOfAnUnknownKind(t *testing.T) {
 	t.Parallel()
