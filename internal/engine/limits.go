@@ -235,7 +235,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 			return err
 		}
 		e.limitItems[a.harness] = item.ID
-		if _, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, mobiusAuthor, text, ""); err != nil {
+		if _, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, mobiusAuthor, text, "", ""); err != nil {
 			return err
 		}
 	default:

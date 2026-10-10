@@ -9,6 +9,7 @@ import (
 	"net/textproto"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -20,11 +21,23 @@ type testImage struct {
 	data        []byte
 }
 
-// sendChat posts a message of the Owner to the Triager chat of the organization owner as multipart/form-data.
+var chatIDs atomic.Int64
+
+// sendChat posts a message of the Owner with a new browser id to the Triager chat of the organization owner.
 func sendChat(t *testing.T, server *testserver.Server, text string, images ...testImage) (int, string) {
+	t.Helper()
+	return sendChatID(t, server, "message-"+strconv.FormatInt(chatIDs.Add(1), 10), text, images...)
+}
+
+// sendChatID posts a message of the Owner with the browser id id to the Triager chat of the organization owner as
+// multipart/form-data.
+func sendChatID(t *testing.T, server *testserver.Server, id, text string, images ...testImage) (int, string) {
 	t.Helper()
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
+	if err := form.WriteField("id", id); err != nil {
+		t.Fatal(err)
+	}
 	if err := form.WriteField("organization", "owner"); err != nil {
 		t.Fatal(err)
 	}
@@ -66,9 +79,10 @@ func sendChat(t *testing.T, server *testserver.Server, text string, images ...te
 }
 
 type chatMessage struct {
-	ID     int64  `json:"id"`
-	Text   string `json:"text"`
-	Images int64  `json:"images"`
+	ID        int64  `json:"id"`
+	Text      string `json:"text"`
+	Images    int64  `json:"images"`
+	BrowserID string `json:"browserId"`
 }
 
 func getMessages(t *testing.T, server *testserver.Server) []chatMessage {
@@ -119,6 +133,30 @@ func TestSendChatKeepsTheTextAndTheImagesOfAMessage(t *testing.T) {
 		if reply.StatusCode != http.StatusOK || reply.Header.Get("Content-Type") != want.contentType || !bytes.Equal(data, want.data) {
 			t.Errorf("image %d: status %d, type %q, data %q", position, reply.StatusCode, reply.Header.Get("Content-Type"), data)
 		}
+	}
+}
+
+func TestSendChatStoresAMessageWithTheSameIDOnlyOnce(t *testing.T) {
+	server := startChat(t)
+	png := testImage{"image/png", []byte("png data")}
+
+	for range 2 {
+		if status, text := sendChatID(t, server, "browser-1", "Look", png); status != http.StatusNoContent {
+			t.Fatalf("status = %d: %s", status, text)
+		}
+	}
+
+	messages := getMessages(t, server)
+	if len(messages) != 1 || messages[0].BrowserID != "browser-1" {
+		t.Errorf("messages = %+v", messages)
+	}
+}
+
+func TestSendChatRefusesAMessageWithNoID(t *testing.T) {
+	server := startChat(t)
+
+	if status, text := sendChatID(t, server, "", "Look"); status != http.StatusBadRequest {
+		t.Errorf("status = %d, body = %s", status, text)
 	}
 }
 

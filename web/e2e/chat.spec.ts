@@ -76,6 +76,7 @@ async function say(page: Page, text: string) {
     form.append('organization', 'owner')
     form.append('repository', 'owner/shop')
     form.append('workstream', '13')
+    form.append('id', crypto.randomUUID())
     form.append('text', ${JSON.stringify(text)})
     return fetch('/api/chat/messages', { method: 'POST', body: form })
   })()`);
@@ -474,6 +475,7 @@ test("a new message scrolls the chat to its end", async ({ page }) => {
         form.append('organization', 'owner')
         form.append('repository', 'owner/shop')
         form.append('workstream', '12')
+        form.append('id', crypto.randomUUID())
         form.append('text', 'spam ${device} ' + n + ' ' + 'word '.repeat(40))
         await fetch('/api/chat/messages', { method: 'POST', body: form })
       }
