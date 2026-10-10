@@ -50,6 +50,7 @@ func openPullRequest(fake *testkit.FakeGitHub) int64 {
 }
 
 func TestACommentOnAWorkstreamIssueGetsEyes(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)
 
@@ -63,6 +64,7 @@ func TestACommentOnAWorkstreamIssueGetsEyes(t *testing.T) {
 }
 
 func TestACommentOnASubIssueWithNoLiveTaskGetsEyes(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)
 	fake.AddIssue(shop, 50, "Plan the tiers")
@@ -75,6 +77,7 @@ func TestACommentOnASubIssueWithNoLiveTaskGetsEyes(t *testing.T) {
 }
 
 func TestACommentOnTheIssueOfALiveTaskGetsEyes(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	startWithStoppedTask(t, fake)
 
@@ -84,6 +87,7 @@ func TestACommentOnTheIssueOfALiveTaskGetsEyes(t *testing.T) {
 }
 
 func TestACommentOfAnUntrustedUserABotOrTheAppGetsNoReaction(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)
 	fake.AddIssue(shop, 60, "Fix the footer")
@@ -113,6 +117,7 @@ func TestACommentOfAnUntrustedUserABotOrTheAppGetsNoReaction(t *testing.T) {
 }
 
 func TestACommentOnAnIssueInNoWorkstreamGetsConfusedAndOneReply(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)
 	fake.AddIssue(shop, 60, "Fix the footer")
@@ -132,6 +137,7 @@ func TestACommentOnAnIssueInNoWorkstreamGetsConfusedAndOneReply(t *testing.T) {
 }
 
 func TestACommentOnAnIssueWithAReadyLabelOfAnUntrustedUserGetsConfusedAndOneReply(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)
 	fake.AddIssue(shop, 61, "Fix the header")
@@ -149,6 +155,7 @@ func TestACommentOnAnIssueWithAReadyLabelOfAnUntrustedUserGetsConfusedAndOneRepl
 }
 
 func TestAFailedPollAfterADeclineDoesNotWriteASecondReply(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)
 	fake.AddIssue(shop, 60, "Fix the footer")
@@ -169,6 +176,7 @@ func TestAFailedPollAfterADeclineDoesNotWriteASecondReply(t *testing.T) {
 }
 
 func TestAFailedReplyToADeclinedCommentIsWrittenOnTheNextPoll(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)
 	fake.AddIssue(shop, 60, "Fix the footer")
@@ -187,6 +195,7 @@ func TestAFailedReplyToADeclinedCommentIsWrittenOnTheNextPoll(t *testing.T) {
 }
 
 func TestACommentOnAClosedIssueGetsConfusedAndOneReply(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)
 	fake.AddIssue(shop, 50, "Plan the tiers")
@@ -206,6 +215,7 @@ func TestACommentOnAClosedIssueGetsConfusedAndOneReply(t *testing.T) {
 }
 
 func TestACommentThatStartsTheTriagerAgainGetsEyes(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectTriager(t, fake)
 	fake.AddIssue(shop, 53, "Add points")
@@ -219,6 +229,7 @@ func TestACommentThatStartsTheTriagerAgainGetsEyes(t *testing.T) {
 }
 
 func TestACommentOnAPullRequestWithNoLiveTaskGetsConfusedAndOneReplyInTheThread(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)
 	number := openPullRequest(fake)
@@ -241,6 +252,7 @@ func TestACommentOnAPullRequestWithNoLiveTaskGetsConfusedAndOneReplyInTheThread(
 }
 
 func TestACommentOnThePullRequestOfAStoppedTaskGetsEyes(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	startWithStoppedTask(t, fake)
 
@@ -252,6 +264,7 @@ func TestACommentOnThePullRequestOfAStoppedTaskGetsEyes(t *testing.T) {
 }
 
 func TestACommentOnThePullRequestOfATaskInApprovalGetsEyes(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
 
@@ -263,6 +276,7 @@ func TestACommentOnThePullRequestOfATaskInApprovalGetsEyes(t *testing.T) {
 }
 
 func TestAReviewCommentInAResolvedThreadGetsConfusedAndOneReplyInTheThread(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
 	root := fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier.")
@@ -282,6 +296,7 @@ func TestAReviewCommentInAResolvedThreadGetsConfusedAndOneReplyInTheThread(t *te
 }
 
 func TestAReviewCommentWrittenAgainInAnUnresolvedThreadGetsEyes(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
 	root := fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier.")
@@ -297,6 +312,7 @@ func TestAReviewCommentWrittenAgainInAnUnresolvedThreadGetsEyes(t *testing.T) {
 }
 
 func TestACommentOfAnUntrustedUserOrOfATrustedBotOnAPullRequestGetsNoReaction(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
 	var ids []int64

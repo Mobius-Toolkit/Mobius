@@ -126,6 +126,7 @@ func adapter(t *testing.T, bin, sdk string) {
 }
 
 func TestTheClaudeCodeCLIVersionComesFromThePackageOfTheAdapter(t *testing.T) {
+	t.Parallel()
 	bin := t.TempDir()
 	adapter(t, bin, `{"name": "@anthropic-ai/claude-agent-sdk", "version": "0.2.0", "claudeCodeVersion": "2.1.284"}`)
 
@@ -135,6 +136,7 @@ func TestTheClaudeCodeCLIVersionComesFromThePackageOfTheAdapter(t *testing.T) {
 }
 
 func TestAnSDKInTheNodeModulesOfAParentDirectoryGivesTheClaudeCodeCLIVersion(t *testing.T) {
+	t.Parallel()
 	bin := t.TempDir()
 	store := filepath.Join(t.TempDir(), "node_modules")
 	pkg := filepath.Join(store, "@zed-industries", "claude-agent-acp")
@@ -161,6 +163,7 @@ func TestAnSDKInTheNodeModulesOfAParentDirectoryGivesTheClaudeCodeCLIVersion(t *
 }
 
 func TestAPackageWithNoClaudeCodeVersionGivesNoVersion(t *testing.T) {
+	t.Parallel()
 	bin := t.TempDir()
 	adapter(t, bin, `{"name": "@anthropic-ai/claude-agent-sdk"}`)
 

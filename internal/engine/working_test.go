@@ -59,6 +59,7 @@ func TestALeadWorksOnlyWhileATurnRuns(t *testing.T) {
 }
 
 func TestAnImplementerWorksUnlessItWaitsForASlotOrAPause(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
 	running := start(t, server, implementerSpec(t, server, fake, 41))

@@ -8,6 +8,7 @@ import (
 )
 
 func TestTrustedAuthor(t *testing.T) {
+	t.Parallel()
 	e := engine.New(nil, nil, &config.Config{TrustedUsers: []string{"owner"}, TrustedBots: []string{"coderabbitai[bot]"}}, engine.Agents{})
 	cases := []struct {
 		login string

@@ -132,12 +132,14 @@ func testARoundTakesTheFreeSlotBeforeANewTicket(t *testing.T, trigger func(fake 
 }
 
 func TestAFixRoundTakesTheFreeSlotBeforeANewTicketWithNoPollBetween(t *testing.T) {
+	t.Parallel()
 	testARoundTakesTheFreeSlotBeforeANewTicket(t, func(fake *testkit.FakeGitHub, sha string, _ int64) {
 		fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	})
 }
 
 func TestAConflictRoundTakesTheFreeSlotBeforeANewTicketWithNoPollBetween(t *testing.T) {
+	t.Parallel()
 	testARoundTakesTheFreeSlotBeforeANewTicket(t, func(fake *testkit.FakeGitHub, _ string, pullRequest int64) {
 		fake.SetBehind(shop, pullRequest)
 		fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
@@ -145,6 +147,7 @@ func TestAConflictRoundTakesTheFreeSlotBeforeANewTicketWithNoPollBetween(t *test
 }
 
 func TestAFreeSlotGoesToTheFixRoundOfAnOldPullRequestBeforeANewTicket(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectThree(t, fake, fixes)
 	sha, pullRequest := readyPullRequest(t, server, fake)
@@ -189,6 +192,7 @@ func TestAFreeSlotGoesToTheFixRoundOfAnOldPullRequestBeforeANewTicket(t *testing
 }
 
 func TestAFixRoundOfReviewFindingsDoesNotGoBeforeAnEarlierNewTicket(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectThree(t, fake, fixes)
 	_, pullRequest := readyPullRequest(t, server, fake)
@@ -219,6 +223,7 @@ func TestAFixRoundOfReviewFindingsDoesNotGoBeforeAnEarlierNewTicket(t *testing.T
 
 // A pull request with work for an agent does not hold a new ticket while a slot is free (Mobius-rust#385).
 func TestWithTwoFreeSlotsAFixAndANewTicketBothStart(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
 	fixSpec := implementerSpec(t, server, fake, 41)
@@ -237,6 +242,7 @@ func TestWithTwoFreeSlotsAFixAndANewTicketBothStart(t *testing.T) {
 }
 
 func TestAPullRequestThatWaitsForTheOwnerDoesNotStopANewTicket(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectThree(t, fake, fixes)
 	readyPullRequest(t, server, fake)
@@ -250,6 +256,7 @@ func TestAPullRequestThatWaitsForTheOwnerDoesNotStopANewTicket(t *testing.T) {
 }
 
 func TestAPullRequestInNeedsHumanDoesNotStopANewTicket(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectThree(t, fake, fixes)
 	_, pullRequest := readyPullRequest(t, server, fake)
@@ -267,6 +274,7 @@ func TestAPullRequestInNeedsHumanDoesNotStopANewTicket(t *testing.T) {
 }
 
 func TestAFailedCheckOnAHeadThatGotItsFixRoundDoesNotStopANewTicket(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectThree(t, fake, fixesNothing)
 	sha, _ := readyPullRequest(t, server, fake)
@@ -284,6 +292,7 @@ func TestAFailedCheckOnAHeadThatGotItsFixRoundDoesNotStopANewTicket(t *testing.T
 
 // The Judge of a task in needs_human holds its slot, so a new ticket waits (Mobius-rust#385).
 func TestAJudgeThatRunsFromNeedsHumanHoldsANewTicket(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectThree(t, fake, fixes, func(cfg *config.Config) { cfg.Roles.Judge.CountsInMaxAgents = true })
 	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options+"[[prompts]]\nwhen = \"You are the Judge\"\nhang = true\n\n"+leadStartsThree)
@@ -310,6 +319,7 @@ func TestAJudgeThatRunsFromNeedsHumanHoldsANewTicket(t *testing.T) {
 }
 
 func TestAReviewedPullRequestWithAnOpenThreadDoesNotStopANewTicket(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectThree(t, fake, fixes)
 	_, pullRequest := readyPullRequest(t, server, fake)

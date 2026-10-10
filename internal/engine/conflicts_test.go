@@ -54,6 +54,7 @@ func isAncestor(t *testing.T, fake *testkit.FakeGitHub, commit, of string) {
 }
 
 func TestAMergeConflictStartsAConflictRoundThatMergesTheBaseBranch(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, first := startReady(t, fake, "", mergesCents)
 
@@ -100,6 +101,7 @@ func TestAMergeConflictStartsAConflictRoundThatMergesTheBaseBranch(t *testing.T)
 }
 
 func TestAConflictRoundHasTheCommentsOfTrustedAuthorsOnThePullRequest(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, mergesCents, longGrace)
 	sha := checksHead(t, server, fake)
@@ -132,6 +134,7 @@ func TestAConflictRoundHasTheCommentsOfTrustedAuthorsOnThePullRequest(t *testing
 }
 
 func TestTheReviewAfterAConflictRoundDoesNotCountAsAReviewRound(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, mergesCents, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -161,6 +164,7 @@ func TestTheReviewAfterAConflictRoundDoesNotCountAsAReviewRound(t *testing.T) {
 }
 
 func TestAConflictRoundMergesWhenTheBaseBranchMovesDuringTheRound(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	moves := commits + "\n" + conflictWhen + "shell = \"git merge -q origin/main; echo cents > plan.txt && git add plan.txt && git commit -q --no-edit && git update-ref refs/remotes/origin/main $(git commit-tree -p origin/main -m 'Use euros' origin/main^{tree})\"\n"
 	server, _ := startReady(t, fake, "", moves)
@@ -182,6 +186,7 @@ func TestAConflictRoundMergesWhenTheBaseBranchMovesDuringTheRound(t *testing.T) 
 }
 
 func TestAStalePullRequestWithAMergeConflictGoesToAHuman(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"stale pull request #42\"\ncall = { tool = \"comment_pull_request\", arguments = { n = 42, text = \"This pull request is old and has a conflict. Close it?\" } }\n\n"
 	server, _ := startReady(t, fake, lead, commits)
@@ -223,6 +228,7 @@ func TestAStalePullRequestWithAMergeConflictGoesToAHuman(t *testing.T) {
 }
 
 func TestMobiusReadyOnATaskInNeedsHumanWithAMergeConflictStartsAConflictRoundOnTheSamePullRequest(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := startReady(t, fake, "", mergesCents)
 	fake.SetCreatedAt(shop, 42, 0)
@@ -253,6 +259,7 @@ func TestMobiusReadyOnATaskInNeedsHumanWithAMergeConflictStartsAConflictRoundOnT
 }
 
 func TestAConflictRoundThatDoesNotMergeTheBaseBranchStopsTheTask(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := startReady(t, fake, "", commits+"\n"+conflictWhen+"shell = \"true\"\n")
 
@@ -276,6 +283,7 @@ func TestAConflictRoundThatDoesNotMergeTheBaseBranchStopsTheTask(t *testing.T) {
 }
 
 func TestAPullRequestBehindItsBaseStartsOneConflictRoundThatMergesTheBaseBranch(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, first := startReady(t, fake, "", commits+"\n"+conflictWhen+"shell = \"git merge -q --no-edit origin/main\"\n")
 	fake.SetBehind(shop, 42)
@@ -299,6 +307,7 @@ func TestAPullRequestBehindItsBaseStartsOneConflictRoundThatMergesTheBaseBranch(
 }
 
 func TestAStalePullRequestBehindItsBaseGoesToAHumanWithTheBehindReason(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := startReady(t, fake, "", commits)
 	fake.SetCreatedAt(shop, 42, 0)
