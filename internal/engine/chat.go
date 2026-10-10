@@ -233,9 +233,8 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 	return nil
 }
 
-// give gives the items to the chat of key, and starts the chat when none runs. A chat that runs gets the items after
-// its queue. tracked tells that the drain counts the first session of a new chat from a tryTrack of the caller. The
-// caller holds e.chatOrder.
+// give gives the items to the chat of key, and starts the chat when none runs. tracked tells that the drain counts the
+// first session of a new chat from a tryTrack of the caller. The caller holds e.chatOrder.
 func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	e.chatsMu.Lock()
 	c, ok := e.chats[key]
@@ -340,24 +339,19 @@ func (e *Engine) sendEvents(ctx context.Context, repository string, workstream i
 	if err != nil || len(events) == 0 {
 		return err
 	}
-	items := make([]item, 0, len(events))
-	for _, event := range events {
-		items = append(items, item{event: &event})
-	}
-	e.giveTracked(leadChat(repository, workstream), items)
-	return nil
-}
-
-// giveTracked gives the items to the chat of key like give. The drain holds a new chat, so the items stay undelivered.
-// The caller holds e.chatOrder.
-func (e *Engine) giveTracked(key ChatKey, items []item) {
+	key := leadChat(repository, workstream)
 	e.chatsMu.Lock()
 	_, running := e.chats[key]
 	e.chatsMu.Unlock()
 	if !running && !e.tryTrack() {
-		return
+		return nil
+	}
+	items := make([]item, 0, len(events))
+	for _, event := range events {
+		items = append(items, item{event: &event})
 	}
 	e.give(key, !running, items...)
+	return nil
 }
 
 // giveEarlierMessages gives the messages of the Owner that the earlier run of the server stored and did not deliver
