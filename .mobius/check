@@ -5,7 +5,9 @@ cd "$(dirname "$0")/.."
 
 golangci-lint run
 go tool lintgork ./...
-go test -timeout 30m ./...
+if [ -n "${CI:-}" ]; then
+  go test -timeout 30m ./...
+fi
 
 (
   cd web
