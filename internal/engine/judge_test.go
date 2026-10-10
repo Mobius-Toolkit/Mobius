@@ -261,7 +261,7 @@ func TestAFixRoundOfTheJudgeFromNeedsHumanPutsTheWorkingLabelBack(t *testing.T) 
 	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:working") && !hasLabel(fake, "mobius:needs-human") })
 }
 
-func TestMobiusReadyOnATaskInNeedsHumanStartsAFixRoundOnTheSamePullRequest(t *testing.T) {
+func TestARemovalOfNeedsHumanFromATaskStartsAFixRoundOnTheSamePullRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := judgeToHuman(t, fake)
@@ -269,7 +269,6 @@ func TestMobiusReadyOnATaskInNeedsHumanStartsAFixRoundOnTheSamePullRequest(t *te
 	sha := head(t, fake, "mobius/41")
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	fixed := testkit.WaitForValue(t, func() (string, bool) {
 		fixed := head(t, fake, "mobius/41")

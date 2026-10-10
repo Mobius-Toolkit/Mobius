@@ -205,7 +205,9 @@ func TestAFixRoundOfReviewFindingsDoesNotGoBeforeAnEarlierNewTicket(t *testing.T
 		t.Fatal(err)
 	}
 
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") })
+
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
 
 	waitForState(t, server, 41, "queued")
 	waitForPolls(t, fake)

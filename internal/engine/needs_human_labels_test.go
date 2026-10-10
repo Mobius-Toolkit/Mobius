@@ -71,7 +71,7 @@ func TestAPollWritesNoLabelOfATaskInNeedsHumanWithTheRightLabels(t *testing.T) {
 	}
 }
 
-func TestAPollKeepsTheNeedsHumanLabelOffATaskInNeedsHumanWithTheReadyLabel(t *testing.T) {
+func TestAPollKeepsTheNeedsHumanLabelOffATaskInNeedsHumanAfterTheRemoval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	// The prompt of a new session has the earlier events in its history, so the rule of the newest event comes first.
@@ -82,9 +82,8 @@ func TestAPollKeepsTheNeedsHumanLabelOffATaskInNeedsHumanWithTheReadyLabel(t *te
 	implementers := len(roleSessions(t, server, engine.ImplementerRole))
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" && !hasLabel(fake, "mobius:ready") })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
 	waitForPolls(t, fake)
 	if hasLabel(fake, "mobius:needs-human") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))

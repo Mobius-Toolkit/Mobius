@@ -24,9 +24,9 @@ const fullSlotsWait = 30 * time.Minute
 
 // dispatchReady acts on the open issues with mobius:ready of a trusted actor:
 //   - An issue with no Workstream goes to the Triager, also when it has open blockers.
-//   - A task that waits for a human, and a stopped task with a pull request, continues (Mobius-rust#225,
-//     Mobius-rust#253). A mobius:ready of the Mobius App needs Autopilot for that. Each other issue with a live task
-//     loses mobius:ready.
+//   - A stopped task with a pull request continues (Mobius-rust#225, Mobius-rust#253). A mobius:ready of the Mobius
+//     App needs Autopilot for that. Each other issue with a live task, also a task that waits for a human, loses
+//     mobius:ready.
 //   - An issue with an open blocker waits.
 //   - Each other issue gets a new task. A stopped task with no pull request ends first.
 //
@@ -63,7 +63,7 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			return err
 		}
 		switch {
-		case live && (task.State == "needs_human" || task.State == "stopped" && task.PullRequest.Valid):
+		case live && task.State == "stopped" && task.PullRequest.Valid:
 			if strings.EqualFold(actor, appLogin(repository.AppSlug)) {
 				on, err := e.workstreamAutopilot(ctx, repository, task.Workstream)
 				if err != nil {
