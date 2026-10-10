@@ -2080,6 +2080,168 @@
         ]
       }
     },
+    "/api/usage": {
+      "get": {
+        "description": "GetUsage returns the tokens and the cost of the turns that started in the period.",
+        "operationId": "GetUsage",
+        "parameters": [
+          {
+            "description": "From is the start of the period. A turn is in the period when it started at From or later",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "To is the end of the period. A turn is in the period when it started before To",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tz is the IANA name of the time zone for the days. The default is UTC",
+            "in": "query",
+            "name": "tz",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Harness limits the rows to these Harnesses",
+            "in": "query",
+            "name": "harness",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Model limits the rows to these models. The model is the model that the Harness reports, or the model of the config when the Harness reports none",
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Effort limits the rows to these efforts",
+            "in": "query",
+            "name": "effort",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Role limits the rows to these roles",
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Repository limits the rows to these repositories as \"owner/name\"",
+            "in": "query",
+            "name": "repository",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Group is the value that splits the days and the groups. With no Group, all rows are in one group",
+            "in": "query",
+            "name": "group",
+            "required": false,
+            "schema": {
+              "enum": [
+                "harness",
+                "model",
+                "effort",
+                "role",
+                "repository"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Usage"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "usage"
+        ]
+      }
+    },
     "/api/workstreams": {
       "get": {
         "description": "ListWorkstreams returns the open Workstreams from the local copy of GitHub, by repository and the newest first. The copy can be one poll interval old.",
@@ -3652,6 +3814,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Usage": {
+        "type": "object",
+        "title": "Envelope_Usage",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Usage",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_WorkstreamDetails": {
         "type": "object",
         "title": "Envelope_WorkstreamDetails",
@@ -4673,6 +4849,192 @@
           "failure"
         ],
         "description": "Upgrade is the state of the last upgrade."
+      },
+      "Usage": {
+        "type": "object",
+        "title": "Usage",
+        "properties": {
+          "days": {
+            "type": "array",
+            "title": "[]UsageDay",
+            "description": "Days are the values of each day and each group, the oldest day first",
+            "items": {
+              "$ref": "#/components/schemas/UsageDay"
+            }
+          },
+          "groups": {
+            "type": "array",
+            "title": "[]UsageGroup",
+            "description": "Groups are the values of each group",
+            "items": {
+              "$ref": "#/components/schemas/UsageGroup"
+            }
+          },
+          "options": {
+            "$ref": "#/components/schemas/UsageOptions",
+            "description": "Options are the values that each filter can take, before the filters"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/UsageValues",
+            "description": "Totals are the values of all rows that pass the filters"
+          }
+        },
+        "required": [
+          "totals",
+          "days",
+          "groups",
+          "options"
+        ],
+        "description": "Usage is the token and cost statistics of the turns in a period."
+      },
+      "UsageDay": {
+        "type": "object",
+        "title": "UsageDay",
+        "properties": {
+          "day": {
+            "type": "string",
+            "description": "Day is the day of the start of the turns, as \"YYYY-MM-DD\" in the time zone of the request"
+          },
+          "group": {
+            "type": "string",
+            "description": "Group is the value of the group, or empty when the request has no group or the value is not set"
+          },
+          "values": {
+            "$ref": "#/components/schemas/UsageValues"
+          }
+        },
+        "required": [
+          "day",
+          "group",
+          "values"
+        ],
+        "description": "UsageDay is the usage of one group on one day."
+      },
+      "UsageGroup": {
+        "type": "object",
+        "title": "UsageGroup",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "Group is the value of the group, or empty when the request has no group or the value is not set"
+          },
+          "values": {
+            "$ref": "#/components/schemas/UsageValues"
+          }
+        },
+        "required": [
+          "group",
+          "values"
+        ],
+        "description": "UsageGroup is the usage of one group in the period."
+      },
+      "UsageOptions": {
+        "type": "object",
+        "title": "UsageOptions",
+        "properties": {
+          "efforts": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Efforts are the efforts of the rows. An empty value is a session with no effort",
+            "items": {
+              "type": "string"
+            }
+          },
+          "harnesses": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Harnesses are the Harnesses of the rows",
+            "items": {
+              "type": "string"
+            }
+          },
+          "models": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Models are the models that the Harness reports, or the models of the config when the Harness reports none",
+            "items": {
+              "type": "string"
+            }
+          },
+          "repositories": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Repositories are the repositories of the rows as \"owner/name\"",
+            "items": {
+              "type": "string"
+            }
+          },
+          "roles": {
+            "type": "array",
+            "title": "[]string",
+            "description": "Roles are the roles of the rows",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "harnesses",
+          "models",
+          "efforts",
+          "roles",
+          "repositories"
+        ],
+        "description": "UsageOptions are the values that each filter can take in the period."
+      },
+      "UsageValues": {
+        "type": "object",
+        "title": "UsageValues",
+        "properties": {
+          "cacheReadTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "CacheReadTokens is the sum of the cache read tokens"
+          },
+          "cacheWriteTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "CacheWriteTokens is the sum of the cache write tokens"
+          },
+          "costUsd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "CostUSD is the sum of the cost in USD"
+          },
+          "inputTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "InputTokens is the sum of the input tokens"
+          },
+          "outputTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "OutputTokens is the sum of the output tokens"
+          },
+          "sessions": {
+            "type": "integer",
+            "description": "Sessions is the number of distinct sessions of the rows"
+          }
+        },
+        "required": [
+          "sessions",
+          "inputTokens",
+          "outputTokens",
+          "cacheReadTokens",
+          "cacheWriteTokens",
+          "costUsd"
+        ],
+        "description": "UsageValues are the sums of the turn usage of a set of rows. A sum of tokens or of cost is null when no row has a value."
       },
       "ValidationErrorResponse": {
         "type": "object",

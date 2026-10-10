@@ -66,6 +66,9 @@ INSERT INTO turn_usage (session, task, issue, workstream, organization, reposito
                         effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- name: ListTurnUsageBetween :many
+SELECT * FROM turn_usage WHERE started_at >= sqlc.arg(after) AND started_at < sqlc.arg(before);
+
 -- name: SetACPSessionID :exec
 UPDATE sessions SET acp_session_id = ? WHERE id = ?;
 

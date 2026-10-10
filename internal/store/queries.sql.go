@@ -2922,6 +2922,58 @@ func (q *Queries) ListTranscript(ctx context.Context, session int64) ([]Transcri
 	return items, nil
 }
 
+const listTurnUsageBetween = `-- name: ListTurnUsageBetween :many
+SELECT id, session, task, issue, workstream, organization, repository, role, harness, model, reported_model, effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd FROM turn_usage WHERE started_at >= ?1 AND started_at < ?2
+`
+
+type ListTurnUsageBetweenParams struct {
+	After  string
+	Before string
+}
+
+func (q *Queries) ListTurnUsageBetween(ctx context.Context, arg ListTurnUsageBetweenParams) ([]TurnUsage, error) {
+	rows, err := q.db.QueryContext(ctx, listTurnUsageBetween, arg.After, arg.Before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TurnUsage
+	for rows.Next() {
+		var i TurnUsage
+		if err := rows.Scan(
+			&i.ID,
+			&i.Session,
+			&i.Task,
+			&i.Issue,
+			&i.Workstream,
+			&i.Organization,
+			&i.Repository,
+			&i.Role,
+			&i.Harness,
+			&i.Model,
+			&i.ReportedModel,
+			&i.Effort,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.CacheReadTokens,
+			&i.CacheWriteTokens,
+			&i.CostUsd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUndeliveredLeadEvents = `-- name: ListUndeliveredLeadEvents :many
 SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id
 `
