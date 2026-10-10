@@ -108,3 +108,32 @@ func TestARestartDoesNotGiveADeliveredAStoppedOrAnUnnamedOwnerMessageAgain(t *te
 		}
 	}
 }
+
+func TestAMessageOfThisRunWaitsBehindTheStoredMessageOfTheEarlierRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	seed(t, dataDir, seedMessage(1, shop, 12, "Owner", "Earlier message.", "a1", "", ""))
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nwhen = \"Running message.\"\nhang = true\n[[prompts]]\nreply = [\"Seen\"]\n")
+	release := fake.HoldNext("GET /repos/{owner}/{repo}/labels")
+	server := startServer(t, fake, dataDir, "")
+	testkit.WaitFor(t, func() bool {
+		return server.Engine.SendChat(t.Context(), leadChat, "a2", "Running message.", nil) == nil
+	})
+	testkit.WaitFor(t, func() bool { return strings.Contains(joinedLeadPrompts(t, server), "Running message.") })
+	sendChatID(t, server, "a3", "Waiting message.")
+
+	release()
+	server.WaitForFirstPoll(t, shop)
+	if err := server.Engine.StopChat(t.Context(), leadChat); err != nil {
+		t.Fatal(err)
+	}
+
+	testkit.WaitFor(t, func() bool { return strings.Contains(joinedLeadPrompts(t, server), "Waiting message.") })
+	prompts := leadPrompts(t, server)
+	if len(prompts) != 3 || !strings.HasSuffix(prompts[0], "Running message.") || prompts[1] != "Earlier message." || prompts[2] != "Waiting message." {
+		t.Errorf("prompts = %q", prompts)
+	}
+}

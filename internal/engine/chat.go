@@ -224,18 +224,23 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 		}
 		return err
 	}
-	e.give(key, false, item{message: &message})
+	e.give(key, false, false, item{message: &message})
 	return nil
 }
 
-// give gives the items to the chat of key, and starts the chat when none runs. tracked tells that the drain counts the
-// first session of a new chat from a tryTrack of the caller. The caller holds e.chatOrder.
-func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
+// give gives the items to the chat of key, and starts the chat when none runs. A chat that runs gets the items after
+// its queue, or before its queue when front is true. The item that runs stays first. tracked tells that the drain
+// counts the first session of a new chat from a tryTrack of the caller. The caller holds e.chatOrder.
+func (e *Engine) give(key ChatKey, tracked, front bool, items ...item) {
 	e.chatsMu.Lock()
 	c, ok := e.chats[key]
 	var agent *Agent
 	if ok {
-		c.queue = append(c.queue, items...)
+		if front {
+			c.queue = append(items, c.queue...)
+		} else {
+			c.queue = append(c.queue, items...)
+		}
 		c.writing = true
 		agent = c.agent
 		c.notify()
@@ -338,25 +343,25 @@ func (e *Engine) sendEvents(ctx context.Context, repository string, workstream i
 	for _, event := range events {
 		items = append(items, item{event: &event})
 	}
-	e.giveTracked(leadChat(repository, workstream), items)
+	e.giveTracked(leadChat(repository, workstream), false, items)
 	return nil
 }
 
 // giveTracked gives the items to the chat of key like give. The drain holds a new chat, so the items stay undelivered.
 // The caller holds e.chatOrder.
-func (e *Engine) giveTracked(key ChatKey, items []item) {
+func (e *Engine) giveTracked(key ChatKey, front bool, items []item) {
 	e.chatsMu.Lock()
 	_, running := e.chats[key]
 	e.chatsMu.Unlock()
 	if !running && !e.tryTrack() {
 		return
 	}
-	e.give(key, !running, items...)
+	e.give(key, !running, front, items...)
 }
 
 // giveEarlierMessages gives the messages of the Owner that the earlier run of the server stored and did not deliver
 // to the chats of organization and repository, in the order of their ids. It gives them to each chat one time in a
-// run. A message with no browser id is from before the browser ids, so the agent does not get it again.
+// run, before the items that a message of this run put in the queue of a chat. A message with no browser id is from before the browser ids, so the agent does not get it again.
 func (e *Engine) giveEarlierMessages(ctx context.Context, organization, repository string) error {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
@@ -372,7 +377,7 @@ func (e *Engine) giveEarlierMessages(ctx context.Context, organization, reposito
 		}
 	}
 	for key, items := range chats {
-		e.giveTracked(key, items)
+		e.giveTracked(key, true, items)
 		e.handedChats[key] = true
 	}
 	return nil
