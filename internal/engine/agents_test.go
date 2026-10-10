@@ -27,6 +27,9 @@ func TestMain(m *testing.M) {
 	}
 	*engine.ToolsTimeout = 3 * time.Second
 	*engine.RestartDelays = []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 300 * time.Millisecond}
+	*engine.LoadAverage = func() (float64, error) { return 0, nil }
+	*engine.CheckGap = 0
+	*engine.LoadPoll = 10 * time.Millisecond
 	testkit.Main(m)
 }
 
