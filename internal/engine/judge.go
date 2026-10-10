@@ -441,7 +441,7 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 	}
 	if len(routes.round) == 0 {
 		if j.from == "needs_human" {
-			_, err := e.continueTask(ctx, repository, j.title, j.task, j.pullRequest, "working", j.from)
+			_, err := e.continueTask(ctx, repository, j.title, j.task, j.pullRequest, "working")
 			return err
 		}
 		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: j.from, ID: j.task.ID, FromState: "working"})

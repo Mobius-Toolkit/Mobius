@@ -690,7 +690,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		if pullRequest, err = repository.PullRequest(ctx, task.PullRequest.Int64); err != nil {
 			return err
 		}
-		moved, err = e.continueTask(ctx, repository, issue.GetTitle(), task, pullRequest, task.State, task.State)
+		moved, err = e.continueTask(ctx, repository, issue.GetTitle(), task, pullRequest, task.State)
 	} else {
 		moved, err = e.redispatch(ctx, repository, issue, task, actor)
 	}
@@ -736,9 +736,9 @@ func (e *Engine) unstop(ctx context.Context, repository github.Repository, task 
 
 // continueTask continues the task with the pull request. A pull request with a merge conflict gets a conflict round.
 // Another pull request gets a fix round with its open review threads and the failed check runs of its head. The task
-// moves from the state from, and goes back to the state back when the round fails to start. It tells if the task
+// moves from the state from, and goes back to the state from when the round fails to start. It tells if the task
 // moved.
-func (e *Engine) continueTask(ctx context.Context, repository github.Repository, title string, task store.Task, pullRequest *gh.PullRequest, from, back string) (bool, error) {
+func (e *Engine) continueTask(ctx context.Context, repository github.Repository, title string, task store.Task, pullRequest *gh.PullRequest, from string) (bool, error) {
 	if err := e.unstop(ctx, repository, task); err != nil {
 		return false, err
 	}
@@ -771,7 +771,7 @@ func (e *Engine) continueTask(ctx context.Context, repository github.Repository,
 		err = e.fixRound(ctx, repository, round{task: task, title: title, pullRequest: pullRequest, counts: true, items: items, parent: parent, failedCheck: ci != ""})
 	}
 	if err != nil {
-		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: back, ID: task.ID, FromState: to})
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: from, ID: task.ID, FromState: to})
 		return false, errors.Join(err, stateErr)
 	}
 	if ci != "" {
