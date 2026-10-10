@@ -56,7 +56,6 @@ func TestParseGivesTheDefaults(t *testing.T) {
 		{"access_password", config.AccessPassword, "correct horse"},
 		{"trusted_bots", len(config.TrustedBots), 0},
 		{"data_dir", config.DataDir, filepath.Join(home, ".mobius")},
-		{"max_agents", config.MaxAgents, 4},
 		{"max_checks", config.MaxChecks, 1},
 		{"max_fix_rounds", config.MaxFixRounds, 10},
 		{"max_check_attempts", config.MaxCheckAttempts, 3},
@@ -80,16 +79,12 @@ func TestParseGivesTheDefaults(t *testing.T) {
 		t.Errorf("trusted_users = %v", config.TrustedUsers)
 	}
 	for _, b := range config.Roles.Bindings() {
-		wantMax, wantCounts := 2, true
-		switch b.Role {
-		case "lead":
-			wantMax, wantCounts = 8, false
-		case "triager", "judge":
-			wantCounts = false
+		wantMax := 2
+		if b.Role == "lead" {
+			wantMax = 8
 		}
-		if b.Binding.Max != wantMax || b.Binding.CountsInMaxAgents != wantCounts {
-			t.Errorf("roles.%s: max = %d, counts_in_max_agents = %v; want %d, %v",
-				b.Role, b.Binding.Max, b.Binding.CountsInMaxAgents, wantMax, wantCounts)
+		if b.Binding.Max != wantMax {
+			t.Errorf("roles.%s: max = %d; want %d", b.Role, b.Binding.Max, wantMax)
 		}
 	}
 }
@@ -98,7 +93,6 @@ func TestParseReadsEachKey(t *testing.T) {
 	config := parse(t, `
 trusted_bots = ["renovate[bot]"]
 data_dir = "/srv/mobius"
-max_agents = 1
 max_checks = 2
 max_fix_rounds = 3
 max_check_attempts = 4
@@ -113,14 +107,13 @@ housekeeper_interval = "2h"
 		`implementer = { harness = "devin",       model = "swe-1.5", effort = "high" }`,
 		`implementer = { harness = "devin", model = "swe-1.5", effort = "high", max = 3 }`, 1),
 		`judge       = { harness = "claude-code", model = "haiku",   effort = "low" }`,
-		`judge       = { harness = "claude-code", model = "haiku", effort = "low", counts_in_max_agents = true }`, 1))
+		`judge       = { harness = "claude-code", model = "haiku", effort = "low", max = 4 }`, 1))
 
 	checks := []struct {
 		key       string
 		got, want any
 	}{
 		{"data_dir", config.DataDir, "/srv/mobius"},
-		{"max_agents", config.MaxAgents, 1},
 		{"max_checks", config.MaxChecks, 2},
 		{"max_fix_rounds", config.MaxFixRounds, 3},
 		{"max_check_attempts", config.MaxCheckAttempts, 4},
@@ -132,9 +125,7 @@ housekeeper_interval = "2h"
 		{"poll_interval", config.PollInterval, 90 * time.Second},
 		{"housekeeper_interval", config.HousekeeperInterval, 2 * time.Hour},
 		{"roles.implementer.max", config.Roles.Implementer.Max, 3},
-		{"roles.implementer.counts_in_max_agents", config.Roles.Implementer.CountsInMaxAgents, true},
-		{"roles.judge.max", config.Roles.Judge.Max, 2},
-		{"roles.judge.counts_in_max_agents", config.Roles.Judge.CountsInMaxAgents, true},
+		{"roles.judge.max", config.Roles.Judge.Max, 4},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -162,7 +153,7 @@ func TestParseRefusesAnUnknownKey(t *testing.T) {
 func TestParseReadsTheCuratorRole(t *testing.T) {
 	config := parse(t, strings.Replace(valid,
 		`curator     = { harness = "claude-code", model = "sonnet",  effort = "medium" }`,
-		`curator     = { harness = "devin", model = "swe-1.5", effort = "high", max = 1, counts_in_max_agents = false }`, 1))
+		`curator     = { harness = "devin", model = "swe-1.5", effort = "high", max = 1 }`, 1))
 
 	want := RoleBinding{Harness: Devin, Model: "swe-1.5", Effort: "high", Max: 1}
 	if config.Roles.Curator != want {

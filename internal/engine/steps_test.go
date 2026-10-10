@@ -180,7 +180,7 @@ func TestTheCheckAfterTheMergeOfNewCommitsBeforeThePushHasACheckRowWithNoAttempt
 func TestASessionThatWaitsForItsSlotHasAQueueRowFromItsAddTimeToItsStart(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, dataDir := connectTask(t, fake, leadStartsTwo, commits, func(cfg *config.Config) { cfg.MaxAgents = 1 })
+	server, dataDir := connectTask(t, fake, leadStartsTwo, commits, func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
 	goFile := filepath.Join(dataDir, "go")
 	fake.SetCheck(shop, fmt.Sprintf("while [ ! -e '%s' ]; do sleep 0.05; done", goFile))
 	dispatchTwo(fake)

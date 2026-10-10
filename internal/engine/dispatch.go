@@ -554,7 +554,7 @@ func (e *Engine) workstreamTask(ctx context.Context, repository github.Repositor
 }
 
 // startAutopilot dispatches the tasks of each open Workstream with Autopilot, in the order of the sub-issues, while
-// fewer tasks are active than max_agents. An issue that had a task, also an ended one, gets no new task: only a
+// fewer tasks are active than roles.implementer.max. An issue that had a task, also an ended one, gets no new task: only a
 // trusted user starts it again. The drain holds each new dispatch.
 func (e *Engine) startAutopilot(ctx context.Context, repository github.Repository) error {
 	if e.draining() {
@@ -581,7 +581,7 @@ func (e *Engine) startAutopilot(ctx context.Context, repository github.Repositor
 }
 
 // autopilotTree dispatches the tasks below parent in the Workstream, depth first. It gives true when as many tasks
-// are active as max_agents.
+// are active as roles.implementer.max.
 func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository, workstream, parent int64) (bool, error) {
 	issues, err := repository.SubIssues(ctx, parent)
 	if err != nil {
@@ -599,7 +599,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 			}
 			if !had {
 				active, err := e.queries.CountActiveTasks(ctx)
-				if err != nil || active >= int64(e.config.MaxAgents) {
+				if err != nil || active >= int64(e.config.Roles.Implementer.Max) {
 					return true, err
 				}
 				if err := e.dispatch(ctx, repository, issue, workstream, appLogin(repository.AppSlug)); err != nil {
