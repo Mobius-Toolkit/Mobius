@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -186,6 +187,19 @@ func TestAMergeRemovesTheReviewLabel(t *testing.T) {
 	noTaskLabels(t, fake)
 }
 
+// waitForTheLeadEvent waits until a Lead takes the event of the kind and no session is open. Else a session of the Lead
+// starts at the end of the test and writes to the data directory during the clean-up.
+func waitForTheLeadEvent(t *testing.T, server *testserver.Server, kind string) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		var open int
+		if err := server.DB.QueryRow("SELECT count(*) FROM sessions WHERE ended_at IS NULL").Scan(&open); err != nil {
+			t.Fatal(err)
+		}
+		return open == 0 && slices.ContainsFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Kind == kind && event.Delivered })
+	})
+}
+
 func TestAHandOverToAHumanFromReadyForReviewRemovesTheReviewLabel(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -200,6 +214,7 @@ func TestAHandOverToAHumanFromReadyForReviewRemovesTheReviewLabel(t *testing.T) 
 	testkit.WaitFor(t, func() bool {
 		return hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:review") && !hasLabel(fake, "mobius:working")
 	})
+	waitForTheLeadEvent(t, server, "stop")
 }
 
 func TestAStalePullRequestFromReadyForReviewGoesToAHumanAndLosesTheReviewLabel(t *testing.T) {
@@ -214,6 +229,7 @@ func TestAStalePullRequestFromReadyForReviewGoesToAHumanAndLosesTheReviewLabel(t
 	testkit.WaitFor(t, func() bool {
 		return hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:review") && !hasLabel(fake, "mobius:working")
 	})
+	waitForTheLeadEvent(t, server, "stale_pull_request")
 }
 
 func TestAStartWithAnEmptyStoreHandsAnIssueWithTheReviewLabelToAHuman(t *testing.T) {
