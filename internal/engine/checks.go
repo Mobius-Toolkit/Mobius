@@ -21,6 +21,10 @@ const (
 	githubActions = "github-actions"
 	// jobLogLines is the number of lines of the end of a job log of GitHub Actions in a fix round.
 	jobLogLines = 200
+	// longCIWait is the time in checks with CI that still runs, and the time between two events about it. A normal CI
+	// run completes in much less time, and a run in waiting or action_required must not block a task for a full day
+	// before the Lead knows.
+	longCIWait = 2 * time.Hour
 )
 
 // ciWait is the head that the poll saw first at a time, for a task in checks.
@@ -139,7 +143,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	case state.failedCheck || state.failedWorkflow:
 		return e.ciFailed(ctx, repository, task, pullRequest)
 	case state.running:
-		return nil
+		return e.onLongCIWait(ctx, repository, task, pullRequest, state.incomplete)
 	case state.absent && !e.quietPeriodEnded(task.ID, head):
 		return nil
 	}
@@ -163,6 +167,32 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	delete(e.ciWait, task.ID)
 	text := fmt.Sprintf("%s ready for Lead approval of #%d \"%s\": pull request #%d %s.", time.Now().UTC().Format(timeFormat), task.Issue, issue.GetTitle(), pullRequest.GetNumber(), pullRequest.GetHTMLURL())
 	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "ready_for_approval", text)
+}
+
+// onLongCIWait gives the Lead the event long_ci_wait when longCIWait passed since the task entered checks, or since the
+// last event of this kind. It does not change the task.
+func (e *Engine) onLongCIWait(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, incomplete []string) error {
+	since := task.StateAt
+	if task.LongWaitAt.Valid {
+		since = task.LongWaitAt.String
+	}
+	last, err := time.Parse(time.RFC3339Nano, since)
+	if err != nil {
+		return err
+	}
+	now := e.timeNow()
+	if now.Sub(last) < longCIWait {
+		return nil
+	}
+	issue, err := existingIssue(ctx, repository, task.Issue)
+	if err != nil {
+		return err
+	}
+	text := fmt.Sprintf("%s the CI of #%d \"%s\" runs for more than %s: pull request #%d %s, head %s. These runs did not complete: %s.", now.UTC().Format(timeFormat), task.Issue, issue.GetTitle(), longCIWait, pullRequest.GetNumber(), pullRequest.GetHTMLURL(), pullRequest.GetHead().GetSHA(), strings.Join(incomplete, ", "))
+	if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "long_ci_wait", text); err != nil {
+		return err
+	}
+	return e.queries.SetTaskLongWaitAt(ctx, store.SetTaskLongWaitAtParams{LongWaitAt: sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}, ID: task.ID})
 }
 
 // ciFailed hands the task in checks to a human, with a failed Mobius check and a stop event for the Lead. The task
@@ -190,6 +220,8 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 // ci is what the check runs of other Apps and the workflow runs of GitHub Actions on a head show.
 type ci struct {
 	failedCheck, failedWorkflow, running bool
+	// incomplete holds the names of the check runs and the workflow runs that did not complete.
+	incomplete []string
 	// absent is true for a head with no check run of another App and no workflow run: its CI has not started, or the
 	// repository has no CI.
 	absent bool
@@ -215,6 +247,7 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 		switch {
 		case run.GetStatus() != "completed":
 			state.running = true
+			state.incomplete = append(state.incomplete, run.GetName())
 		case failedConclusion(run.GetConclusion()):
 			state.failedCheck = true
 		}
@@ -223,6 +256,7 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 		switch {
 		case workflow.GetStatus() != "completed":
 			state.running = true
+			state.incomplete = append(state.incomplete, workflow.GetName())
 		case failedConclusion(workflow.GetConclusion()) || workflow.GetConclusion() == "startup_failure":
 			state.failedWorkflow = true
 		}
