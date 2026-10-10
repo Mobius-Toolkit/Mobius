@@ -266,3 +266,27 @@ func TestACIThatFailsAfterItsFixRoundHasACIRowWithTheResultFailureForTheNewestIm
 	stepOf(t, server, rows[0], sessions[0])
 	stepOf(t, server, rows[1], sessions[1])
 }
+
+func TestTheCIRowOfAStopThatContinuesStartsWhenTheTaskEntersChecksAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, id := stoppedOnFailedCI(t, fake, noChange)
+	stopped := liveTask(t, server, 41)
+
+	fake.SetCheckRunStatus(id, "completed", "success")
+
+	var successes []stepRow
+	testkit.WaitFor(t, func() bool {
+		successes = successes[:0]
+		for _, found := range stepRows(t, server, "ci") {
+			if found.Result.String == "success" {
+				successes = append(successes, found)
+			}
+		}
+		return len(successes) == 2
+	})
+	row := successes[1]
+	if !parseTime(t, row.StartedAt).After(parseTime(t, stopped.StateAt)) {
+		t.Errorf("row = %+v starts before the task entered checks again, stopped at %s", row, stopped.StateAt)
+	}
+}

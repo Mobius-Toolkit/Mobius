@@ -289,7 +289,10 @@ func (e *Engine) continueNeedsHuman(ctx context.Context, repository github.Repos
 	if err != nil || moved == 0 {
 		return task, false, err
 	}
-	task.State = "checks"
+	task, err = e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+	if err != nil {
+		return task, false, err
+	}
 	if err := repository.AddLabel(ctx, task.Issue, workingLabel); err != nil {
 		return task, false, err
 	}
