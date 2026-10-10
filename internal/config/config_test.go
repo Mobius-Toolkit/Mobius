@@ -80,8 +80,11 @@ func TestParseGivesTheDefaults(t *testing.T) {
 	}
 	for _, b := range config.Roles.Bindings() {
 		wantMax := 2
-		if b.Role == "lead" {
+		switch b.Role {
+		case "lead":
 			wantMax = 8
+		case "triager":
+			wantMax = 12
 		}
 		if b.Binding.Max != wantMax {
 			t.Errorf("roles.%s: max = %d; want %d", b.Role, b.Binding.Max, wantMax)
