@@ -58,7 +58,7 @@ func TestParseGivesTheDefaults(t *testing.T) {
 		{"data_dir", config.DataDir, filepath.Join(home, ".mobius")},
 		{"max_agents", config.MaxAgents, 4},
 		{"max_checks", config.MaxChecks, 1},
-		{"max_fix_rounds", config.MaxFixRounds, 7},
+		{"max_fix_rounds", config.MaxFixRounds, 10},
 		{"max_check_attempts", config.MaxCheckAttempts, 3},
 		{"max_worker_restarts", config.MaxWorkerRestarts, 3},
 		{"check_timeout", config.CheckTimeout, 15 * time.Minute},

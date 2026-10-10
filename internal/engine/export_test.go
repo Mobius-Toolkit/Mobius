@@ -25,6 +25,13 @@ func (e *Engine) SetClock(clock func() time.Time) {
 	e.clock.Store(&clock)
 }
 
+// Listeners gives the number of channels that wait for changes.
+func (e *Engine) Listeners() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.listeners)
+}
+
 // Seal seals the drain for the restart.
 func (e *Engine) Seal() DrainEnd {
 	return e.seal()
