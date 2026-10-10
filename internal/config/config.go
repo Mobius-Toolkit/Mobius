@@ -109,7 +109,7 @@ func Parse(text []byte) (*Config, error) {
 			DataDir:           filepath.Join(home, ".mobius"),
 			MaxAgents:         4,
 			MaxChecks:         1,
-			MaxFixRounds:      7,
+			MaxFixRounds:      10,
 			MaxCheckAttempts:  3,
 			MaxWorkerRestarts: 3,
 			Roles: Roles{

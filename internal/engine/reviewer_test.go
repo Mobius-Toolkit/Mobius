@@ -407,7 +407,7 @@ func TestAReviewRoundPostsACommentAndUpdatesTheSameCommentWithTheResults(t *test
 		comments := roundComments(fake)
 		return comments, len(comments) > 0
 	})
-	if !slices.Equal(started, []string{"Review started, round 1 of 7"}) {
+	if !slices.Equal(started, []string{"Review started, round 1 of 10"}) {
 		t.Errorf("comments = %q", started)
 	}
 
@@ -417,7 +417,7 @@ func TestAReviewRoundPostsACommentAndUpdatesTheSameCommentWithTheResults(t *test
 		comments := roundComments(fake)
 		return comments, strings.HasPrefix(comments[0], "Review ended")
 	})
-	if want := "Review ended, round 1 of 7\n\nResult: A fix round started.\nOpen findings: 1\n\n- https://github.com/owner/shop/pull/42#discussion_r2"; ended[0] != want {
+	if want := "Review ended, round 1 of 10\n\nResult: A fix round started.\nOpen findings: 1\n\n- https://github.com/owner/shop/pull/42#discussion_r2"; ended[0] != want {
 		t.Errorf("comment = %q", ended[0])
 	}
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).ReviewRounds == 1 })
@@ -425,7 +425,7 @@ func TestAReviewRoundPostsACommentAndUpdatesTheSameCommentWithTheResults(t *test
 
 func TestTheReviewRoundAtMaxFixRoundsShowsTheLimitAndStartsNoNextRound(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, finding+leadStarts, eachFix+commits, noChange)
+	server, _ := connectTask(t, fake, finding+leadStarts, eachFix+commits, func(cfg *config.Config) { cfg.MaxFixRounds = 7 })
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
@@ -466,8 +466,8 @@ func TestAFailedReviewRunShowsTheReasonAndTheRestartKeepsTheRoundNumber(t *testi
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 	comments := roundComments(fake)
 	if len(comments) != 2 ||
-		!strings.HasPrefix(comments[0], "Review stopped, round 1 of 7\n\nThe run failed: ") ||
-		!strings.HasPrefix(comments[1], "Review ended, round 1 of 7\n\nResult: No open findings. Mobius waits for CI.\nOpen findings: 0") {
+		!strings.HasPrefix(comments[0], "Review stopped, round 1 of 10\n\nThe run failed: ") ||
+		!strings.HasPrefix(comments[1], "Review ended, round 1 of 10\n\nResult: No open findings. Mobius waits for CI.\nOpen findings: 0") {
 		t.Errorf("comments = %q", comments)
 	}
 	if task := liveTask(t, server, 41); task.ReviewRounds != 1 {
