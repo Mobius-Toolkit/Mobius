@@ -235,7 +235,8 @@ func threadText(thread github.ReviewThread, trusted func(string) bool) string {
 }
 
 // judgeReady moves the reviewed task to checks when its pull request has no open thread, with a new Mobius check run on
-// the head. It gives true when the task left the state reviewed.
+// the head. Then a task with kept findings of the Lead gets a fix round. It gives true when the task left the state
+// reviewed.
 func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
 	number := int64(pullRequest.GetNumber())
@@ -247,8 +248,16 @@ func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, t
 	if _, err := repository.CreateCheckRun(ctx, checkRunName, pullRequest.GetHead().GetSHA(), "in_progress"); err != nil {
 		return false, err
 	}
-	_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "reviewed"})
-	return true, err
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "reviewed"})
+	if err != nil || moved == 0 {
+		return true, err
+	}
+	issue, err := existingIssue(ctx, repository, task.Issue)
+	if err != nil {
+		return true, err
+	}
+	task.State = "checks"
+	return true, e.startKeptRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest})
 }
 
 // runJudge moves the task to working and runs the Judge of the job until the task stops. The Worker of the task exists
@@ -413,6 +422,7 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 // route acts on the verdicts of the Judge: a reject replies with its reason, a follow-up goes to the Lead, and the fix
 // and question actions go to a fix round. A round with no fix action does not count toward max_fix_rounds. With no
 // round, a needs_human task continues as continueTask says, and another task goes back to its state before the Judge.
+// A task that goes back to checks, approval or ready_for_review gets a fix round with the findings that the Lead kept.
 func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts) error {
 	repository, err := e.repository(j.task.Repository)
 	if err != nil {
@@ -444,8 +454,11 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 			_, err := e.continueTask(ctx, repository, j.title, j.task, j.pullRequest, "working")
 			return err
 		}
-		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: j.from, ID: j.task.ID, FromState: "working"})
-		return err
+		moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: j.from, ID: j.task.ID, FromState: "working"})
+		if err != nil || moved == 0 || j.from == "reviewed" {
+			return err
+		}
+		return e.startKeptRound(ctx, repository, round{task: j.task, title: j.title, pullRequest: j.pullRequest})
 	}
 	if j.from == "needs_human" {
 		if err := e.unstop(ctx, repository, j.task); err != nil {

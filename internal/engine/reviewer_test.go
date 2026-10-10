@@ -384,7 +384,7 @@ func TestStartFixRoundRefusesATaskThatDoesNotWaitAndIsNotReadyForReview(t *testi
 
 	sendChat(t, server, leadChat, "Send the findings to #41")
 
-	waitForChat(t, server, leadChat, "Lead", "error: The task of #41 is needs_human, not checks, approval or ready_for_review.")
+	waitForChat(t, server, leadChat, "Lead", "error: The task of #41 is needs_human, not working, reviewed, checks, approval or ready_for_review.")
 	if task := liveTask(t, server, 41); task.State != "needs_human" || task.FixRounds != 0 {
 		t.Errorf("task = %+v", task)
 	}

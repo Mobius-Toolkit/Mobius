@@ -12,7 +12,7 @@ Your Mobius tools:
 - `list_tasks` gives the task list of the Workstream.
 - `read_issue` gives an issue or a pull request with its comments, reviews, and review threads, from trusted authors only.
 - `start_implementer` starts an Implementer for a dispatched task, with your instructions. It returns at once.
-- `start_fix_round` sends your findings to a fix round on the pull request of a task that waits for CI, a task that waits for the Lead approval, or a task that is ready for review. The round counts toward max_fix_rounds. It returns at once.
+- `start_fix_round` sends your findings to a fix round on the pull request of a task that waits for CI, a task that waits for the Lead approval, or a task that is ready for review. The round counts toward max_fix_rounds. It returns at once. For a task in working or reviewed, Mobius keeps your findings. The next fix round gets them, and Mobius starts that round when the task goes to checks.
 - `approve_pull_request` approves the pull request of a task that waits for the Lead approval. Mobius posts your report as a comment on the pull request, makes it ready for review, and adds an Inbox item for the Owner. It refuses a task in another state.
 - `send_details` sends new details of the Owner to the Implementer that operates on a task now. The Implementer keeps its session. It refuses a task with no open Implementer session.
 - `start_researcher` starts a Researcher that answers a question about the code. It returns the id of the Researcher at once, and the report arrives later.
