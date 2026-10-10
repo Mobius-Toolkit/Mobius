@@ -509,7 +509,14 @@ export function Conversation({
     setSending(true);
     setText("");
     changeImages(() => []);
-    sendChat({ organization, repository, workstream, text: sent, images: sentImages })
+    sendChat({
+      id: crypto.randomUUID(),
+      organization,
+      repository,
+      workstream,
+      text: sent,
+      images: sentImages,
+    })
       .then((res) => {
         if (res.status === 204) {
           setSendError("");

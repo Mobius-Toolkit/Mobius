@@ -144,8 +144,9 @@ func (c *chat) notify() {
 // addChatMessage adds a chat message and sends it to the listeners. A message of the Researcher stays hidden. A
 // message that is not of the Owner, of a Researcher or of an event also changes the unread count of the chat. When
 // images is not empty, it is the directory of saveImages. The message gets the images before the listeners see it, and
-// Mobius does not add it when the move fails.
-func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, images string) (store.ChatMessage, error) {
+// Mobius does not add it when the move fails. When browserID is not empty and a message has it, Mobius adds nothing and
+// the error is sql.ErrNoRows.
+func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, images, browserID string) (store.ChatMessage, error) {
 	message, err := e.queries.AddChatMessage(ctx, store.AddChatMessageParams{
 		Organization: key.Organization,
 		Repository:   key.Repository,
@@ -153,6 +154,7 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 		Author:       author,
 		Time:         now(),
 		Text:         text,
+		BrowserID:    sql.NullString{String: browserID, Valid: browserID != ""},
 	})
 	if err != nil {
 		return message, err
@@ -182,20 +184,22 @@ func (e *Engine) publishUnread(ctx context.Context, key ChatKey) error {
 }
 
 // SendChat adds the message text of the Owner with its images to the chat, and gives it to the agent of the chat. It
-// starts the agent when none runs. The text can be empty when the message has an image.
-func (e *Engine) SendChat(ctx context.Context, key ChatKey, text string, images []Image) error {
+// starts the agent when none runs. The text can be empty when the message has an image. When a message has the
+// browserID already, it does nothing.
+func (e *Engine) SendChat(ctx context.Context, key ChatKey, browserID, text string, images []Image) error {
 	if !slices.Contains(e.github.Organizations(), key.Organization) {
 		return refuse("Mobius has no repository in the organization \"%s\".", key.Organization)
 	}
 	if text == "" && len(images) == 0 {
 		return refuse("A message must have text or an image.")
 	}
-	return e.postChat(ctx, key, ownerAuthor, text, images)
+	return e.postChat(ctx, key, ownerAuthor, browserID, text, images)
 }
 
 // postChat adds the message text of author with its images to the chat, and gives it to the agent of the chat. It
-// starts the agent when none runs. A message that has images is not added when Mobius cannot keep them.
-func (e *Engine) postChat(ctx context.Context, key ChatKey, author, text string, images []Image) error {
+// starts the agent when none runs. A message that has images is not added when Mobius cannot keep them. A message
+// with a browserID that another message has is not added, and its images are removed.
+func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, text string, images []Image) error {
 	if e.sealed() {
 		return refuse("Mobius restarts for an upgrade. Send the message after the restart.")
 	}
@@ -208,10 +212,13 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, text string,
 	}
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
-	message, err := e.addChatMessage(ctx, key, author, text, saved)
+	message, err := e.addChatMessage(ctx, key, author, text, saved, browserID)
 	if err != nil {
 		if saved != "" {
 			_ = os.RemoveAll(saved)
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
 		}
 		return err
 	}
@@ -275,7 +282,7 @@ type commentRef struct {
 func (e *Engine) addCommentLeadEvent(ctx context.Context, repository string, workstream int64, issue sql.NullInt64, kind, text string, comment commentRef) error {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
-	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text, "")
+	message, err := e.addChatMessage(ctx, leadChat(repository, workstream), eventAuthor, text, "", "")
 	if err != nil {
 		return err
 	}
@@ -764,10 +771,29 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images
 	if current.event != nil && current.event.Comment.Valid {
 		e.launchEventComment(c.ctx, current.event)
 	}
+	if current.message != nil && current.message.Author == ownerAuthor {
+		if err := e.deliverMessage(c.ctx, current.message.ID); err != nil {
+			return err
+		}
+	}
 	if err := e.turn(c, a, prompt, images, current.message != nil); err != nil {
 		return err
 	}
 	return e.endTurn(c, current)
+}
+
+// deliverMessage sets the delivery time of a message of the Owner and sends the message to the listeners. A message
+// that has a delivery time keeps it.
+func (e *Engine) deliverMessage(ctx context.Context, id int64) error {
+	message, err := e.queries.DeliverChatMessage(ctx, store.DeliverChatMessageParams{DeliveredAt: sql.NullString{String: now(), Valid: true}, ID: id})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	e.publish(Change{Message: &message})
+	return nil
 }
 
 // turn sends prompt and images to the agent and holds until the turn ends. A stop cancels a stoppable turn.
@@ -851,7 +877,7 @@ func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repo
 	if issue == nil {
 		return "", refuse("The Workstream issue does not exist.")
 	}
-	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text, ""); err != nil {
+	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text, "", ""); err != nil {
 		return "", err
 	}
 	c.agent.setAuthor("")

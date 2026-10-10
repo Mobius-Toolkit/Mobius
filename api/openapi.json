@@ -191,7 +191,7 @@
     },
     "/api/chat/messages": {
       "post": {
-        "description": "SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. It returns 400 when the request is larger than 4 images of 5 MB with the text. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.",
+        "description": "SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. A message with the id of a stored message changes nothing and returns the same status. It returns 400 when the request is larger than 4 images of 5 MB with the text. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.",
         "operationId": "SendChat",
         "requestBody": {
           "content": {
@@ -3024,6 +3024,18 @@
               "Event"
             ]
           },
+          "browserId": {
+            "type": "string",
+            "description": "BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message"
+          },
+          "deliveredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "DeliveredAt is the time when the turn of the agent for the message of the Owner started, or null before that and for another message",
+            "format": "date-time"
+          },
           "id": {
             "type": "integer",
             "description": "ID increases with each new message of all chats"
@@ -3062,7 +3074,9 @@
           "author",
           "time",
           "text",
-          "images"
+          "images",
+          "browserId",
+          "deliveredAt"
         ],
         "description": "ChatMessage is a message of a Lead chat or of the Triager chat."
       },
@@ -4411,6 +4425,10 @@
         "type": "object",
         "title": "SendChatBody",
         "properties": {
+          "id": {
+            "type": "string",
+            "description": "ID is the id that the browser gives to the message. A message with an id that another message has is not stored again, and the response is the same"
+          },
           "images": {
             "type": "array",
             "description": "Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB",
@@ -4437,6 +4455,7 @@
           }
         },
         "required": [
+          "id",
           "text"
         ]
       },
