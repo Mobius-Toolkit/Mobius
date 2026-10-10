@@ -22,6 +22,7 @@ type Label struct {
 const (
 	workstreamLabel   = "mobius:workstream"
 	autopilotLabel    = "mobius:autopilot"
+	triageLabel       = "mobius:triage"
 	readyLabel        = "mobius:ready"
 	noWorkstreamLabel = "mobius:no-workstream"
 	wontDoLabel       = "mobius:wont-do"
@@ -31,6 +32,7 @@ const (
 var Labels = []Label{
 	{"mobius:workstream", "5319E7", "Mobius Workstream: a parent issue for a group of tasks"},
 	{"mobius:autopilot", "1D76DB", "Mobius dispatches the ready tasks of this Workstream"},
+	{"mobius:triage", "FEF2C0", "The Owner must accept this task before Mobius can start it"},
 	{"mobius:ready", "0E8A16", "Mobius can dispatch this task"},
 	{"mobius:working", "FBCA04", "A Mobius agent works on this task"},
 	{"mobius:needs-human", "D93F0B", "The task stopped and needs a human"},
