@@ -25,16 +25,13 @@ call = { tool = "start_implementer", arguments = { n = 45, instructions = "Add a
 
 ` + leadStartsTwo
 
-// connectThree starts a server with the tasks #41, #43 and #45 of the Workstream #12, one agent slot, a short
+// connectThree starts a server with the tasks #41, #43 and #45 of the Workstream #12, one Implementer slot, a short
 // review_quiet_period, and the Implementer.
-func connectThree(t *testing.T, fake *testkit.FakeGitHub, implementer string, adjust ...func(*config.Config)) (*testserver.Server, string) {
+func connectThree(t *testing.T, fake *testkit.FakeGitHub, implementer string) (*testserver.Server, string) {
 	t.Helper()
 	server, dataDir := connectTask(t, fake, leadStartsThree, implementer, func(cfg *config.Config) {
-		cfg.MaxAgents = 1
+		cfg.Roles.Implementer.Max = 1
 		cfg.ReviewQuietPeriod = 200 * time.Millisecond
-		for _, change := range adjust {
-			change(cfg)
-		}
 	})
 	for _, number := range []int64{43, 45} {
 		fake.AddSubIssueOf(shop, 12, number, fmt.Sprintf("Task %d", number))
@@ -172,7 +169,7 @@ func TestAFreeSlotGoesToTheFixRoundOfAnOldPullRequestBeforeANewTicket(t *testing
 		}
 		return sessions[0], sessions[0].QueueReason.Valid
 	})
-	if ticket.QueueReason.String != "no free agent slot (1/1)" {
+	if ticket.QueueReason.String != "no free implementer slot (1/1)" {
 		t.Errorf("queue reason = %s", ticket.QueueReason.String)
 	}
 	// The poll after the start of the round gives the pull request its work.
@@ -295,35 +292,6 @@ func TestAFailedCheckOnAHeadThatGotItsFixRoundDoesNotStopANewTicket(t *testing.T
 	waitForState(t, server, 43, "approval")
 	if count := len(issueImplementers(t, server, 41)); count != 2 {
 		t.Errorf("Implementers of #41 = %d", count)
-	}
-}
-
-// The Judge of a task in needs_human holds its slot, so a new ticket waits (Mobius-rust#385).
-func TestAJudgeThatRunsFromNeedsHumanHoldsANewTicket(t *testing.T) {
-	t.Parallel()
-	testkit.Slow(t)
-	fake := testkit.NewFakeGitHub(t)
-	server, dataDir := connectThree(t, fake, fixes, func(cfg *config.Config) { cfg.Roles.Judge.CountsInMaxAgents = true })
-	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options+"[[prompts]]\nwhen = \"You are the Judge\"\nhang = true\n\n"+leadStartsThree)
-	_, pullRequest := readyPullRequest(t, server, fake)
-	fake.SetCreatedAt(shop, pullRequest, 0)
-	fake.SetBehind(shop, pullRequest)
-	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
-	waitForState(t, server, 41, "needs_human")
-	fake.AddComment(shop, pullRequest, "owner", "Continue.")
-	waitForState(t, server, 41, "working")
-
-	fake.AddLabel(shop, 43, "mobius:ready", "owner")
-
-	ticket := testkit.WaitForValue(t, func() (store.Session, bool) {
-		sessions := issueImplementers(t, server, 43)
-		if len(sessions) == 0 {
-			return store.Session{}, false
-		}
-		return sessions[0], sessions[0].QueueReason.Valid
-	})
-	if ticket.QueueReason.String != "no free agent slot (1/1)" {
-		t.Errorf("queue reason = %s", ticket.QueueReason.String)
 	}
 }
 

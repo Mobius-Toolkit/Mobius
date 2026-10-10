@@ -5,6 +5,14 @@ export function clock(time: string) {
   });
 }
 
+export function clockSeconds(time: number) {
+  return new Date(time).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 export function dayClock(time: string) {
   return new Date(time).toLocaleString([], {
     month: "short",
@@ -32,4 +40,10 @@ export function dayLabel(time: string) {
     day: "numeric",
     year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
   });
+}
+
+const utcTime = /(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC/g;
+
+export function localTimes(text: string) {
+  return text.replace(utcTime, (_, date: string, time: string) => dayClock(`${date}T${time}:00Z`));
 }

@@ -66,6 +66,14 @@ INSERT INTO turn_usage (session, task, issue, workstream, organization, reposito
                         effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- name: ListTurnUsageBetween :many
+SELECT * FROM turn_usage WHERE started_at >= sqlc.arg(after) AND started_at < sqlc.arg(before);
+
+-- name: AddStepTime :exec
+INSERT INTO step_times (kind, session, task, issue, workstream, organization, repository, role, harness, model, effort,
+                        started_at, ended_at, attempt, result)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
 -- name: SetACPSessionID :exec
 UPDATE sessions SET acp_session_id = ? WHERE id = ?;
 
@@ -180,6 +188,15 @@ RETURNING *;
 UPDATE chat_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL
 RETURNING *;
 
+-- name: StopChatMessage :one
+UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL
+RETURNING *;
+
+-- name: GetLastChatMessageOf :one
+SELECT * FROM chat_messages
+WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
+ORDER BY id DESC LIMIT 1;
+
 -- name: DeleteChatMessage :exec
 DELETE FROM chat_messages WHERE id = ?;
 
@@ -273,6 +290,21 @@ SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?);
 
 -- name: CountActiveTasks :one
 SELECT count(*) FROM tasks WHERE state IN ('dispatched', 'queued', 'working');
+
+-- name: ListActiveTasks :many
+SELECT repository, issue, state, state_at FROM tasks WHERE state IN ('dispatched', 'queued', 'working') ORDER BY id;
+
+-- name: StartFullSlots :exec
+INSERT INTO full_slots (id, since) VALUES (1, ?) ON CONFLICT DO NOTHING;
+
+-- name: GetFullSlots :one
+SELECT * FROM full_slots;
+
+-- name: SetFullSlotsItemAt :exec
+UPDATE full_slots SET item_at = ? WHERE item_at IS NULL;
+
+-- name: EndFullSlots :exec
+DELETE FROM full_slots;
 
 -- name: ResetTaskCounters :exec
 UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;
@@ -435,6 +467,10 @@ DELETE FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND posi
 SELECT position, number, parent, title, state, author, html_url, repository_url FROM copied_issues
 WHERE repository = ? AND workstream = ? ORDER BY position;
 
+-- A tree can hold an issue of another repository with the same number, so the caller checks repository_url.
+-- name: ListCopiedIssuesByNumber :many
+SELECT title, html_url, repository_url FROM copied_issues WHERE repository = ? AND workstream = ? AND number = ?;
+
 -- name: ListCopiedTreeLabels :many
 SELECT position, name FROM copied_issue_labels WHERE repository = ? AND workstream = ? ORDER BY position, name;
 
@@ -560,3 +596,6 @@ ON CONFLICT (repository, review, comment) DO NOTHING;
 
 -- name: SetTaskLongWaitAt :exec
 UPDATE tasks SET long_wait_at = ? WHERE id = ?;
+
+-- name: SetTaskCheckErrors :exec
+UPDATE tasks SET check_errors = ? WHERE id = ?;

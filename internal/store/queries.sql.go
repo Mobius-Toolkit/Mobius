@@ -14,7 +14,7 @@ const addChatMessage = `-- name: AddChatMessage :one
 INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at
 `
 
 type AddChatMessageParams struct {
@@ -48,6 +48,7 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		&i.Organization,
 		&i.BrowserID,
 		&i.DeliveredAt,
+		&i.StoppedAt,
 	)
 	return i, err
 }
@@ -428,10 +429,55 @@ func (q *Queries) AddSession(ctx context.Context, arg AddSessionParams) (Session
 	return i, err
 }
 
+const addStepTime = `-- name: AddStepTime :exec
+INSERT INTO step_times (kind, session, task, issue, workstream, organization, repository, role, harness, model, effort,
+                        started_at, ended_at, attempt, result)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddStepTimeParams struct {
+	Kind         string
+	Session      sql.NullInt64
+	Task         sql.NullInt64
+	Issue        sql.NullInt64
+	Workstream   int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Model        string
+	Effort       sql.NullString
+	StartedAt    string
+	EndedAt      string
+	Attempt      sql.NullInt64
+	Result       sql.NullString
+}
+
+func (q *Queries) AddStepTime(ctx context.Context, arg AddStepTimeParams) error {
+	_, err := q.db.ExecContext(ctx, addStepTime,
+		arg.Kind,
+		arg.Session,
+		arg.Task,
+		arg.Issue,
+		arg.Workstream,
+		arg.Organization,
+		arg.Repository,
+		arg.Role,
+		arg.Harness,
+		arg.Model,
+		arg.Effort,
+		arg.StartedAt,
+		arg.EndedAt,
+		arg.Attempt,
+		arg.Result,
+	)
+	return err
+}
+
 const addTask = `-- name: AddTask :one
 INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at)
 VALUES (?, ?, ?, 'dispatched', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at
+RETURNING id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors
 `
 
 type AddTaskParams struct {
@@ -474,6 +520,7 @@ func (q *Queries) AddTask(ctx context.Context, arg AddTaskParams) (Task, error) 
 		&i.CiFailedHead,
 		&i.StateAt,
 		&i.LongWaitAt,
+		&i.CheckErrors,
 	)
 	return i, err
 }
@@ -578,7 +625,7 @@ func (q *Queries) AddWorkerRestart(ctx context.Context, arg AddWorkerRestartPara
 
 const appendChatMessage = `-- name: AppendChatMessage :one
 UPDATE chat_messages SET text = text || ?1 WHERE id = ?2
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at
 `
 
 type AppendChatMessageParams struct {
@@ -599,6 +646,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		&i.Organization,
 		&i.BrowserID,
 		&i.DeliveredAt,
+		&i.StoppedAt,
 	)
 	return i, err
 }
@@ -864,7 +912,7 @@ func (q *Queries) DeleteOtherPasswordLogins(ctx context.Context, passwordFingerp
 
 const deliverChatMessage = `-- name: DeliverChatMessage :one
 UPDATE chat_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at
 `
 
 type DeliverChatMessageParams struct {
@@ -885,6 +933,7 @@ func (q *Queries) DeliverChatMessage(ctx context.Context, arg DeliverChatMessage
 		&i.Organization,
 		&i.BrowserID,
 		&i.DeliveredAt,
+		&i.StoppedAt,
 	)
 	return i, err
 }
@@ -944,6 +993,15 @@ func (q *Queries) DismissInboxItem(ctx context.Context, arg DismissInboxItemPara
 		&i.Organization,
 	)
 	return i, err
+}
+
+const endFullSlots = `-- name: EndFullSlots :exec
+DELETE FROM full_slots
+`
+
+func (q *Queries) EndFullSlots(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, endFullSlots)
+	return err
 }
 
 const endSession = `-- name: EndSession :one
@@ -1064,6 +1122,17 @@ func (q *Queries) GetCopiedIssueWorkstream(ctx context.Context, arg GetCopiedIss
 	return workstream, err
 }
 
+const getFullSlots = `-- name: GetFullSlots :one
+SELECT id, since, item_at FROM full_slots
+`
+
+func (q *Queries) GetFullSlots(ctx context.Context) (FullSlot, error) {
+	row := q.db.QueryRowContext(ctx, getFullSlots)
+	var i FullSlot
+	err := row.Scan(&i.ID, &i.Since, &i.ItemAt)
+	return i, err
+}
+
 const getGitHubApp = `-- name: GetGitHubApp :one
 SELECT app_id, slug, private_key, client_id, client_secret, user_token, refresh_token, user_token_expires_at FROM github_apps WHERE app_id = ?
 `
@@ -1095,6 +1164,42 @@ func (q *Queries) GetHarnessPause(ctx context.Context, harness string) (HarnessP
 	return i, err
 }
 
+const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
+WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
+ORDER BY id DESC LIMIT 1
+`
+
+type GetLastChatMessageOfParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+	Author       string
+}
+
+func (q *Queries) GetLastChatMessageOf(ctx context.Context, arg GetLastChatMessageOfParams) (ChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, getLastChatMessageOf,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.Author,
+	)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
+		&i.StoppedAt,
+	)
+	return i, err
+}
+
 const getLastDoneCuratorStart = `-- name: GetLastDoneCuratorStart :one
 SELECT started_at FROM sessions
 WHERE repository = ? AND role = 'curator' AND end_reason = 'done'
@@ -1109,7 +1214,7 @@ func (q *Queries) GetLastDoneCuratorStart(ctx context.Context, repository string
 }
 
 const getLiveTask = `-- name: GetLiveTask :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended'
 `
 
 type GetLiveTaskParams struct {
@@ -1145,12 +1250,13 @@ func (q *Queries) GetLiveTask(ctx context.Context, arg GetLiveTaskParams) (Task,
 		&i.CiFailedHead,
 		&i.StateAt,
 		&i.LongWaitAt,
+		&i.CheckErrors,
 	)
 	return i, err
 }
 
 const getLiveTaskByPullRequest = `-- name: GetLiveTaskByPullRequest :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors FROM tasks WHERE repository = ? AND pull_request = ? AND state <> 'ended'
 `
 
 type GetLiveTaskByPullRequestParams struct {
@@ -1186,6 +1292,7 @@ func (q *Queries) GetLiveTaskByPullRequest(ctx context.Context, arg GetLiveTaskB
 		&i.CiFailedHead,
 		&i.StateAt,
 		&i.LongWaitAt,
+		&i.CheckErrors,
 	)
 	return i, err
 }
@@ -1416,8 +1523,47 @@ func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredPa
 	return exists, err
 }
 
+const listActiveTasks = `-- name: ListActiveTasks :many
+SELECT repository, issue, state, state_at FROM tasks WHERE state IN ('dispatched', 'queued', 'working') ORDER BY id
+`
+
+type ListActiveTasksRow struct {
+	Repository string
+	Issue      int64
+	State      string
+	StateAt    string
+}
+
+func (q *Queries) ListActiveTasks(ctx context.Context) ([]ListActiveTasksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listActiveTasks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveTasksRow
+	for rows.Next() {
+		var i ListActiveTasksRow
+		if err := rows.Scan(
+			&i.Repository,
+			&i.Issue,
+			&i.State,
+			&i.StateAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
 ORDER BY id DESC LIMIT ?
 `
@@ -1455,6 +1601,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 			&i.Organization,
 			&i.BrowserID,
 			&i.DeliveredAt,
+			&i.StoppedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1470,7 +1617,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 }
 
 const listChatMessagesPage = `-- name: ListChatMessagesPage :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator') AND id < ?
 ORDER BY id DESC LIMIT ?
 `
@@ -1509,6 +1656,7 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 			&i.Organization,
 			&i.BrowserID,
 			&i.DeliveredAt,
+			&i.StoppedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1581,6 +1729,46 @@ func (q *Queries) ListCopiedIssueRows(ctx context.Context, arg ListCopiedIssueRo
 	for rows.Next() {
 		var i ListCopiedIssueRowsRow
 		if err := rows.Scan(&i.Repository, &i.Workstream, &i.Position); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCopiedIssuesByNumber = `-- name: ListCopiedIssuesByNumber :many
+SELECT title, html_url, repository_url FROM copied_issues WHERE repository = ? AND workstream = ? AND number = ?
+`
+
+type ListCopiedIssuesByNumberParams struct {
+	Repository string
+	Workstream int64
+	Number     int64
+}
+
+type ListCopiedIssuesByNumberRow struct {
+	Title         string
+	HtmlUrl       string
+	RepositoryUrl string
+}
+
+// A tree can hold an issue of another repository with the same number, so the caller checks repository_url.
+func (q *Queries) ListCopiedIssuesByNumber(ctx context.Context, arg ListCopiedIssuesByNumberParams) ([]ListCopiedIssuesByNumberRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCopiedIssuesByNumber, arg.Repository, arg.Workstream, arg.Number)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCopiedIssuesByNumberRow
+	for rows.Next() {
+		var i ListCopiedIssuesByNumberRow
+		if err := rows.Scan(&i.Title, &i.HtmlUrl, &i.RepositoryUrl); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2321,7 +2509,7 @@ func (q *Queries) ListLiveTaskRepositories(ctx context.Context) ([]string, error
 }
 
 const listLiveTasks = `-- name: ListLiveTasks :many
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors FROM tasks WHERE repository = ? AND state <> 'ended' ORDER BY id
 `
 
 func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task, error) {
@@ -2358,6 +2546,7 @@ func (q *Queries) ListLiveTasks(ctx context.Context, repository string) ([]Task,
 			&i.CiFailedHead,
 			&i.StateAt,
 			&i.LongWaitAt,
+			&i.CheckErrors,
 		); err != nil {
 			return nil, err
 		}
@@ -2922,6 +3111,58 @@ func (q *Queries) ListTranscript(ctx context.Context, session int64) ([]Transcri
 	return items, nil
 }
 
+const listTurnUsageBetween = `-- name: ListTurnUsageBetween :many
+SELECT id, session, task, issue, workstream, organization, repository, role, harness, model, reported_model, effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd FROM turn_usage WHERE started_at >= ?1 AND started_at < ?2
+`
+
+type ListTurnUsageBetweenParams struct {
+	After  string
+	Before string
+}
+
+func (q *Queries) ListTurnUsageBetween(ctx context.Context, arg ListTurnUsageBetweenParams) ([]TurnUsage, error) {
+	rows, err := q.db.QueryContext(ctx, listTurnUsageBetween, arg.After, arg.Before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TurnUsage
+	for rows.Next() {
+		var i TurnUsage
+		if err := rows.Scan(
+			&i.ID,
+			&i.Session,
+			&i.Task,
+			&i.Issue,
+			&i.Workstream,
+			&i.Organization,
+			&i.Repository,
+			&i.Role,
+			&i.Harness,
+			&i.Model,
+			&i.ReportedModel,
+			&i.Effort,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.CacheReadTokens,
+			&i.CacheWriteTokens,
+			&i.CostUsd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUndeliveredLeadEvents = `-- name: ListUndeliveredLeadEvents :many
 SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id
 `
@@ -3203,6 +3444,15 @@ func (q *Queries) SetCopiedAutopilot(ctx context.Context, arg SetCopiedAutopilot
 	return err
 }
 
+const setFullSlotsItemAt = `-- name: SetFullSlotsItemAt :exec
+UPDATE full_slots SET item_at = ? WHERE item_at IS NULL
+`
+
+func (q *Queries) SetFullSlotsItemAt(ctx context.Context, itemAt sql.NullString) error {
+	_, err := q.db.ExecContext(ctx, setFullSlotsItemAt, itemAt)
+	return err
+}
+
 const setHarnessPause = `-- name: SetHarnessPause :exec
 INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES (?, ?, ?)
 ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until, inbox_item = excluded.inbox_item
@@ -3327,6 +3577,20 @@ type SetTaskBranchParams struct {
 
 func (q *Queries) SetTaskBranch(ctx context.Context, arg SetTaskBranchParams) error {
 	_, err := q.db.ExecContext(ctx, setTaskBranch, arg.Branch, arg.ID)
+	return err
+}
+
+const setTaskCheckErrors = `-- name: SetTaskCheckErrors :exec
+UPDATE tasks SET check_errors = ? WHERE id = ?
+`
+
+type SetTaskCheckErrorsParams struct {
+	CheckErrors int64
+	ID          int64
+}
+
+func (q *Queries) SetTaskCheckErrors(ctx context.Context, arg SetTaskCheckErrorsParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskCheckErrors, arg.CheckErrors, arg.ID)
 	return err
 }
 
@@ -3493,6 +3757,15 @@ func (q *Queries) SetUserTokens(ctx context.Context, arg SetUserTokensParams) er
 	return err
 }
 
+const startFullSlots = `-- name: StartFullSlots :exec
+INSERT INTO full_slots (id, since) VALUES (1, ?) ON CONFLICT DO NOTHING
+`
+
+func (q *Queries) StartFullSlots(ctx context.Context, since string) error {
+	_, err := q.db.ExecContext(ctx, startFullSlots, since)
+	return err
+}
+
 const startSession = `-- name: StartSession :one
 UPDATE sessions SET started_at = ?, queue_reason = NULL WHERE id = ?
 RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort
@@ -3549,6 +3822,34 @@ func (q *Queries) StartTaskWorker(ctx context.Context, arg StartTaskWorkerParams
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const stopChatMessage = `-- name: StopChatMessage :one
+UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at
+`
+
+type StopChatMessageParams struct {
+	StoppedAt sql.NullString
+	ID        int64
+}
+
+func (q *Queries) StopChatMessage(ctx context.Context, arg StopChatMessageParams) (ChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, stopChatMessage, arg.StoppedAt, arg.ID)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
+		&i.StoppedAt,
+	)
+	return i, err
 }
 
 const stopTask = `-- name: StopTask :execrows

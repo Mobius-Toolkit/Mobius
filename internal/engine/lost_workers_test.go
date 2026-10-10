@@ -70,12 +70,12 @@ func TestAQueuedTaskThatLostItsWorkerGetsANewWorkerAndATaskInTheQueueDoesNotRest
 	t.Parallel()
 	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
-	server := connectLost(t, fake, func(cfg *config.Config) { cfg.MaxAgents = 1 }, func(dataDir string) {
+	server := connectLost(t, fake, func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 }, func(dataDir string) {
 		seedWorkerTask(t, fake, dataDir, 1, 41, "working")
 		seedWorkerTask(t, fake, dataDir, 2, 43, "queued")
 	})
 	waiting := queued(t, server, engine.ImplementerRole)
-	if waiting.QueueReason.String != "no free agent slot (1/1)" {
+	if waiting.QueueReason.String != "no free implementer slot (1/1)" {
 		t.Fatalf("queue reason = %q", waiting.QueueReason.String)
 	}
 
@@ -154,7 +154,7 @@ func TestAReviewerThatTheServerRestartsAfterALossShowsAReasonWithNoServerRestart
 		t.Fatalf("pull request = %d", number)
 	}
 	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ReviewerRole)) == 1 })
-	comment := fake.AddComment(shop, 42, app, "Review started, round 1 of 7")
+	comment := fake.AddComment(shop, 42, app, "Review started, round 1 of 10")
 	// The review comment of the run that the lost Worker left open appears with the count of the restart.
 	trigger := fmt.Sprintf("CREATE TRIGGER open_review_comment AFTER UPDATE OF worker_restarts ON tasks BEGIN UPDATE tasks SET review_comment = %d WHERE id = NEW.id; END", comment)
 	if _, err := server.DB.Exec(trigger); err != nil {

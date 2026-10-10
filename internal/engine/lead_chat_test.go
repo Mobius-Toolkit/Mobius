@@ -1078,6 +1078,7 @@ type apiChatMessage struct {
 	Text        string     `json:"text"`
 	BrowserID   string     `json:"browserId"`
 	DeliveredAt *time.Time `json:"deliveredAt"`
+	StoppedAt   *time.Time `json:"stoppedAt"`
 }
 
 type apiUnread struct {
@@ -1191,8 +1192,9 @@ func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 
 // chatState is the data of a chat event.
 type chatState struct {
-	Workstream int64 `json:"workstream"`
-	Writing    bool  `json:"writing"`
+	Workstream  int64      `json:"workstream"`
+	Writing     bool       `json:"writing"`
+	PausedUntil *time.Time `json:"pausedUntil"`
 }
 
 func TestTheLeadChatRefusesToMoveATaskWhenTheTaskOrTheTargetDoesNotFit(t *testing.T) {

@@ -557,11 +557,11 @@ func dispatchTwo(fake *testkit.FakeGitHub) {
 	fake.AddLabel(shop, 43, "mobius:ready", "owner")
 }
 
-func TestWithOneAgentSlotTheSecondImplementerWaitsInTheQueueUntilTheFirstEnds(t *testing.T) {
+func TestWithOneImplementerSlotTheSecondImplementerWaitsInTheQueueUntilTheFirstEnds(t *testing.T) {
 	t.Parallel()
 	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
-	server, dataDir := connectTask(t, fake, leadStartsTwo, commits, func(cfg *config.Config) { cfg.MaxAgents = 1 })
+	server, dataDir := connectTask(t, fake, leadStartsTwo, commits, func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
 	goFile := filepath.Join(dataDir, "go")
 	fake.SetCheck(shop, fmt.Sprintf("while [ ! -e '%s' ]; do sleep 0.05; done", goFile))
 
@@ -575,7 +575,7 @@ func TestWithOneAgentSlotTheSecondImplementerWaitsInTheQueueUntilTheFirstEnds(t 
 		}
 		return store.Session{}, false
 	})
-	if waiting.QueueReason.String != "no free agent slot (1/1)" {
+	if waiting.QueueReason.String != "no free implementer slot (1/1)" {
 		t.Errorf("queue reason = %s", waiting.QueueReason.String)
 	}
 	// The first task takes its slot before it writes the state working.

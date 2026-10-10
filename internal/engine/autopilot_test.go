@@ -83,14 +83,14 @@ func TestWithNoAutopilotNoTaskStarts(t *testing.T) {
 	}
 }
 
-func TestWithAsManyActiveTasksAsMaxAgentsNoTaskStarts(t *testing.T) {
+func TestWithAsManyActiveTasksAsTheImplementerLimitNoTaskStarts(t *testing.T) {
 	t.Parallel()
 	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	prepareAutopilot(fake, true)
 	addTaskIssue(fake, 41, "Add plan model")
 	addTaskIssue(fake, 42, "Add plan price")
-	server := startAutopilot(t, fake, func(cfg *config.Config) { cfg.MaxAgents = 1 }, "")
+	server := startAutopilot(t, fake, func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 }, "")
 
 	liveTaskOf(t, server, 41)
 	waitForPolls(t, fake)
@@ -133,7 +133,7 @@ func TestTasksStartInTheOrderOfTheSubIssues(t *testing.T) {
 	for _, number := range []int64{43, 41, 42} {
 		fake.AddSubIssue(shop, 12, number)
 	}
-	server := startAutopilot(t, fake, func(*config.Config) {}, "")
+	server := startAutopilot(t, fake, func(cfg *config.Config) { cfg.Roles.Implementer.Max = 3 }, "")
 
 	first, second, third := liveTaskOf(t, server, 43), liveTaskOf(t, server, 41), liveTaskOf(t, server, 42)
 

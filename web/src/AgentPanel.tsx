@@ -151,7 +151,8 @@ function AgentTree({
   }, [source, load, owner, name, number]);
 
   if (selected) {
-    return <Transcript agent={selected} source={source} onClose={() => setSelected(undefined)} />;
+    const live = agents.find((agent) => agent.id === selected.id) ?? selected;
+    return <Transcript agent={live} source={source} onClose={() => setSelected(undefined)} />;
   }
   return (
     <div className="grid gap-2">

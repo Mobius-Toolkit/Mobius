@@ -291,7 +291,9 @@ test.describe("images", () => {
     await expect(pictures.last()).toHaveJSProperty("naturalWidth", 40);
   });
 
-  test("the images stay in the input when the server refuses the message", async ({ page }) => {
+  test("the images of a refused message stay in the queued message, not in the input", async ({
+    page,
+  }) => {
     await page.goto(shop);
     const main = page.getByRole("main");
     await page.route("/api/chat/messages", (route) =>
@@ -299,8 +301,10 @@ test.describe("images", () => {
     );
     await pasteImage(page, await png(page, 40, 30, "red"));
     await main.getByRole("button", { name: "Send" }).click();
-    await expect(main.getByText("The image is too large.")).toBeVisible();
-    await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
+    const queued = main.locator("[data-queued]");
+    await expect(queued.getByText("The image is too large.")).toBeVisible();
+    await expect(queued.getByRole("img", { name: "Picture 1 of an unsent message" })).toBeVisible();
+    await expect(main.getByRole("img", { name: "Image 1" })).toBeHidden();
   });
 
   test("a paste with text and an image keeps the default paste", async ({ page }) => {
@@ -434,14 +438,15 @@ test.describe("on a touch screen", () => {
     await held[1].continue();
     await expect.poll(() => sent(page)).toContain("more");
 
-    // When the server refuses the message, the input gets the message back before the new text.
+    // When the server refuses the message, the input keeps the new text.
     await input.pressSequentially("lost");
     await send.tap();
     await expect(input).toHaveValue("");
     await input.pressSequentially("!");
     await expect.poll(() => held.length).toBe(3);
     await held[2].fulfill({ status: 500, json: { error: "The send failed." } });
-    await expect(input).toHaveValue("lost!");
+    await expect(page.locator("[data-queued]").getByText("The send failed.")).toBeVisible();
+    await expect(input).toHaveValue("!");
     expect(await sent(page)).not.toContain("lost");
   });
 
@@ -455,6 +460,133 @@ test.describe("on a touch screen", () => {
     await expect.poll(() => sent(page)).toContain("one tap");
     expect((await sent(page)).filter((text) => text === "one tap")).toHaveLength(1);
     await expect(input).toBeFocused();
+  });
+});
+
+const queued = (page: Page) => page.getByRole("main").locator("[data-queued]");
+
+test.describe("the send queue", () => {
+  const messages = "/api/chat/messages";
+
+  // The time of the next try is the fixed time of the page plus the wait, so it is the same in each run.
+  test.beforeEach(({ page }) => page.clock.setFixedTime("2026-10-15T12:00:00Z"));
+
+  test("a message shows at once, and the input is free while it waits", async ({ page }) => {
+    await page.goto(shop);
+    const input = page.getByLabel("Message to the Lead");
+    const held: Route[] = [];
+    await page.route(messages, (route) => {
+      held.push(route);
+    });
+    await input.fill("Queue one");
+    await input.press("Enter");
+    await expect(input).toHaveValue("");
+    await expect(queued(page)).toHaveCount(1);
+    await expect(queued(page).getByText("Queue one")).toBeVisible();
+    await expect(queued(page).getByRole("img", { name: "Not sent yet" })).toBeVisible();
+    await expect.poll(() => held.length).toBe(1);
+
+    await input.fill("Queue two");
+    await input.press("Enter");
+    await expect(queued(page)).toHaveCount(2);
+    expect(held).toHaveLength(1);
+    await held[0].continue();
+    await expect.poll(() => held.length).toBe(2);
+    await held[1].continue();
+    await expect.poll(() => sent(page)).toContain("Queue two");
+    const texts = await sent(page);
+    expect(texts.indexOf("Queue one")).toBeLessThan(texts.indexOf("Queue two"));
+    await expect(page.locator("[data-message]", { hasText: "Queue one" })).toHaveCount(1);
+    await expect(page.locator("[data-message]", { hasText: "Queue two" })).toHaveCount(1);
+    await expect(queued(page)).toHaveCount(0);
+  });
+
+  test("a failed send shows the error and the next try, and Retry now sends it", async ({
+    page,
+  }) => {
+    await page.goto(shop);
+    const input = page.getByLabel("Message to the Lead");
+    let fail = true;
+    await page.route(messages, (route) =>
+      fail ? route.fulfill({ status: 500, json: { error: "The send failed." } }) : route.continue(),
+    );
+    await input.fill("Retry me");
+    await input.press("Enter");
+    const message = queued(page);
+    await expect(message.getByRole("img", { name: "Send failed" })).toBeVisible();
+    await expect(message.getByText("The send failed.")).toBeVisible();
+    await expect(message.getByText(/Next try at 12:00:02\sPM/)).toBeVisible();
+    await expect(input).toHaveValue("");
+    fail = false;
+    await message.getByRole("button", { name: "Retry now" }).click();
+    await expect.poll(() => sent(page)).toContain("Retry me");
+    await expect(queued(page)).toHaveCount(0);
+    await expect(page.locator("[data-message]", { hasText: "Retry me" })).toHaveCount(1);
+  });
+
+  test("the waits grow to 5 and 10 seconds", async ({ page }) => {
+    await page.goto(shop);
+    await page.route(messages, (route) => route.abort());
+    await page.getByLabel("Message to the Lead").fill("Never stored");
+    await page.getByLabel("Message to the Lead").press("Enter");
+    await expect(queued(page).getByText(/Next try at 12:00:02\sPM/)).toBeVisible();
+    await expect(queued(page).getByText(/Next try at 12:00:05\sPM/)).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(queued(page).getByText(/Next try at 12:00:10\sPM/)).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
+  test("the queue stays after a reload and keeps sending", async ({ page }) => {
+    await page.goto(shop);
+    await page.route(messages, (route) => route.abort());
+    await page.getByLabel("Message to the Lead").fill("After reload");
+    await page.getByLabel("Message to the Lead").press("Enter");
+    await expect(queued(page).getByText("Next try at")).toBeVisible();
+    await page.unroute(messages);
+    await page.reload();
+    await expect.poll(() => sent(page)).toContain("After reload");
+    await expect(queued(page)).toHaveCount(0);
+    await expect(page.locator("[data-message]", { hasText: "After reload" })).toHaveCount(1);
+  });
+
+  test("Delete removes a message that the server did not store", async ({ page }) => {
+    await page.goto(shop);
+    await page.route(messages, (route) =>
+      route.fulfill({ status: 500, json: { error: "The send failed." } }),
+    );
+    const input = page.getByLabel("Message to the Lead");
+    await input.fill("Delete me");
+    await input.press("Enter");
+    await input.fill("Wait behind");
+    await input.press("Enter");
+    await expect(queued(page)).toHaveCount(2);
+    await expect(queued(page).first().getByText("Next try at")).toBeVisible();
+    await queued(page).first().getByRole("button", { name: "Delete the message" }).click();
+    await expect(queued(page)).toHaveCount(1);
+    await expect(queued(page).getByText("Delete me")).toBeHidden();
+    await queued(page).getByRole("button", { name: "Delete the message" }).click();
+    await expect(queued(page)).toHaveCount(0);
+    await page.reload();
+    await expect(page.locator("[data-message]").first()).toBeVisible();
+    await expect(queued(page)).toHaveCount(0);
+    expect(await sent(page)).not.toContain("Delete me");
+  });
+
+  test("the input keeps its text and images while a message fails", async ({ page }) => {
+    await page.goto(shop);
+    const input = page.getByLabel("Message to the Lead");
+    await page.route(messages, (route) =>
+      route.fulfill({ status: 500, json: { error: "The send failed." } }),
+    );
+    await input.fill("Fails");
+    await input.press("Enter");
+    await input.fill("Draft text");
+    await pasteImage(page, await png(page, 40, 30, "red"));
+    await expect(queued(page).getByText("The send failed.")).toBeVisible();
+    await expect(input).toHaveValue("Draft text");
+    await expect(page.getByRole("main").getByRole("img", { name: "Image 1" })).toBeVisible();
   });
 });
 
@@ -1631,15 +1763,16 @@ test("the voice input shows no message for aborted", async ({ page }) => {
 
 test("a new voice input clears the voice error and keeps the send error", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
-  await page.route("/api/chat/messages", (route) =>
-    route.fulfill({ status: 500, json: { error: "The send failed." } }),
-  );
   await page.goto("/workstreams/owner/shop/12");
   const main = page.getByRole("main");
   const mic = main.getByRole("button", { name: "Start voice input", exact: true });
-  await main.getByLabel("Message to the Lead").fill("Add a plan");
-  await main.getByRole("button", { name: "Send" }).click();
-  await expect(main.getByRole("alert")).toHaveText("The send failed.");
+  await main.locator("input[type=file]").setInputFiles({
+    name: "notes.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("notes"),
+  });
+  const sendError = "notes.txt is not a PNG, JPEG, GIF or WebP image.";
+  await expect(main.getByRole("alert")).toHaveText(sendError);
 
   await mic.click();
   await page.evaluate(
@@ -1647,11 +1780,11 @@ test("a new voice input clears the voice error and keeps the send error", async 
   );
   await expect(main.getByRole("alert")).toHaveText([
     "The microphone did not hear speech. Speak again.",
-    "The send failed.",
+    sendError,
   ]);
 
   await mic.click();
-  await expect(main.getByRole("alert")).toHaveText("The send failed.");
+  await expect(main.getByRole("alert")).toHaveText(sendError);
 });
 
 test("a successful send removes the voice error", async ({ page }) => {
@@ -2117,6 +2250,37 @@ test("the chat shows one separator before the first message of each day", async 
     "Message 6",
   ]);
   await expect(main.getByRole("separator", { name: "Mon, Sep 28" })).toHaveText("Mon, Sep 28");
+});
+
+test.describe("a time zone east of UTC", () => {
+  test.use({ timezoneId: "Europe/Warsaw" });
+
+  test("the chat shows the UTC times of a Mobius text in the local time", async ({ page }) => {
+    await page.route("**/api/chat?*", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { data: { messages: unknown[] } };
+      body.data.messages = [
+        {
+          id: 1,
+          author: "Event",
+          text: "2026-09-28 09:30 UTC stop of #42\n\nSince 2026-09-28 23:45 UTC the check fails. Keep 09:30 UTC.",
+          time: "2026-09-28T09:30:00Z",
+          images: 0,
+          organization: "owner",
+          repository: "owner/shop",
+          workstream: 12,
+        },
+      ];
+      await route.fulfill({ response, json: body });
+    });
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    await expect(main.getByText("Sep 28, 11:30 AM stop of #42")).toBeVisible();
+    await main.getByText("Sep 28, 11:30 AM stop of #42").click();
+    await expect(
+      main.getByText("Since Sep 29, 01:45 AM the check fails. Keep 09:30 UTC."),
+    ).toBeVisible();
+  });
 });
 
 async function longHistory(page: Page) {

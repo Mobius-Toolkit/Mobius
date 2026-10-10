@@ -14,7 +14,6 @@ func limits(t *testing.T) *config.Config {
 	cfg, err := config.Parse([]byte(`
 access_password = "correct horse"
 trusted_users = ["owner"]
-max_agents = 4
 
 [roles]
 lead        = { harness = "claude-code", model = "opus",    effort = "high" }
@@ -46,26 +45,6 @@ func TestAFullRoleGivesItsCount(t *testing.T) {
 
 	if got := limitReason(limits(t), running, nil, ImplementerRole); got != "no free implementer slot (2/2)" {
 		t.Errorf("reason = %q", got)
-	}
-}
-
-func TestAFullGlobalLimitCountsTheCountedRoles(t *testing.T) {
-	t.Parallel()
-	running := map[string]int{ImplementerRole: 2, ReviewerRole: 2}
-
-	if got := limitReason(limits(t), running, nil, CuratorRole); got != "no free agent slot (4/4)" {
-		t.Errorf("reason = %q", got)
-	}
-}
-
-func TestTheLeadAndTheTriagerDoNotCountTowardTheGlobalLimit(t *testing.T) {
-	t.Parallel()
-	running := map[string]int{ImplementerRole: 2, ReviewerRole: 2}
-
-	for _, role := range []string{LeadRole, TriagerRole} {
-		if got := limitReason(limits(t), running, nil, role); got != "" {
-			t.Errorf("reason of %s = %q", role, got)
-		}
 	}
 }
 

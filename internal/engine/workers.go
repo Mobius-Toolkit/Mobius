@@ -357,17 +357,6 @@ func limitReason(cfg *config.Config, running map[string]int, earlier []string, r
 
 func fullReason(cfg *config.Config, running map[string]int, role string) string {
 	binding, _ := roleBinding(cfg, role)
-	if binding.CountsInMaxAgents {
-		total := 0
-		for other, count := range running {
-			if otherBinding, _ := roleBinding(cfg, other); otherBinding.CountsInMaxAgents {
-				total += count
-			}
-		}
-		if total >= cfg.MaxAgents {
-			return fmt.Sprintf("no free agent slot (%d/%d)", total, cfg.MaxAgents)
-		}
-	}
 	if count := running[role]; count >= binding.Max {
 		index := slices.IndexFunc(groups, func(g group) bool { return g.role == role })
 		return fmt.Sprintf("no free %s slot (%d/%d)", groups[index].name, count, binding.Max)

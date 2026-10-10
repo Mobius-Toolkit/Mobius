@@ -30,8 +30,6 @@ type activeAgent struct {
 }
 
 type activeAgents struct {
-	Count  int64 `json:"count"`
-	Max    int64 `json:"max"`
 	Groups []struct {
 		Name   string        `json:"name"`
 		Count  int64         `json:"count"`
@@ -61,7 +59,6 @@ func TestTheAgentsPageCountsTheOpenSessionsOfEachRoleAgainstItsLimit(t *testing.
 	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) {
-		cfg.MaxAgents = 5
 		cfg.Roles.Implementer.Max = 3
 		cfg.Roles.Researcher.Max = 1
 	})
@@ -90,8 +87,8 @@ func TestTheAgentsPageCountsTheOpenSessionsOfEachRoleAgainstItsLimit(t *testing.
 		groups = append(groups, group{g.Name, g.Count, g.Max, len(g.Agents)})
 	}
 	want := []group{{"Lead", 1, 8, 1}, {"Triager", 0, 2, 0}, {"Implementer", 1, 3, 1}, {"Researcher", 1, 1, 2}, {"Reviewer", 0, 2, 0}, {"Judge", 0, 2, 0}, {"Curator", 0, 2, 0}}
-	if got.Count != 2 || got.Max != 5 || !reflect.DeepEqual(groups, want) {
-		t.Fatalf("overview = %d/%d %+v", got.Count, got.Max, groups)
+	if !reflect.DeepEqual(groups, want) {
+		t.Fatalf("overview = %+v", groups)
 	}
 	leadRow := got.Groups[0].Agents[0].Agent
 	if leadRow.Name != "Lead" || leadRow.Title != "chat session" || leadRow.Organization != "owner" || leadRow.Repository != shop ||

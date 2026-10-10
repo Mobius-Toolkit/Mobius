@@ -30,9 +30,18 @@ async function screenshot(
   }
 }
 
+// Sets the queue reason of the live Implementer session of #41.
+const setQueueReason = async (page: Page, reason: string) => {
+  const response = await page.request.put(
+    `/e2e/agents/41/queue-reason?reason=${encodeURIComponent(reason)}`,
+  );
+  expect(response.ok()).toBe(true);
+};
+
 const queueReasons = [
   "runs .mobius/check",
   "waits for a check slot",
+  "waits for a low load",
   /paused until Sep 28, 12:00\sPM/,
   "no free Implementer slot (2/2)",
 ];
@@ -190,6 +199,18 @@ test("screenshots", async ({ page }) => {
     main.getByRole("button", { name: "Stop the reply" }),
   ]);
   await page.unroute("**/api/chat?*");
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { writing: boolean; pausedUntil: string } };
+    body.data.writing = true;
+    body.data.pausedUntil = "2026-09-28T12:00:00Z";
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(page, "chat-paused", "/workstreams/owner/shop/12", (device) => [
+    ...chatReady(device),
+    main.getByText(/waits for the usage limit until/),
+  ]);
+  await page.unroute("**/api/chat?*");
   const photos = [
     { name: "plan.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#2563eb") },
     { name: "cart.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#16a34a") },
@@ -211,6 +232,7 @@ test("screenshots", async ({ page }) => {
       }
     },
   );
+  await setQueueReason(page, "waits for a low load");
   await screenshot(
     page,
     "chat-agents",
@@ -334,6 +356,7 @@ test("screenshots", async ({ page }) => {
       `${wide("main pre")} && ${wide("main table")} && document.documentElement.scrollWidth <= window.innerWidth`,
     ),
   ).toBe(true);
+  await setQueueReason(page, "");
   await screenshot(
     page,
     "transcript-panel",
@@ -352,11 +375,13 @@ test("screenshots", async ({ page }) => {
         .click();
     },
   );
+  await setQueueReason(page, "waits for a low load");
   await screenshot(page, "agents", "/agents", (device) => [
     ...frame(device, drain),
     main.getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/),
     ...queueReasons.map((reason) => main.getByText(reason)),
   ]);
+  await setQueueReason(page, "");
   await screenshot(
     page,
     "transcript",
@@ -364,6 +389,19 @@ test("screenshots", async ({ page }) => {
     (device) => [...frame(device, drain), main.getByText("The plan prices are in cents now.")],
     () => main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click(),
   );
+
+  await setQueueReason(page, "waits for a low load");
+  await screenshot(
+    page,
+    "transcript-start-check",
+    "/agents",
+    (device) => [
+      ...frame(device, drain),
+      main.getByRole("button", { name: "Start the check now" }),
+    ],
+    () => main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click(),
+  );
+  await setQueueReason(page, "");
 
   await page.setViewportSize(viewports.desktop);
   await shown("Cancel upgrade").click();

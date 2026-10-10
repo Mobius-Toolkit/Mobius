@@ -1,9 +1,12 @@
 import {
   ArrowUpIcon,
   ChevronRightIcon,
+  CircleAlertIcon,
+  ClockIcon,
   MicIcon,
   PaperclipIcon,
   SquareIcon,
+  Trash2Icon,
   XIcon,
 } from "lucide-react";
 import {
@@ -13,6 +16,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -22,7 +26,6 @@ import {
   getChat,
   getGetChatImageUrl,
   seeChat,
-  sendChat,
   stopChat,
   type Chat,
   type ChatMessage,
@@ -36,14 +39,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { onEvent } from "@/lib/events";
 import { fitImage, maxImages } from "@/lib/images";
 import { LoginContext } from "@/lib/login";
+import { addQueued, listQueued, postQueued, removeQueued, type Queued } from "@/lib/outbox";
 import { atEnd } from "@/lib/scroll";
-import { clock, dayLabel } from "@/lib/time";
+import { clock, clockSeconds, dayClock, dayLabel, localTimes } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
 import { useVoice } from "@/lib/voice";
 import { Markdown } from "./Markdown";
 
 const tooManyImages = `A message has at most ${maxImages} images.`;
+
+// The wait after each failed send. The last wait repeats.
+const retryDelays = [2000, 5000, 10_000, 30_000];
+
+type Waiting = Queued & { sent?: boolean };
+type Failure = { id: string; error: string; retryAt: number };
 
 function newMessageId() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -53,7 +63,7 @@ function newMessageId() {
 function upsert(list: ChatMessage[], message: ChatMessage) {
   const known = list.find((other) => other.id === message.id);
   // The agent only adds text to a message, so the longer text is the newer text.
-  if (known && known.text.length >= message.text.length) {
+  if (known && known.text.length > message.text.length) {
     return list;
   }
   return [...list.filter((other) => other.id !== message.id), message].toSorted(
@@ -87,7 +97,7 @@ const Message = memo(function Message({ message }: { message: ChatMessage }) {
         <Collapsible>
           <CollapsibleTrigger className="group flex w-full min-w-0 items-start gap-1 text-left break-words">
             <ChevronRightIcon className="mt-0.5 size-4 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-            <span className="min-w-0">{summary}</span>
+            <span className="min-w-0">{localTimes(summary)}</span>
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-2">
             <Markdown text={body} />
@@ -126,6 +136,98 @@ function DaySeparator({ label }: { label: string }) {
   );
 }
 
+function FileImage({ file, alt, className }: { file: File; alt: string; className: string }) {
+  const show = useCallback(
+    (image: HTMLImageElement) => {
+      const url = URL.createObjectURL(file);
+      image.src = url;
+      return () => URL.revokeObjectURL(url);
+    },
+    [file],
+  );
+  return <img ref={show} alt={alt} className={className} />;
+}
+
+function QueuedMessage({
+  item,
+  failure,
+  deletable,
+  retry,
+  remove,
+}: {
+  item: Waiting;
+  failure?: Failure;
+  deletable: boolean;
+  retry: () => void;
+  remove: () => void;
+}) {
+  return (
+    <div
+      data-queued={item.id}
+      className="grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 justify-self-end rounded-xl border border-transparent bg-secondary px-3 py-2"
+    >
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>Owner</span>
+        <span>{clock(item.time)}</span>
+        {failure ? (
+          <span
+            role="img"
+            aria-label="Send failed"
+            title="Send failed"
+            className="text-destructive"
+          >
+            <CircleAlertIcon className="size-3.5" />
+          </span>
+        ) : (
+          <span role="img" aria-label="Not sent yet" title="Not sent yet">
+            <ClockIcon className="size-3.5" />
+          </span>
+        )}
+      </div>
+      {item.text && <Markdown text={item.text} />}
+      {item.images.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {item.images.map((file, position) => (
+            <FileImage
+              key={position}
+              file={file}
+              alt={`Picture ${position + 1} of an unsent message`}
+              className="max-h-48 max-w-full rounded-lg border object-contain"
+            />
+          ))}
+        </div>
+      )}
+      {failure && (
+        <p role="alert" className="grid gap-0.5 text-xs text-destructive">
+          <span>{failure.error}</span>
+          <span>Next try at {clockSeconds(failure.retryAt)}</span>
+        </p>
+      )}
+      {(failure || deletable) && (
+        <div className="flex gap-2">
+          {failure && (
+            <Button type="button" variant="outline" size="sm" onClick={retry}>
+              Retry now
+            </Button>
+          )}
+          {deletable && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Delete the message"
+              title="Delete the message"
+              onClick={remove}
+            >
+              <Trash2Icon />
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Thumbnail({
   file,
   position,
@@ -135,18 +237,10 @@ function Thumbnail({
   position: number;
   remove: () => void;
 }) {
-  const show = useCallback(
-    (image: HTMLImageElement) => {
-      const url = URL.createObjectURL(file);
-      image.src = url;
-      return () => URL.revokeObjectURL(url);
-    },
-    [file],
-  );
   return (
     <div className="relative">
-      <img
-        ref={show}
+      <FileImage
+        file={file}
         alt={`Image ${position}`}
         className="size-16 rounded-lg border object-cover"
       />
@@ -198,17 +292,27 @@ export function Conversation({
   const [older, setOlder] = useState(false);
   const [harness, setHarness] = useState("");
   const [writing, setWriting] = useState(false);
+  const [pausedUntil, setPausedUntil] = useState<string | null>(null);
   const [failure, setFailure] = useState("");
   const [error, setError] = useState<string>();
   const [text, setText] = useState("");
   const [images, setImages] = useState<File[]>([]);
   const [sendError, setSendError] = useState("");
-  const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
+  // The messages that the server did not store, or stored but the list does not have yet.
+  const [queue, setQueue] = useState<Waiting[]>([]);
+  const [queueLoaded, setQueueLoaded] = useState(false);
+  // The last failed send of the first message that the server did not store.
+  const [attempt, setAttempt] = useState<Failure>();
+  // Ends the wait before the next try of the first message.
+  const skipWait = useRef<() => void>(undefined);
   // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
-  // message.
+  // message. The next render has the empty input and clears the ref.
+  const justSent = useRef(false);
+  useEffect(() => {
+    justSent.current = false;
+  });
   const imagesRef = useRef<File[]>([]);
-  const inFlight = useRef(false);
   const [briefOpen, setBriefOpen] = useState<boolean>();
   const listRef = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
@@ -320,6 +424,7 @@ export function Conversation({
     }
     setHarness(newestPage.harness);
     setWriting(newestPage.writing);
+    setPausedUntil(newestPage.pausedUntil);
     if (!newestPage.writing) {
       setStopping(false);
     }
@@ -377,6 +482,7 @@ export function Conversation({
     const removeState = onEvent<LiveEvents, "chat">(source, "chat", (state) => {
       if (sameChat(state, key)) {
         setWriting(state.writing);
+        setPausedUntil(state.pausedUntil);
         if (!state.writing) {
           setStopping(false);
         }
@@ -389,6 +495,88 @@ export function Conversation({
       removeState();
     };
   }, [source, load, organization, repository, workstream]);
+
+  const storedIds = useMemo(
+    () => new Set(messages.map((message) => message.browserId)),
+    [messages],
+  );
+  const pending = queue.filter((item) => !storedIds.has(item.id));
+  const count = messages.length + pending.length;
+  const next = pending.find((item) => !item.sent);
+
+  useEffect(() => {
+    listQueued({ organization, repository, workstream })
+      .then((stored) =>
+        setQueue((current) => [
+          ...stored.filter((item) => !current.some((other) => other.id === item.id)),
+          ...current,
+        ]),
+      )
+      .catch((err: unknown) => setError(String(err)))
+      .finally(() => setQueueLoaded(true));
+  }, [organization, repository, workstream]);
+
+  useEffect(() => {
+    const stored = queue.filter((item) => storedIds.has(item.id));
+    if (stored.length === 0) {
+      return;
+    }
+    for (const item of stored) {
+      removeQueued(item.id)
+        .then(() => setQueue((current) => current.filter((other) => other.id !== item.id)))
+        .catch((err: unknown) => setError(String(err)));
+    }
+  }, [queue, storedIds]);
+
+  // The effect sends the first message that the server did not store, and tries again until the server stores it.
+  // A stored message leaves the browser store at once. It stays on the screen until the load that follows ends.
+  useEffect(() => {
+    if (!queueLoaded || !next) {
+      return;
+    }
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deliver = async () => {
+      for (let failures = 0; ; failures++) {
+        setAttempt(undefined);
+        let failed: string | undefined;
+        try {
+          const res = await postQueued(next, controller.signal);
+          failed = res.error;
+          if (res.status === 401) {
+            showLogin();
+          }
+        } catch (err) {
+          failed = String(err);
+        }
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (failed === undefined) {
+          removeQueued(next.id).catch((err: unknown) => setError(String(err)));
+          setQueue((current) =>
+            current.map((item) => (item.id === next.id ? { ...item, sent: true } : item)),
+          );
+          load()
+            .catch((err: unknown) => setError(String(err)))
+            .finally(() => setQueue((current) => current.filter((item) => item.id !== next.id)));
+          return;
+        }
+        const delay = retryDelays[Math.min(failures, retryDelays.length - 1)];
+        setAttempt({ id: next.id, error: failed, retryAt: Date.now() + delay });
+        await new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, delay);
+          skipWait.current = resolve;
+        });
+      }
+    };
+    void deliver();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+      skipWait.current = undefined;
+    };
+  }, [queueLoaded, next, load, showLogin, skipWait]);
 
   // The count of unread messages when the chat opened. The first scroll and the mark as seen wait until the list has
   // the first unread message.
@@ -427,7 +615,7 @@ export function Conversation({
   // last message scrolls only while the Owner is at the end.
   useLayoutEffect(() => {
     const list = listRef.current;
-    if (!list || !loaded || unread === undefined) {
+    if (!list || !loaded || !queueLoaded || unread === undefined) {
       return;
     }
     if (scrolledCount.current === undefined) {
@@ -435,7 +623,7 @@ export function Conversation({
         return;
       }
       const unreadMessages = messages.filter(countsAsUnread);
-      scrolledCount.current = messages.length;
+      scrolledCount.current = count;
       const first = unread > 0 && unreadMessages[Math.max(0, unreadMessages.length - unread)];
       const element = first && list.querySelector(`[data-message="${first.id}"]`);
       if (element) {
@@ -456,13 +644,13 @@ export function Conversation({
           anchor.current.offset;
       }
       anchor.current = undefined;
-      scrolledCount.current = messages.length;
+      scrolledCount.current = count;
       return;
     }
-    if (messages.length > scrolledCount.current) {
+    if (count > scrolledCount.current) {
       pinned.current = true;
     }
-    scrolledCount.current = messages.length;
+    scrolledCount.current = count;
     if (pinned.current) {
       scrollToEnd(list);
     }
@@ -472,12 +660,6 @@ export function Conversation({
   const changeImages = (change: (current: File[]) => File[]) => {
     imagesRef.current = change(imagesRef.current);
     setImages(imagesRef.current);
-  };
-
-  const restoreImages = (sentImages: File[]) => {
-    const all = [...sentImages, ...imagesRef.current];
-    changeImages(() => all.slice(0, maxImages));
-    return all.length > maxImages;
   };
 
   const addImages = async (files: File[]) => {
@@ -501,50 +683,34 @@ export function Conversation({
 
   const empty = !text.trim() && images.length === 0;
   const showStop = empty && writing;
-  const buttonPending = sending || (showStop && stopping);
+  const buttonPending = showStop && stopping;
 
   const send = () => {
-    if (inFlight.current || empty) {
+    if (empty || justSent.current) {
       return;
     }
-    const sent = text;
-    const sentImages = imagesRef.current;
-    voice.abort();
-    inFlight.current = true;
-    setSending(true);
-    setText("");
-    changeImages(() => []);
-    sendChat({
+    const item: Queued = {
       id: newMessageId(),
       organization,
       repository,
       workstream,
-      text: sent,
-      images: sentImages,
-    })
-      .then((res) => {
-        if (res.status === 204) {
-          setSendError("");
-          return;
-        }
-        setText((current) => sent + current);
-        const dropped = restoreImages(sentImages);
-        if (res.status === 401) {
-          showLogin();
-          setSendError(dropped ? tooManyImages : "");
-        } else {
-          setSendError(dropped ? `${res.data.error} ${tooManyImages}` : res.data.error);
-        }
-      })
-      .catch((err: unknown) => {
-        setText((current) => sent + current);
-        const dropped = restoreImages(sentImages);
-        setSendError(dropped ? `${String(err)} ${tooManyImages}` : String(err));
-      })
-      .finally(() => {
-        inFlight.current = false;
-        setSending(false);
-      });
+      text,
+      images: imagesRef.current,
+      time: new Date().toISOString(),
+    };
+    voice.abort();
+    justSent.current = true;
+    setText("");
+    changeImages(() => []);
+    setSendError("");
+    setQueue((current) => [...current, item]);
+    addQueued(item).catch((err: unknown) => setSendError(String(err)));
+  };
+
+  const discard = (item: Waiting) => {
+    removeQueued(item.id)
+      .then(() => setQueue((current) => current.filter((other) => other.id !== item.id)))
+      .catch((err: unknown) => setError(String(err)));
   };
 
   const stop = () => {
@@ -611,7 +777,7 @@ export function Conversation({
         className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-3 overflow-y-auto overscroll-contain bg-muted/40 p-4"
       >
         {error && <Badge variant="destructive">{error}</Badge>}
-        {loaded && messages.length === 0 && (
+        {loaded && queueLoaded && count === 0 && (
           <p className="text-center text-sm text-muted-foreground">
             No messages. Write to start a chat session.
           </p>
@@ -627,10 +793,28 @@ export function Conversation({
             </Fragment>
           );
         })}
+        {pending.map((item, index) => {
+          const previous = index === 0 ? messages.at(-1) : pending[index - 1];
+          const label = dayLabel(item.time);
+          return (
+            <Fragment key={item.id}>
+              {(!previous || dayLabel(previous.time) !== label) && <DaySeparator label={label} />}
+              <QueuedMessage
+                item={item}
+                failure={attempt?.id === item.id ? attempt : undefined}
+                deletable={!item.sent && (item !== next || attempt?.id === item.id)}
+                retry={() => skipWait.current?.()}
+                remove={() => discard(item)}
+              />
+            </Fragment>
+          );
+        })}
         {writing && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <span className="size-2 animate-pulse rounded-full bg-green-600" />
-            The {agent} writes a reply.
+            {pausedUntil
+              ? `The ${agent} waits for the usage limit until ${dayClock(pausedUntil)}.`
+              : `The ${agent} writes a reply.`}
           </p>
         )}
         {failure && (

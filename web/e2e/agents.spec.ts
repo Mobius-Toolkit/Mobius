@@ -28,6 +28,14 @@ test("the Agents page shows the state of each agent with a queue reason", async 
   await expect(running.getByText("queued")).toBeHidden();
 });
 
+test("the Agents page shows the count of each Role and no global count", async ({ page }) => {
+  await page.goto("/agents");
+  await expect(page.getByRole("heading", { name: "Implementer 2 / 2" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Reviewer 0 / 2" })).toBeVisible();
+  await expect(page.getByRole("banner").getByText(/^\d+ \/ \d+$/)).toBeHidden();
+  await expect(page.getByRole("main").getByText(/^\d+ \/ \d+$/)).toBeHidden();
+});
+
 test("the Agents tab of a Workstream shows the state of each agent with a queue reason", async ({
   page,
 }) => {
@@ -39,6 +47,44 @@ test("the Agents tab of a Workstream shows the state of each agent with a queue 
     await expect(entry.getByText(badge, { exact: true })).toBeVisible();
     await expect(entry.locator("span.rounded-full")).toHaveClass(dot);
   }
+});
+
+// Changes the live Implementer session of #41, and sets the old reason again at the end.
+async function withLowLoad(page: Page, run: () => Promise<void>) {
+  const put = (reason: string) =>
+    page.request.put(`/e2e/agents/41/queue-reason?reason=${encodeURIComponent(reason)}`);
+  expect((await put("waits for a low load")).ok()).toBe(true);
+  try {
+    await run();
+  } finally {
+    expect((await put("")).ok()).toBe(true);
+  }
+}
+
+test("the Agents page shows the state of a session that waits for a low load", async ({ page }) => {
+  await withLowLoad(page, async () => {
+    await page.goto("/agents");
+    const entry = page.getByRole("main").getByRole("button", { name: /Ticket #41/ });
+    await expect(entry.getByText("waits for a low load")).toBeVisible();
+    await expect(entry.getByText("waits for load", { exact: true })).toBeVisible();
+    await expect(entry.locator("span.rounded-full")).toHaveClass(/bg-amber-500/);
+  });
+});
+
+test("the Agents tab of a Workstream shows the state of a session that waits for a low load", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await withLowLoad(page, async () => {
+    await page.goto("/workstreams/owner/shop/12");
+    const entry = page
+      .getByRole("complementary")
+      .getByRole("button")
+      .filter({ hasText: "waits for a low load" });
+    await expect(entry).toHaveCount(1);
+    await expect(entry.getByText("waits for load", { exact: true })).toBeVisible();
+    await expect(entry.locator("span.rounded-full")).toHaveClass(/bg-amber-500/);
+  });
 });
 
 test.describe("the transcript of an agent on a phone", () => {
@@ -214,3 +260,44 @@ for (const { name: place, path, open } of places) {
     });
   }
 }
+
+test("the Transcript of a session that waits for a low load has a button that starts the check", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const requests: string[] = [];
+  let answer: { status: number; body: string } = { status: 204, body: "" };
+  await page.route(/\/api\/agents\/\d+\/start-check$/, (route) => {
+    requests.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+    return route.fulfill(answer);
+  });
+  await withLowLoad(page, async () => {
+    await page.goto("/agents");
+    await main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click();
+    const start = main.getByRole("button", { name: "Start the check now" });
+
+    answer = {
+      status: 409,
+      body: JSON.stringify({ error: "The check of session 3 does not wait for a low load." }),
+    };
+    await start.click();
+    await expect(
+      main.getByText("The check of session 3 does not wait for a low load."),
+    ).toBeVisible();
+
+    answer = { status: 204, body: "" };
+    await start.click();
+    await expect(main.getByText("does not wait for a low load.")).toBeHidden();
+  });
+  expect(requests).toHaveLength(2);
+  expect(requests[0]).toMatch(/^POST \/api\/agents\/\d+\/start-check$/);
+});
+
+test("the Transcript of a session that does not wait for a low load has no start button", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await page.goto("/agents");
+  await main.getByRole("button", { name: /Ticket #39/ }).click();
+  await expect(main.getByRole("button", { name: "Start the check now" })).toBeHidden();
+});

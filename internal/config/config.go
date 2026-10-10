@@ -39,7 +39,6 @@ type Config struct {
 	TrustedUsers        []string      `toml:"trusted_users"`
 	TrustedBots         []string      `toml:"trusted_bots"`
 	DataDir             string        `toml:"data_dir"`
-	MaxAgents           int           `toml:"max_agents"`
 	MaxChecks           int           `toml:"max_checks"`
 	MaxFixRounds        int           `toml:"max_fix_rounds"`
 	MaxCheckAttempts    int           `toml:"max_check_attempts"`
@@ -69,9 +68,8 @@ type RoleBinding struct {
 	Harness Harness `toml:"harness"`
 	Model   string  `toml:"model"`
 	// Effort is empty for a Harness with no effort levels.
-	Effort            string `toml:"effort"`
-	Max               int    `toml:"max"`
-	CountsInMaxAgents bool   `toml:"counts_in_max_agents"`
+	Effort string `toml:"effort"`
+	Max    int    `toml:"max"`
 }
 
 // file holds the durations as text, because TOML has no duration type.
@@ -107,19 +105,18 @@ func Parse(text []byte) (*Config, error) {
 	f := file{
 		Config: Config{
 			DataDir:           filepath.Join(home, ".mobius"),
-			MaxAgents:         4,
 			MaxChecks:         1,
-			MaxFixRounds:      7,
+			MaxFixRounds:      10,
 			MaxCheckAttempts:  3,
 			MaxWorkerRestarts: 3,
 			Roles: Roles{
 				Lead:        RoleBinding{Max: 8},
 				Triager:     RoleBinding{Max: 2},
-				Implementer: RoleBinding{Max: 2, CountsInMaxAgents: true},
-				Researcher:  RoleBinding{Max: 2, CountsInMaxAgents: true},
-				Reviewer:    RoleBinding{Max: 2, CountsInMaxAgents: true},
+				Implementer: RoleBinding{Max: 2},
+				Researcher:  RoleBinding{Max: 2},
+				Reviewer:    RoleBinding{Max: 2},
 				Judge:       RoleBinding{Max: 2},
-				Curator:     RoleBinding{Max: 2, CountsInMaxAgents: true},
+				Curator:     RoleBinding{Max: 2},
 			},
 		},
 		CheckTimeout:        "15m",

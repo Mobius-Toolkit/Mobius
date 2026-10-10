@@ -66,6 +66,8 @@ type Agent struct {
 	harness config.Harness
 	key     string
 	session *runner.Session
+	// queuedAt is the time when the session was added.
+	queuedAt string
 	// slot is the Role of the slot that the session holds, or "".
 	slot string
 	// tracked tells that the drain counts the session.
@@ -111,6 +113,9 @@ type Agent struct {
 	costBase  float64
 	// resetHint is the last _claude/rateLimit.resetsAt of a usage update of the session, or zero.
 	resetHint time.Time
+	// limited tells that a usage update of the turn of a prompt has the rate limit status "rejected" with no overage in
+	// use. The agent message chunks that follow are the raw text of the usage limit. It ends with the turn.
+	limited bool
 	// author is the author of the chat messages that the reply text adds to the chat of the session, or "" when the
 	// reply text goes only to the Transcript.
 	author string
@@ -252,7 +257,7 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 		return nil, err
 	}
 	e.publish(Change{Node: new(e.node(session))})
-	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
+	return &Agent{engine: e, id: session.ID, spec: spec, harness: binding.Harness, tracked: !worker, queuedAt: session.StartedAt, wake: make(chan struct{}, 1), ended: make(chan struct{}, 1)}, nil
 }
 
 // waitForSlot waits for a slot of the Role of a, and starts the session. A failed wait ends the session, like Start.
@@ -268,7 +273,8 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 		}
 		return a.Fail(ended, err)
 	}
-	started, err := e.queries.StartSession(ctx, store.StartSessionParams{StartedAt: now(), ID: a.id})
+	startedAt := now()
+	started, err := e.queries.StartSession(ctx, store.StartSessionParams{StartedAt: startedAt, ID: a.id})
 	if err != nil {
 		if ctx.Err() != nil {
 			return errors.Join(err, a.End(ended, "stopped"))
@@ -276,6 +282,9 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 		return a.Fail(ended, err)
 	}
 	e.publish(Change{Node: new(e.node(started))})
+	if err := a.addStep(ctx, "queue", a.queuedAt, startedAt, sql.NullInt64{}, ""); err != nil {
+		log.Printf("add the queue wait of the session %d: %v", a.id, err)
+	}
 	return nil
 }
 
@@ -407,6 +416,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		a.message = 0
 		a.reply.Reset()
 		a.cannotDo = ""
+		a.limited = false
 		if err != nil {
 			a.mu.Unlock()
 			return err
@@ -431,6 +441,7 @@ func (a *Agent) Prompt(ctx context.Context, text string, images []Image) error {
 		if !retrying {
 			a.mu.Lock()
 			a.turn = false
+			a.limited = false
 			a.mu.Unlock()
 		}
 		if err == nil {
@@ -569,15 +580,15 @@ func (a *Agent) addError(ctx context.Context, message string) error {
 	return a.engine.addRow(ctx, a.id, "error", row, false)
 }
 
-func (a *Agent) update(params json.RawMessage) {
-	if err := a.record(params); err != nil {
+func (a *Agent) update(params json.RawMessage, late bool) {
+	if err := a.record(params, late); err != nil {
 		log.Printf("record an update of the session %d: %v", a.id, err)
 	}
 }
 
 // record adds the update to the Transcript. A message chunk or a thought chunk that follows a chunk of the same kind
 // joins the row of that chunk.
-func (a *Agent) record(params json.RawMessage) error {
+func (a *Agent) record(params json.RawMessage, late bool) error {
 	notification, err := decodeObject(params)
 	if err != nil {
 		return err
@@ -588,13 +599,19 @@ func (a *Agent) record(params json.RawMessage) error {
 	ctx := context.Background()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.track(notification, kind)
+	a.track(notification, kind, late)
 	a.readUsage(notification, kind)
 	// The unit of resetsAt is Unix seconds.
 	if resetsAt, ok := field(notification, "update", "_meta", "_claude/rateLimit", "resetsAt").(json.Number); ok {
 		if seconds, err := resetsAt.Int64(); err == nil {
 			a.resetHint = time.Unix(seconds, 0)
 		}
+	}
+	// With overage in use, the status "rejected" does not end the turn. An autonomous turn has no prompt error that
+	// starts a pause, so its raw text stays in the reply.
+	if a.turn && stringField(notification, "update", "_meta", "_claude/rateLimit", "status") == "rejected" &&
+		field(notification, "update", "_meta", "_claude/rateLimit", "isUsingOverage") != true {
+		a.limited = true
 	}
 	if isChunk && a.chunk != nil && stringField(a.chunk, "update", "sessionUpdate") == kind {
 		update := a.chunk["update"].(map[string]any)
@@ -627,6 +644,7 @@ func (a *Agent) record(params json.RawMessage) error {
 }
 
 // addReply adds content of an agent message chunk to the reply text, and to the chat when the session has an author.
+// After a usage update with the rate limit status "rejected", it adds nothing: the Transcript keeps the raw text.
 // A tool call starts a new reply text and a new chat message. The caller holds a.mu.
 func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 	switch kind {
@@ -636,7 +654,7 @@ func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 	case "tool_call_update":
 		a.reply.Reset()
 	}
-	if kind != "agent_message_chunk" {
+	if kind != "agent_message_chunk" || a.limited {
 		return nil
 	}
 	a.reply.WriteString(content)
@@ -738,10 +756,8 @@ type AgentGroup struct {
 }
 
 // ActiveAgents is the open sessions of all organizations in one group for each Role, in the order Lead, Triager,
-// Implementer, Researcher, Reviewer, Judge, Curator. Count is the number of sessions that hold a slot and count in max_agents.
+// Implementer, Researcher, Reviewer, Judge, Curator.
 type ActiveAgents struct {
-	Count  int
-	Max    int
 	Groups []AgentGroup
 }
 
@@ -763,12 +779,9 @@ func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 		}
 		agents[role] = append(agents[role], ActiveAgent{e.node(row.Session), row.WorkstreamTitle, row.IssueTitle, row.PullRequest})
 	}
-	active := ActiveAgents{Max: e.config.MaxAgents}
+	var active ActiveAgents
 	for _, g := range groups {
 		binding, _ := roleBinding(e.config, g.role)
-		if binding.CountsInMaxAgents {
-			active.Count += running[g.role]
-		}
 		active.Groups = append(active.Groups, AgentGroup{Title: g.title, Count: running[g.role], Max: binding.Max, Agents: agents[g.role]})
 	}
 	return active, nil

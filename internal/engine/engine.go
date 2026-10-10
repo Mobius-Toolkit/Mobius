@@ -77,6 +77,11 @@ type Engine struct {
 	checkStartMu sync.Mutex
 	// checkStart is the start time of the last local check.
 	checkStart time.Time
+	// loadWaitsMu guards loadWaits.
+	loadWaitsMu sync.Mutex
+	// loadWaits holds a channel for each session whose check waits for a low load, by the id of the session.
+	// StartCheckNow sends to the channel.
+	loadWaits map[int64]chan struct{}
 	// diskFreed wakes the checks that wait for free disk space.
 	diskFreed signal
 
@@ -150,6 +155,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		stops:        map[any]stopper{},
 		live:         map[any]int{},
 		implementers: map[int64]*Agent{},
+		loadWaits:    map[int64]chan struct{}{},
 		researchers:  map[int64]*Agent{},
 		curators:     map[string]bool{},
 		listeners:    map[chan Change]bool{},

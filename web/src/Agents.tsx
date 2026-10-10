@@ -3,6 +3,7 @@ import { use, useCallback, useEffect, useLayoutEffect, useRef, useState } from "
 import {
   getTranscript,
   listActiveAgents,
+  startCheck,
   type ActiveAgent,
   type ActiveAgents,
   type Agent,
@@ -13,11 +14,12 @@ import { ErrorBadge, inset, List, PageHeader, rowClass, Section } from "@/compon
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { queueState, queueText } from "@/lib/agents";
+import { Spinner } from "@/components/ui/spinner";
+import { lowLoadReason, queueState, queueText } from "@/lib/agents";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
 import { atEnd } from "@/lib/scroll";
-import { clock, dayClock } from "@/lib/time";
+import { clock, dayClock, localTimes } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { TopBar } from "./TopBar";
 
@@ -90,7 +92,7 @@ function TranscriptEntry({ line }: { line: TranscriptLine }) {
         <span>{clock(line.time)}</span>
       </div>
       <span className="break-words">
-        {line.text}
+        {localTimes(line.text)}
         {line.harnessToolName && (
           <span className="text-sm text-muted-foreground"> {line.harnessToolName}</span>
         )}
@@ -107,11 +109,50 @@ function TranscriptEntry({ line }: { line: TranscriptLine }) {
       </span>
       {open && line.body && (
         <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs whitespace-pre-wrap">
-          {line.body}
+          {localTimes(line.body)}
         </pre>
       )}
       {raw && <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">{line.raw}</pre>}
     </li>
+  );
+}
+
+function StartCheckButton({ agent }: { agent: Agent }) {
+  return agent.queueReason === lowLoadReason ? <StartCheckControl id={agent.id} /> : null;
+}
+
+// The state of this control ends with the wait, because the control unmounts when the reason changes.
+function StartCheckControl({ id }: { id: number }) {
+  const showLogin = use(LoginContext);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState("");
+  const start = () => {
+    setStarting(true);
+    startCheck(id)
+      .then((res) => {
+        if (res.status === 401) {
+          showLogin();
+        } else if (res.status === 204) {
+          setError("");
+        } else {
+          setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => setError(String(err)))
+      .finally(() => setStarting(false));
+  };
+  return (
+    <>
+      <Button variant="outline" disabled={starting} onClick={start}>
+        {starting && <Spinner aria-hidden />}
+        Start the check now
+      </Button>
+      {error && (
+        <Badge variant="destructive" className="h-auto justify-start whitespace-normal">
+          {error}
+        </Badge>
+      )}
+    </>
   );
 }
 
@@ -242,7 +283,8 @@ export function Transcript({
         <CardTitle className="truncate">
           {agent.name} {agent.title}
         </CardTitle>
-        <CardAction>
+        <CardAction className="flex flex-wrap items-center justify-end gap-1">
+          <StartCheckButton agent={agent} />
           <Button variant="ghost" onClick={onClose}>
             <ChevronLeftIcon />
             Agents
@@ -292,19 +334,16 @@ export function Agents({ source }: { source?: EventSource }) {
     };
   }, [source, load]);
 
+  const live = agents?.groups
+    .flatMap((group) => group.agents)
+    .find((row) => row.agent.id === selected?.id)?.agent;
   return (
     <>
       <TopBar
         title={selected ? `${selected.name} ${selected.title}` : "Agents"}
         back="/settings"
         onBack={selected && (() => setSelected(undefined))}
-      >
-        {agents && !selected && (
-          <span className="ml-auto text-muted-foreground">
-            {agents.count} / {agents.max}
-          </span>
-        )}
-      </TopBar>
+      />
       {selected ? (
         <>
           <PageHeader title={`${selected.name} ${selected.title}`}>
@@ -313,6 +352,9 @@ export function Agents({ source }: { source?: EventSource }) {
               Agents
             </Button>
           </PageHeader>
+          <div className={cn(inset, "flex flex-wrap items-center gap-2 empty:hidden")}>
+            {live && <StartCheckButton agent={live} />}
+          </div>
           <TranscriptLog
             agent={selected}
             source={source}
@@ -324,13 +366,7 @@ export function Agents({ source }: { source?: EventSource }) {
         </>
       ) : (
         <>
-          <PageHeader title="Agents">
-            {agents && (
-              <span className="text-muted-foreground">
-                {agents.count} / {agents.max}
-              </span>
-            )}
-          </PageHeader>
+          <PageHeader title="Agents" />
           {error && <ErrorBadge>{error}</ErrorBadge>}
           {agents?.groups.map((group) => (
             <Section key={group.name} title={`${group.name} ${group.count} / ${group.max}`}>

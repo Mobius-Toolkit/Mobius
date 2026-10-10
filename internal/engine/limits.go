@@ -200,34 +200,63 @@ func (a *Agent) waitOutLimit(ctx context.Context, err error) (bool, error) {
 	return true, a.waitForPause(ctx)
 }
 
+// limitText is the Mobius message of a usage limit of harness with the end of the pause until. It has the same form
+// for each Harness.
+func limitText(harness config.Harness, until time.Time) string {
+	return fmt.Sprintf("%s reached a usage limit. Mobius sends the prompt again at %s.", harness, until.UTC().Format(timeFormat))
+}
+
 // pause pauses the Harness of a until the time until. A Harness has one usage-limit Inbox item. A second session at
 // the same pause, and a retry that fails again, use the item again. The first pause also adds a message in the chat of
-// the Workstream of a.
+// the Workstream of a. A session with a chat gets the message in its chat for each usage limit that it hits, also for
+// a pause that another session started.
 func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	e.pausing.Lock()
 	defer e.pausing.Unlock()
-	_, err := e.queries.GetHarnessPause(ctx, string(a.harness))
+	current, err := e.queries.GetHarnessPause(ctx, string(a.harness))
 	if err == nil {
-		return nil
+		if a.author == "" {
+			return nil
+		}
+		currentEnd, err := pauseEnd(current)
+		if err != nil {
+			return err
+		}
+		text := limitText(a.harness, *currentEnd)
+		spec := a.spec
+		last, err := e.queries.GetLastChatMessageOf(ctx, store.GetLastChatMessageOfParams{
+			Organization: spec.Organization, Repository: spec.Repository, Workstream: spec.Workstream, Author: mobiusAuthor,
+		})
+		if err == nil && last.Text == text {
+			return nil
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		return e.addLimitMessage(ctx, a, text)
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	text := fmt.Sprintf("%s reached a usage limit. Mobius sends the prompt again at %s.", a.harness, until.UTC().Format(timeFormat))
+	text := limitText(a.harness, until)
 	item, err := e.queries.ReopenInboxItem(ctx, store.ReopenInboxItemParams{
 		Text:       text,
 		Time:       now(),
 		ID:         e.limitItems[a.harness],
 		RetrySince: time.Now().Add(-retryWindow).UTC().Format(time.RFC3339Nano),
 	})
-	spec := a.spec
 	switch {
 	case err == nil:
+		if a.author != "" {
+			if err := e.addLimitMessage(ctx, a, text); err != nil {
+				return err
+			}
+		}
 	case errors.Is(err, sql.ErrNoRows):
 		item, err = e.queries.AddInboxItem(ctx, store.AddInboxItemParams{
 			Kind:         usageLimitKind,
-			Organization: spec.Organization,
-			Repository:   spec.Repository,
+			Organization: a.spec.Organization,
+			Repository:   a.spec.Repository,
 			Text:         text,
 			Time:         now(),
 		})
@@ -235,7 +264,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 			return err
 		}
 		e.limitItems[a.harness] = item.ID
-		if _, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, mobiusAuthor, text, "", ""); err != nil {
+		if err := e.addLimitMessage(ctx, a, text); err != nil {
 			return err
 		}
 	default:
@@ -247,6 +276,13 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	}
 	e.publish(Change{Inbox: &item})
 	return e.timer(pause)
+}
+
+// addLimitMessage adds text to the chat of the Workstream of a.
+func (e *Engine) addLimitMessage(ctx context.Context, a *Agent, text string) error {
+	spec := a.spec
+	_, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, mobiusAuthor, text, "", "")
+	return err
 }
 
 // timer ends the pause at its time. A later pause of the same Harness has its own timer.
@@ -397,6 +433,7 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 				return err
 			}
 			e.publish(Change{Node: new(e.node(cleared))})
+			e.publishChat(a)
 			return nil
 		}
 		if err != nil {
@@ -412,6 +449,7 @@ func (a *Agent) waitForPause(ctx context.Context) error {
 				return err
 			}
 			e.publish(Change{Node: new(e.node(queued))})
+			e.publishChat(a)
 			shown = true
 		}
 		a.setUncounted(e.draining())

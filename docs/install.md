@@ -148,9 +148,8 @@ You can add these keys:
 | --- | --- | --- |
 | `trusted_bots` | `[]` | The GitHub logins of bots that Mobius trusts, as it trusts the trusted users |
 | `data_dir` | `~/.mobius` | The directory of `mobius.db` and of the work directories of the agents |
-| `max_agents` | `4` | The maximum number of agents of the Roles with `counts_in_max_agents` that run at the same time |
 | `max_checks` | `1` | The maximum number of local checks that run at the same time |
-| `max_fix_rounds` | `7` | The maximum number of fix rounds of a task |
+| `max_fix_rounds` | `10` | The maximum number of fix rounds of a task |
 | `max_check_attempts` | `3` | The maximum number of failed local checks in one Implementer round |
 | `max_worker_restarts` | `3` | The maximum number of restarts of a failed Worker. After the last restart, the task goes to a human |
 | `check_timeout` | `"15m"` | The time limit of one local check |
@@ -165,7 +164,6 @@ A duration is a text with a number and a unit for each part: `s`, `m` or `h`. Fo
 Each Role can also have these keys:
 
 - `max`: the maximum number of agents of the Role that run at the same time. The default is 8 for the Lead, and 2 for each other Role.
-- `counts_in_max_agents`: `true` when the agents of the Role count in `max_agents`. The default is `false` for the Lead, the Triager, and the Judge, and `true` for each other Role.
 
 ## 6. Start
 
