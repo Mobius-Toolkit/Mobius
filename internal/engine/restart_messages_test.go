@@ -109,7 +109,7 @@ func TestARestartDoesNotGiveADeliveredAStoppedOrAnUnnamedOwnerMessageAgain(t *te
 	}
 }
 
-func TestAMessageOfThisRunWaitsBehindTheStoredMessageOfTheEarlierRun(t *testing.T) {
+func TestAStoredMessageGoesToTheAgentBeforeAMessageOfThisRunThatArrivesBeforeThePoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
@@ -133,7 +133,7 @@ func TestAMessageOfThisRunWaitsBehindTheStoredMessageOfTheEarlierRun(t *testing.
 
 	testkit.WaitFor(t, func() bool { return strings.Contains(joinedLeadPrompts(t, server), "Waiting message.") })
 	prompts := leadPrompts(t, server)
-	if len(prompts) != 3 || !strings.HasSuffix(prompts[0], "Running message.") || prompts[1] != "Earlier message." || prompts[2] != "Waiting message." {
+	if len(prompts) != 3 || !strings.HasSuffix(prompts[0], "Earlier message.") || prompts[1] != "Running message." || prompts[2] != "Waiting message." {
 		t.Errorf("prompts = %q", prompts)
 	}
 }

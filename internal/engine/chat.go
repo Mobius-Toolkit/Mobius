@@ -214,7 +214,11 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 	}
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
-	message, err := e.addChatMessage(ctx, key, author, text, saved, browserID)
+	earlier, err := e.earlierMessages(ctx, key.Organization, key.Repository, key)
+	var message store.ChatMessage
+	if err == nil {
+		message, err = e.addChatMessage(ctx, key, author, text, saved, browserID)
+	}
 	if err != nil {
 		if saved != "" {
 			_ = os.RemoveAll(saved)
@@ -224,23 +228,20 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 		}
 		return err
 	}
-	e.give(key, false, false, item{message: &message})
+	e.handedChats[key] = true
+	e.give(key, false, append(earlier[key], item{message: &message})...)
 	return nil
 }
 
 // give gives the items to the chat of key, and starts the chat when none runs. A chat that runs gets the items after
-// its queue, or before its queue when front is true. The item that runs stays first. tracked tells that the drain
-// counts the first session of a new chat from a tryTrack of the caller. The caller holds e.chatOrder.
-func (e *Engine) give(key ChatKey, tracked, front bool, items ...item) {
+// its queue. tracked tells that the drain counts the first session of a new chat from a tryTrack of the caller. The
+// caller holds e.chatOrder.
+func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	e.chatsMu.Lock()
 	c, ok := e.chats[key]
 	var agent *Agent
 	if ok {
-		if front {
-			c.queue = append(items, c.queue...)
-		} else {
-			c.queue = append(c.queue, items...)
-		}
+		c.queue = append(c.queue, items...)
 		c.writing = true
 		agent = c.agent
 		c.notify()
@@ -356,32 +357,43 @@ func (e *Engine) giveTracked(key ChatKey, items []item) {
 	if !running && !e.tryTrack() {
 		return
 	}
-	e.give(key, !running, false, items...)
+	e.give(key, !running, items...)
 }
 
 // giveEarlierMessages gives the messages of the Owner that the earlier run of the server stored and did not deliver
-// to the chats of organization and repository, in the order of their ids. It gives them to each chat one time in a
-// run, before the items that a message of this run put in the queue of a chat. A message with no browser id is from before the browser ids, so the agent does not get it again.
-// Like postChat, it does not wait for the drain, so a message of this run never goes before an earlier message.
+// to the chats of organization and repository that no message of this run reached, in the order of their ids. Like
+// postChat, it does not wait for the drain.
 func (e *Engine) giveEarlierMessages(ctx context.Context, organization, repository string) error {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
-	messages, err := e.queries.ListUndeliveredOwnerMessages(ctx, store.ListUndeliveredOwnerMessagesParams{Organization: organization, Repository: repository, ID: e.earlierMessage})
+	chats, err := e.earlierMessages(ctx, organization, repository, ChatKey{})
 	if err != nil {
 		return err
+	}
+	for key, items := range chats {
+		e.handedChats[key] = true
+		e.give(key, false, items...)
+	}
+	return nil
+}
+
+// earlierMessages lists the undelivered messages of the Owner that the earlier run of the server stored in the chats
+// of organization and repository, for each chat whose messages the poll or postChat did not give yet. A message with
+// no browser id is from before the browser ids, so the agent does not get it again. It lists only the chat of only,
+// unless only is the zero value. The caller holds e.chatOrder.
+func (e *Engine) earlierMessages(ctx context.Context, organization, repository string, only ChatKey) (map[ChatKey][]item, error) {
+	messages, err := e.queries.ListUndeliveredOwnerMessages(ctx, store.ListUndeliveredOwnerMessagesParams{Organization: organization, Repository: repository, ID: e.earlierMessage})
+	if err != nil {
+		return nil, err
 	}
 	chats := map[ChatKey][]item{}
 	for _, message := range messages {
 		key := ChatKey{message.Organization, message.Repository, message.Workstream}
-		if !e.handedChats[key] {
+		if !e.handedChats[key] && (only == ChatKey{} || key == only) {
 			chats[key] = append(chats[key], item{message: &message})
 		}
 	}
-	for key, items := range chats {
-		e.give(key, false, true, items...)
-		e.handedChats[key] = true
-	}
-	return nil
+	return chats, nil
 }
 
 // StopChat stops the turn of the chat that answers a message of the Owner. A turn for an event goes on. A chat
