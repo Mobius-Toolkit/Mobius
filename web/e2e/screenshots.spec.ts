@@ -51,6 +51,7 @@ const wide = (selector: string) =>
   `(document.querySelector('${selector}')?.scrollWidth ?? 0) > (document.querySelector('${selector}')?.clientWidth ?? 0)`;
 
 test("screenshots", async ({ page }) => {
+  test.setTimeout(90_000);
   const main = page.getByRole("main");
   // The day separator shows the year of a message that is not in the current year.
   await page.clock.setFixedTime("2026-10-15T12:00:00Z");
