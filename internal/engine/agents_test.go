@@ -225,7 +225,7 @@ type lineEvent struct {
 	Body    string `json:"body"`
 }
 
-func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndEachTranscriptLine(t *testing.T) {
+func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndNoTranscriptLine(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hel\", \"lo\"]\n")
@@ -246,7 +246,6 @@ func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndEachTranscriptLine(t *
 	session, _ := leadReply(t, server)
 
 	var agents []agentEvent
-	var lines []lineEvent
 	for len(agents) == 0 || agents[len(agents)-1].EndedAt == nil {
 		name, data := readEvent(t, events)
 		switch name {
@@ -257,11 +256,7 @@ func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndEachTranscriptLine(t *
 			}
 			agents = append(agents, agent)
 		case "transcript":
-			var line lineEvent
-			if err := json.Unmarshal([]byte(data), &line); err != nil {
-				t.Fatal(err)
-			}
-			lines = append(lines, line)
+			t.Errorf("transcript event = %s", data)
 		}
 	}
 	// The session comes at its addition, at its slot and at its end.
@@ -276,18 +271,52 @@ func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndEachTranscriptLine(t *
 	if agents[2].ID != session || agents[2].EndReason != "done" {
 		t.Errorf("end = %+v", agents[2])
 	}
-	var message []string
-	for _, line := range lines {
-		if line.Session != session {
-			t.Errorf("line = %+v", line)
-		}
-		if line.Text == "message" {
-			message = append(message, line.Body)
+}
+
+func TestTheTranscriptStreamGivesTheNewAndTheChangedRowsOfItsSessionOnly(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hel\", \"lo\"]\n")
+	first := start(t, server, leadSpec(t))
+	other := start(t, server, leadSpec(t))
+	listeners := server.Engine.Listeners()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/api/agents/"+strconv.FormatInt(first.ID(), 10)+"/transcript/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	events := bufio.NewReader(response.Body)
+	testkit.WaitFor(t, func() bool { return server.Engine.Listeners() > listeners })
+
+	for _, agent := range []*engine.Agent{other, first} {
+		if err := agent.Prompt(t.Context(), "Read the work", nil); err != nil {
+			t.Fatal(err)
 		}
 	}
-	// The second chunk joins the row of the first chunk, so the line comes again with more text.
-	if !reflect.DeepEqual(message, []string{"Hel", "Hello"}) {
-		t.Errorf("message lines = %q", message)
+
+	var bodies []string
+	for len(bodies) < 2 || bodies[len(bodies)-1] != "Hello" {
+		name, data := readEvent(t, events)
+		if name != "transcript" {
+			t.Fatalf("event = %s %s", name, data)
+		}
+		var line lineEvent
+		if err := json.Unmarshal([]byte(data), &line); err != nil {
+			t.Fatal(err)
+		}
+		if line.Session != first.ID() {
+			t.Fatalf("line of another session = %+v", line)
+		}
+		if line.Text == "message" {
+			bodies = append(bodies, line.Body)
+		}
+	}
+	if !reflect.DeepEqual(bodies, []string{"Hel", "Hello"}) {
+		t.Errorf("message bodies = %q", bodies)
 	}
 }
 

@@ -1002,10 +1002,6 @@ export type LiveEvents = {
   event: 'agent';
   id?: string;
 } | {
-  data: TranscriptLine;
-  event: 'transcript';
-  id?: string;
-} | {
   data: Drain;
   event: 'drain';
   id?: string;
@@ -1098,6 +1094,15 @@ export interface StopChatBody {
   /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
   workstream?: number;
 }
+
+/**
+ * TranscriptEvents are the events of the live stream of a Transcript.
+ */
+export type TranscriptEvents = {
+  data: TranscriptLine;
+  event: 'transcript';
+  id?: string;
+};
 
 /**
  * Field-level validation errors (maps field names to arrays of error messages)
