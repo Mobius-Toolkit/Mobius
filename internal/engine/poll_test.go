@@ -48,6 +48,7 @@ func cursor(t *testing.T, server *testserver.Server) (since, etag sql.NullString
 // The poll fixes the labels of a managed repository at its first sight, one time in a run of the server.
 func TestAPollFixesTheLabelsOfAManagedRepositoryOneTime(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddRepositoryLabel(shop, "mobius:working", "ededed", "Custom description")
 	fake.AddRepositoryLabel(shop, "bug", "d73a4a", "Something is wrong")
@@ -91,6 +92,7 @@ func TestAPollFixesTheLabelsOfAManagedRepositoryOneTime(t *testing.T) {
 
 func TestThePollMovesTheCursorToTheLastChangeAndSendsTheETag(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 1, "First")
 	fake.AddIssue(shop, 2, "Second")
@@ -140,6 +142,7 @@ func TestThePollContinuesFromTheCursorOfTheDatabase(t *testing.T) {
 // A 304 for page 1 says nothing about the other pages.
 func TestAnIssueListOfMoreThanOnePageGivesNoETag(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	for number := range int64(101) {
 		fake.AddIssue(shop, number+1, "Issue")

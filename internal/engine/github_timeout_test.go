@@ -17,6 +17,7 @@ func shortGitHubTimeout(t *testing.T) {
 }
 
 func TestAGitHubCallThatDoesNotAnswerFailsTheWorkerAndTheWorkerStartsAgain(t *testing.T) {
+	testkit.Slow(t)
 	shortGitHubTimeout(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
@@ -31,6 +32,7 @@ func TestAGitHubCallThatDoesNotAnswerFailsTheWorkerAndTheWorkerStartsAgain(t *te
 }
 
 func TestThePollContinuesAfterAGitHubCallThatDoesNotAnswer(t *testing.T) {
+	testkit.Slow(t)
 	shortGitHubTimeout(t)
 	fake := testkit.NewFakeGitHub(t)
 	connectTask(t, fake, leadStarts, commits, noChange)

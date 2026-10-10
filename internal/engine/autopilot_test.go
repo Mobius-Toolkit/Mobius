@@ -44,6 +44,7 @@ func activeTasks(t *testing.T, server *testserver.Server) int64 {
 
 func TestWithAutopilotAFreeWorkerAndNoBlockerATaskStarts(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	prepareAutopilot(fake, true)
 	addTaskIssue(fake, 41, "Add plan model")
@@ -68,6 +69,7 @@ func TestWithAutopilotAFreeWorkerAndNoBlockerATaskStarts(t *testing.T) {
 
 func TestWithNoAutopilotNoTaskStarts(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	prepareAutopilot(fake, false)
 	addTaskIssue(fake, 41, "Add plan model")
@@ -83,6 +85,7 @@ func TestWithNoAutopilotNoTaskStarts(t *testing.T) {
 
 func TestWithAsManyActiveTasksAsMaxAgentsNoTaskStarts(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	prepareAutopilot(fake, true)
 	addTaskIssue(fake, 41, "Add plan model")
@@ -99,6 +102,7 @@ func TestWithAsManyActiveTasksAsMaxAgentsNoTaskStarts(t *testing.T) {
 
 func TestAnOpenBlockerHoldsTheTaskUntilItCloses(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	prepareAutopilot(fake, true)
 	addTaskIssue(fake, 41, "Add plan model")
@@ -120,6 +124,7 @@ func TestAnOpenBlockerHoldsTheTaskUntilItCloses(t *testing.T) {
 
 func TestTasksStartInTheOrderOfTheSubIssues(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	prepareAutopilot(fake, true)
 	fake.AddIssue(shop, 41, "Add plan model")
@@ -139,6 +144,7 @@ func TestTasksStartInTheOrderOfTheSubIssues(t *testing.T) {
 
 func TestAnEndedTaskDoesNotStartAgain(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	prepareAutopilot(fake, true)
 	addTaskIssue(fake, 41, "Add plan model")
@@ -154,6 +160,7 @@ func TestAnEndedTaskDoesNotStartAgain(t *testing.T) {
 
 func TestADeclinedTaskDoesNotStartAgain(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	prepareAutopilot(fake, true)
 	addTaskIssue(fake, 41, "Add plan model")

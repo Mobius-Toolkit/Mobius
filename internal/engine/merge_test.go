@@ -37,6 +37,7 @@ func dismissedApproval(t *testing.T, server *testserver.Server) bool {
 
 func TestAnApprovalOfATrustedUserSquashMergesThePullRequestAndEndsTheTask(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "approval")
 	passMobius(fake, sha)
@@ -58,6 +59,7 @@ func TestAnApprovalOfATrustedUserSquashMergesThePullRequestAndEndsTheTask(t *tes
 
 func TestAnApprovedPullRequestMergesOnALaterPollWhenTheConditionBecomesTrue(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	tests := []struct {
 		name string
 		// block makes the condition false before the approval and gives the function that makes it true.
@@ -114,6 +116,7 @@ func TestAnApprovedPullRequestMergesOnALaterPollWhenTheConditionBecomesTrue(t *t
 
 func TestAnApprovedPullRequestWithAMergeConflictInNeedsHumanMergesAfterTheConflictIsGone(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := seedWaiting(t, fake, "needs_human")
 	fake.SetCreatedAt(shop, 42, 0)
@@ -152,6 +155,7 @@ func TestAnApprovedPullRequestWithAMergeConflictInNeedsHumanMergesAfterTheConfli
 
 func TestANewCommitDoesNotCancelTheApproval(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := seedWaiting(t, fake, "approval")
 	fake.AddReview(shop, 42, "owner", "APPROVED", "")
@@ -179,6 +183,7 @@ func TestANewCommitDoesNotCancelTheApproval(t *testing.T) {
 
 func TestAnApprovalOfAnotherReviewerOrAnotherStateDoesNotMerge(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	tests := []struct{ author, state string }{
 		{"mallory", "APPROVED"},
 		{"coderabbitai[bot]", "APPROVED"},
@@ -210,6 +215,7 @@ func TestAnApprovalOfAnotherReviewerOrAnotherStateDoesNotMerge(t *testing.T) {
 
 func TestADismissedApprovalDoesNotMerge(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "approval")
 	review := fake.AddReview(shop, 42, "owner", "APPROVED", "")
@@ -231,6 +237,7 @@ func TestADismissedApprovalDoesNotMerge(t *testing.T) {
 
 func TestADismissalOfTheNewerApprovalDoesNotBringBackTheOlderApproval(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "approval")
 	fake.AddReview(shop, 42, "owner", "APPROVED", "")
@@ -255,6 +262,7 @@ func TestADismissalOfTheNewerApprovalDoesNotBringBackTheOlderApproval(t *testing
 
 func TestADismissalOfARequestForChangesKeepsTheApprovalAndMerges(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "approval")
 	fake.AddReview(shop, 42, "owner", "APPROVED", "")
@@ -279,6 +287,7 @@ func TestADismissalOfARequestForChangesKeepsTheApprovalAndMerges(t *testing.T) {
 
 func TestADismissalOfARefusedApprovalDoesNotTryTheMergeAgain(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	_, sha := seedWaiting(t, fake, "approval")
 	passMobius(fake, sha)
@@ -298,6 +307,7 @@ func TestADismissalOfARefusedApprovalDoesNotTryTheMergeAgain(t *testing.T) {
 
 func TestAReviewSubmittedAfterARefusedApprovalMergesEvenWhenItStartedBefore(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "approval")
 	passMobius(fake, sha)
@@ -318,6 +328,7 @@ func TestAReviewSubmittedAfterARefusedApprovalMergesEvenWhenItStartedBefore(t *t
 
 func TestARefusedMergeGivesTheLeadOneEventAndWaitsForANewApproval(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "approval")
 	passMobius(fake, sha)
@@ -354,6 +365,7 @@ func TestARefusedMergeGivesTheLeadOneEventAndWaitsForANewApproval(t *testing.T) 
 
 func TestAPollWithNoApprovalMakesNoCheckRunCallAndNoMergeCallForATaskInNeedsHuman(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "approval")
 	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
@@ -375,6 +387,7 @@ func TestAPollWithNoApprovalMakesNoCheckRunCallAndNoMergeCallForATaskInNeedsHuma
 
 func TestAPushAfterTheCheckRunReadGivesNoLeadEventAndTheNextPollMergesTheNewHead(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "approval")
 	passMobius(fake, sha)

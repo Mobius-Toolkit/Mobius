@@ -104,6 +104,7 @@ func TestSetAutopilotOffRemovesTheLabel(t *testing.T) {
 
 func TestSetAutopilotNeedsAnAuthorizedOwner(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithBilling(t, fake)
 
@@ -156,6 +157,7 @@ call = { tool = "mark_ready", arguments = { n = 31 } }
 
 func TestTheLeadCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithLeadPlans(t, fake)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
@@ -183,6 +185,7 @@ func TestTheLeadCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T) {
 
 func TestMarkReadyStartsTheTaskWhenTheWorkstreamHasNoAutopilot(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithLeadPlans(t, fake)
 	fake.AddIssue(shop, 13, "Plan prices")
@@ -200,6 +203,7 @@ func TestMarkReadyStartsTheTaskWhenTheWorkstreamHasNoAutopilot(t *testing.T) {
 
 func TestMarkReadyOfAnIssueWithAnOpenBlockerWaitsWhenTheWorkstreamHasNoAutopilot(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithLeadPlans(t, fake)
 	fake.AddIssue(shop, 14, "Plan limits")

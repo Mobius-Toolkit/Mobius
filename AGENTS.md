@@ -52,6 +52,7 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 - A test package that installs a fake Harness (`testkit.InstallFakeHarness` or `testkit.InstallFakeAgent`) calls `testkit.Main(m)` from its `TestMain`.
 - The gh of the agent environment is a link to the test binary. Thus a test package whose agents run gh calls `runner.GH` from its `TestMain` when the program name is gh, as `internal/engine` does.
 - A test of `internal/engine` calls `t.Parallel()` as its first line. A test stays serial in two cases: it changes a package variable or the environment (for example with `t.Setenv`), or it needs an action to finish before a short timer fires (for example a restart delay, a quiet period or an idle timeout). A short timer that only delays an action is safe in parallel. A serial test with a comment "Serial:" has a known hazard: keep it serial. Go runs the serial tests first, so they never run at the same time as a parallel test.
+- A test that needs 2 s or more calls `testkit.Slow(t)`, after `t.Parallel()` if the test has it. To run a slow test locally, run `go test` without `-short`.
 - Wait for a condition with `testkit.WaitFor`. Do not sleep for a fixed time. Before a test changes an issue, wait for the first poll of its repository (`WaitForFirstPoll`).
 - A test server runs only fake agents: it takes no directory with a Harness command from the PATH of the test. To check that something does not happen, wait for more polls (`waitForPolls` in `internal/engine`).
 - The Playwright tests in `web/e2e` test the UI. Run them with `pnpm e2e` in `web`. The command builds the UI, and Playwright starts `TestServer` of `web/e2e` on port 6464 with a fake GitHub. The tests write a desktop and a phone screenshot of each screen to `web/screenshots`. `.mobius/check` does not run them.
@@ -69,6 +70,8 @@ curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/b
 ```
 
 Run `.mobius/check` (or `make check`). It must pass.
+
+The local `.mobius/check` runs `go test -short`, so it skips the slow tests. CI sets `CI` and runs all tests.
 
 ## Layout
 

@@ -15,6 +15,7 @@ const lesson = "Run make fmt before each commit."
 
 func TestEachRoleGetsTheSameMemorySectionAfterTheRoleInstructions(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"" + question + "\"\ncall = { tool = \"start_researcher\", arguments = { question = \"" + question + "\" } }\n\n" + leadStarts
 	server, dataDir := connectTask(t, fake, lead, commits, noChange)
@@ -45,6 +46,7 @@ func TestEachRoleGetsTheSameMemorySectionAfterTheRoleInstructions(t *testing.T) 
 
 func TestAPromptHasNoMemorySectionWhenTheMemoryFileDoesNotExist(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 
 	prompt := firstLeadPrompt(t, fake, [2]string{"AGENTS.md", fact})

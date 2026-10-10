@@ -75,6 +75,7 @@ func ghTokenURL(mcpURL string) string {
 
 func TestTheGHTokenRouteServesOnlyALiveLeadSession(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectGH(t, fake)
 
@@ -95,6 +96,7 @@ func TestTheGHTokenRouteServesOnlyALiveLeadSession(t *testing.T) {
 
 func TestGHRefreshesAnExpiredUserToken(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectGH(t, fake)
 	expireUserToken(t, server, "ghr_1")
@@ -117,6 +119,7 @@ func TestGHRefreshesAnExpiredUserToken(t *testing.T) {
 
 func TestGHPrintsTheAuthorizeURLWhenTheRefreshFails(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectGH(t, fake)
 	expireUserToken(t, server, "ghr_wrong")

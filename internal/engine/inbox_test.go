@@ -51,6 +51,7 @@ func leadCalls(t *testing.T, server *testserver.Server) []map[string]any {
 
 func TestTheLeadAsksAQuestionAndATrustedReplyGoesToTheLeadAsTheNextEvent(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, `
 [[prompts]]
@@ -101,6 +102,7 @@ reply = ["Seen"]
 
 func TestAskOnAnIssueWithNoLiveTaskInTheWorkstreamChangesNothing(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("ask", `{ n = 41, text = "Cents or dollars?" }`))
 	fake.AddIssue(shop, 41, "Add plan model")
@@ -193,6 +195,7 @@ func TestHoldTaskRefusesATaskThatIsNotDispatched(t *testing.T) {
 
 func TestTellOwnerAddsAChatMessageAndAnInboxItem(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("tell_owner", `{ text = "#41 needs a decision." }`))
 	changes := listen(t, server)
@@ -237,6 +240,7 @@ reply = ["Same text again."]
 
 func TestTheReplyTextAfterTellOwnerDoesNotGoToTheChat(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, tellOwnerThenReply)
 
@@ -257,6 +261,7 @@ func TestTheReplyTextAfterTellOwnerDoesNotGoToTheChat(t *testing.T) {
 
 func TestTheReplyTextOfALaterTurnWithNoTellOwnerGoesToTheChat(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, tellOwnerThenReply, func(cfg *config.Config) { cfg.LeadIdleTimeout = 30 * time.Second })
 	sendChat(t, server, leadChat, "First")
@@ -276,6 +281,7 @@ func TestTheReplyTextOfALaterTurnWithNoTellOwnerGoesToTheChat(t *testing.T) {
 
 func TestDismissRemovesTheItemFromTheInbox(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("tell_owner", `{ text = "#41 needs a decision." }`))
 	dispatchTask(fake, 41, "Add plan model")

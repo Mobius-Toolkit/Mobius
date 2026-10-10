@@ -39,6 +39,7 @@ func dispatchedTask(t *testing.T) (*testkit.FakeGitHub, *testserver.Server) {
 
 func TestATaskThatWaitsInDispatchedForMoreThanTwoHoursGivesTheLeadOneReminderAndThenOneForEachTwoHours(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake, server := dispatchedTask(t)
 	start := time.Now()
 
@@ -77,6 +78,7 @@ func TestATaskThatWaitsInDispatchedForMoreThanTwoHoursGivesTheLeadOneReminderAnd
 
 func TestATaskInDispatchedWithAQuestionGetsNoReminder(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake, server := dispatchedTask(t)
 	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
 	server.Engine.SetClock(func() time.Time { return time.Now().Add(3 * time.Hour) })
@@ -90,6 +92,7 @@ func TestATaskInDispatchedWithAQuestionGetsNoReminder(t *testing.T) {
 
 func TestATaskThatLeavesDispatchedGetsNoReminder(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")

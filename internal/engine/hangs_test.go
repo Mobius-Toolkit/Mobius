@@ -162,6 +162,7 @@ func TestASessionThatWaitsForASlotLongerThanTheHangTimeGetsNoRetryPrompt(t *test
 }
 
 func TestTheHangAfterTheThirdRetryStopsTheSessionAndHandsTheTaskToAHuman(t *testing.T) {
+	testkit.Slow(t)
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, strings.Repeat(hang, 5), noChange)

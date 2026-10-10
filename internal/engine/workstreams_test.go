@@ -151,6 +151,7 @@ func TestAWorkstreamLabelShowsTheIssueInTheWorkstreamList(t *testing.T) {
 
 func TestANewWorkstreamAddsOneActivityThatGoesLive(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddIssue(shop, 13, "Price rounding")
@@ -176,6 +177,7 @@ func TestANewWorkstreamAddsOneActivityThatGoesLive(t *testing.T) {
 
 func TestAWorkstreamLabelFromAnUntrustedAuthorAddsNoActivity(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Mine the servers")
 	fake.AddIssue(shop, 13, "Integrate loyalty plans")

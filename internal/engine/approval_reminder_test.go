@@ -26,6 +26,7 @@ func approvalReminders(t *testing.T, server *testserver.Server) int {
 
 func TestATaskThatWaitsInApprovalForMoreThanTwoHoursGivesTheLeadOneReminderAndThenOneForEachTwoHours(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -67,6 +68,7 @@ func TestATaskThatWaitsInApprovalForMoreThanTwoHoursGivesTheLeadOneReminderAndTh
 
 func TestATaskThatLeavesApprovalGetsNoReminder(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")

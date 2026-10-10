@@ -83,6 +83,7 @@ func TestAnEventShowsInTheChatAndInTheHistoryAndIsNeverUnread(t *testing.T) {
 
 func TestAReadyLabelOfATrustedUserDispatchesTheIssueToTheLead(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 
@@ -110,6 +111,7 @@ func TestAReadyLabelOfATrustedUserDispatchesTheIssueToTheLead(t *testing.T) {
 
 func TestTheFirstPromptHasTheContextAndEachLaterTurnHasOneEvent(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectWith(t, fake, seen, func(cfg *config.Config) { cfg.LeadIdleTimeout = 5 * time.Second })
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
@@ -158,6 +160,7 @@ func TestTheFirstPromptHasTheContextAndEachLaterTurnHasOneEvent(t *testing.T) {
 
 func TestACommentThatArrivesWhileThePollReadsTheIssueGivesOneEvent(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, seen, keepSessionOpen)
 	dispatchTask(fake, 41, "Add plan model")
@@ -176,6 +179,7 @@ func TestACommentThatArrivesWhileThePollReadsTheIssueGivesOneEvent(t *testing.T)
 
 func TestAReadyLabelOfAStrangerDoesNotDispatch(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 41, "Mine the servers")
@@ -192,6 +196,7 @@ func TestAReadyLabelOfAStrangerDoesNotDispatch(t *testing.T) {
 
 func TestAnIssueWithAnOpenBlockerWaitsUntilTheBlockerCloses(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 40, "Add plan model")
@@ -216,6 +221,7 @@ func TestAnIssueWithAnOpenBlockerWaitsUntilTheBlockerCloses(t *testing.T) {
 
 func TestTheWorkstreamOfATaskIsTheFirstWorkstreamIssueInTheParentChain(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 30, "September")
@@ -241,6 +247,7 @@ func TestTheWorkstreamOfATaskIsTheFirstWorkstreamIssueInTheParentChain(t *testin
 
 func TestAReadyLabelOnAnIssueWithALiveTaskHasNoEffect(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 	dispatchTask(fake, 41, "Add plan model")
@@ -280,6 +287,7 @@ func TestAReadyLabelOnAnIssueWithALiveTaskHasNoEffect(t *testing.T) {
 
 func TestOnlyACommentOfATrustedUserOnTheIssueOfALiveTaskIsAnEvent(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 	dispatchTask(fake, 41, "Add plan model")
@@ -329,6 +337,7 @@ func addStoppedTask(t *testing.T, fake *testkit.FakeGitHub, server *testserver.S
 // the Owner the next step. Only mobius:ready continues the task (Mobius-rust#253, Mobius-rust#274).
 func TestACommentOnThePullRequestOfAStoppedTaskGoesToTheLeadAndStartsNoRound(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 
@@ -356,6 +365,7 @@ func TestACommentOnThePullRequestOfAStoppedTaskGoesToTheLeadAndStartsNoRound(t *
 
 func TestACommentOnTheIssueOfAStoppedTaskGoesToTheLead(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 
@@ -370,6 +380,7 @@ func TestACommentOnTheIssueOfAStoppedTaskGoesToTheLead(t *testing.T) {
 
 func TestAReviewCommentAndALaterCommentOnThePullRequestOfAStoppedTaskGoToTheLead(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 
@@ -394,6 +405,7 @@ func TestAReviewCommentAndALaterCommentOnThePullRequestOfAStoppedTaskGoToTheLead
 
 func TestAReviewCommentOfATrustedUserResetsTheCountersOfTheTask(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 
@@ -404,6 +416,7 @@ func TestAReviewCommentOfATrustedUserResetsTheCountersOfTheTask(t *testing.T) {
 
 func TestACommentOfTheOwnerKeepsMobiusNeedsHumanOnATaskInNeedsHuman(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 41, "Add plan model")
@@ -427,6 +440,7 @@ func TestACommentOfTheOwnerKeepsMobiusNeedsHumanOnATaskInNeedsHuman(t *testing.T
 
 func TestAnAnswerRemovesMobiusQuestionAndKeepsMobiusNeedsHumanOnATaskInNeedsHuman(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 41, "Add plan model")
@@ -452,6 +466,7 @@ func TestAnAnswerRemovesMobiusQuestionAndKeepsMobiusNeedsHumanOnATaskInNeedsHuma
 
 func TestTheLeadDeclinesADispatchedTask(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"Split it into a model and an API.\" } }\n")
 
@@ -484,6 +499,7 @@ func TestTheLeadDeclinesADispatchedTask(t *testing.T) {
 // A decline of a task with an open pull request closes the pull request and fails its Mobius check (Mobius-rust#255).
 func TestADeclineClosesTheOpenPullRequestOfTheTask(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	// The first prompt of a new session has the earlier events in its history, so the rule of the newest event comes first.
 	lead := "[[prompts]]\nwhen = \"ready for Lead approval of #41\"\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"#43 has this work.\" } }\n\n" + leadStarts

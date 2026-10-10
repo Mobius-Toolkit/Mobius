@@ -20,6 +20,7 @@ func judgePromptHas(t *testing.T, server *testserver.Server, texts ...string) bo
 
 func TestAPollReadsTheReviewsAndThreadsOfManyChangedPullRequestsWithOneCall(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 	fake.AddIssue(shop, 43, "Plan API")
@@ -50,6 +51,7 @@ func TestAPollReadsTheReviewsAndThreadsOfManyChangedPullRequestsWithOneCall(t *t
 }
 
 func TestAPollMakesNoJudgeCallForAPullRequestThatDidNotChange(t *testing.T) {
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
 	endedChatSession(t, server, 1)
@@ -69,6 +71,7 @@ func TestAPollMakesNoJudgeCallForAPullRequestThatDidNotChange(t *testing.T) {
 
 func TestAPollReadsThePullRequestsOfManyReviewedTasksWithOneCall(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 	fake.AddIssue(shop, 43, "Plan API")
@@ -105,6 +108,7 @@ func TestAPollReadsThePullRequestsOfManyReviewedTasksWithOneCall(t *testing.T) {
 
 func TestAnEditedCommentGivesTheJudgeItsNewText(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "shell = \"true\"\n", "", func(cfg *config.Config) { cfg.ReviewQuietPeriod = 2 * time.Second })
 
@@ -121,6 +125,7 @@ func TestAnEditedCommentGivesTheJudgeItsNewText(t *testing.T) {
 
 func TestTheItemsOfAPollStartTheJudgeInALaterPollAfterTheQuietPeriod(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectJudge(t, fake, "shell = \"true\"\n", "", func(cfg *config.Config) { cfg.ReviewQuietPeriod = 2 * time.Second })
 
@@ -136,6 +141,7 @@ func TestTheItemsOfAPollStartTheJudgeInALaterPollAfterTheQuietPeriod(t *testing.
 
 func TestARestartKeepsTheItemsOfTheJudge(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	fake.AddRepository(shop)

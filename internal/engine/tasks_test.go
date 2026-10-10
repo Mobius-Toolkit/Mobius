@@ -68,6 +68,7 @@ func waitForTasks(t *testing.T, server *testserver.Server, want []taskLine) {
 
 func TestTheTasksTabShowsTheSubIssuesOfTheWorkstream(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")

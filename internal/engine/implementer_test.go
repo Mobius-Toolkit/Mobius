@@ -162,6 +162,7 @@ func hasLabel(fake *testkit.FakeGitHub, label string) bool {
 
 func TestTheImplementerCommitsAndMobiusOpensADraftPullRequest(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, commits, noChange)
 	fake.AddComment(shop, 41, "owner", "Round down.")
@@ -211,6 +212,7 @@ func TestTheImplementerCommitsAndMobiusOpensADraftPullRequest(t *testing.T) {
 
 func TestCannotDoGoesToTheLeadAndTheNextStartMergesABranchThatDiverged(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"comment on #41\"\n" + startImplementer + "\n[[prompts]]\nwhen = \"cannot_do on #41\"\nreply = [\"ok\"]\n\n" + leadStarts
 	server, dataDir := connectTask(t, fake, lead, "[[prompts]]\nwhen = \"Try again\"\nreply = [\"ok\"]\n\n[[prompts]]\n"+cannotDoCall, noChange)
@@ -320,6 +322,7 @@ func TestARewrittenPushedCommitStopsTheTaskBeforeThePushWithNoRestartAndLeavesAC
 
 func TestACommitOnTheBranchDuringARoundMergesBeforeThePush(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, commits, noChange)
 	goFile := filepath.Join(dataDir, "go")
@@ -351,6 +354,7 @@ func TestACommitOnTheBranchDuringARoundMergesBeforeThePush(t *testing.T) {
 
 func TestAPushThatGitHubRejectsStopsTheTaskWithNoRestart(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
 	// GitHub refuses each push to a hidden ref.
@@ -381,6 +385,7 @@ func TestAPushThatGitHubRejectsStopsTheTaskWithNoRestart(t *testing.T) {
 
 func TestASecondTaskOfTheIssueGetsTheNextFreeBranch(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"Split it.\" } }\n\n" + leadStarts
 	implementer := "[[prompts]]\n" + cannotDoCall + "\n[[prompts]]\nwhen = \"Start again.\"\n" + commitCents
@@ -409,6 +414,7 @@ func TestASecondTaskOfTheIssueGetsTheNextFreeBranch(t *testing.T) {
 
 func TestAFailedCheckGoesBackToTheSameImplementerWithTheOutput(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\n"+commitDollar+"\n[[prompts]]\n"+fixCents, noChange)
 	fake.SetCheck(shop, "gh auth status\ngrep cents plan.txt || echo 'plan.txt has no cents.'\ngrep -q cents plan.txt")
@@ -441,6 +447,7 @@ func TestAFailedCheckGoesBackToTheSameImplementerWithTheOutput(t *testing.T) {
 }
 
 func TestAfterMaxCheckAttemptsMobiusPushesFailsTheCheckRunAndStopsTheTask(t *testing.T) {
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.CheckTimeout = 300 * time.Millisecond })
 	fake.SetCheck(shop, "echo 'tests failed'\nsleep 10")
@@ -481,6 +488,7 @@ func TestAfterMaxCheckAttemptsMobiusPushesFailsTheCheckRunAndStopsTheTask(t *tes
 }
 
 func TestACheckOnAFullDiskWaitsForFreeSpaceWithNoPromptAndNoAttemptAndThenPushes(t *testing.T) {
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	testkit.SetFreeSpace(t, dataDir, 0)
@@ -551,6 +559,7 @@ func dispatchTwo(fake *testkit.FakeGitHub) {
 
 func TestWithOneAgentSlotTheSecondImplementerWaitsInTheQueueUntilTheFirstEnds(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStartsTwo, commits, func(cfg *config.Config) { cfg.MaxAgents = 1 })
 	goFile := filepath.Join(dataDir, "go")
@@ -615,6 +624,7 @@ func taskTab(t *testing.T, server *testserver.Server) []engine.TaskLine {
 
 func TestWithOneCheckSlotTheLocalChecksDoNotRunAtTheSameTime(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStartsTwo, commits, func(cfg *config.Config) { cfg.MaxChecks = 1 })
 	log := filepath.Join(dataDir, "checks.log")
@@ -634,6 +644,7 @@ func TestWithOneCheckSlotTheLocalChecksDoNotRunAtTheSameTime(t *testing.T) {
 
 func TestASessionShowsEachPhaseOfItsCheck(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStartsTwo, commits, func(cfg *config.Config) { cfg.MaxChecks = 1 })
 	goFile := filepath.Join(dataDir, "go")
@@ -687,6 +698,7 @@ func TestASessionShowsEachPhaseOfItsCheck(t *testing.T) {
 
 func TestAPushThatFailsAfterAPassedCheckTriesAgainWithNoNewSession(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 20 })
 	remote := fake.Remote(shop)
@@ -720,6 +732,7 @@ func TestAPushThatFailsAfterAPassedCheckTriesAgainWithNoNewSession(t *testing.T)
 
 func TestSendDetailsStopsTheTurnAndSendsTheDetailsInTheSameSession(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"Send the details\"\ncall = { tool = \"send_details\", arguments = { n = 41, text = \"Round prices down.\" } }\n\n" + leadStarts
 	implementer := "[[prompts]]\nreply = [\"Working.\"]\nhang = true\n\n[[prompts]]\nwhen = \"The Owner gave new details\"\n" + commitCents
@@ -801,6 +814,7 @@ func TestAFetchThatStallsFailsTheWorkerAndTheWorkerRestarts(t *testing.T) {
 
 func TestCannotDoIsRefusedWhenTheWorktreeHasWorkThatMobiusDidNotPush(t *testing.T) {
 	t.Parallel()
+	testkit.Slow(t)
 	const refusal = "error: Your worktree has work that Mobius did not push. Commit your work and end the turn normally."
 	for name, shell := range map[string]string{
 		"an unpushed commit":    commitCents,
