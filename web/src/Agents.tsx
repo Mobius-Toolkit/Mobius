@@ -199,8 +199,8 @@ function TranscriptLog({
   // A line that comes while the connection is down is lost, so each connection reads the log. The stream opens again
   // with each new source, so a reconnect of the live events also reconnects the log.
   useEffect(() => {
-    load();
     if (!source) {
+      load();
       return;
     }
     const stream = new EventSource(`/api/agents/${agent.id}/transcript/events`);
