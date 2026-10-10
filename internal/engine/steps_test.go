@@ -290,3 +290,134 @@ func TestTheCIRowOfAStopThatContinuesStartsWhenTheTaskEntersChecksAgain(t *testi
 		t.Errorf("row = %+v starts before the task entered checks again, stopped at %s", row, stopped.StateAt)
 	}
 }
+
+func TestAnImplementerSessionHasAPrepareRowAPullRowAndAPushRowWithNoAttemptAndNoResult(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	session := endedImplementers(t, server, 1)[0]
+	for _, kind := range []string{"prepare", "pull", "push"} {
+		rows := waitForSteps(t, server, kind, 1)
+		stepOf(t, server, rows[0], session)
+		if rows[0].Attempt.Valid || rows[0].Result.Valid {
+			t.Errorf("%s rows = %+v", kind, rows)
+		}
+	}
+}
+
+func TestACheckThatWaitsForALowLoadHasALowLoadRowWithNoResultAfterStartCheckNow(t *testing.T) {
+	installLoad(t, highLoad())
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	session := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := roleSessions(t, server, engine.ImplementerRole)
+		if len(sessions) != 1 {
+			return store.Session{}, false
+		}
+		return sessions[0], sessions[0].QueueReason.String == "waits for a low load"
+	})
+
+	if err := server.Engine.StartCheckNow(t.Context(), session.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := waitForSteps(t, server, "low_load", 1)
+	stepOf(t, server, rows[0], endedImplementers(t, server, 1)[0])
+	if rows[0].Attempt.Valid || rows[0].Result.Valid {
+		t.Errorf("rows = %+v", rows)
+	}
+}
+
+func TestAWaitForALowLoadThatAStopEndsHasALowLoadRowWithTheResultStopped(t *testing.T) {
+	installLoad(t, highLoad())
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool {
+		sessions := roleSessions(t, server, engine.ImplementerRole)
+		return len(sessions) == 1 && sessions[0].QueueReason.String == "waits for a low load"
+	})
+
+	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
+	fake.CloseIssue(shop, 41)
+
+	rows := waitForSteps(t, server, "low_load", 1)
+	if !slices.Equal(stepResults(rows), []string{"stopped"}) || len(stepRows(t, server, "check")) != 0 {
+		t.Errorf("rows = %+v", rows)
+	}
+}
+
+func TestASessionThatWaitsForACheckSlotHasACheckSlotRowAndAStopEndsTheWaitWithTheResultStopped(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectTask(t, fake, leadStartsTwo, commits, func(cfg *config.Config) { cfg.MaxChecks = 1 })
+	goFile := filepath.Join(dataDir, "go")
+	fake.SetCheck(shop, fmt.Sprintf("while [ ! -e '%s' ]; do sleep 0.05; done", goFile))
+	dispatchTwo(fake)
+	waiting := testkit.WaitForValue(t, func() (store.Session, bool) {
+		for _, session := range roleSessions(t, server, engine.ImplementerRole) {
+			if session.QueueReason.String == "waits for a check slot" {
+				return session, true
+			}
+		}
+		return store.Session{}, false
+	})
+
+	fake.AddLabel(shop, 43, "mobius:question", testkit.AppSlug+"[bot]")
+	fake.CloseIssue(shop, 43)
+
+	rows := waitForSteps(t, server, "check_slot", 1)
+	if !slices.Equal(stepResults(rows), []string{"stopped"}) || rows[0].Session != nullInt(waiting.ID) || rows[0].Attempt.Valid {
+		t.Errorf("rows = %+v, session = %+v", rows, waiting)
+	}
+	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestASessionThatGetsACheckSlotAfterAWaitHasACheckSlotRowWithNoResult(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, dataDir := connectTask(t, fake, leadStartsTwo, commits, func(cfg *config.Config) { cfg.MaxChecks = 1 })
+	goFile := filepath.Join(dataDir, "go")
+	fake.SetCheck(shop, fmt.Sprintf("while [ ! -e '%s' ]; do sleep 0.05; done", goFile))
+	dispatchTwo(fake)
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(roleSessions(t, server, engine.ImplementerRole), func(session store.Session) bool {
+			return session.QueueReason.String == "waits for a check slot"
+		})
+	})
+
+	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := waitForSteps(t, server, "check_slot", 1)
+	if rows[0].Result.Valid || rows[0].Attempt.Valid || !parseTime(t, rows[0].StartedAt).Before(parseTime(t, rows[0].EndedAt)) {
+		t.Errorf("rows = %+v", rows)
+	}
+}
+
+func TestACheckThatAStopEndsHasACheckRowWithTheResultStopped(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	fake.SetCheck(shop, "sleep 30")
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool {
+		sessions := roleSessions(t, server, engine.ImplementerRole)
+		return len(sessions) == 1 && sessions[0].QueueReason.String == "runs .mobius/check"
+	})
+
+	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
+	fake.CloseIssue(shop, 41)
+
+	rows := waitForSteps(t, server, "check", 1)
+	if !slices.Equal(stepResults(rows), []string{"stopped"}) || !slices.Equal(stepAttempts(rows), []int64{1}) {
+		t.Errorf("rows = %+v", rows)
+	}
+}

@@ -60,11 +60,13 @@ func (e *Engine) StartCheckNow(_ context.Context, session int64) error {
 // waitForLowLoad holds until the load average is lower than cores and checkGap passed since the start of the last
 // check, or until StartCheckNow. It shows the wait in the queue reason and in the Transcript of a. After loadWaitEvent of one wait, the Lead
 // gets one event.
-func (e *Engine) waitForLowLoad(ctx context.Context, a *Agent, j *job) error {
+func (e *Engine) waitForLowLoad(ctx context.Context, a *Agent, j *job) (err error) {
 	load, ready, err := e.startCheck()
 	if err != nil || ready {
 		return err
 	}
+	startedAt := now()
+	defer func() { a.endStep(ctx, "low_load", startedAt, sql.NullInt64{}, err) }()
 	now := make(chan struct{}, 1)
 	e.loadWaitsMu.Lock()
 	e.loadWaits[a.id] = now

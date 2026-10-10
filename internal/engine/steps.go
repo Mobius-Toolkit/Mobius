@@ -31,6 +31,23 @@ func (a *Agent) addStep(ctx context.Context, kind, startedAt, endedAt string, at
 	})
 }
 
+// endStep adds the row of a wait or a step of a that began at startedAt and ends now. Its result is empty after
+// success, stopped when the context of the session ended, and fail in each other case. The row is written after the
+// end of the context.
+func (a *Agent) endStep(ctx context.Context, kind, startedAt string, attempt sql.NullInt64, stepErr error) {
+	result := ""
+	switch {
+	case stepErr == nil:
+	case ctx.Err() != nil:
+		result = "stopped"
+	default:
+		result = "fail"
+	}
+	if err := a.addStep(context.WithoutCancel(ctx), kind, startedAt, now(), attempt, result); err != nil {
+		log.Printf("add the %s step of the session %d: %v", kind, a.id, err)
+	}
+}
+
 // implementerSession gives the newest Implementer session of the task, or false when the task has none.
 func (e *Engine) implementerSession(ctx context.Context, task store.Task) (store.Session, bool, error) {
 	id, err := e.lastSession(ctx, task, func(session store.Session) bool { return session.Role == ImplementerRole })
