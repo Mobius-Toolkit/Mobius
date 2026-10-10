@@ -1064,6 +1064,7 @@ type apiChatMessage struct {
 	Text        string     `json:"text"`
 	BrowserID   string     `json:"browserId"`
 	DeliveredAt *time.Time `json:"deliveredAt"`
+	StoppedAt   *time.Time `json:"stoppedAt"`
 }
 
 type apiUnread struct {

@@ -188,6 +188,10 @@ RETURNING *;
 UPDATE chat_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL
 RETURNING *;
 
+-- name: StopChatMessage :one
+UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL
+RETURNING *;
+
 -- name: DeleteChatMessage :exec
 DELETE FROM chat_messages WHERE id = ?;
 
