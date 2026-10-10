@@ -265,6 +265,7 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 	e := a.engine
 	ended := context.WithoutCancel(ctx)
 	if err := e.takeSlot(ctx, a); err != nil {
+		a.endStep(ctx, "queue", a.queuedAt, sql.NullInt64{}, err)
 		switch {
 		case errors.Is(err, ErrLeftQueue):
 			return errors.Join(err, a.End(ended, "declined"))
@@ -276,6 +277,7 @@ func (a *Agent) waitForSlot(ctx context.Context) error {
 	startedAt := now()
 	started, err := e.queries.StartSession(ctx, store.StartSessionParams{StartedAt: startedAt, ID: a.id})
 	if err != nil {
+		a.endStep(ctx, "queue", a.queuedAt, sql.NullInt64{}, err)
 		if ctx.Err() != nil {
 			return errors.Join(err, a.End(ended, "stopped"))
 		}

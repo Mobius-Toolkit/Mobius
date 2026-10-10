@@ -3206,6 +3206,14 @@
             "type": "boolean",
             "description": "Older is true when the chat has an older message than the first message of the page"
           },
+          "pausedUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PausedUntil is the end of the usage-limit pause that the agent waits for, or null while the agent does not wait for a pause",
+            "format": "date-time"
+          },
           "writing": {
             "type": "boolean",
             "description": "Writing is true while the agent has a turn that runs or a message that waits"
@@ -3215,6 +3223,7 @@
           "messages",
           "older",
           "writing",
+          "pausedUntil",
           "harness"
         ],
         "description": "Chat is a page of the messages of a Lead chat or of the Triager chat."
@@ -3312,6 +3321,14 @@
             "type": "string",
             "description": "Organization is the owner of the repository, or the organization of the Triager chat"
           },
+          "pausedUntil": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "PausedUntil is the end of the usage-limit pause that the agent waits for, or null while the agent does not wait for a pause",
+            "format": "date-time"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
@@ -3330,6 +3347,7 @@
           "repository",
           "workstream",
           "writing",
+          "pausedUntil",
           "error"
         ],
         "description": "ChatState is the state of a chat."

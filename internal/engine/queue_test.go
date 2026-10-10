@@ -210,6 +210,9 @@ func TestAStopEndsAWaitingLead(t *testing.T) {
 	if got := session(t, server, waiting.ID); got.EndReason.String != "stopped" || got.QueueReason.Valid {
 		t.Errorf("session = %+v", got)
 	}
+	if rows := stepRows(t, server, "queue"); len(rows) != 2 || rows[1].Session != nullInt(waiting.ID) || rows[1].Result.String != "stopped" {
+		t.Errorf("rows = %+v", rows)
+	}
 }
 
 func TestASessionWhoseTaskLeavesTheQueueEndsAsDeclined(t *testing.T) {
@@ -232,5 +235,8 @@ func TestASessionWhoseTaskLeavesTheQueueEndsAsDeclined(t *testing.T) {
 	}
 	if got := session(t, server, waiting.ID); got.EndReason.String != "declined" {
 		t.Errorf("session = %+v", got)
+	}
+	if rows := stepRows(t, server, "queue"); len(rows) != 2 || rows[1].Session != nullInt(waiting.ID) || rows[1].Result.String != "fail" {
+		t.Errorf("rows = %+v", rows)
 	}
 }

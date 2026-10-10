@@ -716,7 +716,10 @@ func stopText(number int64, title, reason string) string {
 func (e *Engine) implement(ctx context.Context, a *Agent, j *job) (result, error) {
 	dataDir := e.config.DataDir
 	worktree := a.spec.Dir
-	if err := e.prepareWorktree(ctx, j, worktree); errors.Is(err, runner.ErrMergeConflict) {
+	prepareStartedAt := now()
+	err := e.prepareWorktree(ctx, j, worktree)
+	a.endStep(ctx, "prepare", prepareStartedAt, sql.NullInt64{}, err)
+	if errors.Is(err, runner.ErrMergeConflict) {
 		return result{outcome: mergeConflict, text: err.Error()}, nil
 	} else if err != nil {
 		return result{}, err
@@ -915,13 +918,18 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job, attempt sql.NullIn
 		select {
 		case e.checks <- struct{}{}:
 		default:
-			if err := a.checkPhase(ctx, "waits for a check slot", "The session waits for a check slot."); err != nil {
-				return "", false, err
+			slotWaitedAt := now()
+			err := a.checkPhase(ctx, "waits for a check slot", "The session waits for a check slot.")
+			if err == nil {
+				select {
+				case e.checks <- struct{}{}:
+				case <-ctx.Done():
+					err = ctx.Err()
+				}
 			}
-			select {
-			case e.checks <- struct{}{}:
-			case <-ctx.Done():
-				return "", false, ctx.Err()
+			a.endStep(ctx, "check_slot", slotWaitedAt, sql.NullInt64{}, err)
+			if err != nil {
+				return "", false, err
 			}
 		}
 		err := e.waitForLowLoad(ctx, a, j)
@@ -935,6 +943,9 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job, attempt sql.NullIn
 		if err == nil {
 			startedAt = now()
 			output, passed, err = runner.Check(ctx, e.config.DataDir, a.spec.Dir, e.agents.Path, e.config.CheckTimeout)
+			if err != nil {
+				a.endStep(ctx, "check", startedAt, attempt, err)
+			}
 		}
 		endedAt = now()
 		<-e.checks
@@ -1020,10 +1031,12 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		return result{}, err
 	}
 	e.gitMu.Lock()
+	pullStartedAt := now()
 	err = runner.Fetch(ctx, dataDir, repository.FullName, repository.CloneURL, token)
 	if err == nil {
 		err = runner.Pull(ctx, dataDir, worktree, j.branch)
 	}
+	a.endStep(ctx, "pull", pullStartedAt, sql.NullInt64{}, err)
 	e.gitMu.Unlock()
 	if errors.Is(err, runner.ErrMergeConflict) {
 		return result{outcome: mergeConflict, text: err.Error()}, nil
@@ -1045,7 +1058,9 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		}
 	}
 	e.gitMu.Lock()
+	pushStartedAt := now()
 	head, err := runner.Push(ctx, dataDir, worktree, token, j.branch)
+	a.endStep(ctx, "push", pushStartedAt, sql.NullInt64{}, err)
 	e.gitMu.Unlock()
 	if err != nil && strings.Contains(err.Error(), "[remote rejected]") {
 		return result{outcome: pushRejected, text: err.Error()}, nil

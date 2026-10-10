@@ -5,4 +5,5 @@ export const settingsPages = [
   { path: "/settings/checkup", title: "Checkup" },
   { path: "/settings/memory", title: "Memory" },
   { path: "/agents", title: "Agents" },
+  { path: "/usage", title: "Usage" },
 ] as const;
