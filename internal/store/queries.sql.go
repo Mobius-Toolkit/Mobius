@@ -1141,6 +1141,41 @@ func (q *Queries) GetHarnessPause(ctx context.Context, harness string) (HarnessP
 	return i, err
 }
 
+const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at FROM chat_messages
+WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
+ORDER BY id DESC LIMIT 1
+`
+
+type GetLastChatMessageOfParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+	Author       string
+}
+
+func (q *Queries) GetLastChatMessageOf(ctx context.Context, arg GetLastChatMessageOfParams) (ChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, getLastChatMessageOf,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.Author,
+	)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
+	)
+	return i, err
+}
+
 const getLastDoneCuratorStart = `-- name: GetLastDoneCuratorStart :one
 SELECT started_at FROM sessions
 WHERE repository = ? AND role = 'curator' AND end_reason = 'done'
