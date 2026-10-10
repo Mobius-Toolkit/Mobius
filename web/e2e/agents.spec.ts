@@ -69,8 +69,11 @@ test("the Agents tab of a Workstream shows the state of a session that waits for
   await page.setViewportSize({ width: 1280, height: 800 });
   await withLowLoad(page, async () => {
     await page.goto("/workstreams/owner/shop/12");
-    const entry = page.getByRole("complementary").getByRole("button", { name: /Ticket #41/ });
-    await expect(entry.getByText("waits for a low load")).toBeVisible();
+    const entry = page
+      .getByRole("complementary")
+      .getByRole("button")
+      .filter({ hasText: "waits for a low load" });
+    await expect(entry).toHaveCount(1);
     await expect(entry.getByText("waits for load", { exact: true })).toBeVisible();
     await expect(entry.locator("span.rounded-full")).toHaveClass(/bg-amber-500/);
   });
