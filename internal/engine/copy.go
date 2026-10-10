@@ -37,6 +37,8 @@ type copiedBlocker struct {
 
 // syncCopy replaces the copy of repository with the open Workstreams of GitHub.
 func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) error {
+	e.copyWrite.Lock()
+	defer e.copyWrite.Unlock()
 	issues, err := repository.OpenIssuesWithLabel(ctx, workstreamLabel)
 	if err != nil {
 		return err
@@ -124,6 +126,17 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 		return false, err
 	}
 	wanted := hasLabel(issue, workstreamLabel) && issue.GetState() == "open"
+	if stored && !wanted {
+		// The poll can give an issue that GitHub read before Mobius added the Workstream label.
+		current, err := repository.Issue(ctx, number)
+		if err != nil {
+			return false, err
+		}
+		if current != nil {
+			issue = current
+			wanted = hasLabel(issue, workstreamLabel) && issue.GetState() == "open"
+		}
+	}
 	autopilot := hasLabel(issue, autopilotLabel) && e.addedByTrustedUser(events)
 	changed := false
 	var added []copiedIssue
