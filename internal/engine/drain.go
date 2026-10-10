@@ -244,9 +244,6 @@ func (e *Engine) releaseDrain() {
 	e.publish(Change{Drain: &DrainState{}})
 	e.workers.changed.notify()
 	e.pausesChanged.notify()
-	if err := e.giveHeldMessages(context.Background()); err != nil {
-		log.Printf("give the held Owner messages to the agents after the drain: %v", err)
-	}
 	if err := e.wakeAllEvents(context.Background()); err != nil {
 		log.Printf("give the waiting events to the Leads after the drain: %v", err)
 	}

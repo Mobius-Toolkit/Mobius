@@ -138,7 +138,7 @@ func TestAMessageOfThisRunWaitsBehindTheStoredMessageOfTheEarlierRun(t *testing.
 	}
 }
 
-func TestAStoredOwnerMessageThatTheDrainHeldGoesToTheAgentAfterTheDrain(t *testing.T) {
+func TestAStoredOwnerMessageGoesToTheAgentBeforeAMessageOfThisRunDuringTheDrain(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
@@ -155,12 +155,15 @@ func TestAStoredOwnerMessageThatTheDrainHeldGoesToTheAgentAfterTheDrain(t *testi
 
 	release()
 	server.WaitForFirstPoll(t, shop)
-	if prompts := joinedLeadPrompts(t, server); prompts != "" {
-		t.Fatalf("the agent got a message during the drain: %s", prompts)
-	}
-	cancelDrain(t, server)
-
 	testkit.WaitFor(t, func() bool { return strings.Contains(joinedLeadPrompts(t, server), "Lead message.") })
+	sendChatID(t, server, "a3", "Later message.")
+
+	testkit.WaitFor(t, func() bool { return strings.Contains(joinedLeadPrompts(t, server), "Later message.") })
+	prompts := leadPrompts(t, server)
+	later := slices.IndexFunc(prompts, func(prompt string) bool { return strings.HasSuffix(prompt, "Later message.") })
+	if !strings.HasSuffix(prompts[0], "Lead message.") || later < 1 {
+		t.Errorf("prompts = %q", prompts)
+	}
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(triagerPrompts(t, server), func(prompt string) bool {
 			return strings.Contains(prompt, "Triager message.")

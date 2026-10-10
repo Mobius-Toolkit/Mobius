@@ -32,11 +32,9 @@ type Engine struct {
 	recovered map[string]bool
 	// earlierMessage is the highest chat message id of the earlier run of the server. Only the poll reads it.
 	earlierMessage int64
-	// handedChats holds the chats whose undelivered messages of the earlier run the poll gave to the agent.
-	// heldMessages holds the organization and the repository ("" for the Triager chats) whose messages the drain held.
-	// chatOrder guards both.
-	handedChats  map[ChatKey]bool
-	heldMessages map[[2]string]bool
+	// handedChats holds the chats whose undelivered messages of the earlier run the poll gave to the agent. Only the
+	// poll uses it.
+	handedChats map[ChatKey]bool
 	// copied holds the full names of the repositories whose copy is complete. Only the poll uses it.
 	copied map[string]bool
 	// copyWrite makes syncCopy, which reads all Workstreams and then replaces the copy, and createWorkstream, which
@@ -151,7 +149,6 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		labelsFixed:  map[string]bool{},
 		recovered:    map[string]bool{},
 		handedChats:  map[ChatKey]bool{},
-		heldMessages: map[[2]string]bool{},
 		copied:       map[string]bool{},
 		quiet:        map[int64]quietItem{},
 		pulls:        map[pullKey]*pullState{},
