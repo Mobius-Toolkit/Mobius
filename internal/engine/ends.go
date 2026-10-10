@@ -64,6 +64,7 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 //   - A task in needs_human gets the labels that handToHuman sets, and a live task in another state loses
 //     mobius:needs-human on its pull request. A task in approval or ready_for_review also loses it on its issue
 //     (labelsOfNeedsHuman).
+//   - A task in dispatched for more than 2 hours, with no open question, gives the Lead a reminder (remindDispatch).
 //   - A task in needs_human continues with no Resume when its pull request has a merge conflict, or when the CI of the
 //     head that stopped it passes (continueNeedsHuman).
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
@@ -107,6 +108,11 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	if err := e.labelsOfNeedsHuman(ctx, repository, task, issue, pullRequest, judgeOfHuman); err != nil {
 		return Work{}, false, err
+	}
+	if task.State == "dispatched" && !hasLabel(issue, questionLabel) {
+		if err := e.remindDispatch(ctx, task, issue); err != nil {
+			return Work{}, false, err
+		}
 	}
 	if pullRequest == nil {
 		return Work{}, false, nil
