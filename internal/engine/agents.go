@@ -111,8 +111,8 @@ type Agent struct {
 	costBase  float64
 	// resetHint is the last _claude/rateLimit.resetsAt of a usage update of the session, or zero.
 	resetHint time.Time
-	// limited tells that a usage update of the turn has the rate limit status "rejected". The agent message chunks
-	// that follow are the raw text of the usage limit.
+	// limited tells that a usage update of the turn has the rate limit status "rejected" with no overage in use. The
+	// agent message chunks that follow are the raw text of the usage limit.
 	limited bool
 	// author is the author of the chat messages that the reply text adds to the chat of the session, or "" when the
 	// reply text goes only to the Transcript.
@@ -600,7 +600,9 @@ func (a *Agent) record(params json.RawMessage) error {
 			a.resetHint = time.Unix(seconds, 0)
 		}
 	}
-	if stringField(notification, "update", "_meta", "_claude/rateLimit", "status") == "rejected" {
+	// With overage in use, the status "rejected" does not end the turn.
+	if stringField(notification, "update", "_meta", "_claude/rateLimit", "status") == "rejected" &&
+		field(notification, "update", "_meta", "_claude/rateLimit", "isUsingOverage") != true {
 		a.limited = true
 	}
 	if isChunk && a.chunk != nil && stringField(a.chunk, "update", "sessionUpdate") == kind {

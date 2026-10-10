@@ -175,6 +175,11 @@ INSERT INTO chat_messages (organization, repository, workstream, author, time, t
 VALUES (?, ?, ?, ?, ?, ?)
 RETURNING *;
 
+-- name: GetLastChatMessageOf :one
+SELECT * FROM chat_messages
+WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
+ORDER BY id DESC LIMIT 1;
+
 -- name: DeleteChatMessage :exec
 DELETE FROM chat_messages WHERE id = ?;
 

@@ -59,6 +59,30 @@ updates = [
 error = { code = -32603, message = "You've hit your session limit · resets 5:10pm (Europe/Warsaw)", data = { errorKind = "rate_limit" } }
 `
 
+// The first prompt of Claude Code hits the usage limit, the same prompt again works, and the third prompt hits the
+// usage limit again.
+const claudeCodeLimitTwice = `
+[[prompts]]
+error = { code = -32603, message = "Rate limited", data = { errorKind = "rate_limit" } }
+
+[[prompts]]
+reply = ["Noted."]
+
+[[prompts]]
+error = { code = -32603, message = "Rate limited", data = { errorKind = "rate_limit" } }
+
+[[prompts]]
+reply = ["Noted."]
+`
+
+// The first prompt of Claude Code sends a usage update with the status "rejected" and overage in use, and then the
+// reply of the turn.
+const claudeCodeOverage = `
+[[prompts]]
+updates = ['{"sessionUpdate": "usage_update", "used": 78345, "size": 1000000, "_meta": {"_claude/rateLimit": {"status": "rejected", "isUsingOverage": true}}}']
+reply = ["Planned on overage."]
+`
+
 const rawLimitText = "You've hit your session limit"
 
 // chatTexts gives the texts of the chat messages of the Workstream #12 with the author.
@@ -549,4 +573,81 @@ func TestALeadThatHitsAPauseOfAnotherSessionGetsTheMobiusMessageInItsChat(t *tes
 	if got := chatTexts(t, server, "Lead"); len(got) != 0 {
 		t.Errorf("Lead chat messages = %q", got)
 	}
+}
+
+func TestALeadThatHitsTheUsageLimitAgainAfterThePauseGetsTheMobiusMessageAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, claudeCodeLimitTwice, keepSessionOpen)
+	sendChat(t, server, leadChat, "Plan the API")
+	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range inbox(t, server) {
+			if item.Kind == "usage limit" {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 1 })
+	if err := server.Engine.Resume(t.Context(), item.ID); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Lead")) == 1 })
+	testkit.WaitFor(t, func() bool { _, paused := claudeCodePause(t, server); return !paused })
+
+	sendChat(t, server, leadChat, "Plan the UI")
+
+	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 2 })
+	if n := count(t, server, "SELECT COUNT(*) FROM inbox_items"); n != 1 {
+		t.Errorf("%d Inbox items", n)
+	}
+}
+
+func TestALeadThatHitsAPauseWithItsMessageAlreadyInTheChatGetsNoSecondMessage(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, claudeCodeLimitWithRawText, keepSessionOpen)
+	for _, statement := range []string{
+		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
+		 VALUES (5, 'usage limit', 'owner', 'owner/shop', 12, 12, 'claude-code reached a usage limit.', '', '2026-10-04T10:00:00Z')`,
+		`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('claude-code', '2099-01-01T00:00:00Z', 5)`,
+		`INSERT INTO chat_messages (organization, repository, workstream, author, time, text)
+		 VALUES ('owner', 'owner/shop', 12, 'Mobius', '2026-10-04T10:00:00Z', 'claude-code reached a usage limit. Mobius sends the prompt again at 2099-01-01 00:00 UTC.')`,
+	} {
+		if _, err := server.DB.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	testkit.WaitFor(t, func() bool { return len(chatSessions(t, server, leadChat, engine.LeadRole)) == 1 })
+	lead := chatSessions(t, server, leadChat, engine.LeadRole)[0].ID
+	testkit.WaitFor(t, func() bool { return strings.Contains(reply(t, server, lead), rawLimitText) })
+	if got := chatTexts(t, server, "Mobius"); len(got) != 1 {
+		t.Errorf("chat = %q", got)
+	}
+}
+
+func TestAClaudeCodeReplyWithOverageInUseShowsInTheChat(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, claudeCodeOverage, keepSessionOpen)
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(chatTexts(t, server, "Lead"), []string{"Planned on overage."}) })
+}
+
+func claudeCodePause(t *testing.T, server *testserver.Server) (string, bool) {
+	t.Helper()
+	var until string
+	err := server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'claude-code'").Scan(&until)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return until, true
 }
