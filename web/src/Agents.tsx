@@ -334,9 +334,9 @@ export function Agents({ source }: { source?: EventSource }) {
     };
   }, [source, load]);
 
-  const live =
-    agents?.groups.flatMap((group) => group.agents).find((row) => row.agent.id === selected?.id)
-      ?.agent ?? selected;
+  const live = agents?.groups
+    .flatMap((group) => group.agents)
+    .find((row) => row.agent.id === selected?.id)?.agent;
   return (
     <>
       <TopBar
@@ -359,7 +359,7 @@ export function Agents({ source }: { source?: EventSource }) {
             </Button>
           </PageHeader>
           <div className={cn(inset, "flex flex-wrap items-center gap-2 empty:hidden")}>
-            <StartCheckButton agent={live ?? selected} />
+            {live && <StartCheckButton agent={live} />}
           </div>
           <TranscriptLog
             agent={selected}
