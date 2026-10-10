@@ -1999,6 +1999,36 @@ test("the note closes the Workstream when all tasks are closed", async ({ page }
   }
 });
 
+test("the Details tab closes the Workstream with its open issues", async ({ page }) => {
+  const main = page.getByRole("main");
+  const dialog = page.getByRole("dialog");
+  const closeButton = page
+    .getByRole("tabpanel", { name: "Details" })
+    .getByRole("button", { name: "Close" });
+  await page.goto("/workstreams/plants/garden/30");
+  await page.getByRole("tab", { name: "Details" }).filter({ visible: true }).click();
+  await expect(page.getByText("Sep 28, 2026")).toBeVisible();
+  await expect(page.getByText("Completed tasks")).toBeVisible();
+  await closeButton.click();
+  await expect(dialog.getByText("#31 Dig the lily beds")).toBeVisible();
+  await expect(dialog.getByText("#32 Buy lily bulbs")).toBeVisible();
+  await expect(dialog.getByText("#30 Plant lilies")).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  expect(
+    await get<{ open: boolean }>(page, "/api/workstreams/plants/garden/30/details"),
+  ).toMatchObject({ open: true });
+
+  await closeButton.click();
+  await dialog.getByRole("button", { name: "Close as won't do" }).click();
+  await expect(page).toHaveURL("/workstreams");
+  await expect(main.getByText("Plant lilies")).not.toBeAttached();
+  expect(
+    await get<{ open: boolean }>(page, "/api/workstreams/plants/garden/30/details"),
+  ).toMatchObject({ open: false });
+});
+
 test("the voice button is not there without SpeechRecognition", async ({ page }) => {
   await page.addInitScript(
     "delete window.SpeechRecognition; delete window.webkitSpeechRecognition",

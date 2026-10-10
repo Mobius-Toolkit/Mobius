@@ -22,6 +22,14 @@ export function dayClock(time: string) {
   });
 }
 
+export function dayLong(time: string) {
+  return new Date(time).toLocaleDateString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export function dayLabel(time: string) {
   const date = new Date(time);
   const now = new Date();

@@ -21,6 +21,7 @@ import { LoginContext } from "@/lib/login";
 import { clock, dayClock } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Transcript } from "./Agents";
+import { Details } from "./Details";
 
 function shownAgents(agents: Agent[], showStopped: boolean) {
   return agents
@@ -280,7 +281,7 @@ function Tasks({
   );
 }
 
-// The Tasks tab reads the tasks each time it opens.
+// The Tasks tab and the Details tab read their data each time they open.
 export function AgentPanel({
   owner,
   name,
@@ -297,12 +298,16 @@ export function AgentPanel({
       <TabsList variant="line" className="px-2">
         <TabsTrigger value="agents">Agents</TabsTrigger>
         <TabsTrigger value="tasks">Tasks</TabsTrigger>
+        <TabsTrigger value="details">Details</TabsTrigger>
       </TabsList>
       <TabsContent value="agents" className="flex flex-col overflow-y-auto p-2">
         <AgentList owner={owner} name={name} number={number} source={source} />
       </TabsContent>
       <TabsContent value="tasks" className="overflow-y-auto p-2">
         <Tasks owner={owner} name={name} number={number} source={source} />
+      </TabsContent>
+      <TabsContent value="details" className="overflow-y-auto p-2">
+        <Details owner={owner} name={name} number={number} source={source} />
       </TabsContent>
     </Tabs>
   );
