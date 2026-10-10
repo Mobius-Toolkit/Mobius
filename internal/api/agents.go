@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"net/http"
 	"time"
+
+	"github.com/gork-labs/gork/pkg/api"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 )
@@ -255,4 +258,22 @@ func transcriptLineOf(line engine.Line) TranscriptLine {
 		Error:           line.Error,
 		Raw:             line.Raw,
 	}
+}
+
+// StartCheckRequest is the request of StartCheck.
+type StartCheckRequest struct {
+	Path struct {
+		// ID is the id of the session
+		ID int64 `gork:"id"`
+	}
+}
+
+// StartCheck starts the local check of a session that waits for a low load at once. The check ignores the load for
+// this run. It returns 409 when the session does not wait for a low load.
+func (h *handlers) StartCheck(ctx context.Context, req StartCheckRequest) error {
+	err := h.engine.StartCheckNow(ctx, req.Path.ID)
+	if engine.Refused(err) {
+		return api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	return err
 }

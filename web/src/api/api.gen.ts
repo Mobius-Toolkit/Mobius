@@ -1276,6 +1276,76 @@ export const listActiveAgents = async ( ): Promise<listActiveAgentsResponse> => 
 
 
 
+export type startCheckResponse204 = {
+  data: void
+  status: 204
+}
+
+export type startCheckResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type startCheckResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type startCheckResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type startCheckResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type startCheckResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type startCheckResponseSuccess = (startCheckResponse204) & {
+  headers: Headers;
+};
+export type startCheckResponseError = (startCheckResponse400 | startCheckResponse401 | startCheckResponse409 | startCheckResponse422 | startCheckResponse500) & {
+  headers: Headers;
+};
+
+export type startCheckResponse = (startCheckResponseSuccess | startCheckResponseError)
+
+export const getStartCheckUrl = (id: number,) => {
+
+
+
+
+  return `/api/agents/${id}/start-check`
+}
+
+/**
+ * StartCheck starts the local check of a session that waits for a low load at once. The check ignores the load for this run. It returns 409 when the session does not wait for a low load.
+ */
+export const startCheck = async (id: number, ): Promise<startCheckResponse> => {
+
+  const res = await fetch(getStartCheckUrl(id),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: startCheckResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as startCheckResponse
+}
+
+
+
 export type getTranscriptResponse200 = {
   data: EnvelopeArrayTranscriptLine
   status: 200
