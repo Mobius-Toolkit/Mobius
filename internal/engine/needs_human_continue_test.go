@@ -44,7 +44,6 @@ func staleItems(t *testing.T, server *testserver.Server) int {
 }
 
 func TestATaskInNeedsHumanWithAMergeConflictGetsAConflictRoundAndGoesToApprovalWithNoNeedsHumanLabel(t *testing.T) {
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := staleConflictInNeedsHuman(t, fake, mergesCents)
 	first := head(t, fake, "mobius/41")
@@ -72,7 +71,6 @@ func TestATaskInNeedsHumanWithAMergeConflictGetsAConflictRoundAndGoesToApprovalW
 }
 
 func TestAStalePullRequestInNeedsHumanGetsNoConflictRoundAndNoNewStaleItem(t *testing.T) {
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := staleConflictInNeedsHuman(t, fake, mergesCents)
 
@@ -87,7 +85,6 @@ func TestAStalePullRequestInNeedsHumanGetsNoConflictRoundAndNoNewStaleItem(t *te
 }
 
 func TestAFailedAutomaticConflictRoundStartsNoSecondRoundOnTheSameHead(t *testing.T) {
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := staleConflictInNeedsHuman(t, fake, commits+"\n"+conflictWhen+"shell = \"true\"\n")
 	first := head(t, fake, "mobius/41")
@@ -110,7 +107,6 @@ func TestAFailedAutomaticConflictRoundStartsNoSecondRoundOnTheSameHead(t *testin
 }
 
 func TestAFailedAutomaticConflictRoundThatPushedACommitStartsNoSecondRound(t *testing.T) {
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := staleConflictInNeedsHuman(t, fake, commits+"\n"+conflictWhen+"shell = \"echo extra > extra.txt && git add extra.txt && git commit -q -m Extra\"\n")
 	first := head(t, fake, "mobius/41")
@@ -137,7 +133,6 @@ func TestAFailedAutomaticConflictRoundThatPushedACommitStartsNoSecondRound(t *te
 }
 
 func TestAPassedCIOnTheHeadOfAStopOnFailedCIMovesTheTaskToApprovalWithNoNeedsHumanLabel(t *testing.T) {
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, id := stoppedOnFailedCI(t, fake, noChange)
 	sha := head(t, fake, "mobius/41")
@@ -162,7 +157,6 @@ func TestAPassedCIOnTheHeadOfAStopOnFailedCIMovesTheTaskToApprovalWithNoNeedsHum
 }
 
 func TestAStopOnTheRoundLimitStaysInNeedsHumanWhenTheCIPasses(t *testing.T) {
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
 	sha := approvalHead(t, server, fake)
@@ -187,7 +181,6 @@ func TestAStopOnTheRoundLimitStaysInNeedsHumanWhenTheCIPasses(t *testing.T) {
 }
 
 func TestATaskThatContinuesKeepsMobiusQuestion(t *testing.T) {
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, id := stoppedOnFailedCI(t, fake, noChange)
 	fake.AddLabel(shop, 41, "mobius:question", "owner")

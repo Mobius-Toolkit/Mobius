@@ -30,7 +30,6 @@ func imageDirs(t *testing.T, dataDir string) int {
 
 func TestASecondMessageWithTheSameBrowserIDMakesNoMessageAndNoTurn(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectScript(t, fake, imageReading+options+"[[prompts]]\nreply = [\"Ok\"]\n[[prompts]]\nreply = [\"Ok\"]\n", keepSessionOpen)
 
@@ -55,7 +54,6 @@ func TestASecondMessageWithTheSameBrowserIDMakesNoMessageAndNoTurn(t *testing.T)
 
 func TestTheDeliveryTimeOfAnOwnerMessageIsEmptyBeforeTheTurnAndSetAfterItsStart(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectScript(t, fake, options+"[[prompts]]\nreply = [\"Ok\"]\n", keepSessionOpen)
 	changes, stop := server.Engine.Listen()
@@ -80,7 +78,6 @@ func TestTheDeliveryTimeOfAnOwnerMessageIsEmptyBeforeTheTurnAndSetAfterItsStart(
 
 func TestASecondTurnForAnOwnerMessageKeepsItsDeliveryTime(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectScript(t, fake, options+"[[prompts]]\nreply = [\"Ok\"]\n", keepSessionOpen)
 	sendChatID(t, server, "one", "First")
@@ -107,7 +104,6 @@ func TestASecondTurnForAnOwnerMessageKeepsItsDeliveryTime(t *testing.T) {
 
 func TestTwoMessagesWithTheSameBrowserIDAtTheSameTimeMakeOneMessage(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectScript(t, fake, imageReading+options+"[[prompts]]\nreply = [\"Ok\"]\n", keepSessionOpen)
 	var sent sync.WaitGroup

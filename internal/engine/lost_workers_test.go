@@ -47,7 +47,6 @@ func taskRestarts(t *testing.T, server *testserver.Server, number int64) int64 {
 
 func TestAWorkingTaskThatLostItsWorkerGetsANewWorkerAndTheRestartCounts(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectLost(t, fake, noChange, func(dataDir string) { seedWorkerTask(t, fake, dataDir, 1, 41, "working") })
 	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ImplementerRole)) == 1 })
@@ -68,7 +67,6 @@ func TestAWorkingTaskThatLostItsWorkerGetsANewWorkerAndTheRestartCounts(t *testi
 
 func TestAQueuedTaskThatLostItsWorkerGetsANewWorkerAndATaskInTheQueueDoesNotRestart(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectLost(t, fake, func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 }, func(dataDir string) {
 		seedWorkerTask(t, fake, dataDir, 1, 41, "working")
@@ -103,7 +101,6 @@ func TestAQueuedTaskThatLostItsWorkerGetsANewWorkerAndATaskInTheQueueDoesNotRest
 
 func TestATaskThatLosesItsWorkerAfterMaxWorkerRestartsGoesToAHuman(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectLost(t, fake, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 }, func(dataDir string) {
 		seedWorkerTask(t, fake, dataDir, 1, 41, "working")
@@ -128,7 +125,6 @@ func TestATaskThatLosesItsWorkerAfterMaxWorkerRestartsGoesToAHuman(t *testing.T)
 }
 
 func TestAFixRoundThatWaitsForGitHubGetsNoSecondWorkerFromThePoll(t *testing.T) {
-	testkit.Slow(t)
 	shortGitHubTimeout(t)
 	fake := testkit.NewFakeGitHub(t)
 	implementer := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo more >> plan.txt && git commit -q -am 'Remove the lines'\"\n\n" + commits

@@ -31,7 +31,6 @@ func currentOption(t *testing.T, rows []map[string]any, id string) string {
 
 func TestEachRoleStartsOnTheHarnessModelAndEffortOfItsRoleBinding(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connect(t, fake, "")
 	for _, program := range []string{"claude-agent-acp", "agy_acp_server", "devin"} {

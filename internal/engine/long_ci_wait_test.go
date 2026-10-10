@@ -24,7 +24,6 @@ func longCIEvents(t *testing.T, server *testserver.Server) int {
 
 func TestACIThatRunsForMoreThanTwoHoursGivesTheLeadOneEventAndThenOneEventForEachTwoHours(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
 	sha := checksHead(t, server, fake)
@@ -70,7 +69,6 @@ func TestACIThatRunsForMoreThanTwoHoursGivesTheLeadOneEventAndThenOneEventForEac
 
 func TestACIThatCompletesGivesNoLongCIEvent(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
 	sha := checksHead(t, server, fake)

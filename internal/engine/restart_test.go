@@ -18,7 +18,6 @@ import (
 
 func TestARestartStartsTheImplementerAgainAndTheHousekeeperRemovesTheDirectoriesOfTheEarlierRun(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	const prompt = "You are the Implementer of one task. Store plans in cents."
 	var scratch string
@@ -60,7 +59,6 @@ func TestARestartStartsTheImplementerAgainAndTheHousekeeperRemovesTheDirectories
 
 func TestAStartWithAnEmptyStoreHandsAWorkingIssueToAHuman(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 
 	server, _ := connectWith(t, fake, "", func(*config.Config) {
@@ -90,7 +88,6 @@ func TestAStartWithAnEmptyStoreHandsAWorkingIssueToAHuman(t *testing.T) {
 
 func TestARestartGivesTheWaitingEventToTheLead(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	seed(t, dataDir, `INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, 'comment', 'A comment before the restart.', '2026-10-04T10:00:00Z')`)
@@ -107,7 +104,6 @@ func TestARestartGivesTheWaitingEventToTheLead(t *testing.T) {
 
 func TestARestartStartsTheJudgeAgainBelowTheParentOfTheEndedJudge(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
@@ -145,7 +141,6 @@ func TestARestartStartsTheJudgeAgainBelowTheParentOfTheEndedJudge(t *testing.T) 
 
 func TestARestartAfterADrainOfAPausedLeadGivesTheWaitingEventToANewLeadAndTheTimerEndsThePause(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	until := time.Now().Add(300 * time.Millisecond).UTC().Format(time.RFC3339Nano)

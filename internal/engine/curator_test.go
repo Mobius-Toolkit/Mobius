@@ -120,7 +120,6 @@ func memoryVersions(t *testing.T, server *testserver.Server) (authors []string) 
 
 func TestTheTenthEndedSessionStartsACurator(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 
 	endLeads(t, server, 9)
@@ -205,7 +204,6 @@ func TestTheCloseOfAWorkstreamStartsACurator(t *testing.T) {
 
 func TestAnEditMemoryCallAddsAVersionOfTheCuratorAndTheNextAgentGetsTheText(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, dataDir := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 
 	session := run(t, server, roleSpec(t, engine.CuratorRole), "Add the lesson")
@@ -229,7 +227,6 @@ func TestAnEditMemoryCallAddsAVersionOfTheCuratorAndTheNextAgentGetsTheText(t *t
 
 func TestAnEditMemoryCallRefusesAnOldTextThatDoesNotOccurOneTimeAndAResultOfMoreThan200Lines(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", "Same.\nSame.\n"+strings.Repeat("A lesson.\n", 198)); err != nil {
 		t.Fatal(err)
@@ -259,7 +256,6 @@ func TestAnEditMemoryCallRefusesAnOldTextThatDoesNotOccurOneTimeAndAResultOfMore
 
 func TestThePromptOfTheCuratorHasTheLastVersionsWithTheirAuthorAndReason(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	if err := server.Engine.SaveMemory(t.Context(), shop, "owner", "", lesson+"\n"); err != nil {
 		t.Fatal(err)
@@ -285,7 +281,6 @@ func TestThePromptOfTheCuratorHasTheLastVersionsWithTheirAuthorAndReason(t *test
 
 func TestTwoStartsDuringACuratorSessionGiveOneMoreCuratorSession(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, curatorScript, func(cfg *config.Config) { cfg.Roles.Curator.Max = 1 })
 	holder := start(t, server, roleSpec(t, engine.CuratorRole))
@@ -476,7 +471,6 @@ func nextCuratorPrompt(t *testing.T, server *testserver.Server, count int) strin
 
 func TestThePromptOfTheCuratorHasEachKindOfItemOfTheSessionsOfTheRepository(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	addProblems(t, server, "alpha", time.Now().Add(-time.Hour))
 
@@ -525,7 +519,6 @@ call = { tool = "tell_curator", arguments = { repository = "owner/shop", text = 
 
 func TestATellCuratorCallStartsACuratorWithTheRequestAndTheResultGoesToTheTriagerChat(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connect(t, testkit.NewFakeGitHub(t), requestScript)
 
 	sendChat(t, server, triagerChat, "Remember the format rule.")
@@ -571,7 +564,6 @@ func TestATellCuratorCallStartsACuratorWithTheRequestAndTheResultGoesToTheTriage
 
 func TestTheLeadReplyBeforeAnOwnerMessageCanBeATellOwnerMessage(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	at := time.Now().Add(-time.Hour)
 	addChat(t, server, "Lead", "Old Lead reply", at)
@@ -587,7 +579,6 @@ func TestTheLeadReplyBeforeAnOwnerMessageCanBeATellOwnerMessage(t *testing.T) {
 
 func TestTheFixRoundsThatRepeatCanComeOnlyFromReviews(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	at := time.Now().Add(-time.Hour)
 	reviewer := addSession(t, server, engine.ReviewerRole, 52, at, "done")
@@ -617,7 +608,6 @@ func TestTheFixRoundsThatRepeatCanComeOnlyFromReviews(t *testing.T) {
 
 func TestTheFixRoundsThatRepeatHaveTheNewestRoundsOnly(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	at := time.Now().Add(-time.Hour)
 	reviewer := addSession(t, server, engine.ReviewerRole, 52, at, "done")
@@ -646,7 +636,6 @@ func TestTheFixRoundsThatRepeatHaveTheNewestRoundsOnly(t *testing.T) {
 
 func TestThePromptOfTheCuratorHasNoItemOfASessionBeforeTheLastDoneCurator(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	now := time.Now()
 	addProblems(t, server, "stale", now.Add(-3*time.Hour))
@@ -665,7 +654,6 @@ func TestThePromptOfTheCuratorHasNoItemOfASessionBeforeTheLastDoneCurator(t *tes
 
 func TestAFailedCuratorDoesNotHideTheItemsFromTheNextCurator(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	now := time.Now()
 	addProblems(t, server, "stale", now.Add(-5*time.Hour))
@@ -685,7 +673,6 @@ func TestAFailedCuratorDoesNotHideTheItemsFromTheNextCurator(t *testing.T) {
 
 func TestThePromptOfTheCuratorCutsALongTextAndLeavesOutTheOldestItems(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connect(t, testkit.NewFakeGitHub(t), curatorScript)
 	now := time.Now().Add(-time.Hour)
 	addChat(t, server, "Owner", strings.Repeat("a", 1000)+"b", now)
@@ -706,7 +693,6 @@ func TestThePromptOfTheCuratorCutsALongTextAndLeavesOutTheOldestItems(t *testing
 
 func TestTellCuratorRefusesTheTriagerOfAnIssueAndABadInput(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connect(t, testkit.NewFakeGitHub(t), `
 [[prompts]]
 when = "1. "
@@ -747,7 +733,6 @@ call = { tool = "tell_curator", arguments = { repository = "other/shop", text = 
 
 func TestTwoRequestsDuringACuratorSessionGoToOneMoreCurator(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	script := `
 [[prompts]]
 when = "# Curator message"
@@ -801,7 +786,6 @@ func requestCount(t *testing.T, server *testserver.Server) int {
 
 func TestARestartStartsACuratorForTheRequestsThatWaitAndTheResultGoesToTheTriagerChat(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connectWith(t, testkit.NewFakeGitHub(t), requestReplies, func(cfg *config.Config) {
 		seed(t, cfg.DataDir, `INSERT INTO curator_requests (repository, text) VALUES ('owner/shop', 'Add the lesson.')`)
 	})
@@ -825,7 +809,6 @@ func TestARestartStartsACuratorForTheRequestsThatWaitAndTheResultGoesToTheTriage
 
 func TestACuratorThatFailsToGetASlotSendsTheFailureToTheTriagerChat(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	server, _ := connectWith(t, testkit.NewFakeGitHub(t), requestReplies+call("tell_curator", `{ repository = "owner/shop", text = "Add the lesson." }`), func(cfg *config.Config) {
 		seed(t, cfg.DataDir, `CREATE TRIGGER no_start BEFORE UPDATE OF started_at ON sessions WHEN NEW.role = 'curator'
 			BEGIN SELECT RAISE(ABORT, 'no start'); END`)

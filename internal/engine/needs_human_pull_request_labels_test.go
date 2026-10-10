@@ -24,7 +24,6 @@ func staleInNeedsHuman(t *testing.T, fake *testkit.FakeGitHub) {
 
 func TestATaskWithAPullRequestThatGoesToNeedsHumanGetsTheLabelOnTheIssueAndOnThePullRequest(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 
 	staleInNeedsHuman(t, fake)
@@ -34,7 +33,6 @@ func TestATaskWithAPullRequestThatGoesToNeedsHumanGetsTheLabelOnTheIssueAndOnThe
 
 func TestTheLabelGoesAwayFromThePullRequestWhenTheTaskLeavesNeedsHumanThroughResume(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	staleInNeedsHuman(t, fake)
 	testkit.WaitFor(t, func() bool { return pullRequestHasNeedsHuman(fake) })
@@ -49,7 +47,6 @@ func TestTheLabelGoesAwayFromThePullRequestWhenTheTaskLeavesNeedsHumanThroughRes
 
 func TestATaskWithNoPullRequestThatGoesToNeedsHumanGetsTheLabelOnlyOnTheIssue(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 
 	handedToHuman(t, fake)
@@ -61,7 +58,6 @@ func TestATaskWithNoPullRequestThatGoesToNeedsHumanGetsTheLabelOnlyOnTheIssue(t 
 
 func TestAPollAddsTheMissingLabelToThePullRequestOfATaskInNeedsHumanAndThenWritesNothing(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := seedWaiting(t, fake, "needs_human")
 
@@ -87,7 +83,6 @@ func TestAPollAddsTheMissingLabelToThePullRequestOfATaskInNeedsHumanAndThenWrite
 
 func TestAPollRemovesTheLabelFromThePullRequestOfALiveTaskThatIsNotInNeedsHuman(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := seedWaiting(t, fake, "approval")
 	fake.AddLabel(shop, pullRequestNumber, "mobius:needs-human", testkit.AppSlug+"[bot]")

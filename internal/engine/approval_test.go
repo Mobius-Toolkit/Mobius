@@ -25,7 +25,6 @@ func checksHead(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHu
 
 func TestATaskWaitsInChecksForTheCIOfTheHeadAndThenWaitsForTheLead(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
 	sha := checksHead(t, server, fake)
@@ -71,7 +70,6 @@ func TestATaskWaitsInChecksForTheCIOfTheHeadAndThenWaitsForTheLead(t *testing.T)
 
 func TestAHeadWithNoCheckRunOfAnotherAppAndNoWorkflowRunStaysInChecksUntilTheQuietPeriodEnds(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
 	checksHead(t, server, fake)
@@ -88,7 +86,6 @@ func TestAHeadWithNoCheckRunOfAnotherAppAndNoWorkflowRunStaysInChecksUntilTheQui
 
 func TestAHeadWithNoCIGivesTheLeadEventAfterTheQuietPeriod(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.ReviewQuietPeriod = 300 * time.Millisecond })
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -102,7 +99,6 @@ func TestAHeadWithNoCIGivesTheLeadEventAfterTheQuietPeriod(t *testing.T) {
 
 func TestAWorkflowRunThatIsNotCompletedKeepsTheTaskInChecks(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
 	sha := checksHead(t, server, fake)
@@ -130,7 +126,6 @@ func TestAWorkflowRunThatIsNotCompletedKeepsTheTaskInChecks(t *testing.T) {
 
 func TestAWorkflowRunThatANewerRunOfTheSameWorkflowReplacedDoesNotCount(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
 	sha := checksHead(t, server, fake)
@@ -148,7 +143,6 @@ func TestAWorkflowRunThatANewerRunOfTheSameWorkflowReplacedDoesNotCount(t *testi
 
 func TestACompletedWorkflowRunIsEnoughCIForTheLead(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
 	sha := checksHead(t, server, fake)
@@ -160,7 +154,6 @@ func TestACompletedWorkflowRunIsEnoughCIForTheLead(t *testing.T) {
 
 func TestACheckRunOfAnotherHeadDoesNotCountForTheHead(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
 	checksHead(t, server, fake)
@@ -176,7 +169,6 @@ func TestACheckRunOfAnotherHeadDoesNotCountForTheHead(t *testing.T) {
 
 func TestAFailedCheckRunInChecksStartsAFixRoundAndGivesTheLeadNoEvent(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
 	sha := checksHead(t, server, fake)
@@ -200,7 +192,6 @@ func TestAFailedCheckRunInChecksStartsAFixRoundAndGivesTheLeadNoEvent(t *testing
 
 func TestAFailedCheckRunOnTheHeadOfAFixRoundThatMadeNoCommitHandsTheTaskToAHuman(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
 	sha := checksHead(t, server, fake)
@@ -242,7 +233,6 @@ func assertCIStop(t *testing.T, server *testserver.Server, fake *testkit.FakeGit
 
 func TestAFailedWorkflowRunWithNoCheckRunHandsTheTaskToAHuman(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
 	sha := checksHead(t, server, fake)
@@ -255,7 +245,6 @@ func TestAFailedWorkflowRunWithNoCheckRunHandsTheTaskToAHuman(t *testing.T) {
 
 func TestAPullRequestWithAnUnknownMergeabilityStaysInChecks(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
 	sha := checksHead(t, server, fake)
@@ -278,7 +267,6 @@ func TestAPullRequestWithAnUnknownMergeabilityStaysInChecks(t *testing.T) {
 
 func TestAFailedCheckRunInApprovalStartsAFixRound(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -294,7 +282,6 @@ func TestAFailedCheckRunInApprovalStartsAFixRound(t *testing.T) {
 
 func TestAMergeConflictInChecksStartsAConflictRoundAndGivesTheLeadNoEvent(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, mergesCents, longGrace)
 	sha := checksHead(t, server, fake)
@@ -316,7 +303,6 @@ func TestAMergeConflictInChecksStartsAConflictRoundAndGivesTheLeadNoEvent(t *tes
 
 func TestAMergeConflictInApprovalStartsAConflictRound(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, first := startReady(t, fake, "", mergesCents)
 
@@ -328,7 +314,6 @@ func TestAMergeConflictInApprovalStartsAConflictRound(t *testing.T) {
 
 func TestACommentInChecksGoesOnlyToTheJudgeAndTheTaskReturnsToChecks(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, "[[prompts]]\nwhen = \"You are the Judge\"\nshell = \"true\"\n\n"+leadStarts, commits, func(cfg *config.Config) { cfg.ReviewQuietPeriod = time.Second })
 	sha := checksHead(t, server, fake)
@@ -382,7 +367,6 @@ func seedWaitingWith(t *testing.T, fake *testkit.FakeGitHub, state, script strin
 
 func TestARestartKeepsTheWaitOfATaskInChecks(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "checks")
 	id := fake.AddCheckRun(shop, checkRun("build", sha, "in_progress", ""))
@@ -405,7 +389,6 @@ func TestARestartKeepsTheWaitOfATaskInChecks(t *testing.T) {
 
 func TestARestartKeepsTheWaitOfATaskInApprovalAndGivesNoSecondEvent(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "approval")
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
@@ -422,7 +405,6 @@ func TestARestartKeepsTheWaitOfATaskInApprovalAndGivesNoSecondEvent(t *testing.T
 
 func TestStartFixRoundWorksWhileTheTaskWaitsForTheLead(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -441,7 +423,6 @@ const leadApproves = "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"app
 
 func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxItem(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -473,7 +454,6 @@ func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxIte
 
 func TestAWorkstreamsChangeGoesOutWhenATaskEntersAndLeavesReadyForReview(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadFindings+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -506,7 +486,6 @@ func waitForReadyToMerge(t *testing.T, server *testserver.Server, changes <-chan
 
 func TestApprovePullRequestRefusesATaskInChecksAndChangesNothing(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, longGrace)
 	sha := checksHead(t, server, fake)
@@ -530,7 +509,6 @@ func TestApprovePullRequestRefusesATaskInChecksAndChangesNothing(t *testing.T) {
 
 func TestStartFixRoundWorksWhileTheTaskWaitsForCI(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, commits, longGrace)
 	checksHead(t, server, fake)
@@ -546,7 +524,6 @@ func TestStartFixRoundWorksWhileTheTaskWaitsForCI(t *testing.T) {
 
 func TestApprovePullRequestRefusesANewHeadAndMovesTheTaskBackToChecks(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -573,7 +550,6 @@ func TestApprovePullRequestRefusesANewHeadAndMovesTheTaskBackToChecks(t *testing
 
 func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLeadAndTheWaitForStartImplementer(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	for state, want := range map[string]string{"checks": "waits for CI", "approval": "waits for Lead", "dispatched": "waits for start_implementer"} {
 		t.Run(state, func(t *testing.T) {
 			fake := testkit.NewFakeGitHub(t)

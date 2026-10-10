@@ -34,7 +34,6 @@ func connectGatedLead(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Serve
 
 func TestACommentOnAWorkstreamIssueGetsARocketWhenTheLeadTurnOfItsEventStarts(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	_, release := connectGatedLead(t, fake)
 
@@ -55,7 +54,6 @@ func TestACommentOnAWorkstreamIssueGetsARocketWhenTheLeadTurnOfItsEventStarts(t 
 
 func TestACommentOnATaskIssueOrItsPullRequestGetsARocketWhenTheLeadTurnOfItsEventStarts(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, release := connectGatedLead(t, fake)
 	addStoppedTask(t, fake, server)
@@ -82,7 +80,6 @@ func TestACommentOnATaskIssueOrItsPullRequestGetsARocketWhenTheLeadTurnOfItsEven
 
 func TestAFailedRocketDoesNotStopTheLeadTurn(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, seen, func(cfg *config.Config) { cfg.LeadIdleTimeout = 5 * time.Second })
 	fake.FailReactions("rocket", true)
@@ -105,7 +102,6 @@ func TestAFailedRocketDoesNotStopTheLeadTurn(t *testing.T) {
 
 func TestACommentOfATrustedUserGetsARocketWhenTheJudgeSessionStarts(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, "shell = \"true\"\n", "", func(cfg *config.Config) { cfg.ReviewQuietPeriod = 2 * time.Second })
 
@@ -125,7 +121,6 @@ func TestACommentOfATrustedUserGetsARocketWhenTheJudgeSessionStarts(t *testing.T
 
 func TestEachNewCommentOfATrustedUserInAThreadGetsARocketWhenTheJudgeSessionStarts(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, "shell = \"true\"\n", "", func(cfg *config.Config) { cfg.ReviewQuietPeriod = 2 * time.Second })
 
@@ -145,7 +140,6 @@ func TestEachNewCommentOfATrustedUserInAThreadGetsARocketWhenTheJudgeSessionStar
 
 func TestACommentThatTheLeadWroteThroughTheAppGetsNoRocketWhenTheJudgeSessionStarts(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, "shell = \"true\"\n", "", func(cfg *config.Config) { cfg.ReviewQuietPeriod = 2 * time.Second })
 
@@ -161,7 +155,6 @@ func TestACommentThatTheLeadWroteThroughTheAppGetsNoRocketWhenTheJudgeSessionSta
 
 func TestACommentThatTheDrainHeldGetsARocketWhenTheTriagerStarts(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 56, "Add points")
@@ -187,7 +180,6 @@ func TestACommentThatTheDrainHeldGetsARocketWhenTheTriagerStarts(t *testing.T) {
 
 func TestACommentThatTheFirstRunOfTheTriagerReadsGetsARocketWhenTheRunStarts(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	if end := <-startDrain(t, server); end != "drained" {
@@ -212,7 +204,6 @@ func TestACommentThatTheFirstRunOfTheTriagerReadsGetsARocketWhenTheRunStarts(t *
 
 func TestACommentThatIsOlderThanAProposalOfTheTriagerGetsARocketWhenTheTriagerReadsIt(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 56, "Add points")

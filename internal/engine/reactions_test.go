@@ -51,7 +51,6 @@ func openPullRequest(fake *testkit.FakeGitHub) int64 {
 
 func TestACommentOnAWorkstreamIssueGetsEyes(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	connectSeen(t, fake)
 
@@ -266,7 +265,6 @@ func TestACommentOnThePullRequestOfAStoppedTaskGetsEyes(t *testing.T) {
 
 func TestACommentOnThePullRequestOfATaskInApprovalGetsEyes(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
 
@@ -279,7 +277,6 @@ func TestACommentOnThePullRequestOfATaskInApprovalGetsEyes(t *testing.T) {
 
 func TestAReviewCommentInAResolvedThreadGetsConfusedAndOneReplyInTheThread(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
 	root := fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier.")
@@ -300,7 +297,6 @@ func TestAReviewCommentInAResolvedThreadGetsConfusedAndOneReplyInTheThread(t *te
 
 func TestAReviewCommentWrittenAgainInAnUnresolvedThreadGetsEyes(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
 	root := fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier.")
@@ -317,7 +313,6 @@ func TestAReviewCommentWrittenAgainInAnUnresolvedThreadGetsEyes(t *testing.T) {
 
 func TestACommentOfAnUntrustedUserOrOfATrustedBotOnAPullRequestGetsNoReaction(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	connectJudge(t, fake, "shell = \"true\"\n", "", noChange)
 	var ids []int64

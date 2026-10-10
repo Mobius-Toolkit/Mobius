@@ -169,7 +169,6 @@ func TestARemovalOfTheLabelStopsTheTriagerAndAProposalGoesToTheIssue(t *testing.
 
 func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheCommentsOfTrustedAuthors(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 53, "Add points")
@@ -206,7 +205,6 @@ func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheCommentsOfTrustedAuth
 
 func TestACommentOfTheAppOrOfAnUntrustedUserDoesNotStartTheTriagerAgain(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 54, "Add points")
@@ -225,7 +223,6 @@ func TestACommentOfTheAppOrOfAnUntrustedUserDoesNotStartTheTriagerAgain(t *testi
 
 func TestACommentThatTheDrainHeldStartsTheTriagerAgainAfterACancel(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 56, "Add points")
@@ -256,7 +253,6 @@ func TestACommentThatTheDrainHeldStartsTheTriagerAgainAfterACancel(t *testing.T)
 
 func TestACommentWhileTheTriagerRunsStopsItAndStartsANewRun(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 55, "Add refunds")
@@ -282,7 +278,6 @@ func TestACommentWhileTheTriagerRunsStopsItAndStartsANewRun(t *testing.T) {
 
 func TestTheTriagerChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	changes := listen(t, server)
@@ -324,7 +319,6 @@ func TestTheTriagerChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
 
 func TestTheTriagerChatRefusesAnUnknownOrganization(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	unknown := engine.ChatKey{}
@@ -344,7 +338,6 @@ func TestTheTriagerChatRefusesAnUnknownOrganization(t *testing.T) {
 
 func TestANewTriagerChatSessionGetsTheChatHistory(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	sendChat(t, server, triagerChat, "Start a Workstream for loyalty points.")
@@ -395,7 +388,6 @@ func triagerPrompts(t *testing.T, server *testserver.Server) []string {
 
 func TestAReportOfTheResearcherGoesToTheTriagerChat(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectResearch(t, fake, researchTriager)
 
@@ -431,7 +423,6 @@ func TestAReportOfTheResearcherGoesToTheTriagerChat(t *testing.T) {
 
 func TestAReportOfTheResearcherStartsANewTriagerChatSession(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -469,7 +460,6 @@ shell = "while [ ! -e `+gate+` ]; do sleep 0.05; done"
 
 func TestTheTriagerOfAnIssueGetsARefusalFromStartResearcher(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("start_researcher", `{ question = "Where do plans store the price?" }`))
 	triagerOfIssue := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Repository: shop, Dir: t.TempDir()}
@@ -486,7 +476,6 @@ func TestTheTriagerOfAnIssueGetsARefusalFromStartResearcher(t *testing.T) {
 
 func TestATriagerChatSessionGetsTheImagesOfTheMessageAndATextMarkerForOlderImages(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectScript(t, fake, imageReading+options+"[[prompts]]\nwhen = \"Now plan it.\"\nreply = [\"Second answer\"]\n\n[[prompts]]\nreply = [\"First answer\"]\n", func(*config.Config) {})
 	sendChatImages(t, server, triagerChat, "Look at this", []engine.Image{pngImage, jpegImage})

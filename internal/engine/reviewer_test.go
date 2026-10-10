@@ -81,7 +81,6 @@ func readyForReview(t *testing.T, server *testserver.Server, fake *testkit.FakeG
 
 func TestAReviewerThatFindsNothingTakesTheTaskToChecksAndThenToApproval(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"You are the Reviewer\"\nshell = \"pwd && git rev-parse HEAD && git rev-parse --abbrev-ref HEAD\"\n\n" + leadStarts
 	server, dataDir := connectTask(t, fake, lead, commits, noChange)
@@ -127,7 +126,6 @@ func TestAReviewerThatFindsNothingTakesTheTaskToChecksAndThenToApproval(t *testi
 
 func TestAFixRoundRepliesWithThePushedFixCommitAndResolvesTheThread(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"Thread 2, plan.txt line 1:\"\nshell = \"true\"\n\n" + finding + leadStarts
 	server, _ := connectTask(t, fake, lead, fixReplies+commits, noChange)
@@ -186,7 +184,6 @@ func TestAFixRoundRepliesWithThePushedFixCommitAndResolvesTheThread(t *testing.T
 
 func TestAnImplementerAfterCannotDoInAFixRoundContinuesThePullRequest(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = { tool = \"start_implementer\", arguments = { n = 41, instructions = \"Store the unit in the plan.\" } }\n\n" +
 		"[[prompts]]\nwhen = \"Thread 2, plan.txt line 1:\"\nshell = \"true\"\n\n" + finding + leadStarts
@@ -219,7 +216,6 @@ func TestAnImplementerAfterCannotDoInAFixRoundContinuesThePullRequest(t *testing
 
 func TestAFindingAfterMaxFixRoundsStopsTheTaskUntilACommentOfATrustedUser(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, finding+leadStarts, fixReplies+commits, func(cfg *config.Config) { cfg.MaxFixRounds = 2 })
 
@@ -264,7 +260,6 @@ func TestAFindingAfterMaxFixRoundsStopsTheTaskUntilACommentOfATrustedUser(t *tes
 
 func TestAQueuedReviewerGetsTheEarlierThreadsOfTrustedAuthors(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	goFile := filepath.Join(dataDir, "go")
@@ -326,7 +321,6 @@ func TestAQueuedReviewerGetsTheEarlierThreadsOfTrustedAuthors(t *testing.T) {
 
 func TestStartFixRoundSendsTheFindingsOfTheLeadToAFixRound(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"true\"\n\n"+commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -355,7 +349,6 @@ func TestStartFixRoundSendsTheFindingsOfTheLeadToAFixRound(t *testing.T) {
 
 func TestAFixRoundOfTheLeadMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	goFile := filepath.Join(dataDir, "go")
@@ -384,7 +377,6 @@ func TestAFixRoundOfTheLeadMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t
 
 func TestStartFixRoundRefusesATaskThatDoesNotWaitAndIsNotReadyForReview(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, finding+leadFindings+leadStarts, commits, func(cfg *config.Config) { cfg.MaxFixRounds = 0 })
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -403,7 +395,6 @@ func TestStartFixRoundRefusesATaskThatDoesNotWaitAndIsNotReadyForReview(t *testi
 
 func TestAReviewRoundPostsACommentAndUpdatesTheSameCommentWithTheResults(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	goFile := filepath.Join(dataDir, "go")
@@ -433,7 +424,6 @@ func TestAReviewRoundPostsACommentAndUpdatesTheSameCommentWithTheResults(t *test
 }
 
 func TestTheReviewRoundAtMaxFixRoundsShowsTheLimitAndStartsNoNextRound(t *testing.T) {
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, finding+leadStarts, eachFix+commits, func(cfg *config.Config) { cfg.MaxFixRounds = 7 })
 
@@ -466,7 +456,6 @@ func TestTheReviewRoundAtMaxFixRoundsShowsTheLimitAndStartsNoNextRound(t *testin
 
 func TestAFailedReviewRunShowsTheReasonAndTheRestartKeepsTheRoundNumber(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	reviewer := strings.Replace(dieOnceThen(filepath.Join(dataDir, "died"), "true"), "[[prompts]]\n", "[[prompts]]\nwhen = \"You are the Reviewer\"\n", 1)
@@ -491,7 +480,6 @@ func TestAFailedReviewRunShowsTheReasonAndTheRestartKeepsTheRoundNumber(t *testi
 
 func TestAReviewRunAfterTheLimitPostsTheLimitComment(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	implementer := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo more >> plan.txt && git commit -q -am 'Remove the lines'\"\n\n" + commits
 	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, implementer, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
@@ -516,7 +504,6 @@ func TestAReviewRunAfterTheLimitPostsTheLimitComment(t *testing.T) {
 
 func TestACommentOfATrustedUserDuringTheLastRoundResetsTheLimitOfTheRound(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	seenFile, goFile := filepath.Join(dataDir, "seen"), filepath.Join(dataDir, "go")

@@ -125,14 +125,6 @@ func InstallFakeAgent(t testing.TB, dataDir, script string) {
 	}
 }
 
-// Slow skips the test when go test runs with -short. A test that needs 2 s or more calls Slow.
-func Slow(t testing.TB) {
-	t.Helper()
-	if testing.Short() {
-		t.Skip("slow test")
-	}
-}
-
 // WaitFor waits until condition is true. The test fails after one minute.
 func WaitFor(t testing.TB, condition func() bool) {
 	t.Helper()

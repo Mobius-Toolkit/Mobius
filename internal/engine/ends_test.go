@@ -45,7 +45,6 @@ func exists(t *testing.T, path string) bool {
 
 func TestAMergeEndsTheTaskAndKeepsTheBranch(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, commits, noChange)
 	waitForApproval(t, server, fake)
@@ -67,7 +66,6 @@ func TestAMergeEndsTheTaskAndKeepsTheBranch(t *testing.T) {
 
 func TestAMergeClosesTheOpenIssueAsCompleted(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
 	waitForApproval(t, server, fake)
@@ -82,7 +80,6 @@ func TestAMergeClosesTheOpenIssueAsCompleted(t *testing.T) {
 
 func TestACloseOfTheIssueBeforeAPullRequestStopsTheImplementerAndEndsTheTask(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, hangs, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -109,7 +106,6 @@ func TestACloseOfTheIssueBeforeAPullRequestStopsTheImplementerAndEndsTheTask(t *
 
 func TestARemovalOfTheWorkingLabelStopsTheTask(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, commits, noChange)
 	waitForApproval(t, server, fake)
@@ -144,7 +140,6 @@ func TestARemovalOfTheWorkingLabelStopsTheTask(t *testing.T) {
 
 func TestAReadyLabelAfterAStopWithNoPullRequestStartsANewTaskOnANewBranch(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	implementer := "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n\n" + commits
 	server, _ := connectTask(t, fake, leadStarts, implementer, noChange)
@@ -171,7 +166,6 @@ func TestAReadyLabelAfterAStopWithNoPullRequestStartsANewTaskOnANewBranch(t *tes
 
 func TestAReadyLabelAfterAStopContinuesThePullRequestOnTheSameBranch(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	finishes := "[[prompts]]\nwhen = \"The human continued the task.\"\nshell = \"echo done > done.txt && git add done.txt && git commit -q -m 'Finish the issue'\"\n\n" + commits
 	server, _ := connectTask(t, fake, leadStarts, finishes, noChange)
@@ -203,7 +197,6 @@ func TestAReadyLabelAfterAStopContinuesThePullRequestOnTheSameBranch(t *testing.
 // A thread of the Reviewer stays open after a stop, so the next round gets it (Mobius-rust#253).
 func TestAReadyLabelOnATaskInNeedsHumanSendsTheOpenThreadOfTheMobiusAppToAFixRound(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, fixes, noChange)
 	waitForApproval(t, server, fake)

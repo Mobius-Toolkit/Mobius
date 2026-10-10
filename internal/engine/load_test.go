@@ -93,7 +93,6 @@ func TestAHighLoadMakesTheCheckWaitUntilTheLoadIsLow(t *testing.T) {
 }
 
 func TestACheckThatStartsLessThanTheGapAfterTheLastStartWaitsForTheGap(t *testing.T) {
-	testkit.Slow(t)
 	installLoad(t, 0)
 	before := *engine.CheckGap
 	*engine.CheckGap = 3 * time.Second

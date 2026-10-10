@@ -115,7 +115,6 @@ func waitForDrain(t *testing.T, states <-chan drainState, state drainState) {
 
 func TestTheDrainHoldsNewWorkersWaitsForTheRunningSessionsAndACancelReleasesThem(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nhang = true\n", func(cfg *config.Config) { cfg.Roles.Implementer.Max = 1 })
 	states := drainEvents(t, server)
@@ -156,7 +155,6 @@ func TestTheDrainHoldsNewWorkersWaitsForTheRunningSessionsAndACancelReleasesThem
 
 func TestACancelEndsTheWaitOfTheDrain(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
 	states := drainEvents(t, server)
@@ -174,7 +172,6 @@ func TestACancelEndsTheWaitOfTheDrain(t *testing.T) {
 
 func TestTheDrainClosesTheLeadAndHoldsTheEventsAndTheTriagersUntilACancel(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, `
 [[prompts]]
@@ -224,7 +221,6 @@ reply = ["A proposal."]
 
 func TestATriagerThatTheDrainHeldDuringAPollStartsInThePollAfterACancel(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"You are the Triager\"\nreply = [\"A proposal.\"]\n")
 	fake.AddIssue(shop, 50, "Change request")
@@ -256,7 +252,6 @@ func TestATriagerThatTheDrainHeldDuringAPollStartsInThePollAfterACancel(t *testi
 
 func TestTheDrainHoldsTheReviewerAndTheJudgeUntilACancel(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	goFile := filepath.Join(dataDir, "go")
@@ -300,7 +295,6 @@ func TestTheDrainHoldsTheReviewerAndTheJudgeUntilACancel(t *testing.T) {
 // A Judge whose Worker starts after the start of the drain stays held, and does not fail.
 func TestTheDrainHoldsAJudgeThatAPollStartedBeforeTheDrain(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.ReviewQuietPeriod = 0 })
 	waitForApproval(t, server, fake)
@@ -363,7 +357,6 @@ func startPausedImplementer(t *testing.T, server *testserver.Server, fake *testk
 
 func TestTheDrainDoesNotWaitForALeadAndAWorkerThatWaitForAPause(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, usageLimit, devinLead)
 	states := drainEvents(t, server)
@@ -385,7 +378,6 @@ func TestTheDrainDoesNotWaitForALeadAndAWorkerThatWaitForAPause(t *testing.T) {
 
 func TestACancelOfTheDrainCountsTheSessionsThatWaitForAPauseAgain(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, usageLimit, devinLead)
 	agent := startPausedImplementer(t, server, fake)
@@ -403,7 +395,6 @@ func TestACancelOfTheDrainCountsTheSessionsThatWaitForAPauseAgain(t *testing.T) 
 
 func TestASessionCountsInTheDrainAgainBeforeItSendsThePromptAfterThePause(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimitThenHang)
 	states := drainEvents(t, server)
@@ -425,7 +416,6 @@ func TestASessionCountsInTheDrainAgainBeforeItSendsThePromptAfterThePause(t *tes
 
 func TestASessionSendsThePromptAfterThePauseWhenTheSealIsAborted(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimitThenHang)
 	agent := startPausedImplementer(t, server, fake)
@@ -448,7 +438,6 @@ func TestASessionSendsThePromptAfterThePauseWhenTheSealIsAborted(t *testing.T) {
 
 func TestASessionSendsThePromptWhenThePauseEndsInASealedDrainAndTheSealIsAborted(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimitThenHang)
 	agent := startPausedImplementer(t, server, fake)
@@ -472,7 +461,6 @@ func TestASessionSendsThePromptWhenThePauseEndsInASealedDrainAndTheSealIsAborted
 
 func TestASessionDoesNotSendThePromptAfterThePauseWhenTheDrainIsSealed(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimit)
 	agent := startPausedImplementer(t, server, fake)

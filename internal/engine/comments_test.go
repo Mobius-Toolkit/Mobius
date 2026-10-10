@@ -11,7 +11,6 @@ import (
 
 func TestACommentInTheSecondOfTheCursorGivesOneEvent(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 	fake.AddComment(shop, 41, "owner", "First.")
@@ -28,7 +27,6 @@ func TestACommentInTheSecondOfTheCursorGivesOneEvent(t *testing.T) {
 
 func TestAHandledCommentGivesNoSecondEvent(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 	fake.AddComment(shop, 41, "owner", "First.")
@@ -44,7 +42,6 @@ func TestAHandledCommentGivesNoSecondEvent(t *testing.T) {
 
 func TestAnEditOfAnOldCommentGivesNoEvent(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 	id := fake.AddComment(shop, 41, "owner", "First.")
@@ -62,7 +59,6 @@ func TestAnEditOfAnOldCommentGivesNoEvent(t *testing.T) {
 
 func TestACommentOnAnIssueOutsideThePageGivesOneEvent(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 	fake.AddIssue(shop, 60, "Other")
@@ -80,7 +76,6 @@ func TestACommentOnAnIssueOutsideThePageGivesOneEvent(t *testing.T) {
 
 func TestAPollReadsTheCommentsOfManyIssuesAndPullRequestsWithTwoCalls(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 	fake.AddIssue(shop, 43, "Plan API")
@@ -117,7 +112,6 @@ func TestAPollReadsTheCommentsOfManyIssuesAndPullRequestsWithTwoCalls(t *testing
 
 func TestAnOldCommentGivesNoEventAfterTheCommentCursorsAreMissing(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := startWithStoppedTask(t, fake)
 	fake.AddComment(shop, 41, "owner", "First.")
@@ -137,7 +131,6 @@ func TestAnOldCommentGivesNoEventAfterTheCommentCursorsAreMissing(t *testing.T) 
 
 func TestTheFirstPollOfARepositoryReadsNoComments(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddComment(shop, 41, "owner", "Old.")
@@ -191,7 +184,6 @@ func commentEvents(t *testing.T, server *testserver.Server) []commentEvent {
 
 func TestACommentOnAWorkstreamIssueGivesOneEventWithNoIssue(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 
@@ -207,7 +199,6 @@ func TestACommentOnAWorkstreamIssueGivesOneEventWithNoIssue(t *testing.T) {
 
 func TestACommentOnASubIssueWithNoLiveTaskGivesOneEventWithTheIssue(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 50, "Plan the tiers")
@@ -228,7 +219,6 @@ func TestACommentOnASubIssueWithNoLiveTaskGivesOneEventWithTheIssue(t *testing.T
 
 func TestACommentOfAnUntrustedUserOrOfTheAppOnAWorkstreamIssueGivesNoEvent(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 
@@ -246,7 +236,6 @@ func TestACommentOfAnUntrustedUserOrOfTheAppOnAWorkstreamIssueGivesNoEvent(t *te
 
 func TestACommentOnAnIssueInNoWorkstreamGivesNoEvent(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 60, "Fix the footer")
@@ -265,7 +254,6 @@ func TestACommentOnAnIssueInNoWorkstreamGivesNoEvent(t *testing.T) {
 
 func TestACommentOnASubIssueOfAClosedWorkstreamGivesNoEvent(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
 	fake.AddIssue(shop, 50, "Plan the tiers")

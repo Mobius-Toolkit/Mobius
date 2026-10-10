@@ -43,7 +43,6 @@ func lineID(t *testing.T, server *testserver.Server, session int64, kind, part s
 
 func TestAnAgentGetsNoPromptWhileAnAutonomousTurnRuns(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First\"]\n\n[[prompts]]\nreply = [\"Second\"]\n")
 	agent := start(t, server, leadSpec(t))
@@ -117,7 +116,6 @@ func TestAStopWhileAnAutonomousTurnRunsEndsTheWaitAndSendsNoPrompt(t *testing.T)
 }
 
 func TestAnAbsorbedPromptGetsACancelAfterTheGraceTimeAndTheWorkContinues(t *testing.T) {
-	testkit.Slow(t)
 	shortAbsorb(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTask(t, fake, leadStarts, "[[prompts]]\n"+commitCents+absorbedLater, noChange)

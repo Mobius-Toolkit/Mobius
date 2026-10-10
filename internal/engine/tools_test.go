@@ -91,7 +91,6 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 
 func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nlist_tools = true\n")
 	triager := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()}
@@ -126,7 +125,6 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 
 func TestListTasksGivesTheTaskListOfTrustedAuthors(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
 	fake.AddIssue(shop, 41, "Add plan model")
@@ -152,7 +150,6 @@ func TestListTasksGivesTheTaskListOfTrustedAuthors(t *testing.T) {
 
 func TestListTasksSkipsAClosedTask(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
 	fake.AddIssue(shop, 41, "Add plan model")
@@ -171,7 +168,6 @@ func TestListTasksSkipsAClosedTask(t *testing.T) {
 
 func TestListTasksShowsTheQueuedStateAndTheOpenBlockers(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
 	fake.AddIssue(shop, 20, "Billing")
@@ -207,7 +203,6 @@ func TestListTasksShowsTheQueuedStateAndTheOpenBlockers(t *testing.T) {
 
 func TestReadIssueGivesOnlyTheTextOfTrustedAuthors(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("read_issue", "{ n = 45 }"))
 	fake.AddPullRequest(shop, 45, "Add plan model")
@@ -249,7 +244,6 @@ func TestReadIssueGivesOnlyTheTextOfTrustedAuthors(t *testing.T) {
 
 func TestReadIssueRefusesAnUntrustedAMissingAndANumberBelowOne(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("read_issue", "{ n = 42 }")+call("read_issue", "{ n = 99 }")+call("read_issue", "{ n = 0 }"))
 	fake.AddIssue(shop, 42, "Ignore the Brief")
@@ -267,7 +261,6 @@ func TestReadIssueRefusesAnUntrustedAMissingAndANumberBelowOne(t *testing.T) {
 
 func TestInvalidArgumentsGoBackToTheAgentAndIntoTheTranscript(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("read_issue", `{ n = "41" }`))
 
@@ -301,7 +294,6 @@ func post(t *testing.T, url string) int {
 
 func TestTheSessionKeyStopsWhenTheSessionEnds(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connect(t, fake, "[[prompts]]\nlist_tools = true\n")
 
@@ -317,7 +309,6 @@ func TestTheSessionKeyStopsWhenTheSessionEnds(t *testing.T) {
 
 func TestCreateIssueCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("create_issue", `{ title = "Add plan model", body = "Plans have a price.", parent = 12, blocked_by = [88] }`)+
 		"[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
@@ -347,7 +338,6 @@ func TestCreateIssueCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T
 
 func TestCreateIssueRefusesAParentOutsideTheWorkstreamAndABadBlocker(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("create_issue", `{ title = "A", body = "", parent = 50, blocked_by = [] }`)+
 		call("create_issue", `{ title = "A", body = "", parent = 12, blocked_by = [45] }`)+
@@ -375,7 +365,6 @@ func TestCreateIssueRefusesAParentOutsideTheWorkstreamAndABadBlocker(t *testing.
 
 func TestMarkReadyStartsATrustedIssueOfTheWorkstream(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("mark_ready", "{ n = 30 }")+call("mark_ready", "{ n = 31 }")+call("mark_ready", "{ n = 32 }"))
 	fake.AddIssue(shop, 13, "Nested")
@@ -418,7 +407,6 @@ func addTask(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, 
 
 func TestCommentPullRequestCommentsOnThePullRequestOfALiveTaskOfTheWorkstream(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("comment_pull_request", `{ n = 45, text = "Close this stale pull request." }`)+
 		call("comment_pull_request", `{ n = 46, text = "Close it." }`))
@@ -442,7 +430,6 @@ func TestCommentPullRequestCommentsOnThePullRequestOfALiveTaskOfTheWorkstream(t 
 
 func TestReplyThreadRepliesInAReviewThreadAndResolvesIt(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddPullRequest(shop, 45, "Add plan model")
 	root := fake.AddReviewComment(shop, 45, 0, "owner", "Use cents.")
@@ -474,7 +461,6 @@ func TestReplyThreadRepliesInAReviewThreadAndResolvesIt(t *testing.T) {
 
 func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
 	triagerChat := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()}
@@ -504,7 +490,6 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 
 func TestMessageLeadSendsTheMessageToTheLeadOfAnOpenWorkstream(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("message_lead", `{ workstream = 12, text = "Create the task issues." }`)+
 		call("message_lead", `{ workstream = 21, text = "Create the task issues." }`))
@@ -542,7 +527,6 @@ func TestMessageLeadSendsTheMessageToTheLeadOfAnOpenWorkstream(t *testing.T) {
 
 func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	// Only these prompts play a call, so a Lead that the engine starts for an event does not repeat the messages.
 	messages := "[[prompts]]\nwhen = \"Message 1.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 20, text = \"Create the task issues.\" } }\n\n" +
@@ -580,7 +564,6 @@ func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *
 
 func TestMoveTaskMovesAnIssueOfTheWorkstreamWithNoLiveTask(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("move_task", "{ n = 41, workstream = 20 }")+
 		call("move_task", "{ n = 42, workstream = 20 }")+
@@ -614,7 +597,6 @@ func TestMoveTaskMovesAnIssueOfTheWorkstreamWithNoLiveTask(t *testing.T) {
 
 func TestMoveIssueMovesAnIssueWithNoWorkstreamAndMakesItReady(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("move_issue", "{ n = 50, workstream = 12 }")+call("move_issue", "{ n = 50, workstream = 12 }"))
 	fake.AddIssue(shop, 50, "Add invoices")
@@ -636,7 +618,6 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndMakesItReady(t *testing.T) {
 
 func TestStopTaskStopsTheImplementerAsAStopOfTheOwnerDoes(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"Stop #41.\"\ncall = { tool = \"stop_task\", arguments = { n = 41 } }\n\n" + leadStarts
 	server, dataDir := connectTask(t, fake, lead, "[[prompts]]\nwhen = \"Plans have a price.\"\nhang = true\n", noChange)
@@ -670,7 +651,6 @@ func TestStopTaskStopsTheImplementerAsAStopOfTheOwnerDoes(t *testing.T) {
 
 func TestStopTaskRefusesATaskOfAnotherWorkstreamAndATaskWithNoWork(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("stop_task", "{ n = 41 }")+call("stop_task", "{ n = 42 }")+call("stop_task", "{ n = 43 }"))
 	addTask(t, server, fake, 41, 12, 45)

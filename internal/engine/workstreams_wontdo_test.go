@@ -145,7 +145,6 @@ func TestACloseAsWontDoOfAClosedWorkstreamIsRefused(t *testing.T) {
 
 func TestACloseAsWontDoStopsTheRunningImplementer(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, hangs, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")

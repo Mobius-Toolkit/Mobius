@@ -65,7 +65,6 @@ func implementers(t *testing.T, server *testserver.Server) int {
 
 func TestAFailedCheckRunOnTheHeadStartsAFixRoundWithTheCheckAndItsAnnotations(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
 	sha := approvalHead(t, server, fake)
@@ -95,7 +94,6 @@ func TestAFailedCheckRunOnTheHeadStartsAFixRoundWithTheCheckAndItsAnnotations(t 
 
 func TestAFailedCheckRunMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	goFile := filepath.Join(dataDir, "go")
@@ -122,7 +120,6 @@ func TestAFailedCheckRunMakesTheReadyPullRequestADraftUntilTheEndOfTheRound(t *t
 
 func TestAFailedGitHubActionsCheckRunGivesTheLast200LinesOfItsJobLog(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
 	sha := approvalHead(t, server, fake)
@@ -145,7 +142,6 @@ func TestAFailedGitHubActionsCheckRunGivesTheLast200LinesOfItsJobLog(t *testing.
 
 func TestAFailedCheckRunOfADifferentAppGivesNoJobLog(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
 	sha := approvalHead(t, server, fake)
@@ -162,7 +158,6 @@ func TestAFailedCheckRunOfADifferentAppGivesNoJobLog(t *testing.T) {
 
 func TestAFailedJobLogDownloadStillStartsTheFixRound(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
 	sha := approvalHead(t, server, fake)
@@ -184,7 +179,6 @@ func TestAFailedJobLogDownloadStillStartsTheFixRound(t *testing.T) {
 
 func TestAFailedCheckRunOnTheSameHeadStartsOneFixRoundAndThenHandsTheTaskToAHuman(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixesNothing, noChange)
 	sha := approvalHead(t, server, fake)
@@ -205,7 +199,6 @@ func TestAFailedCheckRunOnTheSameHeadStartsOneFixRoundAndThenHandsTheTaskToAHuma
 
 func TestMobiusReadyOnATaskThatStoppedOnFailedCIStartsANewCIFixRoundOnTheSameHead(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixesNothing, noChange)
 	sha := approvalHead(t, server, fake)
@@ -235,7 +228,6 @@ func TestMobiusReadyOnATaskThatStoppedOnFailedCIStartsANewCIFixRoundOnTheSameHea
 
 func TestACancelledOrTimedOutCheckRunOnTheHeadStartsAFixRound(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	for _, conclusion := range []string{"cancelled", "timed_out"} {
 		t.Run(conclusion, func(t *testing.T) {
 			fake := testkit.NewFakeGitHub(t)
@@ -251,7 +243,6 @@ func TestACancelledOrTimedOutCheckRunOnTheHeadStartsAFixRound(t *testing.T) {
 
 func TestAFailedCheckRunMobiusHasNoEffect(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
 	sha := approvalHead(t, server, fake)
@@ -266,7 +257,6 @@ func TestAFailedCheckRunMobiusHasNoEffect(t *testing.T) {
 
 func TestARunningCheckRunAndAPassedCheckRunHaveNoEffect(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
 	sha := approvalHead(t, server, fake)
@@ -282,7 +272,6 @@ func TestARunningCheckRunAndAPassedCheckRunHaveNoEffect(t *testing.T) {
 
 func TestAFailedCheckRunAtMaxFixRoundsHandsTheTaskToAHuman(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
 	sha := approvalHead(t, server, fake)

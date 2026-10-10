@@ -56,7 +56,6 @@ func overview(t *testing.T, server *testserver.Server) activeAgents {
 
 func TestTheAgentsPageCountsTheOpenSessionsOfEachRoleAgainstItsLimit(t *testing.T) {
 	t.Parallel()
-	testkit.Slow(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) {
 		cfg.Roles.Implementer.Max = 3
