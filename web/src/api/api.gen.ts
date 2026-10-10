@@ -891,7 +891,7 @@ export interface UsageGroup {
  * UsageOptions are the values that each filter can take in the period.
  */
 export interface UsageOptions {
-  /** Efforts are the efforts of the rows. An empty value is a session with no effort */
+  /** Efforts are the efforts of the rows. A request cannot filter for the rows with no effort */
   efforts: string[];
   /** Harnesses are the Harnesses of the rows */
   harnesses: string[];

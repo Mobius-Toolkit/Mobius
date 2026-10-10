@@ -4935,7 +4935,7 @@
           "efforts": {
             "type": "array",
             "title": "[]string",
-            "description": "Efforts are the efforts of the rows. An empty value is a session with no effort",
+            "description": "Efforts are the efforts of the rows. A request cannot filter for the rows with no effort",
             "items": {
               "type": "string"
             }
