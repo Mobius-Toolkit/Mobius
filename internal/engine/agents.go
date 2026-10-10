@@ -631,7 +631,11 @@ func (a *Agent) record(params json.RawMessage, late bool) error {
 		}
 		return a.addReply(ctx, kind, content)
 	}
-	row, err := a.engine.queries.AddTranscriptRow(ctx, store.AddTranscriptRowParams{Session: a.id, Time: now(), Kind: "update", Json: string(params)})
+	stored, err := storedUpdate(params, notification, kind)
+	if err != nil {
+		return err
+	}
+	row, err := a.engine.queries.AddTranscriptRow(ctx, store.AddTranscriptRowParams{Session: a.id, Time: now(), Kind: "update", Json: stored})
 	if err != nil {
 		return err
 	}
@@ -643,6 +647,24 @@ func (a *Agent) record(params json.RawMessage, late bool) error {
 		return err
 	}
 	return a.addReply(ctx, kind, content)
+}
+
+// storedUpdate gives the JSON of the update for the Transcript. A tool_call_update keeps its output only in "content",
+// and an available_commands_update has no list of commands. It changes notification.
+func storedUpdate(params json.RawMessage, notification map[string]any, kind string) (string, error) {
+	update, _ := notification["update"].(map[string]any)
+	switch kind {
+	case "tool_call_update":
+		delete(update, "rawOutput")
+		if claudeCode, ok := field(update, "_meta", "claudeCode").(map[string]any); ok {
+			delete(claudeCode, "toolResponse")
+		}
+	case "available_commands_update":
+		delete(update, "availableCommands")
+	default:
+		return string(params), nil
+	}
+	return compact(notification)
 }
 
 // addReply adds content of an agent message chunk to the reply text, and to the chat when the session has an author.
