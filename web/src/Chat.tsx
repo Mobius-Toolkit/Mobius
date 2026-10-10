@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { completeWorkstream, resumeIssue, setAutopilot, type NeedsHuman } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -112,6 +112,13 @@ export function Chat({
   const [closeBusy, setCloseBusy] = useState(false);
   const [closeError, setCloseError] = useState("");
   const navigate = useNavigate();
+  const missing = workstreams.list !== undefined && !workstream;
+
+  useEffect(() => {
+    if (missing) {
+      void navigate({ to: "/workstreams", replace: true });
+    }
+  }, [missing, navigate]);
 
   const switchAutopilot = (on: boolean) => {
     setAutopilotBusy(true);

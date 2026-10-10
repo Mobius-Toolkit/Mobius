@@ -76,7 +76,7 @@ async function say(page: Page, text: string) {
     const form = new FormData()
     form.append('organization', 'owner')
     form.append('repository', 'owner/shop')
-    form.append('workstream', '13')
+    form.append('workstream', '14')
     form.append('id', crypto.randomUUID())
     form.append('text', ${JSON.stringify(text)})
     return fetch('/api/chat/messages', { method: 'POST', body: form })
@@ -87,18 +87,18 @@ const runningLeads = async (page: Page) =>
   (
     await get<{ role: string; endedAt: string | null }[]>(
       page,
-      "/api/workstreams/owner/shop/13/agents",
+      "/api/workstreams/owner/shop/14/agents",
     )
   ).filter((agent) => agent.role === "lead_chat" && agent.endedAt === null).length;
 
 const leadRow = (page: Page) =>
   page.getByRole("main").getByRole("button", { name: /Lead chat session/ });
 
-// The fake agent is busy for some seconds before its reply, so the new Lead session of owner/shop#13 runs while the
+// The fake agent is busy for some seconds before its reply, so the new Lead session of owner/shop#14 runs while the
 // log opens. The Lead session of a test ends before the next test starts. These tests come first, because the later
 // tests leave Lead sessions that run, and no slot is free for a new Lead.
 test.describe("the agent log of a running Lead", () => {
-  const seasonal = "/workstreams/owner/shop/13";
+  const seasonal = "/workstreams/owner/shop/14";
   test.afterEach(async ({ page }) => {
     await expect.poll(() => runningLeads(page), { timeout: 15_000 }).toBe(0);
   });
@@ -119,7 +119,7 @@ test.describe("the agent log of a running Lead", () => {
   test("the agents page shows a new entry with no reload", async ({ page }) => {
     await page.goto("/agents");
     await say(page, "Which daisies sell best?");
-    await leadRow(page).filter({ hasText: "Workstream #13" }).click();
+    await leadRow(page).filter({ hasText: "Workstream #14" }).click();
     await page.evaluate("window.sameDocument = true");
     await expect(page.getByRole("main").getByText("White daisies sell best.")).toBeVisible({
       timeout: 15_000,
@@ -151,7 +151,7 @@ test.describe("the agent log of a running Lead", () => {
     await page.goto("/agents");
     const main = page.getByRole("main");
     await say(page, "Which poppies sell best?");
-    await leadRow(page).filter({ hasText: "Workstream #13" }).click();
+    await leadRow(page).filter({ hasText: "Workstream #14" }).click();
     await page.evaluate("window.lostTranscripts = true");
 
     await expect.poll(() => runningLeads(page), { timeout: 15_000 }).toBe(0);
@@ -168,7 +168,7 @@ test.describe("the agent log of a running Lead", () => {
     await page.goto("/agents");
     const main = page.getByRole("main");
     await say(page, "Which lilies sell best?");
-    await leadRow(page).filter({ hasText: "Workstream #13" }).click();
+    await leadRow(page).filter({ hasText: "Workstream #14" }).click();
     await page.evaluate("window.sameDocument = true");
     let refused = 0;
     await page.route("/api/events", (route) => {
@@ -1602,7 +1602,7 @@ const open = (page: Page, path: string) =>
   );
 
 const plants = "/workstreams/plants/garden/12";
-const seasonal = "/workstreams/owner/shop/13";
+const seasonal = "/workstreams/owner/shop/14";
 
 test("the voice input works in each Workstream after a switch", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
