@@ -601,22 +601,34 @@ func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 	if err != nil {
 		return err
 	}
-	for _, event := range events {
-		organization, _, _ := strings.Cut(repository, "/")
-		err := e.addInboxItem(ctx, store.AddInboxItemParams{
-			Kind:         leadFailedKind,
-			Organization: organization,
-			Repository:   repository,
-			Workstream:   workstream,
-			Issue:        workstream,
-			Text:         event.Payload,
-		})
-		if err != nil {
-			return err
+	organization, _, _ := strings.Cut(repository, "/")
+	var added []store.InboxItem
+	err = e.inTx(ctx, func(q *store.Queries) error {
+		for _, event := range events {
+			item, err := q.AddInboxItem(ctx, store.AddInboxItemParams{
+				Kind:         leadFailedKind,
+				Organization: organization,
+				Repository:   repository,
+				Workstream:   workstream,
+				Issue:        workstream,
+				Text:         event.Payload,
+				Time:         now(),
+			})
+			if err != nil {
+				return err
+			}
+			added = append(added, item)
+			if err := q.DeliverLeadEvent(ctx, store.DeliverLeadEventParams{DeliveredAt: sql.NullString{String: now(), Valid: true}, ID: event.ID}); err != nil {
+				return err
+			}
 		}
-		if err := e.queries.DeliverLeadEvent(ctx, store.DeliverLeadEventParams{DeliveredAt: sql.NullString{String: now(), Valid: true}, ID: event.ID}); err != nil {
-			return err
-		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, item := range added {
+		e.publish(Change{Inbox: &item})
 	}
 	return nil
 }
