@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
+import { localTimes } from "@/lib/time";
 import type { Workstreams } from "@/lib/workstreams";
 import { AgentPanel } from "./AgentPanel";
 import { Conversation } from "./Conversation";
@@ -78,7 +79,9 @@ function NeedsHumanList({
               Resume
             </Button>
           )}
-          {issue.reason && <p className="w-full text-sm text-muted-foreground">{issue.reason}</p>}
+          {issue.reason && (
+            <p className="w-full text-sm text-muted-foreground">{localTimes(issue.reason)}</p>
+          )}
         </div>
       ))}
     </div>
