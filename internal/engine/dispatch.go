@@ -633,7 +633,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 
 // noteFullSlots keeps the time when Autopilot first could not start a task because all slots were full. When
 // fullSlotsWait passed since then, it adds one Inbox item for the Owner with the issue that Autopilot could not start
-// and the tasks that hold the slots. It writes item_at first, so a failed write loses the item and never repeats it.
+// and the tasks that hold the slots. It writes item_at after the item, so a failed step runs again on the next poll.
 func (e *Engine) noteFullSlots(ctx context.Context, repository github.Repository, issue *gh.Issue, workstream int64) error {
 	current := e.timeNow().UTC()
 	if err := e.queries.StartFullSlots(ctx, current.Format(time.RFC3339Nano)); err != nil {
@@ -650,10 +650,6 @@ func (e *Engine) noteFullSlots(ctx context.Context, repository github.Repository
 	if full.ItemAt.Valid || current.Sub(since) < fullSlotsWait {
 		return nil
 	}
-	claimed, err := e.queries.SetFullSlotsItemAt(ctx, sql.NullString{String: current.Format(time.RFC3339Nano), Valid: true})
-	if err != nil || claimed == 0 {
-		return err
-	}
 	tasks, err := e.queries.ListActiveTasks(ctx)
 	if err != nil {
 		return err
@@ -667,7 +663,7 @@ func (e *Engine) noteFullSlots(ctx context.Context, repository github.Repository
 		}
 		fmt.Fprintf(&text, "\n- %s#%d is %s for %s", task.Repository, task.Issue, task.State, current.Sub(entered).Round(time.Minute))
 	}
-	return e.addInboxItem(ctx, store.AddInboxItemParams{
+	err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         fullSlotsKind,
 		Organization: repository.Owner(),
 		Repository:   repository.FullName,
@@ -676,6 +672,10 @@ func (e *Engine) noteFullSlots(ctx context.Context, repository github.Repository
 		Text:         text.String(),
 		Link:         issue.GetHTMLURL(),
 	})
+	if err != nil {
+		return err
+	}
+	return e.queries.SetFullSlotsItemAt(ctx, sql.NullString{String: current.Format(time.RFC3339Nano), Valid: true})
 }
 
 // resume continues the task of the issue that waits for a human, or the stopped task with a pull request, for the

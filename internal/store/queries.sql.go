@@ -3403,16 +3403,13 @@ func (q *Queries) SetCopiedAutopilot(ctx context.Context, arg SetCopiedAutopilot
 	return err
 }
 
-const setFullSlotsItemAt = `-- name: SetFullSlotsItemAt :execrows
+const setFullSlotsItemAt = `-- name: SetFullSlotsItemAt :exec
 UPDATE full_slots SET item_at = ? WHERE item_at IS NULL
 `
 
-func (q *Queries) SetFullSlotsItemAt(ctx context.Context, itemAt sql.NullString) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setFullSlotsItemAt, itemAt)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+func (q *Queries) SetFullSlotsItemAt(ctx context.Context, itemAt sql.NullString) error {
+	_, err := q.db.ExecContext(ctx, setFullSlotsItemAt, itemAt)
+	return err
 }
 
 const setHarnessPause = `-- name: SetHarnessPause :exec

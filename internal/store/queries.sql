@@ -291,7 +291,7 @@ INSERT INTO full_slots (id, since) VALUES (1, ?) ON CONFLICT DO NOTHING;
 -- name: GetFullSlots :one
 SELECT * FROM full_slots;
 
--- name: SetFullSlotsItemAt :execrows
+-- name: SetFullSlotsItemAt :exec
 UPDATE full_slots SET item_at = ? WHERE item_at IS NULL;
 
 -- name: EndFullSlots :exec
