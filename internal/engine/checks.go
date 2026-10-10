@@ -28,6 +28,10 @@ const (
 	// approvalReminder is the time in approval, and the time between two reminders. A pull request that waits for the
 	// Lead approval must come back to the Lead after a short time, for fast iterations.
 	approvalReminder = 2 * time.Hour
+	// dispatchReminder is the time in dispatched with no open question, and the time between two reminders. A
+	// dispatched task holds an Autopilot slot while no agent works on it. The value is the same as the limit in checks
+	// and in approval.
+	dispatchReminder = 2 * time.Hour
 )
 
 // ciWait is the head that the poll saw first at a time, for a task in checks.
@@ -175,54 +179,57 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 // onLongCIWait gives the Lead the event long_ci_wait when longCIWait passed since the task entered checks, or since the
 // last event of this kind. It does not change the task.
 func (e *Engine) onLongCIWait(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, incomplete []string) error {
-	since := task.StateAt
-	if task.LongWaitAt.Valid {
-		since = task.LongWaitAt.String
-	}
-	last, err := time.Parse(time.RFC3339Nano, since)
-	if err != nil {
-		return err
-	}
-	now := e.timeNow()
-	if now.Sub(last) < longCIWait {
-		return nil
-	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
-	if err != nil {
-		return err
-	}
-	text := fmt.Sprintf("%s the CI of #%d \"%s\" runs for more than %s: pull request #%d %s, head %s. These runs did not complete: %s.", now.UTC().Format(timeFormat), task.Issue, issue.GetTitle(), longCIWait, pullRequest.GetNumber(), pullRequest.GetHTMLURL(), pullRequest.GetHead().GetSHA(), strings.Join(incomplete, ", "))
-	if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "long_ci_wait", text); err != nil {
-		return err
-	}
-	return e.queries.SetTaskLongWaitAt(ctx, store.SetTaskLongWaitAtParams{LongWaitAt: sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}, ID: task.ID})
+	return e.remindLead(ctx, task, longCIWait, "long_ci_wait", func(now time.Time, _ time.Duration) (string, error) {
+		issue, err := existingIssue(ctx, repository, task.Issue)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s the CI of #%d \"%s\" runs for more than %s: pull request #%d %s, head %s. These runs did not complete: %s.", now.UTC().Format(timeFormat), task.Issue, issue.GetTitle(), longCIWait, pullRequest.GetNumber(), pullRequest.GetHTMLURL(), pullRequest.GetHead().GetSHA(), strings.Join(incomplete, ", ")), nil
+	})
 }
 
 // remindApproval gives the Lead the event approval_reminder when approvalReminder passed since the task entered
 // approval, or since the last event of this kind. It does not change the task.
 func (e *Engine) remindApproval(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
-	since := task.StateAt
-	if task.LongWaitAt.Valid {
-		since = task.LongWaitAt.String
-	}
-	last, err := time.Parse(time.RFC3339Nano, since)
-	if err != nil {
-		return err
-	}
-	now := e.timeNow()
-	if now.Sub(last) < approvalReminder {
-		return nil
-	}
+	return e.remindLead(ctx, task, approvalReminder, "approval_reminder", func(now time.Time, waited time.Duration) (string, error) {
+		issue, err := existingIssue(ctx, repository, task.Issue)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s #%d \"%s\" waits for Lead approval for %s: pull request #%d %s.", now.UTC().Format(timeFormat), task.Issue, issue.GetTitle(), waited.Round(time.Minute), pullRequest.GetNumber(), pullRequest.GetHTMLURL()), nil
+	})
+}
+
+// remindDispatch gives the Lead the event dispatch_reminder when dispatchReminder passed since the task entered
+// dispatched, or since the last event of this kind. It does not change the task.
+func (e *Engine) remindDispatch(ctx context.Context, task store.Task, issue *gh.Issue) error {
+	return e.remindLead(ctx, task, dispatchReminder, "dispatch_reminder", func(now time.Time, waited time.Duration) (string, error) {
+		return fmt.Sprintf("%s #%d \"%s\" waits for an Implementer for %s and holds an Autopilot slot.", now.UTC().Format(timeFormat), task.Issue, issue.GetTitle(), waited.Round(time.Minute)), nil
+	})
+}
+
+// remindLead gives the Lead an event of the kind when limit passed since the task entered its state, or since the last
+// event of the kind. text gets the time of the event and the time since the task entered its state.
+func (e *Engine) remindLead(ctx context.Context, task store.Task, limit time.Duration, kind string, text func(now time.Time, waited time.Duration) (string, error)) error {
 	entered, err := time.Parse(time.RFC3339Nano, task.StateAt)
 	if err != nil {
 		return err
 	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
+	last := entered
+	if task.LongWaitAt.Valid {
+		if last, err = time.Parse(time.RFC3339Nano, task.LongWaitAt.String); err != nil {
+			return err
+		}
+	}
+	now := e.timeNow()
+	if now.Sub(last) < limit {
+		return nil
+	}
+	body, err := text(now, now.Sub(entered))
 	if err != nil {
 		return err
 	}
-	text := fmt.Sprintf("%s #%d \"%s\" waits for Lead approval for %s: pull request #%d %s.", now.UTC().Format(timeFormat), task.Issue, issue.GetTitle(), now.Sub(entered).Round(time.Minute), pullRequest.GetNumber(), pullRequest.GetHTMLURL())
-	if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "approval_reminder", text); err != nil {
+	if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, kind, body); err != nil {
 		return err
 	}
 	return e.queries.SetTaskLongWaitAt(ctx, store.SetTaskLongWaitAtParams{LongWaitAt: sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}, ID: task.ID})
