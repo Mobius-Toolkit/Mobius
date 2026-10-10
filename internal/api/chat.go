@@ -50,6 +50,8 @@ type Chat struct {
 	Older bool `gork:"older"`
 	// Writing is true while the agent has a turn that runs or a message that waits
 	Writing bool `gork:"writing"`
+	// PausedUntil is the end of the usage-limit pause that the agent waits for, or null while the agent does not wait for a pause
+	PausedUntil *time.Time `gork:"pausedUntil"`
 	// Harness is the Harness of the agent of the chat, for example claude-code
 	Harness string `gork:"harness"`
 }
@@ -81,7 +83,7 @@ func (h *handlers) GetChat(ctx context.Context, req GetChatRequest) (*GetChatRes
 	if err != nil {
 		return nil, err
 	}
-	chat := Chat{Messages: make([]ChatMessage, 0, len(view.Messages)), Older: view.Older, Writing: view.Writing, Harness: string(view.Harness)}
+	chat := Chat{Messages: make([]ChatMessage, 0, len(view.Messages)), Older: view.Older, Writing: view.Writing, PausedUntil: view.PausedUntil, Harness: string(view.Harness)}
 	for _, message := range view.Messages {
 		found, err := h.chatMessageOf(message)
 		if err != nil {

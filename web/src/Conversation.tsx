@@ -41,7 +41,7 @@ import { fitImage, maxImages } from "@/lib/images";
 import { LoginContext } from "@/lib/login";
 import { addQueued, listQueued, postQueued, removeQueued, type Queued } from "@/lib/outbox";
 import { atEnd } from "@/lib/scroll";
-import { clock, clockSeconds, dayLabel } from "@/lib/time";
+import { clock, clockSeconds, dayClock, dayLabel } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
 import { useVoice } from "@/lib/voice";
@@ -292,6 +292,7 @@ export function Conversation({
   const [older, setOlder] = useState(false);
   const [harness, setHarness] = useState("");
   const [writing, setWriting] = useState(false);
+  const [pausedUntil, setPausedUntil] = useState<string | null>(null);
   const [failure, setFailure] = useState("");
   const [error, setError] = useState<string>();
   const [text, setText] = useState("");
@@ -423,6 +424,7 @@ export function Conversation({
     }
     setHarness(newestPage.harness);
     setWriting(newestPage.writing);
+    setPausedUntil(newestPage.pausedUntil);
     if (!newestPage.writing) {
       setStopping(false);
     }
@@ -480,6 +482,7 @@ export function Conversation({
     const removeState = onEvent<LiveEvents, "chat">(source, "chat", (state) => {
       if (sameChat(state, key)) {
         setWriting(state.writing);
+        setPausedUntil(state.pausedUntil);
         if (!state.writing) {
           setStopping(false);
         }
@@ -809,7 +812,9 @@ export function Conversation({
         {writing && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <span className="size-2 animate-pulse rounded-full bg-green-600" />
-            The {agent} writes a reply.
+            {pausedUntil
+              ? `The ${agent} waits for the usage limit until ${dayClock(pausedUntil)}.`
+              : `The ${agent} writes a reply.`}
           </p>
         )}
         {failure && (
