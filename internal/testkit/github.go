@@ -113,7 +113,8 @@ type FakeGitHub struct {
 	failedComments                             map[issueKey]bool
 	failedLabels                               map[issueKey]bool
 	labelWrites                                map[issueKey]int
-	reactions                                  map[reactionKey][]Reaction
+	reactions                                  map[reactionKey][]storedReaction
+	nextReactionID                             int64
 	failedReactions                            map[string]bool
 	// The ids of the first comments of the resolved review threads.
 	resolvedThreads map[int64]bool
@@ -187,7 +188,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		installationTokenLife:   time.Hour,
 		issues:                  map[issueKey]*issue{},
 		repositoryLabels:        map[labelKey]Label{},
-		reactions:               map[reactionKey][]Reaction{},
+		reactions:               map[reactionKey][]storedReaction{},
 		failedReactions:         map[string]bool{},
 		resolvedThreads:         map[int64]bool{},
 		failedCloses:            map[issueKey]bool{},
@@ -243,6 +244,8 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/comments", g.withToken(g.addComment))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/issues/comments/{id}", g.withToken(g.updateComment))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/comments/{id}/reactions", g.withToken(g.addIssueCommentReaction))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/comments/{id}/reactions", g.withToken(g.listIssueCommentReactions))
+	mux.HandleFunc("DELETE /repos/{owner}/{repo}/issues/comments/{id}/reactions/{reaction}", g.withToken(g.deleteIssueCommentReaction))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues/{number}/labels", g.withToken(g.addLabels))
 	mux.HandleFunc("DELETE /repos/{owner}/{repo}/issues/{number}/labels/{name}", g.withToken(g.removeLabel))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/labels", g.withToken(g.listRepositoryLabels))
@@ -258,6 +261,8 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.reviewComments))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/{number}/comments", g.withToken(g.replyToReviewComment))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/comments/{id}/reactions", g.withToken(g.addReviewCommentReaction))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/comments/{id}/reactions", g.withToken(g.listReviewCommentReactions))
+	mux.HandleFunc("DELETE /repos/{owner}/{repo}/pulls/comments/{id}/reactions/{reaction}", g.withToken(g.deleteReviewCommentReaction))
 	mux.HandleFunc("POST /graphql", g.withToken(g.graphql))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/check-runs", g.withToken(g.createCheckRun))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/check-runs/{id}", g.withToken(g.updateCheckRun))

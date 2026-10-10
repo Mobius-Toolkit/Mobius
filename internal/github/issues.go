@@ -169,6 +169,38 @@ func (r Repository) ReactToReviewComment(ctx context.Context, id int64, content 
 	return err
 }
 
+// UnreactToComment removes the reaction content of the Mobius App from the conversation comment id. It does nothing
+// when the App has no such reaction.
+func (r Repository) UnreactToComment(ctx context.Context, id int64, content string) error {
+	reactions, _, err := r.Client.Reactions.ListIssueCommentReactions(ctx, r.Owner(), r.Name(), id, &gh.ListReactionOptions{Content: content, ListOptions: gh.ListOptions{PerPage: 100}})
+	if err != nil {
+		return err
+	}
+	for _, reaction := range reactions {
+		if reaction.GetUser().GetLogin() == r.AppSlug+"[bot]" {
+			_, err := r.Client.Reactions.DeleteIssueCommentReaction(ctx, r.Owner(), r.Name(), id, reaction.GetID())
+			return err
+		}
+	}
+	return nil
+}
+
+// UnreactToReviewComment removes the reaction content of the Mobius App from the review comment id. It does nothing
+// when the App has no such reaction.
+func (r Repository) UnreactToReviewComment(ctx context.Context, id int64, content string) error {
+	reactions, _, err := r.Client.Reactions.ListPullRequestCommentReactions(ctx, r.Owner(), r.Name(), id, &gh.ListReactionOptions{Content: content, ListOptions: gh.ListOptions{PerPage: 100}})
+	if err != nil {
+		return err
+	}
+	for _, reaction := range reactions {
+		if reaction.GetUser().GetLogin() == r.AppSlug+"[bot]" {
+			_, err := r.Client.Reactions.DeletePullRequestCommentReaction(ctx, r.Owner(), r.Name(), id, reaction.GetID())
+			return err
+		}
+	}
+	return nil
+}
+
 // ReplyToReviewComment adds a reply with body to the review thread that starts with the comment root of the pull
 // request number.
 func (r Repository) ReplyToReviewComment(ctx context.Context, number, root int64, body string) error {

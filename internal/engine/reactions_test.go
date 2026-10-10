@@ -22,12 +22,13 @@ func waitForReactions(t *testing.T, fake *testkit.FakeGitHub, id int64, want []t
 	testkit.WaitFor(t, func() bool { return slices.Equal(fake.Reactions(shop, id), want) })
 }
 
-// waitForEyes waits until the first reaction of the comment id is eyes. An agent that starts its work later adds
-// the reaction rocket.
+// waitForEyes waits until the comment id has the reaction eyes, or has the reaction rocket that replaces eyes when an
+// agent starts its work.
 func waitForEyes(t *testing.T, fake *testkit.FakeGitHub, id int64) {
 	t.Helper()
 	testkit.WaitFor(t, func() bool {
-		return len(fake.Reactions(shop, id)) > 0 && fake.Reactions(shop, id)[0] == reactions("eyes")[0]
+		got := fake.Reactions(shop, id)
+		return slices.Equal(got, reactions("eyes")) || slices.Equal(got, reactions("rocket"))
 	})
 }
 
@@ -56,9 +57,9 @@ func TestACommentOnAWorkstreamIssueGetsEyes(t *testing.T) {
 
 	id := fake.AddComment(shop, 12, "owner", "Add the tiers too.")
 
-	waitForReactions(t, fake, id, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, id, reactions("rocket"))
 	waitForPolls(t, fake)
-	if got := fake.Reactions(shop, id); !slices.Equal(got, reactions("eyes", "rocket")) {
+	if got := fake.Reactions(shop, id); !slices.Equal(got, reactions("rocket")) {
 		t.Errorf("reactions = %+v", got)
 	}
 }

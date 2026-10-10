@@ -44,6 +44,9 @@ func (e *Engine) declineComments(ctx context.Context, repository github.Reposito
 		if err := repository.ReactToComment(ctx, comment.GetID(), declinedReaction); err != nil {
 			return err
 		}
+		if err := repository.UnreactToComment(ctx, comment.GetID(), gotReaction); err != nil {
+			return err
+		}
 		answered, err := e.commentAnswered(ctx, repository, false, comment.GetID())
 		if err != nil {
 			return err
@@ -65,6 +68,9 @@ func (e *Engine) declineComments(ctx context.Context, repository github.Reposito
 // store holds the comments that have a reply, so a poll that runs again writes no second reply.
 func (e *Engine) declineReviewComment(ctx context.Context, repository github.Repository, number int64, comment *gh.PullRequestComment, reply string) error {
 	if err := repository.ReactToReviewComment(ctx, comment.GetID(), declinedReaction); err != nil {
+		return err
+	}
+	if err := repository.UnreactToReviewComment(ctx, comment.GetID(), gotReaction); err != nil {
 		return err
 	}
 	answered, err := e.commentAnswered(ctx, repository, true, comment.GetID())
@@ -125,15 +131,20 @@ func acknowledgeReviewComments(ctx context.Context, repository github.Repository
 	return nil
 }
 
-// launched adds the reaction of an agent that starts its work on the comment id. A failed call does not stop the agent.
-// GitHub keeps one reaction of a kind for each user, so a second call changes nothing.
+// launched adds the reaction of an agent that starts its work on the comment id, and removes the reaction of an agent
+// that gets the comment. A failed call does not stop the agent. GitHub keeps one reaction of a kind for each user, so a
+// second call changes nothing.
 func launched(ctx context.Context, repository github.Repository, review bool, id int64) {
-	react := repository.ReactToComment
+	react, unreact := repository.ReactToComment, repository.UnreactToComment
 	if review {
-		react = repository.ReactToReviewComment
+		react, unreact = repository.ReactToReviewComment, repository.UnreactToReviewComment
 	}
 	if err := react(ctx, id, launchedReaction); err != nil {
 		log.Printf("react to comment %d of %s: %v", id, repository.FullName, err)
+		return
+	}
+	if err := unreact(ctx, id, gotReaction); err != nil {
+		log.Printf("remove the reaction of comment %d of %s: %v", id, repository.FullName, err)
 	}
 }
 

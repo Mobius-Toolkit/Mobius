@@ -40,7 +40,7 @@ func TestACommentOnAWorkstreamIssueGetsARocketWhenTheLeadTurnOfItsEventStarts(t 
 	first := fake.AddComment(shop, 12, "owner", "First comment.")
 	second := fake.AddComment(shop, 12, "owner", "Second comment.")
 
-	waitForReactions(t, fake, first, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, first, reactions("rocket"))
 	waitForReactions(t, fake, second, reactions("eyes"))
 	waitForPolls(t, fake)
 	if got := fake.Reactions(shop, second); !slices.Equal(got, reactions("eyes")) {
@@ -49,7 +49,22 @@ func TestACommentOnAWorkstreamIssueGetsARocketWhenTheLeadTurnOfItsEventStarts(t 
 
 	release()
 
-	waitForReactions(t, fake, second, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, second, reactions("rocket"))
+}
+
+func TestARocketRemovesOnlyTheEyesOfTheApp(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	_, release := connectGatedLead(t, fake)
+
+	fake.AddComment(shop, 12, "owner", "First comment.")
+	second := fake.AddComment(shop, 12, "owner", "Second comment.")
+	waitForReactions(t, fake, second, reactions("eyes"))
+	fake.AddReaction(shop, second, "owner", "eyes")
+
+	release()
+
+	waitForReactions(t, fake, second, []testkit.Reaction{{User: "owner", Content: "eyes"}, reactions("rocket")[0]})
 }
 
 func TestACommentOnATaskIssueOrItsPullRequestGetsARocketWhenTheLeadTurnOfItsEventStarts(t *testing.T) {
@@ -62,7 +77,7 @@ func TestACommentOnATaskIssueOrItsPullRequestGetsARocketWhenTheLeadTurnOfItsEven
 	conversation := fake.AddComment(shop, 42, "owner", "Second comment.")
 	review := fake.AddReviewComment(shop, 42, 0, "owner", "Third comment.")
 
-	waitForReactions(t, fake, first, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, first, reactions("rocket"))
 	waitForReactions(t, fake, conversation, reactions("eyes"))
 	waitForReactions(t, fake, review, reactions("eyes"))
 	waitForPolls(t, fake)
@@ -74,8 +89,8 @@ func TestACommentOnATaskIssueOrItsPullRequestGetsARocketWhenTheLeadTurnOfItsEven
 
 	release()
 
-	waitForReactions(t, fake, conversation, reactions("eyes", "rocket"))
-	waitForReactions(t, fake, review, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, conversation, reactions("rocket"))
+	waitForReactions(t, fake, review, reactions("rocket"))
 }
 
 func TestAFailedRocketDoesNotStopTheLeadTurn(t *testing.T) {
@@ -94,7 +109,7 @@ func TestAFailedRocketDoesNotStopTheLeadTurn(t *testing.T) {
 	fake.FailReactions("rocket", false)
 	next := fake.AddComment(shop, 12, "owner", "Round up.")
 
-	waitForReactions(t, fake, next, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, next, reactions("rocket"))
 	if got := fake.Reactions(shop, failed); !slices.Equal(got, reactions("eyes")) {
 		t.Errorf("reactions = %+v", got)
 	}
@@ -112,8 +127,8 @@ func TestACommentOfATrustedUserGetsARocketWhenTheJudgeSessionStarts(t *testing.T
 	waitForReactions(t, fake, review, reactions("eyes"))
 	waitForReactions(t, fake, conversation, reactions("eyes"))
 
-	waitForReactions(t, fake, review, reactions("eyes", "rocket"))
-	waitForReactions(t, fake, conversation, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, review, reactions("rocket"))
+	waitForReactions(t, fake, conversation, reactions("rocket"))
 	if got := fake.Reactions(shop, fromBot); len(got) != 0 {
 		t.Errorf("reactions of the comment of the bot = %+v", got)
 	}
@@ -131,8 +146,8 @@ func TestEachNewCommentOfATrustedUserInAThreadGetsARocketWhenTheJudgeSessionStar
 	waitForReactions(t, fake, first, reactions("eyes"))
 	waitForReactions(t, fake, second, reactions("eyes"))
 
-	waitForReactions(t, fake, first, reactions("eyes", "rocket"))
-	waitForReactions(t, fake, second, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, first, reactions("rocket"))
+	waitForReactions(t, fake, second, reactions("rocket"))
 	if got := fake.Reactions(shop, fromBot); len(got) != 0 {
 		t.Errorf("reactions of the comment of the bot = %+v", got)
 	}
@@ -147,7 +162,7 @@ func TestACommentThatTheLeadWroteThroughTheAppGetsNoRocketWhenTheJudgeSessionSta
 	conversation := fake.AddComment(shop, 42, "owner", "Why cents?")
 
 	waitForReactions(t, fake, conversation, reactions("eyes"))
-	waitForReactions(t, fake, conversation, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, conversation, reactions("rocket"))
 	if got := fake.Reactions(shop, fromLead); len(got) != 0 {
 		t.Errorf("reactions of the comment of the Lead = %+v", got)
 	}
@@ -175,7 +190,7 @@ func TestACommentThatTheDrainHeldGetsARocketWhenTheTriagerStarts(t *testing.T) {
 
 	cancelDrain(t, server)
 
-	waitForReactions(t, fake, id, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, id, reactions("rocket"))
 }
 
 func TestACommentThatTheFirstRunOfTheTriagerReadsGetsARocketWhenTheRunStarts(t *testing.T) {
@@ -199,7 +214,7 @@ func TestACommentThatTheFirstRunOfTheTriagerReadsGetsARocketWhenTheRunStarts(t *
 
 	cancelDrain(t, server)
 
-	waitForReactions(t, fake, id, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, id, reactions("rocket"))
 }
 
 func TestACommentThatIsOlderThanAProposalOfTheTriagerGetsARocketWhenTheTriagerReadsIt(t *testing.T) {
@@ -220,5 +235,5 @@ func TestACommentThatIsOlderThanAProposalOfTheTriagerGetsARocketWhenTheTriagerRe
 	waitForReactions(t, fake, id, reactions("eyes"))
 	cancelDrain(t, server)
 
-	waitForReactions(t, fake, id, reactions("eyes", "rocket"))
+	waitForReactions(t, fake, id, reactions("rocket"))
 }
