@@ -83,6 +83,18 @@ updates = ['{"sessionUpdate": "usage_update", "used": 78345, "size": 1000000, "_
 reply = ["Planned on overage."]
 `
 
+// The first prompt of Claude Code sends a usage update with the status "rejected" and ends with a reply. Then an
+// autonomous turn hits the usage limit and sends the raw text, with no prompt error.
+const claudeCodeAutonomousLimit = `
+[[prompts]]
+updates = ['{"sessionUpdate": "usage_update", "used": 78345, "size": 1000000, "_meta": {"_claude/rateLimit": {"status": "rejected"}}}']
+reply = ["Planned."]
+later = { after = "10ms", updates = [
+  '''{"sessionUpdate": "usage_update", "used": 78345, "size": 1000000, "_meta": {"_claude/rateLimit": {"status": "rejected"}}}''',
+  '''{"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "You've hit your session limit"}}''',
+] }
+`
+
 const rawLimitText = "You've hit your session limit"
 
 // chatTexts gives the texts of the chat messages of the Workstream #12 with the author.
@@ -643,6 +655,19 @@ func TestAClaudeCodeReplyWithOverageInUseShowsInTheChat(t *testing.T) {
 	sendChat(t, server, leadChat, "Plan the API")
 
 	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(chatTexts(t, server, "Lead"), []string{"Planned on overage."}) })
+}
+
+func TestTheRawUsageLimitTextOfAnAutonomousTurnShowsInTheChat(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, claudeCodeAutonomousLimit, keepSessionOpen)
+
+	sendChat(t, server, leadChat, "Plan the API")
+
+	testkit.WaitFor(t, func() bool {
+		texts := chatTexts(t, server, "Lead")
+		return len(texts) > 0 && strings.Contains(texts[len(texts)-1], rawLimitText)
+	})
 }
 
 func claudeCodePause(t *testing.T, server *testserver.Server) (string, bool) {
