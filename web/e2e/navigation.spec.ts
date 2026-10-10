@@ -34,6 +34,17 @@ test("back and forward move between the pages", async ({ page }) => {
   await expect(main.getByText("Inbox", { exact: true })).toBeVisible();
 });
 
+test("the page of a Workstream that is not open shows the Workstream list", async ({ page }) => {
+  await page.goto("/inbox");
+  await expect(page).toHaveURL("/inbox");
+  await page.goto("/workstreams/owner/shop/999");
+  await expect(page).toHaveURL("/workstreams");
+  await expect(page.getByRole("main").getByText("Integrate loyalty plans")).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL("/inbox");
+});
+
 test("the start page and an unknown path open the Triager chat", async ({ page }) => {
   for (const path of [
     "/",
