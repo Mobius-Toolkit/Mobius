@@ -5,6 +5,14 @@ export function clock(time: string) {
   });
 }
 
+export function clockSeconds(time: number) {
+  return new Date(time).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 export function dayClock(time: string) {
   return new Date(time).toLocaleString([], {
     month: "short",
