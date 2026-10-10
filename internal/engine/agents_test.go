@@ -239,6 +239,7 @@ func TestTheLiveEventsGiveTheAgentAtTheStartAndAtTheEndAndEachTranscriptLine(t *
 	}
 	defer func() { _ = response.Body.Close() }()
 	events := bufio.NewReader(response.Body)
+	testkit.WaitFor(t, func() bool { return server.Engine.ListenerCount() == 1 })
 
 	session, _ := leadReply(t, server)
 
