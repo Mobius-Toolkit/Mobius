@@ -34,11 +34,15 @@ func connectWaitingPoints(t *testing.T) (*testserver.Server, *testkit.FakeGitHub
 
 func endHoldingChat(t *testing.T, server *testserver.Server) {
 	t.Helper()
-	stopChat(t, server, leadChat)
-	endedChatSession(t, server, 0)
+	testkit.WaitFor(t, func() bool {
+		stopChat(t, server, leadChat)
+		sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+		return len(sessions) > 0 && sessions[0].EndedAt.Valid
+	})
 }
 
 func TestAStopOfAWaitingChatMarksTheFirstOwnerMessageAsStopped(t *testing.T) {
+	t.Parallel()
 	server, _ := connectWaitingPoints(t)
 	sendChat(t, server, pointsChat, "Message A")
 	waitForChatSession(t, server, pointsChat, engine.LeadRole, func(session store.Session) bool { return session.QueueReason.Valid })
@@ -74,6 +78,7 @@ func TestAStopOfAWaitingChatMarksTheFirstOwnerMessageAsStopped(t *testing.T) {
 }
 
 func TestAStopOfAWaitingChatWithOneMessageMarksTheMessageAsStopped(t *testing.T) {
+	t.Parallel()
 	server, _ := connectWaitingPoints(t)
 	sendChat(t, server, pointsChat, "Message A")
 	waitForChatSession(t, server, pointsChat, engine.LeadRole, func(session store.Session) bool { return session.QueueReason.Valid })
@@ -90,13 +95,17 @@ func TestAStopOfAWaitingChatWithOneMessageMarksTheMessageAsStopped(t *testing.T)
 }
 
 func TestAStopDuringTheTurnOfAnOwnerMessageDoesNotMarkTheMessage(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\nhang = true\n")
+	server, _ := connect(t, fake, holdingScript)
 	sendChat(t, server, leadChat, "Plan the loyalty API")
 	testkit.WaitFor(t, func() bool { return len(leadPrompts(t, server)) == 1 })
 
-	stopChat(t, server, leadChat)
-	endedChatSession(t, server, 0)
+	// The agent can miss a stop that comes before it reads the prompt, so the test stops again until the turn ends.
+	testkit.WaitFor(t, func() bool {
+		stopChat(t, server, leadChat)
+		return !chatView(t, server, leadChat).Writing
+	})
 
 	message := chatView(t, server, leadChat).Messages[0]
 	if message.StoppedAt.Valid || !message.DeliveredAt.Valid {
@@ -105,6 +114,7 @@ func TestAStopDuringTheTurnOfAnOwnerMessageDoesNotMarkTheMessage(t *testing.T) {
 }
 
 func TestAStopWhileTheFirstItemIsAnEventMarksNoMessage(t *testing.T) {
+	t.Parallel()
 	server, fake := connectWaitingPoints(t)
 	fake.AddIssue(shop, 51, "Add points model")
 	fake.AddSubIssue(shop, 50, 51)
