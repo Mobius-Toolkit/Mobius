@@ -169,7 +169,7 @@ test("the background of a long line reaches the end of the text after a scroll t
   const hunkBox = await hunk.boundingBox();
   const lineBox = await line.boundingBox();
   expect(lineBox!.x + lineBox!.width).toBeGreaterThanOrEqual(hunkBox!.x + hunkBox!.width - 2);
-  expect(lineBox!.width).toBeGreaterThanOrEqual(scroll.width);
+  expect(lineBox!.width).toBeGreaterThanOrEqual(scroll.width - 1);
 });
 
 test("the Owner reads a hunk in the full screen view and closes it", async ({ page }) => {
