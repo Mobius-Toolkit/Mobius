@@ -172,6 +172,11 @@ export interface ChatMessage {
   organization: string;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
   repository: string;
+  /**
+     * StoppedAt is the time when a stop of the Owner dropped the message of the Owner before the turn of the agent started, or null for a message that no stop dropped and for another message
+     * @nullable
+     */
+  stoppedAt: string | null;
   /** Text is the text of the message */
   text: string;
   /** Time is the time of the message */

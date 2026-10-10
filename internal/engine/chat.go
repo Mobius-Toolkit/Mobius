@@ -359,15 +359,33 @@ func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 	case c.stopWait != nil && c.first.event != nil:
 		return nil
 	case c.stopWait != nil && len(c.queue) > 0:
+		dropped := c.first
 		c.first, c.queue = c.queue[0], c.queue[1:]
-		return nil
+		return e.stopMessage(ctx, dropped.message)
 	case c.stopWait != nil:
 		delete(e.chats, key)
 		c.stopWait()
-		return nil
+		return e.stopMessage(ctx, c.first.message)
 	case c.stoppable:
 		return c.agent.stop(ctx)
 	}
+	return nil
+}
+
+// stopMessage sets the stop time of a message of the Owner that a stop dropped before its turn, and sends the
+// message to the listeners. A message that has a delivery time stays unmarked.
+func (e *Engine) stopMessage(ctx context.Context, message *store.ChatMessage) error {
+	if message.Author != ownerAuthor {
+		return nil
+	}
+	stopped, err := e.queries.StopChatMessage(ctx, store.StopChatMessageParams{StoppedAt: sql.NullString{String: now(), Valid: true}, ID: message.ID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	e.publish(Change{Message: &stopped})
 	return nil
 }
 

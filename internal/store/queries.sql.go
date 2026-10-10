@@ -14,7 +14,7 @@ const addChatMessage = `-- name: AddChatMessage :one
 INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at
 `
 
 type AddChatMessageParams struct {
@@ -48,6 +48,7 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		&i.Organization,
 		&i.BrowserID,
 		&i.DeliveredAt,
+		&i.StoppedAt,
 	)
 	return i, err
 }
@@ -624,7 +625,7 @@ func (q *Queries) AddWorkerRestart(ctx context.Context, arg AddWorkerRestartPara
 
 const appendChatMessage = `-- name: AppendChatMessage :one
 UPDATE chat_messages SET text = text || ?1 WHERE id = ?2
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at
 `
 
 type AppendChatMessageParams struct {
@@ -645,6 +646,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		&i.Organization,
 		&i.BrowserID,
 		&i.DeliveredAt,
+		&i.StoppedAt,
 	)
 	return i, err
 }
@@ -910,7 +912,7 @@ func (q *Queries) DeleteOtherPasswordLogins(ctx context.Context, passwordFingerp
 
 const deliverChatMessage = `-- name: DeliverChatMessage :one
 UPDATE chat_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at
 `
 
 type DeliverChatMessageParams struct {
@@ -931,6 +933,7 @@ func (q *Queries) DeliverChatMessage(ctx context.Context, arg DeliverChatMessage
 		&i.Organization,
 		&i.BrowserID,
 		&i.DeliveredAt,
+		&i.StoppedAt,
 	)
 	return i, err
 }
@@ -1162,7 +1165,7 @@ func (q *Queries) GetHarnessPause(ctx context.Context, harness string) (HarnessP
 }
 
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
 ORDER BY id DESC LIMIT 1
 `
@@ -1192,6 +1195,7 @@ func (q *Queries) GetLastChatMessageOf(ctx context.Context, arg GetLastChatMessa
 		&i.Organization,
 		&i.BrowserID,
 		&i.DeliveredAt,
+		&i.StoppedAt,
 	)
 	return i, err
 }
@@ -1559,7 +1563,7 @@ func (q *Queries) ListActiveTasks(ctx context.Context) ([]ListActiveTasksRow, er
 }
 
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
 ORDER BY id DESC LIMIT ?
 `
@@ -1597,6 +1601,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 			&i.Organization,
 			&i.BrowserID,
 			&i.DeliveredAt,
+			&i.StoppedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1612,7 +1617,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 }
 
 const listChatMessagesPage = `-- name: ListChatMessagesPage :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator') AND id < ?
 ORDER BY id DESC LIMIT ?
 `
@@ -1651,6 +1656,7 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 			&i.Organization,
 			&i.BrowserID,
 			&i.DeliveredAt,
+			&i.StoppedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -3816,6 +3822,34 @@ func (q *Queries) StartTaskWorker(ctx context.Context, arg StartTaskWorkerParams
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const stopChatMessage = `-- name: StopChatMessage :one
+UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at
+`
+
+type StopChatMessageParams struct {
+	StoppedAt sql.NullString
+	ID        int64
+}
+
+func (q *Queries) StopChatMessage(ctx context.Context, arg StopChatMessageParams) (ChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, stopChatMessage, arg.StoppedAt, arg.ID)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
+		&i.StoppedAt,
+	)
+	return i, err
 }
 
 const stopTask = `-- name: StopTask :execrows

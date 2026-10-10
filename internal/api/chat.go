@@ -40,6 +40,9 @@ type ChatMessage struct {
 	// DeliveredAt is the time when the turn of the agent for the message of the Owner started, or null before that
 	// and for another message
 	DeliveredAt *time.Time `gork:"deliveredAt"`
+	// StoppedAt is the time when a stop of the Owner dropped the message of the Owner before the turn of the agent
+	// started, or null for a message that no stop dropped and for another message
+	StoppedAt *time.Time `gork:"stoppedAt"`
 }
 
 // Chat is a page of the messages of a Lead chat or of the Triager chat.
@@ -266,6 +269,13 @@ func (h *handlers) chatMessageOf(message store.ChatMessage) (ChatMessage, error)
 			return ChatMessage{}, err
 		}
 		found.DeliveredAt = &deliveredAt
+	}
+	if message.StoppedAt.Valid {
+		stoppedAt, err := time.Parse(time.RFC3339Nano, message.StoppedAt.String)
+		if err != nil {
+			return ChatMessage{}, err
+		}
+		found.StoppedAt = &stoppedAt
 	}
 	return found, err
 }
