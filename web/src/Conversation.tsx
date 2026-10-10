@@ -526,7 +526,7 @@ export function Conversation({
   }, [queue, storedIds]);
 
   // The effect sends the first message that the server did not store, and tries again until the server stores it.
-  // The stored message comes to the list with the live event, and load reads it when the event is late.
+  // A stored message leaves the browser store at once. It stays on the screen until the load that follows ends.
   useEffect(() => {
     if (!queueLoaded || !next) {
       return;
@@ -550,10 +550,13 @@ export function Conversation({
           return;
         }
         if (failed === undefined) {
+          removeQueued(next.id).catch((err: unknown) => setError(String(err)));
           setQueue((current) =>
             current.map((item) => (item.id === next.id ? { ...item, sent: true } : item)),
           );
-          load().catch((err: unknown) => setError(String(err)));
+          load()
+            .catch((err: unknown) => setError(String(err)))
+            .finally(() => setQueue((current) => current.filter((item) => item.id !== next.id)));
           return;
         }
         const delay = retryDelays[Math.min(failures, retryDelays.length - 1)];
