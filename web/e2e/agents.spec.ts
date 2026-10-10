@@ -11,7 +11,6 @@ test.beforeEach(async ({ page }) => {
 const states = [
   { reason: "runs .mobius/check", badge: "checks", dot: /bg-green-600/ },
   { reason: "waits for a check slot", badge: "waits for check", dot: /bg-amber-500/ },
-  { reason: "waits for a low load", badge: "waits for load", dot: /bg-amber-500/ },
   { reason: /paused until Sep 28, 12:00\sPM/, badge: "paused", dot: /bg-amber-500/ },
   { reason: "no free Implementer slot (2/2)", badge: "queued", dot: /bg-amber-500/ },
 ];
@@ -40,6 +39,41 @@ test("the Agents tab of a Workstream shows the state of each agent with a queue 
     await expect(entry.getByText(badge, { exact: true })).toBeVisible();
     await expect(entry.locator("span.rounded-full")).toHaveClass(dot);
   }
+});
+
+// Changes the live Implementer session of #41, and sets the old reason again at the end.
+async function withLowLoad(page: Page, run: () => Promise<void>) {
+  const put = (reason: string) =>
+    page.request.put(`/e2e/agents/41/queue-reason?reason=${encodeURIComponent(reason)}`);
+  expect((await put("waits for a low load")).ok()).toBe(true);
+  try {
+    await run();
+  } finally {
+    expect((await put("")).ok()).toBe(true);
+  }
+}
+
+test("the Agents page shows the state of a session that waits for a low load", async ({ page }) => {
+  await withLowLoad(page, async () => {
+    await page.goto("/agents");
+    const entry = page.getByRole("main").getByRole("button", { name: /Ticket #41/ });
+    await expect(entry.getByText("waits for a low load")).toBeVisible();
+    await expect(entry.getByText("waits for load", { exact: true })).toBeVisible();
+    await expect(entry.locator("span.rounded-full")).toHaveClass(/bg-amber-500/);
+  });
+});
+
+test("the Agents tab of a Workstream shows the state of a session that waits for a low load", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await withLowLoad(page, async () => {
+    await page.goto("/workstreams/owner/shop/12");
+    const entry = page.getByRole("complementary").getByRole("button", { name: /Ticket #41/ });
+    await expect(entry.getByText("waits for a low load")).toBeVisible();
+    await expect(entry.getByText("waits for load", { exact: true })).toBeVisible();
+    await expect(entry.locator("span.rounded-full")).toHaveClass(/bg-amber-500/);
+  });
 });
 
 test.describe("the transcript of an agent on a phone", () => {
@@ -226,22 +260,24 @@ test("the Transcript of a session that waits for a low load has a button that st
     requests.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
     return route.fulfill(answer);
   });
-  await page.goto("/agents");
-  await main.getByRole("button", { name: /Ticket #36 Rename the plan table/ }).click();
-  const start = main.getByRole("button", { name: "Start the check now" });
+  await withLowLoad(page, async () => {
+    await page.goto("/agents");
+    await main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click();
+    const start = main.getByRole("button", { name: "Start the check now" });
 
-  answer = {
-    status: 409,
-    body: JSON.stringify({ error: "The check of session 3 does not wait for a low load." }),
-  };
-  await start.click();
-  await expect(
-    main.getByText("The check of session 3 does not wait for a low load."),
-  ).toBeVisible();
+    answer = {
+      status: 409,
+      body: JSON.stringify({ error: "The check of session 3 does not wait for a low load." }),
+    };
+    await start.click();
+    await expect(
+      main.getByText("The check of session 3 does not wait for a low load."),
+    ).toBeVisible();
 
-  answer = { status: 204, body: "" };
-  await start.click();
-  await expect(main.getByText("does not wait for a low load.")).toBeHidden();
+    answer = { status: 204, body: "" };
+    await start.click();
+    await expect(main.getByText("does not wait for a low load.")).toBeHidden();
+  });
   expect(requests).toHaveLength(2);
   expect(requests[0]).toMatch(/^POST \/api\/agents\/\d+\/start-check$/);
 });

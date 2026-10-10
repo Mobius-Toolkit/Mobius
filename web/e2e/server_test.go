@@ -498,7 +498,6 @@ func TestServer(t *testing.T) {
 	}{
 		{38, "claude-code", "runs .mobius/check"},
 		{39, "claude-code", "waits for a check slot"},
-		{36, "claude-code", "waits for a low load"},
 		{45, "antigravity", "paused until 2026-09-28 12:00 UTC"},
 		{42, "claude-code", "no free Implementer slot (2/2)"},
 	} {

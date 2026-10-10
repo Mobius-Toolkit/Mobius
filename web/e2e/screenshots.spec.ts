@@ -30,6 +30,14 @@ async function screenshot(
   }
 }
 
+// Changes the live Implementer session of #41, and sets the old reason again at the end.
+const setQueueReason = async (page: Page, reason: string) => {
+  const response = await page.request.put(
+    `/e2e/agents/41/queue-reason?reason=${encodeURIComponent(reason)}`,
+  );
+  expect(response.ok()).toBe(true);
+};
+
 const queueReasons = [
   "runs .mobius/check",
   "waits for a check slot",
@@ -212,6 +220,7 @@ test("screenshots", async ({ page }) => {
       }
     },
   );
+  await setQueueReason(page, "waits for a low load");
   await screenshot(
     page,
     "chat-agents",
@@ -335,6 +344,7 @@ test("screenshots", async ({ page }) => {
       `${wide("main pre")} && ${wide("main table")} && document.documentElement.scrollWidth <= window.innerWidth`,
     ),
   ).toBe(true);
+  await setQueueReason(page, "");
   await screenshot(
     page,
     "transcript-panel",
@@ -353,11 +363,13 @@ test("screenshots", async ({ page }) => {
         .click();
     },
   );
+  await setQueueReason(page, "waits for a low load");
   await screenshot(page, "agents", "/agents", (device) => [
     ...frame(device, drain),
     main.getByText(/Sep \d+, \d\d:\d\d [AP]M · Mobius prepares an upgrade/),
     ...queueReasons.map((reason) => main.getByText(reason)),
   ]);
+  await setQueueReason(page, "");
   await screenshot(
     page,
     "transcript",
@@ -366,6 +378,7 @@ test("screenshots", async ({ page }) => {
     () => main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click(),
   );
 
+  await setQueueReason(page, "waits for a low load");
   await screenshot(
     page,
     "transcript-start-check",
@@ -374,8 +387,9 @@ test("screenshots", async ({ page }) => {
       ...frame(device, drain),
       main.getByRole("button", { name: "Start the check now" }),
     ],
-    () => main.getByRole("button", { name: /Ticket #36 Rename the plan table/ }).click(),
+    () => main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click(),
   );
+  await setQueueReason(page, "");
 
   await page.setViewportSize(viewports.desktop);
   await shown("Cancel upgrade").click();
