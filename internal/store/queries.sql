@@ -171,8 +171,13 @@ RETURNING *;
 SELECT * FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id;
 
 -- name: AddChatMessage :one
-INSERT INTO chat_messages (organization, repository, workstream, author, time, text)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT DO NOTHING
+RETURNING *;
+
+-- name: DeliverChatMessage :one
+UPDATE chat_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL
 RETURNING *;
 
 -- name: DeleteChatMessage :exec

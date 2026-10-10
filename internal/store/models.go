@@ -16,6 +16,8 @@ type ChatMessage struct {
 	Time         string
 	Text         string
 	Organization string
+	BrowserID    sql.NullString
+	DeliveredAt  sql.NullString
 }
 
 type Event struct {

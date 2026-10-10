@@ -38,7 +38,7 @@ func sendChat(t *testing.T, server *testserver.Server, key engine.ChatKey, text 
 
 func sendChatImages(t *testing.T, server *testserver.Server, key engine.ChatKey, text string, images []engine.Image) {
 	t.Helper()
-	if err := server.Engine.SendChat(t.Context(), key, text, images); err != nil {
+	if err := server.Engine.SendChat(t.Context(), key, "", text, images); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1059,9 +1059,11 @@ func taskNumbers(t *testing.T, server *testserver.Server, workstream int64) []in
 }
 
 type apiChatMessage struct {
-	ID     int64  `json:"id"`
-	Author string `json:"author"`
-	Text   string `json:"text"`
+	ID          int64      `json:"id"`
+	Author      string     `json:"author"`
+	Text        string     `json:"text"`
+	BrowserID   string     `json:"browserId"`
+	DeliveredAt *time.Time `json:"deliveredAt"`
 }
 
 type apiUnread struct {
@@ -1130,10 +1132,14 @@ func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 	unreads := liveEvents(t, server, "unread")
 	key := `"organization":"owner","repository":"owner/shop","workstream":12`
 
-	if status, body := sendMessage(t, server, map[string]string{"organization": "owner", "repository": shop, "workstream": "12", "text": "Plan the loyalty API"}); status != http.StatusNoContent {
+	if status, body := sendMessage(t, server, map[string]string{"id": "browser-1", "organization": "owner", "repository": shop, "workstream": "12", "text": "Plan the loyalty API"}); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
+	delivered := nextEventData(t, messages, func(message apiChatMessage) bool { return message.Author == "Owner" && message.DeliveredAt != nil })
+	if delivered.BrowserID != "browser-1" || delivered.Text != "Plan the loyalty API" {
+		t.Errorf("delivered = %+v", delivered)
+	}
 	nextEventData(t, chats, func(state chatState) bool { return state.Workstream == 12 && state.Writing })
 	lead := nextEventData(t, messages, func(message apiChatMessage) bool { return message.Author == "Lead" })
 	nextEventData(t, unreads, func(unread apiUnread) bool { return unread.Count == 1 })
@@ -1143,7 +1149,10 @@ func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 		Harness  string           `json:"harness"`
 	}](t, server, "/api/chat?organization=owner&repository=owner/shop&workstream=12")
 	if len(chat.Messages) != 2 || chat.Messages[0].Author != "Owner" || chat.Messages[1] != lead || chat.Harness != "claude-code" {
-		t.Errorf("chat = %+v", chat)
+		t.Fatalf("chat = %+v", chat)
+	}
+	if got := chat.Messages[0]; got.BrowserID != "browser-1" || got.DeliveredAt == nil || !got.DeliveredAt.Equal(*delivered.DeliveredAt) {
+		t.Errorf("message = %+v, delivered = %+v", got, delivered)
 	}
 	if got := apiData[[]apiUnread](t, server, "/api/unread"); !slices.Equal(got, []apiUnread{{"owner", shop, 12, 1}}) {
 		t.Errorf("unread = %+v", got)
@@ -1160,7 +1169,7 @@ func TestTheChatAPISendsSeesAndStopsWithLiveEvents(t *testing.T) {
 	if status, body := send(t, server, http.MethodPost, "/api/chat/stop", `{`+key+`}`); status != http.StatusNoContent {
 		t.Errorf("status = %d: %s", status, body)
 	}
-	if status, body := sendMessage(t, server, map[string]string{"organization": "nobody", "text": "Hello"}); status != http.StatusConflict {
+	if status, body := sendMessage(t, server, map[string]string{"id": "browser-2", "organization": "nobody", "text": "Hello"}); status != http.StatusConflict {
 		t.Errorf("status = %d: %s", status, body)
 	}
 }
@@ -1316,7 +1325,7 @@ func TestAnOwnerMessageWithAnUnknownImageTypeIsNotAdded(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
-	err := server.Engine.SendChat(t.Context(), leadChat, "Read this", []engine.Image{{MIMEType: "application/pdf", Data: []byte("%PDF")}})
+	err := server.Engine.SendChat(t.Context(), leadChat, "", "Read this", []engine.Image{{MIMEType: "application/pdf", Data: []byte("%PDF")}})
 
 	if !engine.Refused(err) {
 		t.Errorf("error = %v", err)
@@ -1346,7 +1355,7 @@ func TestAnOwnerMessageWithNoTextAndNoImageIsNotAdded(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
-	err := server.Engine.SendChat(t.Context(), leadChat, "", nil)
+	err := server.Engine.SendChat(t.Context(), leadChat, "", "", nil)
 
 	if !engine.Refused(err) {
 		t.Errorf("error = %v", err)

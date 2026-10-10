@@ -35,6 +35,11 @@ type ChatMessage struct {
 	Text string `gork:"text"`
 	// Images is the number of images of the message. GetChatImage gives each image by its position, from 0
 	Images int64 `gork:"images"`
+	// BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message
+	BrowserID string `gork:"browserId"`
+	// DeliveredAt is the time when the turn of the agent for the message of the Owner started, or null before that
+	// and for another message
+	DeliveredAt *time.Time `gork:"deliveredAt"`
 }
 
 // Chat is a page of the messages of a Lead chat or of the Triager chat.
@@ -96,6 +101,9 @@ type SendChatRequest struct {
 		Repository string `gork:"repository"`
 		// Workstream is the number of the Workstream issue. It is 0 for the Triager chat
 		Workstream int64 `gork:"workstream"`
+		// ID is the id that the browser gives to the message. A message with an id that another message has is not
+		// stored again, and the response is the same
+		ID string `gork:"id" validate:"required"`
 		// Text is the message of the Owner. It is required when the message has no image
 		Text string `gork:"text" validate:"required_without=Images"`
 		// Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB
@@ -114,7 +122,8 @@ func (r *SendChatRequest) Validate() error {
 }
 
 // SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Triager. Mobius
-// starts the agent when none runs. It returns 400 when the request is larger than 4 images of 5 MB with the text. It
+// starts the agent when none runs. A message with the id of a stored message changes nothing and returns the same
+// status. It returns 400 when the request is larger than 4 images of 5 MB with the text. It
 // returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
 func (h *handlers) SendChat(ctx context.Context, req SendChatRequest) error {
 	body := req.Body
@@ -124,7 +133,7 @@ func (h *handlers) SendChat(ctx context.Context, req SendChatRequest) error {
 	for _, image := range body.Images {
 		images = append(images, engine.Image{MIMEType: image.ContentType, Data: image.Data})
 	}
-	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, text, images)
+	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, text, images)
 	if engine.Refused(err) {
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}
@@ -240,7 +249,7 @@ func (h *handlers) chatMessageOf(message store.ChatMessage) (ChatMessage, error)
 		return ChatMessage{}, err
 	}
 	images, err := h.engine.ImageCount(message.ID)
-	return ChatMessage{
+	found := ChatMessage{
 		ID:           message.ID,
 		Organization: message.Organization,
 		Repository:   message.Repository,
@@ -249,5 +258,14 @@ func (h *handlers) chatMessageOf(message store.ChatMessage) (ChatMessage, error)
 		Time:         t,
 		Text:         message.Text,
 		Images:       int64(images),
-	}, err
+		BrowserID:    message.BrowserID.String,
+	}
+	if message.DeliveredAt.Valid {
+		deliveredAt, err := time.Parse(time.RFC3339Nano, message.DeliveredAt.String)
+		if err != nil {
+			return ChatMessage{}, err
+		}
+		found.DeliveredAt = &deliveredAt
+	}
+	return found, err
 }
