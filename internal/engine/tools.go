@@ -76,9 +76,10 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.startFixRound),
 			tool(e, c, "approve_pull_request",
-				"Approve the pull request of a task that waits for the Lead approval. Mobius removes the draft status, sets the Mobius check to success, and adds the \"ready for review\" Inbox item for the Owner.",
+				"Approve the pull request of a task that waits for the Lead approval. Mobius posts the report as a comment on the pull request, removes the draft status, sets the Mobius check to success, and adds the \"ready for review\" Inbox item for the Owner. The item links to the comment.",
 				map[string]any{
-					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"report": map[string]any{"type": "string", "minLength": 1, "description": "Your approval report in two parts: what you checked, and what you verified and how."},
 				},
 				e.approvePullRequest),
 			tool(e, c, "stop_task",
@@ -409,6 +410,11 @@ type noInput struct{}
 
 type numberInput struct {
 	N int64 `json:"n"`
+}
+
+type approveInput struct {
+	N      int64  `json:"n"`
+	Report string `json:"report"`
 }
 
 type textInput struct {

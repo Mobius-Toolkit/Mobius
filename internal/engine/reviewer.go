@@ -209,10 +209,11 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	}
 	number := int64(j.pullRequest.GetNumber())
 	// Each run gets a new comment, also a restart with the same round number.
-	comment, err := repository.AddComment(ctx, number, "Review started"+e.reviewRoundText(task))
+	started, err := repository.AddComment(ctx, number, "Review started"+e.reviewRoundText(task))
 	if err != nil {
 		return err
 	}
+	comment := started.GetID()
 	if err := e.queries.SetReviewComment(ctx, store.SetReviewCommentParams{ReviewComment: sql.NullInt64{Int64: comment, Valid: true}, ID: task.ID}); err != nil {
 		return err
 	}
