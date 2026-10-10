@@ -109,7 +109,11 @@ func TestTwoMessagesWithTheSameBrowserIDAtTheSameTimeMakeOneMessage(t *testing.T
 	var sent sync.WaitGroup
 
 	for range 5 {
-		sent.Go(func() { sendChatID(t, server, "one", "First", pngImage) })
+		sent.Go(func() {
+			if err := server.Engine.SendChat(t.Context(), leadChat, "one", "First", []engine.Image{pngImage}); err != nil {
+				t.Error(err)
+			}
+		})
 	}
 	sent.Wait()
 
