@@ -248,6 +248,14 @@ WHERE m.organization = sqlc.arg(organization) AND m.repository = sqlc.arg(reposi
 INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message, comment, review)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- A follow-up event of a Reviewer names its review comment as ", item <id>, ".
+-- name: HasFollowUpEvent :one
+SELECT EXISTS (
+    SELECT 1 FROM lead_events
+    WHERE repository = sqlc.arg(repository) AND issue = sqlc.arg(issue) AND kind = 'follow_up'
+      AND instr(payload, ', item ' || CAST(sqlc.arg(item) AS INTEGER) || ', ') > 0
+);
+
 -- name: DeliverLeadEvents :exec
 UPDATE lead_events SET delivered_at = ? WHERE repository = ? AND workstream = ? AND delivered_at IS NULL;
 

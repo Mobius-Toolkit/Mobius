@@ -237,3 +237,29 @@ func TestARemovalOfNeedsHumanSendsAnOpenFollowUpThreadToTheLeadAndNotToAFixRound
 		t.Errorf("round = %s", round)
 	}
 }
+
+func TestARetryAfterAFailedResolveOfAFollowUpThreadSendsNoSecondEventToTheLead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
+	waitForApproval(t, server, fake)
+	thread := fake.AddReviewComment(shop, 42, 0, "mobius-test[bot]", "Name the unit.\n\n<!-- mobius:follow-up -->")
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE issue = 41"); err != nil {
+		t.Fatal(err)
+	}
+	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") })
+	fake.FailResolveThreads(true)
+
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+
+	waitForLeadPrompt(t, server, " follow-up on pull request #42 of #41 \"Add plan model\", item "+itoa(thread)+", src/plan.rs line 12:")
+	fake.FailResolveThreads(false)
+	testkit.WaitFor(t, func() bool { return fake.ReviewThread(shop, 42, thread).Resolved })
+	var events int
+	if err := server.DB.QueryRow("SELECT count(*) FROM lead_events WHERE kind = 'follow_up'").Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if events != 1 {
+		t.Errorf("follow-up events = %d", events)
+	}
+}

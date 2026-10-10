@@ -121,6 +121,13 @@ func (g *FakeGitHub) ResolveReviewThread(root int64) {
 	g.resolvedThreads[root] = true
 }
 
+// FailResolveThreads makes each resolve of a review thread through the API fail, or work again when fail is false.
+func (g *FakeGitHub) FailResolveThreads(fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failResolves = fail
+}
+
 // UnresolveReviewThread marks the review thread that starts with the comment root as not resolved.
 func (g *FakeGitHub) UnresolveReviewThread(root int64) {
 	g.mu.Lock()
@@ -341,6 +348,10 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 		root, err := strconv.ParseInt(strings.TrimPrefix(variables.ID, "RT_"), 10, 64)
 		if err != nil || !strings.HasPrefix(variables.ID, "RT_") {
 			writeJSON(w, http.StatusOK, map[string]any{"data": nil, "errors": []map[string]string{{"message": "Could not resolve to a node"}}})
+			return
+		}
+		if g.failResolves {
+			writeJSON(w, http.StatusOK, map[string]any{"data": nil, "errors": []map[string]string{{"message": "Resolve failed"}}})
 			return
 		}
 		g.resolvedThreads[root] = true

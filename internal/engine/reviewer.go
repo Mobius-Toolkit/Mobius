@@ -410,7 +410,8 @@ func followUpBody(thread github.ReviewThread, app string) (string, bool) {
 }
 
 // sendFollowUps sends each open follow-up thread of reviewThreads of the pull request number to the Lead, and then
-// resolves the thread. A failure leaves the thread open, so the next call sends it again.
+// resolves the thread. A failure leaves the thread open, so the next call resolves it again. A thread with an event in
+// lead_events gets no second event.
 func (e *Engine) sendFollowUps(ctx context.Context, repository github.Repository, task store.Task, title string, number int, reviewThreads []github.ReviewThread, app string) error {
 	for i := range reviewThreads {
 		thread := &reviewThreads[i]
@@ -418,10 +419,16 @@ func (e *Engine) sendFollowUps(ctx context.Context, repository github.Repository
 		if thread.Resolved || !isFollowUp {
 			continue
 		}
-		event := fmt.Sprintf("%s follow-up on pull request #%d of #%d \"%s\", item %d, %s line %d:\n\n%s",
-			time.Now().UTC().Format(timeFormat), number, task.Issue, title, thread.Comment, thread.Path, thread.Line, quote(body))
-		if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "follow_up", event); err != nil {
+		sent, err := e.queries.HasFollowUpEvent(ctx, store.HasFollowUpEventParams{Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Item: thread.Comment})
+		if err != nil {
 			return err
+		}
+		if !sent {
+			event := fmt.Sprintf("%s follow-up on pull request #%d of #%d \"%s\", item %d, %s line %d:\n\n%s",
+				time.Now().UTC().Format(timeFormat), number, task.Issue, title, thread.Comment, thread.Path, thread.Line, quote(body))
+			if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "follow_up", event); err != nil {
+				return err
+			}
 		}
 		if err := repository.ResolveReviewThread(ctx, thread.ID); err != nil {
 			return err
