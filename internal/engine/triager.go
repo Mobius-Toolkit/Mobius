@@ -142,17 +142,23 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		return err
 	}
 	ended := context.WithoutCancel(ctx)
+	fail := func(err error) error {
+		if ctx.Err() != nil {
+			return a.End(ended, "stopped")
+		}
+		return a.Fail(ended, err)
+	}
 	issue, err := issueOf(ctx, repository, number)
 	if err != nil {
-		return a.Fail(ended, err)
+		return fail(err)
 	}
 	workstreams, err := openWorkstreams(ctx, []github.Repository{repository})
 	if err != nil {
-		return a.Fail(ended, err)
+		return fail(err)
 	}
 	comments, err := repository.Comments(ctx, number)
 	if err != nil {
-		return a.Fail(ended, err)
+		return fail(err)
 	}
 	e.launchTriagerComments(ctx, repository, comments)
 	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n#%d %s\n\n%s", triagerPrompt, workstreams, number, issue.GetTitle(), issue.GetBody())
