@@ -430,6 +430,9 @@ DELETE FROM copied_issue_labels WHERE repository = ? AND workstream = ? AND posi
 SELECT position, number, parent, title, state, author, html_url, repository_url FROM copied_issues
 WHERE repository = ? AND workstream = ? ORDER BY position;
 
+-- name: GetCopiedIssueTitle :one
+SELECT title, html_url FROM copied_issues WHERE repository = ? AND workstream = ? AND number = ? LIMIT 1;
+
 -- name: ListCopiedTreeLabels :many
 SELECT position, name FROM copied_issue_labels WHERE repository = ? AND workstream = ? ORDER BY position, name;
 
@@ -555,3 +558,6 @@ ON CONFLICT (repository, review, comment) DO NOTHING;
 
 -- name: SetTaskLongWaitAt :exec
 UPDATE tasks SET long_wait_at = ? WHERE id = ?;
+
+-- name: SetTaskCheckErrors :exec
+UPDATE tasks SET check_errors = ? WHERE id = ?;
