@@ -30,7 +30,7 @@ async function screenshot(
   }
 }
 
-// Changes the live Implementer session of #41, and sets the old reason again at the end.
+// Sets the queue reason of the live Implementer session of #41.
 const setQueueReason = async (page: Page, reason: string) => {
   const response = await page.request.put(
     `/e2e/agents/41/queue-reason?reason=${encodeURIComponent(reason)}`,
