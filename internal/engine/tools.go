@@ -640,6 +640,8 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	if empty(input.Title) || empty(input.Brief) {
 		return "", refuse("title and brief must not be empty.")
 	}
+	e.copyWrite.Lock()
+	defer e.copyWrite.Unlock()
 	owner, name := repository.Owner(), repository.Name()
 	issue, _, err := repository.Client.Issues.Create(ctx, owner, name, gh.CreateIssueRequest{Title: input.Title, Body: &input.Brief})
 	if err != nil {
