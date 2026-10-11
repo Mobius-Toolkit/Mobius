@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
@@ -120,5 +121,22 @@ func TestAFixRoundAfterTheApprovalKeepsOneCompleteCheckRunOnTheHead(t *testing.T
 	runs := mobiusCheckRuns(fake)
 	if len(runs) != 1 || runs[0].Status != "completed" || runs[0].Conclusion != "success" {
 		t.Errorf("check runs = %+v", runs)
+	}
+}
+
+func TestAPushAfterTheLastReviewRoundShowsNoReviewRoundOnTheCheckRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	implementer := "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nshell = \"echo more >> plan.txt && git commit -q -am 'Remove the lines'\"\n\n" + commits
+	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, implementer, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	readyForReview(t, server, fake)
+
+	sendChat(t, server, leadChat, "Send the findings to #41")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	testkit.WaitFor(t, func() bool { return slices.Contains(mobiusTitles(fake), "Round limit") })
+	if titles := mobiusTitles(fake); slices.Contains(titles, "Review, round 2 of 1") {
+		t.Errorf("titles = %q", titles)
 	}
 }

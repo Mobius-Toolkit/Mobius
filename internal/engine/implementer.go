@@ -1258,6 +1258,9 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	if err != nil {
 		return result{}, err
 	}
+	if !j.conflictRound && task.ReviewRounds >= int64(e.config.MaxFixRounds) {
+		return pushedHead, nil
+	}
 	return pushedHead, e.setReviewStep(ctx, repository, head, task, j.conflictRound)
 }
 
