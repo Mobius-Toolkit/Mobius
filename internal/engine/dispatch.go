@@ -808,7 +808,7 @@ func (e *Engine) continueItems(ctx context.Context, repository github.Repository
 	items, err := fixThreads(ctx, repository, int64(number), open, trusted)
 	items += ci
 	if items == "" && err == nil {
-		return "\nThe human continued the task. Finish the issue and make `.mobius/check` pass.\n", nil
+		return "\nThe human continued the task. Finish the issue.\n", nil
 	}
 	return items, err
 }

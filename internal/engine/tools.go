@@ -266,7 +266,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				e.submitVerdicts),
 		}
 	case CuratorRole:
-		return []mcp.Tool{
+		tools := []mcp.Tool{
 			tool(e, c, "edit_memory",
 				"Change one part of the memory file of the repository. Give an old text that occurs one time in the file, and the new text. An empty old text adds the new text at the end of the file. An empty new text removes the old text. Give the reason of the change. The tool refuses an empty reason and a result of more than 200 lines.",
 				map[string]any{
@@ -276,11 +276,29 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.editMemory),
 		}
+		if c.agent.maintenance == 0 {
+			return tools
+		}
+		return append(tools,
+			tool(e, c, "search_issues",
+				"Search the open and the closed issues of the repository. Give the words of the problem. For each closed issue, the result has the close reason and the last 3 comments of trusted authors. The result has only issues of trusted authors. It gives the first 20 matches.",
+				map[string]any{
+					"query": map[string]any{"type": "string", "minLength": 1, "description": "The words to search in the title and the body of the issues."},
+				},
+				e.searchIssues),
+			tool(e, c, "create_issue",
+				fmt.Sprintf("Create a task issue below the maintenance Workstream. Mobius adds mobius:triage, so the task starts only after the Owner accepts it. Mobius adds the blockers as native issue dependencies. Search the issues first. You can create a maximum of %d issues in a session.", maintenanceIssues),
+				map[string]any{
+					"title":      map[string]any{"type": "string", "minLength": 1, "description": "The title of the issue."},
+					"body":       map[string]any{"type": "string", "description": "The body of the issue, with the sections Goal, Today (optional), Change, Limits, and Done, in this order."},
+					"blocked_by": map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}, "description": "The issues that block this issue."},
+				},
+				e.createMaintenanceIssue))
 	case TriagerRole:
 		return []mcp.Tool{
 			tool(e, c, "create_workstream",
-				"Create a Workstream: an issue with mobius:workstream. In the chat, call it only after the Owner approves the exact title and Brief.",
-				workstreamProperties,
+				"Create a Workstream: an issue with mobius:workstream. In the chat, call it only after the Owner approves the exact title and Brief. Add mobius:evergreen or mobius:maintenance in labels only when the Owner approves that label.",
+				triagerWorkstreamProperties,
 				e.createWorkstream),
 			tool(e, c, "move_issue",
 				"Make an issue a sub-issue of an open Workstream. For an issue with mobius:no-workstream, Mobius then adds mobius:ready again.",
@@ -317,6 +335,16 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 var workstreamProperties = map[string]any{
 	"title": map[string]any{"type": "string", "minLength": 1, "description": "The name of the Workstream."},
 	"brief": map[string]any{"type": "string", "minLength": 1, "description": "The Brief: the goal, the scope, and the limits of the Workstream."},
+}
+
+var triagerWorkstreamProperties = map[string]any{
+	"title": workstreamProperties["title"],
+	"brief": workstreamProperties["brief"],
+	"labels": map[string]any{
+		"type":        "array",
+		"items":       map[string]any{"type": "string", "enum": []string{evergreenLabel, maintenanceLabel}},
+		"description": "More labels for the Workstream issue. Only mobius:evergreen and mobius:maintenance are allowed.",
+	},
 }
 
 // tool gives the Mobius tool name of c. The tool decodes the arguments into In for run, and adds the call
@@ -432,6 +460,16 @@ type threadInput struct {
 	Text   string `json:"text"`
 }
 
+type maintenanceIssueInput struct {
+	Title     string  `json:"title"`
+	Body      string  `json:"body"`
+	BlockedBy []int64 `json:"blocked_by"`
+}
+
+type queryInput struct {
+	Query string `json:"query"`
+}
+
 type issueInput struct {
 	Title     string  `json:"title"`
 	Body      string  `json:"body"`
@@ -440,8 +478,9 @@ type issueInput struct {
 }
 
 type workstreamInput struct {
-	Title string `json:"title"`
-	Brief string `json:"brief"`
+	Title  string   `json:"title"`
+	Brief  string   `json:"brief"`
+	Labels []string `json:"labels"`
 }
 
 type moveInput struct {
@@ -503,11 +542,8 @@ func (e *Engine) readIssueTool(ctx context.Context, _ caller, repository github.
 }
 
 func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Repository, input issueInput) (string, error) {
-	if empty(input.Title) {
-		return "", refuse("title must not be empty.")
-	}
-	if input.Parent < 1 || slices.ContainsFunc(input.BlockedBy, func(number int64) bool { return number < 1 }) {
-		return "", refuse("parent and each blocked_by must be 1 or more.")
+	if err := checkIssue(input); err != nil {
+		return "", err
 	}
 	if input.Parent != c.workstream {
 		in, err := inWorkstream(ctx, repository, c.workstream, input.Parent)
@@ -518,6 +554,41 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 			return "", refuse("#%d is not in this Workstream.", input.Parent)
 		}
 	}
+	return addIssue(ctx, repository, input, nil)
+}
+
+// createMaintenanceIssue creates an issue with mobius:triage below the maintenance Workstream of the Curator c. It
+// refuses an issue after the maximum of maintenanceIssues issues in the session.
+func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repository github.Repository, input maintenanceIssueInput) (string, error) {
+	issue := issueInput{Title: input.Title, Body: input.Body, Parent: c.agent.maintenance, BlockedBy: input.BlockedBy}
+	if err := checkIssue(issue); err != nil {
+		return "", err
+	}
+	c.agent.issuesMu.Lock()
+	defer c.agent.issuesMu.Unlock()
+	if c.agent.issues == maintenanceIssues {
+		return "", refuse("You created %d issues in this session. This is the maximum.", maintenanceIssues)
+	}
+	text, err := addIssue(ctx, repository, issue, []string{triageLabel})
+	if err != nil {
+		return "", err
+	}
+	c.agent.issues++
+	return text, nil
+}
+
+func checkIssue(input issueInput) error {
+	if empty(input.Title) {
+		return refuse("title must not be empty.")
+	}
+	if input.Parent < 1 || slices.ContainsFunc(input.BlockedBy, func(number int64) bool { return number < 1 }) {
+		return refuse("parent and each blocked_by must be 1 or more.")
+	}
+	return nil
+}
+
+// addIssue creates an issue with labels below the issue input.Parent, with the blockers input.BlockedBy.
+func addIssue(ctx context.Context, repository github.Repository, input issueInput, labels []string) (string, error) {
 	var blockerIDs []int64
 	for _, number := range input.BlockedBy {
 		blocker, err := repository.Issue(ctx, number)
@@ -533,7 +604,7 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 		blockerIDs = append(blockerIDs, blocker.GetID())
 	}
 	owner, name := repository.Owner(), repository.Name()
-	issue, _, err := repository.Client.Issues.Create(ctx, owner, name, gh.CreateIssueRequest{Title: input.Title, Body: &input.Body})
+	issue, _, err := repository.Client.Issues.Create(ctx, owner, name, gh.CreateIssueRequest{Title: input.Title, Body: &input.Body, Labels: labels})
 	if err != nil {
 		return "", err
 	}
@@ -663,6 +734,14 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	if empty(input.Title) || empty(input.Brief) {
 		return "", refuse("title and brief must not be empty.")
 	}
+	if len(input.Labels) > 0 && c.role != TriagerRole {
+		return "", refuse("Only the Triager adds labels to a Workstream.")
+	}
+	for _, label := range input.Labels {
+		if label != evergreenLabel && label != maintenanceLabel {
+			return "", refuse("The label %q is not allowed. Use %s or %s.", label, evergreenLabel, maintenanceLabel)
+		}
+	}
 	e.copyWrite.Lock()
 	defer e.copyWrite.Unlock()
 	owner, name := repository.Owner(), repository.Name()
@@ -670,7 +749,7 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	if err != nil {
 		return "", err
 	}
-	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), []string{workstreamLabel}); err != nil {
+	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), append([]string{workstreamLabel}, input.Labels...)); err != nil {
 		return "", err
 	}
 	if _, err := e.updateCopy(ctx, repository, issue, nil, false); err != nil {

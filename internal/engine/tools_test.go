@@ -488,6 +488,46 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 	}
 }
 
+func TestCreateWorkstreamAddsTheLabelsOfTheTriagerChat(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake,
+		call("create_workstream", `{ title = "Upkeep", brief = "Keep the code healthy.", labels = ["mobius:maintenance"] }`)+
+			call("create_workstream", `{ title = "Ops", brief = "Run the shop.", labels = ["mobius:evergreen", "mobius:ready"] }`)+
+			call("create_workstream", `{ title = "Plain", brief = "No extra label.", labels = [] }`))
+	triagerChat := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()}
+
+	session := run(t, server, triagerChat, "1. ", "2. ", "3. ")
+
+	want := "Created the Workstream #13." +
+		`error: The label "mobius:ready" is not allowed. Use mobius:evergreen or mobius:maintenance.` +
+		"Created the Workstream #14."
+	if got := reply(t, server, session); got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+	if labels := fake.Labels(shop, 13); !slices.Contains(labels, "mobius:maintenance") || slices.Contains(labels, "mobius:ready") {
+		t.Errorf("labels of #13 = %v", labels)
+	}
+	if labels := fake.Labels(shop, 14); !reflect.DeepEqual(labels, []string{"mobius:workstream"}) {
+		t.Errorf("labels of #14 = %v", labels)
+	}
+}
+
+func TestCreateWorkstreamRefusesLabelsFromTheLead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("create_workstream", `{ title = "Upkeep", brief = "Keep the code healthy.", labels = ["mobius:maintenance"] }`))
+
+	session := run(t, server, leadSpec(t), "Create it.")
+
+	if got, want := reply(t, server, session), "error: Only the Triager adds labels to a Workstream."; got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+	if fake.HasIssue(shop, 13) {
+		t.Error("the Workstream exists")
+	}
+}
+
 func TestMessageLeadSendsTheMessageToTheLeadOfAnOpenWorkstream(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

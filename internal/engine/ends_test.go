@@ -178,7 +178,7 @@ func TestAReadyLabelAfterAStopContinuesThePullRequestOnTheSameBranch(t *testing.
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	round := roundPrompt(t, server)
-	if !strings.Contains(round, "# Open items\n\nThe human continued the task. Finish the issue and make `.mobius/check` pass.\n") {
+	if !strings.Contains(round, "# Open items\n\nThe human continued the task. Finish the issue.\n") {
 		t.Errorf("round = %s", round)
 	}
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" && head(t, fake, "mobius/41") != first })
@@ -233,7 +233,7 @@ func TestARemovalOfNeedsHumanSendsAnOpenFollowUpThreadToTheLeadAndNotToAFixRound
 
 	waitForLeadPrompt(t, server, " follow-up on pull request #42 of #41 \"Add plan model\", item "+itoa(thread)+", src/plan.rs line 12:\n\n> Name the unit.")
 	round := roundPrompt(t, server)
-	if !strings.Contains(round, "# Open items\n\nThe human continued the task. Finish the issue and make `.mobius/check` pass.\n") {
+	if !strings.Contains(round, "# Open items\n\nThe human continued the task. Finish the issue.\n") {
 		t.Errorf("round = %s", round)
 	}
 }
