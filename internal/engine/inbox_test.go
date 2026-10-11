@@ -285,7 +285,7 @@ func TestTheReplyTextAfterTellOwnerDoesNotGoToTheChat(t *testing.T) {
 	if got := chatLines(t, server, leadChat); !reflect.DeepEqual(got, want) {
 		t.Errorf("chat = %+v", got)
 	}
-	if got := inbox(t, server); len(got) != 1 {
+	if got := inbox(t, server); len(got) != 0 {
 		t.Errorf("inbox = %+v", got)
 	}
 }
