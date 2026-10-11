@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 import { pasteImage, png } from "./images.js";
+import { routeReasons } from "./stops.js";
 
 const phone = { width: 390, height: 844 };
 const shop = "/workstreams/owner/shop/12";
@@ -956,6 +957,39 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
     await expect(hint).not.toBeAttached();
     await expect.poll(() => live(numbers[1])).toBe(true);
   }
+});
+
+test("a long stop reason takes two lines, and Details shows it in full", async ({ page }) => {
+  await page.setViewportSize(phone);
+  await routeReasons(page);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const details = main.getByRole("button", { name: "Details" });
+  const reason = main.locator(".line-clamp-2").first();
+  await expect(reason).toContainText("which plan model do you want?");
+  await expect(details).toHaveCount(1);
+  await expect(main.getByText("The agent did not push.")).toBeVisible();
+  await expect(main.getByRole("button", { name: "Resume" })).toHaveCount(2);
+
+  await expect(reason).not.toContainText("**");
+  await expect(reason).toHaveCSS("line-height", "20px");
+  expect((await reason.boundingBox())?.height).toBeLessThanOrEqual(40);
+  const box = async (selector: string) =>
+    (await page.locator(selector).last().boundingBox()) ?? { y: 0, height: 0 };
+  const message = await box("[data-message]");
+  const input = await box("main form textarea");
+  expect(message.y + message.height).toBeLessThanOrEqual(input.y);
+  expect(message.height).toBeGreaterThan(0);
+
+  await details.click();
+  const dialog = page.getByRole("dialog", { name: "#41 Add plan model" });
+  await expect(
+    dialog.getByText("Each plan needs a limit of seats and a price in cents."),
+  ).toBeVisible();
+  await expect(dialog.locator("strong", { hasText: "Question:" })).toBeVisible();
+  await expect(dialog).not.toContainText("**");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
 });
 
 test("Start gives only an open task with no blocker a button, and the row shows ready", async ({

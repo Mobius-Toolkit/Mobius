@@ -1,16 +1,60 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { completeWorkstream, resumeIssue, setAutopilot, type NeedsHuman } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { localTimes } from "@/lib/time";
 import type { Workstreams } from "@/lib/workstreams";
 import { AgentPanel } from "./AgentPanel";
 import { Conversation } from "./Conversation";
+import { Markdown } from "./Markdown";
 import { TopBar } from "./TopBar";
+
+function Reason({ issue }: { issue: NeedsHuman }) {
+  const text = useRef<HTMLDivElement>(null);
+  const [clipped, setClipped] = useState(false);
+  useEffect(() => {
+    const element = text.current;
+    if (!element) {
+      return;
+    }
+    const observer = new ResizeObserver(() =>
+      setClipped(element.scrollHeight > element.clientHeight),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <>
+      {clipped && (
+        <Dialog>
+          <DialogTrigger asChild>
+            <Button variant="link" size="sm">
+              Details
+            </Button>
+          </DialogTrigger>
+          <DialogContent
+            aria-describedby={undefined}
+            className="grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] sm:max-w-lg"
+          >
+            <DialogTitle className="pr-8">
+              #{issue.number} {issue.title}
+            </DialogTitle>
+            <div className="overflow-y-auto">
+              <Markdown text={issue.reason} />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+      <div ref={text} className="line-clamp-2 w-full text-sm text-muted-foreground [&>div]:block">
+        <Markdown text={issue.reason} />
+      </div>
+    </>
+  );
+}
 
 function NeedsHumanList({
   issues,
@@ -79,9 +123,7 @@ function NeedsHumanList({
               Resume
             </Button>
           )}
-          {issue.reason && (
-            <p className="w-full text-sm text-muted-foreground">{localTimes(issue.reason)}</p>
-          )}
+          {issue.reason && <Reason issue={issue} />}
         </div>
       ))}
     </div>

@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { png } from "./images.js";
+import { needsHumanRoute, routeReasons } from "./stops.js";
 
 const viewports = {
   desktop: { width: 1280, height: 800 },
@@ -213,6 +214,20 @@ test("screenshots", async ({ page }) => {
     main.getByText(/waits for the usage limit until/),
   ]);
   await page.unroute("**/api/chat?*");
+  await routeReasons(page);
+  await screenshot(page, "chat-stop-reason", "/workstreams/owner/shop/12", (device) => [
+    ...chatReady(device),
+    main.getByRole("button", { name: "Details" }),
+  ]);
+  await screenshot(
+    page,
+    "chat-stop-details",
+    "/workstreams/owner/shop/12",
+    () => page.getByRole("dialog", { name: "#41 Add plan model" }),
+    () => main.getByRole("button", { name: "Details" }).click(),
+    () => page.keyboard.press("Escape"),
+  );
+  await page.unroute(needsHumanRoute);
   const photos = [
     { name: "plan.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#2563eb") },
     { name: "cart.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#16a34a") },

@@ -301,6 +301,42 @@ func TestTheNeedsHumanListHasTheReasonOfTheNewestStopOfTheIssue(t *testing.T) {
 	})
 }
 
+func TestTheNeedsHumanListHasTheReasonWithNoPrefixOfTheStopEventsAndKeepsTheTextOfTheInboxItem(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	for number, title := range map[int64]string{41: "Add plan model", 42: "Let customers change plans", 43: "Show plans"} {
+		fake.AddIssue(shop, number, title)
+	}
+	server := startServer(t, fake, t.TempDir(), "")
+	server.WaitForFirstPoll(t, shop)
+	for _, number := range []int64{41, 42, 43} {
+		fake.AddSubIssue(shop, 12, number)
+		fake.AddLabel(shop, number, "mobius:needs-human", "owner")
+	}
+	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES
+		('owner/shop', 12, 41, 'stop', '2026-10-04 10:00 UTC stop of #41 "Old title": the agent said: "stop"', '2026-10-04T10:00:00Z'),
+		('owner/shop', 12, 42, 'stale_pull_request', '2026-10-04 10:00 UTC stale pull request #45 of #42 "Let customers change plans": it has a merge conflict. https://github.com/owner/shop/pull/45', '2026-10-04T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.DB.Exec(`INSERT INTO inbox_items (kind, repository, workstream, issue, text, link, time) VALUES ('stopped', 'owner/shop', 12, 43, 'Task #43 "Show plans" stopped: no push.', '', '2026-10-04T10:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	want := map[int64]string{
+		41: `the agent said: "stop"`,
+		42: "it has a merge conflict. https://github.com/owner/shop/pull/45",
+		43: `Task #43 "Show plans" stopped: no push.`,
+	}
+	testkit.WaitFor(t, func() bool {
+		reasons := map[int64]string{}
+		for _, issue := range apiData[[]needsHuman](t, server, "/api/needs-human") {
+			reasons[issue.Number] = issue.Reason
+		}
+		return reflect.DeepEqual(reasons, want)
+	})
+}
+
 func TestResumeReplacesMobiusNeedsHumanWithMobiusReadyAsTheOwnerAndKeepsMobiusQuestion(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
