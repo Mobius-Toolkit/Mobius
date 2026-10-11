@@ -50,6 +50,15 @@ func waitForNoItem(t *testing.T, server *testserver.Server, kind string) {
 	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, kind)) == 0 })
 }
 
+func assertDismissed(t *testing.T, server *testserver.Server, id int64) {
+	t.Helper()
+	for _, item := range inbox(t, server) {
+		if item.ID == id {
+			t.Errorf("item %d is still open: %+v", id, item)
+		}
+	}
+}
+
 func askedServer(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
 	server, _ := connect(t, fake, leadAsks)
@@ -124,13 +133,11 @@ func TestAStoppedItemOfAStalePullRequestClosesAfterResume(t *testing.T) {
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server := staleConflictInNeedsHuman(t, fake, commits)
 	authorize(t, server)
-	waitForItem(t, server, "stopped")
+	item := waitForItem(t, server, "stopped")
 
 	resume(t, server)
 
-	if got := itemsOf(t, server, "stopped"); len(got) != 0 {
-		t.Errorf("stopped items = %+v", got)
-	}
+	assertDismissed(t, server, item.ID)
 }
 
 func TestAStoppedItemOfAStalePullRequestClosesAfterTheCloseOfTheIssue(t *testing.T) {
@@ -169,13 +176,11 @@ func TestAStoppedItemOfAHungTaskClosesAfterResume(t *testing.T) {
 	server, _ := connectTask(t, fake, leadStarts, strings.Repeat(hang, 5), noChange)
 	authorize(t, server)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	waitForItem(t, server, "stopped")
+	item := waitForItem(t, server, "stopped")
 
 	resume(t, server)
 
-	if got := itemsOf(t, server, "stopped"); len(got) != 0 {
-		t.Errorf("stopped items = %+v", got)
-	}
+	assertDismissed(t, server, item.ID)
 }
 
 func TestAStoppedItemOfAHungTaskClosesAfterTheCloseOfTheIssue(t *testing.T) {
