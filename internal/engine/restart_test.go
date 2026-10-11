@@ -77,7 +77,7 @@ func TestAStartWithAnEmptyStoreHandsAWorkingIssueToAHuman(t *testing.T) {
 	want := struct {
 		kind, text, link  string
 		issue, workstream int64
-	}{"stopped", "Mobius lost the state of this task. Add mobius:ready to start again.", "https://github.com/owner/shop/issues/41", 41, 12}
+	}{"lost", "Mobius lost the state of this task. Add mobius:ready to start again.", "https://github.com/owner/shop/issues/41", 41, 12}
 	if item != want {
 		t.Errorf("item = %+v", item)
 	}

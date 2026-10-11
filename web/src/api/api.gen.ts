@@ -451,18 +451,17 @@ export interface EnvelopeArrayGitHubApp {
 }
 
 /**
- * Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, stopped for a task that Mobius lost or a session of a task that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space
+ * Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space
  */
 export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
 
 
 export const InboxItemKind = {
   question: 'question',
-  Lead: 'Lead',
-  ready_for_review: 'ready for review',
-  stale_pull_request: 'stale pull request',
   Lead_failed: 'Lead failed',
+  ready_for_review: 'ready for review',
   stopped: 'stopped',
+  lost: 'lost',
   full_disk: 'full disk',
 } as const;
 
@@ -479,18 +478,28 @@ export interface InboxItem {
   id: number;
   /** Issue is the number of the issue of the item */
   issue: number;
-  /** Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, stopped for a task that Mobius lost or a session of a task that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space */
+  /** Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space */
   kind: InboxItemKind;
-  /** Link is the GitHub URL of the item, or empty */
+  /** Link is the GitHub URL of the issue, or empty */
   link: string;
   /** Organization is the owner of the repository */
   organization: string;
+  /** PullRequest is the number of the pull request of the item, or 0 */
+  pullRequest: number;
+  /** PullRequestURL is the GitHub URL of the pull request, or empty */
+  pullRequestUrl: string;
+  /** Reason is the short reason of the item */
+  reason: string;
+  /** ReportURL is the GitHub URL of the approval report, or empty */
+  reportUrl: string;
   /** Repository is the repository as "owner/name" */
   repository: string;
-  /** Text is the text of the item */
+  /** Text is the full text of the item */
   text: string;
   /** Time is the time of the item */
   time: string;
+  /** Title is the title of the issue, or empty */
+  title: string;
   /** Workstream is the number of the Workstream issue, or 0 for an issue with no Workstream */
   workstream: number;
 }

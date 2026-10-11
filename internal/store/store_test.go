@@ -399,6 +399,11 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("DROP TABLE harness_pause_ends"); err != nil {
 		t.Fatal(err)
 	}
+	for _, column := range []string{"title", "reason", "pull_request", "report_link"} {
+		if _, err := db.Exec("ALTER TABLE inbox_items DROP COLUMN " + column); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err := db.Exec("DELETE FROM goose_db_version WHERE version_id >= 20261027000000"); err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +458,7 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	}
 }
 
-func TestThePauseMigrationDismissesTheUsageLimitItemsAndRemovesTheItemOfAPause(t *testing.T) {
+func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mobius.db")
 	db, err := Open(t.Context(), path)
 	if err != nil {
@@ -463,6 +468,10 @@ func TestThePauseMigrationDismissesTheUsageLimitItemsAndRemovesTheItemOfAPause(t
 		"ALTER TABLE events DROP COLUMN organization",
 		"ALTER TABLE harness_pauses ADD COLUMN inbox_item INTEGER NOT NULL DEFAULT 0",
 		"DROP TABLE harness_pause_ends",
+		"ALTER TABLE inbox_items DROP COLUMN title",
+		"ALTER TABLE inbox_items DROP COLUMN reason",
+		"ALTER TABLE inbox_items DROP COLUMN pull_request",
+		"ALTER TABLE inbox_items DROP COLUMN report_link",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261029100000",
 		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time) VALUES
 			(1, 'usage limit', 'owner', '', 0, 0, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z'),
@@ -496,8 +505,8 @@ func TestThePauseMigrationDismissesTheUsageLimitItemsAndRemovesTheItemOfAPause(t
 		}
 		open = append(open, id)
 	}
-	if !slices.Equal(open, []int64{2}) {
-		t.Errorf("open items = %v, want [2]", open)
+	if len(open) != 0 {
+		t.Errorf("open items = %v, want none", open)
 	}
 	var until string
 	if err := db.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'devin'").Scan(&until); err != nil || until != "2099-01-01T00:00:00Z" {

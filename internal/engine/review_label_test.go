@@ -246,7 +246,7 @@ func TestAStartWithAnEmptyStoreHandsAnIssueWithTheReviewLabelToAHuman(t *testing
 	if err := server.DB.QueryRow("SELECT kind, text FROM inbox_items").Scan(&kind, &text); err != nil {
 		t.Fatal(err)
 	}
-	if kind != "stopped" || !strings.HasPrefix(text, "Mobius lost the state of this task.") {
+	if kind != "lost" || !strings.HasPrefix(text, "Mobius lost the state of this task.") {
 		t.Errorf("item = %s, %s", kind, text)
 	}
 	if labels := fake.Labels(shop, 41); !reflect.DeepEqual(labels, []string{"mobius:needs-human"}) {

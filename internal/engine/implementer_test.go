@@ -257,7 +257,7 @@ func TestTheLeadAsksAfterACannotDoAndTheTaskFreesItsWorkerSlot(t *testing.T) {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 	items := inbox(t, server)
-	want := inboxItem{ID: items[0].ID, Kind: "question", Repository: shop, Workstream: 12, Issue: 41, Text: "The plan table needs a fix in Gork.", Link: "https://github.com/owner/shop/issues/41"}
+	want := inboxItem{ID: items[0].ID, Kind: "question", Repository: shop, Workstream: 12, Issue: 41, Title: "Add plan model", Reason: "The Lead asks a question", Text: "The plan table needs a fix in Gork.", Link: "https://github.com/owner/shop/issues/41"}
 	if items[0] != want {
 		t.Errorf("inbox = %+v", items)
 	}

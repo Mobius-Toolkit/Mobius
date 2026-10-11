@@ -4152,24 +4152,39 @@
           },
           "kind": {
             "type": "string",
-            "description": "Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, stopped for a task that Mobius lost or a session of a task that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space",
+            "description": "Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space",
             "enum": [
               "question",
-              "Lead",
-              "ready for review",
-              "stale pull request",
               "Lead failed",
+              "ready for review",
               "stopped",
+              "lost",
               "full disk"
             ]
           },
           "link": {
             "type": "string",
-            "description": "Link is the GitHub URL of the item, or empty"
+            "description": "Link is the GitHub URL of the issue, or empty"
           },
           "organization": {
             "type": "string",
             "description": "Organization is the owner of the repository"
+          },
+          "pullRequest": {
+            "type": "integer",
+            "description": "PullRequest is the number of the pull request of the item, or 0"
+          },
+          "pullRequestUrl": {
+            "type": "string",
+            "description": "PullRequestURL is the GitHub URL of the pull request, or empty"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason is the short reason of the item"
+          },
+          "reportUrl": {
+            "type": "string",
+            "description": "ReportURL is the GitHub URL of the approval report, or empty"
           },
           "repository": {
             "type": "string",
@@ -4177,12 +4192,16 @@
           },
           "text": {
             "type": "string",
-            "description": "Text is the text of the item"
+            "description": "Text is the full text of the item"
           },
           "time": {
             "type": "string",
             "description": "Time is the time of the item",
             "format": "date-time"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title is the title of the issue, or empty"
           },
           "workstream": {
             "type": "integer",
@@ -4196,8 +4215,13 @@
           "repository",
           "workstream",
           "issue",
+          "title",
+          "reason",
           "text",
           "link",
+          "pullRequest",
+          "pullRequestUrl",
+          "reportUrl",
           "time",
           "dismissedAt"
         ],

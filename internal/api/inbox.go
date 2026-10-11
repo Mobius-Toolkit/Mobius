@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -11,10 +13,11 @@ import (
 type InboxItem struct {
 	// ID increases with each new item
 	ID int64 `gork:"id"`
-	// Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the
-	// Lead to the Owner, Lead failed for a message that the Lead did not take, ready for review for a pull
-	// request of a task, stale pull request for an old pull request with a merge conflict, stopped for a task that Mobius lost or a session of a task that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space
-	Kind string `gork:"kind" validate:"oneof=question Lead 'ready for review' 'stale pull request' 'Lead failed' stopped 'full disk'"`
+	// Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message
+	// that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must
+	// continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost,
+	// and full disk for a local check that waits for free disk space
+	Kind string `gork:"kind" validate:"oneof=question 'Lead failed' 'ready for review' stopped lost 'full disk'"`
 	// Organization is the owner of the repository
 	Organization string `gork:"organization"`
 	// Repository is the repository as "owner/name"
@@ -23,10 +26,20 @@ type InboxItem struct {
 	Workstream int64 `gork:"workstream"`
 	// Issue is the number of the issue of the item
 	Issue int64 `gork:"issue"`
-	// Text is the text of the item
+	// Title is the title of the issue, or empty
+	Title string `gork:"title"`
+	// Reason is the short reason of the item
+	Reason string `gork:"reason"`
+	// Text is the full text of the item
 	Text string `gork:"text"`
-	// Link is the GitHub URL of the item, or empty
+	// Link is the GitHub URL of the issue, or empty
 	Link string `gork:"link"`
+	// PullRequest is the number of the pull request of the item, or 0
+	PullRequest int64 `gork:"pullRequest"`
+	// PullRequestURL is the GitHub URL of the pull request, or empty
+	PullRequestURL string `gork:"pullRequestUrl"`
+	// ReportURL is the GitHub URL of the approval report, or empty
+	ReportURL string `gork:"reportUrl"`
 	// Time is the time of the item
 	Time time.Time `gork:"time"`
 	// DismissedAt is the time when the Owner dismissed the item, or null
@@ -83,9 +96,17 @@ func (h *handlers) inboxItemOf(item store.InboxItem) (InboxItem, error) {
 		Repository:   item.Repository,
 		Workstream:   item.Workstream,
 		Issue:        item.Issue,
+		Title:        item.Title,
+		Reason:       item.Reason,
 		Text:         item.Text,
 		Link:         item.Link,
+		PullRequest:  item.PullRequest,
+		ReportURL:    item.ReportLink,
 		Time:         t,
+	}
+	if item.PullRequest != 0 {
+		// The web URL of a pull request differs from the web URL of its issue only in the path.
+		found.PullRequestURL = strings.TrimSuffix(item.Link, fmt.Sprintf("/issues/%d", item.Issue)) + fmt.Sprintf("/pull/%d", item.PullRequest)
 	}
 	if item.DismissedAt.Valid {
 		dismissedAt, err := time.Parse(time.RFC3339Nano, item.DismissedAt.String)

@@ -568,6 +568,8 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 		Repository:   repository.FullName,
 		Workstream:   c.workstream,
 		Issue:        input.N,
+		Title:        issue.GetTitle(),
+		Reason:       "The Lead asks a question",
 		Text:         input.Text,
 		Link:         issue.GetHTMLURL(),
 	})

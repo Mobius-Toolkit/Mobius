@@ -66,6 +66,10 @@ type InboxItem struct {
 	Time         string
 	DismissedAt  sql.NullString
 	Organization string
+	Title        string
+	Reason       string
+	PullRequest  int64
+	ReportLink   string
 }
 
 type LeadEvent struct {

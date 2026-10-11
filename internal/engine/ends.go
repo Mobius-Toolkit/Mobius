@@ -483,6 +483,9 @@ func (e *Engine) endTask(ctx context.Context, repository github.Repository, task
 		return err
 	}
 	e.publish(Change{Workstreams: true})
+	if err := e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind); err != nil {
+		return err
+	}
 	if err := e.stopWorkersOf(ctx, task); err != nil {
 		return err
 	}
