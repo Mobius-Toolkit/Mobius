@@ -28,23 +28,32 @@ const checkErrorPolls = 10
 // to work. A task that fails to check keeps its entry of the last poll. It first reads the pull requests of the
 // reviewed tasks with one call, because GitHub does not document that a resolve of a review thread changes the update
 // time of the pull request. It reads the pull requests of the tasks with an approval in the same call, because the
-// approval needs the open threads and the dismissals.
+// approval needs the open threads and the dismissals. When a task has a pull request, it reads the head of the default
+// branch one time, for checkTask.
 func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, work map[int64]Work) error {
 	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
 	if err != nil {
 		return err
 	}
 	var reviewed []int64
+	hasPullRequest := false
 	for _, task := range tasks {
 		if (task.State == "reviewed" || awaitsMerge(task)) && task.PullRequest.Valid {
 			reviewed = append(reviewed, task.PullRequest.Int64)
 		}
+		hasPullRequest = hasPullRequest || task.PullRequest.Valid
 	}
 	if err := e.readPullRequests(ctx, repository, reviewed); err != nil {
 		return err
 	}
+	baseHead := ""
+	if hasPullRequest {
+		if baseHead, err = repository.BranchHead(ctx, repository.DefaultBranch); err != nil {
+			return err
+		}
+	}
 	for _, task := range tasks {
-		found, ok, err := e.checkTask(ctx, repository, task)
+		found, ok, err := e.checkTask(ctx, repository, task, baseHead)
 		if err != nil {
 			log.Printf("check the task of %s#%d: %v", repository.FullName, task.Issue, err)
 			found, ok = e.currentWork()[task.ID]
@@ -133,7 +142,7 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 //     conditions (mergeApproved), and the next poll ends the task.
 //   - Else the new comments of the pull request of a task in checks, approval, ready_for_review, reviewed or needs_human
 //     go to the Judge.
-func (e *Engine) checkTask(ctx context.Context, repository github.Repository, task store.Task) (Work, bool, error) {
+func (e *Engine) checkTask(ctx context.Context, repository github.Repository, task store.Task, baseHead string) (Work, bool, error) {
 	issue, err := repository.Issue(ctx, task.Issue)
 	if err != nil {
 		return Work{}, false, err
@@ -143,7 +152,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	}
 	var pullRequest *gh.PullRequest
 	if task.PullRequest.Valid {
-		if pullRequest, err = repository.PullRequest(ctx, task.PullRequest.Int64); err != nil {
+		if pullRequest, err = e.pullRequest(ctx, repository, task.PullRequest.Int64, baseHead); err != nil {
 			return Work{}, false, err
 		}
 	}

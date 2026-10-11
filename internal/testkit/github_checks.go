@@ -91,6 +91,7 @@ func (g *FakeGitHub) SetDraft(repository string, number int64, draft bool) {
 	defer g.mu.Unlock()
 	index := slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == repository && pull.Number == number })
 	g.pullRequests[index].Draft = draft
+	g.issues[issueKey{repository, number}].updatedAt = g.tick()
 }
 
 // MergePullRequest marks the pull request as merged and closed. The branch stays.
@@ -147,6 +148,7 @@ func (g *FakeGitHub) SetBehind(repository string, number int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.behind[issueKey{repository, number}] = true
+	g.issues[issueKey{repository, number}].updatedAt = g.tick()
 }
 
 // SetMergeableUnknown makes the pull request give mergeable null, as GitHub does while it calculates the merge, or
@@ -155,6 +157,9 @@ func (g *FakeGitHub) SetMergeableUnknown(repository string, number int64, unknow
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.unknownMergeable[issueKey{repository, number}] = unknown
+	if unknown {
+		g.issues[issueKey{repository, number}].updatedAt = g.tick()
+	}
 }
 
 // CheckRuns gives the check runs of repository, in the order of their creation.

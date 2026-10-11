@@ -181,6 +181,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	if err != nil || !changed {
 		return err
 	}
+	e.markChangedPullRequests(repository, page.Issues)
 	firstPoll := since.IsZero()
 	var conversation map[int64][]*gh.IssueComment
 	var review map[int64][]*gh.PullRequestComment

@@ -137,6 +137,9 @@ type FakeGitHub struct {
 	// createdAt holds the creation time of each issue and pull request, in seconds after the Unix epoch.
 	createdAt map[issueKey]int64
 	behind    map[issueKey]bool
+	// pushedHeads holds the head commit of each pull request at the last list of the issues of its repository. A new
+	// head sets the update time of the pull request, as a push does on GitHub.
+	pushedHeads map[issueKey]string
 	// mergeRefusals holds the reason that the merge of a pull request gets, for each pull request that refuses a merge.
 	mergeRefusals map[issueKey]string
 	// mergeCalls and checkRunReads are the numbers of requests to merge a pull request and to list the check runs of a
@@ -214,6 +217,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		routeHolds:              map[string]chan struct{}{},
 		createdAt:               map[issueKey]int64{},
 		behind:                  map[issueKey]bool{},
+		pushedHeads:             map[issueKey]string{},
 		mergeRefusals:           map[issueKey]string{},
 		unknownMergeable:        map[issueKey]bool{},
 		annotations:             map[int64][]annotationJSON{},
@@ -263,6 +267,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("POST /repos/{owner}/{repo}/labels", g.withToken(g.createRepositoryLabel))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/labels/{name}", g.withToken(g.updateRepositoryLabel))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls", g.withToken(g.createPullRequest))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/git/ref/heads/{branch...}", g.withToken(g.getBranchRef))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.getPullRequest))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.closeIssue))
 	mux.HandleFunc("PUT /repos/{owner}/{repo}/pulls/{number}/merge", g.withToken(g.mergePullRequest))
