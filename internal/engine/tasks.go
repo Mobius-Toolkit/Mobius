@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -305,11 +306,19 @@ func (e *Engine) NeedsHuman(ctx context.Context) ([]NeedsHuman, error) {
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return nil, err
 			}
-			issue.Reason = reason
+			issue.Reason = stopReason(row.Number, reason)
 		}
 		issues = append(issues, issue)
 	}
 	return issues, nil
+}
+
+// stopReason removes the time, the kind, the number and the title from the start of the text of a stop event or of a
+// stale pull request event of the issue number. The title is the title at the time of the stop, so the prefix ends at
+// the first quote that a colon follows. Any other text stays as it is.
+func stopReason(number int64, text string) string {
+	prefix := regexp.MustCompile(fmt.Sprintf(`(?s)^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC (?:stop|stale pull request #\d+) of #%d ".*?": `, number))
+	return prefix.ReplaceAllString(text, "")
 }
 
 // ResumeIssue removes mobius:needs-human from the issue number of repositoryName, and from the pull request of its
