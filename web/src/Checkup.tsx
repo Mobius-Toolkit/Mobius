@@ -360,36 +360,41 @@ export function CheckupWorkstreams({ organization }: { organization: string }) {
           The Mobius App has no repository in this organization.
         </p>
       )}
-      {checkup?.repositories.map((repository) => (
-        <Section key={repository.repository} title={repository.repository}>
+      {checkup && checkup.repositories.length > 0 && (
+        <Section title="Maintenance Workstream">
           <List>
-            {repository.maintenanceWorkstream > 0 ? (
-              <LinkRow
-                link={{
-                  to: "/workstreams/$owner/$name/$number",
-                  params: chatParams({
-                    repository: repository.repository,
-                    number: repository.maintenanceWorkstream,
-                  }),
-                }}
-                title="Maintenance Workstream"
-              >
-                <span className="text-muted-foreground">#{repository.maintenanceWorkstream}</span>
-              </LinkRow>
-            ) : (
-              <Row className="justify-between">
-                <span>No maintenance Workstream</span>
-                <Button
-                  pending={creating === repository.repository}
-                  onClick={() => create(repository.repository)}
+            {checkup.repositories.map((repository) =>
+              repository.maintenanceWorkstream > 0 ? (
+                <LinkRow
+                  key={repository.repository}
+                  link={{
+                    to: "/workstreams/$owner/$name/$number",
+                    params: chatParams({
+                      repository: repository.repository,
+                      number: repository.maintenanceWorkstream,
+                    }),
+                  }}
+                  title={<span className="whitespace-nowrap">{repository.repository}</span>}
                 >
-                  Create maintenance Workstream
-                </Button>
-              </Row>
+                  <span className="text-muted-foreground">#{repository.maintenanceWorkstream}</span>
+                </LinkRow>
+              ) : (
+                <Row key={repository.repository} className="justify-between">
+                  <span className="whitespace-nowrap">{repository.repository}</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    pending={creating === repository.repository}
+                    onClick={() => create(repository.repository)}
+                  >
+                    Create
+                  </Button>
+                </Row>
+              ),
             )}
           </List>
         </Section>
-      ))}
+      )}
     </CheckupCard>
   );
 }

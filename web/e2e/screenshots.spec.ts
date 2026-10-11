@@ -552,10 +552,7 @@ test("screenshots", async ({ page }) => {
     page,
     "checkup-workstreams",
     "/settings/checkup/plants/workstreams",
-    (device) => [
-      ...frame(device, release),
-      main.getByRole("button", { name: "Create maintenance Workstream" }),
-    ],
+    (device) => [...frame(device, release), main.getByRole("button", { name: "Create" })],
   );
   await screenshot(page, "memory-repositories", "/settings/memory", (device) => [
     ...frame(device, release),

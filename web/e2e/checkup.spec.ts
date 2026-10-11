@@ -115,12 +115,16 @@ test("the Workstreams page links the maintenance Workstream and sends the draft 
     .click();
 
   await expect(page).toHaveURL("/settings/checkup/plants/workstreams");
-  const link = main.getByRole("link", { name: "Maintenance Workstream #9" });
+  const link = main.getByRole("link", { name: "plants/pond #9" });
   await expect(link).toHaveAttribute("href", "/workstreams/plants/pond/9");
-  await expect(main.getByRole("button", { name: "Create maintenance Workstream" })).toHaveCount(1);
+  await expect(main.getByRole("button", { name: "Create" })).toHaveCount(1);
 
   const request = page.waitForRequest((req) => req.url().endsWith("/api/chat/messages"));
-  await main.getByRole("button", { name: "Create maintenance Workstream" }).click();
+  await main
+    .getByRole("listitem")
+    .filter({ hasText: "plants/garden" })
+    .getByRole("button", { name: "Create" })
+    .click();
 
   const body = (await request).postData() ?? "";
   expect(body).toContain("Draft the maintenance Workstream for plants/garden.");
