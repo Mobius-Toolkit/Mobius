@@ -743,8 +743,9 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		if err != nil || moved == 0 {
 			return err
 		}
+		checkErr := e.failCheckRun(ended, task, "Cannot do", "The Implementer could not do the task. The Lead decides the next step.")
 		text := fmt.Sprintf("%s cannot_do on #%d \"%s\" by the Implementer:\n\n%s", time.Now().UTC().Format(timeFormat), task.Issue, j.title, quote(r.text))
-		return e.addLeadEvent(ended, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "cannot_do", text)
+		return errors.Join(checkErr, e.addLeadEvent(ended, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "cannot_do", text))
 	case checkFailed:
 		return e.handOver(ended, task, j.title, fmt.Sprintf(".mobius/check failed %d times. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.", e.config.MaxCheckAttempts))
 	case notMerged:
@@ -752,7 +753,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 	case mergeConflict:
 		return e.handOver(ended, task, j.title, fmt.Sprintf("the local branch diverged from origin/%s, and the merge had conflicts. Mobius pushed nothing and added mobius:needs-human. Git gave this error: %s. Resume gives the same conflict. First, in %s, merge origin/%s into the local branch and resolve the conflicts, or reset the local branch to origin/%s.", j.branch, r.text, a.spec.Dir, j.branch, j.branch))
 	}
-	return e.handOver(ended, task, j.title, fmt.Sprintf("GitHub rejected the push. Mobius added mobius:needs-human. Git gave this error:\n\n```\n%s\n```", r.text))
+	return e.handOverFailed(ended, task, j.title, fmt.Sprintf("GitHub rejected the push. Mobius added mobius:needs-human. Git gave this error:\n\n```\n%s\n```", r.text), "Push rejected", "GitHub rejected the push of the work.")
 }
 
 // stopAtLimit hands the task of the round to a human, because the pull request has open items after max_fix_rounds
@@ -778,11 +779,51 @@ func (e *Engine) stopAtLimit(ctx context.Context, repository github.Repository, 
 // handOver hands the task to a human, and gives the Lead a stop event with reason. A task that is not queued or
 // working, for example after a decline, gets no event.
 func (e *Engine) handOver(ctx context.Context, task store.Task, title, reason string) error {
+	return e.handOverFailed(ctx, task, title, reason, "", "")
+}
+
+// handOverFailed does handOver, and completes the Mobius check of the pull request of the task as failure with
+// checkTitle and checkSummary. An empty checkTitle leaves the check as it is. The Lead gets the stop event also when
+// the check fails.
+func (e *Engine) handOverFailed(ctx context.Context, task store.Task, title, reason, checkTitle, checkSummary string) error {
 	handed, err := e.handToHuman(ctx, task)
 	if err != nil || !handed {
 		return err
 	}
-	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", stopText(task.Issue, title, reason))
+	var checkErr error
+	if checkTitle != "" {
+		checkErr = e.failCheckRun(ctx, task, checkTitle, checkSummary)
+	}
+	eventErr := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", stopText(task.Issue, title, reason))
+	return errors.Join(checkErr, eventErr)
+}
+
+// failCheckRun completes the open Mobius check of the head of the pull request of the task as failure. It reads the task
+// again, because task can be older than its pull request. A task with no pull request has no check.
+func (e *Engine) failCheckRun(ctx context.Context, task store.Task, title, summary string) error {
+	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
+	if err != nil || !current.PullRequest.Valid {
+		return err
+	}
+	repository, err := e.repository(task.Repository)
+	if err != nil {
+		return err
+	}
+	pullRequest, err := repository.PullRequest(ctx, current.PullRequest.Int64)
+	if err != nil {
+		return err
+	}
+	return failOpenCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), title, summary)
+}
+
+// failOpenCheckRun completes the Mobius check run of the head that is not complete as failure. A head with no such
+// check run, for example one that Mobius approved, stays as it is.
+func failOpenCheckRun(ctx context.Context, repository github.Repository, head, title, summary string) error {
+	checkRun, err := openCheckRun(ctx, repository, head)
+	if err != nil || checkRun == 0 {
+		return err
+	}
+	return repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "failure", title, summary)
 }
 
 func stopText(number int64, title, reason string) string {

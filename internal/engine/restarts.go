@@ -79,7 +79,7 @@ func (e *Engine) RestartWorker(ctx context.Context, task store.Task, title strin
 	}
 	reason := fmt.Sprintf("the Worker failed after %d restarts. Mobius added mobius:needs-human. The last error ends with these lines:\n\n```\n%s\n```",
 		e.config.MaxWorkerRestarts, tail(err.Error(), errorTail))
-	return false, e.handOver(ctx, task, title, reason)
+	return false, e.handOverFailed(ctx, task, title, reason, "Restart limit", "The Worker failed too many times. Mobius does not start it again.")
 }
 
 // restartDelay gives the wait before the restart number restart, which counts from 1, after err at now.
