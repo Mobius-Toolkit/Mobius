@@ -42,7 +42,7 @@ type Activity struct {
 	Workstream int64 `gork:"workstream"`
 	// Issue is the number of the issue of the activity, or 0 for a session of the Triager
 	Issue int64 `gork:"issue"`
-	// Actor is the GitHub login that did the activity
+	// Actor is the GitHub login that did the activity, or "Mobius" when no GitHub login did it
 	Actor string `gork:"actor"`
 	// Text tells what happened
 	Text string `gork:"text"`

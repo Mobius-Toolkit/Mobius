@@ -3034,7 +3034,7 @@
         "properties": {
           "actor": {
             "type": "string",
-            "description": "Actor is the GitHub login that did the activity"
+            "description": "Actor is the GitHub login that did the activity, or \"Mobius\" when no GitHub login did it"
           },
           "id": {
             "type": "integer",

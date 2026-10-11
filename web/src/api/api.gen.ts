@@ -105,7 +105,7 @@ export interface ActiveAgents {
  * Activity is an entry of the activity feed of a Workstream.
  */
 export interface Activity {
-  /** Actor is the GitHub login that did the activity */
+  /** Actor is the GitHub login that did the activity, or "Mobius" when no GitHub login did it */
   actor: string;
   /** ID increases with each new activity */
   id: number;
