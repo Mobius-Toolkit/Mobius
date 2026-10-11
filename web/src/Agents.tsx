@@ -8,6 +8,7 @@ import {
   type ActiveAgents,
   type Agent,
   type LiveEvents,
+  type TranscriptEvents,
   type TranscriptLine,
 } from "@/api/api.gen";
 import { ErrorBadge, inset, List, PageHeader, rowClass, Section } from "@/components/page";
@@ -195,22 +196,19 @@ function TranscriptLog({
       .catch((err: unknown) => setError(String(err)));
   }, [agent.id, showLogin]);
 
-  // A line that comes while the connection is down is lost, so each connection reads the log.
+  // A line that comes while the connection is down is lost, so each connection reads the log. The stream opens again
+  // with each new source, so a reconnect of the live events also reconnects the log.
   useEffect(() => {
-    load();
     if (!source) {
+      load();
       return;
     }
-    source.addEventListener("open", load);
-    const remove = onEvent<LiveEvents, "transcript">(source, "transcript", (line) => {
-      if (line.session === agent.id) {
-        setLines((list) => upsert(list ?? [], line));
-      }
-    });
-    return () => {
-      source.removeEventListener("open", load);
-      remove();
-    };
+    const stream = new EventSource(`/api/agents/${agent.id}/transcript/events`);
+    stream.addEventListener("open", load);
+    onEvent<TranscriptEvents, "transcript">(stream, "transcript", (line) =>
+      setLines((list) => upsert(list ?? [], line)),
+    );
+    return () => stream.close();
   }, [source, load, agent.id]);
 
   // New data scrolls the log to the end while the Owner is at the end. Else the log stays, and the button shows.

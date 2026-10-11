@@ -202,6 +202,43 @@ func (h *handlers) GetTranscript(ctx context.Context, req GetTranscriptRequest) 
 	return &GetTranscriptResponse{Body: Envelope[[]TranscriptLine]{Data: transcript}}, nil
 }
 
+// TranscriptEvents are the events of the live stream of a Transcript.
+type TranscriptEvents struct {
+	// Transcript is a new row of the Transcript, or a row that got more text
+	Transcript *TranscriptLine `gork:"transcript"`
+}
+
+// StreamTranscriptRequest is the request of StreamTranscript.
+type StreamTranscriptRequest struct {
+	Path struct {
+		// ID is the id of the session
+		ID int64 `gork:"id"`
+	}
+}
+
+// StreamTranscript sends each new or changed row of the Transcript of a session.
+// It sends no row that exists when the stream opens. When the client does not read the rows fast enough, the stream ends.
+func (h *handlers) StreamTranscript(ctx context.Context, req StreamTranscriptRequest, stream *api.Stream[TranscriptEvents]) error {
+	changes, stop := h.engine.Listen()
+	defer stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case change, ok := <-changes:
+			if !ok {
+				return nil
+			}
+			if change.Line == nil || change.Line.Session != req.Path.ID {
+				continue
+			}
+			if err := stream.Send(TranscriptEvents{Transcript: new(transcriptLineOf(*change.Line))}); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 func (h *handlers) agentOf(ctx context.Context, node engine.Node) (Agent, error) {
 	session := node.Session
 	agent := Agent{

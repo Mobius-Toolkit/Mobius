@@ -127,7 +127,7 @@ async function mockLog(page: Page) {
     window.sources = [];
     const add = EventSource.prototype.addEventListener;
     EventSource.prototype.addEventListener = function (type, listener, options) {
-      if (this.url.endsWith('/api/events') && !window.sources.includes(this)) {
+      if (this.url.endsWith('/transcript/events') && !window.sources.includes(this)) {
         window.sources.push(this);
       }
       return add.call(this, type, listener, options);
