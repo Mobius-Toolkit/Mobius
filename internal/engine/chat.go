@@ -959,33 +959,17 @@ func (e *Engine) holdEvent(_ context.Context, c caller, _ github.Repository, _ n
 	return "Mobius holds the event. It sends the event again after your next reply to the Owner.", nil
 }
 
-// tellOwner adds text to the Lead chat as a message of the Lead to the Owner, and adds an Inbox item. The reply text
-// after the call, in the same turn, goes only to the Transcript.
-func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repository, input tellInput) (string, error) {
+// tellOwner adds text to the Lead chat as a message of the Lead to the Owner. The reply text after the call, in the
+// same turn, goes only to the Transcript.
+func (e *Engine) tellOwner(ctx context.Context, c caller, _ github.Repository, input tellInput) (string, error) {
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
-	}
-	issue, err := repository.Issue(ctx, c.workstream)
-	if err != nil {
-		return "", err
-	}
-	if issue == nil {
-		return "", refuse("The Workstream issue does not exist.")
 	}
 	if _, err := e.addChatMessage(ctx, ChatKey{c.organization, c.repository, c.workstream}, tellOwnerAuthor, input.Text, "", ""); err != nil {
 		return "", err
 	}
 	c.agent.setAuthor("")
-	err = e.addInboxItem(ctx, store.AddInboxItemParams{
-		Kind:         leadKind,
-		Organization: c.organization,
-		Repository:   c.repository,
-		Workstream:   c.workstream,
-		Issue:        c.workstream,
-		Text:         input.Text,
-		Link:         issue.GetHTMLURL(),
-	})
-	return "Sent to the Owner.", err
+	return "Sent to the Owner.", nil
 }
 
 // firstPrompt gives the first prompt of a session with the item first: the Role prompt, the context and the chat

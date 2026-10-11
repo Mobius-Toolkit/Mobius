@@ -105,6 +105,7 @@ reply = ["Title: Gift cards\n\nBrief: Sell gift cards in the shop."]
 [[prompts]]
 when = "dispatch of #45"
 call = { tool = "tell_owner", arguments = { text = "#45 needs a decision: one seat limit for each plan, or one for all plans?" } }
+later = { after = "100ms", call = { tool = "ask", arguments = { n = 12, text = "#45 needs a decision: one seat limit for each plan, or one for all plans?" } } }
 
 [[prompts]]
 when = "Save in the Workstream memory"
@@ -341,6 +342,13 @@ func TestServer(t *testing.T) {
 	shop := engine.ChatKey{Organization: "owner", Repository: "owner/shop", Workstream: 12}
 	github.AddLabel("owner/shop", 45, "mobius:ready", "owner")
 	waitForChat(t, server, shop, "tell_owner")
+	testkit.WaitFor(t, func() bool {
+		var open int
+		if err := server.DB.QueryRow("SELECT COUNT(*) FROM inbox_items WHERE kind = 'question'").Scan(&open); err != nil {
+			t.Fatal(err)
+		}
+		return open == 1
+	})
 	chat(ctx, t, server, shop, question, "Lead")
 	chat(ctx, t, server, engine.ChatKey{Organization: "plants", Repository: "plants/garden", Workstream: 12}, "Which roses sell best?", "Lead")
 	triager := engine.ChatKey{Organization: "owner"}
