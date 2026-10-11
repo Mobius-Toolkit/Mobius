@@ -69,7 +69,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.startImplementerTool),
 			tool(e, c, "start_fix_round",
-				"Start a fix round on the pull request of a task that waits for CI (checks), waits for the Lead approval (approval), or is ready_for_review. The Implementer gets your findings as the open items. The round counts toward max_fix_rounds. Returns at once.",
+				"Start a fix round on the pull request of a task that waits for CI (checks), waits for the Lead approval (approval), or is ready_for_review. The Implementer gets your findings as the open items. For a task in working or reviewed, Mobius keeps your findings, and the next fix round gets them with its other items. The round counts toward max_fix_rounds. Returns at once.",
 				map[string]any{
 					"n":        map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
 					"findings": map[string]any{"type": "string", "minLength": 1, "description": "Your findings on the pull request: what to change and why."},
