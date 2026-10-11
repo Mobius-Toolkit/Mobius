@@ -9,6 +9,7 @@ import {
   CheckupPage,
   CheckupPermissionsPage,
   CheckupToolsPage,
+  CheckupWorkstreamsPage,
   GitHubPage,
   InboxPage,
   InboxLayoutPage,
@@ -125,6 +126,12 @@ const checkupLabelsRoute = createRoute({
   component: CheckupLabelsPage,
 });
 
+const checkupWorkstreamsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/checkup/$organization/workstreams",
+  component: CheckupWorkstreamsPage,
+});
+
 const memoryRepositoriesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings/memory",
@@ -163,6 +170,7 @@ const routeTree = rootRoute.addChildren([
   checkupToolsRoute,
   checkupPermissionsRoute,
   checkupLabelsRoute,
+  checkupWorkstreamsRoute,
   memoryRepositoriesRoute,
   memoryRoute,
   devicesRoute,

@@ -1,4 +1,4 @@
-import type { LinkProps } from "@tanstack/react-router";
+import { useNavigate, type LinkProps } from "@tanstack/react-router";
 import { use, useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   fixLabels,
@@ -13,7 +13,10 @@ import { ErrorBadge, inset, LinkRow, List, PageHeader, Row, Section } from "@/co
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LoginContext } from "@/lib/login";
+import { addTriagerMessage } from "@/lib/outbox";
+import { useShell } from "@/lib/shell";
 import { cn } from "@/lib/utils";
+import { chatParams } from "@/lib/workstreams";
 import { TopBar } from "./TopBar";
 
 const fixButton = { create: "Create labels", fix: "Fix labels" };
@@ -177,6 +180,17 @@ function CheckupOrganization({ organization }: { organization: string }) {
               ))
           }
         />
+        <CheckupLink
+          link={{
+            to: "/settings/checkup/$organization/workstreams",
+            params: { organization },
+          }}
+          title="Workstreams"
+          needsYou={
+            !!checkup &&
+            checkup.repositories.some((repository) => repository.maintenanceWorkstream === 0)
+          }
+        />
       </List>
     </Section>
   );
@@ -311,6 +325,70 @@ export function CheckupLabels({ organization }: { organization: string }) {
                 <LabelStatus label={label} />
               </Row>
             ))}
+          </List>
+        </Section>
+      ))}
+    </CheckupCard>
+  );
+}
+
+export function CheckupWorkstreams({ organization }: { organization: string }) {
+  const { selectOrganization } = useShell();
+  const navigate = useNavigate();
+  const { checkup, error } = useCheckup(organization);
+  const [creating, setCreating] = useState<string>();
+  const [createError, setCreateError] = useState<string>();
+
+  const create = (repository: string) => {
+    setCreating(repository);
+    addTriagerMessage(organization, `Draft the maintenance Workstream for ${repository}.`)
+      .then(() => {
+        selectOrganization(organization);
+        return navigate({ to: "/chat" });
+      })
+      .catch((err: unknown) => {
+        setCreateError(String(err));
+        setCreating(undefined);
+      });
+  };
+
+  return (
+    <CheckupCard title="Workstreams">
+      {(error ?? createError) && <ErrorBadge>{error ?? createError}</ErrorBadge>}
+      {checkup?.repositories.length === 0 && (
+        <p className={cn("text-muted-foreground", inset)}>
+          The Mobius App has no repository in this organization.
+        </p>
+      )}
+      {checkup?.repositories.map((repository) => (
+        <Section key={repository.repository} title={repository.repository}>
+          <List>
+            {repository.maintenanceWorkstream > 0 ? (
+              <LinkRow
+                link={{
+                  to: "/workstreams/$owner/$name/$number",
+                  params: chatParams({
+                    repository: repository.repository,
+                    number: repository.maintenanceWorkstream,
+                  }),
+                }}
+                title={<span className="whitespace-nowrap">Maintenance Workstream</span>}
+              >
+                <span className="text-muted-foreground">#{repository.maintenanceWorkstream}</span>
+              </LinkRow>
+            ) : (
+              <Row className="justify-between">
+                <span className="whitespace-nowrap">Maintenance Workstream</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  pending={creating === repository.repository}
+                  onClick={() => create(repository.repository)}
+                >
+                  Create
+                </Button>
+              </Row>
+            )}
           </List>
         </Section>
       ))}

@@ -530,6 +530,11 @@ test("screenshots", async ({ page }) => {
     main.getByRole("heading", { name: "owner", exact: true }),
     main.getByRole("heading", { name: "plants", exact: true }),
     main.getByText("needs you").nth(3),
+    main
+      .locator("section")
+      .filter({ hasText: "plants" })
+      .getByRole("link", { name: "Workstreams" })
+      .getByText("needs you"),
   ]);
   await screenshot(page, "checkup-tools", "/settings/checkup/tools", (device) => [
     ...frame(device, release),
@@ -543,6 +548,12 @@ test("screenshots", async ({ page }) => {
     ...frame(device, release),
     main.getByText("wrong color: #ededed"),
   ]);
+  await screenshot(
+    page,
+    "checkup-workstreams",
+    "/settings/checkup/plants/workstreams",
+    (device) => [...frame(device, release), main.getByRole("button", { name: "Create" })],
+  );
   await screenshot(page, "memory-repositories", "/settings/memory", (device) => [
     ...frame(device, release),
     main.getByRole("link", { name: "owner/shop" }),

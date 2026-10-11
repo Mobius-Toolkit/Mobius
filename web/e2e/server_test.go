@@ -195,6 +195,7 @@ func TestServer(t *testing.T) {
 		github.AddLabel(workstream.repository, workstream.number, "mobius:workstream", "owner")
 	}
 	github.AddLabel("owner/shop", 14, "mobius:autopilot", "owner")
+	github.AddLabel("owner/shop", 14, "mobius:maintenance", "owner")
 	github.AddSubIssueOf("owner/shop", 12, 41, "Add plan model")
 	github.AddSubIssueOf("owner/shop", 12, 42, "Let customers change plans")
 	github.AddSubIssueOf("owner/shop", 12, 30, "Name the plan tiers")

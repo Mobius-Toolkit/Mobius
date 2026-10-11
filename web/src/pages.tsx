@@ -4,7 +4,13 @@ import { unreadCount } from "@/lib/unread";
 import { Activity } from "./Activity";
 import { Agents } from "./Agents";
 import { Chat } from "./Chat";
-import { Checkup, CheckupLabels, CheckupPermissions, CheckupTools } from "./Checkup";
+import {
+  Checkup,
+  CheckupLabels,
+  CheckupPermissions,
+  CheckupTools,
+  CheckupWorkstreams,
+} from "./Checkup";
 import { GitHub } from "./GitHub";
 import { Inbox } from "./Inbox";
 import { InboxTabs } from "./InboxTabs";
@@ -96,6 +102,11 @@ export function CheckupPermissionsPage() {
 export function CheckupLabelsPage() {
   const { organization } = useParams({ from: "/settings/checkup/$organization/labels" });
   return <CheckupLabels key={organization} organization={organization} />;
+}
+
+export function CheckupWorkstreamsPage() {
+  const { organization } = useParams({ from: "/settings/checkup/$organization/workstreams" });
+  return <CheckupWorkstreams key={organization} organization={organization} />;
 }
 
 export function GitHubPage() {

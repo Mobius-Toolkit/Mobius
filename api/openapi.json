@@ -4812,6 +4812,10 @@
               "$ref": "#/components/schemas/LabelCheck"
             }
           },
+          "maintenanceWorkstream": {
+            "type": "integer",
+            "description": "MaintenanceWorkstream is the number of the open Workstream with mobius:maintenance and the lowest number, or 0 when the repository has none"
+          },
           "repository": {
             "type": "string",
             "description": "Repository is the repository as \"owner/name\""
@@ -4819,9 +4823,10 @@
         },
         "required": [
           "repository",
-          "labels"
+          "labels",
+          "maintenanceWorkstream"
         ],
-        "description": "RepositoryCheckup is the status of each Mobius label in a repository."
+        "description": "RepositoryCheckup is the status of each Mobius label in a repository, and its maintenance Workstream."
       },
       "SaveMemoryBody": {
         "type": "object",

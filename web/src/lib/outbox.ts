@@ -13,6 +13,11 @@ export type Queued = {
 
 const requestLimit = 60_000;
 
+export function newMessageId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 let database: Promise<IDBDatabase> | undefined;
 
 // One connection keeps the transactions in the order of the calls.
@@ -51,6 +56,18 @@ export async function listQueued(chat: Pick<Queued, "organization" | "repository
 
 export function addQueued(item: Queued) {
   return run("readwrite", (store) => store.add({ ...item, chat: chatKey(item) }));
+}
+
+export function addTriagerMessage(organization: string, text: string) {
+  return addQueued({
+    id: newMessageId(),
+    organization,
+    repository: "",
+    workstream: 0,
+    text,
+    images: [],
+    time: new Date().toISOString(),
+  });
 }
 
 export function removeQueued(id: string) {

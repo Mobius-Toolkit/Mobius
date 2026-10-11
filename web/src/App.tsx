@@ -273,6 +273,7 @@ function App() {
             apps,
             organizations,
             organization,
+            selectOrganization,
             source,
             workstreams,
             unread,

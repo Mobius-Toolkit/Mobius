@@ -6,6 +6,7 @@ type Shell = {
   apps: GitHubApp[];
   organizations: string[];
   organization: string;
+  selectOrganization: (organization: string) => void;
   source?: EventSource;
   workstreams: Workstreams;
   unread?: Unread[];
