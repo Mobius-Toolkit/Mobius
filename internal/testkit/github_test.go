@@ -782,7 +782,7 @@ func TestAGetRouteGivesNotModifiedForTheETagOfItsLastAnswerAndOKAfterAChange(t *
 	token := installationToken(t, github)
 	start := len(github.Requests())
 	url := github.URL + "/repos/owner/shop/issues/12"
-	get := func(etag string) *http.Response {
+	get := func(etag string) (int, string) {
 		request, err := http.NewRequest(http.MethodGet, url, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -796,16 +796,16 @@ func TestAGetRouteGivesNotModifiedForTheETagOfItsLastAnswerAndOKAfterAChange(t *
 			t.Fatal(err)
 		}
 		_ = reply.Body.Close()
-		return reply
+		return reply.StatusCode, reply.Header.Get("ETag")
 	}
 
-	first := get("")
-	second := get(first.Header.Get("ETag"))
+	firstStatus, etag := get("")
+	secondStatus, _ := get(etag)
 	github.AddLabel("owner/shop", 12, "mobius:ready", "owner")
-	third := get(first.Header.Get("ETag"))
+	thirdStatus, _ := get(etag)
 
-	if first.Header.Get("ETag") == "" || second.StatusCode != http.StatusNotModified || third.StatusCode != http.StatusOK {
-		t.Errorf("statuses = %d, %d, %d, etag = %q", first.StatusCode, second.StatusCode, third.StatusCode, first.Header.Get("ETag"))
+	if etag == "" || secondStatus != http.StatusNotModified || thirdStatus != http.StatusOK {
+		t.Errorf("statuses = %d, %d, %d, etag = %q", firstStatus, secondStatus, thirdStatus, etag)
 	}
 	if got := github.Requests()[start+1].Status; got != http.StatusNotModified {
 		t.Errorf("logged status = %d", got)
