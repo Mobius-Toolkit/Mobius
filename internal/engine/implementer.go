@@ -590,6 +590,9 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err := makeDraft(ctx, repository, pullRequest); err != nil {
 		return err
 	}
+	if err := e.setFixRoundStep(ctx, repository, pullRequest.GetHead().GetSHA(), conflictCause, 0); err != nil {
+		return err
+	}
 	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: task.State})
 	if err != nil || queued == 0 {
 		return err
@@ -600,9 +603,6 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	}
 	e.publishReadyForReview(task.State, "queued")
 	if err := resumeWork(ctx, repository, task); err != nil {
-		return err
-	}
-	if err := e.setFixRoundStep(ctx, repository, pullRequest.GetHead().GetSHA(), conflictCause, 0); err != nil {
 		return err
 	}
 	j := job{
