@@ -146,6 +146,16 @@ func (r Repository) OpenIssuesWithLabel(ctx context.Context, label string) ([]*g
 	return slices.DeleteFunc(issues, (*gh.Issue).IsPullRequest), err
 }
 
+// SearchIssues gives the first 20 issues that match query, in the order of GitHub. The search is for the issues of the
+// repository, but a "repo:" term in query can add other repositories, so the caller checks each repository URL.
+func (r Repository) SearchIssues(ctx context.Context, query string) ([]*gh.Issue, error) {
+	result, _, err := r.Client.Search.Issues(ctx, "repo:"+r.FullName+" is:issue "+query, &gh.SearchOptions{ListOptions: gh.ListOptions{PerPage: 20}})
+	if err != nil {
+		return nil, err
+	}
+	return result.Issues, nil
+}
+
 // IssueEvents gives the events of the issue number, the oldest first.
 func (r Repository) IssueEvents(ctx context.Context, number int64) ([]*gh.IssueEvent, error) {
 	return all(r.Client.Issues.ListIssueEventsIter(ctx, r.Owner(), r.Name(), int(number), &gh.ListOptions{PerPage: 100}))

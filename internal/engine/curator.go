@@ -38,6 +38,9 @@ const (
 	curatorMaxRounds = 6
 )
 
+// maintenanceIssues is the maximum number of task issues that a Curator session creates.
+const maintenanceIssues = 3
+
 // curatorKey is the key in e.stops of the Worker of the Curator with this session id.
 type curatorKey int64
 
@@ -50,6 +53,19 @@ type editMemoryInput struct {
 	Old    string `json:"old"`
 	New    string `json:"new"`
 	Reason string `json:"reason"`
+}
+
+// maintenanceWorkstream gives the number of the maintenance Workstream of repository: the open Workstream with
+// mobius:maintenance and the lowest number. It gives 0 when repository has none.
+func maintenanceWorkstream(ctx context.Context, repository github.Repository) (int64, error) {
+	issues, err := repository.OpenIssuesWithLabel(ctx, maintenanceLabel)
+	var found int64
+	for _, issue := range issues {
+		if number := int64(issue.GetNumber()); hasLabel(issue, workstreamLabel) && (found == 0 || number < found) {
+			found = number
+		}
+	}
+	return found, err
 }
 
 // startCuratorAfterEnds starts a Curator for repository when curatorEvery sessions of the repository ended since the
@@ -261,7 +277,15 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent, requests []store.List
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	return a.Prompt(ctx, curatorPrompt+"\n"+requestsSection(requests)+sections+versions+problems+leads, nil)
+	return a.Prompt(ctx, curatorPrompt+"\n"+maintenanceSection(a.maintenance)+requestsSection(requests)+sections+versions+problems+leads, nil)
+}
+
+// maintenanceSection gives the maintenance Workstream of the Curator as a prompt section.
+func maintenanceSection(workstream int64) string {
+	if workstream == 0 {
+		return "# Maintenance Workstream\n\nThe repository has no maintenance Workstream. You have no tool to create task issues.\n\n"
+	}
+	return fmt.Sprintf("# Maintenance Workstream\n\nThe maintenance Workstream is #%d. Create task issues below it.\n\n", workstream)
 }
 
 // requestsSection gives the requests of the Owner as a prompt section, or "" for no request.
