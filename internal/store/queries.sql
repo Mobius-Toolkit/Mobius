@@ -470,6 +470,12 @@ UPDATE copied_blockers SET blocker_workstream_title = sqlc.arg(title)
 WHERE repository = sqlc.arg(repository) AND blocker_workstream = sqlc.arg(workstream)
   AND blocker_workstream_title IS NOT sqlc.arg(title);
 
+-- name: ListAutopilotWorkstreams :many
+SELECT number FROM copied_workstreams WHERE repository = ? AND autopilot ORDER BY number DESC;
+
+-- name: GetCopiedAutopilot :one
+SELECT CAST(autopilot AS BOOLEAN) FROM copied_workstreams WHERE repository = ? AND number = ?;
+
 -- name: SetCopiedAutopilot :exec
 UPDATE copied_workstreams SET autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
