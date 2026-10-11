@@ -129,7 +129,7 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	if err != nil || moved == 0 {
 		return true, err
 	}
-	if err := e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items, parent: parent, failedCheck: true}); err != nil {
+	if err := e.fixRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: items, parent: parent, failedCheck: true, cause: ciCause}); err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "working"})
 		return false, errors.Join(err, stateErr)
 	}
@@ -167,7 +167,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
-	if err := setCheckRun(ctx, repository, head, "in_progress", "", "", ""); err != nil {
+	if err := setApprovalWaitStep(ctx, repository, head); err != nil {
 		return err
 	}
 	implementer, found, err := e.implementerSession(ctx, task)

@@ -40,6 +40,7 @@ func TestTheRestartOfTheReviewerKeepsOneMobiusCheckRunOnTheHead(t *testing.T) {
 		VALUES (1, 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'mobius/41', 42, 'reviewer')`)
 
 	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ReviewerRole)) == 1 })
+	waitForTitle(t, fake, "Review, round 1 of 10")
 
 	if runs := mobiusCheckRuns(fake); len(runs) != 1 || runs[0].HeadSHA != sha || runs[0].Status != "in_progress" {
 		t.Errorf("check runs = %+v", runs)
@@ -54,6 +55,7 @@ func TestTheJudgeThatFindsNoOpenThreadKeepsOneMobiusCheckRunOnTheHead(t *testing
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
 	waitForPolls(t, fake)
+	waitForTitle(t, fake, "Wait for the CI")
 
 	if runs := mobiusCheckRuns(fake); len(runs) != 1 || runs[0].HeadSHA != sha || runs[0].Status != "in_progress" {
 		t.Errorf("check runs = %+v", runs)
@@ -68,6 +70,7 @@ func TestTheEndOfTheWaitInChecksKeepsOneMobiusCheckRunOnTheHead(t *testing.T) {
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	waitForTitle(t, fake, "Wait for the Lead approval")
 
 	if runs := mobiusCheckRuns(fake); len(runs) != 1 || runs[0].HeadSHA != sha || runs[0].Status != "in_progress" {
 		t.Errorf("check runs = %+v", runs)

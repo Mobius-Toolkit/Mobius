@@ -1,0 +1,107 @@
+package engine_test
+
+import (
+	"slices"
+	"testing"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+)
+
+const (
+	hangsInFixRound  = "[[prompts]]\nwhen = \"Action: fix\"\nhang = true\n\n" + commits
+	hangsOnLeadRound = "[[prompts]]\nwhen = \"Remove the lines out of scope.\"\nhang = true\n\n" + commits
+	fixVerdict       = "call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 2, actions = [{ verdict = \"fix\", text = \"Rename the field.\" }] }] } }\n"
+)
+
+var approvalOutput = &testkit.CheckRunOutput{Title: "Wait for the Lead approval", Summary: "The CI passed. Mobius waits for the Lead to approve the pull request."}
+
+// mobiusTitles gives the titles of the Mobius check runs of the shop, in the order of their creation.
+func mobiusTitles(fake *testkit.FakeGitHub) []string {
+	var titles []string
+	for _, run := range mobiusCheckRuns(fake) {
+		title := ""
+		if run.Output != nil {
+			title = run.Output.Title
+		}
+		titles = append(titles, title)
+	}
+	return titles
+}
+
+// waitForTitle waits until the only Mobius check run of the shop has the title.
+func waitForTitle(t *testing.T, fake *testkit.FakeGitHub, title string) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool { return slices.Equal(mobiusTitles(fake), []string{title}) })
+}
+
+func TestAPushShowsTheReviewRoundOnTheCheckRunOfTheNewHead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	connectTask(t, fake, "[[prompts]]\nwhen = \"You are the Reviewer\"\nhang = true\n\n"+leadStarts, commits, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForTitle(t, fake, "Review, round 1 of 10")
+}
+
+func TestAReviewFindingShowsTheFixRoundWithItsCauseOnTheCheckRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	connectTask(t, fake, finding+leadStarts, hangsInFixRound, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForTitle(t, fake, "Fix round 1 of 10, review")
+}
+
+func TestAFailedCheckRunShowsTheFixRoundWithItsCauseOnTheCheckRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, hangsInFixRound, noChange)
+	sha := approvalHead(t, server, fake)
+
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+
+	waitForTitle(t, fake, "Fix round 1 of 10, CI")
+}
+
+func TestTheFindingsOfTheLeadShowTheFixRoundWithItsCauseOnTheCheckRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, noFinding+leadFindings+leadStarts, hangsOnLeadRound, noChange)
+	approvalHead(t, server, fake)
+
+	sendChat(t, server, leadChat, "Send the findings to #41")
+
+	waitForTitle(t, fake, "Fix round 1 of 10, Lead")
+}
+
+func TestAConflictRoundShowsItsCauseOnTheCheckRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	startReady(t, fake, "", commits+"\n"+conflictWhen+"hang = true\n")
+
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
+
+	waitForTitle(t, fake, "Fix round, conflict")
+}
+
+func TestTheJudgeShowsItsStepOnTheCheckRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	connectJudge(t, fake, "hang = true\n", "", noChange)
+
+	fake.AddReviewComment(shop, 42, 0, "owner", "Use price_cents.")
+
+	waitForTitle(t, fake, "Judge")
+}
+
+func TestAFixRoundOfTheJudgeShowsItsCauseOnTheCheckRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	connectJudge(t, fake, fixVerdict, hangsInFixRound, noChange)
+
+	fake.AddReviewComment(shop, 42, 0, "owner", "Use price_cents.")
+
+	waitForTitle(t, fake, "Fix round 1 of 10, Judge")
+}

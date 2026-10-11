@@ -37,8 +37,8 @@ func TestATaskWaitsInChecksForTheCIOfTheHeadAndThenWaitsForTheLead(t *testing.T)
 	if !fake.PullRequests(shop)[0].Draft {
 		t.Error("the pull request is ready for review")
 	}
-	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: sha, Status: "in_progress"}}; !slices.Equal(fake.CheckRuns(shop)[:1], want) {
-		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
+	if want := []string{"Wait for the CI"}; !slices.Equal(mobiusTitles(fake), want) {
+		t.Errorf("titles = %q", mobiusTitles(fake))
 	}
 	if events := readyEvents(t, server); events != 0 {
 		t.Errorf("events = %d", events)
@@ -60,8 +60,8 @@ func TestATaskWaitsInChecksForTheCIOfTheHeadAndThenWaitsForTheLead(t *testing.T)
 	if !fake.PullRequests(shop)[0].Draft {
 		t.Error("the pull request is ready for review")
 	}
-	if want := (testkit.CheckRun{Name: "Mobius", HeadSHA: sha, Status: "in_progress"}); fake.CheckRuns(shop)[0] != want {
-		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
+	if want := []string{"Wait for the Lead approval"}; !slices.Equal(mobiusTitles(fake), want) {
+		t.Errorf("titles = %q", mobiusTitles(fake))
 	}
 	if items := inbox(t, server); len(items) != 0 {
 		t.Errorf("Inbox = %+v", items)
@@ -513,7 +513,7 @@ func TestApprovePullRequestRefusesATaskInChecksAndChangesNothing(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, longGrace)
-	sha := checksHead(t, server, fake)
+	checksHead(t, server, fake)
 
 	sendChat(t, server, leadChat, "Approve #41")
 
@@ -524,8 +524,8 @@ func TestApprovePullRequestRefusesATaskInChecksAndChangesNothing(t *testing.T) {
 	if !fake.PullRequests(shop)[0].Draft {
 		t.Error("the pull request is ready for review")
 	}
-	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: sha, Status: "in_progress"}}; !slices.Equal(fake.CheckRuns(shop), want) {
-		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
+	if want := []string{"Wait for the CI"}; !slices.Equal(mobiusTitles(fake), want) {
+		t.Errorf("titles = %q", mobiusTitles(fake))
 	}
 	if items := inbox(t, server); len(items) != 0 {
 		t.Errorf("Inbox = %+v", items)
