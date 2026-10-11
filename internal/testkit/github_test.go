@@ -754,7 +754,7 @@ func TestTheRequestLogShowsAnOKAnswerAndANotModifiedAnswerOfTheIssueList(t *test
 	}
 	_ = second.Body.Close()
 
-	want := []RequestEntry{
+	want := []Request{
 		{Method: http.MethodGet, Path: "/repos/owner/shop/issues", Query: "state=open", Status: http.StatusOK},
 		{Method: http.MethodGet, Path: "/repos/owner/shop/issues", Query: "state=open", Status: http.StatusNotModified},
 	}
@@ -770,7 +770,7 @@ func TestTheRequestLogShowsTheStatusOfARequestThatGetsNotFound(t *testing.T) {
 
 	reply := send(t, http.MethodGet, github.URL+"/repos/owner/shop/issues/99", token, "", nil)
 
-	want := []RequestEntry{{Method: http.MethodGet, Path: "/repos/owner/shop/issues/99", Status: http.StatusNotFound}}
+	want := []Request{{Method: http.MethodGet, Path: "/repos/owner/shop/issues/99", Status: http.StatusNotFound}}
 	if got := github.Requests()[start:]; reply.StatusCode != http.StatusNotFound || !reflect.DeepEqual(got, want) {
 		t.Errorf("status = %d, requests = %+v, want %+v", reply.StatusCode, got, want)
 	}

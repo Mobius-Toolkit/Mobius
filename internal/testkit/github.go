@@ -77,7 +77,7 @@ type FakeGitHub struct {
 	mu sync.Mutex
 	// requestsMu guards requests. It is separate from mu, because a handler can write its response while it holds mu.
 	requestsMu sync.Mutex
-	requests   []RequestEntry
+	requests   []Request
 	// Each write is one second after the last, so a `since` filter compares exactly. The unit is seconds after the Unix epoch.
 	clock                   int64
 	accountTypes            map[string]string
@@ -305,8 +305,8 @@ func (g *FakeGitHub) HoldNext(pattern string) (release func()) {
 	return func() { close(hold) }
 }
 
-// RequestEntry is a request that the fake GitHub got, with the status of its response.
-type RequestEntry struct {
+// Request is a request that the fake GitHub got, with the status of its response.
+type Request struct {
 	Method string
 	Path   string
 	Query  string
@@ -314,7 +314,7 @@ type RequestEntry struct {
 }
 
 // Requests gives a copy of the log of the requests that the fake GitHub got, the oldest first.
-func (g *FakeGitHub) Requests() []RequestEntry {
+func (g *FakeGitHub) Requests() []Request {
 	g.requestsMu.Lock()
 	defer g.requestsMu.Unlock()
 	return slices.Clone(g.requests)
@@ -341,7 +341,7 @@ func (s *statusRecorder) Unwrap() http.ResponseWriter {
 func (g *FakeGitHub) logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		g.requestsMu.Lock()
-		g.requests = append(g.requests, RequestEntry{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Status: http.StatusOK})
+		g.requests = append(g.requests, Request{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Status: http.StatusOK})
 		index := len(g.requests) - 1
 		g.requestsMu.Unlock()
 		next.ServeHTTP(&statusRecorder{ResponseWriter: w, g: g, index: index}, r)
