@@ -170,6 +170,16 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if err != nil {
 		return "", err
 	}
+	if task.State == "working" || task.State == "reviewed" {
+		stored, err := e.queries.KeepLeadFindings(ctx, store.KeepLeadFindingsParams{Findings: input.Findings + "\n", ID: task.ID})
+		if err != nil {
+			return "", err
+		}
+		if stored == 0 {
+			return "", refuse("The task of #%d is not working or reviewed any more.", input.N)
+		}
+		return fmt.Sprintf("Kept the findings on #%d. The next fix round gets them.", input.N), nil
+	}
 	defer e.holdWorker(task.ID)()
 	if !task.PullRequest.Valid || !task.Branch.Valid {
 		return "", refuse("The task of #%d has no pull request.", input.N)
@@ -183,21 +193,46 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 		return "", err
 	}
 	if task.State != "checks" && task.State != "approval" && task.State != "ready_for_review" {
-		return "", refuse("The task of #%d is %s, not checks, approval or ready_for_review.", input.N, task.State)
+		return "", refuse("The task of #%d is %s, not working, reviewed, checks, approval or ready_for_review.", input.N, task.State)
 	}
-	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "working", ID: task.ID, FromState: task.State})
+	r := round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: "\nFindings of the Lead:\n" + input.Findings + "\n", parent: sql.NullInt64{Int64: c.session, Valid: true}}
+	moved, err := e.startRound(ctx, repository, r)
 	if err != nil {
 		return "", err
 	}
-	if moved == 0 {
+	if !moved {
 		return "", refuse("The task of #%d is not %s any more.", input.N, task.State)
 	}
-	r := round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: "\nFindings of the Lead:\n" + input.Findings + "\n", parent: sql.NullInt64{Int64: c.session, Valid: true}}
-	if err := e.fixRound(ctx, repository, r); err != nil {
-		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "working"})
-		return "", errors.Join(err, stateErr)
-	}
 	return fmt.Sprintf("Sent the findings to a fix round of #%d. At max_fix_rounds, Mobius stops the task instead.", input.N), nil
+}
+
+// startRound moves the task of the round from r.task.State to working and starts the round. It tells if the task moved.
+// The task goes back to its state when the round fails to start.
+func (e *Engine) startRound(ctx context.Context, repository github.Repository, r round) (bool, error) {
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "working", ID: r.task.ID, FromState: r.task.State})
+	if err != nil || moved == 0 {
+		return false, err
+	}
+	if err := e.fixRound(ctx, repository, r); err != nil {
+		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: r.task.State, ID: r.task.ID, FromState: "working"})
+		return false, errors.Join(err, stateErr)
+	}
+	return true, nil
+}
+
+// startKeptRound starts a fix round with the findings that the Lead kept on the task of the round, when it has some. The
+// task is in r.task.State now. The Lead keeps findings only in working and reviewed, so Mobius reads them after the task
+// left that state. It tells if a round started. The poll calls it again for a task in checks, approval or
+// ready_for_review with kept findings, so a failed start gets a retry.
+func (e *Engine) startKeptRound(ctx context.Context, repository github.Repository, r round) (bool, error) {
+	kept, err := e.queries.GetLeadFindings(ctx, r.task.ID)
+	if err != nil || kept == "" {
+		return false, err
+	}
+	if r.parent, err = e.newestSession(ctx, r.task); err != nil {
+		return false, err
+	}
+	return e.startRound(ctx, repository, r)
 }
 
 // approvePullRequest moves the task from approval to ready_for_review, sets the Mobius check of the head to success,
@@ -368,21 +403,21 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 }
 
 // fixRound starts a fix round of the Implementer on the pull request of the working task. The pull request is a draft
-// during the round. At max_fix_rounds, a round that counts hands the task to a human instead. A task that is not
-// working, for example after a decline, gets no round. The steps after the queue step run in the Worker, so an error
-// there starts the Implementer of the round again.
+// during the round. The round gets the findings that the Lead kept on the task, and it counts then. At max_fix_rounds, a
+// round that counts hands the task to a human instead, and the kept findings stay. The count comes after the GitHub
+// reads, so a failed start does not use a round. A task that is not working, for example after a decline, gets no round.
+// The steps after the queue step run in the Worker, so an error there starts the Implementer of the round again. The
+// Worker drops the kept findings after it stores the prompt that has them.
 func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r round) error {
 	if err := makeDraft(ctx, repository, r.pullRequest); err != nil {
 		return err
 	}
-	if r.counts {
-		added, err := e.queries.AddFixRound(ctx, store.AddFixRoundParams{ID: r.task.ID, Max: int64(e.config.MaxFixRounds)})
-		if err != nil {
-			return err
-		}
-		if added == 0 {
-			return e.stopAtLimit(ctx, repository, r, "fix")
-		}
+	kept, err := e.queries.GetLeadFindings(ctx, r.task.ID)
+	if err != nil {
+		return err
+	}
+	if kept != "" {
+		r.items += "\nFindings of the Lead:\n" + kept
 	}
 	brief, err := brief(ctx, repository, r.task.Workstream)
 	if err != nil {
@@ -399,6 +434,15 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	comments, err := e.readPullRequestComments(ctx, repository, int64(r.pullRequest.GetNumber()))
 	if err != nil {
 		return err
+	}
+	if r.counts || kept != "" {
+		added, err := e.queries.AddFixRound(ctx, store.AddFixRoundParams{ID: r.task.ID, Max: int64(e.config.MaxFixRounds)})
+		if err != nil {
+			return err
+		}
+		if added == 0 {
+			return e.stopAtLimit(ctx, repository, r, "fix")
+		}
 	}
 	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: r.task.ID, FromState: "working"})
 	if err != nil || queued == 0 {
@@ -419,6 +463,9 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	}
 	e.runPreparedWorker(j.task, &j.title, "Implementer", false, func(ctx context.Context) (bool, error) {
 		if err := e.setWorker(ctx, r.task.ID, worker, j.prompt); err != nil {
+			return false, err
+		}
+		if err := e.queries.DropLeadFindings(ctx, store.DropLeadFindingsParams{Taken: kept, ID: r.task.ID}); err != nil {
 			return false, err
 		}
 		if err := resumeWork(ctx, repository, r.task); err != nil {

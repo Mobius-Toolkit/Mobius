@@ -165,6 +165,62 @@
         ]
       }
     },
+    "/api/agents/{id}/transcript/events": {
+      "get": {
+        "description": "StreamTranscript sends each new or changed row of the Transcript of a session. It sends no row that exists when the stream opens. When the client does not read the rows fast enough, the stream ends.",
+        "operationId": "StreamTranscript",
+        "parameters": [
+          {
+            "description": "ID is the id of the session",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "$ref": "#/components/schemas/TranscriptEvents"
+                }
+              }
+            },
+            "description": "Event stream"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "agents"
+        ]
+      }
+    },
     "/api/chat": {
       "get": {
         "description": "GetChat returns a page of the messages of the Lead chat of a Workstream, or of the Triager chat of an organization.",
@@ -865,7 +921,7 @@
     },
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each new or changed Transcript row, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, and each Workstream that the Triager chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
+        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, and each Workstream that the Triager chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
         "operationId": "StreamEvents",
         "parameters": [
           {
@@ -4174,29 +4230,6 @@
                 "type": "string",
                 "contentMediaType": "application/json",
                 "contentSchema": {
-                  "$ref": "#/components/schemas/TranscriptLine"
-                }
-              },
-              "event": {
-                "type": "string",
-                "const": "transcript"
-              },
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "event",
-              "data"
-            ]
-          },
-          {
-            "type": "object",
-            "properties": {
-              "data": {
-                "type": "string",
-                "contentMediaType": "application/json",
-                "contentSchema": {
                   "$ref": "#/components/schemas/Drain"
                 }
               },
@@ -4817,6 +4850,35 @@
           "status"
         ],
         "description": "ToolCheck is the path and the version of a program that Mobius runs."
+      },
+      "TranscriptEvents": {
+        "title": "TranscriptEvents",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "$ref": "#/components/schemas/TranscriptLine"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "transcript"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          }
+        ],
+        "description": "TranscriptEvents are the events of the live stream of a Transcript."
       },
       "TranscriptLine": {
         "type": "object",

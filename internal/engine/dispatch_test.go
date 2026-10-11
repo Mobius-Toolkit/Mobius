@@ -214,6 +214,28 @@ func TestAnIssueWithAnOpenBlockerWaitsUntilTheBlockerCloses(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return slices.Equal(fake.Labels(shop, 41), []string{"mobius:working"}) })
 }
 
+func TestAnIssueWithATriageLabelWaitsUntilTheOwnerRemovesTheLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectSeen(t, fake)
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddLabel(shop, 41, "mobius:triage", "mobius-test[bot]")
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	dispatchTask(fake, 43, "Price rounding")
+	liveTaskOf(t, server, 43)
+	if hasLiveTask(t, server, 41) || !slices.Equal(fake.Labels(shop, 41), []string{"mobius:triage", "mobius:ready"}) {
+		t.Fatalf("labels of #41 = %v", fake.Labels(shop, 41))
+	}
+
+	fake.RemoveLabel(shop, 41, "mobius:triage", "owner")
+
+	if task := liveTaskOf(t, server, 41); task.Workstream != 12 {
+		t.Errorf("task = %+v", task)
+	}
+	testkit.WaitFor(t, func() bool { return slices.Equal(fake.Labels(shop, 41), []string{"mobius:working"}) })
+}
+
 func TestTheWorkstreamOfATaskIsTheFirstWorkstreamIssueInTheParentChain(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

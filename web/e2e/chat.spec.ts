@@ -144,7 +144,7 @@ test.describe("the agent log of a running Lead", () => {
       window.sources = [];
       const add = EventSource.prototype.addEventListener;
       EventSource.prototype.addEventListener = function (type, listener, options) {
-        if (this.url.endsWith('/api/events') && !window.sources.includes(this)) {
+        if (this.url.endsWith('/transcript/events') && !window.sources.includes(this)) {
           window.sources.push(this);
         }
         if (type === 'transcript') {
@@ -174,23 +174,35 @@ test.describe("the agent log of a running Lead", () => {
   test("the log shows the entries that arrived while the live connection was down", async ({
     page,
   }) => {
+    await page.addInitScript(`
+      window.sources = [];
+      const add = EventSource.prototype.addEventListener;
+      EventSource.prototype.addEventListener = function (type, listener, options) {
+        if (this.url.endsWith('/transcript/events') && !window.sources.includes(this)) {
+          window.sources.push(this);
+        }
+        return add.call(this, type, listener, options);
+      };
+    `);
     await page.goto("/agents");
     const main = page.getByRole("main");
     await say(page, "Which lilies sell best?");
     await leadRow(page).filter({ hasText: "Workstream #14" }).click();
     await page.evaluate("window.sameDocument = true");
     let refused = 0;
-    await page.route("/api/events", (route) => {
+    const live = /\/api\/(events|agents\/\d+\/transcript\/events)$/;
+    await page.route(live, (route) => {
       refused++;
       return route.abort();
     });
-    await page.evaluate("window.dispatchEvent(new Event('online'))");
+    await page.evaluate(`window.sources.forEach((source) => source.close());
+      window.dispatchEvent(new Event('online'))`);
     await expect.poll(() => refused).toBeGreaterThan(0);
 
     await expect.poll(() => runningLeads(page), { timeout: 15_000 }).toBe(0);
     await expect(main.getByText("Pink lilies sell best.")).toBeHidden();
 
-    await page.unroute("/api/events");
+    await page.unroute(live);
     await page.evaluate("window.dispatchEvent(new Event('online'))");
     await expect(main.getByText("Pink lilies sell best.")).toBeVisible();
     expect(await page.evaluate("window.sameDocument")).toBe(true);

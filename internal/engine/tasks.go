@@ -66,13 +66,11 @@ func (e *Engine) addTaskLines(ctx context.Context, repository github.Repository,
 }
 
 func (e *Engine) taskLine(ctx context.Context, repository github.Repository, workstream int64, issue *gh.Issue, own bool) (taskLine, error) {
-	line := taskLine{number: int64(issue.GetNumber()), title: issue.GetTitle(), state: "open"}
-	for _, label := range issue.Labels {
-		if state, ok := strings.CutPrefix(label.GetName(), "mobius:"); ok {
-			line.state = state
-			break
-		}
+	names := make([]string, len(issue.Labels))
+	for i, label := range issue.Labels {
+		names[i] = label.GetName()
 	}
+	line := taskLine{number: int64(issue.GetNumber()), title: issue.GetTitle(), state: labelState(names)}
 	if !own {
 		return line, nil
 	}
