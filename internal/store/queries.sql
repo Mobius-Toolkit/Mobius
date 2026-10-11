@@ -161,6 +161,13 @@ ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until;
 -- name: DeleteHarnessPause :exec
 DELETE FROM harness_pauses WHERE harness = ?;
 
+-- name: GetHarnessPauseEnd :one
+SELECT ended_at FROM harness_pause_ends WHERE harness = ?;
+
+-- name: SetHarnessPauseEnd :exec
+INSERT INTO harness_pause_ends (harness, ended_at) VALUES (?, ?)
+ON CONFLICT (harness) DO UPDATE SET ended_at = excluded.ended_at;
+
 -- name: AddInboxItem :one
 INSERT INTO inbox_items (kind, organization, repository, workstream, issue, text, link, time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)

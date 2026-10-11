@@ -236,8 +236,10 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	ended, found := e.pauseEnds.Load(a.harness)
-	retry := found && time.Since(ended.(time.Time)) <= retryWindow
+	retry, err := e.pauseEndedWithin(ctx, a.harness, retryWindow)
+	if err != nil {
+		return err
+	}
 	if !retry || a.author != "" {
 		if err := e.addLimitMessage(ctx, a, limitText(a.harness, until)); err != nil {
 			return err
@@ -323,7 +325,10 @@ func (e *Engine) endPauseSince(ctx context.Context, before *store.HarnessPause) 
 }
 
 func (e *Engine) endPause(ctx context.Context, pause store.HarnessPause) error {
-	e.pauseEnds.Store(config.Harness(pause.Harness), time.Now())
+	ended := store.SetHarnessPauseEndParams{Harness: pause.Harness, EndedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	if err := e.queries.SetHarnessPauseEnd(ctx, ended); err != nil {
+		return err
+	}
 	if err := e.queries.DeleteHarnessPause(ctx, pause.Harness); err != nil {
 		return err
 	}
@@ -331,6 +336,22 @@ func (e *Engine) endPause(ctx context.Context, pause store.HarnessPause) error {
 	e.pausesChanged.notify()
 	e.workers.changed.notify()
 	return nil
+}
+
+// pauseEndedWithin tells if the last pause of harness ended less than window ago.
+func (e *Engine) pauseEndedWithin(ctx context.Context, harness config.Harness, window time.Duration) (bool, error) {
+	text, err := e.queries.GetHarnessPauseEnd(ctx, string(harness))
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	ended, err := time.Parse(time.RFC3339Nano, text)
+	if err != nil {
+		return false, err
+	}
+	return time.Since(ended) <= window, nil
 }
 
 func pausedReason(pause store.HarnessPause) (string, error) {

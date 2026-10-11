@@ -1223,6 +1223,17 @@ func (q *Queries) GetHarnessPause(ctx context.Context, harness string) (HarnessP
 	return i, err
 }
 
+const getHarnessPauseEnd = `-- name: GetHarnessPauseEnd :one
+SELECT ended_at FROM harness_pause_ends WHERE harness = ?
+`
+
+func (q *Queries) GetHarnessPauseEnd(ctx context.Context, harness string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getHarnessPauseEnd, harness)
+	var ended_at string
+	err := row.Scan(&ended_at)
+	return ended_at, err
+}
+
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
@@ -3639,6 +3650,21 @@ type SetHarnessPauseParams struct {
 
 func (q *Queries) SetHarnessPause(ctx context.Context, arg SetHarnessPauseParams) error {
 	_, err := q.db.ExecContext(ctx, setHarnessPause, arg.Harness, arg.PausedUntil)
+	return err
+}
+
+const setHarnessPauseEnd = `-- name: SetHarnessPauseEnd :exec
+INSERT INTO harness_pause_ends (harness, ended_at) VALUES (?, ?)
+ON CONFLICT (harness) DO UPDATE SET ended_at = excluded.ended_at
+`
+
+type SetHarnessPauseEndParams struct {
+	Harness string
+	EndedAt string
+}
+
+func (q *Queries) SetHarnessPauseEnd(ctx context.Context, arg SetHarnessPauseEndParams) error {
+	_, err := q.db.ExecContext(ctx, setHarnessPauseEnd, arg.Harness, arg.EndedAt)
 	return err
 }
 

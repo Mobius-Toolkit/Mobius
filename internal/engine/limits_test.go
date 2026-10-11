@@ -329,6 +329,32 @@ func TestARetryThatHitsTheUsageLimitAfterARestartAddsNoChatMessage(t *testing.T)
 	}
 }
 
+func TestARetryThatHitsTheUsageLimitAfterARestartThatFollowsTheEndOfThePauseAddsNoChatMessage(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	ended := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano)
+	server, _ := connectWith(t, fake, usageLimit, func(cfg *config.Config) {
+		seed(t, cfg.DataDir, `INSERT INTO harness_pause_ends (harness, ended_at) VALUES ('devin', '`+ended+`')`)
+	})
+	agent := start(t, server, implementerSpec(t, server, fake, 41))
+	defer end(t, agent, "done")
+	prompted := make(chan error, 1)
+	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
+
+	testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+
+	if n := count(t, server, "SELECT COUNT(*) FROM chat_messages WHERE author = 'Mobius'"); n != 0 {
+		t.Errorf("%d chat messages", n)
+	}
+
+	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-prompted; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAUsageLimitOfAnotherHarnessGetsItsOwnPause(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

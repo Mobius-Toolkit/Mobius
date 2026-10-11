@@ -393,6 +393,9 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("ALTER TABLE harness_pauses ADD COLUMN inbox_item INTEGER NOT NULL DEFAULT 0"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec("DROP TABLE harness_pause_ends"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec("DELETE FROM goose_db_version WHERE version_id >= 20261027000000"); err != nil {
 		t.Fatal(err)
 	}
@@ -455,6 +458,7 @@ func TestThePauseMigrationDismissesTheUsageLimitItemsAndRemovesTheItemOfAPause(t
 	}
 	for _, statement := range []string{
 		"ALTER TABLE harness_pauses ADD COLUMN inbox_item INTEGER NOT NULL DEFAULT 0",
+		"DROP TABLE harness_pause_ends",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261029100000",
 		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time) VALUES
 			(1, 'usage limit', 'owner', '', 0, 0, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z'),

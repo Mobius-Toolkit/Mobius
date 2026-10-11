@@ -6,7 +6,9 @@ import { LoginContext } from "@/lib/login";
 import { dayClock } from "@/lib/time";
 
 export function Pauses({ pauses }: { pauses: Pause[] }) {
-  return pauses.map((pause) => <PauseLine key={pause.harness} pause={pause} />);
+  return pauses.map((pause) => (
+    <PauseLine key={`${pause.harness} ${pause.pausedUntil}`} pause={pause} />
+  ));
 }
 
 function PauseLine({ pause }: { pause: Pause }) {
