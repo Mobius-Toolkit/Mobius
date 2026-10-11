@@ -142,6 +142,7 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.changedIssues(ctx, repository); err != nil {
 		return err
 	}
+	e.checkCopiedTrees(ctx, repository)
 	if err := e.startHeldTriagers(ctx, repository); err != nil {
 		return err
 	}

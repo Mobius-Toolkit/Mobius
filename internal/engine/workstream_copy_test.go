@@ -691,6 +691,87 @@ func TestANewTitleOfAWorkstreamChangesTheTitleInTheBlockersOfTheCopy(t *testing.
 	})
 }
 
+func TestASubIssueAddedToAnOpenNodeIsCopied(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 60, "Invoice model")
+	server := startWithTasks(t, fake)
+
+	fake.AddSubIssue(shop, 41, 60)
+
+	testkit.WaitFor(t, func() bool { return slices.Equal(issueNumbers(t, server), []int64{41, 50, 60}) })
+}
+
+func TestAnIssueThatAPollSawBeforeItsParentLinkIsCopied(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTasks(t, fake)
+	fake.AddIssue(shop, 60, "Invoice model")
+	waitForPoll(t, server, fake)
+
+	fake.AddSubIssue(shop, 41, 60)
+
+	testkit.WaitFor(t, func() bool { return slices.Equal(issueNumbers(t, server), []int64{41, 50, 60}) })
+}
+
+func TestARemovedSubIssueIsRemovedFromTheCopy(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTasks(t, fake)
+
+	fake.RemoveSubIssue(shop, 41, 50)
+
+	testkit.WaitFor(t, func() bool { return slices.Equal(issueNumbers(t, server), []int64{41}) })
+}
+
+func TestABlockerThatIsAddedIsCopied(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 60, "Invoice model")
+	server := startWithTasks(t, fake)
+
+	fake.AddBlockedBy(shop, 50, 60)
+
+	testkit.WaitFor(t, func() bool {
+		return reflect.DeepEqual(copiedBlockers(t, server), []copiedBlocker{{Issue: 50, Number: 60}})
+	})
+}
+
+func TestABlockerThatIsRemovedIsRemovedFromTheCopy(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithBlocker(t, fake)
+
+	fake.RemoveBlockedBy(shop, 42, 60)
+
+	testkit.WaitFor(t, func() bool { return len(copiedBlockers(t, server)) == 0 })
+}
+
+func TestAClosedBlockerThatOpensAgainIsCopied(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithBlocker(t, fake)
+	fake.CloseIssue(shop, 60)
+	testkit.WaitFor(t, func() bool { return len(copiedBlockers(t, server)) == 0 })
+
+	fake.ReopenIssue(shop, 60)
+
+	testkit.WaitFor(t, func() bool {
+		return reflect.DeepEqual(copiedBlockers(t, server), []copiedBlocker{blocker(42, 60, 13, "Billing")})
+	})
+}
+
+func TestAPollWithNoChangeInTheSubIssuesAndTheBlockersSendsNoWorkstreamsChange(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithBlocker(t, fake)
+	changes := listen(t, server)
+
+	waitForPolls(t, fake)
+
+	noWorkstreams(t, changes)
+}
+
 // startWithBlocker starts a server where the task #42 of the Workstream #12 has the blocker #60 of the Workstream #13.
 func startWithBlocker(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
