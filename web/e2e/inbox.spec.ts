@@ -133,16 +133,11 @@ test("Details is closed by default and shows the full text after a click", async
   await expect(row.getByText("The pull request waits.")).toHaveCount(0);
 });
 
-test("Resume and Start again resume the issue and remove the item at once", async ({ page }) => {
+test("Resume and Start again resume the issue", async ({ page }) => {
   const resumed: string[] = [];
-  const dismissed: string[] = [];
   await routeInbox(page, items);
   await page.route("**/api/repositories/*/*/issues/*/resume", (route) => {
     resumed.push(new URL(route.request().url()).pathname);
-    return route.fulfill({ status: 204 });
-  });
-  await page.route("**/api/inbox/*/dismiss", (route) => {
-    dismissed.push(new URL(route.request().url()).pathname);
     return route.fulfill({ status: 204 });
   });
   await page.goto("/inbox");
@@ -157,5 +152,4 @@ test("Resume and Start again resume the issue and remove the item at once", asyn
       "/api/repositories/owner/shop/issues/42/resume",
       "/api/repositories/owner/shop/issues/41/resume",
     ]);
-  await expect.poll(() => dismissed).toEqual(["/api/inbox/2/dismiss", "/api/inbox/3/dismiss"]);
 });

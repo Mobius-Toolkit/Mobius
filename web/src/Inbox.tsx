@@ -85,10 +85,7 @@ function InboxRow({
 
   const resume = () => {
     const [owner, name] = item.repository.split("/");
-    act("action", async () => {
-      const res = await resumeIssue(owner, name, item.issue);
-      return res.status === 204 ? dismiss(item.id) : res;
-    });
+    act("action", () => resumeIssue(owner, name, item.issue));
   };
 
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
