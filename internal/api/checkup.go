@@ -27,12 +27,14 @@ type LabelCheck struct {
 	Found string `gork:"found"`
 }
 
-// RepositoryCheckup is the status of each Mobius label in a repository.
+// RepositoryCheckup is the status of each Mobius label in a repository, and its maintenance Workstream.
 type RepositoryCheckup struct {
 	// Repository is the repository as "owner/name"
 	Repository string `gork:"repository"`
 	// Labels are the Mobius labels
 	Labels []LabelCheck `gork:"labels"`
+	// MaintenanceWorkstream is the number of the open Workstream with mobius:maintenance and the lowest number, or 0 when the repository has none
+	MaintenanceWorkstream int64 `gork:"maintenanceWorkstream"`
 }
 
 // PermissionCheck is the status of a permission that the Mobius App needs.
@@ -81,7 +83,7 @@ func (h *handlers) GetCheckup(ctx context.Context, req GetCheckupRequest) (*GetC
 		for _, label := range repository.Labels {
 			labels = append(labels, LabelCheck{Name: label.Label.Name, Color: label.Label.Color, Status: label.Status, Found: label.Found})
 		}
-		checkup.Repositories = append(checkup.Repositories, RepositoryCheckup{Repository: repository.Repository, Labels: labels})
+		checkup.Repositories = append(checkup.Repositories, RepositoryCheckup{Repository: repository.Repository, Labels: labels, MaintenanceWorkstream: repository.MaintenanceWorkstream})
 	}
 	for _, permission := range found.Permissions {
 		checkup.Permissions = append(checkup.Permissions, PermissionCheck(permission))

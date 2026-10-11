@@ -14,7 +14,7 @@ const healthy = {
   labelFix: "none",
   permissions: [permission],
   permissionsError: "",
-  repositories: [{ repository: "shop", labels: [label] }],
+  repositories: [{ repository: "shop", labels: [label], maintenanceWorkstream: 7 }],
 };
 
 async function routeCheckup(
@@ -54,6 +54,7 @@ test("the Checkup page shows a needs you badge on each row with a problem", asyn
         {
           repository: "garden",
           labels: [{ ...label, status: "wrong-case", found: "Mobius:Ready" }],
+          maintenanceWorkstream: 7,
         },
       ],
     },
@@ -66,6 +67,66 @@ test("the Checkup page shows a needs you badge on each row with a problem", asyn
   await expect(row("Labels", "owner").getByText("needs you")).toBeHidden();
   await expect(row("Labels", "plants").getByText("needs you")).toBeVisible();
   await expect(row("App permissions", "plants").getByText("needs you")).toBeHidden();
+});
+
+test("the Checkup page shows a needs you badge on Workstreams when a repository has no maintenance Workstream", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const row = (section: string) =>
+    main.locator("section").filter({ hasText: section }).getByRole("link", { name: "Workstreams" });
+  await routeCheckup(page, [tool], {
+    owner: healthy,
+    plants: {
+      ...healthy,
+      repositories: [{ repository: "garden", labels: [label], maintenanceWorkstream: 0 }],
+    },
+  });
+
+  await page.goto("/settings/checkup");
+
+  await expect(row("plants").getByText("needs you")).toBeVisible();
+  await expect(row("owner").getByText("needs you")).toBeHidden();
+});
+
+test("the Workstreams page links the maintenance Workstream and sends the draft request to the Triager chat", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await routeCheckup(page, [tool], {
+    plants: {
+      ...healthy,
+      repositories: [
+        { repository: "plants/garden", labels: [label], maintenanceWorkstream: 0 },
+        { repository: "plants/pond", labels: [label], maintenanceWorkstream: 9 },
+      ],
+    },
+  });
+  await page.route(
+    (url) => url.pathname === "/api/chat/messages",
+    (route) => route.fulfill({ status: 204 }),
+  );
+
+  await page.goto("/settings/checkup");
+  await main
+    .locator("section")
+    .filter({ hasText: "plants" })
+    .getByRole("link", { name: "Workstreams" })
+    .click();
+
+  await expect(page).toHaveURL("/settings/checkup/plants/workstreams");
+  const link = main.getByRole("link", { name: "Maintenance Workstream #9" });
+  await expect(link).toHaveAttribute("href", "/workstreams/plants/pond/9");
+  await expect(main.getByRole("button", { name: "Create maintenance Workstream" })).toHaveCount(1);
+
+  const request = page.waitForRequest((req) => req.url().endsWith("/api/chat/messages"));
+  await main.getByRole("button", { name: "Create maintenance Workstream" }).click();
+
+  const body = (await request).postData() ?? "";
+  expect(body).toContain("Draft the maintenance Workstream for plants/garden.");
+  expect(body).toContain('name="organization"\r\n\r\nplants\r\n');
+  expect(body).toContain('name="repository"\r\n\r\n\r\n');
+  await expect(page).toHaveURL("/chat");
 });
 
 test("the Checkup page shows no badge on a row with no problem", async ({ page }) => {
@@ -86,6 +147,7 @@ test("the Checkup page shows no badge on a row with no problem", async ({ page }
           {
             repository: "garden",
             labels: [{ ...label, status: "wrong-case", found: "Mobius:Ready" }],
+            maintenanceWorkstream: 7,
           },
         ],
       },

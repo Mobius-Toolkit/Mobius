@@ -43,7 +43,14 @@ import { chatDraftKey, loadDraft, saveDraft } from "@/lib/draft";
 import { onEvent } from "@/lib/events";
 import { fitImage, maxImages } from "@/lib/images";
 import { LoginContext } from "@/lib/login";
-import { addQueued, listQueued, postQueued, removeQueued, type Queued } from "@/lib/outbox";
+import {
+  addQueued,
+  listQueued,
+  newMessageId,
+  postQueued,
+  removeQueued,
+  type Queued,
+} from "@/lib/outbox";
 import { atEnd } from "@/lib/scroll";
 import { clock, clockSeconds, dayClock, dayLabel, localTimes } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
@@ -58,11 +65,6 @@ const retryDelays = [2000, 5000, 10_000, 30_000];
 
 type Waiting = Queued & { sent?: boolean };
 type Failure = { id: string; error: string; retryAt: number };
-
-function newMessageId() {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 
 function upsert(list: ChatMessage[], message: ChatMessage) {
   const known = list.find((other) => other.id === message.id);

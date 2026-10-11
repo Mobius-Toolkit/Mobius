@@ -30,6 +30,8 @@ type checkup struct {
 	Repositories []struct {
 		Repository string       `json:"repository"`
 		Labels     []labelCheck `json:"labels"`
+
+		MaintenanceWorkstream int64 `json:"maintenanceWorkstream"`
 	} `json:"repositories"`
 	Permissions      []permissionCheck `json:"permissions"`
 	PermissionsError string            `json:"permissionsError"`
@@ -156,6 +158,26 @@ func TestTheCheckupShowsTheLabelStatusAndTheFixFixesTheFixableLabels(t *testing.
 	}
 	if patches := github.LabelPatches(shop); !slices.Equal(patches, []string{"mobius:working"}) {
 		t.Errorf("patches = %v", patches)
+	}
+}
+
+func TestTheCheckupShowsTheOpenMaintenanceWorkstreamWithTheLowestNumber(t *testing.T) {
+	github := testkit.NewFakeGitHub(t)
+	server := startWithApp(t, github, "User")
+
+	if got := getCheckup(t, server, "owner").Repositories[0].MaintenanceWorkstream; got != 0 {
+		t.Errorf("maintenance Workstream = %d, want 0", got)
+	}
+
+	for _, number := range []int64{30, 20, 10} {
+		github.AddIssue(shop, number, "Maintenance")
+		github.AddLabel(shop, number, "mobius:workstream", "owner")
+		github.AddLabel(shop, number, "mobius:maintenance", "owner")
+	}
+	github.CloseIssue(shop, 10)
+
+	if got := getCheckup(t, server, "owner").Repositories[0].MaintenanceWorkstream; got != 20 {
+		t.Errorf("maintenance Workstream = %d, want 20", got)
 	}
 }
 

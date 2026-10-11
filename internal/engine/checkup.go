@@ -17,10 +17,12 @@ type Checkup struct {
 	PermissionsError string
 }
 
-// RepositoryCheckup is the status of each Mobius label in a repository.
+// RepositoryCheckup is the status of each Mobius label in a repository, and its maintenance Workstream.
 type RepositoryCheckup struct {
 	Repository string
 	Labels     []LabelCheck
+	// MaintenanceWorkstream is the number of the maintenance Workstream, or 0 when the repository has none.
+	MaintenanceWorkstream int64
 }
 
 // PermissionCheck is the status of a permission that the Mobius App needs.
@@ -44,7 +46,8 @@ func (e *Engine) managed(organization string) []github.Repository {
 	return repositories
 }
 
-// Checkup gives the status of the App permissions and of each Mobius label in each repository of the organization.
+// Checkup gives the status of the App permissions, of each Mobius label and of the maintenance Workstream in each
+// repository of the organization.
 func (e *Engine) Checkup(ctx context.Context, organization string) (Checkup, error) {
 	repositories := e.managed(organization)
 	var checkup Checkup
@@ -60,7 +63,11 @@ func (e *Engine) Checkup(ctx context.Context, organization string) (Checkup, err
 		if err != nil {
 			return Checkup{}, err
 		}
-		checkup.Repositories = append(checkup.Repositories, RepositoryCheckup{Repository: repository.FullName, Labels: labels})
+		maintenance, err := maintenanceWorkstream(ctx, repository)
+		if err != nil {
+			return Checkup{}, err
+		}
+		checkup.Repositories = append(checkup.Repositories, RepositoryCheckup{Repository: repository.FullName, Labels: labels, MaintenanceWorkstream: maintenance})
 	}
 	return checkup, nil
 }

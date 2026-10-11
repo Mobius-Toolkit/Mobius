@@ -298,11 +298,13 @@ export interface LabelCheck {
 }
 
 /**
- * RepositoryCheckup is the status of each Mobius label in a repository.
+ * RepositoryCheckup is the status of each Mobius label in a repository, and its maintenance Workstream.
  */
 export interface RepositoryCheckup {
   /** Labels are the Mobius labels */
   labels: LabelCheck[];
+  /** MaintenanceWorkstream is the number of the open Workstream with mobius:maintenance and the lowest number, or 0 when the repository has none */
+  maintenanceWorkstream: number;
   /** Repository is the repository as "owner/name" */
   repository: string;
 }
