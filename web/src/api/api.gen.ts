@@ -109,17 +109,19 @@ export interface Activity {
   actor: string;
   /** ID increases with each new activity */
   id: number;
-  /** Issue is the number of the issue of the activity */
+  /** Issue is the number of the issue of the activity, or 0 for a session of the Triager */
   issue: number;
-  /** Link is the GitHub URL of the activity */
+  /** Link is the GitHub URL of the issue of the activity, or empty when the activity has no issue */
   link: string;
-  /** Repository is the repository of the Workstream issue, as "owner/name" */
+  /** Organization is the owner of the repository, or the organization of the Triager */
+  organization: string;
+  /** Repository is the repository of the Workstream issue, as "owner/name". It is empty for a session of the Triager */
   repository: string;
   /** Text tells what happened */
   text: string;
   /** Time is the time of the activity */
   time: string;
-  /** Workstream is the number of the Workstream issue */
+  /** Workstream is the number of the Workstream issue. It is 0 for a session of the Triager */
   workstream: number;
 }
 
@@ -444,7 +446,7 @@ export interface EnvelopeArrayGitHubApp {
 }
 
 /**
- * Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, full disk for a local check that waits for free disk space, check errors for a task whose check failed on 10 polls in a row, and full slots for Autopilot that cannot start a task for 30 minutes
+ * Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session of a task that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space
  */
 export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
 
@@ -458,8 +460,6 @@ export const InboxItemKind = {
   Lead_failed: 'Lead failed',
   stopped: 'stopped',
   full_disk: 'full disk',
-  check_errors: 'check errors',
-  full_slots: 'full slots',
 } as const;
 
 /**
@@ -475,7 +475,7 @@ export interface InboxItem {
   id: number;
   /** Issue is the number of the issue of the item */
   issue: number;
-  /** Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, full disk for a local check that waits for free disk space, check errors for a task whose check failed on 10 polls in a row, and full slots for Autopilot that cannot start a task for 30 minutes */
+  /** Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session of a task that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space */
   kind: InboxItemKind;
   /** Link is the GitHub URL of the item, or empty */
   link: string;

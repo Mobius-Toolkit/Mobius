@@ -683,8 +683,9 @@ func (e *Engine) finishChat(c *chat, failure string) {
 	e.publish(Change{Chat: &ChatState{Key: c.key, Error: failure}})
 }
 
-// leadFailed sends the item that the Lead did not take to the Inbox. For an event, all ready events of the
-// Workstream go to the Inbox, and they count as delivered.
+// leadFailed tells the Owner about the item that the Lead did not take. For a message, the Inbox gets an item. For an
+// event, the activity feed gets one activity on the Workstream issue for each ready event of the Workstream, and the
+// events count as delivered.
 func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 	if failed.message != nil {
 		message := failed.message
@@ -704,35 +705,27 @@ func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 		return err
 	}
 	organization, _, _ := strings.Cut(repository, "/")
-	var added []store.InboxItem
-	err = e.inTx(ctx, func(q *store.Queries) error {
+	return e.inTx(ctx, func(q *store.Queries) error {
 		for _, event := range events {
-			item, err := q.AddInboxItem(ctx, store.AddInboxItemParams{
-				Kind:         leadFailedKind,
+			err := q.AddEvent(ctx, store.AddEventParams{
+				Time:         now(),
 				Organization: organization,
 				Repository:   repository,
 				Workstream:   workstream,
 				Issue:        workstream,
-				Text:         event.Payload,
-				Time:         now(),
+				Actor:        mobiusActor,
+				Text:         "The Lead did not take this event: " + event.Payload,
+				Link:         issueLink(repository, workstream),
 			})
 			if err != nil {
 				return err
 			}
-			added = append(added, item)
 			if err := q.DeliverLeadEvent(ctx, store.DeliverLeadEventParams{DeliveredAt: sql.NullString{String: now(), Valid: true}, ID: event.ID}); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	for _, item := range added {
-		e.publish(Change{Inbox: &item})
-	}
-	return nil
 }
 
 // chat runs the turns of the session a: first the item first, and then each queued item. When the chat is idle for

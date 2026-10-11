@@ -223,22 +223,24 @@ func (q *Queries) AddDeviceLogin(ctx context.Context, arg AddDeviceLoginParams) 
 }
 
 const addEvent = `-- name: AddEvent :exec
-INSERT INTO events (time, repository, workstream, issue, actor, text, link) VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO events (time, organization, repository, workstream, issue, actor, text, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type AddEventParams struct {
-	Time       string
-	Repository string
-	Workstream int64
-	Issue      int64
-	Actor      string
-	Text       string
-	Link       string
+	Time         string
+	Organization string
+	Repository   string
+	Workstream   int64
+	Issue        int64
+	Actor        string
+	Text         string
+	Link         string
 }
 
 func (q *Queries) AddEvent(ctx context.Context, arg AddEventParams) error {
 	_, err := q.db.ExecContext(ctx, addEvent,
 		arg.Time,
+		arg.Organization,
 		arg.Repository,
 		arg.Workstream,
 		arg.Issue,
@@ -2424,7 +2426,7 @@ func (q *Queries) ListDeviceLogins(ctx context.Context) ([]ListDeviceLoginsRow, 
 }
 
 const listEventsAfter = `-- name: ListEventsAfter :many
-SELECT id, time, repository, workstream, issue, actor, text, link FROM events WHERE id > ? ORDER BY id
+SELECT id, time, repository, workstream, issue, actor, text, link, organization FROM events WHERE id > ? ORDER BY id
 `
 
 func (q *Queries) ListEventsAfter(ctx context.Context, id int64) ([]Event, error) {
@@ -2445,6 +2447,7 @@ func (q *Queries) ListEventsAfter(ctx context.Context, id int64) ([]Event, error
 			&i.Actor,
 			&i.Text,
 			&i.Link,
+			&i.Organization,
 		); err != nil {
 			return nil, err
 		}
@@ -2597,7 +2600,7 @@ func (q *Queries) ListHungSessionsSince(ctx context.Context, arg ListHungSession
 }
 
 const listLatestEvents = `-- name: ListLatestEvents :many
-SELECT id, time, repository, workstream, issue, actor, text, link FROM events ORDER BY id DESC LIMIT ?
+SELECT id, time, repository, workstream, issue, actor, text, link, organization FROM events ORDER BY id DESC LIMIT ?
 `
 
 func (q *Queries) ListLatestEvents(ctx context.Context, limit int64) ([]Event, error) {
@@ -2618,6 +2621,7 @@ func (q *Queries) ListLatestEvents(ctx context.Context, limit int64) ([]Event, e
 			&i.Actor,
 			&i.Text,
 			&i.Link,
+			&i.Organization,
 		); err != nil {
 			return nil, err
 		}

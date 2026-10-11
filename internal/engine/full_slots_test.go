@@ -31,7 +31,7 @@ func fullSlotsServer(t *testing.T, numbers ...int64) (*testkit.FakeGitHub, *test
 	return fake, server, since
 }
 
-// fullSlotsSince waits for a row of full_slots with no Inbox item, and gives its since.
+// fullSlotsSince waits for a row of full_slots with no activity, and gives its since.
 func fullSlotsSince(t *testing.T, server *testserver.Server) time.Time {
 	t.Helper()
 	return testkit.WaitForValue(t, func() (time.Time, bool) {
@@ -51,43 +51,43 @@ func fullSlotsSince(t *testing.T, server *testserver.Server) time.Time {
 	})
 }
 
-func fullSlotsItems(t *testing.T, server *testserver.Server) []inboxItem {
+func fullSlotsActivities(t *testing.T, server *testserver.Server) []activity {
 	t.Helper()
-	var items []inboxItem
-	for _, item := range inbox(t, server) {
-		if item.Kind == "full slots" {
-			items = append(items, item)
+	var found []activity
+	for _, a := range activities(t, server) {
+		if strings.Contains(a.Text, "Autopilot slots are full") {
+			found = append(found, a)
 		}
 	}
-	return items
+	return found
 }
 
 func setClock(server *testserver.Server, at time.Time) {
 	server.Engine.SetClock(func() time.Time { return at })
 }
 
-func TestNoInboxItemBeforeThirtyMinutesWithAllSlotsFull(t *testing.T) {
+func TestNoActivityBeforeThirtyMinutesWithAllSlotsFull(t *testing.T) {
 	t.Parallel()
 	fake, server, since := fullSlotsServer(t, 42)
 
 	setClock(server, since.Add(29*time.Minute))
 	waitForPolls(t, fake)
 
-	if items := fullSlotsItems(t, server); len(items) != 0 {
-		t.Errorf("items = %+v", items)
+	if items := fullSlotsActivities(t, server); len(items) != 0 {
+		t.Errorf("activities = %+v", items)
 	}
 }
 
-func TestAfterThirtyMinutesWithAllSlotsFullTheOwnerGetsOneItemWithTheTasks(t *testing.T) {
+func TestAfterThirtyMinutesWithAllSlotsFullTheActivityFeedGetsOneActivityWithTheTasks(t *testing.T) {
 	t.Parallel()
 	fake, server, since := fullSlotsServer(t, 42)
 
 	setClock(server, since.Add(31*time.Minute))
-	testkit.WaitFor(t, func() bool { return len(fullSlotsItems(t, server)) == 1 })
+	testkit.WaitFor(t, func() bool { return len(fullSlotsActivities(t, server)) == 1 })
 
-	item := fullSlotsItems(t, server)[0]
-	if item.Repository != shop || item.Workstream != 12 || item.Issue != 42 || item.Link == "" {
-		t.Errorf("item = %+v", item)
+	item := fullSlotsActivities(t, server)[0]
+	if item.Organization != "owner" || item.Repository != shop || item.Workstream != 12 || item.Issue != 42 || item.Actor != testkit.AppSlug+"[bot]" || item.Link == "" {
+		t.Errorf("activity = %+v", item)
 	}
 	for _, want := range []string{
 		`All 1 Autopilot slots are full for 31m0s.`,
@@ -99,17 +99,22 @@ func TestAfterThirtyMinutesWithAllSlotsFullTheOwnerGetsOneItemWithTheTasks(t *te
 		}
 	}
 	waitForPolls(t, fake)
-	if items := fullSlotsItems(t, server); len(items) != 1 {
-		t.Errorf("items = %+v", items)
+	if items := fullSlotsActivities(t, server); len(items) != 1 {
+		t.Errorf("activities = %+v", items)
+	}
+	for _, item := range inbox(t, server) {
+		if item.Kind == "full slots" {
+			t.Errorf("Inbox item = %+v", item)
+		}
 	}
 }
 
-func TestAFreeSlotAndThirtyMoreMinutesWithAllSlotsFullGiveANewItem(t *testing.T) {
+func TestAFreeSlotAndThirtyMoreMinutesWithAllSlotsFullGiveANewActivity(t *testing.T) {
 	t.Parallel()
 	fake, server, since := fullSlotsServer(t, 42, 43)
 	first := since.Add(31 * time.Minute)
 	setClock(server, first)
-	testkit.WaitFor(t, func() bool { return len(fullSlotsItems(t, server)) == 1 })
+	testkit.WaitFor(t, func() bool { return len(fullSlotsActivities(t, server)) == 1 })
 
 	if _, err := server.DB.Exec("UPDATE tasks SET state = 'ended' WHERE issue = 41"); err != nil {
 		t.Fatal(err)
@@ -120,26 +125,26 @@ func TestAFreeSlotAndThirtyMoreMinutesWithAllSlotsFullGiveANewItem(t *testing.T)
 	setClock(server, fullSince.Add(29*time.Minute))
 	waitForPolls(t, fake)
 
-	if items := fullSlotsItems(t, server); len(items) != 1 {
-		t.Fatalf("items = %+v", items)
+	if items := fullSlotsActivities(t, server); len(items) != 1 {
+		t.Fatalf("activities = %+v", items)
 	}
 
 	setClock(server, fullSince.Add(31*time.Minute))
-	testkit.WaitFor(t, func() bool { return len(fullSlotsItems(t, server)) == 2 })
+	testkit.WaitFor(t, func() bool { return len(fullSlotsActivities(t, server)) == 2 })
 
-	if item := fullSlotsItems(t, server)[1]; item.Issue != 43 || !strings.Contains(item.Text, shop+"#42 is dispatched for ") {
-		t.Errorf("item = %+v", item)
+	if item := fullSlotsActivities(t, server)[1]; item.Issue != 43 || !strings.Contains(item.Text, shop+"#42 is dispatched for ") {
+		t.Errorf("activity = %+v", item)
 	}
 }
 
-func TestWithAllSlotsFullAndNoIssueToStartTheOwnerGetsNoItem(t *testing.T) {
+func TestWithAllSlotsFullAndNoIssueToStartTheActivityFeedGetsNoActivity(t *testing.T) {
 	t.Parallel()
 	fake, server, start := fullSlotsServer(t)
 
 	setClock(server, start.Add(time.Hour))
 	waitForPolls(t, fake)
 
-	if items := fullSlotsItems(t, server); len(items) != 0 {
-		t.Errorf("items = %+v", items)
+	if items := fullSlotsActivities(t, server); len(items) != 0 {
+		t.Errorf("activities = %+v", items)
 	}
 }

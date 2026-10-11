@@ -185,7 +185,7 @@ func TestTheHangAfterTheThirdRetryStopsTheSessionAndHandsTheTaskToAHuman(t *test
 		}
 	}
 	text := fmt.Sprintf("Mobius stopped the implementer session %d. It had no activity after 3 retries. The session worked on #41.", session.ID)
-	if len(found) != 1 || found[0].Text != text || found[0].Issue != 41 || found[0].Repository != shop {
+	if len(found) != 1 || found[0].Text != text || found[0].Issue != 41 || found[0].Repository != shop || found[0].Link != "https://github.com/"+shop+"/issues/41" {
 		t.Errorf("Inbox items = %+v", found)
 	}
 	if state := taskState(t, server); state != "needs_human" {
@@ -203,25 +203,85 @@ func TestTheHangAfterTheThirdRetryStopsTheSessionAndHandsTheTaskToAHuman(t *test
 	}
 }
 
-func TestALeadThatHangsAfterTheThirdRetryEndsWithNoNewSessionAndSendsTheEventToTheInbox(t *testing.T) {
+// hungActivity waits for the activity about the stopped session of role, and gives it.
+func hungActivity(t *testing.T, server *testserver.Server, role string) activity {
+	t.Helper()
+	return testkit.WaitForValue(t, func() (activity, bool) {
+		for _, a := range activities(t, server) {
+			if strings.Contains(a.Text, "Mobius stopped the "+role+" session") {
+				return a, true
+			}
+		}
+		return activity{}, false
+	})
+}
+
+func noStoppedItem(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	for _, item := range inbox(t, server) {
+		if item.Kind == "stopped" {
+			t.Errorf("Inbox item = %+v", item)
+		}
+	}
+}
+
+func TestALeadThatHangsAfterTheThirdRetryEndsWithNoNewSessionAndAddsTwoActivities(t *testing.T) {
 	shortHang(t)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nhang = true\n\n"+strings.Repeat(hang, 3))
 
 	dispatchTask(fake, 41, "Add plan model")
 
-	testkit.WaitFor(t, func() bool {
-		kinds := map[string]bool{}
-		for _, item := range inbox(t, server) {
-			kinds[item.Kind] = true
+	hung := hungActivity(t, server, engine.LeadRole)
+	if hung.Organization != "owner" || hung.Repository != shop || hung.Workstream != 12 || hung.Issue != 12 || hung.Link != "https://github.com/"+shop+"/issues/12" {
+		t.Errorf("activity = %+v", hung)
+	}
+	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 0 })
+	var failed []activity
+	for _, a := range activities(t, server) {
+		if strings.HasPrefix(a.Text, "The Lead did not take this event: ") {
+			failed = append(failed, a)
 		}
-		return kinds["stopped"] && kinds["Lead failed"]
-	})
+	}
+	if len(failed) != 1 || failed[0].Workstream != 12 || failed[0].Issue != 12 || !strings.Contains(failed[0].Text, ` dispatch of #41 "Add plan model"`) {
+		t.Errorf("activities = %+v", failed)
+	}
 	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
 	if len(sessions) != 1 || sessions[0].EndReason.String != "hung" {
 		t.Errorf("sessions = %+v", sessions)
 	}
-	if got := undelivered(t, server); len(got) != 0 {
-		t.Errorf("undelivered = %+v", got)
+	noStoppedItem(t, server)
+	for _, item := range inbox(t, server) {
+		if item.Kind == "Lead failed" {
+			t.Errorf("Inbox item = %+v", item)
+		}
 	}
+}
+
+func TestAResearcherThatHangsAfterTheThirdRetryAddsAnActivityAndNoInboxItem(t *testing.T) {
+	shortHang(t)
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectResearcher(t, fake, researchLead, strings.Repeat(hang, 4))
+
+	sendChat(t, server, leadChat, "Plan the price model.")
+
+	hung := hungActivity(t, server, "researcher")
+	if hung.Organization != "owner" || hung.Repository != shop || hung.Workstream != 12 || hung.Link == "" {
+		t.Errorf("activity = %+v", hung)
+	}
+	noStoppedItem(t, server)
+}
+
+func TestACuratorThatHangsAfterTheThirdRetryAddsAnActivityAndNoInboxItem(t *testing.T) {
+	shortHang(t)
+	script := "[[prompts]]\nwhen = \"# Curator message\"\nreply = [\"I told the Owner.\"]\n\n" + strings.Repeat(hang, 4)
+	server, _ := connectWith(t, testkit.NewFakeGitHub(t), script, func(cfg *config.Config) {
+		seed(t, cfg.DataDir, `INSERT INTO curator_requests (repository, text) VALUES ('owner/shop', 'Add the lesson.')`)
+	})
+
+	hung := hungActivity(t, server, "curator")
+	if hung.Organization != "owner" || hung.Repository != shop || hung.Workstream != 0 || hung.Issue != 0 || hung.Link != "" {
+		t.Errorf("activity = %+v", hung)
+	}
+	noStoppedItem(t, server)
 }

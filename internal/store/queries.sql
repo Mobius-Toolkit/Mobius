@@ -17,7 +17,7 @@ SELECT * FROM events ORDER BY id DESC LIMIT ?;
 SELECT * FROM events WHERE id > ? ORDER BY id;
 
 -- name: AddEvent :exec
-INSERT INTO events (time, repository, workstream, issue, actor, text, link) VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO events (time, organization, repository, workstream, issue, actor, text, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: AddDeviceLogin :exec
 INSERT INTO device_logins (token_hash, password_fingerprint, user_agent, created_at)
