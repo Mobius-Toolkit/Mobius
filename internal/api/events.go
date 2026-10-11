@@ -34,17 +34,19 @@ type Activity struct {
 	ID int64 `gork:"id"`
 	// Time is the time of the activity
 	Time time.Time `gork:"time"`
-	// Repository is the repository of the Workstream issue, as "owner/name"
+	// Organization is the owner of the repository, or the organization of the Triager
+	Organization string `gork:"organization"`
+	// Repository is the repository of the Workstream issue, as "owner/name". It is empty for a session of the Triager
 	Repository string `gork:"repository"`
-	// Workstream is the number of the Workstream issue
+	// Workstream is the number of the Workstream issue. It is 0 for a session of the Triager
 	Workstream int64 `gork:"workstream"`
-	// Issue is the number of the issue of the activity
+	// Issue is the number of the issue of the activity, or 0 for a session of the Triager
 	Issue int64 `gork:"issue"`
-	// Actor is the GitHub login that did the activity
+	// Actor is the GitHub login that did the activity, or "Mobius" when no GitHub login did it
 	Actor string `gork:"actor"`
 	// Text tells what happened
 	Text string `gork:"text"`
-	// Link is the GitHub URL of the activity
+	// Link is the GitHub URL of the issue of the activity, or empty when the activity has no issue
 	Link string `gork:"link"`
 }
 
@@ -224,13 +226,14 @@ func sendActivity(stream *api.Stream[LiveEvents], e store.Event) error {
 		return err
 	}
 	return stream.SendWithID(strconv.FormatInt(e.ID, 10), LiveEvents{Activity: &Activity{
-		ID:         e.ID,
-		Time:       t,
-		Repository: e.Repository,
-		Workstream: e.Workstream,
-		Issue:      e.Issue,
-		Actor:      e.Actor,
-		Text:       e.Text,
-		Link:       e.Link,
+		ID:           e.ID,
+		Time:         t,
+		Organization: e.Organization,
+		Repository:   e.Repository,
+		Workstream:   e.Workstream,
+		Issue:        e.Issue,
+		Actor:        e.Actor,
+		Text:         e.Text,
+		Link:         e.Link,
 	}})
 }

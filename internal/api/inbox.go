@@ -12,10 +12,9 @@ type InboxItem struct {
 	// ID increases with each new item
 	ID int64 `gork:"id"`
 	// Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the
-	// Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull
-	// request of a task, stale pull request for an old pull request with a merge conflict, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, full disk for a local check that waits for free disk space,
-	// check errors for a task whose check failed on 10 polls in a row, and full slots for Autopilot that cannot start a task for 30 minutes
-	Kind string `gork:"kind" validate:"oneof=question Lead 'ready for review' 'stale pull request' 'Lead failed' stopped 'full disk' 'check errors' 'full slots'"`
+	// Lead to the Owner, Lead failed for a message that the Lead did not take, ready for review for a pull
+	// request of a task, stale pull request for an old pull request with a merge conflict, stopped for a task that Mobius lost or a session of a task that Mobius stopped after its hangs, and full disk for a local check that waits for free disk space
+	Kind string `gork:"kind" validate:"oneof=question Lead 'ready for review' 'stale pull request' 'Lead failed' stopped 'full disk'"`
 	// Organization is the owner of the repository
 	Organization string `gork:"organization"`
 	// Repository is the repository as "owner/name"

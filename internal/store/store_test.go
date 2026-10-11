@@ -390,6 +390,9 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN lead_findings"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec("ALTER TABLE events DROP COLUMN organization"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec("ALTER TABLE harness_pauses ADD COLUMN inbox_item INTEGER NOT NULL DEFAULT 0"); err != nil {
 		t.Fatal(err)
 	}
@@ -457,6 +460,7 @@ func TestThePauseMigrationDismissesTheUsageLimitItemsAndRemovesTheItemOfAPause(t
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		"ALTER TABLE events DROP COLUMN organization",
 		"ALTER TABLE harness_pauses ADD COLUMN inbox_item INTEGER NOT NULL DEFAULT 0",
 		"DROP TABLE harness_pause_ends",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261029100000",

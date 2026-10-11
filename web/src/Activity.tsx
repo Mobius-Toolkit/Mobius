@@ -16,11 +16,10 @@ export function Activity({
 }) {
   // selected is the key of the shown Workstream, or empty for all.
   const [selected, setSelected] = useState("");
-  const inOrganization = (repository: string) => repository.startsWith(`${organization}/`);
   const rows = activities
     .filter(
       (row) =>
-        inOrganization(row.repository) &&
+        row.organization === organization &&
         (!selected || `${row.repository}#${row.workstream}` === selected),
     )
     .toSorted((a, b) => b.id - a.id);
@@ -36,7 +35,7 @@ export function Activity({
           All
         </Button>
         {workstreams
-          ?.filter((workstream) => inOrganization(workstream.repository))
+          ?.filter((workstream) => workstream.repository.startsWith(`${organization}/`))
           .map((workstream) => {
             const key = `${workstream.repository}#${workstream.number}`;
             return (
@@ -57,17 +56,19 @@ export function Activity({
         {rows.map((row) => (
           <Row key={row.id} className="items-baseline gap-3">
             <span className="shrink-0 text-sm text-muted-foreground">{dayClock(row.time)}</span>
-            <span className="min-w-0 grow break-words">
+            <span className="min-w-0 grow break-words whitespace-pre-line">
               @{row.actor} {row.text}
             </span>
-            <a
-              href={row.link}
-              target="_blank"
-              rel="noreferrer"
-              className="text-primary underline-offset-4 hover:underline"
-            >
-              #{row.issue}
-            </a>
+            {row.link && (
+              <a
+                href={row.link}
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary underline-offset-4 hover:underline"
+              >
+                #{row.issue}
+              </a>
+            )}
           </Row>
         ))}
       </List>

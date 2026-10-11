@@ -218,23 +218,27 @@ func TestALeadThatCrashesGetsTheSameEventInANewSession(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 0 })
 }
 
-// Serial: in parallel, the inbox item "Lead failed" can show before the event is marked as delivered.
-func TestALeadThatAlwaysCrashesSendsTheEventToTheInbox(t *testing.T) {
+func TestALeadThatAlwaysCrashesSendsTheEventToTheActivityFeed(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"dispatch of #41\"\nshell = \"kill -9 $PPID; sleep 5\"\n")
 
 	dispatchTask(fake, 41, "Add plan model")
 
-	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
-		for _, item := range inbox(t, server) {
-			if item.Kind == "Lead failed" {
-				return item, true
+	failed := testkit.WaitForValue(t, func() (activity, bool) {
+		for _, a := range activities(t, server) {
+			if strings.HasPrefix(a.Text, "The Lead did not take this event: ") {
+				return a, true
 			}
 		}
-		return inboxItem{}, false
+		return activity{}, false
 	})
-	if !strings.Contains(item.Text, ` dispatch of #41 "Add plan model" by @owner:`) {
-		t.Errorf("item = %+v", item)
+	if !strings.Contains(failed.Text, ` dispatch of #41 "Add plan model" by @owner:`) {
+		t.Errorf("activity = %+v", failed)
+	}
+	for _, item := range inbox(t, server) {
+		if item.Kind == "Lead failed" {
+			t.Errorf("Inbox item = %+v", item)
+		}
 	}
 	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 4 {
 		t.Errorf("sessions = %d", len(got))

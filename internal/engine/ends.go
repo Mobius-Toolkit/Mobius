@@ -62,7 +62,8 @@ func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, w
 
 // countCheckErrors adds 1 to the count of polls in a row with an error of checkTask for the task, or sets the count to
 // 0 when checkErr is nil. It writes the count first. When the count becomes checkErrorPolls, it then tells the Lead and
-// the Owner with the last error, so a failed write loses the message and never repeats it. It does not change the task.
+// adds an activity with the last error, so a failed write loses the message and never repeats it. It does not change the
+// task.
 func (e *Engine) countCheckErrors(ctx context.Context, repository github.Repository, task store.Task, checkErr error) error {
 	count := task.CheckErrors + 1
 	if checkErr == nil {
@@ -91,12 +92,13 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 		pullRequest = fmt.Sprintf(", pull request #%d,", task.PullRequest.Int64)
 	}
 	text := fmt.Sprintf("Mobius failed to check #%d \"%s\"%s on %d polls in a row. The last error: %v.", task.Issue, copied.Title, pullRequest, checkErrorPolls, checkErr)
-	err = e.addInboxItem(ctx, store.AddInboxItemParams{
-		Kind:         checkErrorsKind,
+	err = e.queries.AddEvent(ctx, store.AddEventParams{
+		Time:         now(),
 		Organization: repository.Owner(),
 		Repository:   task.Repository,
 		Workstream:   task.Workstream,
 		Issue:        task.Issue,
+		Actor:        appLogin(repository.AppSlug),
 		Text:         text,
 		Link:         copied.HtmlUrl,
 	})

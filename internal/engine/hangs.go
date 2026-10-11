@@ -113,26 +113,50 @@ func (a *Agent) addNote(ctx context.Context, text string) error {
 	return a.engine.addRow(ctx, a.id, "check", row, false)
 }
 
-// endHung ends the session after the hang that follows the last retry, and adds an Inbox item for the Owner.
-func (a *Agent) endHung(ctx context.Context) error {
+// hungText tells the Owner that Mobius stopped the session after its hangs.
+func (a *Agent) hungText() string {
 	spec := a.spec
 	text := fmt.Sprintf("Mobius stopped the %s session %d. It had no activity after %d retries.", spec.Role, a.id, maxRetries)
 	if spec.Issue.Valid {
 		text += fmt.Sprintf(" The session worked on #%d.", spec.Issue.Int64)
 	}
-	err := a.engine.addInboxItem(ctx, store.AddInboxItemParams{
+	return text
+}
+
+// endHung ends the session after the hang that follows the last retry, and adds an activity on the issue of the
+// session, or on the Workstream issue when the session has no issue. A session with no Workstream has no issue and no link.
+func (a *Agent) endHung(ctx context.Context) error {
+	spec := a.spec
+	issue := spec.Issue.Int64
+	if !spec.Issue.Valid {
+		issue = spec.Workstream
+	}
+	err := a.engine.queries.AddEvent(ctx, store.AddEventParams{
+		Time:         now(),
+		Organization: spec.Organization,
+		Repository:   spec.Repository,
+		Workstream:   spec.Workstream,
+		Issue:        issue,
+		Actor:        mobiusActor,
+		Text:         a.hungText(),
+		Link:         issueLink(spec.Repository, issue),
+	})
+	return errors.Join(err, a.End(ctx, "hung"))
+}
+
+// endHungTask ends the session of the task after the hang that follows the last retry, and adds an Inbox item for the
+// Owner. It hands the task to a human with a stop event for the Lead.
+func (e *Engine) endHungTask(ctx context.Context, a *Agent, task store.Task, title string) error {
+	spec := a.spec
+	err := e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         stoppedKind,
 		Organization: spec.Organization,
 		Repository:   spec.Repository,
 		Workstream:   spec.Workstream,
 		Issue:        spec.Issue.Int64,
-		Text:         text,
+		Text:         a.hungText(),
+		Link:         issueLink(spec.Repository, spec.Issue.Int64),
 	})
-	return errors.Join(err, a.End(ctx, "hung"))
-}
-
-// endHungTask does endHung, and hands the task to a human with a stop event for the Lead.
-func (e *Engine) endHungTask(ctx context.Context, a *Agent, task store.Task, title string) error {
-	reason := fmt.Sprintf("the %s session %d had no activity after %d retries. Mobius stopped the session and added mobius:needs-human.", a.spec.Role, a.id, maxRetries)
-	return errors.Join(a.endHung(ctx), e.handOverFailed(ctx, task, title, reason, "Session hung", "The agent session had no activity after the last retry. Mobius stopped the session."))
+	reason := fmt.Sprintf("the %s session %d had no activity after %d retries. Mobius stopped the session and added mobius:needs-human.", spec.Role, a.id, maxRetries)
+	return errors.Join(err, a.End(ctx, "hung"), e.handOverFailed(ctx, task, title, reason, "Session hung", "The agent session had no activity after the last retry. Mobius stopped the session."))
 }

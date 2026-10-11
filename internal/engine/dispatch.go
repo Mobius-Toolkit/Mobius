@@ -146,15 +146,28 @@ func (e *Engine) dispatch(ctx context.Context, repository github.Repository, iss
 
 // addActivity adds an activity about the issue to the feed.
 func (e *Engine) addActivity(ctx context.Context, repository string, workstream int64, issue *gh.Issue, actor, text string) error {
+	organization, _, _ := strings.Cut(repository, "/")
 	return e.queries.AddEvent(ctx, store.AddEventParams{
-		Time:       now(),
-		Repository: repository,
-		Workstream: workstream,
-		Issue:      int64(issue.GetNumber()),
-		Actor:      actor,
-		Text:       text,
-		Link:       issue.GetHTMLURL(),
+		Time:         now(),
+		Organization: organization,
+		Repository:   repository,
+		Workstream:   workstream,
+		Issue:        int64(issue.GetNumber()),
+		Actor:        actor,
+		Text:         text,
+		Link:         issue.GetHTMLURL(),
 	})
+}
+
+// mobiusActor is the actor of an activity that Mobius adds with no GitHub login.
+const mobiusActor = "Mobius"
+
+// issueLink gives the GitHub URL of the issue, or an empty text for the issue 0 of a session with no Workstream.
+func issueLink(repository string, number int64) string {
+	if number == 0 {
+		return ""
+	}
+	return fmt.Sprintf("https://github.com/%s/issues/%d", repository, number)
 }
 
 // readyActor gives the actor of the last mobius:ready of events. After a move_issue of the Triager, the Mobius App
@@ -698,8 +711,8 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 }
 
 // noteFullSlots keeps the time when Autopilot first could not start a task because all slots were full. When
-// fullSlotsWait passed since then, it adds one Inbox item for the Owner with the issue that Autopilot could not start
-// and the tasks that hold the slots. It writes item_at after the item, so a failed step runs again on the next poll.
+// fullSlotsWait passed since then, it adds one activity on the issue that Autopilot could not start, with the tasks
+// that hold the slots. It writes item_at after the activity, so a failed step runs again on the next poll.
 func (e *Engine) noteFullSlots(ctx context.Context, repository github.Repository, issue *gh.Issue, workstream int64) error {
 	current := e.timeNow().UTC()
 	if err := e.queries.StartFullSlots(ctx, current.Format(time.RFC3339Nano)); err != nil {
@@ -729,16 +742,7 @@ func (e *Engine) noteFullSlots(ctx context.Context, repository github.Repository
 		}
 		fmt.Fprintf(&text, "\n- %s#%d is %s for %s", task.Repository, task.Issue, task.State, current.Sub(entered).Round(time.Minute))
 	}
-	err = e.addInboxItem(ctx, store.AddInboxItemParams{
-		Kind:         fullSlotsKind,
-		Organization: repository.Owner(),
-		Repository:   repository.FullName,
-		Workstream:   workstream,
-		Issue:        int64(issue.GetNumber()),
-		Text:         text.String(),
-		Link:         issue.GetHTMLURL(),
-	})
-	if err != nil {
+	if err := e.addActivity(ctx, repository.FullName, workstream, issue, appLogin(repository.AppSlug), text.String()); err != nil {
 		return err
 	}
 	return e.queries.SetFullSlotsItemAt(ctx, sql.NullString{String: current.Format(time.RFC3339Nano), Valid: true})

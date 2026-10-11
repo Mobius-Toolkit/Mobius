@@ -27,13 +27,14 @@ type workstream struct {
 }
 
 type activity struct {
-	ID         int64  `json:"id"`
-	Repository string `json:"repository"`
-	Workstream int64  `json:"workstream"`
-	Issue      int64  `json:"issue"`
-	Actor      string `json:"actor"`
-	Text       string `json:"text"`
-	Link       string `json:"link"`
+	ID           int64  `json:"id"`
+	Organization string `json:"organization"`
+	Repository   string `json:"repository"`
+	Workstream   int64  `json:"workstream"`
+	Issue        int64  `json:"issue"`
+	Actor        string `json:"actor"`
+	Text         string `json:"text"`
+	Link         string `json:"link"`
 }
 
 // send sends a request with the JSON body to the API path, and gives the status and the body of the response.
@@ -76,8 +77,8 @@ func complete(t *testing.T, server *testserver.Server, number int64) (int, strin
 func activities(t *testing.T, server *testserver.Server) []activity {
 	t.Helper()
 	return query(t, server, func(rows *sql.Rows, a *activity) error {
-		return rows.Scan(&a.ID, &a.Repository, &a.Workstream, &a.Issue, &a.Actor, &a.Text, &a.Link)
-	}, "SELECT id, repository, workstream, issue, actor, text, link FROM events ORDER BY id")
+		return rows.Scan(&a.ID, &a.Organization, &a.Repository, &a.Workstream, &a.Issue, &a.Actor, &a.Text, &a.Link)
+	}, "SELECT id, organization, repository, workstream, issue, actor, text, link FROM events ORDER BY id")
 }
 
 // liveEvents gives the data of each event name of the live event stream.
@@ -184,7 +185,7 @@ func TestANewWorkstreamAddsOneActivityThatGoesLive(t *testing.T) {
 	fake.AddLabel(shop, 13, "mobius:workstream", "Owner")
 	second := nextActivity(t, events)
 
-	want := activity{ID: first.ID, Repository: shop, Workstream: 12, Issue: 12, Actor: "owner", Text: `New Workstream "Integrate loyalty plans"`, Link: "https://github.com/owner/shop/issues/12"}
+	want := activity{ID: first.ID, Organization: "owner", Repository: shop, Workstream: 12, Issue: 12, Actor: "owner", Text: `New Workstream "Integrate loyalty plans"`, Link: "https://github.com/owner/shop/issues/12"}
 	if first != want {
 		t.Errorf("first = %+v", first)
 	}

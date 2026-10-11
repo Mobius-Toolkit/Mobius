@@ -22,14 +22,15 @@ type ChatMessage struct {
 }
 
 type Event struct {
-	ID         int64
-	Time       string
-	Repository string
-	Workstream int64
-	Issue      int64
-	Actor      string
-	Text       string
-	Link       string
+	ID           int64
+	Time         string
+	Repository   string
+	Workstream   int64
+	Issue        int64
+	Actor        string
+	Text         string
+	Link         string
+	Organization string
 }
 
 type FullSlot struct {
