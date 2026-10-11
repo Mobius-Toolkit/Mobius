@@ -13,7 +13,7 @@
 - Use pnpm for the frontend. Do not use npm or yarn.
 - Use Oxlint to lint the frontend (`pnpm lint`). Do not add ESLint.
 - Use oxfmt to format the frontend (`pnpm format`). Do not add Prettier or Biome.
-- Run `make fmt` before each commit. `.mobius/check` and CI only check the format. They never write it.
+- Run `make fmt` before each commit. CI only checks the format. It never writes it.
 - Put the body of each success response in `Envelope[T]` (`{"data": …}`). Error responses keep the Gork format. Server-sent events have no envelope.
 
 ## Gork
@@ -55,7 +55,7 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 - Before a push, run the tests that the change touches: `go test ./<package> -run <name>`. For a small package, `go test ./<package>` is also correct. Do not run the full `internal/engine` package or `go test ./...` on the machine of Mobius.
 - Wait for a condition with `testkit.WaitFor`. Do not sleep for a fixed time. Before a test changes an issue, wait for the first poll of its repository (`WaitForFirstPoll`).
 - A test server runs only fake agents: it takes no directory with a Harness command from the PATH of the test. To check that something does not happen, wait for more polls (`waitForPolls` in `internal/engine`).
-- The Playwright tests in `web/e2e` test the UI. Run them with `pnpm e2e` in `web`. The command builds the UI, and Playwright starts `TestServer` of `web/e2e` on port 6464 with a fake GitHub. The tests write a desktop and a phone screenshot of each screen to `web/screenshots`. `.mobius/check` does not run them.
+- The Playwright tests in `web/e2e` test the UI. Run them with `pnpm e2e` in `web`. The command builds the UI, and Playwright starts `TestServer` of `web/e2e` on port 6464 with a fake GitHub. The tests write a desktop and a phone screenshot of each screen to `web/screenshots`.
 - Before the first run of the Playwright tests, install the browser: `pnpm exec playwright install chromium`.
 - `web/screenshots` is not in the repository (`.gitignore`). The job `e2e` of `ci.yml` uploads it as the artifact `screenshots`. The workflow `screenshots` puts the files on the branch `screenshots` and shows them in one comment of the pull request, with the image of `main` next to the new image. No workflow pushes to the branch of a pull request.
 - When the job `e2e` fails, CI uploads `web/test-results` as the artifact `test-results`. It has a `trace.zip` file for each failed test. To open the file, run `pnpm exec playwright show-trace <file>`.
@@ -63,15 +63,13 @@ To listen to a server-sent event, use `onEvent` from `web/src/lib/events.ts` wit
 
 ## Before a push
 
-Before the first run of the check, install golangci-lint. Use the golangci-lint version of the `version` input of `golangci-lint-action` in `.github/workflows/ci.yml`:
+Before the first run of `make fmt`, install golangci-lint. Use the golangci-lint version of the `version` input of `golangci-lint-action` in `.github/workflows/ci.yml`:
 
 ```
 curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.14.0
 ```
 
-Run `.mobius/check` (or `make check`). It must pass.
-
-The local `.mobius/check` runs no Go tests. CI sets `CI`, and `.mobius/check` then runs all Go tests. Mobius starts a CI fix round when a Go test fails in CI.
+Only CI runs all Go tests. Mobius starts a CI fix round when a Go test fails in CI.
 
 ## Layout
 
@@ -99,7 +97,6 @@ web/public/            the files of the PWA: the web app manifest, the service w
 web/e2e/               the Playwright tests of the UI, and TestServer, the server that they test
 web/screenshots/       the screenshots of the Playwright tests (not in the repository)
 web/embed.go           embeds web/dist into the binary and serves it
-.mobius/check          the local check, also used in CI
 docs/install.md        the install guide
 .github/workflows/     ci.yml checks each pull request. release.yml checks each push to main and releases it with the next patch tag. screenshots.yml shows the screenshots of each pull request in one comment
 ```
@@ -114,4 +111,3 @@ docs/install.md        the install guide
 - `make generate` writes the sqlc code, the spec and the TypeScript client.
 - `make fmt` formats the Go code with golangci-lint and the frontend files with oxfmt.
 - `make build` builds the UI and then `bin/mobius`.
-- `make check` runs `.mobius/check`.
