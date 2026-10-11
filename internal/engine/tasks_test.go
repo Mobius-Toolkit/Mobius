@@ -23,6 +23,7 @@ type taskLine struct {
 
 type taskBlocker struct {
 	Number          int64   `json:"number"`
+	Repository      *string `json:"repository"`
 	WorkstreamTitle *string `json:"workstreamTitle"`
 }
 

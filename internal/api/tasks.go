@@ -31,6 +31,8 @@ type TaskLine struct {
 type Blocker struct {
 	// Number is the number of the blocker issue
 	Number int64 `gork:"number"`
+	// Repository is the full name of a blocker in another repository, or null
+	Repository *string `gork:"repository"`
 	// WorkstreamTitle is the title of the Workstream of a blocker in another Workstream, or null
 	WorkstreamTitle *string `gork:"workstreamTitle"`
 }
@@ -67,6 +69,9 @@ func (h *handlers) ListTasks(ctx context.Context, req ListTasksRequest) (*ListTa
 		task := TaskLine{Number: line.Number, Title: line.Title, State: line.State, URL: line.URL, Depth: line.Depth, OtherRepository: line.OtherRepository, BlockedBy: make([]Blocker, 0, len(line.BlockedBy))}
 		for _, blocker := range line.BlockedBy {
 			found := Blocker{Number: blocker.Number}
+			if blocker.Repository != "" {
+				found.Repository = &blocker.Repository
+			}
 			if blocker.WorkstreamTitle != "" {
 				found.WorkstreamTitle = &blocker.WorkstreamTitle
 			}

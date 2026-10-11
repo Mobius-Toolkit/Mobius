@@ -3273,6 +3273,13 @@
             "type": "integer",
             "description": "Number is the number of the blocker issue"
           },
+          "repository": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Repository is the full name of a blocker in another repository, or null"
+          },
           "workstreamTitle": {
             "type": [
               "string",
@@ -3283,6 +3290,7 @@
         },
         "required": [
           "number",
+          "repository",
           "workstreamTitle"
         ],
         "description": "Blocker is an open blocker of a task."

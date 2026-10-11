@@ -158,6 +158,8 @@ type TaskLine struct {
 // Blocker is an open blocker of a task.
 type Blocker struct {
 	Number int64
+	// Repository is the full name of the repository of a blocker in another repository, or "".
+	Repository string
 	// WorkstreamTitle is the title of the Workstream of a blocker in another Workstream, or "".
 	WorkstreamTitle string
 }
@@ -190,6 +192,9 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 	blockers := map[int64][]Blocker{}
 	for _, row := range blockerRows {
 		blocker := Blocker{Number: row.Number}
+		if row.BlockerRepository != repositoryName {
+			blocker.Repository = row.BlockerRepository
+		}
 		if row.BlockerWorkstream.Valid && row.BlockerWorkstream.Int64 != workstream {
 			blocker.WorkstreamTitle = row.BlockerWorkstreamTitle.String
 		}

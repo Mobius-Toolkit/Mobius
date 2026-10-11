@@ -28,9 +28,10 @@ type copiedIssue struct {
 	Author     string
 }
 
-// copiedBlocker is a blocker row: the blocked issue, the blocker, and the Workstream of the blocker with its title.
+// copiedBlocker is a blocker row: the blocked issue, the repository and the number of the blocker, and the Workstream of the blocker with its title.
 type copiedBlocker struct {
 	Issue      int64
+	Repository string
 	Number     int64
 	Workstream sql.NullInt64
 	Title      sql.NullString
@@ -109,10 +110,10 @@ func copiedLabels(t *testing.T, server *testserver.Server, number int64) []strin
 func copiedBlockers(t *testing.T, server *testserver.Server) []copiedBlocker {
 	t.Helper()
 	return query(t, server, func(rows *sql.Rows, b *copiedBlocker) error {
-		return rows.Scan(&b.Issue, &b.Number, &b.Workstream, &b.Title)
-	}, `SELECT i.number, b.number, b.blocker_workstream, b.blocker_workstream_title FROM copied_blockers b
+		return rows.Scan(&b.Issue, &b.Repository, &b.Number, &b.Workstream, &b.Title)
+	}, `SELECT i.number, b.blocker_repository, b.number, b.blocker_workstream, b.blocker_workstream_title FROM copied_blockers b
 		JOIN copied_issues i USING (repository, workstream, position)
-		WHERE b.repository = ? ORDER BY i.number, b.number`, shop)
+		WHERE b.repository = ? ORDER BY i.number, b.blocker_repository, b.number`, shop)
 }
 
 func copiedTitle(t *testing.T, server *testserver.Server, number int64) string {
@@ -126,7 +127,7 @@ func copiedTitle(t *testing.T, server *testserver.Server, number int64) string {
 
 // blocker gives the blocker row of the blocker number of the issue in the Workstream with title.
 func blocker(issue, number, workstream int64, title string) copiedBlocker {
-	return copiedBlocker{issue, number, sql.NullInt64{Int64: workstream, Valid: true}, sql.NullString{String: title, Valid: true}}
+	return copiedBlocker{issue, shop, number, sql.NullInt64{Int64: workstream, Valid: true}, sql.NullString{String: title, Valid: true}}
 }
 
 // startCopied starts a server with the issues of fake, and waits for the first poll, which copies the Workstreams first.
@@ -317,7 +318,7 @@ func TestTheFullSyncCopiesTheOpenBlockersWithTheWorkstreamOfEachBlocker(t *testi
 	want := []copiedBlocker{
 		blocker(41, 42, 12, "Integrate loyalty plans"),
 		blocker(41, 60, 13, "Billing"),
-		{Issue: 41, Number: 61},
+		{Repository: shop, Issue: 41, Number: 61},
 		blocker(42, 60, 13, "Billing"),
 	}
 	if got := copiedBlockers(t, server); !reflect.DeepEqual(got, want) {
@@ -733,7 +734,7 @@ func TestABlockerThatIsAddedIsCopied(t *testing.T) {
 	fake.AddBlockedBy(shop, 50, 60)
 
 	testkit.WaitFor(t, func() bool {
-		return reflect.DeepEqual(copiedBlockers(t, server), []copiedBlocker{{Issue: 50, Number: 60}})
+		return reflect.DeepEqual(copiedBlockers(t, server), []copiedBlocker{{Repository: shop, Issue: 50, Number: 60}})
 	})
 }
 
@@ -848,7 +849,7 @@ func TestANewWorkstreamChangesTheWorkstreamOfABlockerInAnotherTree(t *testing.T)
 	fake.AddSubIssue(shop, 20, 60)
 	fake.AddBlockedBy(shop, 60, 50)
 	server := startCopied(t, fake)
-	if got := copiedBlockers(t, server); !reflect.DeepEqual(got, []copiedBlocker{{Issue: 60, Number: 50}}) {
+	if got := copiedBlockers(t, server); !reflect.DeepEqual(got, []copiedBlocker{{Repository: shop, Issue: 60, Number: 50}}) {
 		t.Fatalf("blockers = %+v", got)
 	}
 
@@ -857,4 +858,61 @@ func TestANewWorkstreamChangesTheWorkstreamOfABlockerInAnotherTree(t *testing.T)
 	testkit.WaitFor(t, func() bool {
 		return reflect.DeepEqual(copiedBlockers(t, server), []copiedBlocker{blocker(60, 50, 41, "Add plan model")})
 	})
+}
+
+// addBlockerInAnotherRepository adds the task #42 of the Workstream #12 with the blocker #70 of other/repo.
+func addBlockerInAnotherRepository(fake *testkit.FakeGitHub) {
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 42, "Let customers change plans")
+	fake.AddSubIssue(shop, 12, 42)
+	fake.AddIssue(shop, 70, "A different issue with the same number")
+	fake.AddIssue("other/repo", 70, "A blocker in another repository")
+	fake.AddForeignBlockedBy(shop, 42, "other/repo", 70)
+}
+
+func TestTheCopyAndListTasksShowAnOpenBlockerInAnotherRepository(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBlockerInAnotherRepository(fake)
+	fake.AddIssue(shop, 43, "Add the invoice model")
+	fake.AddSubIssue(shop, 12, 43)
+	fake.AddIssue(shop, 44, "Add the plan model")
+	fake.AddSubIssue(shop, 12, 44)
+	fake.AddBlockedBy(shop, 44, 43)
+	server := startCopied(t, fake)
+
+	if got, want := copiedBlockers(t, server), []copiedBlocker{{Issue: 42, Repository: "other/repo", Number: 70}, blocker(44, 43, 12, "Integrate loyalty plans")}; !reflect.DeepEqual(got, want) {
+		t.Errorf("blockers = %+v", got)
+	}
+	other := "other/repo"
+	want := []taskLine{
+		{Number: 42, Title: "Let customers change plans", State: "open", URL: "https://github.com/owner/shop/issues/42", BlockedBy: []taskBlocker{{Number: 70, Repository: &other}}},
+		line(43, "Add the invoice model", "open", 0),
+		{Number: 44, Title: "Add the plan model", State: "open", URL: "https://github.com/owner/shop/issues/44", BlockedBy: []taskBlocker{{Number: 43}}},
+	}
+	waitForTasks(t, server, want)
+}
+
+func TestAClosedBlockerInAnotherRepositoryIsRemovedFromTheCopy(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBlockerInAnotherRepository(fake)
+	server := startCopied(t, fake)
+
+	fake.CloseIssue("other/repo", 70)
+
+	testkit.WaitFor(t, func() bool { return len(copiedBlockers(t, server)) == 0 })
+}
+
+func TestAPollWithNoChangeAndABlockerInAnotherRepositorySendsNoWorkstreamsChange(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addBlockerInAnotherRepository(fake)
+	server := startCopied(t, fake)
+	changes := listen(t, server)
+
+	waitForPolls(t, fake)
+
+	noWorkstreams(t, changes)
 }

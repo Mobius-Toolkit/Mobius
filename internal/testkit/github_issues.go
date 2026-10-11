@@ -31,8 +31,8 @@ type issue struct {
 	updatedAt   int64
 	// A sub-issue can live in another repository than its parent.
 	subIssues []issueKey
-	// The numbers of the blockers. Each blocker is in the repository of the issue.
-	blockedBy        []int64
+	// A blocker can live in another repository than the issue.
+	blockedBy        []issueKey
 	events           []eventJSON
 	comments         []commentJSON
 	reviews          []reviewJSON
@@ -172,10 +172,15 @@ func (g *FakeGitHub) AddSubIssueOf(repository string, parent, number int64, titl
 // AddBlockedBy makes blocker a blocker of the issue number. Both issues are in repository. The change of the
 // blockers changes the update time of no issue.
 func (g *FakeGitHub) AddBlockedBy(repository string, number, blocker int64) {
+	g.AddForeignBlockedBy(repository, number, repository, blocker)
+}
+
+// AddForeignBlockedBy makes the issue blocker of blockerRepository a blocker of the issue number in repository.
+func (g *FakeGitHub) AddForeignBlockedBy(repository string, number int64, blockerRepository string, blocker int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	found := g.issues[issueKey{repository, number}]
-	found.blockedBy = append(found.blockedBy, blocker)
+	found.blockedBy = append(found.blockedBy, issueKey{blockerRepository, blocker})
 }
 
 // RemoveBlockedBy removes blocker from the blockers of the issue number. The change of the blockers changes the update time of no issue.
@@ -183,7 +188,7 @@ func (g *FakeGitHub) RemoveBlockedBy(repository string, number, blocker int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	found := g.issues[issueKey{repository, number}]
-	found.blockedBy = slices.DeleteFunc(found.blockedBy, func(other int64) bool { return other == blocker })
+	found.blockedBy = slices.DeleteFunc(found.blockedBy, func(other issueKey) bool { return other == issueKey{repository, blocker} })
 }
 
 // SetAuthor sets the author of the issue.
@@ -321,7 +326,11 @@ func (g *FakeGitHub) SubIssueNumbers(repository string, number int64) []int64 {
 func (g *FakeGitHub) BlockerNumbers(repository string, number int64) []int64 {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return slices.Clone(g.issues[issueKey{repository, number}].blockedBy)
+	var numbers []int64
+	for _, blocker := range g.issues[issueKey{repository, number}].blockedBy {
+		numbers = append(numbers, blocker.number)
+	}
+	return numbers
 }
 
 // Comments gives the comments of the issue.
@@ -507,7 +516,7 @@ func (g *FakeGitHub) issueJSON(key issueKey) issueJSON {
 	}
 	summary := &dependenciesJSON{TotalBlockedBy: len(found.blockedBy)}
 	for _, blocker := range found.blockedBy {
-		if g.issues[issueKey{key.repository, blocker}].state == "open" {
+		if g.issues[blocker].state == "open" {
 			summary.BlockedBy++
 		}
 	}
@@ -800,7 +809,7 @@ func (g *FakeGitHub) blockedBy(w http.ResponseWriter, r *http.Request) {
 	}
 	blockers := []issueJSON{}
 	for _, blocker := range g.issues[key].blockedBy {
-		blockers = append(blockers, g.issueJSON(issueKey{key.repository, blocker}))
+		blockers = append(blockers, g.issueJSON(blocker))
 	}
 	writeJSON(w, http.StatusOK, page(w, r, blockers))
 }
@@ -825,7 +834,7 @@ func (g *FakeGitHub) addBlockedBy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	found := g.issues[key]
-	found.blockedBy = append(found.blockedBy, blocker.number)
+	found.blockedBy = append(found.blockedBy, blocker)
 	writeJSON(w, http.StatusCreated, g.issueJSON(blocker))
 }
 
