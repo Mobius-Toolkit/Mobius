@@ -29,11 +29,12 @@ type usageBody struct {
 		Values usageValues `json:"values"`
 	} `json:"groups"`
 	Options struct {
-		Harnesses    []string `json:"harnesses"`
-		Models       []string `json:"models"`
-		Efforts      []string `json:"efforts"`
-		Roles        []string `json:"roles"`
-		Repositories []string `json:"repositories"`
+		Harnesses     []string `json:"harnesses"`
+		Models        []string `json:"models"`
+		ModelVersions []string `json:"modelVersions"`
+		Efforts       []string `json:"efforts"`
+		Roles         []string `json:"roles"`
+		Repositories  []string `json:"repositories"`
 	} `json:"options"`
 }
 
@@ -117,8 +118,11 @@ func TestGetUsageFiltersTakeSeveralValues(t *testing.T) {
 	}{
 		{"two harnesses", "harness=devin&harness=claude-code", 3, 177},
 		{"one harness", "harness=devin", 1, 20},
-		{"reported model", "model=claude-opus-5", 1, 150},
-		{"config model when none is reported", "model=swe&model=sonnet", 2, 27},
+		{"model", "model=opus", 1, 150},
+		{"two models", "model=swe&model=sonnet", 2, 27},
+		{"model does not match the reported model", "model=claude-opus-5", 0, 0},
+		{"model version", "modelVersion=claude-opus-5", 1, 150},
+		{"model version does not match the model", "modelVersion=opus", 0, 0},
 		{"effort", "effort=low", 1, 7},
 		{"role", "role=Reviewer", 2, 27},
 		{"repository", "repository=o/b", 1, 20},
@@ -150,7 +154,8 @@ func TestGetUsageGroups(t *testing.T) {
 		want  []string
 	}{
 		{"harness", "harness", []string{"claude-code", "devin"}},
-		{"model", "model", []string{"claude-opus-5", "sonnet", "swe"}},
+		{"model", "model", []string{"opus", "sonnet", "swe"}},
+		{"model version", "modelVersion", []string{"", "claude-opus-5"}},
 		{"effort", "effort", []string{"", "high", "low"}},
 		{"role", "role", []string{"Implementer", "Reviewer"}},
 		{"repository", "repository", []string{"o/a", "o/b"}},
@@ -242,18 +247,20 @@ func TestGetUsageOptionsIgnoreTheFilters(t *testing.T) {
 	body := getUsage(t, usagePeriod+"&harness=devin")
 
 	want := map[string][]string{
-		"harnesses":    {"claude-code", "devin"},
-		"models":       {"claude-opus-5", "sonnet", "swe"},
-		"efforts":      {"high", "low"},
-		"roles":        {"Implementer", "Reviewer"},
-		"repositories": {"o/a", "o/b"},
+		"harnesses":     {"claude-code", "devin"},
+		"models":        {"opus", "sonnet", "swe"},
+		"modelVersions": {"claude-opus-5"},
+		"efforts":       {"high", "low"},
+		"roles":         {"Implementer", "Reviewer"},
+		"repositories":  {"o/a", "o/b"},
 	}
 	got := map[string][]string{
-		"harnesses":    body.Options.Harnesses,
-		"models":       body.Options.Models,
-		"efforts":      body.Options.Efforts,
-		"roles":        body.Options.Roles,
-		"repositories": body.Options.Repositories,
+		"harnesses":     body.Options.Harnesses,
+		"models":        body.Options.Models,
+		"modelVersions": body.Options.ModelVersions,
+		"efforts":       body.Options.Efforts,
+		"roles":         body.Options.Roles,
+		"repositories":  body.Options.Repositories,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("options = %v, want %v", got, want)

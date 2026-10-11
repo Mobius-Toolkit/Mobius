@@ -54,8 +54,10 @@ type UsageGroup struct {
 type UsageOptions struct {
 	// Harnesses are the Harnesses of the rows
 	Harnesses []string `gork:"harnesses"`
-	// Models are the models that the Harness reports, or the models of the config when the Harness reports none
+	// Models are the models of the config
 	Models []string `gork:"models"`
+	// ModelVersions are the models that the Harness reports. A request cannot filter for the rows with no reported model
+	ModelVersions []string `gork:"modelVersions"`
 	// Efforts are the efforts of the rows. A request cannot filter for the rows with no effort
 	Efforts []string `gork:"efforts"`
 	// Roles are the roles of the rows
@@ -87,8 +89,10 @@ type GetUsageRequest struct {
 		Tz string `gork:"tz"`
 		// Harness limits the rows to these Harnesses
 		Harness []string `gork:"harness"`
-		// Model limits the rows to these models. The model is the model that the Harness reports, or the model of the config when the Harness reports none
+		// Model limits the rows to these models of the config
 		Model []string `gork:"model"`
+		// ModelVersion limits the rows to these models that the Harness reports
+		ModelVersion []string `gork:"modelVersion"`
 		// Effort limits the rows to these efforts
 		Effort []string `gork:"effort"`
 		// Role limits the rows to these roles
@@ -96,7 +100,7 @@ type GetUsageRequest struct {
 		// Repository limits the rows to these repositories as "owner/name"
 		Repository []string `gork:"repository"`
 		// Group is the value that splits the days and the groups. With no Group, all rows are in one group
-		Group string `gork:"group" validate:"omitempty,oneof=harness model effort role repository"`
+		Group string `gork:"group" validate:"omitempty,oneof=harness model modelVersion effort role repository"`
 	}
 }
 
@@ -137,17 +141,21 @@ func (h *handlers) GetUsage(ctx context.Context, req GetUsageRequest) (*GetUsage
 		if started.Before(query.From) || !started.Before(query.To) {
 			continue
 		}
-		model := usageModel(row)
+		modelVersion := row.ReportedModel.String
 		effort := row.Effort.String
 		options.Harnesses = append(options.Harnesses, row.Harness)
-		options.Models = append(options.Models, model)
+		options.Models = append(options.Models, row.Model)
+		if modelVersion != "" {
+			options.ModelVersions = append(options.ModelVersions, modelVersion)
+		}
 		if effort != "" {
 			options.Efforts = append(options.Efforts, effort)
 		}
 		options.Roles = append(options.Roles, row.Role)
 		options.Repositories = append(options.Repositories, row.Repository)
-		if !passes(query.Harness, row.Harness) || !passes(query.Model, model) || !passes(query.Effort, effort) ||
-			!passes(query.Role, row.Role) || !passes(query.Repository, row.Repository) {
+		if !passes(query.Harness, row.Harness) || !passes(query.Model, row.Model) ||
+			!passes(query.ModelVersion, modelVersion) || !passes(query.Effort, effort) || !passes(query.Role, row.Role) ||
+			!passes(query.Repository, row.Repository) {
 			continue
 		}
 		group := usageGroup(row, query.Group)
@@ -164,11 +172,12 @@ func (h *handlers) GetUsage(ctx context.Context, req GetUsageRequest) (*GetUsage
 	}
 
 	usage := Usage{Totals: totals.values(), Days: []UsageDay{}, Groups: []UsageGroup{}, Options: UsageOptions{
-		Harnesses:    distinct(options.Harnesses),
-		Models:       distinct(options.Models),
-		Efforts:      distinct(options.Efforts),
-		Roles:        distinct(options.Roles),
-		Repositories: distinct(options.Repositories),
+		Harnesses:     distinct(options.Harnesses),
+		Models:        distinct(options.Models),
+		ModelVersions: distinct(options.ModelVersions),
+		Efforts:       distinct(options.Efforts),
+		Roles:         distinct(options.Roles),
+		Repositories:  distinct(options.Repositories),
 	}}
 	for key, sum := range days {
 		usage.Days = append(usage.Days, UsageDay{Day: key.day, Group: key.group, Values: sum.values()})
@@ -248,20 +257,14 @@ func nullableFloat(value sql.NullFloat64) *float64 {
 	return &value.Float64
 }
 
-// usageModel is the model that the Harness reports, or the model of the config when the Harness reports none.
-func usageModel(row store.TurnUsage) string {
-	if row.ReportedModel.Valid {
-		return row.ReportedModel.String
-	}
-	return row.Model
-}
-
 func usageGroup(row store.TurnUsage, group string) string {
 	switch group {
 	case "harness":
 		return row.Harness
 	case "model":
-		return usageModel(row)
+		return row.Model
+	case "modelVersion":
+		return row.ReportedModel.String
 	case "effort":
 		return row.Effort.String
 	case "role":
