@@ -359,6 +359,65 @@ func TestAWriteWaitsForTheWriteOfAnotherConnection(t *testing.T) {
 	}
 }
 
+func TestATransactionThatReadsAndThenWritesWaitsForTheWriteLockAtItsStart(t *testing.T) {
+	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	readThenWrite := func(tx *sql.Tx, endpoint string) error {
+		var n int
+		if err := tx.QueryRow("SELECT count(*) FROM sync_cursors").Scan(&n); err != nil {
+			return err
+		}
+		_, err := tx.Exec("INSERT INTO sync_cursors (repository, endpoint) VALUES ('owner/shop', ?)", endpoint)
+		return err
+	}
+	txA, err := db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := txA.QueryRow("SELECT count(*) FROM sync_cursors").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	doneB := make(chan error, 1)
+	go func() {
+		txB, err := db.BeginTx(t.Context(), nil)
+		if err != nil {
+			doneB <- err
+			return
+		}
+		if err := readThenWrite(txB, "pulls"); err != nil {
+			_ = txB.Rollback()
+			doneB <- err
+			return
+		}
+		doneB <- txB.Commit()
+	}()
+
+	// With a deferred transaction, B finishes in this time and the write of A fails.
+	var errB error
+	finishedB := false
+	select {
+	case errB = <-doneB:
+		finishedB = true
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, err := txA.Exec("INSERT INTO sync_cursors (repository, endpoint) VALUES ('owner/shop', 'issues')"); err != nil {
+		t.Fatalf("write of transaction A = %v", err)
+	}
+	if err := txA.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if !finishedB {
+		errB = <-doneB
+	}
+	if errB != nil {
+		t.Errorf("transaction B = %v", errB)
+	}
+}
+
 func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mobius.db")
 	db, err := Open(t.Context(), path)
