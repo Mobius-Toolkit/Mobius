@@ -76,6 +76,13 @@ type Agent struct {
 	// are never both true.
 	uncounted bool
 
+	// maintenance is the number of the maintenance Workstream of the repository of a Curator at the start of the
+	// session, or 0.
+	maintenance int64
+	// issues is the number of task issues that the Curator created. issuesMu holds the calls that create one.
+	issues   int
+	issuesMu sync.Mutex
+
 	// scratch is the directory of the session below scratch/, or "".
 	scratch string
 
@@ -326,6 +333,15 @@ func (a *Agent) listed() bool {
 func (a *Agent) startHarness(ctx context.Context) error {
 	e := a.engine
 	spec := a.spec
+	if spec.Role == CuratorRole {
+		repository, err := e.repository(spec.Repository)
+		if err != nil {
+			return err
+		}
+		if a.maintenance, err = maintenanceWorkstream(ctx, repository); err != nil {
+			return err
+		}
+	}
 	mcpCaller := mcp.Caller{Tools: e.tools(caller{
 		session:      a.id,
 		role:         spec.Role,
