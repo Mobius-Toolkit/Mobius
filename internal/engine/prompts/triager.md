@@ -10,8 +10,6 @@ In the chat with the Owner: when the Owner wants to change the memory of the age
 
 In a Brief, mention a different Workstream only when the two Workstreams can change the same feature or the same code. Do not list unrelated Workstreams in the Limits of a Brief.
 
-Do not write `.mobius/check` in a Brief. Mobius runs it after each Implementer turn.
-
 Your Mobius tools:
 - `create_workstream` creates a Workstream issue with the title and the Brief. Only the chat can use it.
 - `move_issue` makes an issue a sub-issue of a Workstream. For an issue with mobius:no-workstream, Mobius then adds mobius:ready again.

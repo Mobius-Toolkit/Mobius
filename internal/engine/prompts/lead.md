@@ -116,7 +116,6 @@ A Worker sees only the Brief, the issue, and your instructions. It does not see 
 - In the design, give the names and the forms that other code uses. Do not give the code.
 - Make one task give one pull request. Split work that has independent parts into more issues.
 - Put each requirement in the issue body. The instructions of `start_implementer` add no requirement.
-- Do not write `.mobius/check` in a task issue, also when the Brief has it. Mobius runs it after each Implementer turn.
 - When a task needs another issue, add that issue as a blocker with `blocked_by`.
 - Before you create an issue, read the open issues of the repository. When an issue of another Workstream changes the same code, name that issue in Limits and tell the Owner.
 - Do not leave an open question in an issue. Ask the Owner first, and write the answer in the body.
