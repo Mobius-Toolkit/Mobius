@@ -106,6 +106,7 @@ test("screenshots", async ({ page }) => {
     device: string,
     upgrade: Locator,
     phone: { upgrade?: boolean; organizations?: boolean } = {},
+    inboxCount = "1",
   ) => {
     const desktop = device === "desktop";
     return [
@@ -117,7 +118,7 @@ test("screenshots", async ({ page }) => {
       page
         .locator('nav a[href="/inbox"]')
         .filter({ visible: true })
-        .getByText("1", { exact: true }),
+        .getByText(inboxCount, { exact: true }),
       page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
       ...(desktop ? [page.locator("nav").first().getByText("needs you")] : []),
     ];
@@ -375,13 +376,97 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain),
     main.getByText("Sell gift cards in the shop."),
   ]);
-  await screenshot(page, "inbox", "/inbox", (device) => [
+  // The Inbox of the server has one item. The route adds one item of each other kind.
+  await page.route("/api/inbox", async (route) => {
+    const response = await route.fetch();
+    const { data } = (await response.json()) as { data: object[] };
+    const link = "https://github.com/owner/shop";
+    const item = {
+      dismissedAt: null,
+      organization: "owner",
+      repository: "owner/shop",
+      workstream: 12,
+      time: "2026-09-28T09:30:00Z",
+      title: "",
+      reason: "",
+      link: "",
+      pullRequest: 0,
+      pullRequestUrl: "",
+      reportUrl: "",
+    };
+    await route.fulfill({
+      json: {
+        data: [
+          ...data,
+          {
+            ...item,
+            id: 101,
+            issue: 42,
+            kind: "stopped",
+            title: "Let customers change plans",
+            reason: "The implementer session hung",
+            text: "Mobius stopped the implementer session 7. It had no activity after 3 retries. The session worked on #42.",
+            link: `${link}/issues/42`,
+          },
+          {
+            ...item,
+            id: 102,
+            issue: 41,
+            kind: "lost",
+            title: "Add plan model",
+            reason: "Mobius lost the task",
+            text: "Mobius lost the state of this task. Add mobius:ready to start again.",
+            link: `${link}/issues/41`,
+          },
+          {
+            ...item,
+            id: 103,
+            issue: 30,
+            kind: "ready for review",
+            title: "Name the plan tiers",
+            reason: "PR #44 is ready to merge",
+            text: 'Pull request #44 of #30 "Name the plan tiers" is ready for review.',
+            link: `${link}/issues/30`,
+            pullRequest: 44,
+            pullRequestUrl: `${link}/pull/44`,
+            reportUrl: `${link}/pull/44#issuecomment-1`,
+          },
+          {
+            ...item,
+            id: 104,
+            issue: 12,
+            kind: "Lead failed",
+            reason: "The Lead did not get your message",
+            text: "Start the work on the plan tiers.",
+          },
+        ],
+      },
+    });
+  });
+  const inboxReady = (device: string) => [
     chatCount,
-    ...frame(device, drain, { organizations: true }),
-    main.getByRole("tab", { name: "To do 1" }),
-    main.getByText("#45 needs a decision"),
-    main.getByText("Integrate loyalty plans ·"),
-  ]);
+    ...frame(device, drain, { organizations: true }, "5"),
+    main.getByRole("tab", { name: "To do 5" }),
+    main.getByText("Integrate loyalty plans", { exact: true }),
+    main.getByText("Let customers change plans"),
+    main.getByText("The Lead did not get your message"),
+  ];
+  await screenshot(page, "inbox", "/inbox", inboxReady);
+  await screenshot(
+    page,
+    "inbox-details",
+    "/inbox",
+    (device) => [
+      ...inboxReady(device),
+      main.getByText("#45 needs a decision: one seat limit"),
+      main.getByRole("link", { name: "Approval report" }),
+    ],
+    async () => {
+      await main.getByRole("button", { name: "Details" }).first().click();
+      await main.getByRole("button", { name: "Details" }).nth(3).click();
+    },
+  );
+  await page.unroute("/api/inbox");
   await screenshot(page, "inbox-activity", "/inbox/activity", (device) => [
     chatCount,
     ...frame(device, drain, { organizations: true }),
