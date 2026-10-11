@@ -132,7 +132,7 @@ func TestARemovalOfTheWorkingLabelStopsTheTask(t *testing.T) {
 	if len(fake.PullRequests(shop)) != 1 || len(inbox(t, server)) != items {
 		t.Errorf("pull requests = %+v, Inbox = %+v", fake.PullRequests(shop), inbox(t, server))
 	}
-	want := activity{ID: last.ID, Repository: shop, Workstream: 12, Issue: 41, Actor: "mallory", Text: "Stopped \"Add plan model\" after a removal of mobius:working", Link: "https://github.com/owner/shop/issues/41"}
+	want := activity{ID: last.ID, Organization: "owner", Repository: shop, Workstream: 12, Issue: 41, Actor: "mallory", Text: "Stopped \"Add plan model\" after a removal of mobius:working", Link: "https://github.com/owner/shop/issues/41"}
 	if last != want {
 		t.Errorf("activity = %+v", last)
 	}

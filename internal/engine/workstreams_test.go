@@ -185,7 +185,7 @@ func TestANewWorkstreamAddsOneActivityThatGoesLive(t *testing.T) {
 	fake.AddLabel(shop, 13, "mobius:workstream", "Owner")
 	second := nextActivity(t, events)
 
-	want := activity{ID: first.ID, Repository: shop, Workstream: 12, Issue: 12, Actor: "owner", Text: `New Workstream "Integrate loyalty plans"`, Link: "https://github.com/owner/shop/issues/12"}
+	want := activity{ID: first.ID, Organization: "owner", Repository: shop, Workstream: 12, Issue: 12, Actor: "owner", Text: `New Workstream "Integrate loyalty plans"`, Link: "https://github.com/owner/shop/issues/12"}
 	if first != want {
 		t.Errorf("first = %+v", first)
 	}
