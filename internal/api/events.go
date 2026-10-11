@@ -53,8 +53,6 @@ type LiveEvents struct {
 	Activity *Activity `gork:"activity"`
 	// Agent is a session at its start and at its end
 	Agent *Agent `gork:"agent"`
-	// Transcript is a new row of a Transcript, or a row that got more text
-	Transcript *TranscriptLine `gork:"transcript"`
 	// Drain is the state of the drain at each change
 	Drain *Drain `gork:"drain"`
 	// Upgrade is the state of the last upgrade at its start and at its failure
@@ -104,7 +102,7 @@ type WorkstreamRef struct {
 }
 
 // StreamEvents sends the latest activities, and then each new activity, each change of a session,
-// each new or changed Transcript row, each change of the drain, each start and failure of an upgrade,
+// each change of the drain, each start and failure of an upgrade,
 // each change of the Workstream list, each new or longer chat message, each new unread count, each change of the
 // state of a chat, each new or dismissed Inbox item, and each Workstream that the Triager chat created.
 // It also sends a ping at a fixed interval.
@@ -164,7 +162,8 @@ func (h *handlers) StreamEvents(ctx context.Context, req StreamEventsRequest, st
 func (h *handlers) sendChange(ctx context.Context, stream *api.Stream[LiveEvents], change engine.Change) error {
 	switch {
 	case change.Line != nil:
-		return stream.Send(LiveEvents{Transcript: new(transcriptLineOf(*change.Line))})
+		// StreamTranscript sends the Transcript rows.
+		return nil
 	case change.Drain != nil:
 		return stream.Send(LiveEvents{Drain: new(drainOf(*change.Drain))})
 	case change.Upgrade != nil:

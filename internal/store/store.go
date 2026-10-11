@@ -2,6 +2,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"embed"
@@ -16,6 +17,7 @@ import (
 // The migration files up to 20261003000000_workstream_copy.sql are copies of the migration
 // files of the Rust version (crates/mobius-store/migrations in Mobius-Toolkit/Mobius-rust,
 // which is archived). The files have no goose annotations, so each file runs as one Go migration.
+// A file that starts with the line "-- +goose NO TRANSACTION" runs outside a transaction.
 //
 //go:embed migrations/*.sql
 var migrations embed.FS
@@ -101,6 +103,12 @@ func goMigrations() ([]*goose.Migration, error) {
 			_, err := tx.ExecContext(ctx, string(query))
 			return err
 		}}
+		if bytes.HasPrefix(query, []byte("-- +goose NO TRANSACTION\n")) {
+			up = &goose.GoFunc{RunDB: func(ctx context.Context, db *sql.DB) error {
+				_, err := db.ExecContext(ctx, string(query))
+				return err
+			}}
+		}
 		ms = append(ms, goose.NewGoMigration(version, up, nil))
 	}
 	return ms, nil

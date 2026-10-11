@@ -419,7 +419,7 @@ func TestStartFixRoundWorksWhileTheTaskWaitsForTheLead(t *testing.T) {
 	}
 }
 
-const leadApproves = "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { n = 41 } }\n\n"
+const leadApproves = "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { n = 41, report = \"Checked the diff. Verified the tests.\" } }\n\n"
 
 func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxItem(t *testing.T) {
 	t.Parallel()
@@ -441,13 +441,38 @@ func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxIte
 	if want := (testkit.CheckRun{Name: "Mobius", HeadSHA: sha, Status: "completed", Conclusion: "success"}); fake.CheckRuns(shop)[0] != want {
 		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
 	}
-	want := []inboxItem{{Kind: "ready for review", Repository: shop, Workstream: 12, Issue: 41, Text: "Pull request #42 of #41 \"Add plan model\" is ready for review.", Link: "https://github.com/owner/shop/pull/42"}}
+	want := []inboxItem{{Kind: "ready for review", Repository: shop, Workstream: 12, Issue: 41, Text: "Pull request #42 of #41 \"Add plan model\" is ready for review.", Link: "https://github.com/owner/shop/pull/42#issuecomment-2"}}
+	if want, comments := (testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Checked the diff. Verified the tests."}), fake.Comments(shop, 42); comments[len(comments)-1] != want {
+		t.Errorf("comments = %+v", comments)
+	}
 	items := inbox(t, server)
 	if len(items) != 1 {
 		t.Fatalf("Inbox = %+v", items)
 	}
 	items[0].ID = 0
 	if items[0] != want[0] {
+		t.Errorf("Inbox = %+v", items)
+	}
+}
+
+func TestApprovePullRequestRefusesAnEmptyReportAndChangesNothing(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	empty := "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { n = 41, report = \" \" } }\n\n"
+	server, _ := connectTask(t, fake, empty+leadStarts, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	waitForChat(t, server, leadChat, "Lead", "error: report must not be empty.")
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+	if comments := fake.Comments(shop, 42); len(comments) != 1 {
+		t.Errorf("comments = %+v", comments)
+	}
+	if items := inbox(t, server); len(items) != 0 {
 		t.Errorf("Inbox = %+v", items)
 	}
 }

@@ -235,7 +235,8 @@ func threadText(thread github.ReviewThread, trusted func(string) bool) string {
 }
 
 // judgeReady moves the reviewed task to checks when its pull request has no open thread, with a new Mobius check run on
-// the head. It gives true when the task left the state reviewed.
+// the head. Then a task with kept findings of the Lead gets a fix round. It gives true when the task left the state
+// reviewed.
 func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
 	number := int64(pullRequest.GetNumber())
@@ -247,7 +248,20 @@ func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, t
 	if _, err := repository.CreateCheckRun(ctx, checkRunName, pullRequest.GetHead().GetSHA(), "in_progress"); err != nil {
 		return false, err
 	}
-	_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "reviewed"})
+	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "reviewed"})
+	if err != nil || moved == 0 {
+		return true, err
+	}
+	kept, err := e.queries.GetLeadFindings(ctx, task.ID)
+	if err != nil || kept == "" {
+		return true, err
+	}
+	issue, err := existingIssue(ctx, repository, task.Issue)
+	if err != nil {
+		return true, err
+	}
+	task.State = "checks"
+	_, err = e.startKeptRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest})
 	return true, err
 }
 
@@ -412,7 +426,8 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 
 // route acts on the verdicts of the Judge: a reject replies with its reason, a follow-up goes to the Lead, and the fix
 // and question actions go to a fix round. A round with no fix action does not count toward max_fix_rounds. With no
-// round, the task goes back to its state before the Judge.
+// round, a needs_human task continues as continueTask says, and another task goes back to its state before the Judge.
+// A task that goes back to checks, approval or ready_for_review gets a fix round with the findings that the Lead kept.
 func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts) error {
 	repository, err := e.repository(j.task.Repository)
 	if err != nil {
@@ -440,17 +455,19 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 		}
 	}
 	if len(routes.round) == 0 {
-		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: j.from, ID: j.task.ID, FromState: "working"})
+		if j.from == "needs_human" {
+			_, err := e.continueTask(ctx, repository, j.title, j.task, j.pullRequest, "working")
+			return err
+		}
+		moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: j.from, ID: j.task.ID, FromState: "working"})
+		if err != nil || moved == 0 || j.from == "reviewed" {
+			return err
+		}
+		_, err = e.startKeptRound(ctx, repository, round{task: j.task, title: j.title, pullRequest: j.pullRequest})
 		return err
 	}
 	if j.from == "needs_human" {
-		if err := repository.AddLabel(ctx, j.task.Issue, workingLabel); err != nil {
-			return err
-		}
-		if err := removeNeedsHuman(ctx, repository, j.task); err != nil {
-			return err
-		}
-		if err := e.queries.ResetTaskCounters(ctx, j.task.ID); err != nil {
+		if err := e.unstop(ctx, repository, j.task); err != nil {
 			return err
 		}
 	}
@@ -512,7 +529,7 @@ func routesOf(items []judgeItem, verdicts []itemVerdicts) judgeRoutes {
 }
 
 // validateVerdicts checks that the verdicts give each item of the batch one time, with one action or more. Items of
-// trusted users take fix, question and follow-up, and items of trusted bots take fix and reject.
+// trusted users take fix, question and follow-up, and items of trusted bots take fix, follow-up and reject.
 func validateVerdicts(items []judgeItem, verdicts []itemVerdicts) error {
 	for _, item := range items {
 		if count := len(slices.DeleteFunc(slices.Clone(verdicts), func(v itemVerdicts) bool { return v.Item != item.id })); count != 1 {
@@ -533,10 +550,10 @@ func validateVerdicts(items []judgeItem, verdicts []itemVerdicts) error {
 				return refuse("Each action of item %d needs a text.", verdict.Item)
 			}
 			switch a.Verdict {
-			case fixVerdict:
-			case questionVerdict, followUpVerdict:
+			case fixVerdict, followUpVerdict:
+			case questionVerdict:
 				if bot {
-					return refuse("Item %d is from a trusted bot, so its actions are only fix and reject.", verdict.Item)
+					return refuse("Item %d is from a trusted bot, so its actions are only fix, follow-up, and reject.", verdict.Item)
 				}
 			case rejectVerdict:
 				if !bot {

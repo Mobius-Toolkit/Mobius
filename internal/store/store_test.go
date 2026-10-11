@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -355,4 +357,95 @@ func TestAWriteWaitsForTheWriteOfAnotherConnection(t *testing.T) {
 	if err := <-written; err != nil {
 		t.Errorf("write = %v", err)
 	}
+}
+
+func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := strings.Repeat("x", 100_000)
+	commands := strings.Repeat(`{"name":"skill"},`, 5000) + `{"name":"last"}`
+	updates := map[string]string{
+		"tool_call_update": `{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"t","rawOutput":"` + output + `",` +
+			`"content":[{"type":"content","content":{"type":"text","text":"` + output + `"}}],` +
+			`"_meta":{"claudeCode":{"toolName":"Bash","toolResponse":{"stdout":"` + output + `"}}}}}`,
+		"available_commands_update": `{"sessionId":"s","update":{"sessionUpdate":"available_commands_update","availableCommands":[` + commands + `]}}`,
+		"tool_call":                 `{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t","rawOutput":"keep"}}`,
+	}
+	if _, err := db.Exec("DROP INDEX transcript_session"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO sessions (id, role, harness, model, repository, workstream, started_at) VALUES (1, 'lead', 'h', 'm', 'o/a', 1, '2026-10-01T00:00:00Z')"); err != nil {
+		t.Fatal(err)
+	}
+	for _, update := range updates {
+		for range 20 {
+			if _, err := db.Exec("INSERT INTO transcript (session, time, kind, json) VALUES (1, '2026-10-01T10:00:00Z', 'update', ?)", update); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if _, err := db.Exec("DELETE FROM goose_db_version WHERE version_id = 20261027000000"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before := fileSize(t, path)
+
+	db, err = Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if after := fileSize(t, path); after*2 > before {
+		t.Errorf("the file has %d bytes after the migration and %d bytes before", after, before)
+	}
+	count := func(where string) int {
+		var n int
+		if err := db.QueryRow("SELECT count(*) FROM transcript WHERE " + where).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count("json_extract(json, '$.update.sessionUpdate') = 'tool_call_update'"); n != 20 {
+		t.Errorf("%d tool_call_update rows, want 20", n)
+	}
+	if n := count("json_extract(json, '$.update.sessionUpdate') = 'available_commands_update'"); n != 20 {
+		t.Errorf("%d available_commands_update rows, want 20", n)
+	}
+	for _, where := range []string{
+		"json_type(json, '$.update.rawOutput') IS NOT NULL AND json_extract(json, '$.update.sessionUpdate') = 'tool_call_update'",
+		"json_type(json, '$.update._meta.claudeCode.toolResponse') IS NOT NULL",
+		"json_type(json, '$.update.availableCommands') IS NOT NULL",
+	} {
+		if n := count(where); n != 0 {
+			t.Errorf("%d rows keep a removed field: %s", n, where)
+		}
+	}
+	if n := count("json_array_length(json, '$.update.content') = 1"); n != 20 {
+		t.Errorf("%d rows keep the content, want 20", n)
+	}
+	if n := count("json_extract(json, '$.update.rawOutput') = 'keep'"); n != 20 {
+		t.Errorf("%d tool_call rows keep rawOutput, want 20", n)
+	}
+	var plan string
+	if err := db.QueryRow("EXPLAIN QUERY PLAN SELECT * FROM transcript WHERE session = 1 ORDER BY id").Scan(new(int), new(int), new(int), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan, "USING INDEX transcript_session") && !strings.Contains(plan, "USING COVERING INDEX transcript_session") {
+		t.Errorf("plan = %q", plan)
+	}
+}
+
+func fileSize(t *testing.T, path string) int64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Size()
 }

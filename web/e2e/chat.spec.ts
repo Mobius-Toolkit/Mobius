@@ -4,6 +4,15 @@ import { pasteImage, png } from "./images.js";
 const phone = { width: 390, height: 844 };
 const shop = "/workstreams/owner/shop/12";
 const picture = /^Picture \d+ of /;
+const started = /^(ready|waits for start_implementer|queued|working)$/;
+
+// The next poll dispatches an issue that started. The call puts the issue back in its first state.
+async function undoDispatch(page: Page, issue: number, label = "") {
+  const response = await page.request.delete(
+    `/e2e/dispatches/plants/garden/${issue}?label=${label}`,
+  );
+  expect(response.ok()).toBe(true);
+}
 
 async function logIn(page: Page) {
   await page.goto("/github");
@@ -135,7 +144,7 @@ test.describe("the agent log of a running Lead", () => {
       window.sources = [];
       const add = EventSource.prototype.addEventListener;
       EventSource.prototype.addEventListener = function (type, listener, options) {
-        if (this.url.endsWith('/api/events') && !window.sources.includes(this)) {
+        if (this.url.endsWith('/transcript/events') && !window.sources.includes(this)) {
           window.sources.push(this);
         }
         if (type === 'transcript') {
@@ -165,23 +174,35 @@ test.describe("the agent log of a running Lead", () => {
   test("the log shows the entries that arrived while the live connection was down", async ({
     page,
   }) => {
+    await page.addInitScript(`
+      window.sources = [];
+      const add = EventSource.prototype.addEventListener;
+      EventSource.prototype.addEventListener = function (type, listener, options) {
+        if (this.url.endsWith('/transcript/events') && !window.sources.includes(this)) {
+          window.sources.push(this);
+        }
+        return add.call(this, type, listener, options);
+      };
+    `);
     await page.goto("/agents");
     const main = page.getByRole("main");
     await say(page, "Which lilies sell best?");
     await leadRow(page).filter({ hasText: "Workstream #14" }).click();
     await page.evaluate("window.sameDocument = true");
     let refused = 0;
-    await page.route("/api/events", (route) => {
+    const live = /\/api\/(events|agents\/\d+\/transcript\/events)$/;
+    await page.route(live, (route) => {
       refused++;
       return route.abort();
     });
-    await page.evaluate("window.dispatchEvent(new Event('online'))");
+    await page.evaluate(`window.sources.forEach((source) => source.close());
+      window.dispatchEvent(new Event('online'))`);
     await expect.poll(() => refused).toBeGreaterThan(0);
 
     await expect.poll(() => runningLeads(page), { timeout: 15_000 }).toBe(0);
     await expect(main.getByText("Pink lilies sell best.")).toBeHidden();
 
-    await page.unroute("/api/events");
+    await page.unroute(live);
     await page.evaluate("window.dispatchEvent(new Event('online'))");
     await expect(main.getByText("Pink lilies sell best.")).toBeVisible();
     expect(await page.evaluate("window.sameDocument")).toBe(true);
@@ -817,6 +838,41 @@ test("the Triager chat stays open after its actions", async ({ page }) => {
   }
 });
 
+test("each chat keeps the text that the Owner did not send", async ({ page }) => {
+  const lead = page.getByLabel("Message to the Lead");
+  const triager = page.getByLabel("Message to the Triager");
+  const devices = page.locator('nav a[href="/devices"]').filter({ visible: true });
+
+  await page.goto("/chat");
+  await triager.fill("Plan the garden");
+  await devices.click();
+  await expect(page).toHaveURL("/devices");
+  await page.goBack();
+  await expect(triager).toHaveValue("Plan the garden");
+  await page.reload();
+  await expect(triager).toHaveValue("Plan the garden");
+  await page.route("/api/chat/messages", (route) => route.fulfill({ status: 204 }));
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(triager).toHaveValue("");
+  await page.reload();
+  await expect(triager).toHaveValue("");
+
+  await page.goto("/workstreams/plants/garden/19");
+  await lead.fill("Water the roses");
+  await devices.click();
+  await expect(page).toHaveURL("/devices");
+  await page.goBack();
+  await expect(lead).toHaveValue("Water the roses");
+  await page.reload();
+  await expect(lead).toHaveValue("Water the roses");
+
+  await page.goto("/workstreams/plants/garden/18");
+  await expect(lead).toHaveValue("");
+  await lead.fill("Cut the roses");
+  await page.goBack();
+  await expect(lead).toHaveValue("Water the roses");
+});
+
 test("the open chat shows the messages that arrived while the live connection was down", async ({
   page,
   browser,
@@ -917,11 +973,19 @@ test("Start gives only an open task with no blocker a button, and the row shows 
   await expect(start).toHaveAccessibleName("Start #70");
 
   await start.click();
-  await expect(rows.filter({ hasText: "#70 Order the bark" }).getByText("ready")).toBeVisible();
+  // The next poll dispatches the issue, so the badge can already show a later state.
+  await expect(rows.filter({ hasText: "#70 Order the bark" }).getByText(started)).toBeVisible();
   await expect(start).toHaveCount(0);
+
+  await page.reload();
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+  await expect(rows.filter({ hasText: "#70 Order the bark" }).getByText(started)).toBeVisible();
+  await expect(start).toHaveCount(0);
+
+  await undoDispatch(page, 70);
 });
 
-test("Resume gives a needs-human task with no blocker a button that waits for the request", async ({
+test("Resume gives a needs-human task with no blocker a button that waits for the request, and the line leaves needs-human", async ({
   page,
 }) => {
   await page.goto("/api/github/user-callback?code=user-code");
@@ -960,11 +1024,12 @@ test("Resume gives a needs-human task with no blocker a button that waits for th
   await expect.poll(() => requests.length).toBe(1);
   expect(requests[0].request().url()).toMatch(/\/issues\/72\/resume$/);
 
-  await requests[0].fulfill({ status: 204 });
+  await requests[0].continue();
   await expect(resume).toHaveCount(0);
-  await expect(
-    rows.filter({ hasText: "#72 Water the bark" }).getByText("needs-human"),
-  ).toBeVisible();
+  // The next poll dispatches the issue, so the badge can already show a later state.
+  await expect(rows.filter({ hasText: "#72 Water the bark" }).getByText(started)).toBeVisible();
+
+  await undoDispatch(page, 72, "mobius:needs-human");
 });
 
 test("the Tasks tab shows the closed tasks muted, with no Start button, when the switch is on", async ({
@@ -1631,7 +1696,7 @@ test("the voice input works in each Workstream after a switch", async ({ page })
   await open(page, shop);
   await mic.click();
   await result(page, "today");
-  await expect(input).toHaveValue("today");
+  await expect(input).toHaveValue("red today");
   await stop.click();
   await emit(page, "end");
   await expect(mic).toBeVisible();

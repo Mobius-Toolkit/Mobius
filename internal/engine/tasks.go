@@ -66,13 +66,11 @@ func (e *Engine) addTaskLines(ctx context.Context, repository github.Repository,
 }
 
 func (e *Engine) taskLine(ctx context.Context, repository github.Repository, workstream int64, issue *gh.Issue, own bool) (taskLine, error) {
-	line := taskLine{number: int64(issue.GetNumber()), title: issue.GetTitle(), state: "open"}
-	for _, label := range issue.Labels {
-		if state, ok := strings.CutPrefix(label.GetName(), "mobius:"); ok {
-			line.state = state
-			break
-		}
+	names := make([]string, len(issue.Labels))
+	for i, label := range issue.Labels {
+		names[i] = label.GetName()
 	}
+	line := taskLine{number: int64(issue.GetNumber()), title: issue.GetTitle(), state: labelState(names)}
 	if !own {
 		return line, nil
 	}
@@ -212,12 +210,16 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 				line.State = "closed"
 			} else if own {
 				line.BlockedBy = append(line.BlockedBy, blockers[row.Position]...)
-				if line.State == "working" {
+				if line.State == "working" || line.State == "open" {
 					task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repositoryName, Issue: row.Number})
 					if err != nil && !errors.Is(err, sql.ErrNoRows) {
 						return nil, err
 					}
-					line.State = waitState(task.State, line.State)
+					if line.State == "working" {
+						line.State = waitState(task.State, line.State)
+					} else if task.State == "needs_human" {
+						line.State = "ready"
+					}
 				}
 			}
 			lines = append(lines, line)
@@ -329,12 +331,18 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 		if err := asOwner.RemoveLabel(ctx, number, needsHumanLabel); err != nil {
 			return err
 		}
-		return asOwner.AddLabel(ctx, number, readyLabel)
+		if err := asOwner.AddLabel(ctx, number, readyLabel); err != nil {
+			return err
+		}
+		return e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, []string{needsHumanLabel})
 	}
 	if err != nil {
 		return err
 	}
-	return removeNeedsHuman(ctx, asOwner, task)
+	if err := removeNeedsHuman(ctx, asOwner, task); err != nil {
+		return err
+	}
+	return e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{needsHumanLabel})
 }
 
 // StartIssue adds mobius:ready to the issue number of repositoryName. The label change uses the user token of the
@@ -349,5 +357,8 @@ func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number i
 		// The text tells the Owner how to authorize the Mobius App.
 		return refusal(err.Error())
 	}
-	return asOwner.AddLabel(ctx, number, readyLabel)
+	if err := asOwner.AddLabel(ctx, number, readyLabel); err != nil {
+		return err
+	}
+	return e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, nil)
 }

@@ -155,7 +155,9 @@ const question = "What is the state of the plans? The full report is at " +
 // The Workstream plants/garden#60 has a Lead chat of 50 messages, and the Owner saw the first 15. POST
 // /e2e/seed-notes/{count} adds count Lead messages to that chat, with no event.
 // POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
-// /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event.
+// /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event. DELETE
+// /e2e/dispatches/{owner}/{name}/{issue} waits for the dispatch of an issue, removes its task, its feed events and
+// its Lead events, and takes mobius:working off the issue. The query label, if present, is added to the issue.
 func TestServer(t *testing.T) {
 	addr := os.Getenv("MOBIUS_E2E_ADDR")
 	if addr == "" {
@@ -269,6 +271,45 @@ func TestServer(t *testing.T) {
 		_, err := server.DB.Exec("UPDATE sessions SET queue_reason = ? WHERE issue = ? AND ended_at IS NULL", r.URL.Query().Get("reason"), r.PathValue("issue"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	})
+
+	server.Mux.HandleFunc("DELETE /e2e/dispatches/{owner}/{name}/{issue}", func(w http.ResponseWriter, r *http.Request) {
+		repository := r.PathValue("owner") + "/" + r.PathValue("name")
+		issue, err := strconv.ParseInt(r.PathValue("issue"), 10, 64)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		// The dispatch writes its Lead event last.
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			var events int
+			if err := server.DB.QueryRow("SELECT COUNT(*) FROM lead_events WHERE repository = ? AND issue = ?", repository, issue).Scan(&events); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if events > 0 {
+				break
+			}
+			if time.Now().After(deadline) {
+				http.Error(w, "no dispatch", http.StatusNotFound)
+				return
+			}
+		}
+		for _, query := range []string{
+			"DELETE FROM chat_messages WHERE id IN (SELECT chat_message FROM lead_events WHERE repository = ?1 AND issue = ?2)",
+			"DELETE FROM lead_events WHERE repository = ?1 AND issue = ?2",
+			"DELETE FROM events WHERE repository = ?1 AND issue = ?2",
+			"DELETE FROM tasks WHERE repository = ?1 AND issue = ?2",
+		} {
+			if _, err := server.DB.Exec(query, repository, issue); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		github.RemoveLabel(repository, issue, "mobius:working", "owner")
+		if label := r.URL.Query().Get("label"); label != "" {
+			github.AddLabel(repository, issue, label, "owner")
 		}
 	})
 

@@ -58,6 +58,7 @@ type eventJSON struct {
 type commentJSON struct {
 	ID        int64     `json:"id"`
 	IssueURL  string    `json:"issue_url"`
+	HTMLURL   string    `json:"html_url"`
 	User      loginJSON `json:"user"`
 	Body      string    `json:"body"`
 	CreatedAt string    `json:"created_at"`
@@ -924,9 +925,14 @@ func (g *FakeGitHub) comment(key issueKey, author, body string) commentJSON {
 func (g *FakeGitHub) commentAt(key issueKey, author, body string, now int64) commentJSON {
 	found := g.issues[key]
 	g.lastCommentID++
+	kind := "issues"
+	if found.pullRequest {
+		kind = "pull"
+	}
 	comment := commentJSON{
 		ID:        g.lastCommentID,
 		IssueURL:  fmt.Sprintf("https://api.github.com/repos/%s/issues/%d", key.repository, key.number),
+		HTMLURL:   fmt.Sprintf("https://github.com/%s/%s/%d#issuecomment-%d", key.repository, kind, key.number, g.lastCommentID),
 		User:      loginJSON{author},
 		Body:      body,
 		CreatedAt: timestamp(now),

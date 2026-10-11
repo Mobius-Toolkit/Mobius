@@ -329,6 +329,37 @@ func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue) (bool, 
 	})
 }
 
+// changeCopiedLabels adds and removes labels on each copied row of the issue number of repositoryName, and publishes the change.
+func (e *Engine) changeCopiedLabels(ctx context.Context, repositoryName string, number int64, add, remove []string) error {
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		rows, err := q.ListCopiedIssueRowsByNumber(ctx, number)
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if otherRepository(row.RepositoryUrl, repositoryName) {
+				continue
+			}
+			for _, name := range remove {
+				if err := q.DeleteCopiedIssueLabel(ctx, store.DeleteCopiedIssueLabelParams{Repository: row.Repository, Workstream: row.Workstream, Position: row.Position, Name: name}); err != nil {
+					return err
+				}
+			}
+			for _, name := range add {
+				if err := q.AddCopiedIssueLabelIfMissing(ctx, store.AddCopiedIssueLabelIfMissingParams{Repository: row.Repository, Workstream: row.Workstream, Position: row.Position, Name: name}); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	e.publish(Change{Workstreams: true})
+	return nil
+}
+
 // copyTree replaces the copied tree of the Workstream with the tree on GitHub.
 func (e *Engine) copyTree(ctx context.Context, repository github.Repository, workstream int64) error {
 	tree, err := readTree(ctx, repository, workstream)

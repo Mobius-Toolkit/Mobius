@@ -39,6 +39,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Textarea } from "@/components/ui/textarea";
+import { chatDraftKey, loadDraft, saveDraft } from "@/lib/draft";
 import { onEvent } from "@/lib/events";
 import { fitImage, maxImages } from "@/lib/images";
 import { LoginContext } from "@/lib/login";
@@ -328,7 +329,17 @@ export function Conversation({
   const [pausedUntil, setPausedUntil] = useState<string | null>(null);
   const [failure, setFailure] = useState("");
   const [error, setError] = useState<string>();
-  const [text, setText] = useState("");
+  const draftKey = chatDraftKey(organization, repository, workstream);
+  const [draft, setDraft] = useState({ key: draftKey, text: loadDraft(draftKey) });
+  let text = draft.text;
+  if (draft.key !== draftKey) {
+    text = loadDraft(draftKey);
+    setDraft({ key: draftKey, text });
+  }
+  const setText = (value: string) => {
+    saveDraft(draftKey, value);
+    setDraft({ key: draftKey, text: value });
+  };
   const [images, setImages] = useState<File[]>([]);
   const [sendError, setSendError] = useState("");
   const [stopping, setStopping] = useState(false);

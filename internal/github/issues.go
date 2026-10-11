@@ -151,10 +151,10 @@ func (r Repository) IssueEvents(ctx context.Context, number int64) ([]*gh.IssueE
 	return all(r.Client.Issues.ListIssueEventsIter(ctx, r.Owner(), r.Name(), int(number), &gh.ListOptions{PerPage: 100}))
 }
 
-// AddComment adds a comment with body to the issue or the pull request number, and gives the id of the comment.
-func (r Repository) AddComment(ctx context.Context, number int64, body string) (int64, error) {
+// AddComment adds a comment with body to the issue or the pull request number, and gives the comment.
+func (r Repository) AddComment(ctx context.Context, number int64, body string) (*gh.IssueComment, error) {
 	comment, _, err := r.Client.Issues.CreateComment(ctx, r.Owner(), r.Name(), int(number), gh.IssueCommentRequest{Body: body})
-	return comment.GetID(), err
+	return comment, err
 }
 
 // ReactToComment adds the reaction content, for example "eyes", to the conversation comment id.
