@@ -3290,7 +3290,7 @@
         "properties": {
           "author": {
             "type": "string",
-            "description": "Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner with an Inbox item, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry",
+            "description": "Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry",
             "enum": [
               "Owner",
               "Lead",

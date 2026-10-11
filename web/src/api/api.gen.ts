@@ -137,7 +137,7 @@ export interface Blocker {
 }
 
 /**
- * Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner with an Inbox item, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry
+ * Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry
  */
 export type ChatMessageAuthor = typeof ChatMessageAuthor[keyof typeof ChatMessageAuthor];
 
@@ -155,7 +155,7 @@ export const ChatMessageAuthor = {
  * ChatMessage is a message of a Lead chat or of the Triager chat.
  */
 export interface ChatMessage {
-  /** Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner with an Inbox item, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry */
+  /** Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry */
   author: ChatMessageAuthor;
   /** BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message */
   browserId: string;
