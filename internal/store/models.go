@@ -127,6 +127,7 @@ type Task struct {
 	StateAt        string
 	LongWaitAt     sql.NullString
 	CheckErrors    int64
+	LeadFindings   string
 }
 
 type Transcript struct {

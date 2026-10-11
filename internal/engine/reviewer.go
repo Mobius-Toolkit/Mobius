@@ -271,8 +271,9 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 }
 
 // endReview acts on the open review threads after the turn of the Reviewer session. With no open thread, the task waits
-// for the CI of the head. The findings of the Reviewer go to a fix round, or at max_fix_rounds the task goes to a
-// human. Each other open thread has a reply of a trusted user or bot, so the Judge takes it.
+// for the CI of the head, or gets a fix round with the findings that the Lead kept. The findings of the Reviewer go to
+// a fix round, or at max_fix_rounds the task goes to a human. Each other open thread has a reply of a trusted user or
+// bot, so the Judge takes it.
 func (e *Engine) endReview(ctx context.Context, repository github.Repository, j *reviewJob, comment, session int64) error {
 	// A comment of a trusted user during the turn resets the counters of the task.
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: j.task.Repository, Issue: j.task.Issue})
@@ -295,7 +296,12 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 		if err := e.endRound(ctx, repository, j, task, comment, "No open findings. Mobius waits for CI.", open); err != nil {
 			return err
 		}
-		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "working"})
+		moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "working"})
+		if err != nil || moved == 0 {
+			return err
+		}
+		task.State = "checks"
+		_, err = e.startKeptRound(ctx, repository, j.round(task, "", sql.NullInt64{}))
 		return err
 	}
 	// A finding of the Reviewer has only comments of the Mobius App.
