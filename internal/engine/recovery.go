@@ -14,9 +14,7 @@ const (
 	needsHumanLabel = "mobius:needs-human"
 	questionLabel   = "mobius:question"
 	reviewLabel     = "mobius:review"
-	// stoppedKind is the kind of the Inbox item of a task that stopped.
-	stoppedKind = "stopped"
-	lostText    = "Mobius lost the state of this task. Add mobius:ready to start again."
+	lostText        = "Mobius lost the state of this task. Add mobius:ready to start again."
 )
 
 // handLostTasks hands to a human each issue of repository that has mobius:working or mobius:review and no live task: the
@@ -50,11 +48,13 @@ func (e *Engine) handLostTasksWith(ctx context.Context, repository github.Reposi
 			return err
 		}
 		if err := e.addInboxItem(ctx, store.AddInboxItemParams{
-			Kind:         stoppedKind,
+			Kind:         lostKind,
 			Organization: repository.Owner(),
 			Repository:   repository.FullName,
 			Workstream:   workstream,
 			Issue:        number,
+			Title:        issue.GetTitle(),
+			Reason:       "Mobius lost the task",
 			Text:         lostText,
 			Link:         issue.GetHTMLURL(),
 		}); err != nil {

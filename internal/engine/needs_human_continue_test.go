@@ -36,7 +36,7 @@ func staleItems(t *testing.T, server *testserver.Server) int {
 	t.Helper()
 	count := 0
 	for _, item := range inbox(t, server) {
-		if item.Kind == "stale pull request" {
+		if item.Kind == "stopped" {
 			count++
 		}
 	}
@@ -65,9 +65,7 @@ func TestATaskInNeedsHumanWithAMergeConflictGetsAConflictRoundAndGoesToApprovalW
 	if count := implementers(t, server); count != 2 {
 		t.Errorf("Implementers = %d", count)
 	}
-	if count := staleItems(t, server); count != 1 {
-		t.Errorf("stale items = %d", count)
-	}
+	testkit.WaitFor(t, func() bool { return staleItems(t, server) == 0 })
 }
 
 func TestAStalePullRequestInNeedsHumanGetsNoConflictRoundAndNoNewStaleItem(t *testing.T) {

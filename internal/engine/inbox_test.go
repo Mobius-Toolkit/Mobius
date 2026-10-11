@@ -16,14 +16,19 @@ import (
 )
 
 type inboxItem struct {
-	ID          int64   `json:"id"`
-	Kind        string  `json:"kind"`
-	Repository  string  `json:"repository"`
-	Workstream  int64   `json:"workstream"`
-	Issue       int64   `json:"issue"`
-	Text        string  `json:"text"`
-	Link        string  `json:"link"`
-	DismissedAt *string `json:"dismissedAt"`
+	ID             int64   `json:"id"`
+	Kind           string  `json:"kind"`
+	Repository     string  `json:"repository"`
+	Workstream     int64   `json:"workstream"`
+	Issue          int64   `json:"issue"`
+	Title          string  `json:"title"`
+	Reason         string  `json:"reason"`
+	Text           string  `json:"text"`
+	Link           string  `json:"link"`
+	PullRequest    int64   `json:"pullRequest"`
+	PullRequestURL string  `json:"pullRequestUrl"`
+	ReportURL      string  `json:"reportUrl"`
+	DismissedAt    *string `json:"dismissedAt"`
 }
 
 // inbox gives the Inbox through the API.
@@ -87,7 +92,7 @@ reply = ["Seen"]
 		t.Errorf("active tasks = %d", got)
 	}
 	items := inbox(t, server)
-	want := inboxItem{ID: items[0].ID, Kind: "question", Repository: shop, Workstream: 12, Issue: 41, Text: "Cents or dollars?", Link: "https://github.com/owner/shop/issues/41"}
+	want := inboxItem{ID: items[0].ID, Kind: "question", Repository: shop, Workstream: 12, Issue: 41, Title: "Add plan model", Reason: "The Lead asks a question", Text: "Cents or dollars?", Link: "https://github.com/owner/shop/issues/41"}
 	if len(items) != 1 || items[0] != want {
 		t.Errorf("inbox = %+v", items)
 	}
@@ -136,7 +141,7 @@ reply = ["Seen"]
 		t.Errorf("labels = %v", got)
 	}
 	items := inbox(t, server)
-	want := inboxItem{ID: items[0].ID, Kind: "question", Repository: shop, Workstream: 12, Issue: 12, Text: "Change the Brief?", Link: "https://github.com/owner/shop/issues/12"}
+	want := inboxItem{ID: items[0].ID, Kind: "question", Repository: shop, Workstream: 12, Issue: 12, Title: "Integrate loyalty plans", Reason: "The Lead asks a question", Text: "Change the Brief?", Link: "https://github.com/owner/shop/issues/12"}
 	if len(items) != 1 || items[0] != want {
 		t.Errorf("inbox = %+v", items)
 	}

@@ -348,7 +348,10 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 		if err := asOwner.AddLabel(ctx, number, readyLabel); err != nil {
 			return err
 		}
-		return e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, []string{needsHumanLabel})
+		if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, []string{needsHumanLabel}); err != nil {
+			return err
+		}
+		return e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind)
 	}
 	if err != nil {
 		return err
@@ -356,7 +359,10 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 	if err := removeNeedsHuman(ctx, asOwner, task); err != nil {
 		return err
 	}
-	return e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{needsHumanLabel})
+	if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{needsHumanLabel}); err != nil {
+		return err
+	}
+	return e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind)
 }
 
 // StartIssue adds mobius:ready to the issue number of repositoryName. The label change uses the user token of the

@@ -34,10 +34,10 @@ func (r Repository) Name() string {
 	return name
 }
 
-// found gives nil with no error when GitHub answers 404 Not Found.
+// found gives nil with no error when GitHub answers 404 Not Found or 410 Gone.
 func found[T any](value *T, err error) (*T, error) {
 	var response *gh.ErrorResponse
-	if errors.As(err, &response) && response.Response.StatusCode == http.StatusNotFound {
+	if errors.As(err, &response) && (response.Response.StatusCode == http.StatusNotFound || response.Response.StatusCode == http.StatusGone) {
 		return nil, nil
 	}
 	return value, err
@@ -261,7 +261,7 @@ func (r Repository) AddLabel(ctx context.Context, number int64, label string) er
 func (r Repository) RemoveLabel(ctx context.Context, number int64, label string) error {
 	_, err := r.Client.Issues.RemoveLabelForIssue(ctx, r.Owner(), r.Name(), int(number), label)
 	var response *gh.ErrorResponse
-	if errors.As(err, &response) && response.Response.StatusCode == http.StatusNotFound {
+	if errors.As(err, &response) && (response.Response.StatusCode == http.StatusNotFound || response.Response.StatusCode == http.StatusGone) {
 		return nil
 	}
 	return err

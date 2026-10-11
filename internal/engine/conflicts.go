@@ -59,13 +59,16 @@ func (e *Engine) stale(ctx context.Context, repository github.Repository, task s
 	age := fmt.Sprintf("%g days", e.config.StalePRAge.Hours()/24)
 	number := pullRequest.GetNumber()
 	err = e.addInboxItem(ctx, store.AddInboxItemParams{
-		Kind:         stalePullRequestKind,
+		Kind:         stoppedKind,
 		Organization: repository.Owner(),
 		Repository:   task.Repository,
 		Workstream:   task.Workstream,
 		Issue:        task.Issue,
+		Title:        issue.GetTitle(),
+		Reason:       fmt.Sprintf("PR #%d %s", number, reason),
 		Text:         fmt.Sprintf("Pull request #%d of #%d \"%s\" %s and is older than %s.", number, task.Issue, issue.GetTitle(), reason, age),
-		Link:         pullRequest.GetHTMLURL(),
+		Link:         issue.GetHTMLURL(),
+		PullRequest:  int64(number),
 	})
 	if err != nil {
 		return err

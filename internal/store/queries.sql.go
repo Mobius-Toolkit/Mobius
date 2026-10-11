@@ -295,9 +295,9 @@ func (q *Queries) AddGitHubApp(ctx context.Context, arg AddGitHubAppParams) erro
 }
 
 const addInboxItem = `-- name: AddInboxItem :one
-INSERT INTO inbox_items (kind, organization, repository, workstream, issue, text, link, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization
+INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link
 `
 
 type AddInboxItemParams struct {
@@ -306,8 +306,12 @@ type AddInboxItemParams struct {
 	Repository   string
 	Workstream   int64
 	Issue        int64
+	Title        string
+	Reason       string
 	Text         string
 	Link         string
+	PullRequest  int64
+	ReportLink   string
 	Time         string
 }
 
@@ -318,8 +322,12 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 		arg.Repository,
 		arg.Workstream,
 		arg.Issue,
+		arg.Title,
+		arg.Reason,
 		arg.Text,
 		arg.Link,
+		arg.PullRequest,
+		arg.ReportLink,
 		arg.Time,
 	)
 	var i InboxItem
@@ -334,6 +342,10 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 		&i.Time,
 		&i.DismissedAt,
 		&i.Organization,
+		&i.Title,
+		&i.Reason,
+		&i.PullRequest,
+		&i.ReportLink,
 	)
 	return i, err
 }
@@ -1018,7 +1030,7 @@ func (q *Queries) DeliverLeadEvents(ctx context.Context, arg DeliverLeadEventsPa
 
 const dismissInboxItem = `-- name: DismissInboxItem :one
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link
 `
 
 type DismissInboxItemParams struct {
@@ -1040,6 +1052,10 @@ func (q *Queries) DismissInboxItem(ctx context.Context, arg DismissInboxItemPara
 		&i.Time,
 		&i.DismissedAt,
 		&i.Organization,
+		&i.Title,
+		&i.Reason,
+		&i.PullRequest,
+		&i.ReportLink,
 	)
 	return i, err
 }
@@ -1443,7 +1459,7 @@ SELECT text FROM (
     WHERE lead_events.repository = ?1 AND lead_events.issue = ?2 AND lead_events.kind IN ('stop', 'stale_pull_request')
     UNION ALL
     SELECT text, time FROM inbox_items
-    WHERE inbox_items.repository = ?1 AND inbox_items.issue = ?2 AND inbox_items.kind = 'stopped'
+    WHERE inbox_items.repository = ?1 AND inbox_items.issue = ?2 AND inbox_items.kind IN ('stopped', 'lost')
 ) ORDER BY time DESC LIMIT 1
 `
 
@@ -1452,7 +1468,7 @@ type GetNewestStopTextParams struct {
 	Issue      sql.NullInt64
 }
 
-// A stop writes a stop event, a stale_pull_request event, or an Inbox item of the kind stopped.
+// A stop writes a stop event, a stale_pull_request event, or an Inbox item of the kind stopped or lost.
 func (q *Queries) GetNewestStopText(ctx context.Context, arg GetNewestStopTextParams) (string, error) {
 	row := q.db.QueryRowContext(ctx, getNewestStopText, arg.Repository, arg.Issue)
 	var text string
@@ -2776,7 +2792,7 @@ func (q *Queries) ListMemoryVersions(ctx context.Context, repository string) ([]
 }
 
 const listOpenInboxItems = `-- name: ListOpenInboxItems :many
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id
 `
 
 func (q *Queries) ListOpenInboxItems(ctx context.Context) ([]InboxItem, error) {
@@ -2799,6 +2815,10 @@ func (q *Queries) ListOpenInboxItems(ctx context.Context) ([]InboxItem, error) {
 			&i.Time,
 			&i.DismissedAt,
 			&i.Organization,
+			&i.Title,
+			&i.Reason,
+			&i.PullRequest,
+			&i.ReportLink,
 		); err != nil {
 			return nil, err
 		}

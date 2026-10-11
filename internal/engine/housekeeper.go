@@ -93,6 +93,8 @@ func (e *Engine) addFullDiskItem(ctx context.Context, task store.Task, title str
 		Repository:   task.Repository,
 		Workstream:   task.Workstream,
 		Issue:        task.Issue,
+		Title:        title,
+		Reason:       "The disk is full",
 		Text: fmt.Sprintf("The disk of the Mobius server is full. The .mobius/check of #%d \"%s\" waits for %d GiB of free space. The disk has %d GiB of free space.",
 			task.Issue, title, minFreeDisk>>30, free>>30),
 		Link: issue.GetHTMLURL(),

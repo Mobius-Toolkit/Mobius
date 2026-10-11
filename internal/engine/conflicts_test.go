@@ -203,18 +203,22 @@ func TestAStalePullRequestWithAMergeConflictGoesToAHuman(t *testing.T) {
 	}
 	var stale []inboxItem
 	for _, item := range inbox(t, server) {
-		if item.Kind == "stale pull request" {
+		if item.Kind == "stopped" {
 			stale = append(stale, item)
 		}
 	}
 	want := []inboxItem{{
-		ID:         stale[0].ID,
-		Kind:       "stale pull request",
-		Repository: shop,
-		Workstream: 12,
-		Issue:      41,
-		Text:       "Pull request #42 of #41 \"Add plan model\" has a merge conflict and is older than 7 days.",
-		Link:       "https://github.com/owner/shop/pull/42",
+		ID:             stale[0].ID,
+		Kind:           "stopped",
+		Repository:     shop,
+		Workstream:     12,
+		Issue:          41,
+		Title:          "Add plan model",
+		Reason:         "PR #42 has a merge conflict",
+		Text:           "Pull request #42 of #41 \"Add plan model\" has a merge conflict and is older than 7 days.",
+		Link:           "https://github.com/owner/shop/issues/41",
+		PullRequest:    42,
+		PullRequestURL: "https://github.com/owner/shop/pull/42",
 	}}
 	if !reflect.DeepEqual(stale, want) {
 		t.Errorf("stale items = %+v", stale)
@@ -316,14 +320,14 @@ func TestAStalePullRequestBehindItsBaseGoesToAHumanWithTheBehindReason(t *testin
 
 	stale := testkit.WaitForValue(t, func() (inboxItem, bool) {
 		for _, item := range inbox(t, server) {
-			if item.Kind == "stale pull request" {
+			if item.Kind == "stopped" {
 				return item, true
 			}
 		}
 		return inboxItem{}, false
 	})
-	if stale.Text != "Pull request #42 of #41 \"Add plan model\" is behind its base branch and is older than 7 days." {
-		t.Errorf("text = %s", stale.Text)
+	if stale.Text != "Pull request #42 of #41 \"Add plan model\" is behind its base branch and is older than 7 days." || stale.Reason != "PR #42 is behind its base branch" {
+		t.Errorf("text = %s, reason = %s", stale.Text, stale.Reason)
 	}
 	if state := taskState(t, server); state != "needs_human" {
 		t.Errorf("state = %s", state)

@@ -402,8 +402,12 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		Repository:   task.Repository,
 		Workstream:   task.Workstream,
 		Issue:        task.Issue,
+		Title:        title,
+		Reason:       fmt.Sprintf("PR #%d is ready to merge", pullRequest.GetNumber()),
 		Text:         fmt.Sprintf("Pull request #%d of #%d \"%s\" is ready for review.", pullRequest.GetNumber(), task.Issue, title),
-		Link:         comment.GetHTMLURL(),
+		Link:         issueLink(task.Repository, task.Issue),
+		PullRequest:  int64(pullRequest.GetNumber()),
+		ReportLink:   comment.GetHTMLURL(),
 	})
 }
 

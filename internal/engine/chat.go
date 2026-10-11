@@ -695,6 +695,7 @@ func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 			Repository:   message.Repository,
 			Workstream:   message.Workstream,
 			Issue:        message.Workstream,
+			Reason:       "The Lead did not get your message",
 			Text:         message.Text,
 		})
 		return err
