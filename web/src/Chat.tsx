@@ -123,7 +123,7 @@ function NeedsHumanList({
               Resume
             </Button>
           )}
-          {issue.reason && <Reason issue={issue} />}
+          {issue.reason && <Reason key={issue.reason} issue={issue} />}
         </div>
       ))}
     </div>
