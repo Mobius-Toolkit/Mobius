@@ -35,7 +35,7 @@ type reviewJob struct {
 
 // round gives the fix round of the review of the task with the items.
 func (j *reviewJob) round(task store.Task, items string, parent sql.NullInt64) round {
-	return round{task: task, title: j.title, pullRequest: j.pullRequest, counts: true, items: items, parent: parent}
+	return round{task: task, title: j.title, pullRequest: j.pullRequest, counts: true, items: items, parent: parent, cause: reviewCause}
 }
 
 // afterConflictRound tells that the task has the review of the head that a conflict round pushed. Such a review does
@@ -46,7 +46,12 @@ func afterConflictRound(task store.Task) bool {
 
 // reviewRoundText gives the end of the title of the review comment of the task.
 func (e *Engine) reviewRoundText(task store.Task) string {
-	if afterConflictRound(task) {
+	return e.roundText(task, afterConflictRound(task))
+}
+
+// roundText gives reviewRoundText for a review that follows a conflict round when afterConflict is true.
+func (e *Engine) roundText(task store.Task, afterConflict bool) string {
+	if afterConflict {
 		return fmt.Sprintf(" after a conflict round. It does not count (%d of %d)", task.ReviewRounds, e.config.MaxFixRounds)
 	}
 	return fmt.Sprintf(", round %d of %d", task.ReviewRounds+1, e.config.MaxFixRounds)
@@ -104,7 +109,7 @@ func (e *Engine) restartReviewer(repository github.Repository, task store.Task, 
 			return false, err
 		}
 		head := pullRequest.GetHead().GetSHA()
-		if err := setCheckRun(ctx, repository, head, "in_progress", "", "", ""); err != nil {
+		if err := e.setReviewStep(ctx, repository, head, task, afterConflictRound(task)); err != nil {
 			return false, err
 		}
 		j = reviewJob{task: task, title: j.title, pullRequest: pullRequest, head: head, parent: parent}
@@ -294,6 +299,9 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 	open := slices.DeleteFunc(reviewThreads, func(thread github.ReviewThread) bool { return !openThread(thread, trusted, app) })
 	limit := int64(e.config.MaxFixRounds)
 	if len(open) == 0 {
+		if err := setCIWaitStep(ctx, repository, j.head); err != nil {
+			return err
+		}
 		if err := e.endRound(ctx, repository, j, task, comment, "No open findings. Mobius waits for CI.", open); err != nil {
 			return err
 		}

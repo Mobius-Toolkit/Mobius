@@ -92,7 +92,19 @@ type round struct {
 	parent sql.NullInt64
 	// failedCheck tells that the round is for a failed check run. Only such a round goes before a new task in the queue.
 	failedCheck bool
+	cause       roundCause
 }
+
+// roundCause tells what started a fix round. The title of the Mobius check run shows it.
+type roundCause string
+
+const (
+	reviewCause   roundCause = "review"
+	leadCause     roundCause = "Lead"
+	ciCause       roundCause = "CI"
+	judgeCause    roundCause = "Judge"
+	conflictCause roundCause = "conflict"
+)
 
 // startImplementer starts an Implementer for the dispatched task of the issue number in the Workstream. The Implementer
 // gets the Brief, the issue and the instructions.
@@ -195,7 +207,7 @@ func (e *Engine) startFixRound(ctx context.Context, c caller, repository github.
 	if task.State != "checks" && task.State != "approval" && task.State != "ready_for_review" {
 		return "", refuse("The task of #%d is %s, not working, reviewed, checks, approval or ready_for_review.", input.N, task.State)
 	}
-	r := round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: "\nFindings of the Lead:\n" + input.Findings + "\n", parent: sql.NullInt64{Int64: c.session, Valid: true}}
+	r := round{task: task, title: issue.GetTitle(), pullRequest: pullRequest, counts: true, items: "\nFindings of the Lead:\n" + input.Findings + "\n", parent: sql.NullInt64{Int64: c.session, Valid: true}, cause: leadCause}
 	moved, err := e.startRound(ctx, repository, r)
 	if err != nil {
 		return "", err
@@ -232,6 +244,7 @@ func (e *Engine) startKeptRound(ctx context.Context, repository github.Repositor
 	if r.parent, err = e.newestSession(ctx, r.task); err != nil {
 		return false, err
 	}
+	r.cause = leadCause
 	return e.startRound(ctx, repository, r)
 }
 
@@ -318,6 +331,42 @@ func setCheckRun(ctx context.Context, repository github.Repository, head, status
 	return repository.UpdateCheckRun(ctx, checkRun, checkRunName, status, conclusion, title, summary)
 }
 
+// setStep sets the title and the summary of the Mobius check run of the head. The check run stays in progress.
+func setStep(ctx context.Context, repository github.Repository, head, title, summary string) error {
+	return setCheckRun(ctx, repository, head, "in_progress", "", title, summary)
+}
+
+// setReviewStep sets the step of the Reviewer on the head. afterConflict tells that a conflict round pushed the head.
+func (e *Engine) setReviewStep(ctx context.Context, repository github.Repository, head string, task store.Task, afterConflict bool) error {
+	return setStep(ctx, repository, head, "Review"+e.roundText(task, afterConflict), "The Reviewer reviews the head commit.")
+}
+
+// setFixRoundStep sets the step of a fix round on the open Mobius check run of the head. It does nothing when the head
+// has none, because a complete check run stays complete. A round with count 0 does not count toward max_fix_rounds.
+func (e *Engine) setFixRoundStep(ctx context.Context, repository github.Repository, head string, cause roundCause, count int64) error {
+	title := "Fix round, " + string(cause)
+	if count > 0 {
+		title = fmt.Sprintf("Fix round %d of %d, %s", count, e.config.MaxFixRounds, cause)
+	}
+	checkRun, err := openCheckRun(ctx, repository, head)
+	if err != nil || checkRun == 0 {
+		return err
+	}
+	return repository.UpdateCheckRun(ctx, checkRun, checkRunName, "in_progress", "", title, "The Implementer works on a fix round. Cause: "+string(cause)+".")
+}
+
+func setCIWaitStep(ctx context.Context, repository github.Repository, head string) error {
+	return setStep(ctx, repository, head, "Wait for the CI", "Mobius waits for the CI of the head commit.")
+}
+
+func setApprovalWaitStep(ctx context.Context, repository github.Repository, head string) error {
+	return setStep(ctx, repository, head, "Wait for the Lead approval", "The CI passed. Mobius waits for the Lead to approve the pull request.")
+}
+
+func setJudgeStep(ctx context.Context, repository github.Repository, head string) error {
+	return setStep(ctx, repository, head, "Judge", "The Judge decides what to do with the new comments.")
+}
+
 // replaceCheckRun completes the Mobius check run of the old head that is not complete, because a new head replaced the
 // old head.
 func replaceCheckRun(ctx context.Context, repository github.Repository, head string) error {
@@ -333,7 +382,7 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	if err != nil {
 		return err
 	}
-	if err := repository.CompleteCheckRun(ctx, checkRun, checkRunName, "success"); err != nil {
+	if err := repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "success", "Approved", "The Lead approved the pull request."); err != nil {
 		return err
 	}
 	if pullRequest.GetDraft() {
@@ -435,6 +484,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err != nil {
 		return err
 	}
+	count := int64(0)
 	if r.counts || kept != "" {
 		added, err := e.queries.AddFixRound(ctx, store.AddFixRoundParams{ID: r.task.ID, Max: int64(e.config.MaxFixRounds)})
 		if err != nil {
@@ -443,6 +493,11 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		if added == 0 {
 			return e.stopAtLimit(ctx, repository, r, "fix")
 		}
+		current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: r.task.Repository, Issue: r.task.Issue})
+		if err != nil {
+			return err
+		}
+		count = current.FixRounds
 	}
 	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: r.task.ID, FromState: "working"})
 	if err != nil || queued == 0 {
@@ -469,6 +524,9 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 			return false, err
 		}
 		if err := resumeWork(ctx, repository, r.task); err != nil {
+			return false, err
+		}
+		if err := e.setFixRoundStep(ctx, repository, r.pullRequest.GetHead().GetSHA(), r.cause, count); err != nil {
 			return false, err
 		}
 		if r.failedCheck {
@@ -530,6 +588,9 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 		return err
 	}
 	if err := makeDraft(ctx, repository, pullRequest); err != nil {
+		return err
+	}
+	if err := e.setFixRoundStep(ctx, repository, pullRequest.GetHead().GetSHA(), conflictCause, 0); err != nil {
 		return err
 	}
 	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: task.State})
@@ -1230,7 +1291,19 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		summary := fmt.Sprintf("`.mobius/check` failed %d times. The last output ends with these lines:\n\n```\n%s\n```", e.config.MaxCheckAttempts, failedLog)
 		return result{outcome: checkFailed, text: failedLog}, setCheckRun(ctx, repository, head, "completed", "failure", "Local check failed", summary)
 	}
-	return result{outcome: done, pushed: pushed{j.pullRequest, head}}, setCheckRun(ctx, repository, head, "in_progress", "", "", "")
+	pushedHead := result{outcome: done, pushed: pushed{j.pullRequest, head}}
+	// The round count of j.task can be old, because the review of a fix round counts its round before the push.
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: j.task.Repository, Issue: j.task.Issue})
+	if errors.Is(err, sql.ErrNoRows) {
+		return pushedHead, nil
+	}
+	if err != nil {
+		return result{}, err
+	}
+	if !j.conflictRound && task.ReviewRounds >= int64(e.config.MaxFixRounds) {
+		return pushedHead, nil
+	}
+	return pushedHead, e.setReviewStep(ctx, repository, head, task, j.conflictRound)
 }
 
 // postReplies posts the held replies of the Implementer on the pull request. A posted reply leaves the list, so a later

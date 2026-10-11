@@ -768,7 +768,11 @@ func (e *Engine) continueTask(ctx context.Context, repository github.Repository,
 		task.State = to
 		err = e.conflictRound(ctx, repository, task, pullRequest)
 	} else {
-		err = e.fixRound(ctx, repository, round{task: task, title: title, pullRequest: pullRequest, counts: true, items: items, parent: parent, failedCheck: ci != ""})
+		cause := reviewCause
+		if ci != "" {
+			cause = ciCause
+		}
+		err = e.fixRound(ctx, repository, round{task: task, title: title, pullRequest: pullRequest, counts: true, items: items, parent: parent, failedCheck: ci != "", cause: cause})
 	}
 	if err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: from, ID: task.ID, FromState: to})

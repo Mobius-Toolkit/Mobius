@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -37,8 +38,8 @@ func TestATaskWaitsInChecksForTheCIOfTheHeadAndThenWaitsForTheLead(t *testing.T)
 	if !fake.PullRequests(shop)[0].Draft {
 		t.Error("the pull request is ready for review")
 	}
-	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: sha, Status: "in_progress"}}; !slices.Equal(fake.CheckRuns(shop)[:1], want) {
-		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
+	if want := []string{"Wait for the CI"}; !slices.Equal(mobiusTitles(fake), want) {
+		t.Errorf("titles = %q", mobiusTitles(fake))
 	}
 	if events := readyEvents(t, server); events != 0 {
 		t.Errorf("events = %d", events)
@@ -60,8 +61,8 @@ func TestATaskWaitsInChecksForTheCIOfTheHeadAndThenWaitsForTheLead(t *testing.T)
 	if !fake.PullRequests(shop)[0].Draft {
 		t.Error("the pull request is ready for review")
 	}
-	if want := (testkit.CheckRun{Name: "Mobius", HeadSHA: sha, Status: "in_progress"}); fake.CheckRuns(shop)[0] != want {
-		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
+	if want := []string{"Wait for the Lead approval"}; !slices.Equal(mobiusTitles(fake), want) {
+		t.Errorf("titles = %q", mobiusTitles(fake))
 	}
 	if items := inbox(t, server); len(items) != 0 {
 		t.Errorf("Inbox = %+v", items)
@@ -438,7 +439,7 @@ func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxIte
 	if fake.PullRequests(shop)[0].Draft {
 		t.Error("the pull request is a draft")
 	}
-	if want := (testkit.CheckRun{Name: "Mobius", HeadSHA: sha, Status: "completed", Conclusion: "success"}); fake.CheckRuns(shop)[0] != want {
+	if want := (testkit.CheckRun{Name: "Mobius", HeadSHA: sha, Status: "completed", Conclusion: "success", Output: approvedOutput}); !reflect.DeepEqual(fake.CheckRuns(shop)[0], want) {
 		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
 	}
 	want := []inboxItem{{Kind: "ready for review", Repository: shop, Workstream: 12, Issue: 41, Text: "Pull request #42 of #41 \"Add plan model\" is ready for review.", Link: "https://github.com/owner/shop/pull/42#issuecomment-2"}}
@@ -513,7 +514,7 @@ func TestApprovePullRequestRefusesATaskInChecksAndChangesNothing(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, longGrace)
-	sha := checksHead(t, server, fake)
+	checksHead(t, server, fake)
 
 	sendChat(t, server, leadChat, "Approve #41")
 
@@ -524,8 +525,8 @@ func TestApprovePullRequestRefusesATaskInChecksAndChangesNothing(t *testing.T) {
 	if !fake.PullRequests(shop)[0].Draft {
 		t.Error("the pull request is ready for review")
 	}
-	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: sha, Status: "in_progress"}}; !slices.Equal(fake.CheckRuns(shop), want) {
-		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
+	if want := []string{"Wait for the CI"}; !slices.Equal(mobiusTitles(fake), want) {
+		t.Errorf("titles = %q", mobiusTitles(fake))
 	}
 	if items := inbox(t, server); len(items) != 0 {
 		t.Errorf("Inbox = %+v", items)

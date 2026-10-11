@@ -245,7 +245,7 @@ func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, t
 	}) {
 		return false, nil
 	}
-	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "in_progress", "", "", ""); err != nil {
+	if err := setCIWaitStep(ctx, repository, pullRequest.GetHead().GetSHA()); err != nil {
 		return false, err
 	}
 	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "reviewed"})
@@ -397,6 +397,11 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 	if err != nil {
 		return err
 	}
+	if slices.Contains([]string{"reviewed", "checks", "approval"}, j.from) {
+		if err := setJudgeStep(ctx, repository, j.pullRequest.GetHead().GetSHA()); err != nil {
+			return err
+		}
+	}
 	sections, err := e.repositorySections(ctx, repository, JudgeRole)
 	if err != nil {
 		return err
@@ -459,6 +464,16 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 			_, err := e.continueTask(ctx, repository, j.title, j.task, j.pullRequest, "working")
 			return err
 		}
+		head := j.pullRequest.GetHead().GetSHA()
+		switch j.from {
+		case "checks":
+			err = setCIWaitStep(ctx, repository, head)
+		case "approval":
+			err = setApprovalWaitStep(ctx, repository, head)
+		}
+		if err != nil {
+			return err
+		}
 		moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: j.from, ID: j.task.ID, FromState: "working"})
 		if err != nil || moved == 0 || j.from == "reviewed" {
 			return err
@@ -478,7 +493,7 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 	if err != nil {
 		return err
 	}
-	return e.fixRound(ctx, repository, round{task: j.task, title: j.title, pullRequest: j.pullRequest, counts: counts, items: roundText(j.items, routes.round), parent: parent})
+	return e.fixRound(ctx, repository, round{task: j.task, title: j.title, pullRequest: j.pullRequest, counts: counts, items: roundText(j.items, routes.round), parent: parent, cause: judgeCause})
 }
 
 // roundText gives the prompt text of the items of the round with their actions.

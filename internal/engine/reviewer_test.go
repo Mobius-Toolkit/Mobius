@@ -94,7 +94,7 @@ func TestAReviewerThatFindsNothingTakesTheTaskToChecksAndThenToApproval(t *testi
 
 	waitForLeadPrompt(t, server, " ready for Lead approval of #41 \"Add plan model\": pull request #42 https://github.com/owner/shop/pull/42.")
 	sha, base := head(t, fake, "mobius/41"), head(t, fake, "main")
-	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: sha, Status: "in_progress"}}; !reflect.DeepEqual(fake.CheckRuns(shop), want) {
+	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: sha, Status: "in_progress", Output: approvalOutput}}; !reflect.DeepEqual(fake.CheckRuns(shop), want) {
 		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
 	}
 	if pullRequests := fake.PullRequests(shop); len(pullRequests) != 1 || !pullRequests[0].Draft {
@@ -159,7 +159,7 @@ func TestAFixRoundRepliesWithThePushedFixCommitAndResolvesTheThread(t *testing.T
 	if thread := fake.ReviewThread(shop, 42, 2); !reflect.DeepEqual(thread, want) {
 		t.Errorf("thread = %+v", thread)
 	}
-	runs := []testkit.CheckRun{{Name: "Mobius", HeadSHA: first, Status: "completed", Conclusion: "neutral", Output: replacedOutput}, {Name: "Mobius", HeadSHA: sha, Status: "in_progress"}}
+	runs := []testkit.CheckRun{{Name: "Mobius", HeadSHA: first, Status: "completed", Conclusion: "neutral", Output: replacedOutput}, {Name: "Mobius", HeadSHA: sha, Status: "in_progress", Output: approvalOutput}}
 	if !reflect.DeepEqual(fake.CheckRuns(shop), runs) {
 		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
 	}

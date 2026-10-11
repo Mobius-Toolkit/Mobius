@@ -174,7 +174,7 @@ func TestTheImplementerCommitsAndMobiusOpensADraftPullRequest(t *testing.T) {
 	if want := []testkit.PullRequest{{Number: 42, Title: "Add plan model", Body: "Workstream:\n- #12\n\nIssue:\n- #41\n\nCloses #41", Head: "mobius/41", Base: "main", Draft: true}}; !reflect.DeepEqual(fake.PullRequests(shop), want) {
 		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
 	}
-	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: head(t, fake, "mobius/41"), Status: "in_progress"}}; !reflect.DeepEqual(runs, want) {
+	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: head(t, fake, "mobius/41"), Status: "in_progress", Output: approvalOutput}}; !reflect.DeepEqual(runs, want) {
 		t.Errorf("check runs = %+v", runs)
 	}
 	author := testkit.Git(t, fake.Remote(shop), "log", "-1", "--format=%s by %an <%ae>", "mobius/41")
@@ -452,7 +452,7 @@ func TestAFailedCheckGoesBackToTheSameImplementerWithTheOutput(t *testing.T) {
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	runs := approvalCheckRuns(t, server, fake)
-	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: head(t, fake, "mobius/41"), Status: "in_progress"}}; !reflect.DeepEqual(runs, want) {
+	if want := []testkit.CheckRun{{Name: "Mobius", HeadSHA: head(t, fake, "mobius/41"), Status: "in_progress", Output: approvalOutput}}; !reflect.DeepEqual(runs, want) {
 		t.Errorf("check runs = %+v", runs)
 	}
 	if plan := testkit.Git(t, fake.Remote(shop), "show", "mobius/41:plan.txt"); plan != "cents" {
