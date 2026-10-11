@@ -157,6 +157,9 @@ func TestAFixRoundAfterTheResumeOfAStoppedTaskShowsTheCountOfTheResetCounter(t *
 	if _, err := server.DB.Exec("UPDATE tasks SET fix_rounds = 4 WHERE id = 1"); err != nil {
 		t.Fatal(err)
 	}
+	testkit.WaitFor(t, func() bool { runs := mobiusCheckRuns(fake); return len(runs) == 1 && runs[0].Status == "completed" })
+	// A stop completes the check run, and a fix round changes only an open check run.
+	fake.SetCheckRunStatus(1, "in_progress", "")
 	if err := os.WriteFile(go1, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
