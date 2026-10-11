@@ -279,8 +279,8 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 	case TriagerRole:
 		return []mcp.Tool{
 			tool(e, c, "create_workstream",
-				"Create a Workstream: an issue with mobius:workstream. In the chat, call it only after the Owner approves the exact title and Brief.",
-				workstreamProperties,
+				"Create a Workstream: an issue with mobius:workstream. In the chat, call it only after the Owner approves the exact title and Brief. Add mobius:evergreen or mobius:maintenance in labels only when the Owner approves that label.",
+				triagerWorkstreamProperties,
 				e.createWorkstream),
 			tool(e, c, "move_issue",
 				"Make an issue a sub-issue of an open Workstream. For an issue with mobius:no-workstream, Mobius then adds mobius:ready again.",
@@ -317,6 +317,16 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 var workstreamProperties = map[string]any{
 	"title": map[string]any{"type": "string", "minLength": 1, "description": "The name of the Workstream."},
 	"brief": map[string]any{"type": "string", "minLength": 1, "description": "The Brief: the goal, the scope, and the limits of the Workstream."},
+}
+
+var triagerWorkstreamProperties = map[string]any{
+	"title": workstreamProperties["title"],
+	"brief": workstreamProperties["brief"],
+	"labels": map[string]any{
+		"type":        "array",
+		"items":       map[string]any{"type": "string", "enum": []string{evergreenLabel, maintenanceLabel}},
+		"description": "More labels for the Workstream issue. Only mobius:evergreen and mobius:maintenance are allowed.",
+	},
 }
 
 // tool gives the Mobius tool name of c. The tool decodes the arguments into In for run, and adds the call
@@ -440,8 +450,9 @@ type issueInput struct {
 }
 
 type workstreamInput struct {
-	Title string `json:"title"`
-	Brief string `json:"brief"`
+	Title  string   `json:"title"`
+	Brief  string   `json:"brief"`
+	Labels []string `json:"labels"`
 }
 
 type moveInput struct {
@@ -663,6 +674,14 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	if empty(input.Title) || empty(input.Brief) {
 		return "", refuse("title and brief must not be empty.")
 	}
+	if len(input.Labels) > 0 && c.role != TriagerRole {
+		return "", refuse("Only the Triager adds labels to a Workstream.")
+	}
+	for _, label := range input.Labels {
+		if label != evergreenLabel && label != maintenanceLabel {
+			return "", refuse("The label %q is not allowed. Use %s or %s.", label, evergreenLabel, maintenanceLabel)
+		}
+	}
 	e.copyWrite.Lock()
 	defer e.copyWrite.Unlock()
 	owner, name := repository.Owner(), repository.Name()
@@ -670,7 +689,7 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	if err != nil {
 		return "", err
 	}
-	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), []string{workstreamLabel}); err != nil {
+	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), append([]string{workstreamLabel}, input.Labels...)); err != nil {
 		return "", err
 	}
 	if _, err := e.updateCopy(ctx, repository, issue, nil, false); err != nil {
