@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -353,13 +354,13 @@ func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number
 	return nil
 }
 
-// workstreamAutopilot tells if a trusted user turned Autopilot on for the Workstream number.
+// workstreamAutopilot tells if the copy has Autopilot on for the Workstream number.
 func (e *Engine) workstreamAutopilot(ctx context.Context, repository github.Repository, number int64) (bool, error) {
-	issue, err := repository.Issue(ctx, number)
-	if err != nil || issue == nil {
-		return false, err
+	on, err := e.queries.GetCopiedAutopilot(ctx, store.GetCopiedAutopilotParams{Repository: repository.FullName, Number: number})
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
 	}
-	return e.issueAutopilot(ctx, repository, issue)
+	return on, err
 }
 
 // issueAutopilot tells if a trusted user turned Autopilot on for the Workstream issue.

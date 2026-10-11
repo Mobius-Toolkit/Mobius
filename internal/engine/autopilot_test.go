@@ -268,3 +268,27 @@ func TestAnAnsweredTaskDispatchesAgainWhenAutopilotGoesOff(t *testing.T) {
 	}
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
 }
+
+func TestAPollWithNoChangeDoesNotReadTheAutopilotStateFromGitHub(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	prepareAutopilot(fake, true)
+	fake.AddIssue(shop, 13, "Price rules")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	fake.AddLabel(shop, 13, "mobius:autopilot", "owner")
+	server := startAutopilot(t, fake, func(*config.Config) {}, "")
+	server.WaitForFirstPoll(t, shop)
+	waitForPolls(t, fake)
+	before := len(fake.Requests())
+
+	waitForPolls(t, fake)
+
+	for _, request := range fake.Requests()[before:] {
+		if strings.HasSuffix(request.Path, "/events") && strings.Contains(request.Path, "/issues/1") {
+			t.Errorf("request %s %s", request.Method, request.Path)
+		}
+		if strings.Contains(request.Query, "labels=mobius:workstream") || strings.Contains(request.Query, "labels=mobius%3Aworkstream") {
+			t.Errorf("request %s %s?%s", request.Method, request.Path, request.Query)
+		}
+	}
+}

@@ -611,19 +611,15 @@ func (e *Engine) startAutopilot(ctx context.Context, repository github.Repositor
 			return err
 		}
 	}
-	workstreams, err := repository.OpenIssuesWithLabel(ctx, workstreamLabel)
+	if !e.copied[repository.FullName] {
+		return nil
+	}
+	workstreams, err := e.queries.ListAutopilotWorkstreams(ctx, repository.FullName)
 	if err != nil {
 		return err
 	}
 	for _, workstream := range workstreams {
-		on, err := e.issueAutopilot(ctx, repository, workstream)
-		if err != nil {
-			return err
-		}
-		if !on {
-			continue
-		}
-		full, err := e.autopilotTree(ctx, repository, int64(workstream.GetNumber()), int64(workstream.GetNumber()))
+		full, err := e.autopilotTree(ctx, repository, workstream, workstream)
 		if err != nil || full {
 			return err
 		}

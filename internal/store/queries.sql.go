@@ -1184,6 +1184,22 @@ func (q *Queries) FreeLeadEvents(ctx context.Context, arg FreeLeadEventsParams) 
 	return items, nil
 }
 
+const getCopiedAutopilot = `-- name: GetCopiedAutopilot :one
+SELECT CAST(autopilot AS BOOLEAN) FROM copied_workstreams WHERE repository = ? AND number = ?
+`
+
+type GetCopiedAutopilotParams struct {
+	Repository string
+	Number     int64
+}
+
+func (q *Queries) GetCopiedAutopilot(ctx context.Context, arg GetCopiedAutopilotParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, getCopiedAutopilot, arg.Repository, arg.Number)
+	var autopilot bool
+	err := row.Scan(&autopilot)
+	return autopilot, err
+}
+
 const getCopiedIssueWorkstream = `-- name: GetCopiedIssueWorkstream :one
 SELECT workstream FROM copied_issues WHERE repository = ? AND number = ? AND repository_url = ? LIMIT 1
 `
@@ -1695,6 +1711,33 @@ func (q *Queries) ListActiveTasks(ctx context.Context) ([]ListActiveTasksRow, er
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAutopilotWorkstreams = `-- name: ListAutopilotWorkstreams :many
+SELECT number FROM copied_workstreams WHERE repository = ? AND autopilot ORDER BY number DESC
+`
+
+func (q *Queries) ListAutopilotWorkstreams(ctx context.Context, repository string) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listAutopilotWorkstreams, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var number int64
+		if err := rows.Scan(&number); err != nil {
+			return nil, err
+		}
+		items = append(items, number)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
