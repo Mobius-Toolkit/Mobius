@@ -105,3 +105,20 @@ func TestAFixRoundOfTheJudgeShowsItsCauseOnTheCheckRun(t *testing.T) {
 
 	waitForTitle(t, fake, "Fix round 1 of 10, Judge")
 }
+
+func TestAFixRoundAfterTheApprovalKeepsOneCompleteCheckRunOnTheHead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, noFinding+leadApproves+leadFindings+leadStarts, hangsOnLeadRound, noChange)
+	approvalHead(t, server, fake)
+	sendChat(t, server, leadChat, "Approve #41")
+	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got it for review.")
+
+	sendChat(t, server, leadChat, "Send the findings to #41")
+
+	roundPrompt(t, server)
+	runs := mobiusCheckRuns(fake)
+	if len(runs) != 1 || runs[0].Status != "completed" || runs[0].Conclusion != "success" {
+		t.Errorf("check runs = %+v", runs)
+	}
+}

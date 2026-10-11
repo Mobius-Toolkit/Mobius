@@ -341,13 +341,18 @@ func (e *Engine) setReviewStep(ctx context.Context, repository github.Repository
 	return setStep(ctx, repository, head, "Review"+e.roundText(task, afterConflict), "The Reviewer reviews the head commit.")
 }
 
-// setFixRoundStep sets the step of a fix round on the head. A round with count 0 does not count toward max_fix_rounds.
+// setFixRoundStep sets the step of a fix round on the open Mobius check run of the head. It does nothing when the head
+// has none, because a complete check run stays complete. A round with count 0 does not count toward max_fix_rounds.
 func (e *Engine) setFixRoundStep(ctx context.Context, repository github.Repository, head string, cause roundCause, count int64) error {
 	title := "Fix round, " + string(cause)
 	if count > 0 {
 		title = fmt.Sprintf("Fix round %d of %d, %s", count, e.config.MaxFixRounds, cause)
 	}
-	return setStep(ctx, repository, head, title, "The Implementer works on a fix round. Cause: "+string(cause)+".")
+	checkRun, err := openCheckRun(ctx, repository, head)
+	if err != nil || checkRun == 0 {
+		return err
+	}
+	return repository.UpdateCheckRun(ctx, checkRun, checkRunName, "in_progress", "", title, "The Implementer works on a fix round. Cause: "+string(cause)+".")
 }
 
 func setCIWaitStep(ctx context.Context, repository github.Repository, head string) error {
