@@ -160,8 +160,11 @@ function TaskEntry({ owner, name, line }: { owner: string; name: string; line: T
             #{line.number} {line.title}
           </span>
           {line.blockedBy.map((blocker) => (
-            <span key={blocker.number} className="text-sm text-muted-foreground">
-              blocked by #{blocker.number}
+            <span
+              key={`${blocker.repository}#${blocker.number}`}
+              className="text-sm text-muted-foreground"
+            >
+              blocked by {blocker.repository}#{blocker.number}
               {blocker.workstreamTitle && ` (Workstream "${blocker.workstreamTitle}")`}
             </span>
           ))}

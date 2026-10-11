@@ -54,14 +54,15 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 }
 
 const addCopiedBlocker = `-- name: AddCopiedBlocker :exec
-INSERT INTO copied_blockers (repository, workstream, position, number, blocker_workstream, blocker_workstream_title)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO copied_blockers (repository, workstream, position, blocker_repository, number, blocker_workstream, blocker_workstream_title)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type AddCopiedBlockerParams struct {
 	Repository             string
 	Workstream             int64
 	Position               int64
+	BlockerRepository      string
 	Number                 int64
 	BlockerWorkstream      sql.NullInt64
 	BlockerWorkstreamTitle sql.NullString
@@ -72,6 +73,7 @@ func (q *Queries) AddCopiedBlocker(ctx context.Context, arg AddCopiedBlockerPara
 		arg.Repository,
 		arg.Workstream,
 		arg.Position,
+		arg.BlockerRepository,
 		arg.Number,
 		arg.BlockerWorkstream,
 		arg.BlockerWorkstreamTitle,
@@ -760,16 +762,17 @@ func (q *Queries) DeleteChatMessage(ctx context.Context, id int64) error {
 }
 
 const deleteCopiedBlocker = `-- name: DeleteCopiedBlocker :execrows
-DELETE FROM copied_blockers WHERE repository = ? AND number = ?
+DELETE FROM copied_blockers WHERE repository = ? AND blocker_repository = ? AND number = ?
 `
 
 type DeleteCopiedBlockerParams struct {
-	Repository string
-	Number     int64
+	Repository        string
+	BlockerRepository string
+	Number            int64
 }
 
 func (q *Queries) DeleteCopiedBlocker(ctx context.Context, arg DeleteCopiedBlockerParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteCopiedBlocker, arg.Repository, arg.Number)
+	result, err := q.db.ExecContext(ctx, deleteCopiedBlocker, arg.Repository, arg.BlockerRepository, arg.Number)
 	if err != nil {
 		return 0, err
 	}
@@ -2092,8 +2095,8 @@ func (q *Queries) ListCopiedTree(ctx context.Context, arg ListCopiedTreeParams) 
 }
 
 const listCopiedTreeBlockers = `-- name: ListCopiedTreeBlockers :many
-SELECT position, number, blocker_workstream, blocker_workstream_title FROM copied_blockers
-WHERE repository = ? AND workstream = ? ORDER BY position, number
+SELECT position, blocker_repository, number, blocker_workstream, blocker_workstream_title FROM copied_blockers
+WHERE repository = ? AND workstream = ? ORDER BY position, blocker_repository, number
 `
 
 type ListCopiedTreeBlockersParams struct {
@@ -2103,6 +2106,7 @@ type ListCopiedTreeBlockersParams struct {
 
 type ListCopiedTreeBlockersRow struct {
 	Position               int64
+	BlockerRepository      string
 	Number                 int64
 	BlockerWorkstream      sql.NullInt64
 	BlockerWorkstreamTitle sql.NullString
@@ -2119,6 +2123,7 @@ func (q *Queries) ListCopiedTreeBlockers(ctx context.Context, arg ListCopiedTree
 		var i ListCopiedTreeBlockersRow
 		if err := rows.Scan(
 			&i.Position,
+			&i.BlockerRepository,
 			&i.Number,
 			&i.BlockerWorkstream,
 			&i.BlockerWorkstreamTitle,
@@ -2228,16 +2233,17 @@ func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkst
 }
 
 const listCopiedWorkstreamsWithBlocker = `-- name: ListCopiedWorkstreamsWithBlocker :many
-SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND number = ?
+SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker_repository = ? AND number = ?
 `
 
 type ListCopiedWorkstreamsWithBlockerParams struct {
-	Repository string
-	Number     int64
+	Repository        string
+	BlockerRepository string
+	Number            int64
 }
 
 func (q *Queries) ListCopiedWorkstreamsWithBlocker(ctx context.Context, arg ListCopiedWorkstreamsWithBlockerParams) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, listCopiedWorkstreamsWithBlocker, arg.Repository, arg.Number)
+	rows, err := q.db.QueryContext(ctx, listCopiedWorkstreamsWithBlocker, arg.Repository, arg.BlockerRepository, arg.Number)
 	if err != nil {
 		return nil, err
 	}

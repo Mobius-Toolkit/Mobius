@@ -436,8 +436,8 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 INSERT INTO copied_issue_labels (repository, workstream, position, name) VALUES (?, ?, ?, ?);
 
 -- name: AddCopiedBlocker :exec
-INSERT INTO copied_blockers (repository, workstream, position, number, blocker_workstream, blocker_workstream_title)
-VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO copied_blockers (repository, workstream, position, blocker_repository, number, blocker_workstream, blocker_workstream_title)
+VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: HasCopiedWorkstream :one
 SELECT EXISTS (SELECT 1 FROM copied_workstreams WHERE repository = ? AND number = ?);
@@ -458,7 +458,7 @@ WHERE i.repository = sqlc.arg(repository) AND i.number = sqlc.arg(number) AND i.
 SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker_workstream = ?;
 
 -- name: ListCopiedWorkstreamsWithBlocker :many
-SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND number = ?;
+SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker_repository = ? AND number = ?;
 
 -- name: UpdateCopiedWorkstream :execrows
 UPDATE copied_workstreams SET title = sqlc.arg(title), body = sqlc.arg(body), autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN)
@@ -475,7 +475,7 @@ UPDATE copied_workstreams SET autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number);
 
 -- name: DeleteCopiedBlocker :execrows
-DELETE FROM copied_blockers WHERE repository = ? AND number = ?;
+DELETE FROM copied_blockers WHERE repository = ? AND blocker_repository = ? AND number = ?;
 
 -- A tree can hold an issue of another repository as a leaf, so the change goes to the rows of all repositories.
 -- name: UpdateCopiedIssue :execrows
@@ -515,8 +515,8 @@ SELECT title, html_url, repository_url FROM copied_issues WHERE repository = ? A
 SELECT position, name FROM copied_issue_labels WHERE repository = ? AND workstream = ? ORDER BY position, name;
 
 -- name: ListCopiedTreeBlockers :many
-SELECT position, number, blocker_workstream, blocker_workstream_title FROM copied_blockers
-WHERE repository = ? AND workstream = ? ORDER BY position, number;
+SELECT position, blocker_repository, number, blocker_workstream, blocker_workstream_title FROM copied_blockers
+WHERE repository = ? AND workstream = ? ORDER BY position, blocker_repository, number;
 
 -- name: ListCopiedIssuesWithLabels :many
 SELECT i.repository, i.workstream, i.number, i.title, i.state, i.author, i.html_url, i.repository_url,

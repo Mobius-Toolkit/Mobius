@@ -130,6 +130,11 @@ export interface Blocker {
   /** Number is the number of the blocker issue */
   number: number;
   /**
+     * Repository is the full name of a blocker in another repository, or null
+     * @nullable
+     */
+  repository: string | null;
+  /**
      * WorkstreamTitle is the title of the Workstream of a blocker in another Workstream, or null
      * @nullable
      */
