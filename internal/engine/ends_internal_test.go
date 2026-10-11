@@ -24,9 +24,37 @@ func TestAnIssueOfAnotherRepositoryIsInAnotherRepository(t *testing.T) {
 	}
 }
 
+func threadOf(resolved bool, body string, authors ...string) github.ReviewThread {
+	comments := make([]github.ThreadComment, len(authors))
+	for i, author := range authors {
+		comments[i] = github.ThreadComment{Author: author}
+	}
+	comments[0].Body = body
+	return github.ReviewThread{ID: "RT_1", Comment: 1, Resolved: resolved, Authors: authors, Comments: comments}
+}
+
 func openOf(resolved bool, authors ...string) bool {
 	trusted := func(login string) bool { return login != "mallory" }
-	return openThread(github.ReviewThread{ID: "RT_1", Comment: 1, Resolved: resolved, Authors: authors}, trusted, "mobius-app[bot]")
+	return openThread(threadOf(resolved, "", authors...), trusted, "mobius-app[bot]")
+}
+
+func openFollowUpOf(resolved bool, authors ...string) bool {
+	trusted := func(login string) bool { return login != "mallory" }
+	return openThread(threadOf(resolved, "Later."+followUpMarker, authors...), trusted, "mobius-app[bot]")
+}
+
+func TestAFollowUpThreadWithNoReplyIsNotOpen(t *testing.T) {
+	t.Parallel()
+	if openFollowUpOf(false, "mobius-app[bot]") || openFollowUpOf(false, "mobius-app[bot]", "mobius-app[bot]", "mallory") {
+		t.Error("the thread is open")
+	}
+}
+
+func TestAFollowUpThreadWithAReplyOfATrustedUserIsOpen(t *testing.T) {
+	t.Parallel()
+	if !openFollowUpOf(false, "mobius-app[bot]", "mobius-app[bot]", "owner") {
+		t.Error("the thread is not open")
+	}
 }
 
 func TestAFindingOfTheReviewerWithNoReplyIsOpen(t *testing.T) {

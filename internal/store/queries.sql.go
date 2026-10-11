@@ -1537,6 +1537,28 @@ func (q *Queries) HasCopiedWorkstream(ctx context.Context, arg HasCopiedWorkstre
 	return exists, err
 }
 
+const hasFollowUpEvent = `-- name: HasFollowUpEvent :one
+SELECT EXISTS (
+    SELECT 1 FROM lead_events
+    WHERE repository = ?1 AND issue = ?2 AND kind = 'follow_up'
+      AND instr(payload, ', item ' || CAST(?3 AS INTEGER) || ', ') > 0
+)
+`
+
+type HasFollowUpEventParams struct {
+	Repository string
+	Issue      sql.NullInt64
+	Item       int64
+}
+
+// A follow-up event of a Reviewer names its review comment as ", item <id>, ".
+func (q *Queries) HasFollowUpEvent(ctx context.Context, arg HasFollowUpEventParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasFollowUpEvent, arg.Repository, arg.Issue, arg.Item)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hasTask = `-- name: HasTask :one
 SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?)
 `
