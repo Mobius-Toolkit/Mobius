@@ -17,6 +17,7 @@ const (
 	fixVerdict       = "call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 2, actions = [{ verdict = \"fix\", text = \"Rename the field.\" }] }] } }\n"
 )
 
+var approvedOutput = &testkit.CheckRunOutput{Title: "Approved", Summary: "The Lead approved the pull request."}
 var approvalOutput = &testkit.CheckRunOutput{Title: "Wait for the Lead approval", Summary: "The CI passed. Mobius waits for the Lead to approve the pull request."}
 
 // mobiusTitles gives the titles of the Mobius check runs of the shop, in the order of their creation.

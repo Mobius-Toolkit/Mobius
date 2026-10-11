@@ -439,7 +439,7 @@ func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxIte
 	if fake.PullRequests(shop)[0].Draft {
 		t.Error("the pull request is a draft")
 	}
-	if want := (testkit.CheckRun{Name: "Mobius", HeadSHA: sha, Status: "completed", Conclusion: "success", Output: approvalOutput}); !reflect.DeepEqual(fake.CheckRuns(shop)[0], want) {
+	if want := (testkit.CheckRun{Name: "Mobius", HeadSHA: sha, Status: "completed", Conclusion: "success", Output: approvedOutput}); !reflect.DeepEqual(fake.CheckRuns(shop)[0], want) {
 		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
 	}
 	want := []inboxItem{{Kind: "ready for review", Repository: shop, Workstream: 12, Issue: 41, Text: "Pull request #42 of #41 \"Add plan model\" is ready for review.", Link: "https://github.com/owner/shop/pull/42#issuecomment-2"}}

@@ -97,12 +97,6 @@ func (r Repository) UpdateCheckRun(ctx context.Context, id int64, name, status, 
 	return err
 }
 
-// CompleteCheckRun completes the check run id of name with conclusion, for example success.
-func (r Repository) CompleteCheckRun(ctx context.Context, id int64, name, conclusion string) error {
-	_, _, err := r.Client.Checks.UpdateCheckRun(ctx, r.Owner(), r.Name(), id, gh.UpdateCheckRunOptions{Name: name, Status: new("completed"), Conclusion: &conclusion})
-	return err
-}
-
 // CheckRuns gives the check runs of the commit sha.
 func (r Repository) CheckRuns(ctx context.Context, sha string) ([]*gh.CheckRun, error) {
 	return all(r.Client.Checks.ListCheckRunsForRefIter(ctx, r.Owner(), r.Name(), sha, &gh.ListCheckRunsOptions{ListOptions: gh.ListOptions{PerPage: 100}}))

@@ -382,7 +382,7 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	if err != nil {
 		return err
 	}
-	if err := repository.CompleteCheckRun(ctx, checkRun, checkRunName, "success"); err != nil {
+	if err := repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "success", "Approved", "The Lead approved the pull request."); err != nil {
 		return err
 	}
 	if pullRequest.GetDraft() {
