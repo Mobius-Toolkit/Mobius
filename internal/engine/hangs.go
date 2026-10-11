@@ -133,6 +133,6 @@ func (a *Agent) endHung(ctx context.Context) error {
 
 // endHungTask does endHung, and hands the task to a human with a stop event for the Lead.
 func (e *Engine) endHungTask(ctx context.Context, a *Agent, task store.Task, title string) error {
-	reason := fmt.Sprintf("the %s session %d had no activity after %d retries. Mobius stopped the session, set the Mobius check to failure, and added mobius:needs-human.", a.spec.Role, a.id, maxRetries)
+	reason := fmt.Sprintf("the %s session %d had no activity after %d retries. Mobius stopped the session and added mobius:needs-human.", a.spec.Role, a.id, maxRetries)
 	return errors.Join(a.endHung(ctx), e.handOverFailed(ctx, task, title, reason, "Session hung", "The agent session had no activity after the last retry. Mobius stopped the session."))
 }

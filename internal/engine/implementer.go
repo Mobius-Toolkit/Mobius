@@ -753,7 +753,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 	case mergeConflict:
 		return e.handOver(ended, task, j.title, fmt.Sprintf("the local branch diverged from origin/%s, and the merge had conflicts. Mobius pushed nothing and added mobius:needs-human. Git gave this error: %s. Resume gives the same conflict. First, in %s, merge origin/%s into the local branch and resolve the conflicts, or reset the local branch to origin/%s.", j.branch, r.text, a.spec.Dir, j.branch, j.branch))
 	}
-	return e.handOverFailed(ended, task, j.title, fmt.Sprintf("GitHub rejected the push. Mobius set the Mobius check to failure and added mobius:needs-human. Git gave this error:\n\n```\n%s\n```", r.text), "Push rejected", "GitHub rejected the push of the work.")
+	return e.handOverFailed(ended, task, j.title, fmt.Sprintf("GitHub rejected the push. Mobius added mobius:needs-human. Git gave this error:\n\n```\n%s\n```", r.text), "Push rejected", "GitHub rejected the push of the work.")
 }
 
 // stopAtLimit hands the task of the round to a human, because the pull request has open items after max_fix_rounds
