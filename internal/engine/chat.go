@@ -24,8 +24,8 @@ import (
 var (
 	//go:embed prompts/lead.md
 	leadPrompt string
-	//go:embed prompts/triager.md
-	triagerPrompt string
+	//go:embed prompts/coordinator.md
+	coordinatorPrompt string
 )
 
 const (
@@ -44,17 +44,17 @@ const (
 
 // The authors of the chat messages, as the chat_messages table names them.
 const (
-	ownerAuthor      = "Owner"
-	leadAuthor       = "Lead"
-	tellOwnerAuthor  = "tell_owner"
-	researcherAuthor = "Researcher"
-	curatorAuthor    = "Curator"
-	triagerAuthor    = "Triager"
-	mobiusAuthor     = "Mobius"
-	eventAuthor      = "Event"
+	ownerAuthor       = "Owner"
+	leadAuthor        = "Lead"
+	tellOwnerAuthor   = "tell_owner"
+	researcherAuthor  = "Researcher"
+	curatorAuthor     = "Curator"
+	coordinatorAuthor = "Coordinator"
+	mobiusAuthor      = "Mobius"
+	eventAuthor       = "Event"
 )
 
-// ChatKey names a chat: the Lead chat of a Workstream, or the Triager chat of an organization. The Triager chat has
+// ChatKey names a chat: the Lead chat of a Workstream, or the Coordinator chat of an organization. The Coordinator chat has
 // the empty repository and the Workstream 0.
 type ChatKey struct {
 	Organization string
@@ -94,7 +94,7 @@ type ChatView struct {
 	Writing bool
 	// PausedUntil is the end of the usage-limit pause that the agent of the chat waits for, or nil.
 	PausedUntil *time.Time
-	// Harness is the Harness of the Lead, or of the Triager for the Triager chat.
+	// Harness is the Harness of the Lead, or of the Coordinator for the Coordinator chat.
 	Harness config.Harness
 }
 
@@ -104,7 +104,7 @@ type item struct {
 	event   *store.LeadEvent
 }
 
-// chat is a running Lead chat or Triager chat. One goroutine runs its sessions, one after the other.
+// chat is a running Lead chat or Coordinator chat. One goroutine runs its sessions, one after the other.
 //
 // The fields after wake are guarded by e.chatsMu.
 type chat struct {
@@ -500,7 +500,7 @@ func (e *Engine) ChatView(ctx context.Context, key ChatKey, before int64) (ChatV
 	slices.Reverse(messages)
 	view.Messages = messages
 	if key.Workstream == 0 {
-		view.Harness = e.config.Roles.Triager.Harness
+		view.Harness = e.config.Roles.Coordinator.Harness
 	}
 	e.chatsMu.Lock()
 	if c, ok := e.chats[key]; ok {
@@ -533,7 +533,7 @@ func (e *Engine) ChatPausedUntil(ctx context.Context, key ChatKey) (*time.Time, 
 // publishChat sends the state of the chat of a, so the clients read its pause again. It does nothing for a session
 // that is not of a chat.
 func (e *Engine) publishChat(a *Agent) {
-	if a.spec.Role != LeadRole && a.spec.Role != TriagerRole {
+	if a.spec.Role != LeadRole && a.spec.Role != CoordinatorRole {
 		return
 	}
 	key := ChatKey{a.spec.Organization, a.spec.Repository, a.spec.Workstream}
@@ -654,7 +654,7 @@ func (e *Engine) runChat(c *chat) {
 // chatSpec gives the session of the chat of key. It makes the directory of a Lead.
 func (e *Engine) chatSpec(key ChatKey) (Spec, error) {
 	if key.Workstream == 0 {
-		return Spec{Role: TriagerRole, Organization: key.Organization}, nil
+		return Spec{Role: CoordinatorRole, Organization: key.Organization}, nil
 	}
 	dir := leadDir(e.config.DataDir, key.Repository, key.Workstream)
 	spec := Spec{Role: LeadRole, Organization: key.Organization, Repository: key.Repository, Workstream: key.Workstream, Dir: dir}
@@ -853,7 +853,7 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images
 	if current.message != nil {
 		author = leadAuthor
 		if c.key.Workstream == 0 {
-			author = triagerAuthor
+			author = coordinatorAuthor
 		}
 	}
 	a.setAuthor(author)
@@ -985,7 +985,7 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 		if err != nil {
 			return "", nil, err
 		}
-		return fmt.Sprintf("%s\n%s\n%s# %s message\n\n%s", triagerPrompt, workstreams, history, first.message.Author, first.message.Text), images, nil
+		return fmt.Sprintf("%s\n%s\n%s# %s message\n\n%s", coordinatorPrompt, workstreams, history, first.message.Author, first.message.Text), images, nil
 	}
 	repository, err := e.repository(key.Repository)
 	if err != nil {

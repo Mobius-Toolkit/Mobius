@@ -89,7 +89,7 @@ test("the Checkup page shows a needs you badge on Workstreams when a repository 
   await expect(row("owner").getByText("needs you")).toBeHidden();
 });
 
-test("the Workstreams page links the maintenance Workstream and sends the draft request to the Triager chat", async ({
+test("the Workstreams page links the maintenance Workstream and sends the draft request to the Coordinator chat", async ({
   page,
 }) => {
   const main = page.getByRole("main");

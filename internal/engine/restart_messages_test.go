@@ -66,7 +66,7 @@ func TestARestartGivesTwoOwnerMessagesInTheOrderOfTheirIdsBeforeTheReadyEvents(t
 	inOrder(t, joinedLeadPrompts(t, server), "First message.", "Second message.", "A comment before the restart.")
 }
 
-func TestARestartGivesAnOwnerMessageToTheTriagerChat(t *testing.T) {
+func TestARestartGivesAnOwnerMessageToTheCoordinatorChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
@@ -76,7 +76,7 @@ func TestARestartGivesAnOwnerMessageToTheTriagerChat(t *testing.T) {
 	server := startServer(t, fake, dataDir, "")
 
 	testkit.WaitFor(t, func() bool {
-		return slices.ContainsFunc(triagerPrompts(t, server), func(prompt string) bool {
+		return slices.ContainsFunc(coordinatorPrompts(t, server), func(prompt string) bool {
 			return strings.Contains(prompt, "Start a Workstream for loyalty points.")
 		})
 	})
@@ -144,7 +144,7 @@ func TestAStoredOwnerMessageGoesToTheAgentBeforeAMessageOfThisRunDuringTheDrain(
 	dataDir := t.TempDir()
 	seed(t, dataDir,
 		seedMessage(1, shop, 12, "Owner", "Lead message.", "a1", "", ""),
-		seedMessage(2, "", 0, "Owner", "Triager message.", "a2", "", ""))
+		seedMessage(2, "", 0, "Owner", "Coordinator message.", "a2", "", ""))
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nreply = [\"Seen\"]\n")
@@ -165,8 +165,8 @@ func TestAStoredOwnerMessageGoesToTheAgentBeforeAMessageOfThisRunDuringTheDrain(
 		t.Errorf("prompts = %q", prompts)
 	}
 	testkit.WaitFor(t, func() bool {
-		return slices.ContainsFunc(triagerPrompts(t, server), func(prompt string) bool {
-			return strings.Contains(prompt, "Triager message.")
+		return slices.ContainsFunc(coordinatorPrompts(t, server), func(prompt string) bool {
+			return strings.Contains(prompt, "Coordinator message.")
 		})
 	})
 	testkit.WaitFor(t, func() bool {

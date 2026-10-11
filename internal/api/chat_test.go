@@ -23,13 +23,13 @@ type testImage struct {
 
 var chatIDs atomic.Int64
 
-// sendChat posts a message of the Owner with a new browser id to the Triager chat of the organization owner.
+// sendChat posts a message of the Owner with a new browser id to the Coordinator chat of the organization owner.
 func sendChat(t *testing.T, server *testserver.Server, text string, images ...testImage) (int, string) {
 	t.Helper()
 	return sendChatID(t, server, "message-"+strconv.FormatInt(chatIDs.Add(1), 10), text, images...)
 }
 
-// sendChatID posts a message of the Owner with the browser id id to the Triager chat of the organization owner as
+// sendChatID posts a message of the Owner with the browser id id to the Coordinator chat of the organization owner as
 // multipart/form-data.
 func sendChatID(t *testing.T, server *testserver.Server, id, text string, images ...testImage) (int, string) {
 	t.Helper()

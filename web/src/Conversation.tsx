@@ -296,7 +296,7 @@ function Thumbnail({
   );
 }
 
-// The chat of the agent: a Lead chat, or the Triager chat with the empty repository and the Workstream 0. unread is
+// The chat of the agent: a Lead chat, or the Coordinator chat with the empty repository and the Workstream 0. unread is
 // undefined until the first read of the unread counts.
 export function Conversation({
   organization,

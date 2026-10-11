@@ -23,7 +23,7 @@ type caller struct {
 	session      int64
 	role         string
 	organization string
-	// repository is empty for the Triager chat.
+	// repository is empty for the Coordinator chat.
 	repository string
 	workstream int64
 	agent      *Agent
@@ -288,20 +288,16 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.createMaintenanceIssue))
 	case TriagerRole:
+		return []mcp.Tool{moveIssueTool(e, c)}
+	case CoordinatorRole:
 		return []mcp.Tool{
 			tool(e, c, "create_workstream",
-				"Create a Workstream: an issue with mobius:workstream. In the chat, call it only after the Owner approves the exact title and Brief. Add mobius:evergreen or mobius:maintenance in labels only when the Owner approves that label.",
-				triagerWorkstreamProperties,
+				"Create a Workstream: an issue with mobius:workstream. Call it only after the Owner approves the exact title and Brief. Add mobius:evergreen or mobius:maintenance in labels only when the Owner approves that label.",
+				coordinatorWorkstreamProperties,
 				e.createWorkstream),
-			tool(e, c, "move_issue",
-				"Make an issue a sub-issue of an open Workstream. For an issue with mobius:no-workstream, Mobius then adds mobius:ready again.",
-				map[string]any{
-					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
-					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue."},
-				},
-				e.moveIssue),
+			moveIssueTool(e, c),
 			tool(e, c, "message_lead",
-				"Send a message to the Lead of an open Workstream. In the chat, call it only after the Owner selects the Workstream and approves the exact message.",
+				"Send a message to the Lead of an open Workstream. Call it only after the Owner selects the Workstream and approves the exact message.",
 				map[string]any{
 					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue that the Owner selects."},
 					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
@@ -314,7 +310,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.startResearcher),
 			toolOf(e, c, noRepository, "tell_curator",
-				"Send a request to the Curator of a repository. The Curator changes the memory file of the repository. In the chat, call it only after the Owner approves the exact message. The tool returns at once, and the result arrives later.",
+				"Send a request to the Curator of a repository. The Curator changes the memory file of the repository. Call it only after the Owner approves the exact message. The tool returns at once, and the result arrives later.",
 				map[string]any{
 					"repository": map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository (owner/name) in the organization of the chat."},
 					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The request for the Curator."},
@@ -330,7 +326,7 @@ var workstreamProperties = map[string]any{
 	"brief": map[string]any{"type": "string", "minLength": 1, "description": "The Brief: the goal, the scope, and the limits of the Workstream."},
 }
 
-var triagerWorkstreamProperties = map[string]any{
+var coordinatorWorkstreamProperties = map[string]any{
 	"title": workstreamProperties["title"],
 	"brief": workstreamProperties["brief"],
 	"labels": map[string]any{
@@ -338,6 +334,16 @@ var triagerWorkstreamProperties = map[string]any{
 		"items":       map[string]any{"type": "string", "enum": []string{evergreenLabel, maintenanceLabel}},
 		"description": "More labels for the Workstream issue. Only mobius:evergreen and mobius:maintenance are allowed.",
 	},
+}
+
+func moveIssueTool(e *Engine, c caller) mcp.Tool {
+	return tool(e, c, "move_issue",
+		"Make an issue a sub-issue of an open Workstream. For an issue with mobius:no-workstream, Mobius then adds mobius:ready again.",
+		map[string]any{
+			"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
+			"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue."},
+		},
+		e.moveIssue)
 }
 
 // tool gives the Mobius tool name of c. The tool decodes the arguments into In for run, and adds the call
@@ -411,7 +417,7 @@ func (e *Engine) repository(name string) (github.Repository, error) {
 	return repository, nil
 }
 
-// callerRepository gives the repository of c. The Triager chat has no repository, so it uses the one repository of its organization.
+// callerRepository gives the repository of c. The Coordinator chat has no repository, so it uses the one repository of its organization.
 func (e *Engine) callerRepository(c caller) (github.Repository, error) {
 	if c.repository != "" {
 		return e.repository(c.repository)
@@ -423,7 +429,7 @@ func (e *Engine) callerRepository(c caller) (github.Repository, error) {
 		}
 	}
 	if len(found) != 1 {
-		return github.Repository{}, refuse("The Triager chat needs exactly one repository in %s.", c.organization)
+		return github.Repository{}, refuse("The Coordinator chat needs exactly one repository in %s.", c.organization)
 	}
 	return found[0], nil
 }
@@ -721,14 +727,11 @@ func (e *Engine) commentPullRequest(ctx context.Context, c caller, repository gi
 }
 
 func (e *Engine) createWorkstream(ctx context.Context, c caller, repository github.Repository, input workstreamInput) (string, error) {
-	if c.role != LeadRole && c.repository != "" {
-		return "", refuse("Only the Triager chat or the Lead chat creates a Workstream, after the Owner approves it.")
-	}
 	if empty(input.Title) || empty(input.Brief) {
 		return "", refuse("title and brief must not be empty.")
 	}
-	if len(input.Labels) > 0 && c.role != TriagerRole {
-		return "", refuse("Only the Triager adds labels to a Workstream.")
+	if len(input.Labels) > 0 && c.role != CoordinatorRole {
+		return "", refuse("Only the Coordinator adds labels to a Workstream.")
 	}
 	for _, label := range input.Labels {
 		if label != evergreenLabel && label != maintenanceLabel {
@@ -749,7 +752,7 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 		log.Printf("copy the new Workstream %s#%d: %v", repository.FullName, issue.GetNumber(), err)
 	}
 	e.publish(Change{Workstreams: true})
-	if c.role == TriagerRole {
+	if c.role == CoordinatorRole {
 		e.publish(Change{Created: &Created{repository.FullName, int64(issue.GetNumber())}})
 	}
 	return fmt.Sprintf("Created the Workstream #%d.", issue.GetNumber()), nil
@@ -853,14 +856,12 @@ func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repo
 }
 
 func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Repository, input messageLeadInput) (string, error) {
-	kind, sender := "triager", "the Triager"
+	kind, sender := "coordinator", "the Coordinator"
 	if c.role == LeadRole {
 		kind, sender = "lead", fmt.Sprintf("the Lead of #%d", c.workstream)
 		if input.Workstream == c.workstream {
 			return "", refuse("A Lead cannot send a message to its own Workstream.")
 		}
-	} else if c.repository != "" {
-		return "", refuse("Only the Triager chat sends a message to a Lead, after the Owner approves it.")
 	}
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")

@@ -13,7 +13,7 @@ import { ErrorBadge, inset, LinkRow, List, PageHeader, Row, Section } from "@/co
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LoginContext } from "@/lib/login";
-import { addTriagerMessage } from "@/lib/outbox";
+import { addCoordinatorMessage } from "@/lib/outbox";
 import { useShell } from "@/lib/shell";
 import { cn } from "@/lib/utils";
 import { chatParams } from "@/lib/workstreams";
@@ -341,7 +341,7 @@ export function CheckupWorkstreams({ organization }: { organization: string }) {
 
   const create = (repository: string) => {
     setCreating(repository);
-    addTriagerMessage(organization, `Draft the maintenance Workstream for ${repository}.`)
+    addCoordinatorMessage(organization, `Draft the maintenance Workstream for ${repository}.`)
       .then(() => {
         selectOrganization(organization);
         return navigate({ to: "/chat" });

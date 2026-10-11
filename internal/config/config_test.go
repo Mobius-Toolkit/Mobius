@@ -15,6 +15,7 @@ trusted_users = ["owner"]
 
 [roles]
 lead        = { harness = "claude-code", model = "opus",    effort = "high" }
+coordinator = { harness = "claude-code", model = "sonnet",  effort = "medium" }
 triager     = { harness = "claude-code", model = "sonnet",  effort = "medium" }
 implementer = { harness = "devin",       model = "swe-1.5", effort = "high" }
 researcher  = { harness = "antigravity", model = "gemini-3-pro" }
@@ -83,7 +84,7 @@ func TestParseGivesTheDefaults(t *testing.T) {
 		switch b.Role {
 		case "lead":
 			wantMax = 8
-		case "triager":
+		case "coordinator", "triager":
 			wantMax = 12
 		}
 		if b.Binding.Max != wantMax {
@@ -144,7 +145,7 @@ func TestParseRefusesAnUnknownKey(t *testing.T) {
 	checks := []struct{ text, want string }{
 		{"pool_interval = \"1s\"\n" + valid, "line 1: unknown key pool_interval"},
 		{"max_workers_total = 1\n" + valid, "line 1: unknown key max_workers_total"},
-		{strings.Replace(valid, `model = "haiku"`, `models = "haiku"`, 1), "line 11: unknown key models"},
+		{strings.Replace(valid, `model = "haiku"`, `models = "haiku"`, 1), "line 12: unknown key models"},
 	}
 	for _, c := range checks {
 		if got := parseError(t, c.text); got != c.want {
@@ -177,7 +178,7 @@ func TestParseRefusesAWrongValue(t *testing.T) {
 
 func TestParseRefusesASyntaxError(t *testing.T) {
 	got := parseError(t, valid+"\n[roles")
-	if want := "line 14: toml: expected ']' to close table name"; got != want {
+	if want := "line 15: toml: expected ']' to close table name"; got != want {
 		t.Errorf("error = %q, want %q", got, want)
 	}
 }

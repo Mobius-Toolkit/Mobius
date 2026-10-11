@@ -223,11 +223,11 @@
     },
     "/api/chat": {
       "get": {
-        "description": "GetChat returns a page of the messages of the Lead chat of a Workstream, or of the Triager chat of an organization.",
+        "description": "GetChat returns a page of the messages of the Lead chat of a Workstream, or of the Coordinator chat of an organization.",
         "operationId": "GetChat",
         "parameters": [
           {
-            "description": "Organization is the owner of the repository, or the organization of the Triager chat",
+            "description": "Organization is the owner of the repository, or the organization of the Coordinator chat",
             "in": "query",
             "name": "organization",
             "required": false,
@@ -236,7 +236,7 @@
             }
           },
           {
-            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat",
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Coordinator chat",
             "in": "query",
             "name": "repository",
             "required": false,
@@ -245,7 +245,7 @@
             }
           },
           {
-            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat",
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat",
             "in": "query",
             "name": "workstream",
             "required": false,
@@ -306,7 +306,7 @@
     },
     "/api/chat/messages": {
       "post": {
-        "description": "SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. A message with the id of a stored message changes nothing and returns the same status. It returns 400 when the request is larger than 4 images of 5 MB with the text. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.",
+        "description": "SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Coordinator. Mobius starts the agent when none runs. A message with the id of a stored message changes nothing and returns the same status. It returns 400 when the request is larger than 4 images of 5 MB with the text. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.",
         "operationId": "SendChat",
         "requestBody": {
           "content": {
@@ -921,7 +921,7 @@
     },
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, each change of the pauses, and each Workstream that the Triager chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
+        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, each change of the pauses, and each Workstream that the Coordinator chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
         "operationId": "StreamEvents",
         "parameters": [
           {
@@ -3077,7 +3077,7 @@
           "groups": {
             "type": "array",
             "title": "[]AgentGroup",
-            "description": "Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge, Curator",
+            "description": "Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator",
             "items": {
               "$ref": "#/components/schemas/AgentGroup"
             }
@@ -3102,7 +3102,7 @@
           },
           "issue": {
             "type": "integer",
-            "description": "Issue is the number of the issue of the activity, or 0 for a session of the Triager"
+            "description": "Issue is the number of the issue of the activity, or 0 for a session of the Coordinator"
           },
           "link": {
             "type": "string",
@@ -3110,11 +3110,11 @@
           },
           "organization": {
             "type": "string",
-            "description": "Organization is the owner of the repository, or the organization of the Triager"
+            "description": "Organization is the owner of the repository, or the organization of the Coordinator chat"
           },
           "repository": {
             "type": "string",
-            "description": "Repository is the repository of the Workstream issue, as \"owner/name\". It is empty for a session of the Triager"
+            "description": "Repository is the repository of the Workstream issue, as \"owner/name\". It is empty for a session of the Coordinator"
           },
           "text": {
             "type": "string",
@@ -3127,7 +3127,7 @@
           },
           "workstream": {
             "type": "integer",
-            "description": "Workstream is the number of the Workstream issue. It is 0 for a session of the Triager"
+            "description": "Workstream is the number of the Workstream issue. It is 0 for a session of the Coordinator"
           }
         },
         "required": [
@@ -3207,7 +3207,7 @@
           },
           "repository": {
             "type": "string",
-            "description": "Repository is the repository as \"owner/name\". It is empty for the Triager chat"
+            "description": "Repository is the repository as \"owner/name\". It is empty for the Coordinator chat"
           },
           "role": {
             "type": "string",
@@ -3228,7 +3228,7 @@
           },
           "workstream": {
             "type": "integer",
-            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager"
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat"
           }
         },
         "required": [
@@ -3355,7 +3355,7 @@
           "pausedUntil",
           "harness"
         ],
-        "description": "Chat is a page of the messages of a Lead chat or of the Triager chat."
+        "description": "Chat is a page of the messages of a Lead chat or of the Coordinator chat."
       },
       "ChatMessage": {
         "type": "object",
@@ -3363,12 +3363,12 @@
         "properties": {
           "author": {
             "type": "string",
-            "description": "Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry",
+            "description": "Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry",
             "enum": [
               "Owner",
               "Lead",
               "tell_owner",
-              "Triager",
+              "Coordinator",
               "Mobius",
               "Event"
             ]
@@ -3395,11 +3395,11 @@
           },
           "organization": {
             "type": "string",
-            "description": "Organization is the owner of the repository, or the organization of the Triager chat"
+            "description": "Organization is the owner of the repository, or the organization of the Coordinator chat"
           },
           "repository": {
             "type": "string",
-            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Coordinator chat"
           },
           "stoppedAt": {
             "type": [
@@ -3420,7 +3420,7 @@
           },
           "workstream": {
             "type": "integer",
-            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat"
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat"
           }
         },
         "required": [
@@ -3436,7 +3436,7 @@
           "deliveredAt",
           "stoppedAt"
         ],
-        "description": "ChatMessage is a message of a Lead chat or of the Triager chat."
+        "description": "ChatMessage is a message of a Lead chat or of the Coordinator chat."
       },
       "ChatState": {
         "type": "object",
@@ -3448,7 +3448,7 @@
           },
           "organization": {
             "type": "string",
-            "description": "Organization is the owner of the repository, or the organization of the Triager chat"
+            "description": "Organization is the owner of the repository, or the organization of the Coordinator chat"
           },
           "pausedUntil": {
             "type": [
@@ -3460,11 +3460,11 @@
           },
           "repository": {
             "type": "string",
-            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Coordinator chat"
           },
           "workstream": {
             "type": "integer",
-            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat"
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat"
           },
           "writing": {
             "type": "boolean",
@@ -4852,15 +4852,15 @@
           },
           "organization": {
             "type": "string",
-            "description": "Organization is the owner of the repository, or the organization of the Triager chat"
+            "description": "Organization is the owner of the repository, or the organization of the Coordinator chat"
           },
           "repository": {
             "type": "string",
-            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Coordinator chat"
           },
           "workstream": {
             "type": "integer",
-            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat"
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat"
           }
         }
       },
@@ -4882,11 +4882,11 @@
           },
           "organization": {
             "type": "string",
-            "description": "Organization is the owner of the repository, or the organization of the Triager chat"
+            "description": "Organization is the owner of the repository, or the organization of the Coordinator chat"
           },
           "repository": {
             "type": "string",
-            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Coordinator chat"
           },
           "text": {
             "type": "string",
@@ -4894,7 +4894,7 @@
           },
           "workstream": {
             "type": "integer",
-            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat"
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat"
           }
         },
         "required": [
@@ -4918,15 +4918,15 @@
         "properties": {
           "organization": {
             "type": "string",
-            "description": "Organization is the owner of the repository, or the organization of the Triager chat"
+            "description": "Organization is the owner of the repository, or the organization of the Coordinator chat"
           },
           "repository": {
             "type": "string",
-            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Coordinator chat"
           },
           "workstream": {
             "type": "integer",
-            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat"
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat"
           }
         }
       },
@@ -5113,15 +5113,15 @@
           },
           "organization": {
             "type": "string",
-            "description": "Organization is the owner of the repository, or the organization of the Triager chat"
+            "description": "Organization is the owner of the repository, or the organization of the Coordinator chat"
           },
           "repository": {
             "type": "string",
-            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Triager chat"
+            "description": "Repository is the repository of the Workstream as \"owner/name\". It is empty for the Coordinator chat"
           },
           "workstream": {
             "type": "integer",
-            "description": "Workstream is the number of the Workstream issue. It is 0 for the Triager chat"
+            "description": "Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat"
           }
         },
         "required": [

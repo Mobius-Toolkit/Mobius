@@ -55,6 +55,7 @@ type Config struct {
 // Roles binds each Role to a Harness and a model.
 type Roles struct {
 	Lead        RoleBinding `toml:"lead"`
+	Coordinator RoleBinding `toml:"coordinator"`
 	Triager     RoleBinding `toml:"triager"`
 	Implementer RoleBinding `toml:"implementer"`
 	Researcher  RoleBinding `toml:"researcher"`
@@ -111,6 +112,7 @@ func Parse(text []byte) (*Config, error) {
 			MaxWorkerRestarts: 3,
 			Roles: Roles{
 				Lead:        RoleBinding{Max: 8},
+				Coordinator: RoleBinding{Max: 12},
 				Triager:     RoleBinding{Max: 12},
 				Implementer: RoleBinding{Max: 2},
 				Researcher:  RoleBinding{Max: 2},
@@ -184,6 +186,7 @@ type NamedBinding struct {
 func (r *Roles) Bindings() []NamedBinding {
 	return []NamedBinding{
 		{"lead", &r.Lead},
+		{"coordinator", &r.Coordinator},
 		{"triager", &r.Triager},
 		{"implementer", &r.Implementer},
 		{"researcher", &r.Researcher},

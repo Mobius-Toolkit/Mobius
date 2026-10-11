@@ -15,7 +15,7 @@ import { GitHub } from "./GitHub";
 import { Inbox } from "./Inbox";
 import { InboxTabs } from "./InboxTabs";
 import { Memory, MemoryRepositories } from "./Memory";
-import { TriagerChat } from "./TriagerChat";
+import { CoordinatorChat } from "./CoordinatorChat";
 import { Usage } from "./Usage";
 import { Workstreams } from "./Workstreams";
 
@@ -26,10 +26,10 @@ export function WorkstreamsPage() {
   );
 }
 
-export function TriagerChatPage() {
+export function CoordinatorChatPage() {
   const { organizations, organization, unread, source } = useShell();
   return (
-    <TriagerChat
+    <CoordinatorChat
       organizations={organizations}
       organization={organization}
       unread={unread && unreadCount(unread, { organization, repository: "", workstream: 0 })}

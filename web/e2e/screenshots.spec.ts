@@ -122,7 +122,7 @@ test("screenshots", async ({ page }) => {
       ...(desktop ? [page.locator("nav").first().getByText("needs you")] : []),
     ];
   };
-  // Each test that opens the Triager chat of owner marks its messages as seen. Thus the screenshots get a fixed count.
+  // Each test that opens the Coordinator chat of owner marks its messages as seen. Thus the screenshots get a fixed count.
   await page.route("/api/unread", async (route) => {
     const response = await route.fetch();
     const { data } = (await response.json()) as { data: { organization: string }[] };
@@ -370,7 +370,7 @@ test("screenshots", async ({ page }) => {
     main.getByText("All tasks are closed."),
     main.getByText("Change the prices for each season."),
   ]);
-  await screenshot(page, "chat-triager", "/chat", (device) => [
+  await screenshot(page, "chat-coordinator", "/chat", (device) => [
     chatCount,
     ...frame(device, drain),
     main.getByText("Sell gift cards in the shop."),

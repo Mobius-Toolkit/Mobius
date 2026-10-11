@@ -34,13 +34,13 @@ type Activity struct {
 	ID int64 `gork:"id"`
 	// Time is the time of the activity
 	Time time.Time `gork:"time"`
-	// Organization is the owner of the repository, or the organization of the Triager
+	// Organization is the owner of the repository, or the organization of the Coordinator chat
 	Organization string `gork:"organization"`
-	// Repository is the repository of the Workstream issue, as "owner/name". It is empty for a session of the Triager
+	// Repository is the repository of the Workstream issue, as "owner/name". It is empty for a session of the Coordinator
 	Repository string `gork:"repository"`
-	// Workstream is the number of the Workstream issue. It is 0 for a session of the Triager
+	// Workstream is the number of the Workstream issue. It is 0 for a session of the Coordinator
 	Workstream int64 `gork:"workstream"`
-	// Issue is the number of the issue of the activity, or 0 for a session of the Triager
+	// Issue is the number of the issue of the activity, or 0 for a session of the Coordinator
 	Issue int64 `gork:"issue"`
 	// Actor is the GitHub login that did the activity, or "Mobius" when no GitHub login did it
 	Actor string `gork:"actor"`
@@ -65,7 +65,7 @@ type LiveEvents struct {
 	// Repositories is a change of the repositories of the Apps. It has no data, so the client reads the Apps and the
 	// organizations again
 	Repositories *struct{} `gork:"repositories"`
-	// Message is a new chat message, or a message of the Lead or of the Triager that got more text
+	// Message is a new chat message, or a message of the Lead or of the Coordinator that got more text
 	Message *ChatMessage `gork:"message"`
 	// Unread is the new number of unread messages of a chat
 	Unread *Unread `gork:"unread"`
@@ -75,7 +75,7 @@ type LiveEvents struct {
 	Inbox *InboxItem `gork:"inbox"`
 	// Pauses is the list of the pauses of all Harnesses at each start and each end of a pause
 	Pauses *[]Pause `gork:"pauses"`
-	// WorkstreamCreated is a Workstream that the Triager chat created, so the client can open it
+	// WorkstreamCreated is a Workstream that the Coordinator chat created, so the client can open it
 	WorkstreamCreated *WorkstreamRef `gork:"workstreamCreated"`
 	// Ping has no data. The server sends it at a fixed interval, so the client can find a connection that is dead
 	Ping *struct{} `gork:"ping"`
@@ -83,11 +83,11 @@ type LiveEvents struct {
 
 // ChatState is the state of a chat.
 type ChatState struct {
-	// Organization is the owner of the repository, or the organization of the Triager chat
+	// Organization is the owner of the repository, or the organization of the Coordinator chat
 	Organization string `gork:"organization"`
-	// Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat
+	// Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat
 	Repository string `gork:"repository"`
-	// Workstream is the number of the Workstream issue. It is 0 for the Triager chat
+	// Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
 	Workstream int64 `gork:"workstream"`
 	// Writing is true while the agent has a turn that runs or an item that waits
 	Writing bool `gork:"writing"`
@@ -108,7 +108,7 @@ type WorkstreamRef struct {
 // StreamEvents sends the latest activities, and then each new activity, each change of a session,
 // each change of the drain, each start and failure of an upgrade,
 // each change of the Workstream list, each new or longer chat message, each new unread count, each change of the
-// state of a chat, each new or dismissed Inbox item, each change of the pauses, and each Workstream that the Triager chat created.
+// state of a chat, each new or dismissed Inbox item, each change of the pauses, and each Workstream that the Coordinator chat created.
 // It also sends a ping at a fixed interval.
 // When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities.
 // When the client does not read the session changes fast enough, the stream ends.

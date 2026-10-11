@@ -29,13 +29,10 @@ type researcherTextInput struct {
 	Text string `json:"text"`
 }
 
-// startResearcher starts a Researcher with the question of the Lead or of the Triager chat c. The report goes to the
+// startResearcher starts a Researcher with the question of the Lead or of the Coordinator chat c. The report goes to the
 // chat of c as a Researcher message. A stop of the Lead stops its Researchers with no report. It gives the id of the
 // Researcher.
 func (e *Engine) startResearcher(ctx context.Context, c caller, repository github.Repository, input questionInput) (string, error) {
-	if c.role == TriagerRole && c.repository != "" {
-		return "", refuse("Only the Triager chat or the Lead chat starts a Researcher.")
-	}
 	if empty(input.Question) {
 		return "", refuse("question must not be empty.")
 	}

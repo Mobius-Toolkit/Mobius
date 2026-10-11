@@ -42,6 +42,7 @@ func TestEachRoleStartsOnTheHarnessModelAndEffortOfItsRoleBinding(t *testing.T) 
 		binding config.RoleBinding
 	}{
 		{engine.LeadRole, cfg.Roles.Lead},
+		{engine.CoordinatorRole, cfg.Roles.Coordinator},
 		{engine.TriagerRole, cfg.Roles.Triager},
 		{engine.ImplementerRole, cfg.Roles.Implementer},
 		{engine.ResearcherRole, cfg.Roles.Researcher},

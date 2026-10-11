@@ -93,7 +93,8 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nlist_tools = true\n")
-	triager := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()}
+	coordinator := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
+	triager := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Repository: shop, Dir: t.TempDir()}
 	reviewer := leadSpec(t)
 	reviewer.Role = engine.ReviewerRole
 	implementer := leadSpec(t)
@@ -109,7 +110,8 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		spec engine.Spec
 		want []string
 	}{
-		{triager, []string{"create_workstream", "message_lead", "move_issue", "start_researcher", "tell_curator"}},
+		{coordinator, []string{"create_workstream", "message_lead", "move_issue", "start_researcher", "tell_curator"}},
+		{triager, []string{"move_issue"}},
 		{reviewer, []string{"submit_review"}},
 		{implementer, []string{"cannot_do", "reply_thread"}},
 		{researcher, []string{}},
@@ -463,18 +465,14 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
-	triagerChat := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()}
-	triagerOfIssue := triagerChat
-	triagerOfIssue.Repository = shop
+	coordinatorChat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 
 	leadSession := run(t, server, leadSpec(t), "Create it.")
-	chat := run(t, server, triagerChat, "Create it.")
-	ofIssue := run(t, server, triagerOfIssue, "Create it.")
+	chat := run(t, server, coordinatorChat, "Create it.")
 
 	for session, want := range map[int64]string{
 		leadSession: "Created the Workstream #13.",
 		chat:        "Created the Workstream #14.",
-		ofIssue:     "error: Only the Triager chat or the Lead chat creates a Workstream, after the Owner approves it.",
 	} {
 		if got := reply(t, server, session); got != want {
 			t.Errorf("reply = %q, want %q", got, want)
@@ -488,16 +486,16 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 	}
 }
 
-func TestCreateWorkstreamAddsTheLabelsOfTheTriagerChat(t *testing.T) {
+func TestCreateWorkstreamAddsTheLabelsOfTheCoordinatorChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake,
 		call("create_workstream", `{ title = "Upkeep", brief = "Keep the code healthy.", labels = ["mobius:maintenance"] }`)+
 			call("create_workstream", `{ title = "Ops", brief = "Run the shop.", labels = ["mobius:evergreen", "mobius:ready"] }`)+
 			call("create_workstream", `{ title = "Plain", brief = "No extra label.", labels = [] }`))
-	triagerChat := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()}
+	coordinatorChat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 
-	session := run(t, server, triagerChat, "1. ", "2. ", "3. ")
+	session := run(t, server, coordinatorChat, "1. ", "2. ", "3. ")
 
 	want := "Created the Workstream #13." +
 		`error: The label "mobius:ready" is not allowed. Use mobius:evergreen or mobius:maintenance.` +
@@ -520,7 +518,7 @@ func TestCreateWorkstreamRefusesLabelsFromTheLead(t *testing.T) {
 
 	session := run(t, server, leadSpec(t), "Create it.")
 
-	if got, want := reply(t, server, session), "error: Only the Triager adds labels to a Workstream."; got != want {
+	if got, want := reply(t, server, session), "error: Only the Coordinator adds labels to a Workstream."; got != want {
 		t.Errorf("reply = %q, want %q", got, want)
 	}
 	if fake.HasIssue(shop, 13) {
@@ -534,30 +532,17 @@ func TestMessageLeadSendsTheMessageToTheLeadOfAnOpenWorkstream(t *testing.T) {
 	server, _ := connect(t, fake, call("message_lead", `{ workstream = 12, text = "Create the task issues." }`)+
 		call("message_lead", `{ workstream = 21, text = "Create the task issues." }`))
 	fake.AddIssue(shop, 21, "Not a Workstream")
-	triagerChat := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Dir: t.TempDir()}
-	triagerOfIssue := triagerChat
-	triagerOfIssue.Repository = shop
+	coordinatorChat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 
-	ofIssue := run(t, server, triagerOfIssue, "1. ", "2. ")
+	chat := run(t, server, coordinatorChat, "1. ", "2. ")
 
-	want := "error: Only the Triager chat sends a message to a Lead, after the Owner approves it." +
-		"error: Only the Triager chat sends a message to a Lead, after the Owner approves it."
-	if got := reply(t, server, ofIssue); got != want {
-		t.Errorf("reply of the Triager of an issue = %q", got)
-	}
-	if events := leadEvents(t, server); len(events) != 0 {
-		t.Errorf("events = %v", events)
-	}
-
-	chat := run(t, server, triagerChat, "1. ", "2. ")
-
-	want = "Sent the message to the Lead of #12.error: #21 is not an open Workstream."
+	want := "Sent the message to the Lead of #12.error: #21 is not an open Workstream."
 	if got := reply(t, server, chat); got != want {
-		t.Errorf("reply of the Triager chat = %q", got)
+		t.Errorf("reply of the Coordinator chat = %q", got)
 	}
 	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
-	text := "Message of the Triager, approved by the Owner:\n\nCreate the task issues."
-	if events := leadEvents(t, server); !reflect.DeepEqual(events, []leadEvent{{Workstream: 12, Kind: "triager", Payload: text, Delivered: true}}) {
+	text := "Message of the Coordinator, approved by the Owner:\n\nCreate the task issues."
+	if events := leadEvents(t, server); !reflect.DeepEqual(events, []leadEvent{{Workstream: 12, Kind: "coordinator", Payload: text, Delivered: true}}) {
 		t.Errorf("events = %v", events)
 	}
 	if prompts := leadPrompts(t, server); len(prompts) == 0 || !strings.HasSuffix(prompts[0], "# Event\n\n"+text) {
