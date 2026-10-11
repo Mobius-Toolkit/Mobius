@@ -114,7 +114,7 @@ func TestAWorkerThatDiesAfterMaxWorkerRestartsGoesToAHuman(t *testing.T) {
 	if err := server.DB.QueryRow("SELECT kind, payload, issue, chat_message FROM lead_events WHERE workstream = 12").Scan(&kind, &payload, &issue, &message); err != nil {
 		t.Fatal(err)
 	}
-	want := " stop of #41 \"Add plan model\": the Worker failed after 1 restarts. Mobius added mobius:needs-human. The last error ends with these lines:\n\n```\n{\"code\":-32603"
+	want := " stop of #41 \"Add plan model\": the Worker failed after 1 restarts. Mobius set the Mobius check to failure and added mobius:needs-human. The last error ends with these lines:\n\n```\n{\"code\":-32603"
 	if kind != "stop" || !strings.Contains(payload, want) || issue.Int64 != 41 {
 		t.Errorf("event = %s %q #%d", kind, payload, issue.Int64)
 	}
