@@ -115,9 +115,9 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.stopResearcher),
 			tool(e, c, "ask",
-				"Ask the people on a task issue a question. Mobius posts the question as a comment, adds mobius:question, and adds an Inbox item for the Owner. The reply arrives later as an event.",
+				"Ask the people on a task issue, or on the Workstream issue, a question. Use it when you need a decision of the Owner. Mobius posts the question as a comment, adds mobius:question, and adds an Inbox item for the Owner. The reply arrives later as an event.",
 				map[string]any{
-					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue."},
 				},
 				e.ask),
@@ -187,7 +187,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				map[string]any{},
 				e.holdEvent),
 			tool(e, c, "tell_owner",
-				"Tell the Owner something. Mobius adds the text to the Lead chat and adds an Inbox item.",
+				"Tell the Owner something, for example a result. Mobius adds the text to the Lead chat and adds no Inbox item. For a decision of the Owner, call ask.",
 				map[string]any{
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The text for the Owner."},
 				},

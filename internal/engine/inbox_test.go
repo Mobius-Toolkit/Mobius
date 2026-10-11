@@ -99,6 +99,48 @@ reply = ["Seen"]
 	}
 }
 
+func TestTheLeadAsksOnTheWorkstreamIssueAndATrustedReplyRemovesTheQuestionLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, `
+[[prompts]]
+when = "comment on #12"
+reply = ["Seen"]
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "ask", arguments = { n = 12, text = "Change the Brief?" } }
+
+[[prompts]]
+reply = ["Seen"]
+`)
+
+	dispatchTask(fake, 41, "Add plan model")
+
+	calls := testkit.WaitForValue(t, func() ([]map[string]any, bool) {
+		calls := leadCalls(t, server)
+		return calls, len(calls) > 0
+	})
+	if calls[0]["result"] != "Asked on #12." {
+		t.Errorf("call = %v", calls[0])
+	}
+	if got := fake.Comments(shop, 12); !slices.Equal(got, []testkit.Comment{{Author: testkit.AppSlug + "[bot]", Body: "Change the Brief?"}}) {
+		t.Errorf("comments = %v", got)
+	}
+	if got := fake.Labels(shop, 12); !slices.Equal(got, []string{"mobius:workstream", "mobius:question"}) {
+		t.Errorf("labels = %v", got)
+	}
+	items := inbox(t, server)
+	want := inboxItem{ID: items[0].ID, Kind: "question", Repository: shop, Workstream: 12, Issue: 12, Text: "Change the Brief?", Link: "https://github.com/owner/shop/issues/12"}
+	if len(items) != 1 || items[0] != want {
+		t.Errorf("inbox = %+v", items)
+	}
+
+	fake.AddComment(shop, 12, "owner", "Yes.")
+
+	testkit.WaitFor(t, func() bool { return slices.Equal(fake.Labels(shop, 12), []string{"mobius:workstream"}) })
+}
+
 func TestAskOnAnIssueWithNoLiveTaskInTheWorkstreamChangesNothing(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -191,11 +233,10 @@ func TestHoldTaskRefusesATaskThatIsNotDispatched(t *testing.T) {
 	}
 }
 
-func TestTellOwnerAddsAChatMessageAndAnInboxItem(t *testing.T) {
+func TestTellOwnerAddsAChatMessageAndNoInboxItem(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, call("tell_owner", `{ text = "#41 needs a decision." }`))
-	changes := listen(t, server)
 
 	dispatchTask(fake, 41, "Add plan model")
 
@@ -213,15 +254,9 @@ func TestTellOwnerAddsAChatMessageAndAnInboxItem(t *testing.T) {
 	if err != nil || !slices.Equal(unread, []engine.Unread{{Key: leadChat, Count: 1}}) {
 		t.Errorf("unread = %+v, %v", unread, err)
 	}
-	items := testkit.WaitForValue(t, func() ([]inboxItem, bool) {
-		items := inbox(t, server)
-		return items, len(items) == 1
-	})
-	want := inboxItem{ID: items[0].ID, Kind: "Lead", Repository: shop, Workstream: 12, Issue: 12, Text: "#41 needs a decision.", Link: "https://github.com/owner/shop/issues/12"}
-	if items[0] != want {
-		t.Errorf("item = %+v", items[0])
+	if got := inbox(t, server); len(got) != 0 {
+		t.Errorf("inbox = %+v", got)
 	}
-	waitForChange(t, changes, func(change engine.Change) bool { return change.Inbox != nil && change.Inbox.ID == items[0].ID })
 }
 
 const tellOwnerThenReply = `
@@ -277,7 +312,7 @@ func TestTheReplyTextOfALaterTurnWithNoTellOwnerGoesToTheChat(t *testing.T) {
 func TestDismissRemovesTheItemFromTheInbox(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("tell_owner", `{ text = "#41 needs a decision." }`))
+	server, _ := connect(t, fake, call("ask", `{ n = 41, text = "Cents or dollars?" }`))
 	dispatchTask(fake, 41, "Add plan model")
 	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
 		items := inbox(t, server)
