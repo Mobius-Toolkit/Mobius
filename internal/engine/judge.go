@@ -464,10 +464,6 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 			_, err := e.continueTask(ctx, repository, j.title, j.task, j.pullRequest, "working")
 			return err
 		}
-		moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: j.from, ID: j.task.ID, FromState: "working"})
-		if err != nil || moved == 0 || j.from == "reviewed" {
-			return err
-		}
 		head := j.pullRequest.GetHead().GetSHA()
 		switch j.from {
 		case "checks":
@@ -476,6 +472,10 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 			err = setApprovalWaitStep(ctx, repository, head)
 		}
 		if err != nil {
+			return err
+		}
+		moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: j.from, ID: j.task.ID, FromState: "working"})
+		if err != nil || moved == 0 || j.from == "reviewed" {
 			return err
 		}
 		_, err = e.startKeptRound(ctx, repository, round{task: j.task, title: j.title, pullRequest: j.pullRequest})

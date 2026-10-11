@@ -299,10 +299,10 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 	open := slices.DeleteFunc(reviewThreads, func(thread github.ReviewThread) bool { return !openThread(thread, trusted, app) })
 	limit := int64(e.config.MaxFixRounds)
 	if len(open) == 0 {
-		if err := e.endRound(ctx, repository, j, task, comment, "No open findings. Mobius waits for CI.", open); err != nil {
+		if err := setCIWaitStep(ctx, repository, j.head); err != nil {
 			return err
 		}
-		if err := setCIWaitStep(ctx, repository, j.head); err != nil {
+		if err := e.endRound(ctx, repository, j, task, comment, "No open findings. Mobius waits for CI.", open); err != nil {
 			return err
 		}
 		moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "working"})
