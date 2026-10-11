@@ -390,7 +390,7 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN lead_findings"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("DELETE FROM goose_db_version WHERE version_id IN (20261027000000, 20261028000000)"); err != nil {
+	if _, err := db.Exec("DELETE FROM goose_db_version WHERE version_id >= 20261027000000"); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
