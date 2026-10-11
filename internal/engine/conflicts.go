@@ -45,7 +45,7 @@ func (e *Engine) stale(ctx context.Context, repository github.Repository, task s
 	if err := addNeedsHuman(ctx, repository, task); err != nil {
 		return err
 	}
-	if err := failOpenCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "Stale pull request", "The pull request is old and cannot merge cleanly. A human decides the next step."); err != nil {
+	if err := failOpenCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "Stale pull request", "The pull request is old. It has a merge conflict or is behind its base branch. A human decides the next step."); err != nil {
 		return err
 	}
 	issue, err := existingIssue(ctx, repository, task.Issue)
