@@ -84,3 +84,70 @@ func TestCannotDoInAFixRoundCompletesTheMobiusCheckRunAsFailure(t *testing.T) {
 	waitForLeadPrompt(t, server, " cannot_do on #41 \"Add plan model\" by the Implementer:")
 	wantStopCheck(t, fake, sha, "Cannot do")
 }
+
+// completeMobiusCheck completes the Mobius check run as success, as the approval does.
+func completeMobiusCheck(t *testing.T, fake *testkit.FakeGitHub) {
+	t.Helper()
+	for i, run := range fake.CheckRuns(shop) {
+		if run.Name == "Mobius" {
+			fake.SetCheckRunStatus(int64(i+1), "completed", "success")
+			return
+		}
+	}
+	t.Fatal("no Mobius check run")
+}
+
+// wantApprovedCheck tests that the head has one Mobius check run, and that it is still complete as success.
+func wantApprovedCheck(t *testing.T, fake *testkit.FakeGitHub, sha string) {
+	t.Helper()
+	runs := mobiusCheckRuns(fake)
+	if len(runs) != 1 || runs[0].HeadSHA != sha || runs[0].Status != "completed" || runs[0].Conclusion != "success" {
+		t.Errorf("check runs = %+v", runs)
+	}
+}
+
+func TestAStalePullRequestKeepsTheCompleteMobiusCheckRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	sha := approvalHead(t, server, fake)
+	completeMobiusCheck(t, fake)
+	fake.SetCreatedAt(shop, 42, 0)
+	fake.SetBehind(shop, 42)
+
+	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
+
+	waitForLeadPrompt(t, server, " stale pull request #42 of #41 \"Add plan model\": it is behind its base branch")
+	wantApprovedCheck(t, fake, sha)
+}
+
+func TestCannotDoInAFixRoundKeepsTheCompleteMobiusCheckRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nwhen = \"Action: fix\"\n"+cannotDoCall+"\n"+commits, noChange)
+	sha := approvalHead(t, server, fake)
+	completeMobiusCheck(t, fake)
+
+	fake.AddCheckRun(shop, checkRun("sentinel", sha, "completed", "failure"))
+
+	waitForLeadPrompt(t, server, " cannot_do on #41 \"Add plan model\" by the Implementer:")
+	wantApprovedCheck(t, fake, sha)
+}
+
+func TestTheWorkerRestartLimitKeepsTheCompleteMobiusCheckRun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	sha := approvalHead(t, server, fake)
+	completeMobiusCheck(t, fake)
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'working', worker = NULL, worker_restarts = 3 WHERE issue = 41"); err != nil {
+		t.Fatal(err)
+	}
+
+	restart, err := server.Engine.RestartWorker(t.Context(), liveTask(t, server, 41), "Add plan model", errors.New("the Worker died"))
+
+	if err != nil || restart {
+		t.Fatalf("restart = %v: %v", restart, err)
+	}
+	wantApprovedCheck(t, fake, sha)
+}

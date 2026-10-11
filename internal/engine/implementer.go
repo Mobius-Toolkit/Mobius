@@ -798,7 +798,7 @@ func (e *Engine) handOverFailed(ctx context.Context, task store.Task, title, rea
 	return errors.Join(checkErr, eventErr)
 }
 
-// failCheckRun completes the Mobius check of the head of the pull request of the task as failure. It reads the task
+// failCheckRun completes the open Mobius check of the head of the pull request of the task as failure. It reads the task
 // again, because task can be older than its pull request. A task with no pull request has no check.
 func (e *Engine) failCheckRun(ctx context.Context, task store.Task, title, summary string) error {
 	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
@@ -813,7 +813,17 @@ func (e *Engine) failCheckRun(ctx context.Context, task store.Task, title, summa
 	if err != nil {
 		return err
 	}
-	return setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", title, summary)
+	return failOpenCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), title, summary)
+}
+
+// failOpenCheckRun completes the Mobius check run of the head that is not complete as failure. A head with no such
+// check run, for example one that Mobius approved, stays as it is.
+func failOpenCheckRun(ctx context.Context, repository github.Repository, head, title, summary string) error {
+	checkRun, err := openCheckRun(ctx, repository, head)
+	if err != nil || checkRun == 0 {
+		return err
+	}
+	return repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "failure", title, summary)
 }
 
 func stopText(number int64, title, reason string) string {
