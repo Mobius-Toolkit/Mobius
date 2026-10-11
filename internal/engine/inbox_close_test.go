@@ -100,6 +100,17 @@ func TestAQuestionItemClosesAfterTheCloseOfTheIssue(t *testing.T) {
 	waitForNoItem(t, server, "question")
 }
 
+func TestAQuestionItemClosesAndThePollGoesOnWhenGitHubGivesGoneForTheIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := askedServer(t, fake)
+
+	fake.GoneIssue(shop, 41)
+
+	waitForNoItem(t, server, "question")
+	waitForPolls(t, fake)
+}
+
 func resume(t *testing.T, server *testserver.Server) {
 	t.Helper()
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/resume", ""); status != http.StatusNoContent {

@@ -261,6 +261,13 @@ func (g *FakeGitHub) FailIssueReads(repository string, number int64, times int) 
 	g.failedIssueReads[issueKey{repository, number}] = times
 }
 
+// GoneIssue makes each read of the issue answer 410 Gone.
+func (g *FakeGitHub) GoneIssue(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.goneIssues[issueKey{repository, number}] = true
+}
+
 // PendingIssueReadFailures gives the number of reads of the issue that FailIssueReads still makes fail.
 func (g *FakeGitHub) PendingIssueReadFailures(repository string, number int64) int {
 	g.mu.Lock()
@@ -720,6 +727,10 @@ func (g *FakeGitHub) getIssue(w http.ResponseWriter, r *http.Request) {
 	if g.failedIssueReads[key] > 0 {
 		g.failedIssueReads[key]--
 		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
+	if g.goneIssues[key] {
+		message(w, http.StatusGone, "Gone")
 		return
 	}
 	if key, ok := g.issue(w, r); ok {

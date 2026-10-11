@@ -108,6 +108,7 @@ type FakeGitHub struct {
 	singleCommentReads, repositoryCommentReads int
 	failedCloses                               map[issueKey]bool
 	failedIssueReads                           map[issueKey]int
+	goneIssues                                 map[issueKey]bool
 	failedSubIssues                            map[issueKey]bool
 	failedParents                              map[issueKey]bool
 	failedComments                             map[issueKey]bool
@@ -196,6 +197,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		resolvedThreads:         map[int64]bool{},
 		failedCloses:            map[issueKey]bool{},
 		failedIssueReads:        map[issueKey]int{},
+		goneIssues:              map[issueKey]bool{},
 		failedSubIssues:         map[issueKey]bool{},
 		failedParents:           map[issueKey]bool{},
 		failedComments:          map[issueKey]bool{},
