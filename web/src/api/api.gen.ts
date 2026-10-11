@@ -444,7 +444,7 @@ export interface EnvelopeArrayGitHubApp {
 }
 
 /**
- * Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, full disk for a local check that waits for free disk space, check errors for a task whose check failed on 10 polls in a row, and full slots for Autopilot that cannot start a task for 30 minutes
+ * Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, full disk for a local check that waits for free disk space, check errors for a task whose check failed on 10 polls in a row, and full slots for Autopilot that cannot start a task for 30 minutes
  */
 export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
 
@@ -454,7 +454,6 @@ export const InboxItemKind = {
   Lead: 'Lead',
   ready_for_review: 'ready for review',
   stale_pull_request: 'stale pull request',
-  usage_limit: 'usage limit',
   Lead_failed: 'Lead failed',
   stopped: 'stopped',
   full_disk: 'full disk',
@@ -475,17 +474,12 @@ export interface InboxItem {
   id: number;
   /** Issue is the number of the issue of the item */
   issue: number;
-  /** Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, full disk for a local check that waits for free disk space, check errors for a task whose check failed on 10 polls in a row, and full slots for Autopilot that cannot start a task for 30 minutes */
+  /** Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, full disk for a local check that waits for free disk space, check errors for a task whose check failed on 10 polls in a row, and full slots for Autopilot that cannot start a task for 30 minutes */
   kind: InboxItemKind;
   /** Link is the GitHub URL of the item, or empty */
   link: string;
   /** Organization is the owner of the repository */
   organization: string;
-  /**
-     * PausedUntil is the end of the pause of a usage limit item, or null for another item and after the pause ends
-     * @nullable
-     */
-  pausedUntil: string | null;
   /** Repository is the repository as "owner/name" */
   repository: string;
   /** Text is the text of the item */
@@ -581,6 +575,24 @@ export interface NeedsHuman {
 export interface EnvelopeArrayNeedsHuman {
   /** Data is the payload of the response */
   data: NeedsHuman[];
+}
+
+/**
+ * Pause is the usage-limit pause of a Harness.
+ */
+export interface Pause {
+  /** Harness is the name of the paused Harness */
+  harness: string;
+  /** PausedUntil is the end of the pause */
+  pausedUntil: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayPause {
+  /** Data is the payload of the response */
+  data: Pause[];
 }
 
 /**
@@ -1032,6 +1044,11 @@ export type LiveEvents = {
 } | {
   data: InboxItem;
   event: 'inbox';
+  id?: string;
+} | {
+  /** Array of Pause */
+  data: Pause[];
+  event: 'pauses';
   id?: string;
 } | {
   data: WorkstreamRef;
@@ -2803,71 +2820,6 @@ export const dismiss = async (id: number, ): Promise<dismissResponse> => {
 
 
 
-export type resumeResponse204 = {
-  data: void
-  status: 204
-}
-
-export type resumeResponse400 = {
-  data: BadRequestResponse
-  status: 400
-}
-
-export type resumeResponse401 = {
-  data: ErrorResponse
-  status: 401
-}
-
-export type resumeResponse422 = {
-  data: UnprocessableEntityResponse
-  status: 422
-}
-
-export type resumeResponse500 = {
-  data: InternalServerErrorResponse
-  status: 500
-}
-
-export type resumeResponseSuccess = (resumeResponse204) & {
-  headers: Headers;
-};
-export type resumeResponseError = (resumeResponse400 | resumeResponse401 | resumeResponse422 | resumeResponse500) & {
-  headers: Headers;
-};
-
-export type resumeResponse = (resumeResponseSuccess | resumeResponseError)
-
-export const getResumeUrl = (id: number,) => {
-
-
-
-
-  return `/api/inbox/${id}/resume`
-}
-
-/**
- * Resume ends the pause of a Harness now, so the sessions that wait for it send their prompts again. It also closes the Inbox item.
- */
-export const resume = async (id: number, ): Promise<resumeResponse> => {
-
-  const res = await fetch(getResumeUrl(id),
-  {
-
-    method: 'POST'
-
-
-  }
-)
-
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-
-  const data: resumeResponse['data'] = body ? JSON.parse(body) : undefined
-  return { data, status: res.status, headers: res.headers } as resumeResponse
-}
-
-
-
 export type loginResponse204 = {
   data: void
   status: 204
@@ -3059,6 +3011,136 @@ export const listOrganizations = async ( ): Promise<listOrganizationsResponse> =
 
   const data: listOrganizationsResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listOrganizationsResponse
+}
+
+
+
+export type listPausesResponse200 = {
+  data: EnvelopeArrayPause
+  status: 200
+}
+
+export type listPausesResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listPausesResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listPausesResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listPausesResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listPausesResponseSuccess = (listPausesResponse200) & {
+  headers: Headers;
+};
+export type listPausesResponseError = (listPausesResponse400 | listPausesResponse401 | listPausesResponse422 | listPausesResponse500) & {
+  headers: Headers;
+};
+
+export type listPausesResponse = (listPausesResponseSuccess | listPausesResponseError)
+
+export const getListPausesUrl = () => {
+
+
+
+
+  return `/api/pauses`
+}
+
+/**
+ * ListPauses returns the pause of each Harness that has one.
+ */
+export const listPauses = async ( ): Promise<listPausesResponse> => {
+
+  const res = await fetch(getListPausesUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listPausesResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listPausesResponse
+}
+
+
+
+export type resumeResponse204 = {
+  data: void
+  status: 204
+}
+
+export type resumeResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type resumeResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type resumeResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type resumeResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type resumeResponseSuccess = (resumeResponse204) & {
+  headers: Headers;
+};
+export type resumeResponseError = (resumeResponse400 | resumeResponse401 | resumeResponse422 | resumeResponse500) & {
+  headers: Headers;
+};
+
+export type resumeResponse = (resumeResponseSuccess | resumeResponseError)
+
+export const getResumeUrl = (harness: string,) => {
+
+
+
+
+  return `/api/pauses/${harness}/resume`
+}
+
+/**
+ * Resume ends the pause of a Harness now, so the sessions that wait for it send their prompts again. A Harness with no pause is no error.
+ */
+export const resume = async (harness: string, ): Promise<resumeResponse> => {
+
+  const res = await fetch(getResumeUrl(harness),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: resumeResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as resumeResponse
 }
 
 

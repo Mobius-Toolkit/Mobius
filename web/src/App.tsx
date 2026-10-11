@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { onEvent } from "@/lib/events";
 import { useInbox } from "@/lib/inbox";
 import { LoginContext } from "@/lib/login";
+import { usePauses } from "@/lib/pauses";
 import { ShellContext } from "@/lib/shell";
 import { useUnread } from "@/lib/unread";
 import { useWorkstreams } from "@/lib/workstreams";
@@ -71,6 +72,7 @@ function App() {
   const workstreams = useWorkstreams(showLogin, source);
   const unread = useUnread(source);
   const inbox = useInbox(source);
+  const pauses = usePauses(source);
 
   useEffect(() => {
     chatOwner.current = chat?.params.owner;
@@ -262,6 +264,7 @@ function App() {
         workstreams={workstreams}
         unread={unread ?? []}
         inbox={inbox}
+        pauses={pauses}
         fill={chat !== undefined || pathname === "/chat"}
         connection={!online ? "offline" : link === "connecting" ? "connecting" : "connected"}
       >

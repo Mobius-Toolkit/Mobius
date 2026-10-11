@@ -137,8 +137,7 @@ const question = "What is the state of the plans? The full report is at " +
 // Lead chats of owner/shop#12 and plants/garden#12 and to the Triager chats of owner and plants. Each chat session ends before
 // the next step. Then an Implementer and a Lead run, a drain waits for them, and the drain holds a second
 // Implementer. The parent of the first Implementer is a Lead session that ended. Release v0.1.4 of Mobius is newer
-// than this server. The Inbox has an item of a usage limit of antigravity, with no Workstream and no issue. The
-// table of the pauses has a row of antigravity for that item, with no timer. The Curator of a repository uses
+// than this server. The table of the pauses has a row of antigravity, with no timer. The Curator of a repository uses
 // antigravity too, so it waits for the pause. A Curator starts after 10 ended sessions of a repository. Fewer
 // sessions have ended when the screenshots test takes its screenshots, so no Curator session shows in them. The tools
 // of the Checkup page have fixed paths and versions, and tar gives no
@@ -504,17 +503,7 @@ func TestServer(t *testing.T) {
 		}
 		return lines == 1
 	})
-	limit, err := queries.AddInboxItem(ctx, store.AddInboxItemParams{
-		Kind:         "usage limit",
-		Organization: "owner",
-		Repository:   "owner/shop",
-		Text:         "antigravity reached a usage limit. Mobius sends the prompt again at 2026-09-28 12:00 UTC.",
-		Time:         time.Now().UTC().Format(time.RFC3339Nano),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := queries.SetHarnessPause(ctx, store.SetHarnessPauseParams{Harness: "antigravity", PausedUntil: "2026-09-28T12:00:00Z", InboxItem: limit.ID}); err != nil {
+	if err := queries.SetHarnessPause(ctx, store.SetHarnessPauseParams{Harness: "antigravity", PausedUntil: "2026-09-28T12:00:00Z"}); err != nil {
 		t.Fatal(err)
 	}
 	for number, state := range map[int64]string{38: "checks", 39: "approval"} {

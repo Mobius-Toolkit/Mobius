@@ -147,9 +147,7 @@ func TestARestartAfterADrainOfAPausedLeadGivesTheWaitingEventToANewLeadAndTheTim
 	seed(t, dataDir,
 		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, issue, parent, started_at)
 		 VALUES (1, 'lead_chat', 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, NULL, NULL, '2026-10-04T10:00:00Z')`,
-		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
-		 VALUES (5, 'usage limit', 'owner', 'owner/shop', 12, 12, 'claude-code reached a usage limit.', '', '2026-10-04T10:00:00Z')`,
-		`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('claude-code', '`+until+`', 5)`,
+		`INSERT INTO harness_pauses (harness, paused_until) VALUES ('claude-code', '`+until+`')`,
 		`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, 'comment', 'A comment before the restart.', '2026-10-04T10:00:00Z')`)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -169,6 +167,6 @@ func TestARestartAfterADrainOfAPausedLeadGivesTheWaitingEventToANewLeadAndTheTim
 		if err := server.DB.QueryRow("SELECT COUNT(*) FROM harness_pauses").Scan(&paused); err != nil {
 			t.Fatal(err)
 		}
-		return paused == 0 && dismissed(t, server, 5)
+		return paused == 0
 	})
 }

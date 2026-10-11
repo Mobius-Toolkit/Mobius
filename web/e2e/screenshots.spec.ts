@@ -43,7 +43,7 @@ const queueReasons = [
   "runs .mobius/check",
   "waits for a check slot",
   "waits for a low load",
-  /paused until Sep 28, 12:00\sPM/,
+  /· paused until Sep 28, 12:00\sPM/,
   "no free Implementer slot (2/2)",
 ];
 
@@ -117,7 +117,8 @@ test("screenshots", async ({ page }) => {
       page
         .locator('nav a[href="/inbox"]')
         .filter({ visible: true })
-        .getByText("2", { exact: true }),
+        .getByText("1", { exact: true }),
+      page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
       ...(desktop ? [page.locator("nav").first().getByText("needs you")] : []),
     ];
   };
@@ -377,11 +378,9 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "inbox", "/inbox", (device) => [
     chatCount,
     ...frame(device, drain, { organizations: true }),
-    main.getByRole("tab", { name: "To do 2" }),
+    main.getByRole("tab", { name: "To do 1" }),
     main.getByText("#45 needs a decision"),
     main.getByText("Integrate loyalty plans ·"),
-    main.getByText("antigravity reached a usage limit."),
-    main.getByText(/· paused until Sep 28, 12:00\sPM/),
   ]);
   await screenshot(page, "inbox-activity", "/inbox/activity", (device) => [
     chatCount,

@@ -170,6 +170,7 @@ type Change struct {
 	Unread       *Unread
 	Chat         *ChatState
 	Inbox        *store.InboxItem
+	Pauses       bool
 	Created      *Created
 }
 

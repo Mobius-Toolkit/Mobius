@@ -402,9 +402,9 @@ func TestASessionCountsInTheDrainAgainBeforeItSendsThePromptAfterThePause(t *tes
 	if got := <-startDrain(t, server); got != "drained" {
 		t.Fatalf("drain end = %s", got)
 	}
-	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+	testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 
-	if err := server.Engine.Resume(t.Context(), found.inboxItem); err != nil {
+	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -427,9 +427,9 @@ func TestASessionSendsThePromptAfterThePauseWhenTheSealIsAborted(t *testing.T) {
 		t.Fatalf("seal = %s", got)
 	}
 	server.Engine.AbortDrain()
-	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+	testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 
-	if err := server.Engine.Resume(t.Context(), found.inboxItem); err != nil {
+	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -448,8 +448,8 @@ func TestASessionSendsThePromptWhenThePauseEndsInASealedDrainAndTheSealIsAborted
 	if got := server.Engine.Seal(); got != engine.Drained {
 		t.Fatalf("seal = %s", got)
 	}
-	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
-	if err := server.Engine.Resume(t.Context(), found.inboxItem); err != nil {
+	testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 	waitForPolls(t, fake)
@@ -481,9 +481,9 @@ func TestASessionDoesNotSendThePromptAfterThePauseWhenTheDrainIsSealed(t *testin
 	if agent.HarnessRuns() {
 		t.Error("the Harness of the session runs after the close")
 	}
-	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+	testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 
-	if err := server.Engine.Resume(t.Context(), found.inboxItem); err != nil {
+	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 

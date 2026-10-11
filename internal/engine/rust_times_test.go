@@ -23,9 +23,7 @@ func TestARestartReadsTheQueueTimeAndThePauseThatTheRustVersionWrote(t *testing.
 		fake.AddSubIssue(shop, 12, 41)
 		fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
 		seed(t, cfg.DataDir,
-			`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
-			 VALUES (5, 'usage limit', 'owner', '', 0, 0, 'Devin reached its usage limit.', '', '2026-10-04T10:00:00.5Z')`,
-			`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('devin', '2099-01-01T00:00:00.123456789Z', 5)`,
+			`INSERT INTO harness_pauses (harness, paused_until) VALUES ('devin', '2099-01-01T00:00:00.123456789Z')`,
 			`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, queued_at, worker, worker_input)
 			 VALUES (1, 'owner/shop', 41, 12, 'queued', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00.123456789Z', 'implementer', '`+prompt+`')`)
 	})

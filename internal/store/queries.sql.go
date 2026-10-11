@@ -1213,14 +1213,25 @@ func (q *Queries) GetGitHubApp(ctx context.Context, appID int64) (GithubApp, err
 }
 
 const getHarnessPause = `-- name: GetHarnessPause :one
-SELECT harness, paused_until, inbox_item FROM harness_pauses WHERE harness = ?
+SELECT harness, paused_until FROM harness_pauses WHERE harness = ?
 `
 
 func (q *Queries) GetHarnessPause(ctx context.Context, harness string) (HarnessPause, error) {
 	row := q.db.QueryRowContext(ctx, getHarnessPause, harness)
 	var i HarnessPause
-	err := row.Scan(&i.Harness, &i.PausedUntil, &i.InboxItem)
+	err := row.Scan(&i.Harness, &i.PausedUntil)
 	return i, err
+}
+
+const getHarnessPauseEnd = `-- name: GetHarnessPauseEnd :one
+SELECT ended_at FROM harness_pause_ends WHERE harness = ?
+`
+
+func (q *Queries) GetHarnessPauseEnd(ctx context.Context, harness string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getHarnessPauseEnd, harness)
+	var ended_at string
+	err := row.Scan(&ended_at)
+	return ended_at, err
 }
 
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
@@ -2496,7 +2507,7 @@ func (q *Queries) ListGitHubApps(ctx context.Context) ([]GithubApp, error) {
 }
 
 const listHarnessPauses = `-- name: ListHarnessPauses :many
-SELECT harness, paused_until, inbox_item FROM harness_pauses ORDER BY harness
+SELECT harness, paused_until FROM harness_pauses ORDER BY harness
 `
 
 func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error) {
@@ -2508,7 +2519,7 @@ func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error)
 	var items []HarnessPause
 	for rows.Next() {
 		var i HarnessPause
-		if err := rows.Scan(&i.Harness, &i.PausedUntil, &i.InboxItem); err != nil {
+		if err := rows.Scan(&i.Harness, &i.PausedUntil); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -3544,42 +3555,6 @@ func (q *Queries) ReleaseTriager(ctx context.Context, arg ReleaseTriagerParams) 
 	return err
 }
 
-const reopenInboxItem = `-- name: ReopenInboxItem :one
-UPDATE inbox_items SET text = ?, time = ?, dismissed_at = NULL
-WHERE id = ? AND (dismissed_at IS NULL OR julianday(dismissed_at) > julianday(CAST(?4 AS TEXT)))
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization
-`
-
-type ReopenInboxItemParams struct {
-	Text       string
-	Time       string
-	ID         int64
-	RetrySince string
-}
-
-func (q *Queries) ReopenInboxItem(ctx context.Context, arg ReopenInboxItemParams) (InboxItem, error) {
-	row := q.db.QueryRowContext(ctx, reopenInboxItem,
-		arg.Text,
-		arg.Time,
-		arg.ID,
-		arg.RetrySince,
-	)
-	var i InboxItem
-	err := row.Scan(
-		&i.ID,
-		&i.Kind,
-		&i.Repository,
-		&i.Workstream,
-		&i.Issue,
-		&i.Text,
-		&i.Link,
-		&i.Time,
-		&i.DismissedAt,
-		&i.Organization,
-	)
-	return i, err
-}
-
 const requeueTask = `-- name: RequeueTask :execrows
 UPDATE tasks SET state = 'queued', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ? AND state IN ('queued', 'working')
 `
@@ -3664,18 +3639,32 @@ func (q *Queries) SetFullSlotsItemAt(ctx context.Context, itemAt sql.NullString)
 }
 
 const setHarnessPause = `-- name: SetHarnessPause :exec
-INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES (?, ?, ?)
-ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until, inbox_item = excluded.inbox_item
+INSERT INTO harness_pauses (harness, paused_until) VALUES (?, ?)
+ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until
 `
 
 type SetHarnessPauseParams struct {
 	Harness     string
 	PausedUntil string
-	InboxItem   int64
 }
 
 func (q *Queries) SetHarnessPause(ctx context.Context, arg SetHarnessPauseParams) error {
-	_, err := q.db.ExecContext(ctx, setHarnessPause, arg.Harness, arg.PausedUntil, arg.InboxItem)
+	_, err := q.db.ExecContext(ctx, setHarnessPause, arg.Harness, arg.PausedUntil)
+	return err
+}
+
+const setHarnessPauseEnd = `-- name: SetHarnessPauseEnd :exec
+INSERT INTO harness_pause_ends (harness, ended_at) VALUES (?, ?)
+ON CONFLICT (harness) DO UPDATE SET ended_at = excluded.ended_at
+`
+
+type SetHarnessPauseEndParams struct {
+	Harness string
+	EndedAt string
+}
+
+func (q *Queries) SetHarnessPauseEnd(ctx context.Context, arg SetHarnessPauseEndParams) error {
+	_, err := q.db.ExecContext(ctx, setHarnessPauseEnd, arg.Harness, arg.EndedAt)
 	return err
 }
 
