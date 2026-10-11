@@ -733,3 +733,45 @@ func TestAReactionOfAConversationCommentOrAReviewCommentHasAnIdAndGoesWhenItsIdI
 		}
 	}
 }
+
+func TestTheRequestLogShowsAnOKAnswerAndANotModifiedAnswerOfTheIssueList(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+	token := installationToken(t, github)
+	start := len(github.Requests())
+	url := github.URL + "/repos/owner/shop/issues?state=open"
+
+	first := send(t, http.MethodGet, url, token, "", nil)
+	request, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("If-None-Match", first.Header.Get("ETag"))
+	second, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = second.Body.Close()
+
+	want := []Request{
+		{Method: http.MethodGet, Path: "/repos/owner/shop/issues", Query: "state=open", Status: http.StatusOK},
+		{Method: http.MethodGet, Path: "/repos/owner/shop/issues", Query: "state=open", Status: http.StatusNotModified},
+	}
+	if got := github.Requests()[start:]; !reflect.DeepEqual(got, want) {
+		t.Errorf("requests = %+v, want %+v", got, want)
+	}
+}
+
+func TestTheRequestLogShowsTheStatusOfARequestThatGetsNotFound(t *testing.T) {
+	github := NewFakeGitHub(t)
+	token := installationToken(t, github)
+	start := len(github.Requests())
+
+	reply := send(t, http.MethodGet, github.URL+"/repos/owner/shop/issues/99", token, "", nil)
+
+	want := []Request{{Method: http.MethodGet, Path: "/repos/owner/shop/issues/99", Status: http.StatusNotFound}}
+	if got := github.Requests()[start:]; reply.StatusCode != http.StatusNotFound || !reflect.DeepEqual(got, want) {
+		t.Errorf("status = %d, requests = %+v, want %+v", reply.StatusCode, got, want)
+	}
+}

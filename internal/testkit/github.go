@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,6 +75,9 @@ type FakeGitHub struct {
 	remotes string
 
 	mu sync.Mutex
+	// requestsMu guards requests. It is separate from mu, because a handler can write its response while it holds mu.
+	requestsMu sync.Mutex
+	requests   []Request
 	// Each write is one second after the last, so a `since` filter compares exactly. The unit is seconds after the Unix epoch.
 	clock                   int64
 	accountTypes            map[string]string
@@ -215,7 +219,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		checkRunApps:            map[int64]string{},
 		jobLogs:                 map[int64]string{},
 	}
-	server := httptest.NewServer(g.hanging(g.routes()))
+	server := httptest.NewServer(g.logging(g.hanging(g.routes())))
 	t.Cleanup(server.Close)
 	g.URL = server.URL
 	return g
@@ -297,6 +301,49 @@ func (g *FakeGitHub) HoldNext(pattern string) (release func()) {
 	hold := make(chan struct{})
 	g.routeHolds[pattern] = hold
 	return func() { close(hold) }
+}
+
+// Request is a request that the fake GitHub got, with the status of its response.
+type Request struct {
+	Method string
+	Path   string
+	Query  string
+	Status int
+}
+
+// Requests gives a copy of the log of the requests that the fake GitHub got, the oldest first.
+func (g *FakeGitHub) Requests() []Request {
+	g.requestsMu.Lock()
+	defer g.requestsMu.Unlock()
+	return slices.Clone(g.requests)
+}
+
+// statusRecorder writes the status of a response to its entry of the request log.
+type statusRecorder struct {
+	http.ResponseWriter
+	g     *FakeGitHub
+	index int
+}
+
+func (s *statusRecorder) WriteHeader(status int) {
+	s.g.requestsMu.Lock()
+	s.g.requests[s.index].Status = status
+	s.g.requestsMu.Unlock()
+	s.ResponseWriter.WriteHeader(status)
+}
+
+func (s *statusRecorder) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
+}
+
+func (g *FakeGitHub) logging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		g.requestsMu.Lock()
+		g.requests = append(g.requests, Request{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Status: http.StatusOK})
+		index := len(g.requests) - 1
+		g.requestsMu.Unlock()
+		next.ServeHTTP(&statusRecorder{ResponseWriter: w, g: g, index: index}, r)
+	})
 }
 
 func (g *FakeGitHub) hanging(mux *http.ServeMux) http.Handler {
