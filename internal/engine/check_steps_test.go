@@ -1,6 +1,9 @@
 package engine_test
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -139,4 +142,27 @@ func TestAPushAfterTheLastReviewRoundShowsNoReviewRoundOnTheCheckRun(t *testing.
 	if titles := mobiusTitles(fake); slices.Contains(titles, "Review, round 2 of 1") {
 		t.Errorf("titles = %q", titles)
 	}
+}
+
+func TestAFixRoundAfterTheResumeOfAStoppedTaskShowsTheCountOfTheResetCounter(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dir := t.TempDir()
+	go1, running, release := filepath.Join(dir, "go"), filepath.Join(dir, "running"), filepath.Join(dir, "release")
+	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
+	implementer := fmt.Sprintf("[[prompts]]\nwhen = \"Action: fix\"\nshell = \"if [ -e '%s' ]; then touch '%s'; while [ ! -e '%s' ]; do sleep 0.05; done; else kill -9 $PPID; sleep 5; fi\"\n\n%s", go1, running, release, commits)
+	server, _ := connectTask(t, fake, finding+leadStarts, implementer, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	if _, err := server.DB.Exec("UPDATE tasks SET fix_rounds = 4 WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(go1, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+
+	testkit.WaitFor(t, func() bool { _, err := os.Stat(running); return err == nil })
+	waitForTitle(t, fake, "Fix round 1 of 10, review")
 }

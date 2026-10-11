@@ -484,8 +484,8 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 	if err != nil {
 		return err
 	}
-	counted := r.counts || kept != ""
-	if counted {
+	count := int64(0)
+	if r.counts || kept != "" {
 		added, err := e.queries.AddFixRound(ctx, store.AddFixRoundParams{ID: r.task.ID, Max: int64(e.config.MaxFixRounds)})
 		if err != nil {
 			return err
@@ -493,6 +493,11 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		if added == 0 {
 			return e.stopAtLimit(ctx, repository, r, "fix")
 		}
+		current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: r.task.Repository, Issue: r.task.Issue})
+		if err != nil {
+			return err
+		}
+		count = current.FixRounds
 	}
 	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: r.task.ID, FromState: "working"})
 	if err != nil || queued == 0 {
@@ -520,10 +525,6 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		}
 		if err := resumeWork(ctx, repository, r.task); err != nil {
 			return false, err
-		}
-		count := int64(0)
-		if counted {
-			count = r.task.FixRounds + 1
 		}
 		if err := e.setFixRoundStep(ctx, repository, r.pullRequest.GetHead().GetSHA(), r.cause, count); err != nil {
 			return false, err
