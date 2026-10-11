@@ -219,7 +219,56 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 			return err
 		}
 	}
+	if task.State == "asked" || task.State == "answered" {
+		if err := acknowledge(ctx, repository, replies); err != nil {
+			return err
+		}
+		if answered && task.State == "asked" {
+			return e.answerAsked(ctx, repository, issue, task)
+		}
+		return nil
+	}
 	return e.commentEventsOf(ctx, repository, task, issue, replies)
+}
+
+// answerAsked acts on the reply of a trusted user to the question of the task in asked. With Autopilot on, the task
+// waits in answered for a free slot. Else the task dispatches again at once.
+func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
+	on, err := e.workstreamAutopilot(ctx, repository, task.Workstream)
+	if err != nil {
+		return err
+	}
+	if on {
+		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "answered", ID: task.ID, FromState: "asked"})
+		return err
+	}
+	return e.dispatchAnswer(ctx, repository, issue, task)
+}
+
+// dispatchAnswer dispatches the task in asked or answered again. The dispatch event has the body of the issue and each
+// comment of a trusted user after the last comment of the Mobius App, the question.
+func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
+	comments, err := repository.Comments(ctx, task.Issue)
+	if err != nil {
+		return err
+	}
+	var askedAt time.Time
+	for _, comment := range comments {
+		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && comment.GetCreatedAt().After(askedAt) {
+			askedAt = comment.GetCreatedAt().Time
+		}
+	}
+	var actor string
+	var replies strings.Builder
+	for _, comment := range comments {
+		if e.commentIsEvent(repository.AppSlug, comment) && comment.GetCreatedAt().After(askedAt) {
+			actor = comment.GetUser().GetLogin()
+			replies.WriteString("\n\n" + eventText(comment.GetCreatedAt().Time, "reply on", issue, actor, comment.GetBody()))
+		}
+	}
+	text := eventText(time.Now(), "answer of", issue, actor, issue.GetBody()) + replies.String()
+	_, err = e.redispatch(ctx, repository, issue, task, text)
+	return err
 }
 
 // commentsWithoutTask acts on the new comments of an issue with no live task. Mobius does not act on a comment on a
@@ -466,7 +515,8 @@ func (e *Engine) commentIsEvent(appSlug string, comment *gh.IssueComment) bool {
 }
 
 // ask posts the question text on the issue of a live task of the Workstream or on the Workstream issue, adds
-// mobius:question, and adds an Inbox item. The reply comes later as a comment event.
+// mobius:question, and adds an Inbox item. The reply comes later as a comment event. A dispatched task moves to asked
+// and frees its Autopilot slot, and the reply dispatches it again.
 func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository, input textInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -474,8 +524,10 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
+	var task store.Task
 	if input.N != c.workstream {
-		if _, err := e.workstreamTask(ctx, repository, c.workstream, input.N); err != nil {
+		var err error
+		if task, err = e.workstreamTask(ctx, repository, c.workstream, input.N); err != nil {
 			return "", err
 		}
 	}
@@ -492,6 +544,11 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if err := repository.AddLabel(ctx, input.N, questionLabel); err != nil {
 		return "", err
 	}
+	if task.State == "dispatched" {
+		if err := repository.RemoveLabel(ctx, input.N, workingLabel); err != nil {
+			return "", err
+		}
+	}
 	err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         questionKind,
 		Organization: repository.Owner(),
@@ -501,59 +558,13 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 		Text:         input.Text,
 		Link:         issue.GetHTMLURL(),
 	})
+	if err != nil {
+		return "", err
+	}
+	if task.State == "dispatched" {
+		_, err = e.setTaskState(ctx, store.SetTaskStateParams{State: "asked", ID: task.ID, FromState: "dispatched"})
+	}
 	return fmt.Sprintf("Asked on #%d.", input.N), err
-}
-
-// holdTask moves the dispatched task of the issue to needs_human, so it holds no Worker slot, and tells the Owner the
-// reason: the comment, mobius:needs-human, an Inbox item, and a stop event for the Lead.
-func (e *Engine) holdTask(ctx context.Context, c caller, repository github.Repository, input declineInput) (string, error) {
-	if input.N < 1 {
-		return "", refuse("n must be 1 or more.")
-	}
-	if empty(input.Reason) {
-		return "", refuse("reason must not be empty.")
-	}
-	task, err := e.workstreamTask(ctx, repository, c.workstream, input.N)
-	if err != nil {
-		return "", err
-	}
-	if task.State != "dispatched" {
-		return "", refuse("The task of #%d is %s. Only a dispatched task can be held.", input.N, task.State)
-	}
-	issue, err := existingIssue(ctx, repository, input.N)
-	if err != nil {
-		return "", err
-	}
-	moved, err := e.handTaskToHuman(ctx, task.ID, "dispatched")
-	if err != nil {
-		return "", err
-	}
-	if moved == 0 {
-		return "", refuse("The state of the task of #%d changed. Read the task list.", input.N)
-	}
-	if err := repository.RemoveLabel(ctx, input.N, workingLabel); err != nil {
-		return "", err
-	}
-	if err := addNeedsHuman(ctx, repository, task); err != nil {
-		return "", err
-	}
-	if _, err := repository.AddComment(ctx, input.N, input.Reason); err != nil {
-		return "", err
-	}
-	err = e.addInboxItem(ctx, store.AddInboxItemParams{
-		Kind:         questionKind,
-		Organization: repository.Owner(),
-		Repository:   repository.FullName,
-		Workstream:   c.workstream,
-		Issue:        input.N,
-		Text:         input.Reason,
-		Link:         issue.GetHTMLURL(),
-	})
-	if err != nil {
-		return "", err
-	}
-	err = e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", stopText(task.Issue, issue.GetTitle(), input.Reason))
-	return fmt.Sprintf("Held #%d.", input.N), err
 }
 
 // workstreamTask gives the live task of the issue number in the Workstream.
@@ -567,10 +578,14 @@ func (e *Engine) workstreamTask(ctx context.Context, repository github.Repositor
 
 // startAutopilot dispatches the tasks of each open Workstream with Autopilot, in the order of the sub-issues, while
 // fewer tasks are active than roles.implementer.max. An issue that had a task, also an ended one, gets no new task: only a
-// trusted user starts it again. The drain holds each new dispatch.
+// trusted user starts it again. A task in answered in a Workstream with Autopilot off dispatches again at once. The
+// drain holds each new dispatch.
 func (e *Engine) startAutopilot(ctx context.Context, repository github.Repository) error {
 	if e.draining() {
 		return nil
+	}
+	if err := e.dispatchAnsweredWithoutAutopilot(ctx, repository); err != nil {
+		return err
 	}
 	active, err := e.queries.CountActiveTasks(ctx)
 	if err != nil {
@@ -601,6 +616,35 @@ func (e *Engine) startAutopilot(ctx context.Context, repository github.Repositor
 	return nil
 }
 
+// dispatchAnsweredWithoutAutopilot dispatches again each task in answered whose Workstream has Autopilot off, for
+// example when the Owner turned Autopilot off after the reply.
+func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repository github.Repository) error {
+	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if task.State != "answered" {
+			continue
+		}
+		on, err := e.workstreamAutopilot(ctx, repository, task.Workstream)
+		if err != nil {
+			return err
+		}
+		if on {
+			continue
+		}
+		issue, err := repository.Issue(ctx, task.Issue)
+		if err != nil || issue == nil {
+			return err
+		}
+		if err := e.dispatchAnswer(ctx, repository, issue, task); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // autopilotTree dispatches the tasks below parent in the Workstream, depth first. It gives true when as many tasks
 // are active as roles.implementer.max.
 func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository, workstream, parent int64) (bool, error) {
@@ -613,12 +657,21 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 			continue
 		}
 		number := int64(issue.GetNumber())
-		if issue.GetState() == "open" && e.TrustedAuthor(repository.AppSlug, issue.GetUser().GetLogin()) && issue.GetIssueDependenciesSummary().GetBlockedBy() == 0 && !hasLabel(issue, triageLabel) {
-			had, err := e.queries.HasTask(ctx, store.HasTaskParams{Repository: repository.FullName, Issue: number})
-			if err != nil {
+		if issue.GetState() == "open" && issue.GetIssueDependenciesSummary().GetBlockedBy() == 0 && !hasLabel(issue, triageLabel) {
+			task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				return false, err
 			}
-			if !had {
+			answered := err == nil && task.State == "answered"
+			start := answered
+			if errors.Is(err, sql.ErrNoRows) && e.TrustedAuthor(repository.AppSlug, issue.GetUser().GetLogin()) {
+				had, err := e.queries.HasTask(ctx, store.HasTaskParams{Repository: repository.FullName, Issue: number})
+				if err != nil {
+					return false, err
+				}
+				start = !had
+			}
+			if start {
 				active, err := e.queries.CountActiveTasks(ctx)
 				if err != nil {
 					return false, err
@@ -626,7 +679,12 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 				if active >= int64(e.config.Roles.Implementer.Max) {
 					return true, e.noteFullSlots(ctx, repository, issue, workstream)
 				}
-				if err := e.dispatch(ctx, repository, issue, workstream, appLogin(repository.AppSlug)); err != nil {
+				if answered {
+					err = e.dispatchAnswer(ctx, repository, issue, task)
+				} else {
+					err = e.dispatch(ctx, repository, issue, workstream, appLogin(repository.AppSlug))
+				}
+				if err != nil {
 					return false, err
 				}
 			}
@@ -700,7 +758,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		}
 		moved, err = e.continueTask(ctx, repository, issue.GetTitle(), task, pullRequest, task.State)
 	} else {
-		moved, err = e.redispatch(ctx, repository, issue, task, actor)
+		moved, err = e.redispatch(ctx, repository, issue, task, eventText(time.Now(), "resume of", issue, actor, issue.GetBody()))
 	}
 	if err != nil || !moved {
 		return err
@@ -711,9 +769,9 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	return e.addActivity(ctx, repository.FullName, task.Workstream, issue, actor, fmt.Sprintf("Continued \"%s\"", issue.GetTitle()))
 }
 
-// redispatch gives the stopped task with no pull request back to the Lead with a dispatch event. It tells if the task
-// moved.
-func (e *Engine) redispatch(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string) (bool, error) {
+// redispatch gives the task with no pull request back to the Lead with a dispatch event that has text. It tells if the
+// task moved.
+func (e *Engine) redispatch(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, text string) (bool, error) {
 	if err := e.unstop(ctx, repository, task); err != nil {
 		return false, err
 	}
@@ -721,7 +779,6 @@ func (e *Engine) redispatch(ctx context.Context, repository github.Repository, i
 	if err != nil || moved == 0 {
 		return false, err
 	}
-	text := eventText(time.Now(), "resume of", issue, actor, issue.GetBody())
 	err = e.addLeadEvent(ctx, repository.FullName, task.Workstream, sql.NullInt64{Int64: int64(issue.GetNumber()), Valid: true}, "dispatch", text)
 	if err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "dispatched"})

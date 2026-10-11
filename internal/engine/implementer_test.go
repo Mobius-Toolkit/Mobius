@@ -242,18 +242,18 @@ func TestCannotDoGoesToTheLeadAndTheNextStartMergesABranchThatDiverged(t *testin
 	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
 }
 
-func TestTheLeadHoldsATaskAfterACannotDoAndTheTaskFreesItsWorkerSlot(t *testing.T) {
+func TestTheLeadAsksAfterACannotDoAndTheTaskFreesItsWorkerSlot(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = { tool = \"hold_task\", arguments = { n = 41, reason = \"The plan table needs a fix in Gork.\" } }\n\n" + leadStarts + "\n[[prompts]]\nreply = [\"Seen\"]\n"
+	lead := "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = { tool = \"ask\", arguments = { n = 41, text = \"The plan table needs a fix in Gork.\" } }\n\n" + leadStarts + "\n[[prompts]]\nreply = [\"Seen\"]\n"
 	server, _ := connectTask(t, fake, lead, "[[prompts]]\n"+cannotDoCall, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForLeadPrompt(t, server, " cannot_do on #41 \"Add plan model\" by the Implementer:\n\n> The plan table does not exist.")
 
-	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "asked" })
 	testkit.WaitFor(t, func() bool { return len(inbox(t, server)) == 1 })
 
-	if hasLabel(fake, "mobius:working") || !hasLabel(fake, "mobius:needs-human") {
+	if hasLabel(fake, "mobius:working") || !hasLabel(fake, "mobius:question") || hasLabel(fake, "mobius:needs-human") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 	items := inbox(t, server)
@@ -870,9 +870,9 @@ const askCents = "call = { tool = \"ask\", arguments = { n = 41, text = \"Cents 
 func TestStartImplementerRemovesTheQuestionLabelOfTheIssue(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"dispatch of #41\"\n" + askCents +
-		"later = { after = \"100ms\", call = { tool = \"start_implementer\", arguments = { n = 41, instructions = \"Store plans in cents.\" } } }\n"
+	lead := "[[prompts]]\nwhen = \"dispatch of #41\"\n" + startImplementer
 	server, _ := connectTask(t, fake, lead, commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:question", "owner")
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
@@ -882,10 +882,10 @@ func TestStartImplementerRemovesTheQuestionLabelOfTheIssue(t *testing.T) {
 	}
 }
 
-func TestStartImplementerAfterATrustedAnswerWorksWithNoQuestionLabel(t *testing.T) {
+func TestStartImplementerAfterTheAnswerOfTheOwnerWorksWithNoQuestionLabel(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"comment on #41\"\n" + startImplementer +
+	lead := "[[prompts]]\nwhen = \"answer of #41\"\n" + startImplementer +
 		"\n[[prompts]]\nwhen = \"dispatch of #41\"\n" + askCents
 	server, _ := connectTask(t, fake, lead, commits, noChange)
 

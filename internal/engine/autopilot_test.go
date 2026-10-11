@@ -1,6 +1,8 @@
 package engine_test
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
@@ -178,7 +180,7 @@ func TestADeclinedTaskDoesNotStartAgain(t *testing.T) {
 	prepareAutopilot(fake, true)
 	addTaskIssue(fake, 41, "Add plan model")
 	dataDir := t.TempDir()
-	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"Split it.\" } }\n")
+	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nwhen = \"answer of #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"Split it.\" } }\n")
 	server := startServerWith(t, fake, testserver.Config(t, dataDir), "")
 	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 41)) == 1 && !hasLiveTask(t, server, 41) })
 
@@ -187,4 +189,82 @@ func TestADeclinedTaskDoesNotStartAgain(t *testing.T) {
 	if len(fake.Comments(shop, 41)) != 1 || hasLiveTask(t, server, 41) || activeTasks(t, server) != 0 {
 		t.Errorf("comments = %+v, live = %v", fake.Comments(shop, 41), hasLiveTask(t, server, 41))
 	}
+}
+
+// startAskedTask starts a server with Autopilot and one slot. The Lead asks on #41, so the slot goes to #42.
+func startAskedTask(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+	t.Helper()
+	prepareAutopilot(fake, true)
+	addTaskIssue(fake, 41, "Add plan model")
+	addTaskIssue(fake, 42, "Add plan price")
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nwhen = \"answer of #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"dispatch of #41\"\ncall = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n\n[[prompts]]\nreply = [\"Seen\"]\n")
+	cfg := testserver.Config(t, dataDir)
+	cfg.Roles.Implementer.Max = 1
+	keepSessionOpen(cfg)
+	server := startServerWith(t, fake, cfg, "")
+	liveTaskOf(t, server, 42)
+	return server
+}
+
+func TestAnAskedTaskFreesTheSlotAndAutopilotDoesNotStartIt(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startAskedTask(t, fake)
+
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "asked" {
+		t.Errorf("state = %s", state)
+	}
+	if got := activeTasks(t, server); got != 1 {
+		t.Errorf("active tasks = %d", got)
+	}
+	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:question"}) {
+		t.Errorf("labels = %v", got)
+	}
+}
+
+func TestAReplyMovesTheAskedTaskToAnsweredAndAutopilotStartsItWhenASlotIsFree(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startAskedTask(t, fake)
+
+	fake.AddComment(shop, 41, "owner", "Cents.")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "answered" })
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "answered" {
+		t.Errorf("state = %s", state)
+	}
+	if got := activeTasks(t, server); got != 1 {
+		t.Errorf("active tasks = %d", got)
+	}
+
+	fake.CloseIssue(shop, 42)
+
+	prompt := waitForLeadPrompt(t, server, ` answer of #41 "Add plan model" by @owner:`)
+	if !strings.Contains(prompt, ` reply on #41 "Add plan model" by @owner:`+"\n\n> Cents.") {
+		t.Errorf("prompt = %s", prompt)
+	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
+	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:working"}) {
+		t.Errorf("labels = %v", got)
+	}
+}
+
+func TestAnAnsweredTaskDispatchesAgainWhenAutopilotGoesOff(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startAskedTask(t, fake)
+	fake.AddComment(shop, 41, "owner", "Cents.")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "answered" })
+
+	fake.RemoveLabel(shop, 12, "mobius:autopilot", "owner")
+
+	prompt := waitForLeadPrompt(t, server, ` answer of #41 "Add plan model" by @owner:`)
+	if !strings.Contains(prompt, ` reply on #41 "Add plan model" by @owner:`+"\n\n> Cents.") {
+		t.Errorf("prompt = %s", prompt)
+	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
 }

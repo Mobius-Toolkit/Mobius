@@ -156,7 +156,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	if task.State == "ready_for_review" || task.Worker.String == JudgeRole && task.WorkerInput.String == "ready_for_review" {
 		needed = reviewLabel
 	}
-	if task.State != "stopped" && task.State != "needs_human" && !judgeOfHuman && !hasLabel(issue, needed) {
+	if !slices.Contains([]string{"stopped", "needs_human", "asked", "answered"}, task.State) && !judgeOfHuman && !hasLabel(issue, needed) {
 		return Work{}, false, e.labelRemoved(ctx, repository, task, issue, needed)
 	}
 	if continued, err := e.continueByRemoval(ctx, repository, task, issue, pullRequest); err != nil || continued {
