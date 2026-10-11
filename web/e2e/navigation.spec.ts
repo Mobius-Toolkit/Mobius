@@ -67,7 +67,7 @@ test("the tab bar of a phone shows the tabs in order, and the Chat tab shows the
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/workstreams");
-  await expect(tabs).toHaveText([/^Chat$/, /^Workstreams$/, /^Inbox\s*2$/, /^Settings$/]);
+  await expect(tabs).toHaveText([/^Chat$/, /^Workstreams$/, /^Inbox\s*1$/, /^Settings$/]);
 
   await page.addInitScript("localStorage.setItem('organization', 'plants')");
   await page.goto("/workstreams");
@@ -79,7 +79,7 @@ test("the sidebar of a desktop shows Chat and Inbox above the Workstreams", asyn
 
   await page.goto("/workstreams");
   await expect(links.nth(0)).toHaveText(/^Chat$/);
-  await expect(links.nth(1)).toHaveText(/^Inbox\s*2$/);
+  await expect(links.nth(1)).toHaveText(/^Inbox\s*1$/);
   await expect(links.nth(2)).toHaveText(/^Workstreams$/);
   await expect(links.filter({ hasText: /^Activity$/ })).toHaveCount(0);
   await expect(links.filter({ hasText: /^New Workstream$/ })).toHaveCount(0);
@@ -95,7 +95,7 @@ test("the Inbox page has a tab for each address, and a reload keeps the tab", as
   const activity = main.getByRole("tab", { name: "Activity" });
 
   await page.goto("/inbox");
-  await expect(todo).toHaveText(/^To do\s*2$/);
+  await expect(todo).toHaveText(/^To do\s*1$/);
   await expect(todo).toHaveAttribute("aria-selected", "true");
   await expect(main.getByText("#45 needs a decision")).toBeVisible();
 

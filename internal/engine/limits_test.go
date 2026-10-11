@@ -2,12 +2,12 @@ package engine_test
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -131,16 +131,33 @@ func seed(t *testing.T, dataDir string, statements ...string) {
 	}
 }
 
+type apiPause struct {
+	Harness     string    `json:"harness"`
+	PausedUntil time.Time `json:"pausedUntil"`
+}
+
+// apiPauses gives the pauses through the API.
+func apiPauses(t *testing.T, server *testserver.Server) []apiPause {
+	t.Helper()
+	status, text := send(t, server, http.MethodGet, "/api/pauses", "")
+	var body struct {
+		Data []apiPause `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(text), &body); status != http.StatusOK || err != nil {
+		t.Fatalf("pauses: status %d, %v: %s", status, err, text)
+	}
+	return body.Data
+}
+
 type pause struct {
-	until     string
-	inboxItem int64
+	until string
 }
 
 // devinPause gives the pause of Devin, and false when Devin has no pause.
 func devinPause(t *testing.T, server *testserver.Server) (pause, bool) {
 	t.Helper()
 	var found pause
-	err := server.DB.QueryRow("SELECT paused_until, inbox_item FROM harness_pauses WHERE harness = 'devin'").Scan(&found.until, &found.inboxItem)
+	err := server.DB.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'devin'").Scan(&found.until)
 	if errors.Is(err, sql.ErrNoRows) {
 		return pause{}, false
 	}
@@ -150,60 +167,33 @@ func devinPause(t *testing.T, server *testserver.Server) (pause, bool) {
 	return found, true
 }
 
-func dismissed(t *testing.T, server *testserver.Server, item int64) bool {
-	t.Helper()
-	var dismissedAt sql.NullString
-	if err := server.DB.QueryRow("SELECT dismissed_at FROM inbox_items WHERE id = ?", item).Scan(&dismissedAt); err != nil {
-		t.Fatal(err)
-	}
-	return dismissedAt.Valid
-}
-
 func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimit)
-	changes := listen(t, server)
+	events := liveEvents(t, server, "pauses")
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, agent, "done")
 	before := time.Now()
 	prompted := make(chan error, 1)
 	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 
-	waitForChange(t, changes, func(change engine.Change) bool { return change.Message != nil && change.Message.Author == "Mobius" })
-	change := waitForChange(t, changes, func(change engine.Change) bool { return change.Inbox != nil })
-	pausedUntil, err := server.Engine.InboxPausedUntil(t.Context(), *change.Inbox)
-	if err != nil || pausedUntil == nil {
-		t.Errorf("the pause at the Inbox change = %v: %v", pausedUntil, err)
-	}
-	var item struct {
-		id               int64
-		kind, text, link string
-		workstream       int64
-		issue            int64
-	}
-	testkit.WaitFor(t, func() bool {
-		err := server.DB.QueryRow("SELECT id, kind, text, link, workstream, issue FROM inbox_items").Scan(&item.id, &item.kind, &item.text, &item.link, &item.workstream, &item.issue)
-		return err == nil
-	})
-	if item.kind != "usage limit" || !strings.HasPrefix(item.text, "devin reached a usage limit. Mobius sends the prompt again at ") || item.workstream != 0 || item.issue != 0 {
-		t.Errorf("item = %+v", item)
-	}
-	// Mobius adds the Inbox item before the pause.
 	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 	until := parseTime(t, found.until)
-	if found.inboxItem != item.id || until.Before(before.Add(59*time.Minute)) || until.After(time.Now().Add(61*time.Minute)) {
+	if until.Before(before.Add(59*time.Minute)) || until.After(time.Now().Add(61*time.Minute)) {
 		t.Errorf("pause = %+v", found)
 	}
-	var message string
-	if err := server.DB.QueryRow("SELECT text FROM chat_messages WHERE author = 'Mobius' AND workstream = 12").Scan(&message); err != nil || message != item.text {
-		t.Errorf("chat message = %q: %v", message, err)
+	want := "devin reached a usage limit. Mobius sends the prompt again at " + until.UTC().Format("2006-01-02 15:04 UTC") + "."
+	testkit.WaitFor(t, func() bool { return reflect.DeepEqual(chatTexts(t, server, "Mobius"), []string{want}) })
+	started := nextEventData(t, events, func(pauses []apiPause) bool { return len(pauses) == 1 })
+	if started[0].Harness != "devin" || !started[0].PausedUntil.Equal(until) {
+		t.Errorf("pauses event = %+v, want devin until %v", started, until)
 	}
-	if got := inbox(t, server); len(got) != 1 || got[0].ID != item.id {
+	if got := apiPauses(t, server); !reflect.DeepEqual(got, started) {
+		t.Errorf("pauses = %+v, want %+v", got, started)
+	}
+	if got := inbox(t, server); len(got) != 0 {
 		t.Errorf("inbox = %+v", got)
-	}
-	if change.Inbox.ID != item.id || pausedUntil != nil && !pausedUntil.Equal(until) {
-		t.Errorf("the Inbox change = %d with the pause %v, want %d with %v", change.Inbox.ID, pausedUntil, item.id, until)
 	}
 	reason := "paused until " + until.UTC().Format("2006-01-02 15:04 UTC")
 	testkit.WaitFor(t, func() bool { return session(t, server, agent.ID()).QueueReason.String == reason })
@@ -213,21 +203,20 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 		return len(tree(t, server)) == 2 && tree(t, server)[1].Session.QueueReason.String == reason
 	})
 
-	response, err := server.Client.Post(server.URL+"/api/inbox/"+strconv.FormatInt(item.id, 10)+"/resume", "application/json", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = response.Body.Close()
-	if response.StatusCode != http.StatusNoContent {
-		t.Fatalf("resume: status %d", response.StatusCode)
+	if status, text := send(t, server, http.MethodPost, "/api/pauses/devin/resume", ""); status != http.StatusNoContent {
+		t.Fatalf("resume: status %d: %s", status, text)
 	}
 
+	nextEventData(t, events, func(pauses []apiPause) bool { return len(pauses) == 0 })
 	if err := <-prompted; err != nil {
 		t.Fatal(err)
 	}
 	end(t, await(t, second), "done")
-	if _, ok := devinPause(t, server); ok || !dismissed(t, server, item.id) {
+	if _, ok := devinPause(t, server); ok {
 		t.Error("the pause did not end")
+	}
+	if got := apiPauses(t, server); len(got) != 0 {
+		t.Errorf("pauses = %+v", got)
 	}
 	if got := session(t, server, agent.ID()); got.QueueReason.Valid {
 		t.Errorf("session = %+v", got)
@@ -241,6 +230,12 @@ func TestAUsageLimitPausesTheHarnessUntilResumeNowSendsThePromptAgain(t *testing
 	}
 	if text := reply(t, server, agent.ID()); text != "Done." {
 		t.Errorf("reply = %q", text)
+	}
+	if status, text := send(t, server, http.MethodPost, "/api/pauses/devin/resume", ""); status != http.StatusNoContent {
+		t.Errorf("resume of a Harness with no pause: status %d: %s", status, text)
+	}
+	if got := inbox(t, server); len(got) != 0 {
+		t.Errorf("inbox = %+v", got)
 	}
 }
 
@@ -274,7 +269,7 @@ func count(t *testing.T, server *testserver.Server, query string) int {
 	return n
 }
 
-func TestARetryThatHitsTheUsageLimitAgainUsesTheInboxItemAndTheChatMessageAgain(t *testing.T) {
+func TestARetryThatHitsTheUsageLimitAgainPausesAgainWithNoSecondChatMessage(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, usageLimitTwice)
@@ -284,30 +279,22 @@ func TestARetryThatHitsTheUsageLimitAgainUsesTheInboxItemAndTheChatMessageAgain(
 	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 	first := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 
-	if err := server.Engine.Resume(t.Context(), first.inboxItem); err != nil {
+	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 
-	second := testkit.WaitForValue(t, func() (pause, bool) {
+	testkit.WaitFor(t, func() bool {
 		found, paused := devinPause(t, server)
-		return found, paused && found.until != first.until
+		return paused && found.until != first.until
 	})
-	if second.inboxItem != first.inboxItem || dismissed(t, server, first.inboxItem) {
-		t.Errorf("pause = %+v, dismissed = %v", second, dismissed(t, server, first.inboxItem))
-	}
-	got := inbox(t, server)
-	want := "devin reached a usage limit. Mobius sends the prompt again at " + parseTime(t, second.until).UTC().Format("2006-01-02 15:04 UTC") + "."
-	if len(got) != 1 || got[0].ID != first.inboxItem || got[0].Text != want {
-		t.Errorf("inbox = %+v, want text %q", got, want)
-	}
-	if n := count(t, server, "SELECT COUNT(*) FROM inbox_items"); n != 1 {
-		t.Errorf("%d Inbox items", n)
+	if got := inbox(t, server); len(got) != 0 {
+		t.Errorf("inbox = %+v", got)
 	}
 	if n := count(t, server, "SELECT COUNT(*) FROM chat_messages WHERE author = 'Mobius'"); n != 1 {
 		t.Errorf("%d chat messages", n)
 	}
 
-	if err := server.Engine.Resume(t.Context(), second.inboxItem); err != nil {
+	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-prompted; err != nil {
@@ -315,35 +302,26 @@ func TestARetryThatHitsTheUsageLimitAgainUsesTheInboxItemAndTheChatMessageAgain(
 	}
 }
 
-func TestARetryThatHitsTheUsageLimitAfterARestartUsesTheInboxItemAgain(t *testing.T) {
+func TestARetryThatHitsTheUsageLimitAfterARestartAddsNoChatMessage(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	until := time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)
 	server, _ := connectWith(t, fake, usageLimit, func(cfg *config.Config) {
-		seed(t, cfg.DataDir,
-			`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
-			 VALUES (5, 'usage limit', 'owner', 'owner/shop', 0, 0, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z')`,
-			`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('devin', '`+until+`', 5)`)
+		seed(t, cfg.DataDir, `INSERT INTO harness_pauses (harness, paused_until) VALUES ('devin', '`+until+`')`)
 	})
-	testkit.WaitFor(t, func() bool { return dismissed(t, server, 5) })
+	testkit.WaitFor(t, func() bool { _, paused := devinPause(t, server); return !paused })
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, agent, "done")
 	prompted := make(chan error, 1)
 	go func() { prompted <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 
-	found := testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
+	testkit.WaitForValue(t, func() (pause, bool) { return devinPause(t, server) })
 
-	if found.inboxItem != 5 || dismissed(t, server, 5) {
-		t.Errorf("pause = %+v, dismissed = %v", found, dismissed(t, server, 5))
-	}
-	if n := count(t, server, "SELECT COUNT(*) FROM inbox_items"); n != 1 {
-		t.Errorf("%d Inbox items", n)
-	}
 	if n := count(t, server, "SELECT COUNT(*) FROM chat_messages WHERE author = 'Mobius'"); n != 0 {
 		t.Errorf("%d chat messages", n)
 	}
 
-	if err := server.Engine.Resume(t.Context(), found.inboxItem); err != nil {
+	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 	if err := <-prompted; err != nil {
@@ -351,7 +329,7 @@ func TestARetryThatHitsTheUsageLimitAfterARestartUsesTheInboxItemAgain(t *testin
 	}
 }
 
-func TestAUsageLimitOfAnotherHarnessGetsItsOwnInboxItem(t *testing.T) {
+func TestAUsageLimitOfAnotherHarnessGetsItsOwnPause(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, usageLimitOfTwoHarnesses, keepSessionOpen)
@@ -362,11 +340,12 @@ func TestAUsageLimitOfAnotherHarnessGetsItsOwnInboxItem(t *testing.T) {
 
 	sendChat(t, server, leadChat, "Plan the API")
 
-	testkit.WaitFor(t, func() bool {
-		return count(t, server, "SELECT COUNT(*) FROM inbox_items WHERE text LIKE 'claude-code reached a usage limit.%'") == 1
-	})
-	if n := count(t, server, "SELECT COUNT(*) FROM inbox_items WHERE text LIKE 'devin reached a usage limit.%' AND dismissed_at IS NULL"); n != 1 {
-		t.Errorf("%d Inbox items of Devin", n)
+	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
+	if got := apiPauses(t, server); len(got) != 2 || got[0].Harness != "claude-code" || got[1].Harness != "devin" {
+		t.Errorf("pauses = %+v", got)
+	}
+	if got := inbox(t, server); len(got) != 0 {
+		t.Errorf("inbox = %+v", got)
 	}
 }
 
@@ -375,17 +354,10 @@ func TestAPauseOfTheEarlierRunEndsAtItsTime(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	until := time.Now().Add(300 * time.Millisecond).UTC().Format(time.RFC3339Nano)
 	server, _ := connectWith(t, fake, "", func(cfg *config.Config) {
-		seed(t, cfg.DataDir,
-			`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
-			 VALUES (5, 'usage limit', 'owner', 'owner/shop', 12, 12, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z')`,
-			`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('devin', '`+until+`', 5)`)
+		seed(t, cfg.DataDir, `INSERT INTO harness_pauses (harness, paused_until) VALUES ('devin', '`+until+`')`)
 	})
 
-	// The end of the pause also closes its Inbox item.
-	testkit.WaitFor(t, func() bool {
-		_, paused := devinPause(t, server)
-		return !paused && dismissed(t, server, 5)
-	})
+	testkit.WaitFor(t, func() bool { _, paused := devinPause(t, server); return !paused })
 }
 
 func TestAUsageLimitOfTheImplementerHoldsThePullRequestUntilResume(t *testing.T) {
@@ -396,26 +368,18 @@ func TestAUsageLimitOfTheImplementerHoldsThePullRequestUntilResume(t *testing.T)
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
-	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
-		for _, item := range inbox(t, server) {
-			if item.Kind == "usage limit" {
-				return item, true
-			}
-		}
-		return inboxItem{}, false
-	})
 	testkit.WaitFor(t, func() bool { _, paused := devinPause(t, server); return paused })
 	if len(fake.PullRequests(shop)) != 0 {
 		t.Errorf("pull requests = %+v", fake.PullRequests(shop))
 	}
 
-	if err := server.Engine.Resume(t.Context(), item.ID); err != nil {
+	if err := server.Engine.Resume(t.Context(), "devin"); err != nil {
 		t.Fatal(err)
 	}
 
 	testkit.WaitFor(t, func() bool { return len(fake.PullRequests(shop)) == 1 })
-	if _, paused := devinPause(t, server); paused || !dismissed(t, server, item.ID) {
-		t.Errorf("paused = %v, dismissed = %v", paused, dismissed(t, server, item.ID))
+	if _, paused := devinPause(t, server); paused {
+		t.Error("the pause did not end")
 	}
 	prompts := promptTexts(t, server, roleSessions(t, server, engine.ImplementerRole)[0].ID)
 	if len(prompts) != 2 || prompts[0] != prompts[1] {
@@ -430,9 +394,7 @@ func TestASuccessfulPromptEndsThePauseOfItsHarness(t *testing.T) {
 	agent := start(t, server, implementerSpec(t, server, fake, 41))
 	defer end(t, agent, "done")
 	for _, statement := range []string{
-		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
-		 VALUES (5, 'usage limit', 'owner', 'owner/shop', 12, 12, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z')`,
-		`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('devin', '2099-01-01T00:00:00Z', 5)`,
+		`INSERT INTO harness_pauses (harness, paused_until) VALUES ('devin', '2099-01-01T00:00:00Z')`,
 	} {
 		if _, err := server.DB.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -443,8 +405,8 @@ func TestASuccessfulPromptEndsThePauseOfItsHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, paused := devinPause(t, server); paused || !dismissed(t, server, 5) {
-		t.Errorf("paused = %v, dismissed = %v", paused, dismissed(t, server, 5))
+	if _, paused := devinPause(t, server); paused {
+		t.Error("the pause did not end")
 	}
 }
 
@@ -460,9 +422,7 @@ func TestASuccessfulPromptKeepsAPauseThatStartedDuringThePrompt(t *testing.T) {
 	go func() { done <- agent.Prompt(t.Context(), "Store plans in cents.", nil) }()
 	testkit.WaitFor(t, func() bool { _, err := os.Stat(started); return err == nil })
 	for _, statement := range []string{
-		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
-		 VALUES (5, 'usage limit', 'owner', 'owner/shop', 12, 12, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z')`,
-		`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('devin', '2099-01-01T00:00:00Z', 5)`,
+		`INSERT INTO harness_pauses (harness, paused_until) VALUES ('devin', '2099-01-01T00:00:00Z')`,
 	} {
 		if _, err := server.DB.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -476,8 +436,8 @@ func TestASuccessfulPromptKeepsAPauseThatStartedDuringThePrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, paused := devinPause(t, server); !paused || dismissed(t, server, 5) {
-		t.Errorf("paused = %v, dismissed = %v", paused, dismissed(t, server, 5))
+	if _, paused := devinPause(t, server); !paused {
+		t.Error("the pause ended")
 	}
 }
 
@@ -486,21 +446,14 @@ func TestAnEventForAPausedLeadGoesToThatLeadAfterThePause(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, claudeCodeLimit, keepSessionOpen)
 	sendChat(t, server, leadChat, "Plan the API")
-	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
-		for _, item := range inbox(t, server) {
-			if item.Kind == "usage limit" {
-				return item, true
-			}
-		}
-		return inboxItem{}, false
-	})
+	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
 	dispatchTask(fake, 41, "Add plan model")
 	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 1 })
 	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 1 || len(promptTexts(t, server, got[0].ID)) != 1 {
 		t.Errorf("sessions = %+v", got)
 	}
 
-	if err := server.Engine.Resume(t.Context(), item.ID); err != nil {
+	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -539,18 +492,13 @@ func TestAClaudeCodeUsageLimitShowsTheMobiusMessageAndNotTheRawText(t *testing.T
 
 	sendChat(t, server, leadChat, "Plan the API")
 
-	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
-		for _, item := range inbox(t, server) {
-			if item.Kind == "usage limit" {
-				return item, true
-			}
-		}
-		return inboxItem{}, false
-	})
 	want := "claude-code reached a usage limit. Mobius sends the prompt again at 2100-01-01 00:00 UTC."
 	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 1 })
-	if got := chatTexts(t, server, "Mobius"); got[0] != want || item.Text != want {
-		t.Errorf("chat = %q, inbox item = %q, want %q", got, item.Text, want)
+	if got := chatTexts(t, server, "Mobius"); got[0] != want {
+		t.Errorf("chat = %q, want %q", got, want)
+	}
+	if got := inbox(t, server); len(got) != 0 {
+		t.Errorf("inbox = %+v", got)
 	}
 	lead := chatSessions(t, server, leadChat, engine.LeadRole)[0].ID
 	if got := chatTexts(t, server, "Lead"); len(got) != 0 {
@@ -579,15 +527,8 @@ func TestTheChatOfALeadThatWaitsForAPauseGivesTheEndOfThePauseUntilThePauseEnds(
 		t.Errorf("view = %+v", view)
 	}
 
-	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
-		for _, item := range inbox(t, server) {
-			if item.Kind == "usage limit" {
-				return item, true
-			}
-		}
-		return inboxItem{}, false
-	})
-	if err := server.Engine.Resume(t.Context(), item.ID); err != nil {
+	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
+	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -602,9 +543,7 @@ func TestALeadThatHitsAPauseOfAnotherSessionGetsTheMobiusMessageInItsChat(t *tes
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, claudeCodeLimitWithRawText, keepSessionOpen)
 	for _, statement := range []string{
-		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
-		 VALUES (5, 'usage limit', 'owner', 'owner/shop', 12, 12, 'claude-code reached a usage limit.', '', '2026-10-04T10:00:00Z')`,
-		`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('claude-code', '2099-01-01T00:00:00Z', 5)`,
+		`INSERT INTO harness_pauses (harness, paused_until) VALUES ('claude-code', '2099-01-01T00:00:00Z')`,
 	} {
 		if _, err := server.DB.Exec(statement); err != nil {
 			t.Fatal(err)
@@ -628,17 +567,9 @@ func TestALeadThatHitsTheUsageLimitAgainAfterThePauseGetsTheMobiusMessageAgain(t
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, claudeCodeLimitTwice, keepSessionOpen)
 	sendChat(t, server, leadChat, "Plan the API")
-	item := testkit.WaitForValue(t, func() (inboxItem, bool) {
-		for _, item := range inbox(t, server) {
-			if item.Kind == "usage limit" {
-				return item, true
-			}
-		}
-		return inboxItem{}, false
-	})
 	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 1 })
 	testkit.WaitFor(t, func() bool { return claudeCodePaused(t, server) })
-	if err := server.Engine.Resume(t.Context(), item.ID); err != nil {
+	if err := server.Engine.Resume(t.Context(), "claude-code"); err != nil {
 		t.Fatal(err)
 	}
 	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Lead")) == 1 })
@@ -647,8 +578,8 @@ func TestALeadThatHitsTheUsageLimitAgainAfterThePauseGetsTheMobiusMessageAgain(t
 	sendChat(t, server, leadChat, "Plan the UI")
 
 	testkit.WaitFor(t, func() bool { return len(chatTexts(t, server, "Mobius")) == 2 })
-	if n := count(t, server, "SELECT COUNT(*) FROM inbox_items"); n != 1 {
-		t.Errorf("%d Inbox items", n)
+	if got := inbox(t, server); len(got) != 0 {
+		t.Errorf("inbox = %+v", got)
 	}
 }
 
@@ -657,9 +588,7 @@ func TestALeadThatHitsAPauseWithItsMessageAlreadyInTheChatGetsNoSecondMessage(t 
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, claudeCodeLimitWithRawText, keepSessionOpen)
 	for _, statement := range []string{
-		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time)
-		 VALUES (5, 'usage limit', 'owner', 'owner/shop', 12, 12, 'claude-code reached a usage limit.', '', '2026-10-04T10:00:00Z')`,
-		`INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('claude-code', '2099-01-01T00:00:00Z', 5)`,
+		`INSERT INTO harness_pauses (harness, paused_until) VALUES ('claude-code', '2099-01-01T00:00:00Z')`,
 		`INSERT INTO chat_messages (organization, repository, workstream, author, time, text)
 		 VALUES ('owner', 'owner/shop', 12, 'Mobius', '2026-10-04T10:00:00Z', 'claude-code reached a usage limit. Mobius sends the prompt again at 2099-01-01 00:00 UTC.')`,
 	} {

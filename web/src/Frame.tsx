@@ -9,7 +9,7 @@ import {
   WifiOffIcon,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import type { InboxItem, Unread } from "@/api/api.gen";
+import type { InboxItem, Pause, Unread } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useNewBuild } from "@/lib/build";
@@ -20,6 +20,7 @@ import { hasUpgradeControls, useUpgrade } from "@/lib/upgrade";
 import { cn } from "@/lib/utils";
 import { chatParams, organizationWorkstreams, type Workstreams } from "@/lib/workstreams";
 import { OrganizationSwitch } from "./OrganizationSwitch";
+import { Pauses } from "./Pauses";
 import { UpgradeControls, UpgradeDialog } from "./Upgrade";
 import { WorkstreamBadges } from "./Workstreams";
 
@@ -86,6 +87,7 @@ export function Frame({
   workstreams,
   unread,
   inbox,
+  pauses,
   fill,
   connection,
   children,
@@ -98,6 +100,7 @@ export function Frame({
   workstreams: Workstreams;
   unread: Unread[];
   inbox: InboxItem[];
+  pauses: Pause[];
   fill: boolean;
   connection: Connection;
   children: ReactNode;
@@ -187,6 +190,14 @@ export function Frame({
             !fill && "md:p-6",
           )}
         >
+          <div
+            className={cn(
+              "grid gap-2 px-4 pt-4 empty:hidden",
+              fill ? "md:px-4" : "md:mx-auto md:w-full md:max-w-3xl md:p-0 md:pb-4",
+            )}
+          >
+            <Pauses pauses={pauses} />
+          </div>
           <div className="grid gap-2 px-4 pt-4 empty:hidden md:hidden">
             {(path === "/chat" || path === "/workstreams" || path.startsWith("/inbox")) &&
               organizationSwitch}

@@ -25,8 +25,6 @@ const (
 	noTimeWait = 30 * time.Minute
 	// resetTolerance is how long after a reset time in the text of a usage limit the reset time still counts as now.
 	resetTolerance = 5 * time.Minute
-	// usageLimitKind is the kind of the Inbox item of a pause.
-	usageLimitKind = "usage limit"
 	// retryWindow is how long after the end of a pause a new usage limit of the same Harness still counts as a retry
 	// that failed again.
 	retryWindow = 5 * time.Minute
@@ -206,10 +204,10 @@ func limitText(harness config.Harness, until time.Time) string {
 	return fmt.Sprintf("%s reached a usage limit. Mobius sends the prompt again at %s.", harness, until.UTC().Format(timeFormat))
 }
 
-// pause pauses the Harness of a until the time until. A Harness has one usage-limit Inbox item. A second session at
-// the same pause, and a retry that fails again, use the item again. The first pause also adds a message in the chat of
-// the Workstream of a. A session with a chat gets the message in its chat for each usage limit that it hits, also for
-// a pause that another session started.
+// pause pauses the Harness of a until the time until. The first pause also adds a message in the chat of the
+// Workstream of a. A retry that fails again within retryWindow adds the message only for a session with a chat. A
+// session with a chat gets the message in its chat for each usage limit that it hits, also for a pause that another
+// session started.
 func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	e.pausing.Lock()
 	defer e.pausing.Unlock()
@@ -238,43 +236,18 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	text := limitText(a.harness, until)
-	item, err := e.queries.ReopenInboxItem(ctx, store.ReopenInboxItemParams{
-		Text:       text,
-		Time:       now(),
-		ID:         e.limitItems[a.harness],
-		RetrySince: time.Now().Add(-retryWindow).UTC().Format(time.RFC3339Nano),
-	})
-	switch {
-	case err == nil:
-		if a.author != "" {
-			if err := e.addLimitMessage(ctx, a, text); err != nil {
-				return err
-			}
-		}
-	case errors.Is(err, sql.ErrNoRows):
-		item, err = e.queries.AddInboxItem(ctx, store.AddInboxItemParams{
-			Kind:         usageLimitKind,
-			Organization: a.spec.Organization,
-			Repository:   a.spec.Repository,
-			Text:         text,
-			Time:         now(),
-		})
-		if err != nil {
+	ended, found := e.pauseEnds.Load(a.harness)
+	retry := found && time.Since(ended.(time.Time)) <= retryWindow
+	if !retry || a.author != "" {
+		if err := e.addLimitMessage(ctx, a, limitText(a.harness, until)); err != nil {
 			return err
 		}
-		e.limitItems[a.harness] = item.ID
-		if err := e.addLimitMessage(ctx, a, text); err != nil {
-			return err
-		}
-	default:
-		return err
 	}
-	pause := store.HarnessPause{Harness: string(a.harness), PausedUntil: until.UTC().Format(time.RFC3339Nano), InboxItem: item.ID}
+	pause := store.HarnessPause{Harness: string(a.harness), PausedUntil: until.UTC().Format(time.RFC3339Nano)}
 	if err := e.queries.SetHarnessPause(ctx, store.SetHarnessPauseParams(pause)); err != nil {
 		return err
 	}
-	e.publish(Change{Inbox: &item})
+	e.publish(Change{Pauses: true})
 	return e.timer(pause)
 }
 
@@ -307,18 +280,18 @@ func (e *Engine) timer(pause store.HarnessPause) error {
 	return nil
 }
 
-// Resume ends the pause of the usage-limit Inbox item now. An item with no pause is no error.
-func (e *Engine) Resume(ctx context.Context, inboxItem int64) error {
-	pauses, err := e.queries.ListHarnessPauses(ctx)
-	if err != nil {
+// Resume ends the pause of harness now. A Harness with no pause is no error.
+func (e *Engine) Resume(ctx context.Context, harness string) error {
+	pause, err := e.harnessPause(ctx, config.Harness(harness))
+	if err != nil || pause == nil {
 		return err
 	}
-	for _, pause := range pauses {
-		if pause.InboxItem == inboxItem {
-			return e.endPause(ctx, pause)
-		}
-	}
-	return nil
+	return e.endPause(ctx, *pause)
+}
+
+// Pauses gives the pause of each Harness that has one.
+func (e *Engine) Pauses(ctx context.Context) ([]store.HarnessPause, error) {
+	return e.queries.ListHarnessPauses(ctx)
 }
 
 // harnessPause gives the pause of harness, or nil when harness has no pause.
@@ -350,12 +323,11 @@ func (e *Engine) endPauseSince(ctx context.Context, before *store.HarnessPause) 
 }
 
 func (e *Engine) endPause(ctx context.Context, pause store.HarnessPause) error {
+	e.pauseEnds.Store(config.Harness(pause.Harness), time.Now())
 	if err := e.queries.DeleteHarnessPause(ctx, pause.Harness); err != nil {
 		return err
 	}
-	if err := e.Dismiss(ctx, pause.InboxItem); err != nil {
-		return err
-	}
+	e.publish(Change{Pauses: true})
 	e.pausesChanged.notify()
 	e.workers.changed.notify()
 	return nil
@@ -379,24 +351,6 @@ func (e *Engine) PausedUntil(ctx context.Context, session store.Session) (*time.
 		return nil, err
 	}
 	return pauseEnd(*pause)
-}
-
-// InboxPausedUntil gives the end of the pause of the usage-limit Inbox item, or nil for another item, a dismissed
-// item, and an item whose pause ended.
-func (e *Engine) InboxPausedUntil(ctx context.Context, item store.InboxItem) (*time.Time, error) {
-	if item.Kind != usageLimitKind || item.DismissedAt.Valid {
-		return nil, nil
-	}
-	pauses, err := e.queries.ListHarnessPauses(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, pause := range pauses {
-		if pause.InboxItem == item.ID {
-			return pauseEnd(pause)
-		}
-	}
-	return nil, nil
 }
 
 func pauseEnd(pause store.HarnessPause) (*time.Time, error) {

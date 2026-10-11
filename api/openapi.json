@@ -921,7 +921,7 @@
     },
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, and each Workstream that the Triager chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
+        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, each change of the pauses, and each Workstream that the Triager chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
         "operationId": "StreamEvents",
         "parameters": [
           {
@@ -1357,55 +1357,6 @@
         ]
       }
     },
-    "/api/inbox/{id}/resume": {
-      "post": {
-        "description": "Resume ends the pause of a Harness now, so the sessions that wait for it send their prompts again. It also closes the Inbox item.",
-        "operationId": "Resume",
-        "parameters": [
-          {
-            "description": "ID is the id of the usage-limit Inbox item of the pause",
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "422": {
-            "$ref": "#/components/responses/UnprocessableEntity"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalServerError"
-          }
-        },
-        "security": [
-          {
-            "mobius_session": []
-          }
-        ],
-        "tags": [
-          "inbox"
-        ]
-      }
-    },
     "/api/login": {
       "post": {
         "description": "Login makes a device login when the password is the access password, and sets the token of the device login in a cookie.",
@@ -1547,6 +1498,100 @@
         ],
         "tags": [
           "github"
+        ]
+      }
+    },
+    "/api/pauses": {
+      "get": {
+        "description": "ListPauses returns the pause of each Harness that has one.",
+        "operationId": "ListPauses",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_Pause"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "pauses"
+        ]
+      }
+    },
+    "/api/pauses/{harness}/resume": {
+      "post": {
+        "description": "Resume ends the pause of a Harness now, so the sessions that wait for it send their prompts again. A Harness with no pause is no error.",
+        "operationId": "Resume",
+        "parameters": [
+          {
+            "description": "Harness is the name of the paused Harness",
+            "in": "path",
+            "name": "harness",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "pauses"
         ]
       }
     },
@@ -3712,6 +3757,24 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Array_Pause": {
+        "type": "object",
+        "title": "Envelope_Array_Pause",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]Pause",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/Pause"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Array_TaskLine": {
         "type": "object",
         "title": "Envelope_Array_TaskLine",
@@ -4076,13 +4139,12 @@
           },
           "kind": {
             "type": "string",
-            "description": "Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, usage limit for a pause of a Harness, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, full disk for a local check that waits for free disk space, check errors for a task whose check failed on 10 polls in a row, and full slots for Autopilot that cannot start a task for 30 minutes",
+            "description": "Kind tells what the item is about: question for a question of the Lead on a task issue, Lead for a message of the Lead to the Owner, Lead failed for a message or an event that the Lead did not take, ready for review for a pull request of a task, stale pull request for an old pull request with a merge conflict, stopped for a task that Mobius lost or a session that Mobius stopped after its hangs, full disk for a local check that waits for free disk space, check errors for a task whose check failed on 10 polls in a row, and full slots for Autopilot that cannot start a task for 30 minutes",
             "enum": [
               "question",
               "Lead",
               "ready for review",
               "stale pull request",
-              "usage limit",
               "Lead failed",
               "stopped",
               "full disk",
@@ -4097,14 +4159,6 @@
           "organization": {
             "type": "string",
             "description": "Organization is the owner of the repository"
-          },
-          "pausedUntil": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "PausedUntil is the end of the pause of a usage limit item, or null for another item and after the pause ends",
-            "format": "date-time"
           },
           "repository": {
             "type": "string",
@@ -4134,7 +4188,6 @@
           "text",
           "link",
           "time",
-          "pausedUntil",
           "dismissedAt"
         ],
         "description": "InboxItem is an item of the Inbox of the Owner."
@@ -4414,6 +4467,34 @@
                 "type": "string",
                 "contentMediaType": "application/json",
                 "contentSchema": {
+                  "type": "array",
+                  "title": "[]Pause",
+                  "description": "Array of Pause",
+                  "items": {
+                    "$ref": "#/components/schemas/Pause"
+                  }
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "pauses"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
                   "$ref": "#/components/schemas/WorkstreamRef"
                 }
               },
@@ -4600,6 +4681,26 @@
           "reason"
         ],
         "description": "NeedsHuman is an open task issue with mobius:needs-human or mobius:question."
+      },
+      "Pause": {
+        "type": "object",
+        "title": "Pause",
+        "properties": {
+          "harness": {
+            "type": "string",
+            "description": "Harness is the name of the paused Harness"
+          },
+          "pausedUntil": {
+            "type": "string",
+            "description": "PausedUntil is the end of the pause",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "harness",
+          "pausedUntil"
+        ],
+        "description": "Pause is the usage-limit pause of a Harness."
       },
       "PermissionCheck": {
         "type": "object",
