@@ -23,9 +23,11 @@ import (
 var migrations embed.FS
 
 // Open opens the database at path and applies the pending migrations.
-// A write waits up to 5 s (busy_timeout is in milliseconds) while another connection writes.
+// Each transaction starts with BEGIN IMMEDIATE (_txlock=immediate) and takes the write lock at its start.
+// A transaction waits up to 5 s (busy_timeout is in milliseconds) for the lock while another connection writes.
+// A deferred transaction that reads first and writes later gets SQLITE_BUSY at once, without a wait.
 func Open(ctx context.Context, path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate")
 	if err != nil {
 		return nil, err
 	}
