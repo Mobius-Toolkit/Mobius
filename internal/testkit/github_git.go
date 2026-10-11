@@ -2,6 +2,7 @@ package testkit
 
 import (
 	"errors"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,6 +58,37 @@ func (g *FakeGitHub) PushCommit(fullName, branch, message string) {
 	g.git(work, "clone", "--branch=main", g.Remote(fullName), ".")
 	g.git(work, "commit", "--allow-empty", "-m", message)
 	g.git(work, "push", "origin", "HEAD:refs/heads/"+branch)
+}
+
+// getBranchRef gives the head commit of the branch in the git repository of the repository.
+func (g *FakeGitHub) getBranchRef(w http.ResponseWriter, r *http.Request) {
+	ref := "refs/heads/" + r.PathValue("branch")
+	sha, err := gitCommand(g.Remote(repository(r)), "rev-parse", "--verify", "--quiet", ref).Output()
+	if err != nil {
+		notFound(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ref":    ref,
+		"object": map[string]string{"type": "commit", "sha": strings.TrimSpace(string(sha))},
+	})
+}
+
+// touchPushedPullRequests sets the update time of each pull request of the repository whose head commit is not the
+// head at the last call. The caller must hold the lock.
+func (g *FakeGitHub) touchPushedPullRequests(repository string) {
+	for _, pull := range g.pullRequests {
+		if pull.repository != repository {
+			continue
+		}
+		key := issueKey{repository, pull.Number}
+		head, _ := gitCommand(g.Remote(repository), "rev-parse", "--verify", "--quiet", pull.Head).Output()
+		sha := strings.TrimSpace(string(head))
+		if last, listed := g.pushedHeads[key]; listed && last != sha {
+			g.issues[key].updatedAt = g.tick()
+		}
+		g.pushedHeads[key] = sha
+	}
 }
 
 // SetCheck commits script as an executable .mobius/check on main of the repository fullName.

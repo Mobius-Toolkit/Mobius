@@ -16,6 +16,15 @@ func (r Repository) PullRequest(ctx context.Context, number int64) (*gh.PullRequ
 	return pullRequest, err
 }
 
+// BranchHead gives the sha of the head commit of the branch.
+func (r Repository) BranchHead(ctx context.Context, branch string) (string, error) {
+	ref, _, err := r.Client.Git.GetRef(ctx, r.Owner(), r.Name(), "heads/"+branch)
+	if err != nil {
+		return "", err
+	}
+	return ref.GetObject().GetSHA(), nil
+}
+
 // CreateDraftPullRequest opens a draft pull request from the branch head into the branch base.
 func (r Repository) CreateDraftPullRequest(ctx context.Context, title, head, base, body string) (*gh.PullRequest, error) {
 	pullRequest, _, err := r.Client.PullRequests.Create(ctx, r.Owner(), r.Name(), gh.CreatePullRequest{

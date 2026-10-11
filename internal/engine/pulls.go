@@ -26,6 +26,12 @@ type pullState struct {
 	// read tells that the Judge read the whole pull request after the start of the server. The server does not keep
 	// the comments of an earlier run.
 	read bool
+	// pullRequest is the pull request of the last read of checkTask, and baseHead is the head commit of the default
+	// branch at that read. They are nil and "" before the first read.
+	pullRequest *gh.PullRequest
+	baseHead    string
+	// changed tells that the issue list of the poll had the pull request after the last read.
+	changed bool
 }
 
 // pull gives the state of the pull request number, and adds it when it is missing.
@@ -35,6 +41,32 @@ func (e *Engine) pull(repository github.Repository, number int64) *pullState {
 		e.pulls[key] = &pullState{conversation: map[int64]*gh.IssueComment{}}
 	}
 	return e.pulls[key]
+}
+
+// pullRequest gives the pull request number. It reads the pull request from GitHub when the poll has no earlier read, the
+// issue list showed a change, the default branch moved since the earlier read, or GitHub had not yet calculated
+// mergeable. Else it gives the pull request of the earlier read. A push to the default branch changes mergeable and
+// mergeable_state with no change of the update time of the pull request.
+func (e *Engine) pullRequest(ctx context.Context, repository github.Repository, number int64, baseHead string) (*gh.PullRequest, error) {
+	state := e.pull(repository, number)
+	if state.pullRequest != nil && !state.changed && state.baseHead == baseHead && state.pullRequest.Mergeable != nil {
+		return state.pullRequest, nil
+	}
+	pullRequest, err := repository.PullRequest(ctx, number)
+	if err != nil {
+		return nil, err
+	}
+	state.pullRequest, state.baseHead, state.changed = pullRequest, baseHead, false
+	return pullRequest, nil
+}
+
+// markChangedPullRequests marks each pull request of issues, so that the next read of it goes to GitHub.
+func (e *Engine) markChangedPullRequests(repository github.Repository, issues []*gh.Issue) {
+	for _, issue := range issues {
+		if issue.IsPullRequest() {
+			e.pull(repository, int64(issue.GetNumber())).changed = true
+		}
+	}
 }
 
 // readPullRequests reads the reviews and the review threads of the pull requests numbers with one call, and keeps them.

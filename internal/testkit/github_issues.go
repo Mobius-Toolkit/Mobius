@@ -569,6 +569,7 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.touchPushedPullRequests(repository(r))
 	var keys []issueKey
 	for key, found := range g.issues {
 		if key.repository == repository(r) &&
