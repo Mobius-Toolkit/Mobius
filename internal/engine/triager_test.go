@@ -377,7 +377,7 @@ when = "# Owner message"
 call = { tool = "start_researcher", arguments = { question = "Where do plans store the price?" } }
 `
 
-// coordinatorPrompts gives the prompts of the Triager chat sessions, the oldest first.
+// coordinatorPrompts gives the prompts of the Coordinator chat sessions, the oldest first.
 func coordinatorPrompts(t *testing.T, server *testserver.Server) []string {
 	t.Helper()
 	var texts []string
