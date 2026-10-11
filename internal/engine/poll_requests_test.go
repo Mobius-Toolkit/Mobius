@@ -44,8 +44,24 @@ func TestAPollWithNoChangeSendsAtMostTenRequestsThatCountAgainstTheLimit(t *test
 		}
 	}
 	last := len(starts) - 1
+	poll := requests[starts[last-1]:starts[last]]
+	subIssueReads := map[string]bool{}
+	for _, request := range poll {
+		if request.Method == http.MethodGet {
+			subIssueReads[request.Path] = true
+		}
+	}
+	for number := 1; number <= 200; number++ {
+		if number > workstreams && number < 101 {
+			continue
+		}
+		path := fmt.Sprintf("/repos/%s/issues/%d/sub_issues", shop, number)
+		if !subIssueReads[path] {
+			t.Errorf("the measured poll has no GET %s", path)
+		}
+	}
 	var counted []string
-	for _, request := range requests[starts[last-1]:starts[last]] {
+	for _, request := range poll {
 		if request.Status == http.StatusNotModified || request.Path == "/app/installations" || strings.HasSuffix(request.Path, "/access_tokens") {
 			continue
 		}
