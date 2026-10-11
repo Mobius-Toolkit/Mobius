@@ -589,7 +589,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "usage", "/usage?group=model", (device) => [
     ...frame(device, release),
     main.getByRole("tab", { name: "Cost", selected: true }),
-    main.getByRole("row", { name: /claude-opus-5-5 \d 23,000 6,400 330,000 37,000 \$5\.55$/ }),
+    main.getByRole("row", { name: /opus \d 23,000 6,400 330,000 37,000 \$5\.55$/ }),
     main.getByRole("row", { name: /swe-1\.5 3 .* —$/ }),
     main.locator(".recharts-bar-rectangle").first(),
     ...usageDays.map((day) => main.getByText(day, { exact: true })),

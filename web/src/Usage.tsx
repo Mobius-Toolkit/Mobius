@@ -407,6 +407,7 @@ export function Usage({
       tz: new Intl.DateTimeFormat().resolvedOptions().timeZone,
       harness: search.harness,
       model: search.model,
+      modelVersion: search.modelVersion,
       effort: search.effort,
       role: search.role,
       repository: search.repository,

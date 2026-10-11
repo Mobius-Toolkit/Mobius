@@ -7,10 +7,11 @@ export const periods = [
   { value: "custom", title: "Custom" },
 ] as const;
 
-// The filters and the groups have the same five values.
+// The filters and the groups have the same six values.
 export const dimensions = [
   { key: "harness", title: "Harness", options: "harnesses" },
   { key: "model", title: "Model", options: "models" },
+  { key: "modelVersion", title: "Model version", options: "modelVersions" },
   { key: "effort", title: "Effort", options: "efforts" },
   { key: "role", title: "Role", options: "roles" },
   { key: "repository", title: "Repository", options: "repositories" },
@@ -69,6 +70,7 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageSearc
     group: dimensions.find((item) => item.key === search.group)?.key,
     harness: strings(search.harness),
     model: strings(search.model),
+    modelVersion: strings(search.modelVersion),
     effort: strings(search.effort),
     role: strings(search.role),
     repository: strings(search.repository),

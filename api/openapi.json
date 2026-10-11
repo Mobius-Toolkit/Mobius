@@ -2289,9 +2289,23 @@
             }
           },
           {
-            "description": "Model limits the rows to these models. The model is the model that the Harness reports, or the model of the config when the Harness reports none",
+            "description": "Model limits the rows to these models of the config",
             "in": "query",
             "name": "model",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "ModelVersion limits the rows to these models that the Harness reports",
+            "in": "query",
+            "name": "modelVersion",
             "required": false,
             "schema": {
               "description": "Array of string",
@@ -2353,6 +2367,7 @@
               "enum": [
                 "harness",
                 "model",
+                "modelVersion",
                 "effort",
                 "role",
                 "repository"
@@ -5229,10 +5244,18 @@
               "type": "string"
             }
           },
+          "modelVersions": {
+            "type": "array",
+            "title": "[]string",
+            "description": "ModelVersions are the models that the Harness reports. A request cannot filter for the rows with no reported model",
+            "items": {
+              "type": "string"
+            }
+          },
           "models": {
             "type": "array",
             "title": "[]string",
-            "description": "Models are the models that the Harness reports, or the models of the config when the Harness reports none",
+            "description": "Models are the models of the config",
             "items": {
               "type": "string"
             }
@@ -5257,6 +5280,7 @@
         "required": [
           "harnesses",
           "models",
+          "modelVersions",
           "efforts",
           "roles",
           "repositories"

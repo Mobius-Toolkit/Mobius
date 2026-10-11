@@ -936,7 +936,9 @@ export interface UsageOptions {
   efforts: string[];
   /** Harnesses are the Harnesses of the rows */
   harnesses: string[];
-  /** Models are the models that the Harness reports, or the models of the config when the Harness reports none */
+  /** ModelVersions are the models that the Harness reports. A request cannot filter for the rows with no reported model */
+  modelVersions: string[];
+  /** Models are the models of the config */
   models: string[];
   /** Repositories are the repositories of the rows as "owner/name" */
   repositories: string[];
@@ -1235,6 +1237,10 @@ model?: string[];
 /**
  * Array of string
  */
+modelVersion?: string[];
+/**
+ * Array of string
+ */
 effort?: string[];
 /**
  * Array of string
@@ -1256,6 +1262,7 @@ export type GetUsageGroup = typeof GetUsageGroup[keyof typeof GetUsageGroup];
 export const GetUsageGroup = {
   harness: 'harness',
   model: 'model',
+  modelVersion: 'modelVersion',
   effort: 'effort',
   role: 'role',
   repository: 'repository',
@@ -3911,7 +3918,7 @@ export const getGetUsageUrl = (params: GetUsageParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
-    const explodeParameters = ["harness","model","effort","role","repository"];
+    const explodeParameters = ["harness","model","modelVersion","effort","role","repository"];
 
     if (Array.isArray(value) && explodeParameters.includes(key)) {
       value.forEach((v) => {
