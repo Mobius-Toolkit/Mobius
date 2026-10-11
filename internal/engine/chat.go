@@ -961,7 +961,7 @@ func (e *Engine) holdEvent(_ context.Context, c caller, _ github.Repository, _ n
 
 // tellOwner adds text to the Lead chat as a message of the Lead to the Owner. The reply text after the call, in the
 // same turn, goes only to the Transcript.
-func (e *Engine) tellOwner(ctx context.Context, c caller, repository github.Repository, input tellInput) (string, error) {
+func (e *Engine) tellOwner(ctx context.Context, c caller, _ github.Repository, input tellInput) (string, error) {
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
