@@ -238,7 +238,7 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 // commentsWithoutTask acts on the new comments of an issue with no live task. Mobius does not act on a comment on a
 // closed issue. An issue with mobius:no-workstream goes to retriage. Any other issue goes to workstreamCommentEvents.
 func (e *Engine) commentsWithoutTask(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
-	events, _ := e.replies(repository.AppSlug, comments)
+	events, answered := e.replies(repository.AppSlug, comments)
 	if len(events) == 0 {
 		return nil
 	}
@@ -248,14 +248,15 @@ func (e *Engine) commentsWithoutTask(ctx context.Context, repository github.Repo
 	case hasLabel(issue, noWorkstreamLabel):
 		return e.retriage(ctx, repository, issue, events)
 	}
-	return e.workstreamCommentEvents(ctx, repository, issue, events)
+	return e.workstreamCommentEvents(ctx, repository, issue, events, answered)
 }
 
 // workstreamCommentEvents adds a comment event for the Lead for each comment of events on an open Workstream issue, or
 // on an open issue below a Workstream, that has no live task. The event of the Workstream issue has no issue. An issue
 // in no Workstream with a mobius:ready of a trusted author waits for the Triager, which reads the comments. Mobius does
-// not act on a comment on another issue in no Workstream.
-func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueComment) error {
+// not act on a comment on another issue in no Workstream. When answered is true, a comment on the Workstream issue
+// answers its question: mobius:question goes away.
+func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueComment, answered bool) error {
 	number := int64(issue.GetNumber())
 	workstream, err := e.commentWorkstream(ctx, repository, issue)
 	if err != nil {
@@ -275,6 +276,11 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 	}
 	if err := acknowledge(ctx, repository, events); err != nil {
 		return err
+	}
+	if answered && workstream == number && hasLabel(issue, questionLabel) {
+		if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
+			return err
+		}
 	}
 	eventIssue := sql.NullInt64{Int64: number, Valid: workstream != number}
 	for _, comment := range events {
@@ -472,8 +478,8 @@ func (e *Engine) commentIsEvent(appSlug string, comment *gh.IssueComment) bool {
 	return e.trustedUser(comment.GetUser().GetLogin()) && comment.GetPerformedViaGithubApp().GetSlug() != appSlug
 }
 
-// ask posts the question text on the issue of a live task of the Workstream, adds mobius:question, and adds an
-// Inbox item. The reply comes later as a comment event.
+// ask posts the question text on the issue of a live task of the Workstream or on the Workstream issue, adds
+// mobius:question, and adds an Inbox item. The reply comes later as a comment event.
 func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository, input textInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -481,8 +487,10 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
-	if _, err := e.workstreamTask(ctx, repository, c.workstream, input.N); err != nil {
-		return "", err
+	if input.N != c.workstream {
+		if _, err := e.workstreamTask(ctx, repository, c.workstream, input.N); err != nil {
+			return "", err
+		}
 	}
 	issue, err := repository.Issue(ctx, input.N)
 	if err != nil {

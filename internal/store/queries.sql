@@ -155,11 +155,18 @@ SELECT * FROM harness_pauses WHERE harness = ?;
 SELECT * FROM harness_pauses ORDER BY harness;
 
 -- name: SetHarnessPause :exec
-INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES (?, ?, ?)
-ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until, inbox_item = excluded.inbox_item;
+INSERT INTO harness_pauses (harness, paused_until) VALUES (?, ?)
+ON CONFLICT (harness) DO UPDATE SET paused_until = excluded.paused_until;
 
 -- name: DeleteHarnessPause :exec
 DELETE FROM harness_pauses WHERE harness = ?;
+
+-- name: GetHarnessPauseEnd :one
+SELECT ended_at FROM harness_pause_ends WHERE harness = ?;
+
+-- name: SetHarnessPauseEnd :exec
+INSERT INTO harness_pause_ends (harness, ended_at) VALUES (?, ?)
+ON CONFLICT (harness) DO UPDATE SET ended_at = excluded.ended_at;
 
 -- name: AddInboxItem :one
 INSERT INTO inbox_items (kind, organization, repository, workstream, issue, text, link, time)
@@ -168,11 +175,6 @@ RETURNING *;
 
 -- name: DismissInboxItem :one
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
-RETURNING *;
-
--- name: ReopenInboxItem :one
-UPDATE inbox_items SET text = ?, time = ?, dismissed_at = NULL
-WHERE id = ? AND (dismissed_at IS NULL OR julianday(dismissed_at) > julianday(CAST(sqlc.arg(retry_since) AS TEXT)))
 RETURNING *;
 
 -- name: ListOpenInboxItems :many

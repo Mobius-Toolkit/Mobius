@@ -53,21 +53,47 @@ test("Resume in the Lead chat shows the spinner while the request runs", async (
   await expect(main.getByText("The server failed.")).toBeVisible();
 });
 
-test("Resume now in the Inbox shows the spinner while the request runs", async ({ page }) => {
+test("Resume now in the status line shows the spinner while the request runs", async ({ page }) => {
   await page.goto("/inbox");
-  const row = page.getByRole("listitem").filter({ hasText: "antigravity reached a usage limit." });
-  const held = await hold(page, "**/api/inbox/*/resume", "POST");
+  const line = page.getByText(/antigravity paused until/).locator("..");
+  const held = await hold(page, "**/api/pauses/*/resume", "POST");
 
-  await checkPending(row.getByRole("button", { name: "Resume now" }), held);
-  await expect(page.getByRole("main").getByText("The server failed.")).toBeVisible();
+  await checkPending(line.getByRole("button", { name: "Resume now" }), held);
+  await expect(page.getByText("The server failed.")).toBeVisible();
 });
 
-test("a tap on Resume now or Dismiss disables both buttons of the row", async ({ page }) => {
+test("the status line shows each pause, and Resume now ends the pause of its Harness", async ({
+  page,
+}) => {
+  await page.route("**/api/pauses", (route) =>
+    route.fulfill({
+      json: {
+        data: [
+          { harness: "antigravity", pausedUntil: "2026-09-28T12:00:00Z" },
+          { harness: "devin", pausedUntil: "2026-09-29T08:30:00Z" },
+        ],
+      },
+    }),
+  );
+  const resumed: string[] = [];
+  await page.route("**/api/pauses/*/resume", (route) => {
+    resumed.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ status: 204 });
+  });
+  await page.goto("/workstreams");
+  const antigravity = page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/);
+  const devin = page.getByText(/^devin paused until Sep 29, 08:30\sAM$/);
+  await expect(antigravity).toBeVisible();
+  await expect(devin).toBeVisible();
+
+  await devin.locator("..").getByRole("button", { name: "Resume now" }).click();
+
+  await expect.poll(() => resumed).toEqual(["/api/pauses/devin/resume"]);
+});
+
+test("a tap on Dismiss disables the button of the row", async ({ page }) => {
   await page.goto("/inbox");
-  const row = page.getByRole("listitem").filter({ hasText: "antigravity reached a usage limit." });
-  const resume = row.getByRole("button", { name: "Resume now" });
-  const dismiss = row.getByRole("button", { name: "Dismiss" });
-  const other = page
+  const dismiss = page
     .getByRole("listitem")
     .filter({ hasText: "#45 needs a decision" })
     .getByRole("button", { name: "Dismiss" });
@@ -75,13 +101,9 @@ test("a tap on Resume now or Dismiss disables both buttons of the row", async ({
 
   await dismiss.click();
   await expect(dismiss).toBeDisabled();
-  await expect(resume).toBeDisabled();
   await expect(spinner(dismiss)).toBeVisible();
-  await expect(spinner(resume)).toHaveCount(0);
-  await expect(other).toBeEnabled();
   held.release();
   await expect(dismiss).toBeEnabled();
-  await expect(resume).toBeEnabled();
 });
 
 test("Start in the Tasks list shows the spinner in place of the icon", async ({ page }) => {

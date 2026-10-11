@@ -151,6 +151,14 @@ func (g *FakeGitHub) AddForeignSubIssue(repository string, parent int64, childRe
 	found.subIssues = append(found.subIssues, issueKey{childRepository, child})
 }
 
+// RemoveSubIssue removes child from the sub-issues of parent. The change of the link changes the update time of no issue.
+func (g *FakeGitHub) RemoveSubIssue(repository string, parent, child int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	found := g.issues[issueKey{repository, parent}]
+	found.subIssues = slices.DeleteFunc(found.subIssues, func(sub issueKey) bool { return sub == issueKey{repository, child} })
+}
+
 // AddSubIssueOf adds the open issue number with title below parent in one step, so a poll sees both.
 func (g *FakeGitHub) AddSubIssueOf(repository string, parent, number int64, title string) {
 	g.mu.Lock()
@@ -161,12 +169,21 @@ func (g *FakeGitHub) AddSubIssueOf(repository string, parent, number int64, titl
 	found.subIssues = append(found.subIssues, key)
 }
 
-// AddBlockedBy makes blocker a blocker of the issue number. Both issues are in repository.
+// AddBlockedBy makes blocker a blocker of the issue number. Both issues are in repository. The change of the
+// blockers changes the update time of no issue.
 func (g *FakeGitHub) AddBlockedBy(repository string, number, blocker int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	found := g.issues[issueKey{repository, number}]
 	found.blockedBy = append(found.blockedBy, blocker)
+}
+
+// RemoveBlockedBy removes blocker from the blockers of the issue number. The change of the blockers changes the update time of no issue.
+func (g *FakeGitHub) RemoveBlockedBy(repository string, number, blocker int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	found := g.issues[issueKey{repository, number}]
+	found.blockedBy = slices.DeleteFunc(found.blockedBy, func(other int64) bool { return other == blocker })
 }
 
 // SetAuthor sets the author of the issue.
@@ -809,7 +826,6 @@ func (g *FakeGitHub) addBlockedBy(w http.ResponseWriter, r *http.Request) {
 	}
 	found := g.issues[key]
 	found.blockedBy = append(found.blockedBy, blocker.number)
-	found.updatedAt = g.tick()
 	writeJSON(w, http.StatusCreated, g.issueJSON(blocker))
 }
 

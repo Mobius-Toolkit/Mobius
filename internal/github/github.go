@@ -65,6 +65,8 @@ type GitHub struct {
 	repositories []Repository
 	// The transports of the installations, by installation id. Each transport keeps its token until the token expires.
 	transports map[int64]*ghinstallation.Transport
+	// The ETag caches of the installations, by installation id. They wrap the transports and live as long as the GitHub.
+	caches map[int64]*etagTransport
 }
 
 // Timeout is the longest time of one HTTP call to GitHub, from the start of the request to the end of the response
@@ -100,6 +102,7 @@ func New(queries *store.Queries, apiURL, webURL string, trustedUsers []string) (
 		trustedUsers: trustedUsers,
 		states:       map[string]time.Time{},
 		transports:   map[int64]*ghinstallation.Transport{},
+		caches:       map[int64]*etagTransport{},
 	}
 	var err error
 	g.api, err = g.client()
@@ -402,8 +405,8 @@ func (g *GitHub) appRepositories(ctx context.Context, app store.GithubApp) ([]Re
 		if err != nil {
 			return nil, err
 		}
-		transport := g.installationTransport(appTransport, installation.GetID())
-		client, err := g.client(gh.WithTransport(transport))
+		transport, cache := g.installationTransport(appTransport, installation.GetID())
+		client, err := g.client(gh.WithTransport(cache))
 		if err != nil {
 			return nil, err
 		}
@@ -425,15 +428,16 @@ func (g *GitHub) appRepositories(ctx context.Context, app store.GithubApp) ([]Re
 	return repositories, nil
 }
 
-func (g *GitHub) installationTransport(appTransport *ghinstallation.AppsTransport, id int64) *ghinstallation.Transport {
+func (g *GitHub) installationTransport(appTransport *ghinstallation.AppsTransport, id int64) (*ghinstallation.Transport, *etagTransport) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	transport, ok := g.transports[id]
 	if !ok {
 		transport = ghinstallation.NewFromAppsTransport(appTransport, id)
 		g.transports[id] = transport
+		g.caches[id] = newETagTransport(transport)
 	}
-	return transport
+	return transport, g.caches[id]
 }
 
 // AsOwner gives repository with a client that uses the user token of the Owner in place of the installation token.

@@ -393,6 +393,12 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("ALTER TABLE events DROP COLUMN organization"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec("ALTER TABLE harness_pauses ADD COLUMN inbox_item INTEGER NOT NULL DEFAULT 0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("DROP TABLE harness_pause_ends"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec("DELETE FROM goose_db_version WHERE version_id >= 20261027000000"); err != nil {
 		t.Fatal(err)
 	}
@@ -444,6 +450,58 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	}
 	if !strings.Contains(plan, "USING INDEX transcript_session") && !strings.Contains(plan, "USING COVERING INDEX transcript_session") {
 		t.Errorf("plan = %q", plan)
+	}
+}
+
+func TestThePauseMigrationDismissesTheUsageLimitItemsAndRemovesTheItemOfAPause(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		"ALTER TABLE events DROP COLUMN organization",
+		"ALTER TABLE harness_pauses ADD COLUMN inbox_item INTEGER NOT NULL DEFAULT 0",
+		"DROP TABLE harness_pause_ends",
+		"DELETE FROM goose_db_version WHERE version_id >= 20261029100000",
+		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time) VALUES
+			(1, 'usage limit', 'owner', '', 0, 0, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z'),
+			(2, 'question', 'owner', 'owner/shop', 12, 41, 'Why?', '', '2026-10-04T10:00:00Z')`,
+		"INSERT INTO harness_pauses (harness, paused_until, inbox_item) VALUES ('devin', '2099-01-01T00:00:00Z', 1)",
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err = Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	var open []int64
+	rows, err := db.Query("SELECT id FROM inbox_items WHERE dismissed_at IS NULL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		open = append(open, id)
+	}
+	if !slices.Equal(open, []int64{2}) {
+		t.Errorf("open items = %v, want [2]", open)
+	}
+	var until string
+	if err := db.QueryRow("SELECT paused_until FROM harness_pauses WHERE harness = 'devin'").Scan(&until); err != nil || until != "2099-01-01T00:00:00Z" {
+		t.Errorf("pause = %q: %v", until, err)
 	}
 }
 

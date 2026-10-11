@@ -1,5 +1,5 @@
 import { use, useState } from "react";
-import { dismiss, InboxItemKind, resume, type InboxItem, type Workstream } from "@/api/api.gen";
+import { dismiss, type InboxItem, type Workstream } from "@/api/api.gen";
 import { ErrorBadge, inset, List, Row } from "@/components/page";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,38 +75,20 @@ function InboxRow({
       <div className="grid min-w-0 grow basis-60 gap-0.5">
         <span className="break-words">{localTimes(item.text)}</span>
         <span className="text-sm text-muted-foreground">
-          {item.kind !== InboxItemKind.usage_limit && (
-            <>
-              {workstreams?.find(
-                (workstream) =>
-                  workstream.repository === item.repository &&
-                  workstream.number === item.workstream,
-              )?.title ?? `#${item.workstream}`}{" "}
-              · #{item.issue} ·{" "}
-            </>
-          )}
-          {dayClock(item.time)}
-          {item.pausedUntil && ` · paused until ${dayClock(item.pausedUntil)}`}
+          {workstreams?.find(
+            (workstream) =>
+              workstream.repository === item.repository && workstream.number === item.workstream,
+          )?.title ?? `#${item.workstream}`}{" "}
+          · #{item.issue} · {dayClock(item.time)}
         </span>
       </div>
       <div className="flex items-center gap-2">
-        {item.kind === InboxItemKind.usage_limit ? (
-          <Button
-            size="sm"
-            disabled={running !== null}
-            pending={running === resume}
-            onClick={() => act(resume)}
-          >
-            Resume now
+        {item.link && (
+          <Button asChild variant="link" size="sm">
+            <a href={item.link} target="_blank" rel="noreferrer">
+              Open on GitHub
+            </a>
           </Button>
-        ) : (
-          item.link && (
-            <Button asChild variant="link" size="sm">
-              <a href={item.link} target="_blank" rel="noreferrer">
-                Open on GitHub
-              </a>
-            </Button>
-          )
         )}
         <Button
           variant="outline"

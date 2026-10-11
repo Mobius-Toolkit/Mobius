@@ -10,7 +10,6 @@ import (
 // The kinds of the Inbox items that the Lead adds.
 const (
 	questionKind = "question"
-	leadKind     = "Lead"
 )
 
 // The kinds of the Inbox items of the pull requests and the checks.

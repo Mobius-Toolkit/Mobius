@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"slices"
 
 	gh "github.com/google/go-github/v92/github"
@@ -239,6 +240,109 @@ func (e *Engine) recopyTrees(ctx context.Context, repository github.Repository, 
 	return nil
 }
 
+// checkCopiedTrees reads the sub-issues and the blockers of the open nodes of each copied Workstream of repository,
+// and copies again each tree that differs from GitHub. GitHub does not change `updated_at` of an issue when a
+// sub-issue or a blocker changes, so the issue list does not show these changes. A failed read ends the check, and the
+// next poll checks again.
+func (e *Engine) checkCopiedTrees(ctx context.Context, repository github.Repository) {
+	if !e.copied[repository.FullName] {
+		return
+	}
+	workstreams, err := e.queries.ListCopiedWorkstreams(ctx)
+	if err != nil {
+		log.Printf("check the trees of %s: %v", repository.FullName, err)
+		return
+	}
+	var differing []int64
+	for _, workstream := range workstreams {
+		if workstream.Repository != repository.FullName {
+			continue
+		}
+		differs, err := e.treeDiffers(ctx, repository, workstream.Number)
+		if err != nil {
+			log.Printf("check the trees of %s: %v", repository.FullName, err)
+			return
+		}
+		if differs {
+			differing = append(differing, workstream.Number)
+		}
+	}
+	if len(differing) == 0 {
+		return
+	}
+	if err := e.recopyTrees(ctx, repository, differing...); err != nil {
+		log.Printf("copy the trees of %s again: %v", repository.FullName, err)
+	}
+}
+
+type subIssue struct {
+	number        int64
+	repositoryURL string
+}
+
+// treeDiffers tells if the sub-issues or the open blockers of the Workstream on GitHub differ from its copied tree.
+// It reads only the open nodes. A nested Workstream and an issue of another repository are leaves, as in readTree.
+func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, workstream int64) (bool, error) {
+	params := store.ListCopiedTreeParams{Repository: repository.FullName, Workstream: workstream}
+	rows, err := e.queries.ListCopiedTree(ctx, params)
+	if err != nil {
+		return false, err
+	}
+	blockerRows, err := e.queries.ListCopiedTreeBlockers(ctx, store.ListCopiedTreeBlockersParams(params))
+	if err != nil {
+		return false, err
+	}
+	children := map[int64][]subIssue{}
+	numbers := map[int64]int64{}
+	for _, row := range rows {
+		children[row.Parent] = append(children[row.Parent], subIssue{row.Number, row.RepositoryUrl})
+		numbers[row.Position] = row.Number
+	}
+	blockers := map[int64][]int64{}
+	for _, row := range blockerRows {
+		blockers[numbers[row.Position]] = append(blockers[numbers[row.Position]], row.Number)
+	}
+	var differs func(parent int64) (bool, error)
+	differs = func(parent int64) (bool, error) {
+		issues, err := repository.SubIssues(ctx, parent)
+		if err != nil {
+			return false, err
+		}
+		found := make([]subIssue, 0, len(issues))
+		for _, issue := range issues {
+			found = append(found, subIssue{int64(issue.GetNumber()), issue.GetRepositoryURL()})
+		}
+		if !slices.Equal(found, children[parent]) {
+			return true, nil
+		}
+		for _, issue := range issues {
+			if issue.GetState() != "open" || hasLabel(issue, workstreamLabel) || inOtherRepository(issue, repository.FullName) {
+				continue
+			}
+			number := int64(issue.GetNumber())
+			var open []int64
+			if issue.GetIssueDependenciesSummary().GetTotalBlockedBy() > 0 {
+				blocking, err := openBlockers(ctx, repository, number)
+				if err != nil {
+					return false, err
+				}
+				for _, blocker := range blocking {
+					open = append(open, int64(blocker.GetNumber()))
+				}
+				slices.Sort(open)
+			}
+			if !slices.Equal(open, blockers[number]) {
+				return true, nil
+			}
+			if changed, err := differs(number); err != nil || changed {
+				return changed, err
+			}
+		}
+		return false, nil
+	}
+	return differs(workstream)
+}
+
 // copiedWorkstreamOf gives the Workstream of the issue number of repositoryURL in the copy of repository.
 // A copied Workstream is its own Workstream.
 func (e *Engine) copiedWorkstreamOf(ctx context.Context, repository string, number int64, repositoryURL string) (int64, bool, error) {
@@ -410,17 +514,25 @@ func addSubtree(ctx context.Context, repository github.Repository, parent int64,
 	return nil
 }
 
+// openBlockers gives the open blockers of the issue number in the same repository.
+func openBlockers(ctx context.Context, repository github.Repository, number int64) ([]*gh.Issue, error) {
+	issues, err := repository.BlockedBy(ctx, number)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(issues, func(issue *gh.Issue) bool {
+		return issue.GetState() != "open" || inOtherRepository(issue, repository.FullName)
+	}), nil
+}
+
 // copyBlockers gives the open blockers of the issue number in repository.
 func copyBlockers(ctx context.Context, repository github.Repository, number int64) ([]copiedBlocker, error) {
-	issues, err := repository.BlockedBy(ctx, number)
+	issues, err := openBlockers(ctx, repository, number)
 	if err != nil {
 		return nil, err
 	}
 	var found []copiedBlocker
 	for _, issue := range issues {
-		if issue.GetState() != "open" || inOtherRepository(issue, repository.FullName) {
-			continue
-		}
 		blocker := copiedBlocker{number: int64(issue.GetNumber())}
 		workstream, err := workstreamOf(ctx, repository, blocker.number)
 		if err != nil {

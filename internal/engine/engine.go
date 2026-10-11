@@ -57,8 +57,6 @@ type Engine struct {
 	// pausing makes one pause of two sessions that reach the same usage limit, and one Inbox item of two checks on a
 	// full disk.
 	pausing sync.Mutex
-	// limitItems holds the last usage-limit Inbox item of each Harness. Recover fills it before the first session. Then only pause uses it, under pausing.
-	limitItems map[config.Harness]int64
 	// pausesChanged wakes the sessions that wait for the end of a pause.
 	pausesChanged signal
 	upgrading     atomic.Bool
@@ -153,7 +151,6 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		quiet:        map[int64]quietItem{},
 		pulls:        map[pullKey]*pullState{},
 		ciWait:       map[int64]ciWait{},
-		limitItems:   map[config.Harness]int64{},
 		workers:      newWorkers(),
 		chats:        map[ChatKey]*chat{},
 		triages:      map[triageKey]triage{},
@@ -296,7 +293,6 @@ func (e *Engine) Recover(ctx context.Context) error {
 		return err
 	}
 	for _, pause := range pauses {
-		e.limitItems[config.Harness(pause.Harness)] = pause.InboxItem
 		if err := e.timer(pause); err != nil {
 			return err
 		}

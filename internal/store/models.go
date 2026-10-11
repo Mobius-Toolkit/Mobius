@@ -53,7 +53,6 @@ type GithubApp struct {
 type HarnessPause struct {
 	Harness     string
 	PausedUntil string
-	InboxItem   int64
 }
 
 type InboxItem struct {
