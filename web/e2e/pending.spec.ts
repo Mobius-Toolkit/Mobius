@@ -95,7 +95,7 @@ test("a tap on Dismiss disables the button of the row", async ({ page }) => {
   await page.goto("/inbox");
   const dismiss = page
     .getByRole("listitem")
-    .filter({ hasText: "#45 needs a decision" })
+    .filter({ hasText: "Integrate loyalty plans" })
     .getByRole("button", { name: "Dismiss" });
   const held = await hold(page, "**/api/inbox/*/dismiss", "POST");
 
