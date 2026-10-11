@@ -234,7 +234,7 @@ func threadText(thread github.ReviewThread, trusted func(string) bool) string {
 	return text
 }
 
-// judgeReady moves the reviewed task to checks when its pull request has no open thread, with a new Mobius check run on
+// judgeReady moves the reviewed task to checks when its pull request has no open thread, with a Mobius check run on
 // the head. Then a task with kept findings of the Lead gets a fix round. It gives true when the task left the state
 // reviewed.
 func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
@@ -245,7 +245,7 @@ func (e *Engine) judgeReady(ctx context.Context, repository github.Repository, t
 	}) {
 		return false, nil
 	}
-	if _, err := repository.CreateCheckRun(ctx, checkRunName, pullRequest.GetHead().GetSHA(), "in_progress"); err != nil {
+	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "in_progress", "", "", ""); err != nil {
 		return false, err
 	}
 	moved, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "reviewed"})
