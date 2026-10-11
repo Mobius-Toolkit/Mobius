@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -11,6 +12,9 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 )
+
+// searchedComments is the number of comments that searchIssues gives for a closed issue.
+const searchedComments = 3
 
 // timeFormat is the format of the times in the text of an issue.
 const timeFormat = "2006-01-02 15:04 UTC"
@@ -75,6 +79,49 @@ func (e *Engine) readIssue(ctx context.Context, repository github.Repository, nu
 		return "", err
 	}
 	return text.String() + reviewThreads, nil
+}
+
+// searchIssues gives the issues of the repository that match the query, open and closed. An issue of an untrusted
+// author is absent from the text. A closed issue has its close reason and the last searchedComments comments of trusted
+// authors.
+func (e *Engine) searchIssues(ctx context.Context, _ caller, repository github.Repository, input queryInput) (string, error) {
+	if empty(input.Query) {
+		return "", refuse("query must not be empty.")
+	}
+	found, err := repository.SearchIssues(ctx, input.Query)
+	if err != nil {
+		return "", err
+	}
+	trusted := func(login string) bool { return e.TrustedAuthor(repository.AppSlug, login) }
+	var text strings.Builder
+	for _, issue := range found {
+		if issue.IsPullRequest() || inOtherRepository(issue, repository.FullName) || !trusted(issue.GetUser().GetLogin()) {
+			continue
+		}
+		state := issue.GetState()
+		if state == "closed" {
+			state += ", " + cmp.Or(issue.GetStateReason(), "no reason")
+		}
+		fmt.Fprintf(&text, "#%d %s (%s)\n\n%s\n", issue.GetNumber(), issue.GetTitle(), state, issue.GetBody())
+		if issue.GetState() != "closed" {
+			text.WriteString("\n")
+			continue
+		}
+		comments, err := repository.Comments(ctx, int64(issue.GetNumber()))
+		if err != nil {
+			return "", err
+		}
+		comments = slices.DeleteFunc(comments, func(comment *gh.IssueComment) bool { return !trusted(comment.GetUser().GetLogin()) })
+		text.WriteString("\n# Last comments\n")
+		for _, comment := range comments[max(0, len(comments)-searchedComments):] {
+			text.WriteString(entry(comment.GetUser().GetLogin(), comment.GetCreatedAt().Time, "", comment.GetBody()))
+		}
+		text.WriteString("\n")
+	}
+	if text.Len() == 0 {
+		return "No issue matches.", nil
+	}
+	return text.String(), nil
 }
 
 // readPullRequestComments gives the text of the conversation comments and the review threads of the pull request number.

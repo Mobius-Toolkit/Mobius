@@ -413,6 +413,33 @@ func TestACreatedIssueGetsTheNextNumberAndHasSubIssuesAndComments(t *testing.T) 
 	}
 }
 
+func TestACreatedIssueHasTheLabelsOfTheRequestAndTheSearchGivesTheIssuesWithTheirCloseReason(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("owner/shop", 41, "Flaky test")
+	github.CloseIssueAs("owner/shop", 41, "not_planned")
+	github.AddIssue("owner/shop", 42, "Slow build")
+	github.AddIssue("owner/other", 7, "Flaky test")
+	github.AddPullRequest("owner/shop", 43, "Flaky pull request")
+	token := installationToken(t, github)
+	var created issueJSON
+
+	send(t, http.MethodPost, github.URL+"/repos/owner/shop/issues", token, `{"title": "Flaky cache", "labels": ["mobius:triage"]}`, &created)
+	var found struct {
+		Items []issueJSON `json:"items"`
+	}
+	send(t, http.MethodGet, github.URL+"/search/issues?q="+url.QueryEscape("repo:owner/shop is:issue FLAKY"), token, "", &found)
+
+	if labels := github.Labels("owner/shop", created.Number); !reflect.DeepEqual(labels, []string{"mobius:triage"}) {
+		t.Errorf("labels = %v", labels)
+	}
+	if numbers := issueNumbers(found.Items); !reflect.DeepEqual(numbers, []int64{41, 44}) {
+		t.Errorf("found = %v", numbers)
+	}
+	if found.Items[0].State != "closed" || found.Items[0].StateReason != "not_planned" || found.Items[1].StateReason != "" {
+		t.Errorf("found = %+v", found.Items)
+	}
+}
+
 func TestTheCommentListOfARepositoryFiltersSortsAndPages(t *testing.T) {
 	github := NewFakeGitHub(t)
 	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")

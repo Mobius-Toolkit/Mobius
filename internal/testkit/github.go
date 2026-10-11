@@ -233,6 +233,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /app/installations", g.listInstallations)
 	mux.HandleFunc("POST /app/installations/{id}/access_tokens", g.createInstallationToken)
 	mux.HandleFunc("GET /installation/repositories", g.listInstallationRepositories)
+	mux.HandleFunc("GET /search/issues", g.withToken(g.searchIssues))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues", g.withToken(g.listIssues))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/issues", g.withToken(g.createIssue))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/issues/{number}", g.withToken(g.getIssue))

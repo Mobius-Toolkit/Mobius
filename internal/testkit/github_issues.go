@@ -88,6 +88,7 @@ type issueJSON struct {
 	HTMLURL       string     `json:"html_url"`
 	RepositoryURL string     `json:"repository_url"`
 	State         string     `json:"state"`
+	StateReason   string     `json:"state_reason,omitempty"`
 	CreatedAt     string     `json:"created_at"`
 	UpdatedAt     string     `json:"updated_at"`
 	Labels        []nameJSON `json:"labels"`
@@ -478,6 +479,7 @@ func (g *FakeGitHub) issueJSON(key issueKey) issueJSON {
 		HTMLURL:       fmt.Sprintf("https://github.com/%s/issues/%d", key.repository, key.number),
 		RepositoryURL: "https://api.github.com/repos/" + key.repository,
 		State:         found.state,
+		StateReason:   found.stateReason,
 		CreatedAt:     timestamp(g.createdAt[key]),
 		UpdatedAt:     timestamp(found.updatedAt),
 		Labels:        labels,
@@ -574,6 +576,36 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
+// searchIssues gives the issues of the repository in the term "repo:" of the query that have each other word of the
+// query in the title or the body, with no regard to case. It knows no other search term.
+func (g *FakeGitHub) searchIssues(w http.ResponseWriter, r *http.Request) {
+	var repository string
+	var words []string
+	for _, word := range strings.Fields(r.URL.Query().Get("q")) {
+		switch {
+		case strings.HasPrefix(word, "repo:"):
+			repository = strings.TrimPrefix(word, "repo:")
+		case word != "is:issue":
+			words = append(words, strings.ToLower(word))
+		}
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var keys []issueKey
+	for key, found := range g.issues {
+		text := strings.ToLower(found.title + "\n" + found.body)
+		if key.repository == repository && !found.pullRequest && !slices.ContainsFunc(words, func(word string) bool { return !strings.Contains(text, word) }) {
+			keys = append(keys, key)
+		}
+	}
+	slices.SortFunc(keys, func(a, b issueKey) int { return cmp.Compare(a.number, b.number) })
+	items := []issueJSON{}
+	for _, key := range keys {
+		items = append(items, g.issueJSON(key))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(items), "incomplete_results": false, "items": page(w, r, items)})
+}
+
 // NotModifiedCount gives the number of issue list requests that got status 304.
 func (g *FakeGitHub) NotModifiedCount() int {
 	g.mu.Lock()
@@ -584,8 +616,9 @@ func (g *FakeGitHub) NotModifiedCount() int {
 // createIssue creates the issue with the next free number. The token owner is the author.
 func (g *FakeGitHub) createIssue(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		Title string `json:"title"`
-		Body  string `json:"body"`
+		Title  string   `json:"title"`
+		Body   string   `json:"body"`
+		Labels []string `json:"labels"`
 	}
 	if !decode(w, r, &request) {
 		return
@@ -600,6 +633,9 @@ func (g *FakeGitHub) createIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	g.insertIssue(key, request.Title, request.Body, caller.login)
+	for _, label := range request.Labels {
+		g.label(key, label, caller.login)
+	}
 	writeJSON(w, http.StatusCreated, g.issueJSON(key))
 }
 
