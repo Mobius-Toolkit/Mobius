@@ -327,7 +327,7 @@ DELETE FROM full_slots;
 UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_head = NULL WHERE id = ?;
 
 -- name: EndTask :exec
-UPDATE tasks SET state = 'ended', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?;
+UPDATE tasks SET state = 'ended', lead_findings = '', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?;
 
 -- name: QueueTask :execrows
 UPDATE tasks SET state = 'queued', queued_at = sqlc.arg(queued_at), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
@@ -352,6 +352,16 @@ UPDATE tasks SET pull_request = ? WHERE id = ?;
 
 -- name: AddFixRound :execrows
 UPDATE tasks SET fix_rounds = fix_rounds + 1 WHERE id = sqlc.arg(id) AND fix_rounds < sqlc.arg(max);
+
+-- name: KeepLeadFindings :execrows
+UPDATE tasks SET lead_findings = lead_findings || sqlc.arg(findings) WHERE id = sqlc.arg(id) AND state IN ('working', 'reviewed');
+
+-- name: GetLeadFindings :one
+SELECT lead_findings FROM tasks WHERE id = ?;
+
+-- name: DropLeadFindings :exec
+UPDATE tasks SET lead_findings = substr(lead_findings, length(sqlc.arg(taken)) + 1)
+WHERE id = sqlc.arg(id) AND substr(lead_findings, 1, length(sqlc.arg(taken))) = sqlc.arg(taken);
 
 -- name: SetTaskCheckHead :exec
 UPDATE tasks SET check_head = ? WHERE id = ?;

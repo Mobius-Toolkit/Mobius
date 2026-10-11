@@ -142,6 +142,28 @@ func TestTheJudgeRoutesOneItemOfEachVerdict(t *testing.T) {
 	}
 }
 
+func TestTheJudgeSendsAFollowUpOfABotItemToTheLead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	judge := `call = { tool = "submit_verdicts", arguments = { items = [
+    { item = 2, actions = [{ verdict = "follow-up", text = "Add the index." }] },
+    { item = 3, actions = [{ verdict = "follow-up", text = "Add the index." }] },
+    { item = 4, actions = [{ verdict = "follow-up", text = "Move the parser to its own crate." }] },
+] } }
+`
+	server := connectJudge(t, fake, judge, "", noChange)
+
+	fake.AddReviewComment(shop, 42, 0, "owner", "Add an index.")
+	fake.AddReviewComment(shop, 42, 0, "owner", "Add an index.")
+	followUp := fake.AddReviewComment(shop, 42, 0, bot, "Split the parser.")
+
+	resolved(t, fake, followUp)
+	waitForLeadPrompt(t, server, " follow-up on pull request #42 of #41 \"Add plan model\", item 4:\n\n> Move the parser to its own crate.\n")
+	if task := liveTask(t, server, 41); task.FixRounds != 0 {
+		t.Errorf("task = %+v", task)
+	}
+}
+
 func TestAFixRoundHasTheCommentsOfTrustedAuthorsOnThePullRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

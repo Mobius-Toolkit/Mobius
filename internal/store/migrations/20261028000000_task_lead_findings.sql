@@ -1,0 +1,1 @@
+ALTER TABLE tasks ADD COLUMN lead_findings TEXT NOT NULL DEFAULT '';
