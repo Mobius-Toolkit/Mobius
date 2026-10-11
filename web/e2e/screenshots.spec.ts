@@ -573,6 +573,7 @@ test("screenshots", async ({ page }) => {
     },
     () => page.keyboard.press("Escape"),
   );
+  const usageDays = ["Oct 9", "Oct 10", "Oct 11", "Oct 12", "Oct 13", "Oct 14", "Oct 15"];
   // The 7 days that end on the fixed date have the turns of three models in two repositories. devin has no cost.
   await screenshot(page, "usage", "/usage?group=model", (device) => [
     ...frame(device, release),
@@ -580,7 +581,7 @@ test("screenshots", async ({ page }) => {
     main.getByRole("row", { name: /claude-opus-5-5 \d 23,000 6,400 330,000 37,000 \$5\.55$/ }),
     main.getByRole("row", { name: /swe-1\.5 3 .* —$/ }),
     main.locator(".recharts-bar-rectangle").first(),
-    main.getByText("Oct 15", { exact: true }),
+    ...usageDays.map((day) => main.getByText(day, { exact: true })),
   ]);
   await screenshot(
     page,
@@ -591,6 +592,7 @@ test("screenshots", async ({ page }) => {
       main.getByRole("tab", { name: "Tokens", selected: true }),
       main.getByRole("row", { name: /devin 3 49,000 12,100 156,000 17,000 —$/ }),
       main.locator(".recharts-bar-rectangle").first(),
+      ...usageDays.map((day) => main.getByText(day, { exact: true })),
     ],
   );
   await page.setViewportSize(viewports.phone);

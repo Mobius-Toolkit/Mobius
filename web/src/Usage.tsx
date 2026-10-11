@@ -268,7 +268,13 @@ function UsageChart({
     <ChartContainer config={config} className={cn(inset, "aspect-auto h-72 w-full")}>
       <BarChart data={rows}>
         <CartesianGrid vertical={false} />
-        <XAxis dataKey="day" tickFormatter={dayTitle} tickLine={false} axisLine={false} />
+        <XAxis
+          dataKey="day"
+          tickFormatter={dayTitle}
+          tickLine={false}
+          axisLine={false}
+          interval={0}
+        />
         <YAxis
           tickFormatter={(value: number) => (kind === "cost" ? cost(value) : compact(value))}
           tickLine={false}
