@@ -3133,6 +3133,54 @@ func (q *Queries) ListRecentMemoryVersions(ctx context.Context, repository strin
 	return items, nil
 }
 
+const listReportedModelsBetween = `-- name: ListReportedModelsBetween :many
+SELECT session, reported_model FROM turn_usage
+WHERE id IN (
+    SELECT MAX(id) FROM turn_usage
+    WHERE reported_model IS NOT NULL AND session IN (
+        SELECT step_times.session FROM step_times
+        WHERE step_times.started_at >= ?1 AND step_times.started_at < ?2
+        UNION
+        SELECT task_states.session FROM task_states
+        WHERE task_states.started_at >= ?1 AND task_states.started_at < ?2
+    )
+    GROUP BY session
+)
+`
+
+type ListReportedModelsBetweenParams struct {
+	After  string
+	Before string
+}
+
+type ListReportedModelsBetweenRow struct {
+	Session       int64
+	ReportedModel sql.NullString
+}
+
+func (q *Queries) ListReportedModelsBetween(ctx context.Context, arg ListReportedModelsBetweenParams) ([]ListReportedModelsBetweenRow, error) {
+	rows, err := q.db.QueryContext(ctx, listReportedModelsBetween, arg.After, arg.Before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListReportedModelsBetweenRow
+	for rows.Next() {
+		var i ListReportedModelsBetweenRow
+		if err := rows.Scan(&i.Session, &i.ReportedModel); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRetryPromptsSince = `-- name: ListRetryPromptsSince :many
 SELECT s.role, s.issue, t.time, CAST(json_extract(t.json, '$.text') AS TEXT) AS text FROM transcript t
 JOIN sessions s ON s.id = t.session
@@ -3232,6 +3280,55 @@ func (q *Queries) ListSessions(ctx context.Context, arg ListSessionsParams) ([]S
 	return items, nil
 }
 
+const listStepTimesBetween = `-- name: ListStepTimesBetween :many
+SELECT id, kind, session, task, issue, workstream, organization, repository, role, harness, model, effort, started_at, ended_at, attempt, result FROM step_times WHERE started_at >= ?1 AND started_at < ?2
+`
+
+type ListStepTimesBetweenParams struct {
+	After  string
+	Before string
+}
+
+func (q *Queries) ListStepTimesBetween(ctx context.Context, arg ListStepTimesBetweenParams) ([]StepTime, error) {
+	rows, err := q.db.QueryContext(ctx, listStepTimesBetween, arg.After, arg.Before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []StepTime
+	for rows.Next() {
+		var i StepTime
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Session,
+			&i.Task,
+			&i.Issue,
+			&i.Workstream,
+			&i.Organization,
+			&i.Repository,
+			&i.Role,
+			&i.Harness,
+			&i.Model,
+			&i.Effort,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.Attempt,
+			&i.Result,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTaskPullRequests = `-- name: ListTaskPullRequests :many
 SELECT CAST(pull_request AS INTEGER) FROM tasks WHERE repository = ? AND workstream = ? AND pull_request IS NOT NULL ORDER BY id
 `
@@ -3254,6 +3351,53 @@ func (q *Queries) ListTaskPullRequests(ctx context.Context, arg ListTaskPullRequ
 			return nil, err
 		}
 		items = append(items, pull_request)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTaskStatesBetween = `-- name: ListTaskStatesBetween :many
+SELECT id, task, state, issue, workstream, organization, repository, session, role, harness, model, effort, started_at, ended_at FROM task_states WHERE started_at >= ?1 AND started_at < ?2
+`
+
+type ListTaskStatesBetweenParams struct {
+	After  string
+	Before string
+}
+
+func (q *Queries) ListTaskStatesBetween(ctx context.Context, arg ListTaskStatesBetweenParams) ([]TaskState, error) {
+	rows, err := q.db.QueryContext(ctx, listTaskStatesBetween, arg.After, arg.Before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TaskState
+	for rows.Next() {
+		var i TaskState
+		if err := rows.Scan(
+			&i.ID,
+			&i.Task,
+			&i.State,
+			&i.Issue,
+			&i.Workstream,
+			&i.Organization,
+			&i.Repository,
+			&i.Session,
+			&i.Role,
+			&i.Harness,
+			&i.Model,
+			&i.Effort,
+			&i.StartedAt,
+			&i.EndedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

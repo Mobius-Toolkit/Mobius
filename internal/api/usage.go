@@ -78,30 +78,33 @@ type Usage struct {
 	Options UsageOptions `gork:"options"`
 }
 
+// UsageQuery is the query of GetUsage and of GetUsageTimes.
+type UsageQuery struct {
+	// From is the start of the period. A row is in the period when it started at From or later
+	From time.Time `gork:"from" validate:"required"`
+	// To is the end of the period. A row is in the period when it started before To
+	To time.Time `gork:"to" validate:"required"`
+	// Tz is the IANA name of the time zone for the days. The default is UTC
+	Tz string `gork:"tz"`
+	// Harness limits the rows to these Harnesses
+	Harness []string `gork:"harness"`
+	// Model limits the rows to these models of the config
+	Model []string `gork:"model"`
+	// ModelVersion limits the rows to these models that the Harness reports
+	ModelVersion []string `gork:"modelVersion"`
+	// Effort limits the rows to these efforts
+	Effort []string `gork:"effort"`
+	// Role limits the rows to these roles
+	Role []string `gork:"role"`
+	// Repository limits the rows to these repositories as "owner/name"
+	Repository []string `gork:"repository"`
+	// Group is the value that splits the days and the groups. With no Group, all rows are in one group
+	Group string `gork:"group" validate:"omitempty,oneof=harness model modelVersion effort role repository"`
+}
+
 // GetUsageRequest is the request of GetUsage.
 type GetUsageRequest struct {
-	Query struct {
-		// From is the start of the period. A turn is in the period when it started at From or later
-		From time.Time `gork:"from" validate:"required"`
-		// To is the end of the period. A turn is in the period when it started before To
-		To time.Time `gork:"to" validate:"required"`
-		// Tz is the IANA name of the time zone for the days. The default is UTC
-		Tz string `gork:"tz"`
-		// Harness limits the rows to these Harnesses
-		Harness []string `gork:"harness"`
-		// Model limits the rows to these models of the config
-		Model []string `gork:"model"`
-		// ModelVersion limits the rows to these models that the Harness reports
-		ModelVersion []string `gork:"modelVersion"`
-		// Effort limits the rows to these efforts
-		Effort []string `gork:"effort"`
-		// Role limits the rows to these roles
-		Role []string `gork:"role"`
-		// Repository limits the rows to these repositories as "owner/name"
-		Repository []string `gork:"repository"`
-		// Group is the value that splits the days and the groups. With no Group, all rows are in one group
-		Group string `gork:"group" validate:"omitempty,oneof=harness model modelVersion effort role repository"`
-	}
+	Query UsageQuery
 }
 
 // GetUsageResponse is the response of GetUsage.
@@ -112,12 +115,9 @@ type GetUsageResponse struct {
 // GetUsage returns the tokens and the cost of the turns that started in the period.
 func (h *handlers) GetUsage(ctx context.Context, req GetUsageRequest) (*GetUsageResponse, error) {
 	query := req.Query
-	location := time.UTC
-	if query.Tz != "" {
-		var err error
-		if location, err = time.LoadLocation(query.Tz); err != nil {
-			return nil, api.NewHTTPError(http.StatusBadRequest, "The time zone "+query.Tz+" is not an IANA name.")
-		}
+	location, err := usageLocation(query.Tz)
+	if err != nil {
+		return nil, err
 	}
 	rows, err := h.queries.ListTurnUsageBetween(ctx, store.ListTurnUsageBetweenParams{
 		After:  query.From.Add(-time.Second).UTC().Format(utcSecond),
@@ -193,6 +193,17 @@ func (h *handlers) GetUsage(ctx context.Context, req GetUsageRequest) (*GetUsage
 	}
 	slices.SortFunc(usage.Groups, func(a, b UsageGroup) int { return cmp.Compare(a.Group, b.Group) })
 	return &GetUsageResponse{Body: Envelope[Usage]{Data: usage}}, nil
+}
+
+func usageLocation(name string) (*time.Location, error) {
+	if name == "" {
+		return time.UTC, nil
+	}
+	location, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, api.NewHTTPError(http.StatusBadRequest, "The time zone "+name+" is not an IANA name.")
+	}
+	return location, nil
 }
 
 type usageDayKey struct {
@@ -285,4 +296,273 @@ func distinct(values []string) []string {
 	sorted := append([]string{}, values...)
 	slices.Sort(sorted)
 	return slices.Compact(sorted)
+}
+
+// TimeResult is the number of step rows that ended with a result.
+type TimeResult struct {
+	// Result is "success", or the result that the step row has
+	Result string `gork:"result"`
+	// Count is the number of rows with this result
+	Count int64 `gork:"count"`
+}
+
+// TimeStat is the duration statistics of the step rows of one kind or of the task state rows of one state.
+type TimeStat struct {
+	// Kind is "step" for a row of a step and "state" for a row of a task state
+	Kind string `gork:"kind" validate:"oneof=step state"`
+	// Name is the kind of the step or the task state
+	Name string `gork:"name"`
+	// Count is the number of rows
+	Count int64 `gork:"count"`
+	// TotalSeconds is the sum of the durations of the rows
+	TotalSeconds float64 `gork:"totalSeconds"`
+	// MeanSeconds is the mean duration of a row
+	MeanSeconds float64 `gork:"meanSeconds"`
+	// Results are the number of step rows for each result, sorted by result. A task state has none
+	Results []TimeResult `gork:"results"`
+}
+
+// UsageTimeDay is the time statistics of one group on one day.
+type UsageTimeDay struct {
+	// Day is the day of the start of the rows, as "YYYY-MM-DD" in the time zone of the request
+	Day string `gork:"day"`
+	// Group is the value of the group, or empty when the request has no group or the value is not set
+	Group string `gork:"group"`
+	// Stats are the statistics of each step kind and each task state that has rows, sorted by kind and name
+	Stats []TimeStat `gork:"stats"`
+}
+
+// UsageTimeGroup is the time statistics of one group in the period.
+type UsageTimeGroup struct {
+	// Group is the value of the group, or empty when the request has no group or the value is not set
+	Group string `gork:"group"`
+	// Stats are the statistics of each step kind and each task state that has rows, sorted by kind and name
+	Stats []TimeStat `gork:"stats"`
+}
+
+// UsageTimes is the time statistics of the steps and the task states in a period.
+type UsageTimes struct {
+	// Totals are the statistics of all rows that pass the filters
+	Totals []TimeStat `gork:"totals"`
+	// Days are the statistics of each day and each group, the oldest day first
+	Days []UsageTimeDay `gork:"days"`
+	// Groups are the statistics of each group
+	Groups []UsageTimeGroup `gork:"groups"`
+	// Options are the values that each filter can take, before the filters
+	Options UsageOptions `gork:"options"`
+}
+
+// GetUsageTimesRequest is the request of GetUsageTimes.
+type GetUsageTimesRequest struct {
+	Query UsageQuery
+}
+
+// GetUsageTimesResponse is the response of GetUsageTimes.
+type GetUsageTimesResponse struct {
+	Body Envelope[UsageTimes]
+}
+
+// timeRow is a step row or a task state row. A task state row has no session when its task has no Implementer session.
+type timeRow struct {
+	kind         string
+	name         string
+	session      int64
+	repository   string
+	role         string
+	harness      string
+	model        string
+	modelVersion string
+	effort       string
+	startedAt    string
+	endedAt      string
+	result       string
+}
+
+// GetUsageTimes returns the durations of the steps and the task states that started in the period.
+func (h *handlers) GetUsageTimes(ctx context.Context, req GetUsageTimesRequest) (*GetUsageTimesResponse, error) {
+	query := req.Query
+	location, err := usageLocation(query.Tz)
+	if err != nil {
+		return nil, err
+	}
+	after := query.From.Add(-time.Second).UTC().Format(utcSecond)
+	before := query.To.Add(time.Second).UTC().Format(utcSecond)
+	steps, err := h.queries.ListStepTimesBetween(ctx, store.ListStepTimesBetweenParams{After: after, Before: before})
+	if err != nil {
+		return nil, err
+	}
+	states, err := h.queries.ListTaskStatesBetween(ctx, store.ListTaskStatesBetweenParams{After: after, Before: before})
+	if err != nil {
+		return nil, err
+	}
+	reported, err := h.queries.ListReportedModelsBetween(ctx, store.ListReportedModelsBetweenParams{After: after, Before: before})
+	if err != nil {
+		return nil, err
+	}
+	modelVersions := map[int64]string{}
+	for _, row := range reported {
+		modelVersions[row.Session] = row.ReportedModel.String
+	}
+
+	rows := make([]timeRow, 0, len(steps)+len(states))
+	for _, step := range steps {
+		result := step.Result.String
+		if !step.Result.Valid {
+			result = "success"
+		}
+		rows = append(rows, timeRow{
+			kind: "step", name: step.Kind, session: step.Session.Int64, repository: step.Repository, role: step.Role,
+			harness: step.Harness, model: step.Model, modelVersion: modelVersions[step.Session.Int64],
+			effort: step.Effort.String, startedAt: step.StartedAt, endedAt: step.EndedAt, result: result,
+		})
+	}
+	for _, state := range states {
+		rows = append(rows, timeRow{
+			kind: "state", name: state.State, session: state.Session.Int64, repository: state.Repository,
+			role: state.Role.String, harness: state.Harness.String, model: state.Model.String,
+			modelVersion: modelVersions[state.Session.Int64], effort: state.Effort.String,
+			startedAt: state.StartedAt, endedAt: state.EndedAt,
+		})
+	}
+
+	var (
+		options UsageOptions
+		totals  = timeSums{}
+		days    = map[usageDayKey]timeSums{}
+		groups  = map[string]timeSums{}
+	)
+	for _, row := range rows {
+		started, err := time.Parse(time.RFC3339Nano, row.startedAt)
+		if err != nil {
+			return nil, err
+		}
+		if started.Before(query.From) || !started.Before(query.To) {
+			continue
+		}
+		ended, err := time.Parse(time.RFC3339Nano, row.endedAt)
+		if err != nil {
+			return nil, err
+		}
+		options.Harnesses = appendNonEmpty(options.Harnesses, row.harness)
+		options.Models = appendNonEmpty(options.Models, row.model)
+		options.ModelVersions = appendNonEmpty(options.ModelVersions, row.modelVersion)
+		options.Efforts = appendNonEmpty(options.Efforts, row.effort)
+		options.Roles = appendNonEmpty(options.Roles, row.role)
+		options.Repositories = appendNonEmpty(options.Repositories, row.repository)
+		if !passes(query.Harness, row.harness) || !passes(query.Model, row.model) ||
+			!passes(query.ModelVersion, row.modelVersion) || !passes(query.Effort, row.effort) ||
+			!passes(query.Role, row.role) || !passes(query.Repository, row.repository) {
+			continue
+		}
+		group := timeGroup(row, query.Group)
+		key := usageDayKey{day: started.In(location).Format(time.DateOnly), group: group}
+		if days[key] == nil {
+			days[key] = timeSums{}
+		}
+		if groups[group] == nil {
+			groups[group] = timeSums{}
+		}
+		seconds := ended.Sub(started).Seconds()
+		totals.add(row, seconds)
+		days[key].add(row, seconds)
+		groups[group].add(row, seconds)
+	}
+
+	times := UsageTimes{Totals: totals.stats(), Days: []UsageTimeDay{}, Groups: []UsageTimeGroup{}, Options: UsageOptions{
+		Harnesses:     distinct(options.Harnesses),
+		Models:        distinct(options.Models),
+		ModelVersions: distinct(options.ModelVersions),
+		Efforts:       distinct(options.Efforts),
+		Roles:         distinct(options.Roles),
+		Repositories:  distinct(options.Repositories),
+	}}
+	for key, sums := range days {
+		times.Days = append(times.Days, UsageTimeDay{Day: key.day, Group: key.group, Stats: sums.stats()})
+	}
+	slices.SortFunc(times.Days, func(a, b UsageTimeDay) int {
+		if a.Day != b.Day {
+			return cmp.Compare(a.Day, b.Day)
+		}
+		return cmp.Compare(a.Group, b.Group)
+	})
+	for group, sums := range groups {
+		times.Groups = append(times.Groups, UsageTimeGroup{Group: group, Stats: sums.stats()})
+	}
+	slices.SortFunc(times.Groups, func(a, b UsageTimeGroup) int { return cmp.Compare(a.Group, b.Group) })
+	return &GetUsageTimesResponse{Body: Envelope[UsageTimes]{Data: times}}, nil
+}
+
+type timeStatKey struct {
+	kind string
+	name string
+}
+
+type timeSum struct {
+	count   int64
+	seconds float64
+	results map[string]int64
+}
+
+// timeSums adds the rows of a set for each step kind and each task state.
+type timeSums map[timeStatKey]*timeSum
+
+func (s timeSums) add(row timeRow, seconds float64) {
+	key := timeStatKey{kind: row.kind, name: row.name}
+	if s[key] == nil {
+		s[key] = &timeSum{results: map[string]int64{}}
+	}
+	sum := s[key]
+	sum.count++
+	sum.seconds += seconds
+	if row.result != "" {
+		sum.results[row.result]++
+	}
+}
+
+func (s timeSums) stats() []TimeStat {
+	stats := []TimeStat{}
+	for key, sum := range s {
+		stat := TimeStat{
+			Kind: key.kind, Name: key.name, Count: sum.count, TotalSeconds: sum.seconds,
+			MeanSeconds: sum.seconds / float64(sum.count), Results: []TimeResult{},
+		}
+		for result, count := range sum.results {
+			stat.Results = append(stat.Results, TimeResult{Result: result, Count: count})
+		}
+		slices.SortFunc(stat.Results, func(a, b TimeResult) int { return cmp.Compare(a.Result, b.Result) })
+		stats = append(stats, stat)
+	}
+	slices.SortFunc(stats, func(a, b TimeStat) int {
+		if a.Kind != b.Kind {
+			return cmp.Compare(a.Kind, b.Kind)
+		}
+		return cmp.Compare(a.Name, b.Name)
+	})
+	return stats
+}
+
+func timeGroup(row timeRow, group string) string {
+	switch group {
+	case "harness":
+		return row.harness
+	case "model":
+		return row.model
+	case "modelVersion":
+		return row.modelVersion
+	case "effort":
+		return row.effort
+	case "role":
+		return row.role
+	case "repository":
+		return row.repository
+	default:
+		return ""
+	}
+}
+
+func appendNonEmpty(values []string, value string) []string {
+	if value == "" {
+		return values
+	}
+	return append(values, value)
 }
