@@ -232,6 +232,11 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			}
 		}
 		labeled := hasLabel(issue, workstreamLabel)
+		if labeled && issue.GetState() == "open" && hasLabel(issue, maintenanceLabel) && !hasLabel(issue, evergreenLabel) {
+			if err := repository.AddLabel(ctx, int64(issue.GetNumber()), evergreenLabel); err != nil {
+				return err
+			}
+		}
 		work, err := e.hasWork(ctx, repository.FullName, int64(issue.GetNumber()))
 		if err != nil {
 			return err

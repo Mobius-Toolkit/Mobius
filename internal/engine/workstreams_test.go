@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -146,6 +147,27 @@ func TestAWorkstreamLabelShowsTheIssueInTheWorkstreamList(t *testing.T) {
 	})
 	if want := []workstream{{Repository: shop, Number: 12, Title: "Integrate loyalty plans"}}; !reflect.DeepEqual(list, want) {
 		t.Errorf("workstreams = %+v", list)
+	}
+}
+
+func TestAMaintenanceWorkstreamGetsTheEvergreenLabel(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 12, "Maintenance")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 13, "Integrate loyalty plans")
+	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
+	startCopied(t, fake)
+
+	fake.AddLabel(shop, 12, "mobius:maintenance", "owner")
+
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 12), "mobius:evergreen") })
+	waitForPolls(t, fake)
+	if got := fake.Labels(shop, 12); !slices.Equal(got, []string{"mobius:workstream", "mobius:maintenance", "mobius:evergreen"}) {
+		t.Errorf("labels of #12 = %v", got)
+	}
+	if got := fake.Labels(shop, 13); !slices.Equal(got, []string{"mobius:workstream"}) {
+		t.Errorf("labels of #13 = %v", got)
 	}
 }
 

@@ -339,6 +339,20 @@ func TestAHarnessThatNeedsALoginFailsTheChatSession(t *testing.T) {
 	}
 }
 
+func TestTheFirstPromptTellsTheLeadOfAnEvergreenWorkstream(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "")
+	fake.AddLabel(shop, 12, "mobius:evergreen", "owner")
+
+	sendChat(t, server, leadChat, "Plan the next step")
+
+	prompt := promptTexts(t, server, endedChatSession(t, server, 0).ID)[0]
+	if !strings.Contains(prompt, "This Workstream is evergreen: it has no end.\n\n# MEMORY.md") {
+		t.Errorf("prompt = %s", prompt)
+	}
+}
+
 func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
