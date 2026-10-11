@@ -501,6 +501,28 @@ func TestThePauseMigrationDismissesTheUsageLimitItemsAndRemovesTheItemOfAPause(t
 	}
 }
 
+func TestTheTasksTableAcceptsTheAskedStatesAndKeepsTheStateTrigger(t *testing.T) {
+	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	for _, statement := range []string{
+		"INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at) VALUES ('owner/shop', 41, 12, 'asked', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')",
+		"UPDATE tasks SET state = 'answered', state_at = '2026-10-04T11:00:00Z'",
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var state string
+	if err := db.QueryRow("SELECT state FROM task_states WHERE task = 1").Scan(&state); err != nil || state != "asked" {
+		t.Errorf("state = %q: %v", state, err)
+	}
+}
+
 func fileSize(t *testing.T, path string) int64 {
 	t.Helper()
 	info, err := os.Stat(path)

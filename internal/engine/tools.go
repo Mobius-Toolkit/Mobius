@@ -115,19 +115,12 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.stopResearcher),
 			tool(e, c, "ask",
-				"Ask the people on a task issue, or on the Workstream issue, a question. Use it when you need a decision of the Owner. Mobius posts the question as a comment, adds mobius:question, and adds an Inbox item for the Owner. The reply arrives later as an event.",
+				"Ask the people on a task issue, or on the Workstream issue, a question. Use it when you need a decision of the Owner. Mobius posts the question as a comment, adds mobius:question, and adds an Inbox item for the Owner. The reply arrives later as an event. On a dispatched task, the task frees its Autopilot slot until the Owner replies. Then you get a dispatch event again.",
 				map[string]any{
 					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue."},
 				},
 				e.ask),
-			tool(e, c, "hold_task",
-				"Stop a dispatched task before its Implementer starts, because the task has a problem. The task waits for the Owner and holds no Worker slot. Mobius posts the reason as a comment, adds mobius:needs-human, and adds an Inbox item for the Owner. After the Owner resumes the task, you get a dispatch event again.",
-				map[string]any{
-					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"reason": map[string]any{"type": "string", "minLength": 1, "description": "The question or the explanation for the Owner."},
-				},
-				e.holdTask),
 			tool(e, c, "decline",
 				"Decline a task. Mobius posts the reason as a comment on the issue, removes mobius:working, and ends the task.",
 				map[string]any{
