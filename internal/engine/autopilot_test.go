@@ -252,3 +252,19 @@ func TestAReplyMovesTheAskedTaskToAnsweredAndAutopilotStartsItWhenASlotIsFree(t 
 		t.Errorf("labels = %v", got)
 	}
 }
+
+func TestAnAnsweredTaskDispatchesAgainWhenAutopilotGoesOff(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startAskedTask(t, fake)
+	fake.AddComment(shop, 41, "owner", "Cents.")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "answered" })
+
+	fake.RemoveLabel(shop, 12, "mobius:autopilot", "owner")
+
+	prompt := waitForLeadPrompt(t, server, ` answer of #41 "Add plan model" by @owner:`)
+	if !strings.Contains(prompt, ` reply on #41 "Add plan model" by @owner:`+"\n\n> Cents.") {
+		t.Errorf("prompt = %s", prompt)
+	}
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
+}

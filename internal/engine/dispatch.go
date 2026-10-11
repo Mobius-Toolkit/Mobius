@@ -578,10 +578,14 @@ func (e *Engine) workstreamTask(ctx context.Context, repository github.Repositor
 
 // startAutopilot dispatches the tasks of each open Workstream with Autopilot, in the order of the sub-issues, while
 // fewer tasks are active than roles.implementer.max. An issue that had a task, also an ended one, gets no new task: only a
-// trusted user starts it again. The drain holds each new dispatch.
+// trusted user starts it again. A task in answered in a Workstream with Autopilot off dispatches again at once. The
+// drain holds each new dispatch.
 func (e *Engine) startAutopilot(ctx context.Context, repository github.Repository) error {
 	if e.draining() {
 		return nil
+	}
+	if err := e.dispatchAnsweredWithoutAutopilot(ctx, repository); err != nil {
+		return err
 	}
 	active, err := e.queries.CountActiveTasks(ctx)
 	if err != nil {
@@ -606,6 +610,35 @@ func (e *Engine) startAutopilot(ctx context.Context, repository github.Repositor
 		}
 		full, err := e.autopilotTree(ctx, repository, int64(workstream.GetNumber()), int64(workstream.GetNumber()))
 		if err != nil || full {
+			return err
+		}
+	}
+	return nil
+}
+
+// dispatchAnsweredWithoutAutopilot dispatches again each task in answered whose Workstream has Autopilot off, for
+// example when the Owner turned Autopilot off after the reply.
+func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repository github.Repository) error {
+	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if task.State != "answered" {
+			continue
+		}
+		on, err := e.workstreamAutopilot(ctx, repository, task.Workstream)
+		if err != nil {
+			return err
+		}
+		if on {
+			continue
+		}
+		issue, err := repository.Issue(ctx, task.Issue)
+		if err != nil || issue == nil {
+			return err
+		}
+		if err := e.dispatchAnswer(ctx, repository, issue, task); err != nil {
 			return err
 		}
 	}
