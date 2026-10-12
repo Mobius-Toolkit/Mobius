@@ -3,8 +3,11 @@ import { use, useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import {
   getUsage,
+  getUsageTimes,
   type GetUsageParams,
+  type TimeStat,
   type Usage as UsageView,
+  type UsageTimes,
   type UsageValues,
 } from "@/api/api.gen";
 import { ErrorBadge, inset, PageHeader } from "@/components/page";
@@ -37,10 +40,14 @@ import {
   count,
   dayTitle,
   dimensions,
+  duration,
+  findStat,
   formatDay,
   groupKey,
   palette,
   periods,
+  statTitle,
+  statValue,
   tokensOf,
   usageRange,
   type Dimension,
@@ -245,21 +252,21 @@ function rowFormatter(config: ChartConfig, format: (value: number | null) => str
   );
 }
 
-function UsageChart({
-  usage,
-  range,
+function StackedChart({
+  rows,
+  groups,
   group,
-  kind,
+  format,
+  axisFormat,
 }: {
-  usage: UsageView;
-  range: Range;
+  rows: Record<string, number | string>[];
+  groups: { group: string }[];
   group?: Dimension;
-  kind: "cost" | "tokens";
+  format: (value: number | null) => string;
+  axisFormat: (value: number) => string;
 }) {
-  const rows = chartRows(usage, range, kind === "cost" ? costOf : tokensOf);
-  const format = kind === "cost" ? cost : count;
   const config: ChartConfig = Object.fromEntries(
-    usage.groups.map((item, index) => [
+    groups.map((item, index) => [
       groupKey(index),
       { label: groupTitle(item.group, group), color: palette[index % palette.length] },
     ]),
@@ -275,12 +282,7 @@ function UsageChart({
           axisLine={false}
           interval={0}
         />
-        <YAxis
-          tickFormatter={(value: number) => (kind === "cost" ? cost(value) : compact(value))}
-          tickLine={false}
-          axisLine={false}
-          width={64}
-        />
+        <YAxis tickFormatter={axisFormat} tickLine={false} axisLine={false} width={64} />
         <ChartTooltip
           content={
             <ChartTooltipContent
@@ -290,7 +292,7 @@ function UsageChart({
           }
         />
         {group && <ChartLegend content={<ChartLegendContent />} />}
-        {usage.groups.map((_, index) => (
+        {groups.map((_, index) => (
           <Bar
             key={groupKey(index)}
             dataKey={groupKey(index)}
@@ -301,6 +303,29 @@ function UsageChart({
         ))}
       </BarChart>
     </ChartContainer>
+  );
+}
+
+function UsageChart({
+  usage,
+  range,
+  group,
+  kind,
+}: {
+  usage: UsageView;
+  range: Range;
+  group?: Dimension;
+  kind: "cost" | "tokens";
+}) {
+  const metric = kind === "cost" ? costOf : tokensOf;
+  return (
+    <StackedChart
+      rows={chartRows(usage.days, usage.groups, range, (item) => metric(item.values))}
+      groups={usage.groups}
+      group={group}
+      format={kind === "cost" ? cost : count}
+      axisFormat={kind === "cost" ? cost : compact}
+    />
   );
 }
 
@@ -387,6 +412,148 @@ function UsageTab({
   );
 }
 
+function TimeTotals({ stats }: { stats: TimeStat[] }) {
+  return (
+    <dl className={cn(inset, "grid grid-cols-2 gap-4 sm:grid-cols-3")}>
+      {stats.map((stat) => (
+        <div key={statValue(stat)}>
+          <dt className="text-sm text-muted-foreground">{statTitle(stat)}</dt>
+          <dd className="text-lg font-semibold">{duration(stat.totalSeconds)}</dd>
+          <dd className="text-sm text-muted-foreground">
+            {stat.count} × · mean {duration(stat.meanSeconds)}
+          </dd>
+          {stat.results.some((item) => item.result !== "success") && (
+            <dd className="text-sm text-muted-foreground">
+              {stat.results
+                .filter((item) => item.result !== "success")
+                .map((item) => `${item.result} ${item.count}`)
+                .join(" · ")}
+            </dd>
+          )}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function StatMenu({
+  stats,
+  selected,
+  onChange,
+}: {
+  stats: TimeStat[];
+  selected?: TimeStat;
+  onChange: (stat: string) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" disabled={!selected}>
+          Chart: {selected && statTitle(selected)}
+          <ChevronDownIcon />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuRadioGroup value={selected && statValue(selected)} onValueChange={onChange}>
+          {stats.map((stat) => (
+            <DropdownMenuRadioItem key={statValue(stat)} value={statValue(stat)}>
+              {statTitle(stat)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function TimeTable({ times, group }: { times: UsageTimes; group?: Dimension }) {
+  const heads = ["Stat", "Count", "Total", "Mean"];
+  return (
+    <div className={cn(inset, "overflow-x-auto")}>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b text-muted-foreground">
+            <th scope="col" className="py-2 pr-4 text-left font-normal">
+              {dimensions.find((item) => item.key === group)?.title ?? "Group"}
+            </th>
+            {heads.map((head, index) => (
+              <th
+                key={head}
+                scope="col"
+                className={cn(
+                  "py-2 pr-4 font-normal last:pr-0",
+                  index === 0 ? "text-left" : "text-right",
+                )}
+              >
+                {head}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {times.groups.flatMap((item) =>
+            item.stats.map((stat) => (
+              <tr key={`${item.group}|${statValue(stat)}`} className="border-b last:border-b-0">
+                <th scope="row" className="py-2 pr-4 text-left font-normal whitespace-nowrap">
+                  {groupTitle(item.group, group)}
+                </th>
+                <td className="py-2 pr-4 whitespace-nowrap">{statTitle(stat)}</td>
+                <td className="py-2 pr-4 text-right tabular-nums">{stat.count}</td>
+                <td className="py-2 pr-4 text-right whitespace-nowrap tabular-nums">
+                  {duration(stat.totalSeconds)}
+                </td>
+                <td className="py-2 text-right whitespace-nowrap tabular-nums">
+                  {duration(stat.meanSeconds)}
+                </td>
+              </tr>
+            )),
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TimesTab({
+  times,
+  range,
+  group,
+  stat,
+  onStat,
+}: {
+  times: UsageTimes;
+  range: Range;
+  group?: Dimension;
+  stat?: string;
+  onStat: (stat: string) => void;
+}) {
+  const selected = findStat(times.totals, stat);
+  const rows = chartRows(times.days, times.groups, range, (item) => {
+    const found = item.stats.find(
+      (candidate) => selected && statValue(candidate) === statValue(selected),
+    );
+    return found ? found.totalSeconds : null;
+  });
+  return (
+    <div className="grid gap-6">
+      <TimeTotals stats={times.totals} />
+      <div className="grid gap-2">
+        <div className={inset}>
+          <StatMenu stats={times.totals} selected={selected} onChange={onStat} />
+        </div>
+        <StackedChart
+          rows={rows}
+          groups={times.groups}
+          group={group}
+          format={(value) => (value === null ? "—" : duration(value))}
+          axisFormat={duration}
+        />
+      </div>
+      <TimeTable times={times} group={group} />
+    </div>
+  );
+}
+
 export function Usage({
   search,
   onSearch,
@@ -396,7 +563,10 @@ export function Usage({
 }) {
   const showLogin = use(LoginContext);
   const [loaded, setLoaded] = useState<{ usage: UsageView; range: Range }>();
+  const [loadedTimes, setLoadedTimes] = useState<{ times: UsageTimes; range: Range }>();
   const [error, setError] = useState<string>();
+  const tab = search.tab ?? "cost";
+  const timesTab = tab === "times";
 
   const [now] = useState(() => new Date());
   const query = useMemo(() => {
@@ -417,6 +587,9 @@ export function Usage({
   }, [search, now]);
 
   useEffect(() => {
+    if (timesTab) {
+      return;
+    }
     let current = true;
     getUsage(query.params)
       .then((res) => {
@@ -436,22 +609,53 @@ export function Usage({
     return () => {
       current = false;
     };
-  }, [query, showLogin]);
+  }, [query, showLogin, timesTab]);
 
-  const tab = search.tab ?? "cost";
+  useEffect(() => {
+    if (!timesTab) {
+      return;
+    }
+    let current = true;
+    getUsageTimes(query.params)
+      .then((res) => {
+        if (!current) {
+          return;
+        }
+        if (res.status === 401) {
+          showLogin();
+        } else if (res.status === 200) {
+          setLoadedTimes({ times: res.data.data, range: query.range });
+          setError(undefined);
+        } else {
+          setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => current && setError(String(err)));
+    return () => {
+      current = false;
+    };
+  }, [query, showLogin, timesTab]);
+
   return (
     <>
       <TopBar title="Usage" back="/settings" />
       <PageHeader title="Usage" />
-      <Filters search={search} options={loaded?.usage.options} onSearch={onSearch} />
+      <Filters
+        search={search}
+        options={timesTab ? loadedTimes?.times.options : loaded?.usage.options}
+        onSearch={onSearch}
+      />
       {error && <ErrorBadge>{error}</ErrorBadge>}
       <Tabs
         value={tab}
-        onValueChange={(value) => onSearch({ tab: value === "tokens" ? "tokens" : undefined })}
+        onValueChange={(value) =>
+          onSearch({ tab: value === "tokens" || value === "times" ? value : undefined })
+        }
       >
         <TabsList className={cn("mx-4 md:mx-0")}>
           <TabsTrigger value="cost">Cost</TabsTrigger>
           <TabsTrigger value="tokens">Tokens</TabsTrigger>
+          <TabsTrigger value="times">Times</TabsTrigger>
         </TabsList>
         {loaded &&
           (["cost", "tokens"] as const).map((kind) => (
@@ -464,6 +668,17 @@ export function Usage({
               />
             </TabsContent>
           ))}
+        {loadedTimes && (
+          <TabsContent value="times">
+            <TimesTab
+              times={loadedTimes.times}
+              range={loadedTimes.range}
+              group={search.group}
+              stat={search.stat}
+              onStat={(stat) => onSearch({ stat })}
+            />
+          </TabsContent>
+        )}
       </Tabs>
     </>
   );

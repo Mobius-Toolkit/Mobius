@@ -1,4 +1,4 @@
-import type { Usage, UsageValues } from "@/api/api.gen";
+import type { TimeStat, UsageValues } from "@/api/api.gen";
 
 export const periods = [
   { value: "7d", title: "Last 7 days" },
@@ -22,11 +22,12 @@ export type Dimension = (typeof dimensions)[number]["key"];
 
 // custom takes from and to as "YYYY-MM-DD" in the time zone of the browser. Both days are in the period.
 export type UsageSearch = {
-  tab?: "cost" | "tokens";
+  tab?: "tokens" | "times";
   period?: Period;
   from?: string;
   to?: string;
   group?: Dimension;
+  stat?: string;
 } & { [key in Dimension]?: string[] };
 
 // The color of a group follows its position, and the position follows the sort order of the API.
@@ -63,11 +64,15 @@ export function validateUsageSearch(search: Record<string, unknown>): UsageSearc
   const to = day(search.to);
   const period = periods.find((item) => item.value === search.period)?.value;
   return {
-    tab: search.tab === "tokens" ? "tokens" : undefined,
+    tab: search.tab === "tokens" || search.tab === "times" ? search.tab : undefined,
     period: period === "custom" && !(from && to) ? undefined : period,
     from,
     to,
     group: dimensions.find((item) => item.key === search.group)?.key,
+    stat:
+      typeof search.stat === "string" && /^(step|state):.+/.test(search.stat)
+        ? search.stat
+        : undefined,
     harness: strings(search.harness),
     model: strings(search.model),
     modelVersion: strings(search.modelVersion),
@@ -120,10 +125,11 @@ export function tokensOf(values: UsageValues) {
 export const groupKey = (index: number) => `group${index}`;
 
 // A row has one value for each group key. A day with no value for a group has no key.
-export function chartRows(
-  usage: Usage,
+export function chartRows<D extends { day: string; group: string }>(
+  days: D[],
+  groups: { group: string }[],
   range: { from: Date; to: Date },
-  metric: (values: UsageValues) => number | null,
+  metric: (item: D) => number | null,
 ) {
   const rows = new Map<string, Record<string, number | string>>();
   for (
@@ -134,15 +140,42 @@ export function chartRows(
     const key = formatDay(date);
     rows.set(key, { day: key });
   }
-  for (const item of usage.days) {
-    const value = metric(item.values);
-    const index = usage.groups.findIndex((group) => group.group === item.group);
+  for (const item of days) {
+    const value = metric(item);
+    const index = groups.findIndex((group) => group.group === item.group);
     const row = rows.get(item.day);
     if (row && value !== null) {
       row[groupKey(index)] = value;
     }
   }
   return [...rows.values()];
+}
+
+export const statValue = (stat: TimeStat) => `${stat.kind}:${stat.name}`;
+
+export const statTitle = (stat: TimeStat) =>
+  `${stat.kind === "step" ? "Step" : "State"}: ${stat.name.replaceAll("_", " ")}`;
+
+export const findStat = (stats: TimeStat[], value?: string) =>
+  stats.find((stat) => statValue(stat) === value) ?? stats[0];
+
+// A duration shows its two largest units, for example "42s", "5m 12s", "3h 05m" and "2d 4h".
+export function duration(seconds: number) {
+  const total = Math.round(seconds);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const rest = total % 60;
+  if (days > 0) {
+    return `${days}d ${hours}h`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${String(rest).padStart(2, "0")}s`;
+  }
+  return `${rest}s`;
 }
 
 export function dayTitle(value: string) {

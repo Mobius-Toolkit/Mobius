@@ -105,6 +105,25 @@ type Session struct {
 	Effort       sql.NullString
 }
 
+type StepTime struct {
+	ID           int64
+	Kind         string
+	Session      sql.NullInt64
+	Task         sql.NullInt64
+	Issue        sql.NullInt64
+	Workstream   int64
+	Organization string
+	Repository   string
+	Role         string
+	Harness      string
+	Model        string
+	Effort       sql.NullString
+	StartedAt    string
+	EndedAt      string
+	Attempt      sql.NullInt64
+	Result       sql.NullString
+}
+
 type Task struct {
 	ID             int64
 	Repository     string
@@ -132,6 +151,23 @@ type Task struct {
 	LongWaitAt     sql.NullString
 	CheckErrors    int64
 	LeadFindings   string
+}
+
+type TaskState struct {
+	ID           int64
+	Task         int64
+	State        string
+	Issue        int64
+	Workstream   int64
+	Organization string
+	Repository   string
+	Session      sql.NullInt64
+	Role         sql.NullString
+	Harness      sql.NullString
+	Model        sql.NullString
+	Effort       sql.NullString
+	StartedAt    string
+	EndedAt      string
 }
 
 type Transcript struct {

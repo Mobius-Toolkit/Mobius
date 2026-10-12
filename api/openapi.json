@@ -2246,7 +2246,7 @@
         "operationId": "GetUsage",
         "parameters": [
           {
-            "description": "From is the start of the period. A turn is in the period when it started at From or later",
+            "description": "From is the start of the period. A row is in the period when it started at From or later",
             "in": "query",
             "name": "from",
             "required": true,
@@ -2256,7 +2256,7 @@
             }
           },
           {
-            "description": "To is the end of the period. A turn is in the period when it started before To",
+            "description": "To is the end of the period. A row is in the period when it started before To",
             "in": "query",
             "name": "to",
             "required": true,
@@ -2382,6 +2382,183 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Envelope_Usage"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/api/usage/times": {
+      "get": {
+        "description": "GetUsageTimes returns the durations of the steps and the task states that started in the period.",
+        "operationId": "GetUsageTimes",
+        "parameters": [
+          {
+            "description": "From is the start of the period. A row is in the period when it started at From or later",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "To is the end of the period. A row is in the period when it started before To",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tz is the IANA name of the time zone for the days. The default is UTC",
+            "in": "query",
+            "name": "tz",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Harness limits the rows to these Harnesses",
+            "in": "query",
+            "name": "harness",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Model limits the rows to these models of the config",
+            "in": "query",
+            "name": "model",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "ModelVersion limits the rows to these models that the Harness reports",
+            "in": "query",
+            "name": "modelVersion",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Effort limits the rows to these efforts",
+            "in": "query",
+            "name": "effort",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Role limits the rows to these roles",
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Repository limits the rows to these repositories as \"owner/name\"",
+            "in": "query",
+            "name": "repository",
+            "required": false,
+            "schema": {
+              "description": "Array of string",
+              "items": {
+                "type": "string"
+              },
+              "title": "[]string",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Group is the value that splits the days and the groups. With no Group, all rows are in one group",
+            "in": "query",
+            "name": "group",
+            "required": false,
+            "schema": {
+              "enum": [
+                "harness",
+                "model",
+                "modelVersion",
+                "effort",
+                "role",
+                "repository"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_UsageTimes"
                 }
               }
             },
@@ -4051,6 +4228,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_UsageTimes": {
+        "type": "object",
+        "title": "Envelope_UsageTimes",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UsageTimes",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_WorkstreamDetails": {
         "type": "object",
         "title": "Envelope_WorkstreamDetails",
@@ -4978,6 +5169,72 @@
         ],
         "description": "TaskLine is a task of a Workstream."
       },
+      "TimeResult": {
+        "type": "object",
+        "title": "TimeResult",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "description": "Count is the number of rows with this result"
+          },
+          "result": {
+            "type": "string",
+            "description": "Result is \"success\", or the result that the step row has"
+          }
+        },
+        "required": [
+          "result",
+          "count"
+        ],
+        "description": "TimeResult is the number of step rows that ended with a result."
+      },
+      "TimeStat": {
+        "type": "object",
+        "title": "TimeStat",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "description": "Count is the number of rows"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Kind is \"step\" for a row of a step and \"state\" for a row of a task state",
+            "enum": [
+              "step",
+              "state"
+            ]
+          },
+          "meanSeconds": {
+            "type": "number",
+            "description": "MeanSeconds is the mean duration of a row"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name is the kind of the step or the task state"
+          },
+          "results": {
+            "type": "array",
+            "title": "[]TimeResult",
+            "description": "Results are the number of step rows for each result, sorted by result. A task state has none",
+            "items": {
+              "$ref": "#/components/schemas/TimeResult"
+            }
+          },
+          "totalSeconds": {
+            "type": "number",
+            "description": "TotalSeconds is the sum of the durations of the rows"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "count",
+          "totalSeconds",
+          "meanSeconds",
+          "results"
+        ],
+        "description": "TimeStat is the duration statistics of the step rows of one kind or of the task state rows of one state."
+      },
       "ToolCheck": {
         "type": "object",
         "title": "ToolCheck",
@@ -5286,6 +5543,98 @@
           "repositories"
         ],
         "description": "UsageOptions are the values that each filter can take in the period."
+      },
+      "UsageTimeDay": {
+        "type": "object",
+        "title": "UsageTimeDay",
+        "properties": {
+          "day": {
+            "type": "string",
+            "description": "Day is the day of the start of the rows, as \"YYYY-MM-DD\" in the time zone of the request"
+          },
+          "group": {
+            "type": "string",
+            "description": "Group is the value of the group, or empty when the request has no group or the value is not set"
+          },
+          "stats": {
+            "type": "array",
+            "title": "[]TimeStat",
+            "description": "Stats are the statistics of each step kind and each task state that has rows, sorted by kind and name",
+            "items": {
+              "$ref": "#/components/schemas/TimeStat"
+            }
+          }
+        },
+        "required": [
+          "day",
+          "group",
+          "stats"
+        ],
+        "description": "UsageTimeDay is the time statistics of one group on one day."
+      },
+      "UsageTimeGroup": {
+        "type": "object",
+        "title": "UsageTimeGroup",
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "Group is the value of the group, or empty when the request has no group or the value is not set"
+          },
+          "stats": {
+            "type": "array",
+            "title": "[]TimeStat",
+            "description": "Stats are the statistics of each step kind and each task state that has rows, sorted by kind and name",
+            "items": {
+              "$ref": "#/components/schemas/TimeStat"
+            }
+          }
+        },
+        "required": [
+          "group",
+          "stats"
+        ],
+        "description": "UsageTimeGroup is the time statistics of one group in the period."
+      },
+      "UsageTimes": {
+        "type": "object",
+        "title": "UsageTimes",
+        "properties": {
+          "days": {
+            "type": "array",
+            "title": "[]UsageTimeDay",
+            "description": "Days are the statistics of each day and each group, the oldest day first",
+            "items": {
+              "$ref": "#/components/schemas/UsageTimeDay"
+            }
+          },
+          "groups": {
+            "type": "array",
+            "title": "[]UsageTimeGroup",
+            "description": "Groups are the statistics of each group",
+            "items": {
+              "$ref": "#/components/schemas/UsageTimeGroup"
+            }
+          },
+          "options": {
+            "$ref": "#/components/schemas/UsageOptions",
+            "description": "Options are the values that each filter can take, before the filters"
+          },
+          "totals": {
+            "type": "array",
+            "title": "[]TimeStat",
+            "description": "Totals are the statistics of all rows that pass the filters",
+            "items": {
+              "$ref": "#/components/schemas/TimeStat"
+            }
+          }
+        },
+        "required": [
+          "totals",
+          "days",
+          "groups",
+          "options"
+        ],
+        "description": "UsageTimes is the time statistics of the steps and the task states in a period."
       },
       "UsageValues": {
         "type": "object",

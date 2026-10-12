@@ -69,6 +69,26 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 -- name: ListTurnUsageBetween :many
 SELECT * FROM turn_usage WHERE started_at >= sqlc.arg(after) AND started_at < sqlc.arg(before);
 
+-- name: ListStepTimesBetween :many
+SELECT * FROM step_times WHERE started_at >= sqlc.arg(after) AND started_at < sqlc.arg(before);
+
+-- name: ListTaskStatesBetween :many
+SELECT * FROM task_states WHERE started_at >= sqlc.arg(after) AND started_at < sqlc.arg(before);
+
+-- name: ListReportedModelsBetween :many
+SELECT session, reported_model FROM turn_usage
+WHERE id IN (
+    SELECT MAX(id) FROM turn_usage
+    WHERE reported_model IS NOT NULL AND session IN (
+        SELECT step_times.session FROM step_times
+        WHERE step_times.started_at >= sqlc.arg(after) AND step_times.started_at < sqlc.arg(before)
+        UNION
+        SELECT task_states.session FROM task_states
+        WHERE task_states.started_at >= sqlc.arg(after) AND task_states.started_at < sqlc.arg(before)
+    )
+    GROUP BY session
+);
+
 -- name: AddStepTime :exec
 INSERT INTO step_times (kind, session, task, issue, workstream, organization, repository, role, harness, model, effort,
                         started_at, ended_at, attempt, result)

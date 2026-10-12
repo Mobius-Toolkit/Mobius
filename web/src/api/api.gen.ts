@@ -969,6 +969,89 @@ export interface EnvelopeUsage {
 }
 
 /**
+ * Kind is "step" for a row of a step and "state" for a row of a task state
+ */
+export type TimeStatKind = typeof TimeStatKind[keyof typeof TimeStatKind];
+
+
+export const TimeStatKind = {
+  step: 'step',
+  state: 'state',
+} as const;
+
+/**
+ * TimeResult is the number of step rows that ended with a result.
+ */
+export interface TimeResult {
+  /** Count is the number of rows with this result */
+  count: number;
+  /** Result is "success", or the result that the step row has */
+  result: string;
+}
+
+/**
+ * TimeStat is the duration statistics of the step rows of one kind or of the task state rows of one state.
+ */
+export interface TimeStat {
+  /** Count is the number of rows */
+  count: number;
+  /** Kind is "step" for a row of a step and "state" for a row of a task state */
+  kind: TimeStatKind;
+  /** MeanSeconds is the mean duration of a row */
+  meanSeconds: number;
+  /** Name is the kind of the step or the task state */
+  name: string;
+  /** Results are the number of step rows for each result, sorted by result. A task state has none */
+  results: TimeResult[];
+  /** TotalSeconds is the sum of the durations of the rows */
+  totalSeconds: number;
+}
+
+/**
+ * UsageTimeDay is the time statistics of one group on one day.
+ */
+export interface UsageTimeDay {
+  /** Day is the day of the start of the rows, as "YYYY-MM-DD" in the time zone of the request */
+  day: string;
+  /** Group is the value of the group, or empty when the request has no group or the value is not set */
+  group: string;
+  /** Stats are the statistics of each step kind and each task state that has rows, sorted by kind and name */
+  stats: TimeStat[];
+}
+
+/**
+ * UsageTimeGroup is the time statistics of one group in the period.
+ */
+export interface UsageTimeGroup {
+  /** Group is the value of the group, or empty when the request has no group or the value is not set */
+  group: string;
+  /** Stats are the statistics of each step kind and each task state that has rows, sorted by kind and name */
+  stats: TimeStat[];
+}
+
+/**
+ * UsageTimes is the time statistics of the steps and the task states in a period.
+ */
+export interface UsageTimes {
+  /** Days are the statistics of each day and each group, the oldest day first */
+  days: UsageTimeDay[];
+  /** Groups are the statistics of each group */
+  groups: UsageTimeGroup[];
+  /** Options are the values that each filter can take, before the filters */
+  options: UsageOptions;
+  /** Totals are the statistics of all rows that pass the filters */
+  totals: TimeStat[];
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeUsageTimes {
+  /** Data is the payload of the response */
+  data: UsageTimes;
+}
+
+/**
  * WorkstreamDetails is the details of a Workstream.
  */
 export interface WorkstreamDetails {
@@ -1215,11 +1298,11 @@ code: string;
 
 export type GetUsageParams = {
 /**
- * From is the start of the period. A turn is in the period when it started at From or later
+ * From is the start of the period. A row is in the period when it started at From or later
  */
 from: string;
 /**
- * To is the end of the period. A turn is in the period when it started before To
+ * To is the end of the period. A row is in the period when it started before To
  */
 to: string;
 /**
@@ -1260,6 +1343,61 @@ export type GetUsageGroup = typeof GetUsageGroup[keyof typeof GetUsageGroup];
 
 
 export const GetUsageGroup = {
+  harness: 'harness',
+  model: 'model',
+  modelVersion: 'modelVersion',
+  effort: 'effort',
+  role: 'role',
+  repository: 'repository',
+} as const;
+
+export type GetUsageTimesParams = {
+/**
+ * From is the start of the period. A row is in the period when it started at From or later
+ */
+from: string;
+/**
+ * To is the end of the period. A row is in the period when it started before To
+ */
+to: string;
+/**
+ * Tz is the IANA name of the time zone for the days. The default is UTC
+ */
+tz?: string;
+/**
+ * Array of string
+ */
+harness?: string[];
+/**
+ * Array of string
+ */
+model?: string[];
+/**
+ * Array of string
+ */
+modelVersion?: string[];
+/**
+ * Array of string
+ */
+effort?: string[];
+/**
+ * Array of string
+ */
+role?: string[];
+/**
+ * Array of string
+ */
+repository?: string[];
+/**
+ * Group is the value that splits the days and the groups. With no Group, all rows are in one group
+ */
+group?: GetUsageTimesGroup;
+};
+
+export type GetUsageTimesGroup = typeof GetUsageTimesGroup[keyof typeof GetUsageTimesGroup];
+
+
+export const GetUsageTimesGroup = {
   harness: 'harness',
   model: 'model',
   modelVersion: 'modelVersion',
@@ -3956,6 +4094,86 @@ export const getUsage = async (params: GetUsageParams, ): Promise<getUsageRespon
 
   const data: getUsageResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getUsageResponse
+}
+
+
+
+export type getUsageTimesResponse200 = {
+  data: EnvelopeUsageTimes
+  status: 200
+}
+
+export type getUsageTimesResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type getUsageTimesResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type getUsageTimesResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type getUsageTimesResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type getUsageTimesResponseSuccess = (getUsageTimesResponse200) & {
+  headers: Headers;
+};
+export type getUsageTimesResponseError = (getUsageTimesResponse400 | getUsageTimesResponse401 | getUsageTimesResponse422 | getUsageTimesResponse500) & {
+  headers: Headers;
+};
+
+export type getUsageTimesResponse = (getUsageTimesResponseSuccess | getUsageTimesResponseError)
+
+export const getGetUsageTimesUrl = (params: GetUsageTimesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const explodeParameters = ["harness","model","modelVersion","effort","role","repository"];
+
+    if (Array.isArray(value) && explodeParameters.includes(key)) {
+      value.forEach((v) => {
+        normalizedParams.append(key, v === null ? 'null' : String(v));
+      });
+      return;
+    }
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/usage/times?${stringifiedParams}` : `/api/usage/times`
+}
+
+/**
+ * GetUsageTimes returns the durations of the steps and the task states that started in the period.
+ */
+export const getUsageTimes = async (params: GetUsageTimesParams, ): Promise<getUsageTimesResponse> => {
+
+  const res = await fetch(getGetUsageTimesUrl(params),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: getUsageTimesResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as getUsageTimesResponse
 }
 
 

@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -267,6 +268,18 @@ func TestServer(t *testing.T) {
 	})
 	server.Mux.HandleFunc("DELETE /e2e/repositories/{owner}/{name}", func(_ http.ResponseWriter, r *http.Request) {
 		github.RemoveRepository(r.PathValue("owner") + "/" + r.PathValue("name"))
+	})
+	var lastStepTime, lastTaskState atomic.Int64
+	server.Mux.HandleFunc("POST /e2e/times/fix", func(w http.ResponseWriter, _ *http.Request) {
+		for query, last := range map[string]int64{
+			"UPDATE step_times SET started_at = ?1, ended_at = ?1 WHERE id > ?2":  lastStepTime.Load(),
+			"UPDATE task_states SET started_at = ?1, ended_at = ?1 WHERE id > ?2": lastTaskState.Load(),
+		} {
+			if _, err := server.DB.Exec(query, "2026-09-28T09:30:00Z", last); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
 	})
 	server.Mux.HandleFunc("PUT /e2e/agents/{issue}/queue-reason", func(w http.ResponseWriter, r *http.Request) {
 		_, err := server.DB.Exec("UPDATE sessions SET queue_reason = ? WHERE issue = ? AND ended_at IS NULL", r.URL.Query().Get("reason"), r.PathValue("issue"))
@@ -551,6 +564,17 @@ func TestServer(t *testing.T) {
 	}
 	fixTimes(t, server, github)
 	addTurnUsage(t, server)
+	addStepTimes(t, server)
+	for query, last := range map[string]*atomic.Int64{
+		"SELECT MAX(id) FROM step_times":  &lastStepTime,
+		"SELECT MAX(id) FROM task_states": &lastTaskState,
+	} {
+		var id int64
+		if err := server.DB.QueryRow(query).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		last.Store(id)
+	}
 	go func() { _, _ = server.Engine.Drain(ctx) }()
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
 	held := implementerSpec(t, server, 42)
@@ -672,6 +696,140 @@ func addTurnUsage(t *testing.T, server *testserver.Server) {
 	}
 }
 
+// addStepTimes adds the steps and the task states of the tab "Times" on the 8 days that end on 2026-10-15. It runs after
+// fixTimes, which moves the rows of the fake agents before these days. The rows use the sessions and the tasks that
+// exist, because a new session or a new issue changes the ids of the later ones. A direct insert of a task state keeps
+// the trigger of tasks out.
+func addStepTimes(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	ids := func(query string, count int) []int64 {
+		rows, err := server.DB.Query(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []int64
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if len(ids) < count {
+			t.Fatalf("%q gives %d rows, want %d", query, len(ids), count)
+		}
+		return ids
+	}
+	sessions := ids("SELECT id FROM sessions ORDER BY id LIMIT 4", 4)
+	tasks := ids("SELECT id FROM tasks ORDER BY id LIMIT 3", 3)
+	ended := func(startedAt string, seconds int64) time.Time {
+		started, err := time.Parse(time.RFC3339, startedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return started.Add(time.Duration(seconds) * time.Second)
+	}
+
+	type step struct {
+		kind, harness, model, effort, role, repository, startedAt string
+		seconds, attempt                                          int64
+		result                                                    string
+	}
+	steps := []step{
+		{"queue", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-08T09:50:00Z", 90, 0, ""},
+		{"prepare", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-08T10:00:00Z", 14, 0, ""},
+		{"check", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-08T10:20:00Z", 312, 1, "fail"},
+		{"check", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-08T10:30:00Z", 287, 2, ""},
+		{"push", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-08T10:36:00Z", 4, 0, ""},
+		{"ci", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-08T10:40:00Z", 540, 0, ""},
+		{"queue", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-09T09:55:00Z", 45, 0, ""},
+		{"check", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-09T10:20:00Z", 301, 1, ""},
+		{"ci", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-09T10:40:00Z", 610, 0, "fail"},
+		{"queue", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-10T10:40:00Z", 1260, 0, ""},
+		{"check_slot", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-10T10:45:00Z", 75, 0, ""},
+		{"low_load", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-10T10:46:00Z", 120, 0, ""},
+		{"check", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-10T11:10:00Z", 905, 1, "timeout"},
+		{"pull", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-10T11:30:00Z", 6, 0, ""},
+		{"push", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-10T11:31:00Z", 5, 0, ""},
+		{"queue", "devin", "swe-1.5", "", engine.ImplementerRole, "plants/garden", "2026-10-10T12:50:00Z", 33, 0, ""},
+		{"check", "devin", "swe-1.5", "", engine.ImplementerRole, "plants/garden", "2026-10-10T13:20:00Z", 450, 1, ""},
+		{"ci", "devin", "swe-1.5", "", engine.ImplementerRole, "plants/garden", "2026-10-10T13:40:00Z", 380, 0, ""},
+		{"queue", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-12T09:00:00Z", 70, 0, ""},
+		{"check", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-12T09:40:00Z", 295, 1, ""},
+		{"ci", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-12T10:00:00Z", 8400, 0, ""},
+		{"queue", "claude-code", "sonnet", "low", engine.ReviewerRole, "plants/garden", "2026-10-12T14:50:00Z", 22, 0, ""},
+		{"queue", "devin", "swe-1.5", "", engine.ImplementerRole, "plants/garden", "2026-10-13T10:55:00Z", 51, 0, ""},
+		{"check", "devin", "swe-1.5", "", engine.ImplementerRole, "plants/garden", "2026-10-13T11:20:00Z", 640, 1, "fail"},
+		{"check", "devin", "swe-1.5", "", engine.ImplementerRole, "plants/garden", "2026-10-13T11:40:00Z", 700, 2, ""},
+		{"ci", "devin", "swe-1.5", "", engine.ImplementerRole, "plants/garden", "2026-10-13T12:00:00Z", 1020, 0, "stopped"},
+		{"queue", "claude-code", "sonnet", "low", engine.ReviewerRole, "plants/garden", "2026-10-14T09:55:00Z", 140, 0, ""},
+		{"queue", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-15T07:50:00Z", 55, 0, ""},
+		{"check", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-15T08:20:00Z", 320, 1, ""},
+		{"push", "claude-code", "sonnet", "high", engine.ImplementerRole, "owner/shop", "2026-10-15T08:30:00Z", 3, 0, ""},
+	}
+	for i, step := range steps {
+		organization, _, _ := strings.Cut(step.repository, "/")
+		if _, err := server.DB.Exec(`INSERT INTO step_times (kind, session, task, issue, workstream, organization, repository, role,
+			harness, model, effort, started_at, ended_at, attempt, result)
+			VALUES (?, ?, ?, 41, 12, ?, ?, ?, ?, ?, nullif(?, ''), ?, ?, nullif(?, 0), nullif(?, ''))`,
+			step.kind, sessions[i%len(sessions)], tasks[i%len(tasks)], organization, step.repository, step.role, step.harness,
+			step.model, step.effort, step.startedAt, ended(step.startedAt, step.seconds).Format(time.RFC3339Nano), step.attempt,
+			step.result); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	type state struct {
+		state, startedAt, harness, model, effort string
+		seconds                                  int64
+	}
+	states := []state{
+		{"dispatched", "2026-10-08T09:40:00Z", "", "", "", 600},
+		{"queued", "2026-10-08T09:50:00Z", "claude-code", "sonnet", "high", 90},
+		{"working", "2026-10-08T10:00:00Z", "claude-code", "sonnet", "high", 2400},
+		{"checks", "2026-10-08T10:40:00Z", "claude-code", "sonnet", "high", 540},
+		{"approval", "2026-10-08T10:50:00Z", "claude-code", "sonnet", "high", 10800},
+		{"dispatched", "2026-10-09T09:40:00Z", "", "", "", 900},
+		{"working", "2026-10-09T10:00:00Z", "claude-code", "sonnet", "high", 3300},
+		{"approval", "2026-10-09T11:00:00Z", "", "", "", 187200},
+		{"queued", "2026-10-10T10:40:00Z", "claude-code", "sonnet", "high", 1260},
+		{"working", "2026-10-10T11:00:00Z", "claude-code", "sonnet", "high", 5400},
+		{"needs_human", "2026-10-10T12:30:00Z", "claude-code", "sonnet", "high", 14400},
+		{"queued", "2026-10-10T12:50:00Z", "devin", "swe-1.5", "", 33},
+		{"working", "2026-10-10T13:00:00Z", "devin", "swe-1.5", "", 2700},
+		{"checks", "2026-10-10T13:40:00Z", "devin", "swe-1.5", "", 380},
+		{"working", "2026-10-12T09:00:00Z", "claude-code", "sonnet", "high", 4200},
+		{"checks", "2026-10-12T10:00:00Z", "claude-code", "sonnet", "high", 8400},
+		{"ready_for_review", "2026-10-12T12:20:00Z", "claude-code", "sonnet", "high", 25200},
+		{"queued", "2026-10-13T10:55:00Z", "devin", "swe-1.5", "", 51},
+		{"working", "2026-10-13T11:00:00Z", "devin", "swe-1.5", "", 3600},
+		{"approval", "2026-10-14T09:00:00Z", "", "", "", 7200},
+		{"working", "2026-10-15T08:00:00Z", "claude-code", "sonnet", "high", 1800},
+	}
+	for i, state := range states {
+		repository := "owner/shop"
+		if state.harness == "devin" || i%5 == 4 {
+			repository = "plants/garden"
+		}
+		organization, _, _ := strings.Cut(repository, "/")
+		session := sql.NullInt64{Int64: sessions[i%len(sessions)], Valid: state.harness != ""}
+		role := sql.NullString{String: engine.ImplementerRole, Valid: state.harness != ""}
+		if _, err := server.DB.Exec(`INSERT INTO task_states (task, state, issue, workstream, organization, repository, session,
+			role, harness, model, effort, started_at, ended_at)
+			VALUES (?, ?, 41, 12, ?, ?, ?, ?, nullif(?, ''), nullif(?, ''), nullif(?, ''), ?, ?)`,
+			tasks[i%len(tasks)], state.state, organization, repository, session, role, state.harness, state.model, state.effort,
+			state.startedAt, ended(state.startedAt, state.seconds).Format(time.RFC3339Nano)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // fixTimes gives one fixed time to each time that the UI shows, so each run gives the same screenshots. An event text
 // starts with its time in the format of the engine.
 func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHub) {
@@ -684,6 +842,8 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 		"UPDATE sessions SET started_at = ?1, ended_at = iif(ended_at IS NULL, NULL, ?1)",
 		"UPDATE transcript SET time = ?1",
 		"UPDATE turn_usage SET started_at = ?1, ended_at = ?1",
+		"UPDATE step_times SET started_at = ?1, ended_at = ?1",
+		"UPDATE task_states SET started_at = ?1, ended_at = ?1",
 		"UPDATE chat_messages SET time = ?1, delivered_at = iif(delivered_at IS NULL, NULL, ?1), stopped_at = iif(stopped_at IS NULL, NULL, ?1)",
 		"UPDATE inbox_items SET time = ?1",
 		"UPDATE memory_versions SET time = ?1",

@@ -606,6 +606,21 @@ test("screenshots", async ({ page }) => {
       ...usageDays.map((day) => main.getByText(day, { exact: true })),
     ],
   );
+  // The engine writes the times of its own steps and states at the real time, which can be in the 7 days.
+  expect((await page.request.post("/e2e/times/fix")).ok()).toBe(true);
+  // The totals of the tab "Times" fill the first screen, so a second screenshot shows the chart and the table.
+  const timesReady = (device: string) => [
+    ...frame(device, release),
+    main.getByRole("tab", { name: "Times", selected: true }),
+    main.getByRole("row", { name: /devin Step: check 3 29m 50s 9m 57s$/ }),
+    main.locator(".recharts-bar-rectangle").first(),
+    ...usageDays.map((day) => main.getByText(day, { exact: true })),
+  ];
+  const timesPath = "/usage?tab=times&group=harness&stat=step:check";
+  await screenshot(page, "usage-times", timesPath, timesReady);
+  await screenshot(page, "usage-times-chart", timesPath, timesReady, async () => {
+    await main.locator(".recharts-wrapper").scrollIntoViewIfNeeded();
+  });
   await page.setViewportSize(viewports.phone);
   await page.goto("/usage?group=model");
   await expect(main.getByRole("row", { name: /swe-1\.5/ })).toBeVisible();
