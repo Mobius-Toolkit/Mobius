@@ -98,8 +98,6 @@ test("each item shows on one line with the action of its kind, oldest first", as
   await expect(rows.nth(0)).toContainText("#45Pick the plan limits");
   await expect(rows.nth(3)).toContainText("PR #44Name the plan tiers");
   await expect(rows.nth(5)).toContainText("#46");
-  const heights = await rows.evaluateAll((list) => list.map((row) => row.clientHeight));
-  expect(new Set(heights).size).toBe(1);
 
   const action = (row: number, name: string) => rows.nth(row).getByRole("link", { name });
   await expect(action(0, "Answer")).toHaveAttribute("href", `${link}/issues/45`);
@@ -111,6 +109,32 @@ test("each item shows on one line with the action of its kind, oldest first", as
   }
   await expect(rows.getByRole("button", { name: "Dismiss" })).toHaveCount(6);
   await expect(page.getByRole("main").getByRole("tab", { name: "To do 6" })).toBeVisible();
+});
+
+test("the reason is on the line of the title on a desktop and below it on a phone", async ({
+  page,
+}) => {
+  await routeInbox(page, items);
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem").nth(1);
+  const title = row.getByText("Let customers change plans");
+  const reason = row.getByText("The session hung three times");
+  const buttons = row.getByRole("button", { name: "Resume" });
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const desktop = { title: await title.boundingBox(), reason: await reason.boundingBox() };
+  expect(desktop.reason!.y).toBeLessThan(desktop.title!.y + desktop.title!.height);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const phone = {
+    title: await title.boundingBox(),
+    reason: await reason.boundingBox(),
+    buttons: await buttons.boundingBox(),
+  };
+  expect(phone.reason!.y).toBeGreaterThanOrEqual(phone.title!.y + phone.title!.height);
+  expect(phone.buttons!.y).toBeGreaterThanOrEqual(phone.reason!.y + phone.reason!.height);
+  await expect(title).toHaveJSProperty("scrollWidth", await title.evaluate((e) => e.clientWidth));
+  await expect(reason).toHaveJSProperty("scrollWidth", await reason.evaluate((e) => e.clientWidth));
 });
 
 test("Details is closed by default and shows the full text after a click", async ({ page }) => {

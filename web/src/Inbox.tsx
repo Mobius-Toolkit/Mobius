@@ -95,7 +95,7 @@ function InboxRow({
   return (
     <Row className="flex-wrap gap-y-2 py-2">
       <div className="flex min-w-0 grow basis-full flex-wrap items-center gap-x-2 gap-y-2 sm:flex-nowrap">
-        <span className="flex min-w-0 grow basis-full items-baseline gap-2 sm:basis-0">
+        <span className="flex min-w-0 grow basis-full flex-wrap items-baseline gap-x-2 sm:basis-0 sm:flex-nowrap">
           {referenceLink ? (
             <a
               href={referenceLink}
@@ -108,8 +108,10 @@ function InboxRow({
           ) : (
             <span className="shrink-0">{reference}</span>
           )}
-          <span className="truncate">{item.title}</span>
-          <span className="truncate text-sm text-muted-foreground">{item.reason}</span>
+          <span className="grow basis-0 truncate sm:grow-0 sm:basis-auto">{item.title}</span>
+          <span className="basis-full truncate text-sm text-muted-foreground sm:basis-auto">
+            {item.reason}
+          </span>
         </span>
         <div className="flex shrink-0 items-center gap-2">
           {item.kind === InboxItemKind.question && (
