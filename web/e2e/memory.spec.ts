@@ -193,3 +193,84 @@ test("the Owner reads a hunk in the full screen view and closes it", async ({ pa
   await dialog.getByRole("button", { name: "Close" }).click();
   await expect(dialog).toBeHidden();
 });
+
+const wideCell = (column: number) => `column ${column} has a long cell text that is wide`;
+const wideRow = (cells: string[]) => `| ${cells.join(" | ")} |`;
+const wideTable = [
+  wideRow([1, 2, 3, 4, 5, 6].map((column) => `heading ${column} of the wide table`)),
+  wideRow([1, 2, 3, 4, 5, 6].map(() => "---")),
+  wideRow([1, 2, 3, 4, 5, 6].map(wideCell)),
+];
+const longUrl = `https://example.com/${"abcdefghij".repeat(18)}`;
+const longCommand = `docker run --rm ${"--env VARIABLE=value ".repeat(9)}image:latest`;
+const longSentence = "This sentence is long and has many words. ".repeat(12).trim();
+const wideText = (tail: string) =>
+  text(
+    "Keep this file short.",
+    longSentence,
+    longUrl,
+    "```sh",
+    longCommand,
+    "```",
+    ...wideTable,
+    tail,
+  );
+
+const version = (id: number, reason: string, memory: string) => ({
+  id,
+  author: "owner",
+  reason,
+  revert_problem: "",
+  revertible: true,
+  time: `2026-09-28T0${id}:00:00Z`,
+  text: memory,
+});
+
+for (const viewport of [
+  { name: "desktop", width: 1280, height: 800 },
+  { name: "phone", width: 390, height: 844 },
+]) {
+  test(`a wide memory file does not widen the page in the ${viewport.name} viewport`, async ({
+    page,
+  }) => {
+    const main = page.getByRole("main");
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.route(
+      (url) => url.pathname === "/api/repositories/plants/garden/memory",
+      (route) =>
+        route.fulfill({
+          json: {
+            data: [
+              version(3, longSentence, wideText("The last line changed.")),
+              version(2, "The reason of this version is short.", wideText("The last line.")),
+              version(1, "", text("Keep this file short.")),
+            ],
+          },
+        }),
+    );
+    await page.goto("/settings/memory/plants/garden");
+    await expect(main.getByText("The last line changed.").first()).toBeVisible();
+
+    const root = await page
+      .locator("html")
+      .evaluate((el: Scrollable) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+    expect(root.scrollWidth).toBeLessThanOrEqual(root.clientWidth);
+
+    const content = await page
+      .locator("#content")
+      .evaluate((el: Scrollable) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+    expect(content.scrollWidth).toBeLessThanOrEqual(content.clientWidth);
+
+    const mainBox = await main.boundingBox();
+    const currentBox = await main.locator("pre").first().boundingBox();
+    expect(currentBox!.x + currentBox!.width).toBeLessThanOrEqual(mainBox!.x + mainBox!.width + 1);
+
+    const hunk = main.locator("li").nth(1).locator("pre");
+    await expect(hunk.locator(`[data-kind="added"]`, { hasText: longUrl })).toBeVisible();
+    const overflow = await hunk.evaluate((el: Scrollable) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }));
+    expect(overflow.scrollWidth).toBeGreaterThan(overflow.clientWidth);
+  });
+}
