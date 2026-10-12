@@ -775,3 +775,39 @@ func TestTheRequestLogShowsTheStatusOfARequestThatGetsNotFound(t *testing.T) {
 		t.Errorf("status = %d, requests = %+v, want %+v", reply.StatusCode, got, want)
 	}
 }
+
+func TestAGetRouteGivesNotModifiedForTheETagOfItsLastAnswerAndOKAfterAChange(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+	token := installationToken(t, github)
+	start := len(github.Requests())
+	url := github.URL + "/repos/owner/shop/issues/12"
+	get := func(etag string) (int, string) {
+		request, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		if etag != "" {
+			request.Header.Set("If-None-Match", etag)
+		}
+		reply, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = reply.Body.Close()
+		return reply.StatusCode, reply.Header.Get("ETag")
+	}
+
+	firstStatus, etag := get("")
+	secondStatus, _ := get(etag)
+	github.AddLabel("owner/shop", 12, "mobius:ready", "owner")
+	thirdStatus, _ := get(etag)
+
+	if etag == "" || secondStatus != http.StatusNotModified || thirdStatus != http.StatusOK {
+		t.Errorf("statuses = %d, %d, %d, etag = %q", firstStatus, secondStatus, thirdStatus, etag)
+	}
+	if got := github.Requests()[start+1].Status; got != http.StatusNotModified {
+		t.Errorf("logged status = %d", got)
+	}
+}

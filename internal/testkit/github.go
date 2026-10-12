@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -375,8 +376,63 @@ func (g *FakeGitHub) hanging(mux *http.ServeMux) http.Handler {
 			<-r.Context().Done()
 			return
 		}
-		mux.ServeHTTP(w, r)
+		serveWithETag(mux, w, r)
 	})
+}
+
+// etagWriter gives each 200 answer of a GET request an ETag that is a hash of the body. A handler that sets its own
+// ETag, and an answer with another status, pass unchanged.
+type etagWriter struct {
+	http.ResponseWriter
+	started bool
+	direct  bool
+	body    bytes.Buffer
+}
+
+func (e *etagWriter) WriteHeader(status int) {
+	if e.started {
+		return
+	}
+	e.started = true
+	if status != http.StatusOK || e.Header().Get("ETag") != "" {
+		e.direct = true
+		e.ResponseWriter.WriteHeader(status)
+	}
+}
+
+func (e *etagWriter) Write(data []byte) (int, error) {
+	e.WriteHeader(http.StatusOK)
+	if e.direct {
+		return e.ResponseWriter.Write(data)
+	}
+	return e.body.Write(data)
+}
+
+func (e *etagWriter) Unwrap() http.ResponseWriter {
+	return e.ResponseWriter
+}
+
+// serveWithETag answers 304 with no body when If-None-Match of a GET request has the ETag of the answer.
+func serveWithETag(handler http.Handler, w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		handler.ServeHTTP(w, r)
+		return
+	}
+	recorder := &etagWriter{ResponseWriter: w}
+	handler.ServeHTTP(recorder, r)
+	recorder.WriteHeader(http.StatusOK)
+	if recorder.direct {
+		return
+	}
+	sum := sha256.Sum256(recorder.body.Bytes())
+	etag := fmt.Sprintf(`"%x"`, sum[:8])
+	w.Header().Set("ETag", etag)
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(recorder.body.Bytes())
 }
 
 // Now gives the time of the last write.
