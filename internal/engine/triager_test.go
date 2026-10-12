@@ -26,36 +26,36 @@ when = "Please cover refunds."
 reply = ["Refunds are in the Workstream."]
 
 [[prompts]]
-when = "# Issue\n\n#53 "
+when = "# Issue\n\nowner/shop#53 "
 reply = ["First proposal."]
 
 [[prompts]]
-when = "# Issue\n\n#54 "
+when = "# Issue\n\nowner/shop#54 "
 reply = ["First proposal."]
 
 [[prompts]]
-when = "# Issue\n\n#56 "
+when = "# Issue\n\nowner/shop#56 "
 reply = ["First proposal."]
 
 [[prompts]]
-when = "# Issue\n\n#57 "
+when = "# Issue\n\nowner/shop#57 "
 reply = ["First proposal."]
 
 [[prompts]]
-when = "# Issue\n\n#55 "
+when = "# Issue\n\nowner/shop#55 "
 hang = true
 
 [[prompts]]
-when = "# Issue\n\n#50 "
+when = "# Issue\n\nowner/shop#50 "
 shell = "pwd"
 call = { tool = "move_issue", arguments = { n = 50, workstream = 12 } }
 
 [[prompts]]
-when = "# Issue\n\n#51 "
+when = "# Issue\n\nowner/shop#51 "
 hang = true
 
 [[prompts]]
-when = "# Issue\n\n#52 "
+when = "# Issue\n\nowner/shop#52 "
 reply = ["Create the Workstream \"Loyalty points\" for this issue."]
 
 [[prompts]]
@@ -67,11 +67,11 @@ when = "Yes, create it."
 call = { tool = "create_workstream", arguments = { title = "Loyalty points", brief = "Give points for each order." } }
 `
 
-// triagerChat is the Triager chat of the organization owner.
-var triagerChat = engine.ChatKey{Organization: "owner"}
+// coordinatorChat is the Coordinator chat of the organization owner.
+var coordinatorChat = engine.ChatKey{Organization: "owner"}
 
 // issueTriagers is the key of the sessions of the Triagers of the issues of owner/shop, and of the Researchers of the
-// Triager chat.
+// Coordinator chat.
 var issueTriagers = engine.ChatKey{Organization: "owner", Repository: shop}
 
 // connectTriager starts a server with the Workstream #12 and its Brief, and the Triager of triager.
@@ -120,7 +120,7 @@ func TestAnIssueWithNoWorkstreamGoesToTheTriagerThatMovesIt(t *testing.T) {
 	inOrder(t, prompts[0],
 		"You are the Triager",
 		"# Open Workstreams\n\n#12 Integrate loyalty plans (owner/shop)\n\nShip loyalty plans to all shops.\n",
-		"# Issue\n\n#50 Add loyalty points\n\nPoints for each order.",
+		"# Issue\n\nowner/shop#50 Add loyalty points\n\nPoints for each order.",
 	)
 	id := strconv.FormatInt(session.ID, 10)
 	if got := reply(t, server, session.ID); !strings.Contains(got, "/scratch/"+id+"\nexit 0") {
@@ -188,7 +188,7 @@ func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheCommentsOfTrustedAuth
 		t.Fatalf("prompts = %q", prompts)
 	}
 	inOrder(t, prompts[0],
-		"# Issue\n\n#53 Add points",
+		"# Issue\n\nowner/shop#53 Add points",
 		"# Comments\n\n@mobius-test[bot], ",
 		":\nFirst proposal.\n\n@owner, ",
 		":\nPlease use points.\n",
@@ -276,15 +276,15 @@ func TestACommentWhileTheTriagerRunsStopsItAndStartsANewRun(t *testing.T) {
 	}
 }
 
-func TestTheTriagerChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
+func TestTheCoordinatorChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	changes := listen(t, server)
 
-	sendChat(t, server, triagerChat, "Start a Workstream for loyalty points.")
-	waitForChat(t, server, triagerChat, "Triager", "Title: Loyalty points\n\nBrief: Give points for each order.")
-	sendChat(t, server, triagerChat, "Yes, create it.")
+	sendChat(t, server, coordinatorChat, "Start a Workstream for loyalty points.")
+	waitForChat(t, server, coordinatorChat, "Coordinator", "Title: Loyalty points\n\nBrief: Give points for each order.")
+	sendChat(t, server, coordinatorChat, "Yes, create it.")
 
 	created := waitForChange(t, changes, func(change engine.Change) bool { return change.Created != nil }).Created
 	if *created != (engine.Created{Repository: shop, Number: 13}) {
@@ -298,13 +298,14 @@ func TestTheTriagerChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
 	}
 	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
 		var prompts []string
-		for _, session := range chatSessions(t, server, triagerChat, engine.TriagerRole) {
+		for _, session := range chatSessions(t, server, coordinatorChat, engine.CoordinatorRole) {
 			prompts = append(prompts, promptTexts(t, server, session.ID)...)
 		}
 		return prompts, len(prompts) == 2
 	})
 	for _, part := range []string{
-		"You are the Triager",
+		"You are the Coordinator",
+		"When the Owner pastes a text with no issue number, treat it as a request of the Owner, not as an issue.",
 		"# Open Workstreams\n\n#12 Integrate loyalty plans (owner/shop)\n\nShip loyalty plans to all shops.\n",
 		"# Owner message\n\nStart a Workstream for loyalty points.",
 	} {
@@ -317,7 +318,7 @@ func TestTheTriagerChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
 	}
 }
 
-func TestTheTriagerChatRefusesAnUnknownOrganization(t *testing.T) {
+func TestTheCoordinatorChatRefusesAnUnknownOrganization(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
@@ -336,17 +337,17 @@ func TestTheTriagerChatRefusesAnUnknownOrganization(t *testing.T) {
 	}
 }
 
-func TestANewTriagerChatSessionGetsTheChatHistory(t *testing.T) {
+func TestANewCoordinatorChatSessionGetsTheChatHistory(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
-	sendChat(t, server, triagerChat, "Start a Workstream for loyalty points.")
-	waitForChatSession(t, server, triagerChat, engine.TriagerRole, func(session store.Session) bool { return session.EndReason.String == "idle" })
+	sendChat(t, server, coordinatorChat, "Start a Workstream for loyalty points.")
+	waitForChatSession(t, server, coordinatorChat, engine.CoordinatorRole, func(session store.Session) bool { return session.EndReason.String == "idle" })
 
-	sendChat(t, server, triagerChat, "Yes, create it.")
+	sendChat(t, server, coordinatorChat, "Yes, create it.")
 
 	prompt := testkit.WaitForValue(t, func() (string, bool) {
-		sessions := chatSessions(t, server, triagerChat, engine.TriagerRole)
+		sessions := chatSessions(t, server, coordinatorChat, engine.CoordinatorRole)
 		if len(sessions) < 2 {
 			return "", false
 		}
@@ -364,9 +365,9 @@ func TestANewTriagerChatSessionGetsTheChatHistory(t *testing.T) {
 	}
 }
 
-// researchTriager is a Triager chat that starts a Researcher for a message of the Owner, and answers its report. The
+// researchCoordinator is a Coordinator chat that starts a Researcher for a message of the Owner, and answers its report. The
 // first prompt of a new chat session also has the Role prompt, so the report prompt comes first in the script.
-const researchTriager = `
+const researchCoordinator = `
 [[prompts]]
 when = "# Researcher message"
 reply = ["I have the report."]
@@ -376,22 +377,22 @@ when = "# Owner message"
 call = { tool = "start_researcher", arguments = { question = "Where do plans store the price?" } }
 `
 
-// triagerPrompts gives the prompts of the Triager chat sessions, the oldest first.
-func triagerPrompts(t *testing.T, server *testserver.Server) []string {
+// coordinatorPrompts gives the prompts of the Coordinator chat sessions, the oldest first.
+func coordinatorPrompts(t *testing.T, server *testserver.Server) []string {
 	t.Helper()
 	var texts []string
-	for _, session := range chatSessions(t, server, triagerChat, engine.TriagerRole) {
+	for _, session := range chatSessions(t, server, coordinatorChat, engine.CoordinatorRole) {
 		texts = append(texts, promptTexts(t, server, session.ID)...)
 	}
 	return texts
 }
 
-func TestAReportOfTheResearcherGoesToTheTriagerChat(t *testing.T) {
+func TestAReportOfTheResearcherGoesToTheCoordinatorChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectResearch(t, fake, researchTriager)
+	server, _ := connectResearch(t, fake, researchCoordinator)
 
-	sendChat(t, server, triagerChat, "Where do plans store the price?")
+	sendChat(t, server, coordinatorChat, "Where do plans store the price?")
 
 	session := testkit.WaitForValue(t, func() (store.Session, bool) {
 		sessions := chatSessions(t, server, issueTriagers, engine.ResearcherRole)
@@ -400,7 +401,7 @@ func TestAReportOfTheResearcherGoesToTheTriagerChat(t *testing.T) {
 		}
 		return sessions[0], sessions[0].EndedAt.Valid
 	})
-	if session.EndReason.String != "done" || session.Parent.Int64 != chatSessions(t, server, triagerChat, engine.TriagerRole)[0].ID {
+	if session.EndReason.String != "done" || session.Parent.Int64 != chatSessions(t, server, coordinatorChat, engine.CoordinatorRole)[0].ID {
 		t.Errorf("session = %+v", session)
 	}
 	prompts := promptTexts(t, server, session.ID)
@@ -410,25 +411,25 @@ func TestAReportOfTheResearcherGoesToTheTriagerChat(t *testing.T) {
 	if !strings.Contains(prompts[0], "# Question\n\n"+question) || strings.Contains(prompts[0], "# Brief") {
 		t.Errorf("prompt = %s", prompts[0])
 	}
-	waitForChat(t, server, triagerChat, "Triager", "I have the report.")
+	waitForChat(t, server, coordinatorChat, "Coordinator", "I have the report.")
 	report := fmt.Sprintf("# Researcher message\n\nReport of the Researcher %d on \"%s\":\n\n%s", session.ID, question, reply(t, server, session.ID))
-	if prompts := triagerPrompts(t, server); !slices.ContainsFunc(prompts, func(prompt string) bool { return strings.Contains(prompt, report) }) {
+	if prompts := coordinatorPrompts(t, server); !slices.ContainsFunc(prompts, func(prompt string) bool { return strings.Contains(prompt, report) }) {
 		t.Errorf("prompts = %q", prompts)
 	}
-	messages := chatView(t, server, triagerChat).Messages
+	messages := chatView(t, server, coordinatorChat).Messages
 	if slices.ContainsFunc(messages, func(message store.ChatMessage) bool { return message.Author == "Researcher" }) {
 		t.Errorf("messages = %+v", messages)
 	}
 }
 
-func TestAReportOfTheResearcherStartsANewTriagerChatSession(t *testing.T) {
+func TestAReportOfTheResearcherStartsANewCoordinatorChatSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	gate := filepath.Join(t.TempDir(), "gate")
 	dataDir := t.TempDir()
-	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options+researchTriager)
+	testkit.InstallFakeHarness(t, dataDir, "claude-agent-acp", options+researchCoordinator)
 	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+`
 [[prompts]]
 when = "You are a Researcher"
@@ -437,8 +438,8 @@ shell = "while [ ! -e `+gate+` ]; do sleep 0.05; done"
 `)
 	server := startServerWith(t, fake, testserver.Config(t, dataDir), "")
 	server.WaitForFirstPoll(t, shop)
-	sendChat(t, server, triagerChat, "Where do plans store the price?")
-	first := waitForChatSession(t, server, triagerChat, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	sendChat(t, server, coordinatorChat, "Where do plans store the price?")
+	first := waitForChatSession(t, server, coordinatorChat, engine.CoordinatorRole, func(session store.Session) bool { return session.EndedAt.Valid })
 	if first.EndReason.String != "idle" {
 		t.Fatalf("end reason = %s", first.EndReason.String)
 	}
@@ -447,7 +448,7 @@ shell = "while [ ! -e `+gate+` ]; do sleep 0.05; done"
 		t.Fatal(err)
 	}
 
-	second := waitForChatSession(t, server, triagerChat, engine.TriagerRole, func(session store.Session) bool { return session.ID != first.ID })
+	second := waitForChatSession(t, server, coordinatorChat, engine.CoordinatorRole, func(session store.Session) bool { return session.ID != first.ID })
 	prompt := testkit.WaitForValue(t, func() (string, bool) {
 		prompts := promptTexts(t, server, second.ID)
 		return strings.Join(prompts, ""), len(prompts) > 0
@@ -458,36 +459,20 @@ shell = "while [ ! -e `+gate+` ]; do sleep 0.05; done"
 	}
 }
 
-func TestTheTriagerOfAnIssueGetsARefusalFromStartResearcher(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("start_researcher", `{ question = "Where do plans store the price?" }`))
-	triagerOfIssue := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Repository: shop, Dir: t.TempDir()}
-
-	session := run(t, server, triagerOfIssue, "Research it.")
-
-	if got, want := reply(t, server, session), "error: Only the Triager chat or the Lead chat starts a Researcher."; got != want {
-		t.Errorf("reply = %q, want %q", got, want)
-	}
-	if sessions := chatSessions(t, server, issueTriagers, engine.ResearcherRole); len(sessions) != 0 {
-		t.Errorf("Researchers = %+v", sessions)
-	}
-}
-
-func TestATriagerChatSessionGetsTheImagesOfTheMessageAndATextMarkerForOlderImages(t *testing.T) {
+func TestACoordinatorChatSessionGetsTheImagesOfTheMessageAndATextMarkerForOlderImages(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectScript(t, fake, imageReading+options+"[[prompts]]\nwhen = \"Now plan it.\"\nreply = [\"Second answer\"]\n\n[[prompts]]\nreply = [\"First answer\"]\n", func(*config.Config) {})
-	sendChatImages(t, server, triagerChat, "Look at this", []engine.Image{pngImage, jpegImage})
-	first := waitForChatSession(t, server, triagerChat, engine.TriagerRole, func(session store.Session) bool { return session.EndReason.String == "idle" })
+	sendChatImages(t, server, coordinatorChat, "Look at this", []engine.Image{pngImage, jpegImage})
+	first := waitForChatSession(t, server, coordinatorChat, engine.CoordinatorRole, func(session store.Session) bool { return session.EndReason.String == "idle" })
 	if got, want := reply(t, server, first.ID), "First answer"+imageReply(pngImage)+imageReply(jpegImage); got != want {
 		t.Errorf("reply = %q, want %q", got, want)
 	}
 
-	sendChat(t, server, triagerChat, "Now plan it.")
+	sendChat(t, server, coordinatorChat, "Now plan it.")
 
 	prompt := testkit.WaitForValue(t, func() (string, bool) {
-		sessions := chatSessions(t, server, triagerChat, engine.TriagerRole)
+		sessions := chatSessions(t, server, coordinatorChat, engine.CoordinatorRole)
 		if len(sessions) < 2 {
 			return "", false
 		}
@@ -497,6 +482,6 @@ func TestATriagerChatSessionGetsTheImagesOfTheMessageAndATextMarkerForOlderImage
 	if !strings.Contains(prompt, "):\nLook at this\n[2 images]\n\n") {
 		t.Errorf("prompt = %s", prompt)
 	}
-	second := chatSessions(t, server, triagerChat, engine.TriagerRole)[1]
+	second := chatSessions(t, server, coordinatorChat, engine.CoordinatorRole)[1]
 	testkit.WaitFor(t, func() bool { return reply(t, server, second.ID) == "Second answer" })
 }

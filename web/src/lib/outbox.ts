@@ -58,7 +58,7 @@ export function addQueued(item: Queued) {
   return run("readwrite", (store) => store.add({ ...item, chat: chatKey(item) }));
 }
 
-export function addTriagerMessage(organization: string, text: string) {
+export function addCoordinatorMessage(organization: string, text: string) {
   return addQueued({
     id: newMessageId(),
     organization,

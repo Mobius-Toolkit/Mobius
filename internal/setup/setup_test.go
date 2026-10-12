@@ -94,7 +94,7 @@ func runInit(t *testing.T, answers, configPath, path string) (string, error) {
 	return out.String(), err
 }
 
-// Lead, Triager, Implementer, Researcher, a refused Reviewer, the Reviewer, the Judge, and the Curator: each has a Harness, a model, and an effort.
+// Lead, Coordinator, Triager, Implementer, Researcher, a refused Reviewer, the Reviewer, the Judge, and the Curator: each has a Harness, a model, and an effort.
 const answers = `short
 short
 correct horse
@@ -103,6 +103,9 @@ owner teammate
 
 2
 3
+1
+
+2
 1
 
 2
@@ -157,6 +160,7 @@ trusted_users = ['owner', 'teammate']
 
 [roles]
 lead = {harness = 'claude-code', model = 'opus', effort = 'high'}
+coordinator = {harness = 'claude-code', model = 'sonnet', effort = 'medium'}
 triager = {harness = 'claude-code', model = 'sonnet', effort = 'medium'}
 implementer = {harness = 'devin', model = 'swe-1.5', effort = 'high'}
 researcher = {harness = 'claude-code', model = 'sonnet', effort = 'low'}
@@ -189,7 +193,7 @@ func TestRunLogsInToAntigravityAndOffersIt(t *testing.T) {
 	})
 	configPath := filepath.Join(t.TempDir(), "config.toml")
 	// The Researcher uses Antigravity, and the Implementer uses Devin. The other Roles take the defaults.
-	answers := "correct horse\ncorrect horse\nowner\n\n\n\n\n\n\n3\n\n\n2\n\n\n\n\n\n\n\n\n\n\n"
+	answers := "correct horse\ncorrect horse\nowner\n\n\n\n\n\n\n\n\n\n3\n\n\n2\n\n\n\n\n\n\n\n\n\n\n"
 
 	out, err := runInit(t, answers, configPath, path)
 	if err != nil {
@@ -216,7 +220,7 @@ func TestRunLogsInToAntigravityAndOffersIt(t *testing.T) {
 func TestRunSkipsAHarnessThatIsNotOnPath(t *testing.T) {
 	path := installFakeHarnesses(t, map[config.Harness]harnessScript{config.ClaudeCode: claude})
 	configPath := filepath.Join(t.TempDir(), "config.toml")
-	answers := "correct horse\ncorrect horse\nowner\n" + strings.Repeat("\n\n\n", 4) + "\n2\n\n\n\n\n\n\n\n"
+	answers := "correct horse\ncorrect horse\nowner\n" + strings.Repeat("\n\n\n", 5) + "\n2\n\n\n\n\n\n\n\n"
 
 	out, err := runInit(t, answers, configPath, path)
 	if err != nil {

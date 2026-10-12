@@ -15,7 +15,7 @@ import {
   InboxLayoutPage,
   MemoryPage,
   MemoryRepositoriesPage,
-  TriagerChatPage,
+  CoordinatorChatPage,
   UsagePage,
   WorkstreamsPage,
 } from "./pages";
@@ -48,10 +48,10 @@ const workstreamsRoute = createRoute({
   component: WorkstreamsPage,
 });
 
-const triagerChatRoute = createRoute({
+const coordinatorChatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/chat",
-  component: TriagerChatPage,
+  component: CoordinatorChatPage,
 });
 
 const chatRoute = createRoute({
@@ -159,7 +159,7 @@ const githubRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   unknownRoute,
-  triagerChatRoute,
+  coordinatorChatRoute,
   workstreamsRoute,
   chatRoute,
   inboxRoute.addChildren([inboxTodoRoute, inboxActivityRoute]),

@@ -26,9 +26,9 @@ type Agent struct {
 	Model string `gork:"model"`
 	// Organization is the owner of the repository
 	Organization string `gork:"organization"`
-	// Repository is the repository as "owner/name". It is empty for the Triager chat
+	// Repository is the repository as "owner/name". It is empty for the Coordinator chat
 	Repository string `gork:"repository"`
-	// Workstream is the number of the Workstream issue. It is 0 for the Triager
+	// Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
 	Workstream int64 `gork:"workstream"`
 	// Issue is the one issue that the session works on, or null
 	Issue *int64 `gork:"issue"`
@@ -133,7 +133,7 @@ type AgentGroup struct {
 
 // ActiveAgents are the open sessions of all organizations.
 type ActiveAgents struct {
-	// Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge, Curator
+	// Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator
 	Groups []AgentGroup `gork:"groups"`
 }
 

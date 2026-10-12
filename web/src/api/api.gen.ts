@@ -42,7 +42,7 @@ export interface Agent {
   pausedUntil: string | null;
   /** QueueReason tells why the session waits, for example for a slot or for the end of a usage limit. It is empty while the session does not wait */
   queueReason: string;
-  /** Repository is the repository as "owner/name". It is empty for the Triager chat */
+  /** Repository is the repository as "owner/name". It is empty for the Coordinator chat */
   repository: string;
   /** Role is the Role as the sessions table names it, for example lead_chat */
   role: string;
@@ -52,7 +52,7 @@ export interface Agent {
   title: string;
   /** Working is true while the session works. A chat session works while a turn runs. Another open session works while it does not wait for a slot, for a check slot or for the end of a usage limit */
   working: boolean;
-  /** Workstream is the number of the Workstream issue. It is 0 for the Triager */
+  /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream: number;
 }
 
@@ -97,7 +97,7 @@ export interface AgentGroup {
  * ActiveAgents are the open sessions of all organizations.
  */
 export interface ActiveAgents {
-  /** Groups has one group for each Role, in the order Lead, Triager, Implementer, Researcher, Reviewer, Judge, Curator */
+  /** Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator */
   groups: AgentGroup[];
 }
 
@@ -109,19 +109,19 @@ export interface Activity {
   actor: string;
   /** ID increases with each new activity */
   id: number;
-  /** Issue is the number of the issue of the activity, or 0 for a session of the Triager */
+  /** Issue is the number of the issue of the activity, or 0 for a session of the Coordinator */
   issue: number;
   /** Link is the GitHub URL of the issue of the activity, or empty when the activity has no issue */
   link: string;
-  /** Organization is the owner of the repository, or the organization of the Triager */
+  /** Organization is the owner of the repository, or the organization of the Coordinator chat */
   organization: string;
-  /** Repository is the repository of the Workstream issue, as "owner/name". It is empty for a session of the Triager */
+  /** Repository is the repository of the Workstream issue, as "owner/name". It is empty for a session of the Coordinator */
   repository: string;
   /** Text tells what happened */
   text: string;
   /** Time is the time of the activity */
   time: string;
-  /** Workstream is the number of the Workstream issue. It is 0 for a session of the Triager */
+  /** Workstream is the number of the Workstream issue. It is 0 for a session of the Coordinator */
   workstream: number;
 }
 
@@ -144,7 +144,7 @@ export interface Blocker {
 }
 
 /**
- * Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry
+ * Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry
  */
 export type ChatMessageAuthor = typeof ChatMessageAuthor[keyof typeof ChatMessageAuthor];
 
@@ -153,16 +153,16 @@ export const ChatMessageAuthor = {
   Owner: 'Owner',
   Lead: 'Lead',
   tell_owner: 'tell_owner',
-  Triager: 'Triager',
+  Coordinator: 'Coordinator',
   Mobius: 'Mobius',
   Event: 'Event',
 } as const;
 
 /**
- * ChatMessage is a message of a Lead chat or of the Triager chat.
+ * ChatMessage is a message of a Lead chat or of the Coordinator chat.
  */
 export interface ChatMessage {
-  /** Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry */
+  /** Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry */
   author: ChatMessageAuthor;
   /** BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message */
   browserId: string;
@@ -175,9 +175,9 @@ export interface ChatMessage {
   id: number;
   /** Images is the number of images of the message. GetChatImage gives each image by its position, from 0 */
   images: number;
-  /** Organization is the owner of the repository, or the organization of the Triager chat */
+  /** Organization is the owner of the repository, or the organization of the Coordinator chat */
   organization: string;
-  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository: string;
   /**
      * StoppedAt is the time when a stop of the Owner dropped the message of the Owner before the turn of the agent started, or null for a message that no stop dropped and for another message
@@ -188,12 +188,12 @@ export interface ChatMessage {
   text: string;
   /** Time is the time of the message */
   time: string;
-  /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
+  /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream: number;
 }
 
 /**
- * Chat is a page of the messages of a Lead chat or of the Triager chat.
+ * Chat is a page of the messages of a Lead chat or of the Coordinator chat.
  */
 export interface Chat {
   /** Harness is the Harness of the agent of the chat, for example claude-code */
@@ -217,16 +217,16 @@ export interface Chat {
 export interface ChatState {
   /** Error is the error that ended the last session of the agent, or empty */
   error: string;
-  /** Organization is the owner of the repository, or the organization of the Triager chat */
+  /** Organization is the owner of the repository, or the organization of the Coordinator chat */
   organization: string;
   /**
      * PausedUntil is the end of the usage-limit pause that the agent waits for, or null while the agent does not wait for a pause
      * @nullable
      */
   pausedUntil: string | null;
-  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository: string;
-  /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
+  /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream: number;
   /** Writing is true while the agent has a turn that runs or an item that waits */
   writing: boolean;
@@ -715,11 +715,11 @@ export interface EnvelopeArrayTranscriptLine {
 export interface Unread {
   /** Count is the number of unread messages */
   count: number;
-  /** Organization is the owner of the repository, or the organization of the Triager chat */
+  /** Organization is the owner of the repository, or the organization of the Coordinator chat */
   organization: string;
-  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository: string;
-  /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
+  /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream: number;
 }
 
@@ -1176,11 +1176,11 @@ export interface SaveMemoryBody {
 export interface SeeChatBody {
   /** Message is the id of the last message that the Owner saw */
   message?: number;
-  /** Organization is the owner of the repository, or the organization of the Triager chat */
+  /** Organization is the owner of the repository, or the organization of the Coordinator chat */
   organization?: string;
-  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository?: string;
-  /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
+  /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream?: number;
 }
 
@@ -1189,13 +1189,13 @@ export interface SendChatBody {
   id: string;
   /** Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB */
   images?: (Blob | File)[];
-  /** Organization is the owner of the repository, or the organization of the Triager chat */
+  /** Organization is the owner of the repository, or the organization of the Coordinator chat */
   organization?: string;
-  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository?: string;
   /** Text is the message of the Owner. It is required when the message has no image */
   text: string;
-  /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
+  /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream?: number;
 }
 
@@ -1205,11 +1205,11 @@ export interface SetAutopilotBody {
 }
 
 export interface StopChatBody {
-  /** Organization is the owner of the repository, or the organization of the Triager chat */
+  /** Organization is the owner of the repository, or the organization of the Coordinator chat */
   organization?: string;
-  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat */
+  /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository?: string;
-  /** Workstream is the number of the Workstream issue. It is 0 for the Triager chat */
+  /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream?: number;
 }
 
@@ -1254,15 +1254,15 @@ export type UnprocessableEntityResponse = ErrorResponse;
 
 export type GetChatParams = {
 /**
- * Organization is the owner of the repository, or the organization of the Triager chat
+ * Organization is the owner of the repository, or the organization of the Coordinator chat
  */
 organization?: string;
 /**
- * Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat
+ * Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat
  */
 repository?: string;
 /**
- * Workstream is the number of the Workstream issue. It is 0 for the Triager chat
+ * Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
  */
 workstream?: number;
 /**
@@ -1656,7 +1656,7 @@ export const getGetChatUrl = (params?: GetChatParams,) => {
 }
 
 /**
- * GetChat returns a page of the messages of the Lead chat of a Workstream, or of the Triager chat of an organization.
+ * GetChat returns a page of the messages of the Lead chat of a Workstream, or of the Coordinator chat of an organization.
  */
 export const getChat = async (params?: GetChatParams, ): Promise<getChatResponse> => {
 
@@ -1726,7 +1726,7 @@ export const getSendChatUrl = () => {
 }
 
 /**
- * SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Triager. Mobius starts the agent when none runs. A message with the id of a stored message changes nothing and returns the same status. It returns 400 when the request is larger than 4 images of 5 MB with the text. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
+ * SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Coordinator. Mobius starts the agent when none runs. A message with the id of a stored message changes nothing and returns the same status. It returns 400 when the request is larger than 4 images of 5 MB with the text. It returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
  */
 export const sendChat = async (sendChatBody: SendChatBody, ): Promise<sendChatResponse> => {
     const formData = new FormData();

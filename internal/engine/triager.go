@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"errors"
 	"fmt"
 	"log"
@@ -14,6 +15,9 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
+
+//go:embed prompts/triager.md
+var triagerPrompt string
 
 // triageKey names the Triager session of one issue.
 type triageKey struct {
@@ -161,7 +165,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		return fail(err)
 	}
 	e.launchTriagerComments(ctx, repository, comments)
-	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n#%d %s\n\n%s", triagerPrompt, workstreams, number, issue.GetTitle(), issue.GetBody())
+	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n%s#%d %s\n\n%s", triagerPrompt, workstreams, repository.FullName, number, issue.GetTitle(), issue.GetBody())
 	comments = slices.DeleteFunc(comments, func(comment *gh.IssueComment) bool {
 		return !e.TrustedAuthor(repository.AppSlug, comment.GetUser().GetLogin())
 	})

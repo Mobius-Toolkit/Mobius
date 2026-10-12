@@ -57,6 +57,7 @@ lead_idle_timeout = "300ms"
 
 [roles]
 lead        = { harness = "claude-code", model = "opus",    effort = "high" }
+coordinator = { harness = "claude-code", model = "sonnet",  effort = "medium" }
 triager     = { harness = "claude-code", model = "sonnet",  effort = "medium" }
 implementer = { harness = "devin",       model = "swe-1.5", effort = "high" }
 researcher  = { harness = "antigravity", model = "gemini-3-pro" }

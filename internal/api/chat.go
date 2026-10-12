@@ -16,19 +16,19 @@ import (
 // imageTypes are the MIME types of the images of a message.
 var imageTypes = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
 
-// ChatMessage is a message of a Lead chat or of the Triager chat.
+// ChatMessage is a message of a Lead chat or of the Coordinator chat.
 type ChatMessage struct {
 	// ID increases with each new message of all chats
 	ID int64 `gork:"id"`
-	// Organization is the owner of the repository, or the organization of the Triager chat
+	// Organization is the owner of the repository, or the organization of the Coordinator chat
 	Organization string `gork:"organization"`
-	// Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat
+	// Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat
 	Repository string `gork:"repository"`
-	// Workstream is the number of the Workstream issue. It is 0 for the Triager chat
+	// Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
 	Workstream int64 `gork:"workstream"`
-	// Author is Owner, Lead, Triager, tell_owner for a message of the Lead to the Owner, Mobius for a message of
+	// Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of
 	// Mobius, or Event for a Lead event, which the chat shows as a muted entry
-	Author string `gork:"author" validate:"oneof=Owner Lead tell_owner Triager Mobius Event"`
+	Author string `gork:"author" validate:"oneof=Owner Lead tell_owner Coordinator Mobius Event"`
 	// Time is the time of the message
 	Time time.Time `gork:"time"`
 	// Text is the text of the message
@@ -45,7 +45,7 @@ type ChatMessage struct {
 	StoppedAt *time.Time `gork:"stoppedAt"`
 }
 
-// Chat is a page of the messages of a Lead chat or of the Triager chat.
+// Chat is a page of the messages of a Lead chat or of the Coordinator chat.
 type Chat struct {
 	// Messages are the messages of the page, the oldest first
 	Messages []ChatMessage `gork:"messages"`
@@ -62,11 +62,11 @@ type Chat struct {
 // GetChatRequest is the request of GetChat.
 type GetChatRequest struct {
 	Query struct {
-		// Organization is the owner of the repository, or the organization of the Triager chat
+		// Organization is the owner of the repository, or the organization of the Coordinator chat
 		Organization string `gork:"organization"`
-		// Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat
+		// Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat
 		Repository string `gork:"repository"`
-		// Workstream is the number of the Workstream issue. It is 0 for the Triager chat
+		// Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
 		Workstream int64 `gork:"workstream"`
 		// Before is the id of a message. The page has at most 20 messages with an id below Before. With no Before,
 		// the page has the newest 20 messages
@@ -79,7 +79,7 @@ type GetChatResponse struct {
 	Body Envelope[Chat]
 }
 
-// GetChat returns a page of the messages of the Lead chat of a Workstream, or of the Triager chat of an organization.
+// GetChat returns a page of the messages of the Lead chat of a Workstream, or of the Coordinator chat of an organization.
 func (h *handlers) GetChat(ctx context.Context, req GetChatRequest) (*GetChatResponse, error) {
 	query := req.Query
 	view, err := h.engine.ChatView(ctx, engine.ChatKey{Organization: query.Organization, Repository: query.Repository, Workstream: query.Workstream}, query.Before)
@@ -100,11 +100,11 @@ func (h *handlers) GetChat(ctx context.Context, req GetChatRequest) (*GetChatRes
 // SendChatRequest is the request of SendChat.
 type SendChatRequest struct {
 	Body struct {
-		// Organization is the owner of the repository, or the organization of the Triager chat
+		// Organization is the owner of the repository, or the organization of the Coordinator chat
 		Organization string `gork:"organization"`
-		// Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat
+		// Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat
 		Repository string `gork:"repository"`
-		// Workstream is the number of the Workstream issue. It is 0 for the Triager chat
+		// Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
 		Workstream int64 `gork:"workstream"`
 		// ID is the id that the browser gives to the message. A message with an id that another message has is not
 		// stored again, and the response is the same
@@ -126,7 +126,7 @@ func (r *SendChatRequest) Validate() error {
 	return nil
 }
 
-// SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Triager. Mobius
+// SendChat adds a message of the Owner with its images to the chat, and gives it to the Lead or to the Coordinator. Mobius
 // starts the agent when none runs. A message with the id of a stored message changes nothing and returns the same
 // status. It returns 400 when the request is larger than 4 images of 5 MB with the text. It
 // returns 409 when the organization has no repository of Mobius, or while Mobius restarts for an upgrade.
@@ -175,11 +175,11 @@ func (h *handlers) GetChatImage(_ context.Context, req GetChatImageRequest) (*Ge
 // StopChatRequest is the request of StopChat.
 type StopChatRequest struct {
 	Body struct {
-		// Organization is the owner of the repository, or the organization of the Triager chat
+		// Organization is the owner of the repository, or the organization of the Coordinator chat
 		Organization string `gork:"organization"`
-		// Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat
+		// Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat
 		Repository string `gork:"repository"`
-		// Workstream is the number of the Workstream issue. It is 0 for the Triager chat
+		// Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
 		Workstream int64 `gork:"workstream"`
 	}
 }
@@ -193,11 +193,11 @@ func (h *handlers) StopChat(ctx context.Context, req StopChatRequest) error {
 // SeeChatRequest is the request of SeeChat.
 type SeeChatRequest struct {
 	Body struct {
-		// Organization is the owner of the repository, or the organization of the Triager chat
+		// Organization is the owner of the repository, or the organization of the Coordinator chat
 		Organization string `gork:"organization"`
-		// Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat
+		// Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat
 		Repository string `gork:"repository"`
-		// Workstream is the number of the Workstream issue. It is 0 for the Triager chat
+		// Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
 		Workstream int64 `gork:"workstream"`
 		// Message is the id of the last message that the Owner saw
 		Message int64 `gork:"message"`
@@ -213,11 +213,11 @@ func (h *handlers) SeeChat(ctx context.Context, req SeeChatRequest) error {
 
 // Unread is the number of unread messages of a chat. The messages of the Owner and the Lead events are never unread.
 type Unread struct {
-	// Organization is the owner of the repository, or the organization of the Triager chat
+	// Organization is the owner of the repository, or the organization of the Coordinator chat
 	Organization string `gork:"organization"`
-	// Repository is the repository of the Workstream as "owner/name". It is empty for the Triager chat
+	// Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat
 	Repository string `gork:"repository"`
-	// Workstream is the number of the Workstream issue. It is 0 for the Triager chat
+	// Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
 	Workstream int64 `gork:"workstream"`
 	// Count is the number of unread messages
 	Count int64 `gork:"count"`

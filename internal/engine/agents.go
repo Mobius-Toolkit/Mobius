@@ -37,7 +37,7 @@ var errNoTools = errors.New("the session sent no tools/list, so it has no Mobius
 type Spec struct {
 	// Role is a Role of the sessions table, for example LeadRole. The session runs on the Role binding of its Role.
 	Role string
-	// Organization is the owner of Repository. The Triager chat has an organization and an empty Repository.
+	// Organization is the owner of Repository. The Coordinator chat has an organization and an empty Repository.
 	Organization string
 	Repository   string
 	// Workstream is the number of the Workstream issue. The Triager has 0.
@@ -157,7 +157,7 @@ type Node struct {
 // Change is a change for the live event stream: a new, changed or ended session, a new or changed Transcript line,
 // a change of the drain, a change of the error of the last upgrade, a change of the Workstream list, a change of the
 // repositories of the Apps, a new or longer chat message, a new unread count of a chat, a new state of a chat, a new or
-// dismissed Inbox item, or a Workstream that the Triager chat created. It has one field that is not empty.
+// dismissed Inbox item, or a Workstream that the Coordinator chat created. It has one field that is not empty.
 type Change struct {
 	Node  *Node
 	Line  *Line
@@ -174,7 +174,7 @@ type Change struct {
 	Created      *Created
 }
 
-// Created is a Workstream that the Triager chat created.
+// Created is a Workstream that the Coordinator chat created.
 type Created struct {
 	Repository string
 	Number     int64
@@ -737,12 +737,12 @@ func (e *Engine) publishRow(row store.Transcript, folded bool) error {
 
 func (e *Engine) node(session store.Session) Node {
 	var n Node
-	switch {
-	case session.Role == LeadRole:
+	switch session.Role {
+	case LeadRole:
 		n = Node{Session: session, Name: "Lead", Title: "chat session"}
-	case session.Role == TriagerRole && session.Repository == "":
-		n = Node{Session: session, Name: "Triager", Title: "chat session"}
-	case session.Role == TriagerRole:
+	case CoordinatorRole:
+		n = Node{Session: session, Name: "Coordinator", Title: "chat session"}
+	case TriagerRole:
 		n = Node{Session: session, Name: "Triager", Title: session.Repository}
 	default:
 		n = Node{Session: session, Name: session.Role}
@@ -796,7 +796,7 @@ type AgentGroup struct {
 	Agents []ActiveAgent
 }
 
-// ActiveAgents is the open sessions of all organizations in one group for each Role, in the order Lead, Triager,
+// ActiveAgents is the open sessions of all organizations in one group for each Role, in the order Lead, Coordinator, Triager,
 // Implementer, Researcher, Reviewer, Judge, Curator.
 type ActiveAgents struct {
 	Groups []AgentGroup

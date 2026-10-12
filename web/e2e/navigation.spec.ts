@@ -45,7 +45,7 @@ test("the page of a Workstream that is not open shows the Workstream list", asyn
   await expect(page).toHaveURL("/inbox");
 });
 
-test("the start page and an unknown path open the Triager chat", async ({ page }) => {
+test("the start page and an unknown path open the Coordinator chat", async ({ page }) => {
   for (const path of [
     "/",
     "/nowhere",
@@ -56,7 +56,7 @@ test("the start page and an unknown path open the Triager chat", async ({ page }
   ]) {
     await page.goto(path);
     await expect(page).toHaveURL("/chat");
-    await expect(page.getByLabel("Message to the Triager")).toBeVisible();
+    await expect(page.getByLabel("Message to the Coordinator")).toBeVisible();
   }
 });
 

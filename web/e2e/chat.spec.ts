@@ -815,8 +815,8 @@ test("the messages that came while the connection was down show after the reconn
   await expect(page.getByText("Seed note 30.")).toHaveCount(0);
 });
 
-test("the Triager chat stays open after its actions", async ({ page }) => {
-  const input = page.getByLabel("Message to the Triager");
+test("the Coordinator chat stays open after its actions", async ({ page }) => {
+  const input = page.getByLabel("Message to the Coordinator");
   const send = page.getByRole("button", { name: "Send" });
   for (const [size, create, move, title, issue] of [
     [undefined, "Create the desktop Workstream.", "Move #7 to the Workstream.", "Desktop plans", 7],
@@ -841,22 +841,22 @@ test("the Triager chat stays open after its actions", async ({ page }) => {
 
 test("each chat keeps the text that the Owner did not send", async ({ page }) => {
   const lead = page.getByLabel("Message to the Lead");
-  const triager = page.getByLabel("Message to the Triager");
+  const coordinator = page.getByLabel("Message to the Coordinator");
   const devices = page.locator('nav a[href="/devices"]').filter({ visible: true });
 
   await page.goto("/chat");
-  await triager.fill("Plan the garden");
+  await coordinator.fill("Plan the garden");
   await devices.click();
   await expect(page).toHaveURL("/devices");
   await page.goBack();
-  await expect(triager).toHaveValue("Plan the garden");
+  await expect(coordinator).toHaveValue("Plan the garden");
   await page.reload();
-  await expect(triager).toHaveValue("Plan the garden");
+  await expect(coordinator).toHaveValue("Plan the garden");
   await page.route("/api/chat/messages", (route) => route.fulfill({ status: 204 }));
   await page.getByRole("button", { name: "Send" }).click();
-  await expect(triager).toHaveValue("");
+  await expect(coordinator).toHaveValue("");
   await page.reload();
-  await expect(triager).toHaveValue("");
+  await expect(coordinator).toHaveValue("");
 
   await page.goto("/workstreams/plants/garden/19");
   await lead.fill("Water the roses");
@@ -1096,7 +1096,7 @@ test("the voice button adds the spoken text to the message", async ({ page }) =>
   }`);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   const mic = main.getByRole("button", { name: "Start voice input", exact: true });
   await input.fill("Plant");
   await mic.click();
@@ -1162,7 +1162,7 @@ test("two result events add the spoken text once", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "red");
   await expect(input).toHaveValue("red");
@@ -1179,7 +1179,7 @@ test("a final result that repeats the final result before it adds only the new t
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "red", "red...");
   await expect(input).toHaveValue("red");
@@ -1193,7 +1193,7 @@ test("two final results in one event that extend each other add one space", asyn
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "red", "red roses");
   await expect(input).toHaveValue("red roses");
@@ -1205,7 +1205,7 @@ test("an interim result shows in the field and a later interim result replaces i
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await input.fill("Plant");
   await input.blur();
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
@@ -1221,7 +1221,7 @@ test("a final result replaces the draft and does not repeat it", async ({ page }
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "red roses...");
   await result(page, "red roses");
@@ -1238,7 +1238,7 @@ test("an end with only a draft keeps the draft text and the next run adds after 
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await emit(page, "audiostart");
   await result(page, "red roses...");
@@ -1256,7 +1256,7 @@ test("a final result after Stop and before the end adds the text one time", asyn
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "red roses...");
   await main.getByRole("button", { name: "Stop voice input" }).click();
@@ -1286,7 +1286,7 @@ test("the field scrolls to the end of the voice text", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await input.fill(Array.from({ length: 20 }, (_, index) => `Line ${index}`).join("\n"));
   await input.blur();
   await input.evaluate((field) => {
@@ -1315,7 +1315,7 @@ test("text that the user types during a recording stays", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "red roses...");
   await expect(input).toHaveValue("red roses");
@@ -1333,7 +1333,7 @@ test("a final result with other words than the draft does not move the new words
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "send an e mail...");
   await expect(input).toHaveValue("send an e mail");
@@ -1351,7 +1351,7 @@ test("a draft with more than one result does not repeat its words after a touch"
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "hello world...", "how...");
   await expect(input).toHaveValue("hello world how");
@@ -1367,7 +1367,7 @@ test("a draft that repeats the last final text does not show the repeated words"
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "red", "red...");
   await expect(input).toHaveValue("red");
@@ -1381,7 +1381,7 @@ test("a run that ends with a draft that repeats the last final text keeps the wo
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "red", "red roses...");
   await emit(page, "end");
@@ -1394,7 +1394,7 @@ test("the field scrolls to the voice text that goes in at the cursor before othe
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   const lines = Array.from({ length: 20 }, (_, index) => `Line ${index}`);
   await input.fill(lines.join("\n"));
   const cursor = lines.slice(0, 13).join("\n").length;
@@ -1425,7 +1425,7 @@ test("the spoken text goes in at the cursor", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await input.fill("Plant roses");
   await select(page, 5, 5);
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
@@ -1443,7 +1443,7 @@ test("the spoken text replaces the selection", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await input.fill("Plant red roses.");
   await select(page, 6, 9);
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
@@ -1495,7 +1495,7 @@ test("a result of the old run after a new start does not come into the new recor
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await result(page, "hello world...");
   await expect(input).toHaveValue("hello world");
@@ -1563,7 +1563,7 @@ test("each recording adds its text after the existing text", async ({ page }) =>
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   const mic = main.getByRole("button", { name: "Start voice input", exact: true });
   await input.fill("Plant");
   await input.blur();
@@ -1592,7 +1592,7 @@ test("the spoken text goes at the end when the textarea has no focus", async ({ 
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await input.fill("Plant roses");
   await select(page, 5, 5);
   await input.blur();
@@ -1606,7 +1606,7 @@ test("a session that the browser ends restarts", async ({ page }) => {
   await page.addInitScript(fakeRecognition);
   await page.goto("/chat");
   const main = page.getByRole("main");
-  const input = page.getByLabel("Message to the Triager");
+  const input = page.getByLabel("Message to the Coordinator");
   await main.getByRole("button", { name: "Start voice input", exact: true }).click();
   await emit(page, "audiostart");
   await result(page, "red");
@@ -2602,7 +2602,7 @@ test.describe("the state of an Owner message", () => {
     await expectStates(page);
   });
 
-  test("the Triager chat shows an icon for each state", async ({ page }) => {
+  test("the Coordinator chat shows an icon for each state", async ({ page }) => {
     await showStates(page, "owner", "", 0);
     await page.goto("/chat");
     await expectStates(page);

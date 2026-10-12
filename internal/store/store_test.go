@@ -595,6 +595,61 @@ func TestTheTasksTableAcceptsTheAskedStatesAndKeepsTheStateTrigger(t *testing.T)
 	}
 }
 
+func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		"DELETE FROM goose_db_version WHERE version_id >= 20261105000000",
+		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, started_at) VALUES
+			(1, 'triager', 'claude-code', 'sonnet', 'owner', '', 0, '2026-10-04T10:00:00Z'),
+			(2, 'triager', 'claude-code', 'sonnet', 'owner', 'owner/shop', 0, '2026-10-04T10:00:00Z'),
+			(3, 'lead', 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, '2026-10-04T10:00:00Z')`,
+		`INSERT INTO chat_messages (id, organization, repository, workstream, author, time, text) VALUES
+			(1, 'owner', '', 0, 'Triager', '2026-10-04T10:00:00Z', 'Hello'),
+			(2, 'owner', '', 0, 'Owner', '2026-10-04T10:00:00Z', 'Hi'),
+			(3, 'owner', 'owner/shop', 12, 'Lead', '2026-10-04T10:00:00Z', 'Done')`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err = Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	got := func(query string) string {
+		var values []string
+		rows, err := db.Query(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var value string
+			if err := rows.Scan(&value); err != nil {
+				t.Fatal(err)
+			}
+			values = append(values, value)
+		}
+		return strings.Join(values, " ")
+	}
+	if roles := got("SELECT role FROM sessions ORDER BY id"); roles != "coordinator triager lead" {
+		t.Errorf("roles = %q", roles)
+	}
+	if authors := got("SELECT author FROM chat_messages ORDER BY id"); authors != "Coordinator Owner Lead" {
+		t.Errorf("authors = %q", authors)
+	}
+}
+
 func fileSize(t *testing.T, path string) int64 {
 	t.Helper()
 	info, err := os.Stat(path)

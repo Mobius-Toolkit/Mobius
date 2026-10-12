@@ -2,7 +2,7 @@ import { PageHeader } from "@/components/page";
 import { Conversation } from "./Conversation";
 import { TopBar } from "./TopBar";
 
-export function TriagerChat({
+export function CoordinatorChat({
   organizations,
   organization,
   unread,
@@ -20,7 +20,7 @@ export function TriagerChat({
         <div className="grid grow content-start gap-6 p-4 md:mx-auto md:my-6 md:w-[min(48rem,calc(100%-3rem))] md:grow-0 md:self-start md:rounded-xl md:border md:bg-card md:p-6">
           <PageHeader title="Chat" />
           <p className="text-muted-foreground">
-            Mobius reads the repositories from GitHub. The Triager chat opens after this step.
+            Mobius reads the repositories from GitHub. The Coordinator chat opens after this step.
           </p>
         </div>
       </>
@@ -34,7 +34,7 @@ export function TriagerChat({
         organization={organization}
         repository=""
         workstream={0}
-        agent="Triager"
+        agent="Coordinator"
         source={source}
         unread={unread}
         head={

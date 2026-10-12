@@ -21,6 +21,7 @@ import (
 // The Roles of the sessions table that take a slot.
 const (
 	LeadRole        = "lead_chat"
+	CoordinatorRole = "coordinator"
 	TriagerRole     = "triager"
 	ImplementerRole = "implementer"
 	ResearcherRole  = "researcher"
@@ -37,6 +38,7 @@ type group struct {
 // groups are the Roles that take a slot, in the order of the agents page.
 var groups = []group{
 	{LeadRole, "lead", "Lead"},
+	{CoordinatorRole, "coordinator", "Coordinator"},
 	{TriagerRole, "triager", "Triager"},
 	{ImplementerRole, "implementer", "Implementer"},
 	{ResearcherRole, "researcher", "Researcher"},
@@ -57,6 +59,8 @@ func roleBinding(cfg *config.Config, role string) (config.RoleBinding, bool) {
 	switch role {
 	case LeadRole:
 		return roles.Lead, true
+	case CoordinatorRole:
+		return roles.Coordinator, true
 	case TriagerRole:
 		return roles.Triager, true
 	case ImplementerRole:

@@ -1,6 +1,6 @@
 // Package engine holds the work of Mobius on the managed repositories: the poll, the Mobius labels, the checkup,
 // the trust rules, the Workstreams with their local copy, the Autopilot switch and the close, the dispatch, the Lead
-// chat with the Lead events, the Triager, the Inbox, the Tasks tab, the Implementer with the local check and the pull
+// chat with the Lead events, the Coordinator, the Triager, the Inbox, the Tasks tab, the Implementer with the local check and the pull
 // request, the Reviewer with the review rounds, the Judge, the fix rounds and the conflict rounds, the end of a task,
 // the Researcher, the agent sessions with their Mobius tools and Transcripts, the Worker slots, the usage-limit pauses,
 // the Housekeeper, the recovery after a restart, the drain and the upgrade.

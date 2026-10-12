@@ -4,7 +4,7 @@ Your prompt has these items:
 
 - The section "Memory" has the current text of the memory file. When the file is empty, the section is not there.
 - The section "Last versions of the memory file" has the time, the author and the reason of the last 20 versions, newest first. The author is `curator` or `owner`.
-- The section "Requests of the Owner" has the requests that the Owner gave through the Triager. It is not there when the Owner made no request.
+- The section "Requests of the Owner" has the requests that the Owner gave through the Coordinator. It is not there when the Owner made no request.
 - The sections "Notes of the Lead of Workstream" have the notes of the Leads of the repository. Each section has one subsection for each `.md` file of the Lead. The subsection name is the path of the file. You only read these notes.
 - A section of a Workstream is there only when one of its files changed after the start of the last Curator run. The last Curator already read the other Workstreams.
 - Sections that show what went wrong in the sessions of the repository since the start of the last Curator run. A section is not there when it has no item. The next part, "Items of the sessions", tells how to use them.

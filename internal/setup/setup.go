@@ -47,6 +47,7 @@ type configFile struct {
 	TrustedUsers   []string `toml:"trusted_users"`
 	Roles          struct {
 		Lead        binding `toml:"lead,inline"`
+		Coordinator binding `toml:"coordinator,inline"`
 		Triager     binding `toml:"triager,inline"`
 		Implementer binding `toml:"implementer,inline"`
 		Researcher  binding `toml:"researcher,inline"`
@@ -124,6 +125,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, configPath, path stri
 		binding *binding
 	}{
 		{"Lead", &file.Roles.Lead},
+		{"Coordinator", &file.Roles.Coordinator},
 		{"Triager", &file.Roles.Triager},
 		{"Implementer", &file.Roles.Implementer},
 		{"Researcher", &file.Roles.Researcher},

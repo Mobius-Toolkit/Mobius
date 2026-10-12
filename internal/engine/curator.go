@@ -89,11 +89,8 @@ func (e *Engine) startCurator(ctx context.Context, repository string) error {
 }
 
 // tellCurator saves the request of the Owner and gives it to a Curator of the repository of the input. While a Curator
-// of the repository runs, the request waits for the next Curator. The result goes to the Triager chat.
+// of the repository runs, the request waits for the next Curator. The result goes to the Coordinator chat.
 func (e *Engine) tellCurator(ctx context.Context, c caller, _ github.Repository, input tellCuratorInput) (string, error) {
-	if c.repository != "" {
-		return "", refuse("Only the Triager chat tells the Curator, after the Owner approves it.")
-	}
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
@@ -127,7 +124,7 @@ func (e *Engine) startCuratorLocked(ctx context.Context, repository string) erro
 }
 
 // runCurator adds a Curator session for repository and runs it in the background. It takes the requests of the Owner
-// that wait. A request stays in the store until the Triager chat gets the result, so a restart of Mobius keeps it. At
+// that wait. A request stays in the store until the Coordinator chat gets the result, so a restart of Mobius keeps it. At
 // its end, the Curator that waits starts. The caller holds curatorsMu and has set e.curators[repository].
 func (e *Engine) runCurator(ctx context.Context, repository string) error {
 	if e.ended() {
@@ -170,7 +167,7 @@ func (e *Engine) runCurator(ctx context.Context, repository string) error {
 }
 
 // curate runs the session a of the Curator in a worktree that is detached at the default branch. When requests of the
-// Owner are not empty, the Triager chat gets the result.
+// Owner are not empty, the Coordinator chat gets the result.
 func (e *Engine) curate(ctx context.Context, a *Agent, requests []store.ListCuratorRequestsRow) error {
 	repository := a.spec.Repository
 	newest, err := e.queries.GetNewestMemoryVersionID(ctx, repository)
@@ -203,7 +200,7 @@ func (e *Engine) curate(ctx context.Context, a *Agent, requests []store.ListCura
 	return errors.Join(endErr, e.answerRequests(ended, a, requests, newest, failure))
 }
 
-// answerRequests gives the result of the session a of the Curator on requests to the Triager chat, and then removes the
+// answerRequests gives the result of the session a of the Curator on requests to the Coordinator chat, and then removes the
 // requests from the store. When the delivery fails, the requests stay, so the next Curator or the next run of Mobius
 // answers them. A stop of Mobius does not call it, so the next run of Mobius starts a Curator for them.
 func (e *Engine) answerRequests(ctx context.Context, a *Agent, requests []store.ListCuratorRequestsRow, newest int64, failure string) error {
@@ -216,7 +213,7 @@ func (e *Engine) answerRequests(ctx context.Context, a *Agent, requests []store.
 	return e.queries.DeleteCuratorRequestsUpTo(ctx, store.DeleteCuratorRequestsUpToParams{Repository: a.spec.Repository, ID: requests[len(requests)-1].ID})
 }
 
-// deliverCuratorResult gives the result of the session a of the Curator on requests to the Triager chat as a Curator
+// deliverCuratorResult gives the result of the session a of the Curator on requests to the Coordinator chat as a Curator
 // message. newest is the newest version of the memory file before the session. failure is "" when the session is done.
 func (e *Engine) deliverCuratorResult(ctx context.Context, a *Agent, requests []store.ListCuratorRequestsRow, newest int64, failure string) error {
 	reasons, err := e.queries.ListCuratorReasonsAfter(ctx, store.ListCuratorReasonsAfterParams{Repository: a.spec.Repository, ID: newest})

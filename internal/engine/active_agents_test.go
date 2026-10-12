@@ -85,7 +85,7 @@ func TestTheAgentsPageCountsTheOpenSessionsOfEachRoleAgainstItsLimit(t *testing.
 	for _, g := range got.Groups {
 		groups = append(groups, group{g.Name, g.Count, g.Max, len(g.Agents)})
 	}
-	want := []group{{"Lead", 1, 8, 1}, {"Triager", 0, 12, 0}, {"Implementer", 1, 3, 1}, {"Researcher", 1, 1, 2}, {"Reviewer", 0, 2, 0}, {"Judge", 0, 2, 0}, {"Curator", 0, 2, 0}}
+	want := []group{{"Lead", 1, 8, 1}, {"Coordinator", 0, 12, 0}, {"Triager", 0, 12, 0}, {"Implementer", 1, 3, 1}, {"Researcher", 1, 1, 2}, {"Reviewer", 0, 2, 0}, {"Judge", 0, 2, 0}, {"Curator", 0, 2, 0}}
 	if !reflect.DeepEqual(groups, want) {
 		t.Fatalf("overview = %+v", groups)
 	}
@@ -94,11 +94,11 @@ func TestTheAgentsPageCountsTheOpenSessionsOfEachRoleAgainstItsLimit(t *testing.
 		leadRow.Workstream != 12 || leadRow.Issue != nil || leadRow.QueueReason != "" {
 		t.Errorf("Lead = %+v", leadRow)
 	}
-	implementerRow := got.Groups[2].Agents[0].Agent
+	implementerRow := got.Groups[3].Agents[0].Agent
 	if implementerRow.Role != engine.ImplementerRole || implementerRow.Issue == nil || *implementerRow.Issue != 41 {
 		t.Errorf("Implementer = %+v", implementerRow)
 	}
-	researchers := got.Groups[3].Agents
+	researchers := got.Groups[4].Agents
 	if researchers[0].Agent.Workstream != 12 || researchers[0].Agent.Issue != nil || researchers[1].Agent.QueueReason != "no free researcher slot (1/1)" {
 		t.Errorf("Researchers = %+v", researchers)
 	}
@@ -114,7 +114,7 @@ func TestEachRowShowsTheWorkstreamTheTicketAndThePullRequestWhenTheyExist(t *tes
 		`INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, started_at)
 		 VALUES ('implementer', 'devin', 'model', 'owner', 'owner/shop', 12, 41, '2026-10-04T10:00:00Z'),
 		        ('researcher', 'antigravity', 'model', 'owner', 'owner/shop', 12, NULL, '2026-10-04T10:00:00Z'),
-		        ('triager', 'claude-code', 'model', 'owner', '', 0, NULL, '2026-10-04T10:00:00Z')`,
+		        ('coordinator', 'claude-code', 'model', 'owner', '', 0, NULL, '2026-10-04T10:00:00Z')`,
 		`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request) VALUES ('owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', 42)`,
 	} {
 		if _, err := server.DB.Exec(statement); err != nil {
@@ -130,13 +130,13 @@ func TestEachRowShowsTheWorkstreamTheTicketAndThePullRequestWhenTheyExist(t *tes
 	}
 	str := func(text string) *string { return &text }
 	pullRequest := int64(42)
-	if want := []any{str("Integrate loyalty plans"), str("Add plan model"), &pullRequest}; !reflect.DeepEqual(row(2), want) {
-		t.Errorf("Implementer = %v", row(2))
+	if want := []any{str("Integrate loyalty plans"), str("Add plan model"), &pullRequest}; !reflect.DeepEqual(row(3), want) {
+		t.Errorf("Implementer = %v", row(3))
 	}
-	if want := []any{str("Integrate loyalty plans"), (*string)(nil), (*int64)(nil)}; !reflect.DeepEqual(row(3), want) {
-		t.Errorf("Researcher = %v", row(3))
+	if want := []any{str("Integrate loyalty plans"), (*string)(nil), (*int64)(nil)}; !reflect.DeepEqual(row(4), want) {
+		t.Errorf("Researcher = %v", row(4))
 	}
 	if want := []any{(*string)(nil), (*string)(nil), (*int64)(nil)}; !reflect.DeepEqual(row(1), want) {
-		t.Errorf("Triager = %v", row(1))
+		t.Errorf("Coordinator = %v", row(1))
 	}
 }
