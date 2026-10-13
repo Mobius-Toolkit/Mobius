@@ -156,7 +156,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err != nil {
 		return fail(err)
 	}
-	workstreams, err := openWorkstreams(ctx, []github.Repository{repository})
+	workstreams, err := e.openWorkstreams(ctx, []github.Repository{repository})
 	if err != nil {
 		return fail(err)
 	}
@@ -235,17 +235,19 @@ func (e *Engine) organizationRepositories(organization string) []github.Reposito
 	return slices.DeleteFunc(e.github.Repositories(), func(repository github.Repository) bool { return repository.Owner() != organization })
 }
 
-// openWorkstreams gives the prompt section of the open Workstreams of the repositories.
-func openWorkstreams(ctx context.Context, repositories []github.Repository) (string, error) {
+// openWorkstreams gives the prompt section of the open Workstreams of the repositories, from the local copy.
+func (e *Engine) openWorkstreams(ctx context.Context, repositories []github.Repository) (string, error) {
+	copied, err := e.queries.ListCopiedWorkstreams(ctx)
+	if err != nil {
+		return "", err
+	}
 	var text strings.Builder
 	text.WriteString("# Open Workstreams\n")
 	for _, repository := range repositories {
-		issues, err := repository.OpenIssuesWithLabel(ctx, workstreamLabel)
-		if err != nil {
-			return "", err
-		}
-		for _, issue := range issues {
-			fmt.Fprintf(&text, "\n#%d %s (%s)\n\n%s\n", issue.GetNumber(), issue.GetTitle(), repository.FullName, issue.GetBody())
+		for _, workstream := range copied {
+			if workstream.Repository == repository.FullName {
+				fmt.Fprintf(&text, "\n#%d %s (%s)\n\n%s\n", workstream.Number, workstream.Title, repository.FullName, workstream.Body)
+			}
 		}
 	}
 	return text.String(), nil

@@ -79,7 +79,34 @@ func connectTriager(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server,
 	t.Helper()
 	server, dataDir := connect(t, fake, triager)
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	waitForPoll(t, server, fake)
 	return server, dataDir
+}
+
+func TestANewCoordinatorChatSessionStartsWhileGitHubRefusesEachRequest(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.SetRateLimited(true)
+
+	sendChat(t, server, coordinatorChat, "Which Workstreams are open?")
+
+	prompt := testkit.WaitForValue(t, func() (string, bool) {
+		for _, session := range chatSessions(t, server, coordinatorChat, engine.CoordinatorRole) {
+			if prompts := promptTexts(t, server, session.ID); len(prompts) > 0 {
+				return prompts[0], true
+			}
+		}
+		return "", false
+	})
+	for _, part := range []string{
+		"# Open Workstreams\n\n#12 Integrate loyalty plans (owner/shop)\n\nShip loyalty plans to all shops.\n",
+		"# Owner message\n\nWhich Workstreams are open?",
+	} {
+		if !strings.Contains(prompt, part) {
+			t.Errorf("%q not in %s", part, prompt)
+		}
+	}
 }
 
 func TestAnIssueWithNoWorkstreamGoesToTheTriagerThatMovesIt(t *testing.T) {

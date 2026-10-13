@@ -123,6 +123,8 @@ func TestTheFirstPromptHasTheContextAndEachLaterTurnHasOneEvent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(lead, "MEMORY.md"), []byte("- [Plans](plans.md)\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	waitForPoll(t, server, fake)
+	waitForTasks(t, server, []taskLine{line(41, "Add plan model", "open", 0)})
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	liveTaskOf(t, server, 41)
 	testkit.WaitFor(t, func() bool { return len(leadPrompts(t, server)) == 1 })

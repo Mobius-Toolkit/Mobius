@@ -982,7 +982,7 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 		if err != nil {
 			return "", nil, err
 		}
-		workstreams, err := openWorkstreams(ctx, e.organizationRepositories(key.Organization))
+		workstreams, err := e.openWorkstreams(ctx, e.organizationRepositories(key.Organization))
 		if err != nil {
 			return "", nil, err
 		}
@@ -1018,12 +1018,9 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 
 // leadContext gives the Brief, the memory and the task list of the Workstream.
 func (e *Engine) leadContext(ctx context.Context, repository github.Repository, workstream int64) (string, error) {
-	issue, err := repository.Issue(ctx, workstream)
+	brief, evergreen, err := e.brief(ctx, repository, workstream)
 	if err != nil {
 		return "", err
-	}
-	if issue == nil {
-		return "", errors.New("the Workstream issue does not exist")
 	}
 	memory, err := readMemory(leadDir(e.config.DataDir, repository.FullName, workstream))
 	if err != nil {
@@ -1033,11 +1030,31 @@ func (e *Engine) leadContext(ctx context.Context, repository github.Repository, 
 	if err != nil {
 		return "", err
 	}
-	evergreen := ""
-	if hasLabel(issue, evergreenLabel) {
-		evergreen = "This Workstream is evergreen: it has no end.\n\n"
+	evergreenText := ""
+	if evergreen {
+		evergreenText = "This Workstream is evergreen: it has no end.\n\n"
 	}
-	return fmt.Sprintf("# Brief\n\n%s\n\n%s# MEMORY.md\n\n%s\n\n# Task list\n\n%s\n\n", issue.GetBody(), evergreen, memory, taskText(lines)), nil
+	return fmt.Sprintf("# Brief\n\n%s\n\n%s# MEMORY.md\n\n%s\n\n# Task list\n\n%s\n\n", brief, evergreenText, memory, taskText(lines)), nil
+}
+
+// brief gives the Brief of the Workstream and tells if the Workstream is evergreen. It reads the local copy, and
+// reads GitHub for a Workstream that the copy does not have.
+func (e *Engine) brief(ctx context.Context, repository github.Repository, workstream int64) (string, bool, error) {
+	copied, err := e.queries.GetCopiedWorkstream(ctx, store.GetCopiedWorkstreamParams{Repository: repository.FullName, Number: workstream})
+	if err == nil {
+		return copied.Body, copied.Evergreen, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", false, err
+	}
+	issue, err := repository.Issue(ctx, workstream)
+	if err != nil {
+		return "", false, err
+	}
+	if issue == nil {
+		return "", false, errors.New("the Workstream issue does not exist")
+	}
+	return issue.GetBody(), hasLabel(issue, evergreenLabel), nil
 }
 
 // readMemory gives MEMORY.md of the Lead directory dir, or "" when the file does not exist. A longer file than
