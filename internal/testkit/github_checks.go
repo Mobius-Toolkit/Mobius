@@ -213,6 +213,13 @@ func (g *FakeGitHub) SetWorkflowRunStatus(id int64, status, conclusion string) {
 	g.workflowRuns[id-1].Conclusion = conclusion
 }
 
+// RefuseRerun makes the re-run of the failed jobs of a workflow run give the status.
+func (g *FakeGitHub) RefuseRerun(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.rerunRefusal = status
+}
+
 // WorkflowRunAttempt gives the number of the attempt of the workflow run id.
 func (g *FakeGitHub) WorkflowRunAttempt(id int64) int {
 	g.mu.Lock()
@@ -559,6 +566,10 @@ func (g *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 func (g *FakeGitHub) rerunFailedJobs(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.rerunRefusal != 0 {
+		message(w, g.rerunRefusal, "Resource not accessible by integration")
+		return
+	}
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if id < 1 || id > int64(len(g.workflowRuns)) || g.workflowRuns[id-1].repository != repository(r) {
 		notFound(w)

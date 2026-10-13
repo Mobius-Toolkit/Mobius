@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"slices"
 
 	gh "github.com/google/go-github/v92/github"
@@ -75,11 +76,14 @@ func (e *Engine) startCIBreak(ctx context.Context, repository github.Repository,
 // advanceCIBreak runs the failed jobs again when Mobius did not do it yet, stores the result of the new attempt, and
 // ends the break when a newer run of the workflow passed. Mobius stores the mark of the re-run after the call, so a
 // run that already has a new attempt (for example after a stop between the call and the mark) is not run again.
+// When GitHub refuses the call (for example with no permission, or for a run older than 30 days), Mobius stores the
+// mark too. The break then has no result, so it is neither flaky nor hard.
 func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repository, ciBreak store.CiBreak, byID map[int64]*gh.WorkflowRun, newest *gh.WorkflowRun) error {
 	run := byID[ciBreak.RunID]
 	if ciBreak.RerunAt == "" {
 		if run == nil || int64(run.GetRunAttempt()) <= ciBreak.RunAttempt {
-			if err := repository.RerunFailedJobs(ctx, ciBreak.RunID); err != nil {
+			var refused *gh.ErrorResponse
+			if err := repository.RerunFailedJobs(ctx, ciBreak.RunID); err != nil && !errors.As(err, &refused) {
 				return err
 			}
 		}

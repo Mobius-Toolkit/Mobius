@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -107,6 +108,24 @@ func TestARestartKeepsTheBreakOfARunThatMobiusRanAgainAndDoesNotRunItAgain(t *te
 
 	if attempt := fake.WorkflowRunAttempt(run); attempt != 1 {
 		t.Errorf("attempt = %d", attempt)
+	}
+}
+
+func TestARefusedRerunDoesNotStopThePollAndGivesABreakWithNoResult(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.RefuseRerun(http.StatusForbidden)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	waitForPolls(t, fake)
+
+	if attempt := fake.WorkflowRunAttempt(run); attempt != 1 {
+		t.Errorf("attempt = %d", attempt)
+	}
+	if breaks := openHardBreaks(t, server); len(breaks) != 0 {
+		t.Errorf("hard breaks = %d", len(breaks))
 	}
 }
 
