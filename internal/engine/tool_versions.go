@@ -32,8 +32,8 @@ const (
 	cliPackage     = "@anthropic-ai/claude-code"
 )
 
-// npmRegistry is the npm registry that gives the newest version of a package.
-var npmRegistry = "https://registry.npmjs.org"
+// NPMRegistry is the npm registry that gives the newest version of a package.
+var NPMRegistry = "https://registry.npmjs.org"
 
 // newestLife is the time that Mobius keeps the newest version of a package, also when the registry gave none.
 const newestLife = time.Hour
@@ -200,7 +200,7 @@ func (e *Engine) newestVersion(ctx context.Context, npmPackage string) string {
 }
 
 func readNewestVersion(ctx context.Context, npmPackage string) string {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, npmRegistry+"/"+npmPackage+"/latest", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, NPMRegistry+"/"+npmPackage+"/latest", nil)
 	if err != nil {
 		return ""
 	}

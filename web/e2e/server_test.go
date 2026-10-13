@@ -624,7 +624,7 @@ func waitForChat(t *testing.T, server *testserver.Server, key engine.ChatKey, au
 
 // fixTools makes each tool of the Checkup page give the same path and version in each run. The directory of the fake
 // Harness commands comes first in the PATH of the agents, so the programs there hide the programs of the machine.
-// tar gives no version.
+// tar gives no version. The fake npm registry gives a fixed newest version of the critical tools.
 func fixTools(t *testing.T, dataDir string) {
 	t.Helper()
 	harnesses := filepath.Join(dataDir, "harnesses")
@@ -637,6 +637,12 @@ func fixTools(t *testing.T, dataDir string) {
 		testkit.InstallFakeProgram(t, harnesses, program, output)
 	}
 	t.Setenv("CLAUDE_CODE_EXECUTABLE", filepath.Join(harnesses, "claude"))
+	registry := testkit.NewFakeNPM(t)
+	registry.SetVersion("@agentclientprotocol/claude-agent-acp", "0.5.0")
+	registry.SetVersion("@anthropic-ai/claude-code", "2.1.284")
+	was := engine.NPMRegistry
+	engine.NPMRegistry = registry.URL
+	t.Cleanup(func() { engine.NPMRegistry = was })
 }
 
 // addTurnUsage adds the turns of the Usage screen on the 7 days that end on 2026-10-15, the date that the screenshots

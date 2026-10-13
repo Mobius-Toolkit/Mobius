@@ -16,9 +16,9 @@ import (
 func fakeRegistry(t *testing.T) *testkit.FakeNPM {
 	t.Helper()
 	registry := testkit.NewFakeNPM(t)
-	was := npmRegistry
-	npmRegistry = registry.URL
-	t.Cleanup(func() { npmRegistry = was })
+	was := NPMRegistry
+	NPMRegistry = registry.URL
+	t.Cleanup(func() { NPMRegistry = was })
 	return registry
 }
 
