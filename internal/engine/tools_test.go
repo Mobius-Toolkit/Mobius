@@ -529,9 +529,9 @@ func TestCreateWorkstreamRefusesLabelsFromTheLead(t *testing.T) {
 func TestMessageLeadSendsTheMessageToTheLeadOfAnOpenWorkstream(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 21, "Not a Workstream")
 	server, _ := connect(t, fake, call("message_lead", `{ workstream = 12, text = "Create the task issues." }`)+
 		call("message_lead", `{ workstream = 21, text = "Create the task issues." }`))
-	fake.AddIssue(shop, 21, "Not a Workstream")
 	coordinatorChat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 
 	chat := run(t, server, coordinatorChat, "1. ", "2. ")
@@ -557,10 +557,10 @@ func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *
 	messages := "[[prompts]]\nwhen = \"Message 1.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 20, text = \"Create the task issues.\" } }\n\n" +
 		"[[prompts]]\nwhen = \"Message 2.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 12, text = \"Create the task issues.\" } }\n\n" +
 		"[[prompts]]\nwhen = \"Message 3.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 21, text = \"Create the task issues.\" } }\n"
-	server, _ := connect(t, fake, messages)
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 21, "Not a Workstream")
+	server, _ := connect(t, fake, messages)
 
 	session := run(t, server, leadSpec(t), "Message 1.", "Message 2.", "Message 3.")
 
@@ -583,6 +583,66 @@ func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *
 	})
 	text := "Message of the Lead of #12, approved by the Owner:\n\nCreate the task issues."
 	if events := toLead20(); !reflect.DeepEqual(events, []leadEvent{{Workstream: 20, Kind: "lead", Payload: text, Delivered: true}}) {
+		t.Errorf("events = %v", events)
+	}
+}
+
+func TestMessageLeadSendsTheMessageOfTheCoordinatorWhileGitHubRefusesEachRequest(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("message_lead", `{ workstream = 12, text = "Create the task issues." }`))
+	fake.SetRateLimited(true)
+	coordinatorChat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
+
+	chat := run(t, server, coordinatorChat, "1. ")
+
+	if got, want := reply(t, server, chat), "Sent the message to the Lead of #12."; got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+	text := "Message of the Coordinator, approved by the Owner:\n\nCreate the task issues."
+	if events := leadEvents(t, server); len(events) == 0 || events[0].Workstream != 12 || events[0].Kind != "coordinator" || events[0].Payload != text {
+		t.Errorf("events = %v", events)
+	}
+}
+
+func TestMessageLeadSendsTheMessageOfTheLeadWhileGitHubRefusesEachRequest(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"Message 1.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 20, text = \"Create the task issues.\" } }\n")
+	fake.SetRateLimited(true)
+
+	session := run(t, server, leadSpec(t), "Message 1.")
+
+	if got, want := reply(t, server, session), "Sent the message to the Lead of #20."; got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+	text := "Message of the Lead of #12, approved by the Owner:\n\nCreate the task issues."
+	if events := leadEvents(t, server); len(events) == 0 || events[0].Workstream != 20 || events[0].Kind != "lead" || events[0].Payload != text {
+		t.Errorf("events = %v", events)
+	}
+}
+
+func TestMessageLeadRefusesAWorkstreamThatTheCopyDoesNotHave(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	fake.CloseIssue(shop, 20)
+	fake.AddIssue(shop, 21, "Not a Workstream")
+	server, _ := connect(t, fake, call("message_lead", `{ workstream = 20, text = "Create the task issues." }`)+
+		call("message_lead", `{ workstream = 21, text = "Create the task issues." }`)+
+		call("message_lead", `{ workstream = 99, text = "Create the task issues." }`))
+	coordinatorChat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
+
+	chat := run(t, server, coordinatorChat, "1. ", "2. ", "3. ")
+
+	want := "error: #20 is not an open Workstream.error: #21 is not an open Workstream.error: #99 is not an open Workstream."
+	if got := reply(t, server, chat); got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+	if events := leadEvents(t, server); len(events) != 0 {
 		t.Errorf("events = %v", events)
 	}
 }
