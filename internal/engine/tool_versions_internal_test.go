@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
@@ -203,5 +204,124 @@ func TestAMissingClaudeCodeExecutableHasTheStatusNotFound(t *testing.T) {
 
 	if want := (ToolCheck{Name: "Claude Code CLI", Status: NotFound}); got != want {
 		t.Errorf("cli = %+v, want %+v", got, want)
+	}
+}
+
+const adapterNPM, cliNPM = "@agentclientprotocol/claude-agent-acp", "@anthropic-ai/claude-code"
+
+// npmEngine gives an engine with a fake adapter and a separate fake Claude Code CLI, and a fake npm registry.
+func npmEngine(t *testing.T, adapterVersion, cliVersion string) (*Engine, *testkit.FakeNPM) {
+	t.Helper()
+	bin := t.TempDir()
+	testkit.InstallFakeProgram(t, bin, "claude-agent-acp", adapterVersion)
+	testkit.InstallFakeProgram(t, bin, "claude", cliVersion)
+	e := toolEngine(t, bin)
+	t.Setenv(claudeCodeEnv, filepath.Join(bin, "claude"))
+	registry := testkit.NewFakeNPM(t)
+	was := npmRegistry
+	npmRegistry = registry.URL
+	t.Cleanup(func() { npmRegistry = was })
+	return e, registry
+}
+
+func TestAToolOlderThanTheNewestVersionIsOutdated(t *testing.T) {
+	e, registry := npmEngine(t, "claude-agent-acp 0.9.12\n", "2.1.9 (Claude Code)\n")
+	registry.SetVersion(adapterNPM, "0.10.0")
+	registry.SetVersion(cliNPM, "2.1.10")
+
+	checks := e.Tools(context.Background())
+
+	if got := find(checks, "claude-agent-acp"); got.Newest != "0.10.0" || !got.Outdated {
+		t.Errorf("claude-agent-acp = %+v", got)
+	}
+	if got := find(checks, "Claude Code CLI"); got.Newest != "2.1.10" || !got.Outdated {
+		t.Errorf("Claude Code CLI = %+v", got)
+	}
+	if got := find(checks, "git"); got.Newest != "" || got.Outdated {
+		t.Errorf("git = %+v", got)
+	}
+}
+
+func TestAToolWithTheNewestVersionIsNotOutdated(t *testing.T) {
+	e, registry := npmEngine(t, "claude-agent-acp 0.10.0\n", "2.1.10 (Claude Code)\n")
+	registry.SetVersion(adapterNPM, "0.10.0")
+	registry.SetVersion(cliNPM, "2.1.9")
+
+	checks := e.Tools(context.Background())
+
+	if got := find(checks, "claude-agent-acp"); got.Newest != "0.10.0" || got.Outdated {
+		t.Errorf("claude-agent-acp = %+v", got)
+	}
+	if got := find(checks, "Claude Code CLI"); got.Newest != "2.1.9" || got.Outdated {
+		t.Errorf("Claude Code CLI = %+v", got)
+	}
+}
+
+func TestARegistryWithNoAnswerGivesNoNewestVersion(t *testing.T) {
+	e, registry := npmEngine(t, "claude-agent-acp 0.9.12\n", "2.1.9 (Claude Code)\n")
+	registry.SetVersion(adapterNPM, "0.10.0")
+	registry.SetSilent(true)
+
+	checks := e.Tools(context.Background())
+
+	want := ToolCheck{Name: "claude-agent-acp", Path: find(checks, "claude-agent-acp").Path, Version: "claude-agent-acp 0.9.12"}
+	if got := find(checks, "claude-agent-acp"); got != want {
+		t.Errorf("claude-agent-acp = %+v, want %+v", got, want)
+	}
+	if got := find(checks, "Claude Code CLI"); got.Newest != "" || got.Outdated || got.Status != "" {
+		t.Errorf("Claude Code CLI = %+v", got)
+	}
+}
+
+func TestAnErrorOfTheRegistryGivesNoNewestVersion(t *testing.T) {
+	e, _ := npmEngine(t, "claude-agent-acp 0.9.12\n", "2.1.9 (Claude Code)\n")
+
+	got := find(e.Tools(context.Background()), "claude-agent-acp")
+
+	if got.Newest != "" || got.Outdated || got.Status != "" {
+		t.Errorf("claude-agent-acp = %+v", got)
+	}
+}
+
+func TestAVersionOutputWithNoNumberGivesNoNewestVersion(t *testing.T) {
+	e, registry := npmEngine(t, "claude-agent-acp dev\n", "2.1.9 (Claude Code)\n")
+	registry.SetVersion(adapterNPM, "0.10.0")
+
+	got := find(e.Tools(context.Background()), "claude-agent-acp")
+
+	if got.Newest != "" || got.Outdated || got.Status != "" || got.Version != "claude-agent-acp dev" {
+		t.Errorf("claude-agent-acp = %+v", got)
+	}
+}
+
+func TestTheNewestVersionIsReadOneTimeInAnHour(t *testing.T) {
+	e, registry := npmEngine(t, "claude-agent-acp 0.9.12\n", "2.1.9 (Claude Code)\n")
+	registry.SetVersion(adapterNPM, "0.10.0")
+	registry.SetVersion(cliNPM, "2.1.9")
+	now := time.Now()
+	e.SetClock(func() time.Time { return now })
+
+	e.Tools(context.Background())
+	registry.SetVersion(adapterNPM, "0.11.0")
+	now = now.Add(59 * time.Minute)
+	if got := find(e.Tools(context.Background()), "claude-agent-acp").Newest; got != "0.10.0" {
+		t.Errorf("newest after 59 minutes = %q", got)
+	}
+	if got := registry.Reads(); got != 2 {
+		t.Errorf("reads after 59 minutes = %d, want 2", got)
+	}
+	now = now.Add(2 * time.Minute)
+	if got := find(e.Tools(context.Background()), "claude-agent-acp").Newest; got != "0.11.0" {
+		t.Errorf("newest after 61 minutes = %q", got)
+	}
+}
+
+func TestTheClaudeCodeCLIInTheAdapterHasNoNewestVersion(t *testing.T) {
+	e, registry := npmEngine(t, "claude-agent-acp 0.9.12\n", "2.1.9\n")
+	t.Setenv(claudeCodeEnv, "")
+	registry.SetVersion(cliNPM, "9.0.0")
+
+	if got := find(e.Tools(context.Background()), "Claude Code CLI"); got.Newest != "" || got.Outdated {
+		t.Errorf("Claude Code CLI = %+v", got)
 	}
 }
