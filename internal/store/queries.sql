@@ -357,6 +357,23 @@ UPDATE tasks SET fix_rounds = 0, review_rounds = 0, worker_restarts = 0, check_h
 -- name: EndTask :exec
 UPDATE tasks SET state = 'ended', lead_findings = '', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL WHERE id = ?;
 
+-- name: GetEndedTaskWithPullRequest :one
+SELECT * FROM tasks
+WHERE repository = ? AND issue = ? AND state = 'ended' AND branch IS NOT NULL AND pull_request IS NOT NULL
+ORDER BY id DESC LIMIT 1;
+
+-- name: GetLastTaskState :one
+SELECT state FROM task_states WHERE task = ? ORDER BY id DESC LIMIT 1;
+
+-- name: RecoverTask :execrows
+UPDATE tasks SET state = sqlc.arg(state), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), recoveries = recoveries + 1,
+    needs_human_at = CASE WHEN sqlc.arg(state) = 'needs_human' THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE needs_human_at END
+WHERE id = sqlc.arg(id) AND state = 'ended' AND recoveries < sqlc.arg(max);
+
+-- name: ContinueEndedTask :execrows
+UPDATE tasks SET state = 'stopped', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), recoveries = 0
+WHERE id = ? AND state = 'ended';
+
 -- name: QueueTask :execrows
 UPDATE tasks SET state = 'queued', queued_at = sqlc.arg(queued_at), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = sqlc.arg(id) AND state = sqlc.arg(from_state);
