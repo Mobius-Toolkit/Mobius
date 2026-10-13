@@ -112,7 +112,7 @@ func Parse(text []byte) (*Config, error) {
 			MaxWorkerRestarts: 3,
 			Roles: Roles{
 				Lead:        RoleBinding{Max: 8},
-				Coordinator: RoleBinding{Max: 12},
+				Coordinator: RoleBinding{Max: 4},
 				Triager:     RoleBinding{Max: 12},
 				Implementer: RoleBinding{Max: 2},
 				Researcher:  RoleBinding{Max: 2},

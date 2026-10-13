@@ -84,7 +84,9 @@ func TestParseGivesTheDefaults(t *testing.T) {
 		switch b.Role {
 		case "lead":
 			wantMax = 8
-		case "coordinator", "triager":
+		case "coordinator":
+			wantMax = 4
+		case "triager":
 			wantMax = 12
 		}
 		if b.Binding.Max != wantMax {
