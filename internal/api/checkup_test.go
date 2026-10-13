@@ -255,7 +255,7 @@ func TestTheCheckupShowsTheMissingActionsWritePermission(t *testing.T) {
 func TestTheCheckupShowsTheLabelsWhenTheCheckOfTheAppPermissionsFails(t *testing.T) {
 	github := testkit.NewFakeGitHub(t)
 	server := startWithApp(t, github, "Organization")
-	github.FailInstallations(testkit.AppID)
+	github.FailInstallations(testkit.AppID, true)
 
 	found := getCheckup(t, server, "owner")
 

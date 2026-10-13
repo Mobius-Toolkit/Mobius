@@ -450,8 +450,8 @@ DELETE FROM copied_blockers WHERE repository = ? AND workstream = ?;
 
 -- The Lead tool create_workstream and the poll can both add a new Workstream.
 -- name: AddCopiedWorkstream :exec
-INSERT INTO copied_workstreams (repository, number, title, body, autopilot)
-VALUES (sqlc.arg(repository), sqlc.arg(number), sqlc.arg(title), sqlc.arg(body), CAST(sqlc.arg(autopilot) AS BOOLEAN))
+INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen)
+VALUES (sqlc.arg(repository), sqlc.arg(number), sqlc.arg(title), sqlc.arg(body), CAST(sqlc.arg(autopilot) AS BOOLEAN), CAST(sqlc.arg(evergreen) AS BOOLEAN))
 ON CONFLICT (repository, number) DO NOTHING;
 
 -- name: AddCopiedIssue :exec
@@ -487,9 +487,14 @@ SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker
 SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker_repository = ? AND number = ?;
 
 -- name: UpdateCopiedWorkstream :execrows
-UPDATE copied_workstreams SET title = sqlc.arg(title), body = sqlc.arg(body), autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN)
+UPDATE copied_workstreams SET title = sqlc.arg(title), body = sqlc.arg(body), autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN),
+    evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number)
-  AND (title != sqlc.arg(title) OR body != sqlc.arg(body) OR autopilot != CAST(sqlc.arg(autopilot) AS BOOLEAN));
+  AND (title != sqlc.arg(title) OR body != sqlc.arg(body) OR autopilot != CAST(sqlc.arg(autopilot) AS BOOLEAN)
+       OR evergreen != CAST(sqlc.arg(evergreen) AS BOOLEAN));
+
+-- name: GetCopiedWorkstream :one
+SELECT body, CAST(evergreen AS BOOLEAN) AS evergreen FROM copied_workstreams WHERE repository = ? AND number = ?;
 
 -- name: UpdateCopiedBlockerTitles :execrows
 UPDATE copied_blockers SET blocker_workstream_title = sqlc.arg(title)

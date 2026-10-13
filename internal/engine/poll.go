@@ -20,8 +20,8 @@ import (
 // issuesEndpoint is the endpoint of the issue list in the sync_cursors table.
 const issuesEndpoint = "issues"
 
-// poll reads the repositories of the Apps, and ends the tasks of each repository that no App gives. When it read all
-// Apps, it removes the copy of each repository that it did not find. Then, for each repository, it fixes the labels
+// poll reads the repositories of the Apps. When it read all Apps, it ends the tasks of each repository that no App
+// gives, and it removes the copy of each repository that it did not find. Then, for each repository, it fixes the labels
 // at the first sight in this run of the server, copies the open Workstreams until that step works one time, hands
 // the lost tasks to a human and starts the Workers of the earlier run again until that step works one time, reads the
 // changed issues, reads the CI of the default branch, dispatches the ready issues, starts the tasks of the Workstreams
@@ -46,10 +46,10 @@ func (e *Engine) poll(ctx context.Context) {
 	if !slices.Equal(known, repositoryKeys(repositories)) {
 		e.publish(Change{Repositories: true})
 	}
-	if err := e.lostAccess(ctx, repositories); err != nil {
-		log.Printf("end the tasks of the repositories with no access: %v", err)
-	}
 	if complete {
+		if err := e.lostAccess(ctx, repositories); err != nil {
+			log.Printf("end the tasks of the repositories with no access: %v", err)
+		}
 		if err := e.forgetCopies(ctx, repositories); err != nil {
 			log.Printf("remove the copies of the repositories with no access: %v", err)
 		}

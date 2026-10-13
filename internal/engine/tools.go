@@ -553,7 +553,14 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 			return "", refuse("#%d is not in this Workstream.", input.Parent)
 		}
 	}
-	return addIssue(ctx, repository, input, nil)
+	text, err := addIssue(ctx, repository, input, nil)
+	if err != nil {
+		return "", err
+	}
+	if err := e.recopyTrees(ctx, repository, c.workstream); err != nil {
+		log.Printf("copy the tree of %s#%d: %v", repository.FullName, c.workstream, err)
+	}
+	return text, nil
 }
 
 // createMaintenanceIssue creates an issue with mobius:triage below the maintenance Workstream of the Curator c. It

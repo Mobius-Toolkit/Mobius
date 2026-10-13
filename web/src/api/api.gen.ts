@@ -645,6 +645,10 @@ export interface EnvelopeArrayTaskLine {
 export interface ToolCheck {
   /** Name is the name of the program */
   name: string;
+  /** Newest is the newest version of the npm package of a critical tool. It is empty when the registry gave none, and for a tool that is not critical */
+  newest: string;
+  /** Outdated tells that the version of a critical tool is older than Newest */
+  outdated: boolean;
   /** Path is the file that Mobius runs. It is empty when Mobius cannot find the program, and for the Claude Code CLI that is built in the adapter */
   path: string;
   /** Status is not-found for a program that Mobius cannot find, and no-version for a program that gives no version. It is empty for a program with a version */
