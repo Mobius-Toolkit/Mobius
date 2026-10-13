@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -38,6 +39,18 @@ func waitForCIBreak(t *testing.T, server *testserver.Server, want ciBreak) {
 	testkit.WaitFor(t, func() bool {
 		breaks := ciBreaks(t, server)
 		return len(breaks) == 1 && breaks[0] == want
+	})
+}
+
+func waitForRefusedRerun(t *testing.T, fake *testkit.FakeGitHub, status int) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool {
+		for _, request := range fake.Requests() {
+			if request.Method == http.MethodPost && strings.HasSuffix(request.Path, "/rerun-failed-jobs") && request.Status == status {
+				return true
+			}
+		}
+		return false
 	})
 }
 
@@ -136,7 +149,7 @@ func TestARerunThatGitHubAnswersWithAServerErrorIsSentAgain(t *testing.T) {
 	run := fake.AddWorkflowRun(shop, failedMainRun(7))
 	server := startServer(t, fake, t.TempDir(), "")
 
-	waitForPolls(t, fake)
+	waitForRefusedRerun(t, fake, http.StatusBadGateway)
 	if breaks := ciBreaks(t, server); len(breaks) != 1 || breaks[0].rerun || breaks[0].result != "" {
 		t.Errorf("breaks = %v", breaks)
 	}
@@ -154,7 +167,7 @@ func TestANewerPassedRunEndsTheBreakBeforeTheRerunIsSent(t *testing.T) {
 	fake.RefuseRerun(http.StatusBadGateway)
 	run := fake.AddWorkflowRun(shop, failedMainRun(7))
 	server := startServer(t, fake, t.TempDir(), "")
-	waitForPolls(t, fake)
+	waitForRefusedRerun(t, fake, http.StatusBadGateway)
 	if breaks := ciBreaks(t, server); len(breaks) != 1 || breaks[0].rerun {
 		t.Fatalf("breaks = %v", breaks)
 	}
