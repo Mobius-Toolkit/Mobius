@@ -611,7 +611,7 @@ test("screenshots", async ({ page }) => {
   );
   await screenshot(page, "checkup", "/settings/checkup", (device) => [
     ...frame(device, release),
-    main.getByRole("link", { name: "Tools" }),
+    main.getByRole("link", { name: "Tools" }).getByText("needs you"),
     main.getByRole("heading", { name: "owner", exact: true }),
     main.getByRole("heading", { name: "plants", exact: true }),
     main.getByText("needs you").nth(3),
