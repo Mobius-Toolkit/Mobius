@@ -51,6 +51,10 @@ type Engine struct {
 	ciWait map[int64]ciWait
 	// clock gives the time of the long waits. A nil clock is time.Now.
 	clock atomic.Pointer[func() time.Time]
+	// newestMu guards newest.
+	newestMu sync.Mutex
+	// newest holds the newest version of each npm package of the critical tools, by the name of the package.
+	newest map[string]newestVersion
 
 	workers workers
 	drain   drain
@@ -151,6 +155,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		quiet:        map[int64]quietItem{},
 		pulls:        map[pullKey]*pullState{},
 		ciWait:       map[int64]ciWait{},
+		newest:       map[string]newestVersion{},
 		workers:      newWorkers(),
 		chats:        map[ChatKey]*chat{},
 		triages:      map[triageKey]triage{},

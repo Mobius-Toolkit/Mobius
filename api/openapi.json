@@ -5292,6 +5292,14 @@
             "type": "string",
             "description": "Name is the name of the program"
           },
+          "newest": {
+            "type": "string",
+            "description": "Newest is the newest version of the npm package of a critical tool. It is empty when the registry gave none, and for a tool that is not critical"
+          },
+          "outdated": {
+            "type": "boolean",
+            "description": "Outdated tells that the version of a critical tool is older than Newest"
+          },
           "path": {
             "type": "string",
             "description": "Path is the file that Mobius runs. It is empty when Mobius cannot find the program, and for the Claude Code CLI that is built in the adapter"
@@ -5309,7 +5317,9 @@
           "name",
           "path",
           "version",
-          "status"
+          "status",
+          "newest",
+          "outdated"
         ],
         "description": "ToolCheck is the path and the version of a program that Mobius runs."
       },
