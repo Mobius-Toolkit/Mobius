@@ -97,13 +97,13 @@ test("the Inbox page has a tab for each address, and a reload keeps the tab", as
   await page.goto("/inbox");
   await expect(todo).toHaveText(/^To do\s*1$/);
   await expect(todo).toHaveAttribute("aria-selected", "true");
-  await expect(main.getByText("#45 needs a decision")).toBeVisible();
+  await expect(main.getByText("The Lead asks a question")).toBeVisible();
 
   await activity.click();
   await expect(page).toHaveURL("/inbox/activity");
   await expect(activity).toHaveAttribute("aria-selected", "true");
   await expect(main.getByRole("button", { name: "Integrate loyalty plans" })).toBeVisible();
-  await expect(main.getByText("#45 needs a decision")).toHaveCount(0);
+  await expect(main.getByText("The Lead asks a question")).toHaveCount(0);
 
   await page.reload();
   await expect(page).toHaveURL("/inbox/activity");
@@ -113,7 +113,7 @@ test("the Inbox page has a tab for each address, and a reload keeps the tab", as
   await page.goBack();
   await expect(page).toHaveURL("/inbox");
   await expect(todo).toHaveAttribute("aria-selected", "true");
-  await expect(main.getByText("#45 needs a decision")).toBeVisible();
+  await expect(main.getByText("The Lead asks a question")).toBeVisible();
 });
 
 test("a click on a link of the app opens its page with no page load", async ({ page }) => {
@@ -532,9 +532,14 @@ test.describe("the bars of a phone", () => {
       kind: "question",
       link: "",
       organization: "owner",
+      pullRequest: 0,
+      pullRequestUrl: "",
+      reason: "",
+      reportUrl: "",
       repository: "owner/shop",
-      text: `Question number ${index + 1}`,
+      text: "",
       time: "2026-09-27T10:00:00Z",
+      title: `Question number ${index + 1}`,
       workstream: 12,
     }));
     const logins = Array.from({ length: 40 }, (_, index) => ({
@@ -553,7 +558,7 @@ test.describe("the bars of a phone", () => {
     expect(await scrollTop(page)).toBe(0);
 
     for (const [path, title, text] of [
-      ["/inbox", "Inbox", "Question number 1"],
+      ["/inbox", "Inbox", "Question number 40"],
       ["/devices", "Devices", "Device number 40"],
     ]) {
       await page.goto(path);
