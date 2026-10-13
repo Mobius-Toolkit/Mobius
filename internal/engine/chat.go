@@ -697,6 +697,7 @@ func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 			Issue:        message.Workstream,
 			Reason:       "The Lead did not get your message",
 			Text:         message.Text,
+			ChatMessage:  sql.NullInt64{Int64: message.ID, Valid: true},
 		})
 		return err
 	}

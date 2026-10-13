@@ -2981,6 +2981,71 @@ export const dismiss = async (id: number, ): Promise<dismissResponse> => {
 
 
 
+export type sendAgainResponse204 = {
+  data: void
+  status: 204
+}
+
+export type sendAgainResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type sendAgainResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type sendAgainResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type sendAgainResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type sendAgainResponseSuccess = (sendAgainResponse204) & {
+  headers: Headers;
+};
+export type sendAgainResponseError = (sendAgainResponse400 | sendAgainResponse401 | sendAgainResponse422 | sendAgainResponse500) & {
+  headers: Headers;
+};
+
+export type sendAgainResponse = (sendAgainResponseSuccess | sendAgainResponseError)
+
+export const getSendAgainUrl = (id: number,) => {
+
+
+
+
+  return `/api/inbox/${id}/send`
+}
+
+/**
+ * SendAgain adds the Owner message of an open Lead failed item to its chat again, with the same text and images, and removes the item from the Inbox. It returns 409 for an item that is not an open Lead failed item with a message, and while Mobius restarts for an upgrade.
+ */
+export const sendAgain = async (id: number, ): Promise<sendAgainResponse> => {
+
+  const res = await fetch(getSendAgainUrl(id),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: sendAgainResponse['data'] = body ? JSON.parse(body) : undefined
+  return { data, status: res.status, headers: res.headers } as sendAgainResponse
+}
+
+
+
 export type loginResponse204 = {
   data: void
   status: 204

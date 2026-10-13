@@ -295,9 +295,9 @@ func (q *Queries) AddGitHubApp(ctx context.Context, arg AddGitHubAppParams) erro
 }
 
 const addInboxItem = `-- name: AddInboxItem :one
-INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link
+INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message
 `
 
 type AddInboxItemParams struct {
@@ -312,6 +312,7 @@ type AddInboxItemParams struct {
 	Link         string
 	PullRequest  int64
 	ReportLink   string
+	ChatMessage  sql.NullInt64
 	Time         string
 }
 
@@ -328,6 +329,7 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 		arg.Link,
 		arg.PullRequest,
 		arg.ReportLink,
+		arg.ChatMessage,
 		arg.Time,
 	)
 	var i InboxItem
@@ -346,6 +348,7 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 		&i.Reason,
 		&i.PullRequest,
 		&i.ReportLink,
+		&i.ChatMessage,
 	)
 	return i, err
 }
@@ -1030,7 +1033,7 @@ func (q *Queries) DeliverLeadEvents(ctx context.Context, arg DeliverLeadEventsPa
 
 const dismissInboxItem = `-- name: DismissInboxItem :one
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message
 `
 
 type DismissInboxItemParams struct {
@@ -1056,6 +1059,7 @@ func (q *Queries) DismissInboxItem(ctx context.Context, arg DismissInboxItemPara
 		&i.Reason,
 		&i.PullRequest,
 		&i.ReportLink,
+		&i.ChatMessage,
 	)
 	return i, err
 }
@@ -1184,6 +1188,28 @@ func (q *Queries) FreeLeadEvents(ctx context.Context, arg FreeLeadEventsParams) 
 	return items, nil
 }
 
+const getChatMessage = `-- name: GetChatMessage :one
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages WHERE id = ?
+`
+
+func (q *Queries) GetChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
+	row := q.db.QueryRowContext(ctx, getChatMessage, id)
+	var i ChatMessage
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Workstream,
+		&i.Author,
+		&i.Time,
+		&i.Text,
+		&i.Organization,
+		&i.BrowserID,
+		&i.DeliveredAt,
+		&i.StoppedAt,
+	)
+	return i, err
+}
+
 const getCopiedAutopilot = `-- name: GetCopiedAutopilot :one
 SELECT CAST(autopilot AS BOOLEAN) FROM copied_workstreams WHERE repository = ? AND number = ?
 `
@@ -1269,6 +1295,33 @@ func (q *Queries) GetHarnessPauseEnd(ctx context.Context, harness string) (strin
 	var ended_at string
 	err := row.Scan(&ended_at)
 	return ended_at, err
+}
+
+const getInboxItem = `-- name: GetInboxItem :one
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message FROM inbox_items WHERE id = ?
+`
+
+func (q *Queries) GetInboxItem(ctx context.Context, id int64) (InboxItem, error) {
+	row := q.db.QueryRowContext(ctx, getInboxItem, id)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Text,
+		&i.Link,
+		&i.Time,
+		&i.DismissedAt,
+		&i.Organization,
+		&i.Title,
+		&i.Reason,
+		&i.PullRequest,
+		&i.ReportLink,
+		&i.ChatMessage,
+	)
+	return i, err
 }
 
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
@@ -2835,7 +2888,7 @@ func (q *Queries) ListMemoryVersions(ctx context.Context, repository string) ([]
 }
 
 const listOpenInboxItems = `-- name: ListOpenInboxItems :many
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id
 `
 
 func (q *Queries) ListOpenInboxItems(ctx context.Context) ([]InboxItem, error) {
@@ -2862,6 +2915,7 @@ func (q *Queries) ListOpenInboxItems(ctx context.Context) ([]InboxItem, error) {
 			&i.Reason,
 			&i.PullRequest,
 			&i.ReportLink,
+			&i.ChatMessage,
 		); err != nil {
 			return nil, err
 		}

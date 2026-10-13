@@ -189,9 +189,15 @@ INSERT INTO harness_pause_ends (harness, ended_at) VALUES (?, ?)
 ON CONFLICT (harness) DO UPDATE SET ended_at = excluded.ended_at;
 
 -- name: AddInboxItem :one
-INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
+
+-- name: GetInboxItem :one
+SELECT * FROM inbox_items WHERE id = ?;
+
+-- name: GetChatMessage :one
+SELECT * FROM chat_messages WHERE id = ?;
 
 -- name: DismissInboxItem :one
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?

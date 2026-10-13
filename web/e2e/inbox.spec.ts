@@ -104,9 +104,8 @@ test("each item shows on one line with the action of its kind, oldest first", as
   await expect(rows.nth(1).getByRole("button", { name: "Resume" })).toBeVisible();
   await expect(rows.nth(2).getByRole("button", { name: "Start again" })).toBeVisible();
   await expect(action(3, "Open PR")).toHaveAttribute("href", `${link}/pull/44`);
-  for (const row of [4, 5]) {
-    await expect(rows.nth(row).getByRole("button")).toHaveText(["Details", "Dismiss"]);
-  }
+  await expect(rows.nth(4).getByRole("button")).toHaveText(["Send again", "Details", "Dismiss"]);
+  await expect(rows.nth(5).getByRole("button")).toHaveText(["Details", "Dismiss"]);
   await expect(rows.getByRole("button", { name: "Dismiss" })).toHaveCount(6);
   await expect(page.getByRole("main").getByRole("tab", { name: "To do 6" })).toBeVisible();
 });
@@ -220,4 +219,18 @@ test("Resume and Start again resume the issue", async ({ page }) => {
       "/api/repositories/owner/shop/issues/42/resume",
       "/api/repositories/owner/shop/issues/41/resume",
     ]);
+});
+
+test("Send again sends the message of the Lead failed item again", async ({ page }) => {
+  const sent: string[] = [];
+  await routeInbox(page, items);
+  await page.route("**/api/inbox/*/send", (route) => {
+    sent.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ status: 204 });
+  });
+  await page.goto("/inbox");
+
+  await page.getByRole("main").getByRole("button", { name: "Send again" }).click();
+
+  await expect.poll(() => sent).toEqual(["/api/inbox/5/send"]);
 });
