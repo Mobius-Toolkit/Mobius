@@ -12,8 +12,19 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
+// fakeRegistry points the npm registry at a new fake registry until the end of the test.
+func fakeRegistry(t *testing.T) *testkit.FakeNPM {
+	t.Helper()
+	registry := testkit.NewFakeNPM(t)
+	was := npmRegistry
+	npmRegistry = registry.URL
+	t.Cleanup(func() { npmRegistry = was })
+	return registry
+}
+
 func toolEngine(t *testing.T, bin string) *Engine {
 	t.Helper()
+	fakeRegistry(t)
 	t.Setenv(claudeCodeEnv, "")
 	cfg := limits(t)
 	cfg.DataDir = t.TempDir()
@@ -217,11 +228,7 @@ func npmEngine(t *testing.T, adapterVersion, cliVersion string) (*Engine, *testk
 	testkit.InstallFakeProgram(t, bin, "claude", cliVersion)
 	e := toolEngine(t, bin)
 	t.Setenv(claudeCodeEnv, filepath.Join(bin, "claude"))
-	registry := testkit.NewFakeNPM(t)
-	was := npmRegistry
-	npmRegistry = registry.URL
-	t.Cleanup(func() { npmRegistry = was })
-	return e, registry
+	return e, fakeRegistry(t)
 }
 
 func TestAToolOlderThanTheNewestVersionIsOutdated(t *testing.T) {
