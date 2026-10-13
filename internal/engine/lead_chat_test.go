@@ -339,11 +339,13 @@ func TestAHarnessThatNeedsALoginFailsTheChatSession(t *testing.T) {
 	}
 }
 
-func TestTheFirstPromptTellsTheLeadOfAnEvergreenWorkstream(t *testing.T) {
+func TestTheFirstPromptTellsTheLeadOfAnEvergreenWorkstreamWhileGitHubRefusesEachRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "")
 	fake.AddLabel(shop, 12, "mobius:evergreen", "owner")
+	waitForPoll(t, server, fake)
+	fake.SetRateLimited(true)
 
 	sendChat(t, server, leadChat, "Plan the next step")
 
@@ -371,6 +373,8 @@ func TestTheFirstPromptHasTheContextPartsInOrder(t *testing.T) {
 	fake.AddSubIssue(shop, 41, 43)
 	fake.AddSubIssue(shop, 12, 50)
 	fake.AddSubIssue(shop, 50, 51)
+	waitForPoll(t, server, fake)
+	waitForTasks(t, server, []taskLine{line(41, "Add plan model", "ready", 0), line(43, "Plan API", "open", 1), line(42, "Old spike", "closed", 0)})
 	lead := filepath.Join(dataDir, "leads", "owner", "shop", "12")
 	if err := os.MkdirAll(lead, 0o750); err != nil {
 		t.Fatal(err)
