@@ -222,6 +222,22 @@ func TestARerunThatFailsGivesAnOpenHardBreakAndANewerPassedRunEndsIt(t *testing.
 	}
 }
 
+func TestARerunThatIsCancelledAndANewerFailedRunGiveAnOpenHardBreak(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+
+	fake.SetWorkflowRunStatus(run, "completed", "cancelled")
+	fake.AddWorkflowRun(shop, failedMainRun(7))
+
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true, result: "hard"})
+	if breaks := openHardBreaks(t, server); len(breaks) != 1 || breaks[0].RunID != run {
+		t.Errorf("open hard breaks = %+v", breaks)
+	}
+}
+
 func TestAFailedRunThatAHumanRanAgainGivesAHardBreakWithNoNewRerun(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

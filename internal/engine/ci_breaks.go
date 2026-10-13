@@ -74,7 +74,8 @@ func (e *Engine) startCIBreak(ctx context.Context, repository github.Repository,
 }
 
 // advanceCIBreak runs the failed jobs again when Mobius did not do it yet and no newer run of the workflow passed, stores the result of the new attempt, and
-// ends the break when a newer run of the workflow passed. Mobius stores the mark of the re-run after the call, so a
+// ends the break when a newer run of the workflow passed. A new attempt that completes with another conclusion than
+// success (for example cancelled), and a newer failed run, make the break hard. Mobius stores the mark of the re-run after the call, so a
 // run that already has a new attempt (for example after a stop between the call and the mark) is not run again.
 // When GitHub refuses the call with a 4xx status (for example with no permission, or for a run older than 30 days),
 // the failure stays a failure, so the break is hard. Another error returns, and the next poll tries again.
@@ -98,15 +99,15 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 		}
 		return e.queries.SetCIBreakRerun(ctx, store.SetCIBreakRerunParams{RerunAt: now(), ID: ciBreak.ID})
 	}
-	if ciBreak.Result == "" && run != nil && run.GetStatus() == "completed" && int64(run.GetRunAttempt()) > ciBreak.RunAttempt {
-		switch run.GetConclusion() {
-		case "success":
-			return e.queries.EndCIBreak(ctx, store.EndCIBreakParams{Result: "flaky", EndedRunID: run.GetID(), EndedAt: now(), ID: ciBreak.ID})
-		case "failure", "timed_out":
-			ciBreak.Result = "hard"
-			if err := e.queries.SetCIBreakResult(ctx, store.SetCIBreakResultParams{Result: ciBreak.Result, ID: ciBreak.ID}); err != nil {
-				return err
-			}
+	rerunCompleted := run != nil && run.GetStatus() == "completed" && int64(run.GetRunAttempt()) > ciBreak.RunAttempt
+	if ciBreak.Result == "" && rerunCompleted && run.GetConclusion() == "success" {
+		return e.queries.EndCIBreak(ctx, store.EndCIBreakParams{Result: "flaky", EndedRunID: run.GetID(), EndedAt: now(), ID: ciBreak.ID})
+	}
+	newerFailed := newest != nil && newest.GetID() > ciBreak.RunID && (newest.GetConclusion() == "failure" || newest.GetConclusion() == "timed_out")
+	if ciBreak.Result == "" && (rerunCompleted || newerFailed) {
+		ciBreak.Result = "hard"
+		if err := e.queries.SetCIBreakResult(ctx, store.SetCIBreakResultParams{Result: ciBreak.Result, ID: ciBreak.ID}); err != nil {
+			return err
 		}
 	}
 	if passedAgain {
