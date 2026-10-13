@@ -113,44 +113,48 @@ function InboxRow({
             {item.reason}
           </span>
         </span>
-        <div className="flex shrink-0 items-center gap-2">
-          {item.kind === InboxItemKind.question && (
-            <Button size="sm" asChild>
-              <a href={item.link} target="_blank" rel="noreferrer">
-                Answer
-              </a>
+        <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+          <div className="flex items-center justify-end empty:hidden sm:w-24 sm:empty:flex">
+            {item.kind === InboxItemKind.question && (
+              <Button size="sm" asChild>
+                <a href={item.link} target="_blank" rel="noreferrer">
+                  Answer
+                </a>
+              </Button>
+            )}
+            {(item.kind === InboxItemKind.stopped || item.kind === InboxItemKind.lost) && (
+              <Button
+                size="sm"
+                disabled={running !== null}
+                pending={running === "action"}
+                onClick={resume}
+              >
+                {item.kind === InboxItemKind.stopped ? "Resume" : "Start again"}
+              </Button>
+            )}
+            {isPullRequest && (
+              <Button size="sm" asChild>
+                <a href={item.pullRequestUrl} target="_blank" rel="noreferrer">
+                  Open PR
+                </a>
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
+              Details
+              <ChevronDownIcon className={cn("size-4", open && "rotate-180")} />
             </Button>
-          )}
-          {(item.kind === InboxItemKind.stopped || item.kind === InboxItemKind.lost) && (
             <Button
+              variant="outline"
               size="sm"
               disabled={running !== null}
-              pending={running === "action"}
-              onClick={resume}
+              pending={running === "dismiss"}
+              onClick={() => act("dismiss", () => dismiss(item.id))}
             >
-              {item.kind === InboxItemKind.stopped ? "Resume" : "Start again"}
+              Dismiss
             </Button>
-          )}
-          {isPullRequest && (
-            <Button size="sm" asChild>
-              <a href={item.pullRequestUrl} target="_blank" rel="noreferrer">
-                Open PR
-              </a>
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
-            Details
-            <ChevronDownIcon className={cn("size-4", open && "rotate-180")} />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={running !== null}
-            pending={running === "dismiss"}
-            onClick={() => act("dismiss", () => dismiss(item.id))}
-          >
-            Dismiss
-          </Button>
+          </div>
         </div>
       </div>
       {open && (
