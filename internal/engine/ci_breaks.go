@@ -13,9 +13,14 @@ import (
 
 // readDefaultBranchCI keeps the breaks of the CI of the default branch. A break of a workflow starts when its newest
 // completed run failed. Mobius runs the failed jobs of that run again one time. The result of the break is flaky when
-// the new attempt passes, and hard when it fails. A break ends when a newer run of the workflow passes.
+// the new attempt passes, and hard when it fails. A break ends when a newer run of the workflow passes. When GitHub
+// refuses the list of runs with a 4xx status (for example with no permission), Mobius skips the CI for this poll.
 func (e *Engine) readDefaultBranchCI(ctx context.Context, repository github.Repository) error {
 	runs, err := repository.BranchWorkflowRuns(ctx, repository.DefaultBranch)
+	var refused *gh.ErrorResponse
+	if errors.As(err, &refused) && refused.Response.StatusCode < 500 {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

@@ -163,6 +163,8 @@ type FakeGitHub struct {
 	workflowRuns []workflowRun
 	// rerunRefusal is the status that the re-run of the failed jobs gives, or 0 when it works.
 	rerunRefusal int
+	// runListRefusal is the status that the list of workflow runs gives, or 0 when it works.
+	runListRefusal int
 }
 
 // A grant is a user code or a refresh token: the login of the user and the App index.

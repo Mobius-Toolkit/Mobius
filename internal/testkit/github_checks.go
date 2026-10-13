@@ -220,6 +220,13 @@ func (g *FakeGitHub) RefuseRerun(status int) {
 	g.rerunRefusal = status
 }
 
+// RefuseWorkflowRuns makes the list of workflow runs give the status.
+func (g *FakeGitHub) RefuseWorkflowRuns(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.runListRefusal = status
+}
+
 // WorkflowRunAttempt gives the number of the attempt of the workflow run id.
 func (g *FakeGitHub) WorkflowRunAttempt(id int64) int {
 	g.mu.Lock()
@@ -540,6 +547,10 @@ func (g *FakeGitHub) jobLog(w http.ResponseWriter, r *http.Request) {
 func (g *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.runListRefusal != 0 {
+		message(w, g.runListRefusal, "Resource not accessible by integration")
+		return
+	}
 	sha, branch := r.URL.Query().Get("head_sha"), r.URL.Query().Get("branch")
 	runs := []map[string]any{}
 	for index, run := range g.workflowRuns {

@@ -142,6 +142,18 @@ func TestARefusedRerunDoesNotStopThePollAndGivesAHardBreak(t *testing.T) {
 	}
 }
 
+func TestARefusedListOfRunsDoesNotStopTheDispatch(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.RefuseWorkflowRuns(http.StatusForbidden)
+	server, _ := connect(t, fake, seen)
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	liveTaskOf(t, server, 41)
+}
+
 func TestARerunThatGitHubAnswersWithAServerErrorIsSentAgain(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
