@@ -53,11 +53,18 @@ func (g *FakeGitHub) SetInstallationPermissions(appID int64, permissions map[str
 	g.installationPermissions[appID] = permissions
 }
 
-// FailInstallations makes the installation list of the App appID fail.
-func (g *FakeGitHub) FailInstallations(appID int64) {
+// FailInstallations makes the installation list of the App appID fail, or work again when fail is false.
+func (g *FakeGitHub) FailInstallations(appID int64, fail bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.failedApps[appID] = true
+	g.failedApps[appID] = fail
+}
+
+// InstallationReads gives the number of requests for the installation list of any App, also the failed ones.
+func (g *FakeGitHub) InstallationReads() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.installationReads
 }
 
 // SetInstallationTokenLife sets the time from the creation of an installation token to its expiry. The default is one hour, as on GitHub.
@@ -271,6 +278,7 @@ func (g *FakeGitHub) listInstallations(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.installationReads++
 	app := apps[index]
 	if g.failedApps[app.id] {
 		message(w, http.StatusInternalServerError, "Server Error")
