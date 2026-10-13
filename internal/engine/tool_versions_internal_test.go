@@ -332,3 +332,17 @@ func TestTheClaudeCodeCLIInTheAdapterHasNoNewestVersion(t *testing.T) {
 		t.Errorf("Claude Code CLI = %+v", got)
 	}
 }
+
+func TestAReadOfTheRegistryThatTheContextEndsIsNotKept(t *testing.T) {
+	e, registry := npmEngine(t, "claude-agent-acp 0.9.12\n", "2.1.9 (Claude Code)\n")
+	registry.SetVersion(adapterNPM, "0.10.0")
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if got := e.newestVersion(ended, adapterNPM); got != "" {
+		t.Errorf("newest with an ended context = %q", got)
+	}
+	if got := e.newestVersion(context.Background(), adapterNPM); got != "0.10.0" {
+		t.Errorf("newest after the ended context = %q", got)
+	}
+}

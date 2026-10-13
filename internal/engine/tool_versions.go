@@ -195,6 +195,9 @@ func (e *Engine) newestVersion(ctx context.Context, npmPackage string) string {
 		return known.version
 	}
 	version := readNewestVersion(ctx, npmPackage)
+	if ctx.Err() != nil {
+		return ""
+	}
 	e.newest[npmPackage] = newestVersion{version: version, read: e.timeNow()}
 	return version
 }
