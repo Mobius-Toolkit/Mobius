@@ -130,6 +130,8 @@ type FakeGitHub struct {
 	holds           map[issueKey]*hold
 	threadHolds     map[issueKey][]*hold
 	issueHolds      map[issueKey]*hold
+	// rateLimited tells if each request gets the rate-limit answer.
+	rateLimited bool
 	// hangs holds the route patterns whose next request gets no answer.
 	hangs map[string]bool
 	// routeHolds holds the route patterns whose next request waits for the close of the channel.
@@ -358,11 +360,19 @@ func (g *FakeGitHub) hanging(mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, pattern := mux.Handler(r)
 		g.mu.Lock()
+		limited := g.rateLimited
 		hang := g.hangs[pattern]
 		delete(g.hangs, pattern)
 		routeHold := g.routeHolds[pattern]
 		delete(g.routeHolds, pattern)
 		g.mu.Unlock()
+		if limited {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-RateLimit-Remaining", "0")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `{"message": "API rate limit exceeded for installation ID 1."}`)
+			return
+		}
 		if routeHold != nil {
 			select {
 			case <-routeHold:
@@ -433,6 +443,14 @@ func serveWithETag(handler http.Handler, w http.ResponseWriter, r *http.Request)
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(recorder.body.Bytes())
+}
+
+// SetRateLimited makes each request get the rate-limit answer of GitHub while limited is true. The answer has no
+// X-RateLimit-Reset header, so the client of go-github does not refuse later requests on its own.
+func (g *FakeGitHub) SetRateLimited(limited bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.rateLimited = limited
 }
 
 // Now gives the time of the last write.

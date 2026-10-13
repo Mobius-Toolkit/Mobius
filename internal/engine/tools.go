@@ -866,8 +866,12 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
 	}
-	if err := openWorkstream(ctx, repository, input.Workstream); err != nil {
+	open, err := e.queries.HasCopiedWorkstream(ctx, store.HasCopiedWorkstreamParams{Repository: repository.FullName, Number: input.Workstream})
+	if err != nil {
 		return "", err
+	}
+	if !open {
+		return "", refuse("#%d is not an open Workstream.", input.Workstream)
 	}
 	text := fmt.Sprintf("Message of %s, approved by the Owner:\n\n%s", sender, input.Text)
 	if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, kind, text); err != nil {
