@@ -111,21 +111,40 @@ func TestARestartKeepsTheBreakOfARunThatMobiusRanAgainAndDoesNotRunItAgain(t *te
 	}
 }
 
-func TestARefusedRerunDoesNotStopThePollAndGivesABreakWithNoResult(t *testing.T) {
+func TestARefusedRerunDoesNotStopThePollAndGivesAHardBreak(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.RefuseRerun(http.StatusForbidden)
 	run := fake.AddWorkflowRun(shop, failedMainRun(7))
 	server := startServer(t, fake, t.TempDir(), "")
 
-	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true, result: "hard"})
 	waitForPolls(t, fake)
 
 	if attempt := fake.WorkflowRunAttempt(run); attempt != 1 {
 		t.Errorf("attempt = %d", attempt)
 	}
-	if breaks := openHardBreaks(t, server); len(breaks) != 0 {
+	if breaks := openHardBreaks(t, server); len(breaks) != 1 {
 		t.Errorf("hard breaks = %d", len(breaks))
+	}
+}
+
+func TestARerunThatGitHubAnswersWithAServerErrorIsSentAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.RefuseRerun(http.StatusBadGateway)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+
+	waitForPolls(t, fake)
+	if breaks := ciBreaks(t, server); len(breaks) != 1 || breaks[0].rerun || breaks[0].result != "" {
+		t.Errorf("breaks = %v", breaks)
+	}
+	fake.RefuseRerun(0)
+
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	if attempt := fake.WorkflowRunAttempt(run); attempt != 2 {
+		t.Errorf("attempt = %d", attempt)
 	}
 }
 
