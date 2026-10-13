@@ -75,7 +75,8 @@ func TestAPollKeepsTheNeedsHumanLabelOffATaskInNeedsHumanAfterTheRemoval(t *test
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	// The prompt of a new session has the earlier events in its history, so the rule of the newest event comes first.
-	lead := "[[prompts]]\nwhen = \"resume of #41\"\nreply = [\"I check the task.\"]\n\n" + leadStarts
+	// The stop event is the last write of the hand over, so the Lead can get it after the removal.
+	lead := "[[prompts]]\nwhen = \"resume of #41\"\nreply = [\"I check the task.\"]\n\n[[prompts]]\nwhen = \"stop of #41\"\nreply = [\"I check the task.\"]\n\n" + leadStarts
 	server, _ := connectTask(t, fake, lead, dies, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 1 })
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
