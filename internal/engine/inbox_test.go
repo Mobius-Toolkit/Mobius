@@ -2,7 +2,10 @@ package engine_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -293,5 +297,51 @@ func TestDismissRemovesTheItemFromTheInbox(t *testing.T) {
 	dismissed := waitForChange(t, changes, func(change engine.Change) bool { return change.Inbox != nil && change.Inbox.DismissedAt.Valid })
 	if dismissed.Inbox.ID != item.ID {
 		t.Errorf("dismissed = %+v", dismissed.Inbox)
+	}
+}
+
+func TestSendAgainAddsTheOwnerMessageWithItsImagesToTheChatAndClosesTheItem(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	flag := filepath.Join(t.TempDir(), "taken")
+	server, _ := connect(t, fake, "[[prompts]]\nshell = \"if [ -e '"+flag+"' ]; then true; else kill -9 $PPID; sleep 5; fi\"\n")
+	sendChatImages(t, server, leadChat, "Plan the loyalty API", []engine.Image{pngImage, jpegImage})
+	failed := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range inbox(t, server) {
+			if item.Kind == "Lead failed" {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+	if err := os.WriteFile(flag, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	status, text := send(t, server, http.MethodPost, fmt.Sprintf("/api/inbox/%d/send", failed.ID), "")
+
+	if status != http.StatusNoContent {
+		t.Fatalf("send: status %d: %s", status, text)
+	}
+	if got := inbox(t, server); len(got) != 0 {
+		t.Errorf("Inbox = %+v", got)
+	}
+	var owner []store.ChatMessage
+	for _, message := range chatView(t, server, leadChat).Messages {
+		if message.Author == "Owner" {
+			owner = append(owner, message)
+		}
+	}
+	if len(owner) != 2 || owner[1].Text != "Plan the loyalty API" || owner[1].ID == owner[0].ID {
+		t.Fatalf("Owner messages = %+v", owner)
+	}
+	for position, want := range []engine.Image{pngImage, jpegImage} {
+		image, err := server.Engine.MessageImage(owner[1].ID, position)
+		if err != nil || image == nil || !reflect.DeepEqual(*image, want) {
+			t.Errorf("image %d = %+v, %v", position, image, err)
+		}
+	}
+	status, _ = send(t, server, http.MethodPost, fmt.Sprintf("/api/inbox/%d/send", failed.ID), "")
+	if status != http.StatusConflict {
+		t.Errorf("second send: status %d", status)
 	}
 }

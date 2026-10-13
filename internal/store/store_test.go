@@ -458,7 +458,7 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("DROP TABLE harness_pause_ends"); err != nil {
 		t.Fatal(err)
 	}
-	for _, column := range []string{"title", "reason", "pull_request", "report_link"} {
+	for _, column := range []string{"chat_message", "title", "reason", "pull_request", "report_link"} {
 		if _, err := db.Exec("ALTER TABLE inbox_items DROP COLUMN " + column); err != nil {
 			t.Fatal(err)
 		}
@@ -527,6 +527,7 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"ALTER TABLE events DROP COLUMN organization",
 		"ALTER TABLE harness_pauses ADD COLUMN inbox_item INTEGER NOT NULL DEFAULT 0",
 		"DROP TABLE harness_pause_ends",
+		"ALTER TABLE inbox_items DROP COLUMN chat_message",
 		"ALTER TABLE inbox_items DROP COLUMN title",
 		"ALTER TABLE inbox_items DROP COLUMN reason",
 		"ALTER TABLE inbox_items DROP COLUMN pull_request",
@@ -602,6 +603,7 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		"ALTER TABLE inbox_items DROP COLUMN chat_message",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261105000000",
 		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, started_at) VALUES
 			(1, 'triager', 'claude-code', 'sonnet', 'owner', '', 0, '2026-10-04T10:00:00Z'),

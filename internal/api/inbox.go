@@ -3,9 +3,13 @@ package api
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
+	"github.com/gork-labs/gork/pkg/api"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -82,6 +86,25 @@ type DismissRequest struct {
 // Dismiss removes an item from the Inbox.
 func (h *handlers) Dismiss(ctx context.Context, req DismissRequest) error {
 	return h.engine.Dismiss(ctx, req.Path.ID)
+}
+
+// SendAgainRequest is the request of SendAgain.
+type SendAgainRequest struct {
+	Path struct {
+		// ID is the id of the Inbox item
+		ID int64 `gork:"id"`
+	}
+}
+
+// SendAgain adds the Owner message of an open Lead failed item to its chat again, with the same text and images, and
+// removes the item from the Inbox. It returns 409 for an item that is not an open Lead failed item with a message, and
+// while Mobius restarts for an upgrade.
+func (h *handlers) SendAgain(ctx context.Context, req SendAgainRequest) error {
+	err := h.engine.SendAgain(ctx, req.Path.ID)
+	if engine.Refused(err) {
+		return api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	return err
 }
 
 func (h *handlers) inboxItemOf(item store.InboxItem) (InboxItem, error) {

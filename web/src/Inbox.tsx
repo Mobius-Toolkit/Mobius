@@ -6,6 +6,8 @@ import {
   InboxItemKind,
   resumeIssue,
   type resumeIssueResponse,
+  sendAgain,
+  type sendAgainResponse,
   type InboxItem,
   type Workstream,
 } from "@/api/api.gen";
@@ -61,7 +63,7 @@ function InboxRow({
 
   const act = (
     name: "action" | "dismiss",
-    call: () => Promise<dismissResponse | resumeIssueResponse>,
+    call: () => Promise<dismissResponse | resumeIssueResponse | sendAgainResponse>,
   ) => {
     setRunning(name);
     call()
@@ -130,6 +132,16 @@ function InboxRow({
                 onClick={resume}
               >
                 {item.kind === InboxItemKind.stopped ? "Resume" : "Start again"}
+              </Button>
+            )}
+            {item.kind === InboxItemKind.Lead_failed && (
+              <Button
+                size="sm"
+                disabled={running !== null}
+                pending={running === "action"}
+                onClick={() => act("action", () => sendAgain(item.id))}
+              >
+                Send again
               </Button>
             )}
             {isPullRequest && (

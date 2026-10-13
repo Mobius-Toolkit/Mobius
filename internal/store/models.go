@@ -70,6 +70,7 @@ type InboxItem struct {
 	Reason       string
 	PullRequest  int64
 	ReportLink   string
+	ChatMessage  sql.NullInt64
 }
 
 type LeadEvent struct {

@@ -102,6 +102,34 @@ func (e *Engine) dismissIssueItems(ctx context.Context, repository string, numbe
 	return nil
 }
 
+// SendAgain adds a new Owner message to the chat of the open Lead failed item id, with the text and the images of the
+// message that the Lead did not take. Then it removes the item from the Inbox.
+func (e *Engine) SendAgain(ctx context.Context, id int64) error {
+	item, err := e.queries.GetInboxItem(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return refuse("This item has no message to send again.")
+	}
+	if err != nil {
+		return err
+	}
+	if item.Kind != leadFailedKind || item.DismissedAt.Valid || !item.ChatMessage.Valid {
+		return refuse("This item has no message to send again.")
+	}
+	message, err := e.queries.GetChatMessage(ctx, item.ChatMessage.Int64)
+	if err != nil {
+		return err
+	}
+	images, err := e.messageImages(message.ID)
+	if err != nil {
+		return err
+	}
+	key := ChatKey{Organization: message.Organization, Repository: message.Repository, Workstream: message.Workstream}
+	if err := e.postChat(ctx, key, ownerAuthor, "", message.Text, images); err != nil {
+		return err
+	}
+	return e.Dismiss(ctx, id)
+}
+
 // Dismiss removes the Inbox item id from the Inbox.
 func (e *Engine) Dismiss(ctx context.Context, id int64) error {
 	item, err := e.queries.DismissInboxItem(ctx, store.DismissInboxItemParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: id})

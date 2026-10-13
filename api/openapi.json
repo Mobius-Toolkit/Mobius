@@ -1357,6 +1357,55 @@
         ]
       }
     },
+    "/api/inbox/{id}/send": {
+      "post": {
+        "description": "SendAgain adds the Owner message of an open Lead failed item to its chat again, with the same text and images, and removes the item from the Inbox. It returns 409 for an item that is not an open Lead failed item with a message, and while Mobius restarts for an upgrade.",
+        "operationId": "SendAgain",
+        "parameters": [
+          {
+            "description": "ID is the id of the Inbox item",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "inbox"
+        ]
+      }
+    },
     "/api/login": {
       "post": {
         "description": "Login makes a device login when the password is the access password, and sets the token of the device login in a cookie.",
