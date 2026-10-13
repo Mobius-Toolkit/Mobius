@@ -29,6 +29,13 @@ func startLabeled(t *testing.T, fake *testkit.FakeGitHub, stopped bool, before s
 	if stopped {
 		fake.AddLabel(shop, 41, "mobius:needs-human", "owner")
 	}
+	return startOnePoll(t, fake, before)
+}
+
+// startOnePoll starts a server whose poll interval is longer than the test, so only the first poll runs. The SQL
+// statement before runs before the server starts.
+func startOnePoll(t *testing.T, fake *testkit.FakeGitHub, before string) (*testserver.Server, <-chan engine.Change) {
+	t.Helper()
 	dataDir := t.TempDir()
 	// The App exists before the server starts, so the first poll of the server reads the repository, and no other poll runs.
 	db, err := store.Open(t.Context(), filepath.Join(dataDir, "mobius.db"))

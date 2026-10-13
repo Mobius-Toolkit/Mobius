@@ -404,6 +404,34 @@ func TestACompletionClosesTheWorkstreamIssueAndLeavesTheList(t *testing.T) {
 	waitForWorkstreams(t, changes)
 }
 
+func TestACompletionDismissesTheQuestionItemsAndRemovesTheQuestionLabelAtOnce(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	fake.CloseIssue(shop, 41)
+	fake.AddLabel(shop, 12, "mobius:question", "mobius-test[bot]")
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server, _ := startOnePoll(t, fake, "")
+	for _, issue := range []int64{12, 41} {
+		_, err := server.DB.Exec(`INSERT INTO inbox_items (kind, repository, workstream, issue, text, link, time) VALUES ('question', 'owner/shop', 12, ?, 'Cents or dollars?', '', '2026-10-04T10:00:00Z')`, issue)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	status, body := complete(t, server, 12)
+
+	if status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	if items := inbox(t, server); len(items) != 0 {
+		t.Errorf("inbox = %+v", items)
+	}
+	if labels := fake.Labels(shop, 12); slices.Contains(labels, "mobius:question") {
+		t.Errorf("labels = %v", labels)
+	}
+}
+
 func TestAFailedCompletionGivesTheErrorAndKeepsTheWorkstreamOpen(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
