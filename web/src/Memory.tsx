@@ -97,7 +97,7 @@ function DiffRows({ hunk, wrap }: { hunk: DiffLine[]; wrap: boolean }) {
 
 function Hunk({ hunk }: { hunk: DiffLine[] }) {
   return (
-    <div className="grid gap-1">
+    <div className="grid min-w-0 gap-1">
       <div className="flex justify-end">
         <Dialog>
           <DialogTrigger asChild>
@@ -225,7 +225,7 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
               )}
             </div>
             {draft === undefined ? (
-              <pre className="rounded-lg border p-3 text-sm whitespace-pre-wrap">
+              <pre className="rounded-lg border p-3 text-sm wrap-anywhere whitespace-pre-wrap">
                 {current || "The memory file is empty."}
               </pre>
             ) : (
