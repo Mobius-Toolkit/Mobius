@@ -671,3 +671,22 @@ UPDATE tasks SET long_wait_at = ? WHERE id = ?;
 
 -- name: SetTaskCheckErrors :exec
 UPDATE tasks SET check_errors = ? WHERE id = ?;
+
+-- name: AddCIBreak :exec
+INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, started_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListOpenCIBreaks :many
+SELECT * FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id;
+
+-- name: ListOpenHardCIBreaks :many
+SELECT * FROM ci_breaks WHERE repository = ? AND ended_at = '' AND result = 'hard' ORDER BY id;
+
+-- name: SetCIBreakRerun :exec
+UPDATE ci_breaks SET rerun_at = ? WHERE id = ?;
+
+-- name: SetCIBreakResult :exec
+UPDATE ci_breaks SET result = ? WHERE id = ?;
+
+-- name: EndCIBreak :exec
+UPDATE ci_breaks SET result = ?, ended_run_id = ?, ended_at = ? WHERE id = ?;

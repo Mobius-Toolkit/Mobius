@@ -39,7 +39,13 @@ type WorkflowRun struct {
 	Name       string
 	HeadSHA    string
 	WorkflowID int64
-	Status     string
+	// Branch is the branch of the head of the run.
+	Branch string
+	// HeadRepository is the repository of the head of the run. "" is the repository of the run.
+	HeadRepository string
+	// Attempt is 0 for the first attempt.
+	Attempt int
+	Status  string
 	// Conclusion is "" while the workflow run runs.
 	Conclusion string
 }
@@ -205,6 +211,13 @@ func (g *FakeGitHub) SetWorkflowRunStatus(id int64, status, conclusion string) {
 	defer g.mu.Unlock()
 	g.workflowRuns[id-1].Status = status
 	g.workflowRuns[id-1].Conclusion = conclusion
+}
+
+// WorkflowRunAttempt gives the number of the attempt of the workflow run id.
+func (g *FakeGitHub) WorkflowRunAttempt(id int64) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return max(g.workflowRuns[id-1].Attempt, 1)
 }
 
 // AddAnnotation adds an annotation on line of path with message to the check run id.
@@ -520,16 +533,40 @@ func (g *FakeGitHub) jobLog(w http.ResponseWriter, r *http.Request) {
 func (g *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	sha, branch := r.URL.Query().Get("head_sha"), r.URL.Query().Get("branch")
 	runs := []map[string]any{}
 	for index, run := range g.workflowRuns {
-		if run.repository != repository(r) || run.HeadSHA != r.URL.Query().Get("head_sha") {
+		if run.repository != repository(r) || sha != "" && run.HeadSHA != sha || branch != "" && run.Branch != branch {
 			continue
 		}
-		body := map[string]any{"id": index + 1, "name": run.Name, "workflow_id": run.WorkflowID, "head_sha": run.HeadSHA, "status": run.Status}
+		head := run.HeadRepository
+		if head == "" {
+			head = run.repository
+		}
+		body := map[string]any{
+			"id": index + 1, "name": run.Name, "workflow_id": run.WorkflowID, "head_sha": run.HeadSHA, "head_branch": run.Branch,
+			"head_repository": map[string]any{"full_name": head}, "run_attempt": max(run.Attempt, 1), "status": run.Status,
+			"html_url": fmt.Sprintf("%s/%s/actions/runs/%d", g.URL, run.repository, index+1),
+		}
 		if run.Conclusion != "" {
 			body["conclusion"] = run.Conclusion
 		}
 		runs = append(runs, body)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(runs), "workflow_runs": page(w, r, runs)})
+}
+
+func (g *FakeGitHub) rerunFailedJobs(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if id < 1 || id > int64(len(g.workflowRuns)) || g.workflowRuns[id-1].repository != repository(r) {
+		notFound(w)
+		return
+	}
+	run := &g.workflowRuns[id-1]
+	run.Attempt = max(run.Attempt, 1) + 1
+	run.Status = "queued"
+	run.Conclusion = ""
+	w.WriteHeader(http.StatusCreated)
 }

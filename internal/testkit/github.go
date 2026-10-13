@@ -288,6 +288,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/check-runs/{id}/annotations", g.withToken(g.checkRunAnnotations))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/commits/{sha}/check-runs", g.withToken(g.commitCheckRuns))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs", g.withToken(g.listWorkflowRuns))
+	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs", g.withToken(g.rerunFailedJobs))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/jobs/{id}/logs", g.withToken(g.jobLogLink))
 	mux.HandleFunc("GET /job-logs/{id}", g.jobLog)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/releases/latest", g.getLatestRelease)

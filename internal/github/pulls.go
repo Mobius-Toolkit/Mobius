@@ -116,6 +116,22 @@ func (r Repository) WorkflowRuns(ctx context.Context, sha string) ([]*gh.Workflo
 	return all(r.Client.Actions.ListRepositoryWorkflowRunsIter(ctx, r.Owner(), r.Name(), &gh.ListWorkflowRunsOptions{HeadSHA: sha, ListOptions: gh.ListOptions{PerPage: 100}}))
 }
 
+// BranchWorkflowRuns gives the newest workflow runs of GitHub Actions on the branch. It reads one page, because the
+// runs of a branch are many.
+func (r Repository) BranchWorkflowRuns(ctx context.Context, branch string) ([]*gh.WorkflowRun, error) {
+	runs, _, err := r.Client.Actions.ListRepositoryWorkflowRuns(ctx, r.Owner(), r.Name(), &gh.ListWorkflowRunsOptions{Branch: branch, ListOptions: gh.ListOptions{PerPage: 100}})
+	if err != nil {
+		return nil, err
+	}
+	return runs.WorkflowRuns, nil
+}
+
+// RerunFailedJobs runs the failed jobs of the workflow run id again. It needs the permission actions: write.
+func (r Repository) RerunFailedJobs(ctx context.Context, id int64) error {
+	_, err := r.Client.Actions.RerunFailedJobsByID(ctx, r.Owner(), r.Name(), id)
+	return err
+}
+
 // CheckRunAnnotations gives the annotations of the check run id.
 func (r Repository) CheckRunAnnotations(ctx context.Context, id int64) ([]*gh.CheckRunAnnotation, error) {
 	return all(r.Client.Checks.ListCheckRunAnnotationsIter(ctx, r.Owner(), r.Name(), id, &gh.ListOptions{PerPage: 100}))

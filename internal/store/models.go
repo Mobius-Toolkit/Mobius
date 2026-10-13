@@ -21,6 +21,22 @@ type ChatMessage struct {
 	StoppedAt    sql.NullString
 }
 
+type CiBreak struct {
+	ID           int64
+	Repository   string
+	WorkflowID   int64
+	WorkflowName string
+	RunID        int64
+	RunUrl       string
+	RunAttempt   int64
+	RerunAt      string
+	Result       string
+	EndedRunID   int64
+	EndedAt      string
+	Issue        int64
+	StartedAt    string
+}
+
 type Event struct {
 	ID           int64
 	Time         string

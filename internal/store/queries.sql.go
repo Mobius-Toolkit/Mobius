@@ -10,6 +10,38 @@ import (
 	"database/sql"
 )
 
+const addCIBreak = `-- name: AddCIBreak :exec
+INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, started_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddCIBreakParams struct {
+	Repository   string
+	WorkflowID   int64
+	WorkflowName string
+	RunID        int64
+	RunUrl       string
+	RunAttempt   int64
+	RerunAt      string
+	Result       string
+	StartedAt    string
+}
+
+func (q *Queries) AddCIBreak(ctx context.Context, arg AddCIBreakParams) error {
+	_, err := q.db.ExecContext(ctx, addCIBreak,
+		arg.Repository,
+		arg.WorkflowID,
+		arg.WorkflowName,
+		arg.RunID,
+		arg.RunUrl,
+		arg.RunAttempt,
+		arg.RerunAt,
+		arg.Result,
+		arg.StartedAt,
+	)
+	return err
+}
+
 const addChatMessage = `-- name: AddChatMessage :one
 INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id)
 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1076,6 +1108,27 @@ type DropLeadFindingsParams struct {
 
 func (q *Queries) DropLeadFindings(ctx context.Context, arg DropLeadFindingsParams) error {
 	_, err := q.db.ExecContext(ctx, dropLeadFindings, arg.Taken, arg.ID)
+	return err
+}
+
+const endCIBreak = `-- name: EndCIBreak :exec
+UPDATE ci_breaks SET result = ?, ended_run_id = ?, ended_at = ? WHERE id = ?
+`
+
+type EndCIBreakParams struct {
+	Result     string
+	EndedRunID int64
+	EndedAt    string
+	ID         int64
+}
+
+func (q *Queries) EndCIBreak(ctx context.Context, arg EndCIBreakParams) error {
+	_, err := q.db.ExecContext(ctx, endCIBreak,
+		arg.Result,
+		arg.EndedRunID,
+		arg.EndedAt,
+		arg.ID,
+	)
 	return err
 }
 
@@ -2887,6 +2940,88 @@ func (q *Queries) ListMemoryVersions(ctx context.Context, repository string) ([]
 	return items, nil
 }
 
+const listOpenCIBreaks = `-- name: ListOpenCIBreaks :many
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id
+`
+
+func (q *Queries) ListOpenCIBreaks(ctx context.Context, repository string) ([]CiBreak, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenCIBreaks, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CiBreak
+	for rows.Next() {
+		var i CiBreak
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.WorkflowID,
+			&i.WorkflowName,
+			&i.RunID,
+			&i.RunUrl,
+			&i.RunAttempt,
+			&i.RerunAt,
+			&i.Result,
+			&i.EndedRunID,
+			&i.EndedAt,
+			&i.Issue,
+			&i.StartedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenHardCIBreaks = `-- name: ListOpenHardCIBreaks :many
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE repository = ? AND ended_at = '' AND result = 'hard' ORDER BY id
+`
+
+func (q *Queries) ListOpenHardCIBreaks(ctx context.Context, repository string) ([]CiBreak, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenHardCIBreaks, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CiBreak
+	for rows.Next() {
+		var i CiBreak
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.WorkflowID,
+			&i.WorkflowName,
+			&i.RunID,
+			&i.RunUrl,
+			&i.RunAttempt,
+			&i.RerunAt,
+			&i.Result,
+			&i.EndedRunID,
+			&i.EndedAt,
+			&i.Issue,
+			&i.StartedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenInboxItems = `-- name: ListOpenInboxItems :many
 SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id
 `
@@ -3859,6 +3994,34 @@ type SetACPSessionIDParams struct {
 
 func (q *Queries) SetACPSessionID(ctx context.Context, arg SetACPSessionIDParams) error {
 	_, err := q.db.ExecContext(ctx, setACPSessionID, arg.AcpSessionID, arg.ID)
+	return err
+}
+
+const setCIBreakRerun = `-- name: SetCIBreakRerun :exec
+UPDATE ci_breaks SET rerun_at = ? WHERE id = ?
+`
+
+type SetCIBreakRerunParams struct {
+	RerunAt string
+	ID      int64
+}
+
+func (q *Queries) SetCIBreakRerun(ctx context.Context, arg SetCIBreakRerunParams) error {
+	_, err := q.db.ExecContext(ctx, setCIBreakRerun, arg.RerunAt, arg.ID)
+	return err
+}
+
+const setCIBreakResult = `-- name: SetCIBreakResult :exec
+UPDATE ci_breaks SET result = ? WHERE id = ?
+`
+
+type SetCIBreakResultParams struct {
+	Result string
+	ID     int64
+}
+
+func (q *Queries) SetCIBreakResult(ctx context.Context, arg SetCIBreakResultParams) error {
+	_, err := q.db.ExecContext(ctx, setCIBreakResult, arg.Result, arg.ID)
 	return err
 }
 
