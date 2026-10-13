@@ -73,14 +73,18 @@ func (e *Engine) startCIBreak(ctx context.Context, repository github.Repository,
 	return e.queries.AddCIBreak(ctx, params)
 }
 
-// advanceCIBreak runs the failed jobs again when Mobius did not do it yet, stores the result of the new attempt, and
+// advanceCIBreak runs the failed jobs again when Mobius did not do it yet and no newer run of the workflow passed, stores the result of the new attempt, and
 // ends the break when a newer run of the workflow passed. Mobius stores the mark of the re-run after the call, so a
 // run that already has a new attempt (for example after a stop between the call and the mark) is not run again.
 // When GitHub refuses the call with a 4xx status (for example with no permission, or for a run older than 30 days),
 // the failure stays a failure, so the break is hard. Another error returns, and the next poll tries again.
 func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repository, ciBreak store.CiBreak, byID map[int64]*gh.WorkflowRun, newest *gh.WorkflowRun) error {
 	run := byID[ciBreak.RunID]
+	passedAgain := newest != nil && newest.GetID() > ciBreak.RunID && newest.GetConclusion() == "success"
 	if ciBreak.RerunAt == "" {
+		if passedAgain {
+			return e.queries.EndCIBreak(ctx, store.EndCIBreakParams{Result: ciBreak.Result, EndedRunID: newest.GetID(), EndedAt: now(), ID: ciBreak.ID})
+		}
 		if run == nil || int64(run.GetRunAttempt()) <= ciBreak.RunAttempt {
 			var refused *gh.ErrorResponse
 			if err := repository.RerunFailedJobs(ctx, ciBreak.RunID); err != nil {
@@ -105,7 +109,7 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 			}
 		}
 	}
-	if newest != nil && newest.GetID() > ciBreak.RunID && newest.GetConclusion() == "success" {
+	if passedAgain {
 		return e.queries.EndCIBreak(ctx, store.EndCIBreakParams{Result: ciBreak.Result, EndedRunID: newest.GetID(), EndedAt: now(), ID: ciBreak.ID})
 	}
 	return nil

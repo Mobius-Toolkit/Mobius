@@ -148,6 +148,32 @@ func TestARerunThatGitHubAnswersWithAServerErrorIsSentAgain(t *testing.T) {
 	}
 }
 
+func TestANewerPassedRunEndsTheBreakBeforeTheRerunIsSent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.RefuseRerun(http.StatusBadGateway)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForPolls(t, fake)
+	if breaks := ciBreaks(t, server); len(breaks) != 1 || breaks[0].rerun {
+		t.Fatalf("breaks = %v", breaks)
+	}
+
+	passed := failedMainRun(7)
+	passed.Conclusion = "success"
+	newer := fake.AddWorkflowRun(shop, passed)
+	waitForCIBreak(t, server, ciBreak{runID: run, endedRunID: newer})
+	fake.RefuseRerun(0)
+	waitForPolls(t, fake)
+
+	if attempt := fake.WorkflowRunAttempt(run); attempt != 1 {
+		t.Errorf("attempt = %d", attempt)
+	}
+	if breaks := ciBreaks(t, server); len(breaks) != 1 || breaks[0] != (ciBreak{runID: run, endedRunID: newer}) {
+		t.Errorf("breaks = %v", breaks)
+	}
+}
+
 func TestARerunThatPassesGivesAFlakyBreakThatIsEnded(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
