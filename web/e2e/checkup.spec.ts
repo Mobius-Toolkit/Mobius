@@ -69,6 +69,31 @@ test("the Checkup page shows a needs you badge on each row with a problem", asyn
   await expect(row("App permissions", "plants").getByText("needs you")).toBeHidden();
 });
 
+test("the Checkup page shows an outdated badge and the newest version of an outdated tool", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const outdated = {
+    ...tool,
+    name: "claude",
+    path: "/usr/bin/claude",
+    version: "2.1.284 (Claude Code)",
+    newest: "2.1.300",
+    outdated: true,
+  };
+  await routeCheckup(page, [tool, outdated], { owner: healthy, plants: healthy });
+
+  await page.goto("/settings/checkup");
+
+  await expect(main.getByRole("link", { name: "Tools" }).getByText("needs you")).toBeVisible();
+
+  await main.getByRole("link", { name: "Tools" }).click();
+
+  await expect(main.getByText("outdated")).toHaveCount(1);
+  await expect(main.getByText("2.1.284 (Claude Code) · newest 2.1.300")).toBeVisible();
+  await expect(main.getByText("git version 2.50.0", { exact: true })).toBeVisible();
+});
+
 test("the Checkup page shows a needs you badge on Workstreams when a repository has no maintenance Workstream", async ({
   page,
 }) => {
