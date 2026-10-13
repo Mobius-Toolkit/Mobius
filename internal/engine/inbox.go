@@ -19,6 +19,8 @@ const (
 	fullDiskKind       = "full disk"
 )
 
+var inboxKinds = []string{questionKind, stoppedKind, lostKind, readyForReviewKind, leadFailedKind}
+
 // addInboxItem adds the Inbox item at the time now, and sends it to the listeners.
 func (e *Engine) addInboxItem(ctx context.Context, params store.AddInboxItemParams) error {
 	params.Time = now()

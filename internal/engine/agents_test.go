@@ -386,6 +386,7 @@ func TestAMobiusCallShowsTheMobiusNameAndTheShortResult(t *testing.T) {
 	server, _ := connect(t, fake, "[[prompts]]\ncall = { tool = \"list_tasks\" }\n")
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
+	waitForTasks(t, server, []taskLine{line(41, "Add plan model", "open", 0)})
 
 	session, _ := leadReply(t, server)
 

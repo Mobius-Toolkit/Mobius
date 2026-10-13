@@ -224,7 +224,8 @@ func closureItem(issue *gh.Issue, pullRequest bool) ClosureItem {
 	return ClosureItem{PullRequest: pullRequest, Number: int64(issue.GetNumber()), Title: issue.GetTitle(), URL: issue.GetHTMLURL()}
 }
 
-// closeWorkstream ends the work of the Workstream, removes mobius:autopilot, closes the open pull requests of its
+// closeWorkstream ends the work of the Workstream, removes mobius:autopilot and mobius:question, dismisses the Inbox
+// items of its issues, closes the open pull requests of its
 // tasks, and closes the issues below it as not planned. A nested Workstream and the issues below it stay open.
 func (e *Engine) closeWorkstream(ctx context.Context, repository github.Repository, workstream int64) error {
 	if err := e.stopWorkstream(ctx, repository, workstream); err != nil {
@@ -232,6 +233,12 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 	}
 	// A later reopen needs a new mobius:autopilot from a trusted user.
 	if err := repository.RemoveLabel(ctx, workstream, autopilotLabel); err != nil {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, workstream, questionLabel); err != nil {
+		return err
+	}
+	if err := e.dismissIssueItems(ctx, repository.FullName, workstream, inboxKinds...); err != nil {
 		return err
 	}
 	pullRequests, err := e.queries.ListTaskPullRequests(ctx, store.ListTaskPullRequestsParams{Repository: repository.FullName, Workstream: workstream})
@@ -266,6 +273,9 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 			}
 			number := int64(issue.GetNumber())
 			parents = append(parents, number)
+			if err := e.dismissIssueItems(ctx, repository.FullName, number, inboxKinds...); err != nil {
+				return err
+			}
 			for _, label := range []string{readyLabel, workingLabel, needsHumanLabel, questionLabel, reviewLabel} {
 				if !hasLabel(issue, label) {
 					continue

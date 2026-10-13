@@ -87,6 +87,7 @@ type FakeGitHub struct {
 	appsCreated             int
 	secondAppAccounts       map[string]bool
 	failedApps              map[int64]bool
+	installationReads       int
 	appPermissions          map[int64]map[string]string
 	installationPermissions map[int64]map[string]string
 	userCodes               map[string]grant

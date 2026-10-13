@@ -398,7 +398,7 @@ func TestAFailedAppKeepsItsRepositoriesAndTheOtherAppContinues(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	gh := connect(t, fake)
 
-	fake.FailInstallations(testkit.SecondAppID)
+	fake.FailInstallations(testkit.SecondAppID, true)
 	fake.AddRepository("owner/cafe")
 	if complete, err := gh.Refresh(t.Context()); err != nil || complete {
 		t.Fatalf("complete = %v, err = %v", complete, err)

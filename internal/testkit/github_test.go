@@ -259,7 +259,7 @@ func TestTheInstallationHasTheAccountOfTheFirstRepositoryAndCanFail(t *testing.T
 		t.Errorf("installations of the second App = %+v", installations)
 	}
 
-	github.FailInstallations(AppID)
+	github.FailInstallations(AppID, true)
 
 	if response := send(t, http.MethodGet, github.URL+"/app/installations", token, "", nil); response.StatusCode != http.StatusInternalServerError {
 		t.Errorf("status = %d", response.StatusCode)

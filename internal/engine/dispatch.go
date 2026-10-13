@@ -146,6 +146,9 @@ func (e *Engine) dispatch(ctx context.Context, repository github.Repository, iss
 	if err := repository.RemoveLabel(ctx, number, readyLabel); err != nil {
 		return err
 	}
+	if err := e.changeCopiedLabels(ctx, repository.FullName, number, []string{workingLabel}, []string{readyLabel}); err != nil {
+		return err
+	}
 	_, err := e.queries.AddTask(ctx, store.AddTaskParams{Repository: repository.FullName, Issue: number, Workstream: workstream, DispatchedAt: now()})
 	if err != nil {
 		return err

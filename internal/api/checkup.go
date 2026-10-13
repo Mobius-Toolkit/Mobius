@@ -118,6 +118,10 @@ type ToolCheck struct {
 	Version string `gork:"version"`
 	// Status is not-found for a program that Mobius cannot find, and no-version for a program that gives no version. It is empty for a program with a version
 	Status string `gork:"status"`
+	// Newest is the newest version of the npm package of a critical tool. It is empty when the registry gave none, and for a tool that is not critical
+	Newest string `gork:"newest"`
+	// Outdated tells that the version of a critical tool is older than Newest
+	Outdated bool `gork:"outdated"`
 }
 
 // GetCheckupToolsRequest is the request of GetCheckupTools.
