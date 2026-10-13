@@ -137,6 +137,50 @@ test("the reason is on the line of the title on a desktop and below it on a phon
   await expect(reason).toHaveJSProperty("scrollWidth", await reason.evaluate((e) => e.clientWidth));
 });
 
+test("Details and Dismiss sit at the right edge of each item, the action at the left edge on a phone", async ({
+  page,
+}) => {
+  await routeInbox(page, items);
+  await page.goto("/inbox");
+  const rows = page.getByRole("main").getByRole("listitem");
+
+  const edges = async () => {
+    const result = [];
+    for (let row = 0; row < 6; row++) {
+      const item = await rows.nth(row).boundingBox();
+      const details = await rows.nth(row).getByRole("button", { name: "Details" }).boundingBox();
+      const dismiss = await rows.nth(row).getByRole("button", { name: "Dismiss" }).boundingBox();
+      result.push({
+        item: item!,
+        details: details!,
+        dismiss: dismiss!,
+      });
+    }
+    return result;
+  };
+
+  for (const size of [
+    { width: 1280, height: 800 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(size);
+    await expect(rows.nth(0)).toBeVisible();
+    const measured = await edges();
+    for (const row of measured) {
+      expect(row.dismiss.x + row.dismiss.width).toBeCloseTo(
+        measured[0].dismiss.x + measured[0].dismiss.width,
+        0,
+      );
+      expect(row.details.x).toBeCloseTo(measured[0].details.x, 0);
+      expect(row.item.x + row.item.width - (row.dismiss.x + row.dismiss.width)).toBeLessThan(24);
+    }
+  }
+
+  const answer = await rows.nth(0).getByRole("link", { name: "Answer" }).boundingBox();
+  const item = await rows.nth(0).boundingBox();
+  expect(answer!.x - item!.x).toBeLessThan(24);
+});
+
 test("Details is closed by default and shows the full text after a click", async ({ page }) => {
   await routeInbox(page, items);
   await page.goto("/inbox");
