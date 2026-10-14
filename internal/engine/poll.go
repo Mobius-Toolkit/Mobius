@@ -152,6 +152,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.startAutopilot(ctx, repository); err != nil {
 		return err
 	}
+	if err := e.clearEndedTaskLabels(ctx, repository); err != nil {
+		return err
+	}
 	if err := e.closeInboxItems(ctx, repository); err != nil {
 		return err
 	}
