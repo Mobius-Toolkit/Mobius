@@ -23,7 +23,7 @@ const readyEndpoint = "ready"
 const fullSlotsWait = 30 * time.Minute
 
 // dispatchReady acts on the open issues with mobius:ready of a trusted actor:
-//   - An issue with no Workstream goes to the Triager, also when it has open blockers.
+//   - An issue with no Workstream waits.
 //   - A stopped task with a pull request continues (Mobius-rust#225, Mobius-rust#253). A mobius:ready of the Mobius
 //     App needs Autopilot for that. Each other issue with a live task, also a task that waits for a human, loses
 //     mobius:ready.
@@ -31,7 +31,7 @@ const fullSlotsWait = 30 * time.Minute
 //   - An issue with no live task continues its earlier task when the pull request of that task is still open.
 //   - Each other issue gets a new task. A stopped task with no pull request ends first.
 //
-// The drain holds each new dispatch and Triager, and then the next poll after the drain reads the same list again.
+// The drain holds each new dispatch, and then the next poll after the drain reads the same list again.
 func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository) error {
 	if e.draining() {
 		return nil
@@ -44,7 +44,6 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 	if err != nil || !changed {
 		return err
 	}
-	held := false
 	for _, issue := range page.Issues {
 		if issue.IsPullRequest() {
 			continue
@@ -92,11 +91,6 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 			return err
 		}
 		if workstream == 0 {
-			triaged, err := e.triage(ctx, repository, number)
-			if err != nil {
-				return err
-			}
-			held = held || !triaged
 			continue
 		}
 		if issue.GetIssueDependenciesSummary().GetBlockedBy() > 0 || hasLabel(issue, triageLabel) {
@@ -123,10 +117,6 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		if err := e.dispatch(ctx, repository, issue, workstream, actor); err != nil {
 			return err
 		}
-	}
-	// The saved ETag would hide an issue that the drain held from the next poll.
-	if held {
-		return nil
 	}
 	return e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{
 		Repository: repository.FullName,
@@ -301,25 +291,22 @@ func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repositor
 }
 
 // commentsWithoutTask acts on the new comments of an issue with no live task. Mobius does not act on a comment on a
-// closed issue. An issue with mobius:no-workstream goes to retriage. Any other issue goes to workstreamCommentEvents.
+// closed issue. Any other issue goes to workstreamCommentEvents.
 func (e *Engine) commentsWithoutTask(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
 	events, answered := e.replies(repository.AppSlug, comments)
 	if len(events) == 0 {
 		return nil
 	}
-	switch {
-	case issue.GetState() != "open":
+	if issue.GetState() != "open" {
 		return e.declineComments(ctx, repository, int64(issue.GetNumber()), events, closedIssueReply)
-	case hasLabel(issue, noWorkstreamLabel):
-		return e.retriage(ctx, repository, issue, events)
 	}
 	return e.workstreamCommentEvents(ctx, repository, issue, events, answered)
 }
 
 // workstreamCommentEvents adds a comment event for the Lead for each comment of events on an open Workstream issue, or
 // on an open issue below a Workstream, that has no live task. The event of the Workstream issue has no issue. An issue
-// in no Workstream with a mobius:ready of a trusted author waits for the Triager, which reads the comments. Mobius does
-// not act on a comment on another issue in no Workstream. When answered is true, a comment on the Workstream issue
+// in no Workstream with mobius:triage goes to retriage. Mobius does not act on a comment on another issue in no
+// Workstream. When answered is true, a comment on the Workstream issue
 // answers its question: mobius:question goes away.
 func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueComment, answered bool) error {
 	number := int64(issue.GetNumber())
@@ -327,14 +314,8 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 	if err != nil {
 		return err
 	}
-	if workstream == 0 && hasLabel(issue, readyLabel) {
-		issueEvents, err := repository.IssueEvents(ctx, number)
-		if err != nil {
-			return err
-		}
-		if actor, ok := readyActor(issueEvents, appLogin(repository.AppSlug)); ok && e.TrustedAuthor(repository.AppSlug, actor) {
-			return acknowledge(ctx, repository, events)
-		}
+	if workstream == 0 && hasLabel(issue, triageLabel) {
+		return e.retriage(ctx, repository, issue, events)
 	}
 	if workstream == 0 {
 		return e.declineComments(ctx, repository, number, events, noWorkstreamReply)

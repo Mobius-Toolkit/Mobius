@@ -196,7 +196,7 @@ func TestACommentThatTheDrainHeldGetsARocketWhenTheTriagerStarts(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 56, "Add points")
-	fake.AddLabel(shop, 56, "mobius:ready", "owner")
+	fake.AddLabel(shop, 56, "mobius:triage", "owner")
 	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
 	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 56)) == 1 })
 	if end := <-startDrain(t, server); end != "drained" {
@@ -224,7 +224,7 @@ func TestACommentThatTheFirstRunOfTheTriagerReadsGetsARocketWhenTheRunStarts(t *
 		t.Fatalf("end = %s", end)
 	}
 	fake.AddIssue(shop, 57, "Add pricing")
-	fake.AddLabel(shop, 57, "mobius:ready", "owner")
+	fake.AddLabel(shop, 57, "mobius:triage", "owner")
 	waitForPolls(t, fake)
 
 	id := fake.AddComment(shop, 57, "owner", "Please cover pricing.")
@@ -245,7 +245,7 @@ func TestACommentThatIsOlderThanAProposalOfTheTriagerGetsARocketWhenTheTriagerRe
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 56, "Add points")
-	fake.AddLabel(shop, 56, "mobius:ready", "owner")
+	fake.AddLabel(shop, 56, "mobius:triage", "owner")
 	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
 	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 56)) == 1 })
 	if end := <-startDrain(t, server); end != "drained" {

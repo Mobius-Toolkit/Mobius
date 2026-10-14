@@ -198,16 +198,16 @@ reply = ["A proposal."]
 	if len(sessions) != 1 || !sessions[0].EndedAt.Valid {
 		t.Fatalf("sessions = %+v", sessions)
 	}
-	// A comment on the task stays an undelivered event, and the Triager does not start: the issue keeps mobius:ready.
+	// A comment on the task stays an undelivered event, and the Triager does not start: the drain holds it.
 	fake.AddComment(shop, 41, "owner", "One more thing.")
 	fake.AddIssue(shop, 50, "Change request")
-	fake.AddLabel(shop, 50, "mobius:ready", "owner")
+	fake.AddLabel(shop, 50, "mobius:triage", "owner")
 	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 1 })
 	waitForPolls(t, fake)
 	if got := chatSessions(t, server, leadChat, engine.LeadRole); len(got) != 1 {
 		t.Errorf("sessions = %+v", got)
 	}
-	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 || !slices.Equal(fake.Labels(shop, 50), []string{"mobius:ready"}) {
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 || !slices.Equal(fake.Labels(shop, 50), []string{"mobius:triage"}) {
 		t.Errorf("Triagers = %+v, labels = %v", got, fake.Labels(shop, 50))
 	}
 
@@ -225,9 +225,9 @@ func TestATriagerThatTheDrainHeldDuringAPollStartsInThePollAfterACancel(t *testi
 	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"You are the Triager\"\nreply = [\"A proposal.\"]\n")
 	fake.AddIssue(shop, 50, "Change request")
 	reached, release := fake.HoldIssueEvents(shop, 50)
-	fake.AddLabel(shop, 50, "mobius:ready", "owner")
+	fake.AddLabel(shop, 50, "mobius:triage", "owner")
 
-	// The poll read the ready list and waits for the events of the issue.
+	// The poll waits for the events of the issue.
 	select {
 	case <-reached:
 	case <-time.After(time.Minute):
@@ -238,7 +238,7 @@ func TestATriagerThatTheDrainHeldDuringAPollStartsInThePollAfterACancel(t *testi
 	release()
 
 	waitForPolls(t, fake)
-	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 || !slices.Equal(fake.Labels(shop, 50), []string{"mobius:ready"}) {
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 || !slices.Equal(fake.Labels(shop, 50), []string{"mobius:triage"}) {
 		t.Errorf("Triagers = %+v, labels = %v", got, fake.Labels(shop, 50))
 	}
 	if end := <-ends; end != "drained" {

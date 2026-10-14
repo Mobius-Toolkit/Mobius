@@ -42,6 +42,14 @@ when = "# Issue\n\nowner/shop#57 "
 reply = ["First proposal."]
 
 [[prompts]]
+when = "# Issue\n\nowner/shop#58 "
+reply = ["First proposal."]
+
+[[prompts]]
+when = "# Issue\n\nowner/shop#59 "
+reply = ["First proposal."]
+
+[[prompts]]
 when = "# Issue\n\nowner/shop#55 "
 hang = true
 
@@ -109,36 +117,21 @@ func TestANewCoordinatorChatSessionStartsWhileGitHubRefusesEachRequest(t *testin
 	}
 }
 
-func TestAnIssueWithNoWorkstreamGoesToTheTriagerThatMovesIt(t *testing.T) {
+func TestMobiusTriageOnAnOldIssueStartsTheTriagerThatMovesIt(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectTriager(t, fake)
 	fake.AddIssue(shop, 50, "Add loyalty points")
 	fake.SetBody(shop, 50, "Points for each order.")
 
-	fake.AddLabel(shop, 50, "mobius:ready", "owner")
+	fake.AddLabel(shop, 50, "mobius:triage", "owner")
 
-	if task := liveTaskOf(t, server, 50); task.Workstream != 12 {
-		t.Errorf("task = %+v", task)
-	}
-	if got := fake.SubIssueNumbers(shop, 12); !slices.Equal(got, []int64{50}) {
-		t.Errorf("sub-issues = %v", got)
-	}
-	// Mobius adds the activity after the task.
-	dispatched := testkit.WaitForValue(t, func() (activity, bool) {
-		for _, a := range activities(t, server) {
-			if a.Text == `Dispatched "Add loyalty points"` {
-				return a, true
-			}
-		}
-		return activity{}, false
-	})
-	if dispatched.Actor != "owner" {
-		t.Errorf("actor = %s", dispatched.Actor)
-	}
 	session := waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
 	if session.EndReason.String != "done" {
 		t.Errorf("end reason = %s", session.EndReason.String)
+	}
+	if got := fake.SubIssueNumbers(shop, 12); !slices.Equal(got, []int64{50}) {
+		t.Errorf("sub-issues = %v", got)
 	}
 	prompts := promptTexts(t, server, session.ID)
 	if len(prompts) != 1 {
@@ -156,8 +149,91 @@ func TestAnIssueWithNoWorkstreamGoesToTheTriagerThatMovesIt(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "scratch", id)); !os.IsNotExist(err) {
 		t.Errorf("the scratch directory stays: %v", err)
 	}
-	if slices.Contains(fake.Labels(shop, 50), "mobius:no-workstream") {
-		t.Errorf("labels = %v", fake.Labels(shop, 50))
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 1 {
+		t.Errorf("sessions = %+v", got)
+	}
+}
+
+func TestANewIssueOfATrustedUserGetsMobiusTriageAndOneTriagerThatReplies(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+
+	fake.CreateIssue(shop, 52, "Add loyalty points", "Points for each order.", "owner")
+
+	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: `Create the Workstream "Loyalty points" for this issue.`}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 52), proposal) })
+	if got := fake.Labels(shop, 52); !slices.Equal(got, []string{"mobius:triage"}) {
+		t.Errorf("labels = %v", got)
+	}
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 1 {
+		t.Errorf("sessions = %+v", got)
+	}
+	if got := fake.Comments(shop, 52); len(got) != 1 {
+		t.Errorf("comments = %v", got)
+	}
+}
+
+func TestAnIssueOfAnUntrustedUserGetsATriagerOnlyAfterMobiusTriageOfATrustedUser(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 54, "Add points", "Points for each order.", "stranger")
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 || len(fake.Labels(shop, 54)) != 0 {
+		t.Errorf("sessions = %+v, labels = %v", got, fake.Labels(shop, 54))
+	}
+
+	fake.AddLabel(shop, 54, "mobius:triage", "owner")
+
+	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "First proposal."}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 54), proposal) })
+}
+
+func TestMobiusTriageOfAnUntrustedUserStartsNoTriager(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 54, "Add points", "Points for each order.", "stranger")
+
+	fake.AddLabel(shop, 54, "mobius:triage", "stranger")
+
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 {
+		t.Errorf("sessions = %+v", got)
+	}
+}
+
+func TestAnIssueThatTheMobiusAppCreatesGetsNoTriager(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+
+	fake.CreateIssue(shop, 58, "Fix the failed check", "The check fails.", testkit.AppSlug+"[bot]")
+
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 || len(fake.Labels(shop, 58)) != 0 {
+		t.Errorf("sessions = %+v, labels = %v", got, fake.Labels(shop, 58))
+	}
+}
+
+func TestMobiusReadyOnAnIssueWithNoWorkstreamStartsNoTriager(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.AddIssue(shop, 59, "Add points")
+
+	fake.AddLabel(shop, 59, "mobius:ready", "owner")
+
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 {
+		t.Errorf("sessions = %+v", got)
+	}
+	if got := fake.Labels(shop, 59); !slices.Equal(got, []string{"mobius:ready"}) {
+		t.Errorf("labels = %v", got)
 	}
 }
 
@@ -167,13 +243,13 @@ func TestARemovalOfTheLabelStopsTheTriagerAndAProposalGoesToTheIssue(t *testing.
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 51, "Rename plans")
 	fake.AddIssue(shop, 52, "Add loyalty points")
-	fake.AddLabel(shop, 51, "mobius:ready", "owner")
-	fake.AddLabel(shop, 52, "mobius:ready", "owner")
+	fake.AddLabel(shop, 51, "mobius:triage", "owner")
+	fake.AddLabel(shop, 52, "mobius:triage", "owner")
 	testkit.WaitFor(t, func() bool {
-		return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 && slices.Equal(fake.Labels(shop, 51), []string{"mobius:no-workstream"})
+		return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 && slices.Equal(fake.Labels(shop, 51), []string{"mobius:triage"})
 	})
 
-	fake.RemoveLabel(shop, 51, "mobius:no-workstream", "owner")
+	fake.RemoveLabel(shop, 51, "mobius:triage", "owner")
 
 	sessions := testkit.WaitForValue(t, func() ([]store.Session, bool) {
 		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
@@ -200,14 +276,14 @@ func TestAProposalThatGitHubRefusesGoesToTheIssueAtTheNextPoll(t *testing.T) {
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 51, "Rename plans")
 	fake.AddIssue(shop, 52, "Add loyalty points")
-	fake.AddLabel(shop, 51, "mobius:ready", "owner")
-	fake.AddLabel(shop, 52, "mobius:ready", "owner")
+	fake.AddLabel(shop, 51, "mobius:triage", "owner")
+	fake.AddLabel(shop, 52, "mobius:triage", "owner")
 	testkit.WaitFor(t, func() bool {
-		return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 && slices.Equal(fake.Labels(shop, 51), []string{"mobius:no-workstream"})
+		return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 && slices.Equal(fake.Labels(shop, 51), []string{"mobius:triage"})
 	})
 	fake.FailAddComment(shop, 52, true)
 
-	fake.RemoveLabel(shop, 51, "mobius:no-workstream", "owner")
+	fake.RemoveLabel(shop, 51, "mobius:triage", "owner")
 
 	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 1 })
 	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: `Create the Workstream "Loyalty points" for this issue.`}
@@ -228,7 +304,7 @@ func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheCommentsOfTrustedAuth
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 53, "Add points")
 	fake.AddComment(shop, 53, "stranger", "I want this too.")
-	fake.AddLabel(shop, 53, "mobius:ready", "owner")
+	fake.AddLabel(shop, 53, "mobius:triage", "owner")
 	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
 	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 53)) == 2 })
 
@@ -251,7 +327,7 @@ func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheCommentsOfTrustedAuth
 	if strings.Contains(prompts[0], "I want this too.") {
 		t.Errorf("prompt = %q", prompts[0])
 	}
-	if got := fake.Labels(shop, 53); !slices.Equal(got, []string{"mobius:no-workstream"}) {
+	if got := fake.Labels(shop, 53); !slices.Equal(got, []string{"mobius:triage"}) {
 		t.Errorf("labels = %v", got)
 	}
 	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Move it to the loyalty Workstream."}
@@ -263,7 +339,7 @@ func TestACommentOfTheAppOrOfAnUntrustedUserDoesNotStartTheTriagerAgain(t *testi
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 54, "Add points")
-	fake.AddLabel(shop, 54, "mobius:ready", "owner")
+	fake.AddLabel(shop, 54, "mobius:triage", "owner")
 	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
 	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 54)) == 1 })
 
@@ -281,7 +357,7 @@ func TestACommentThatTheDrainHeldStartsTheTriagerAgainAfterACancel(t *testing.T)
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 56, "Add points")
-	fake.AddLabel(shop, 56, "mobius:ready", "owner")
+	fake.AddLabel(shop, 56, "mobius:triage", "owner")
 	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
 	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 56)) == 1 })
 	if end := <-startDrain(t, server); end != "drained" {
@@ -311,7 +387,7 @@ func TestACommentWhileTheTriagerRunsStopsItAndStartsANewRun(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 55, "Add refunds")
-	fake.AddLabel(shop, 55, "mobius:ready", "owner")
+	fake.AddLabel(shop, 55, "mobius:triage", "owner")
 	waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return len(promptTexts(t, server, session.ID)) == 1 })
 
 	fake.AddComment(shop, 55, "owner", "Please cover refunds.")

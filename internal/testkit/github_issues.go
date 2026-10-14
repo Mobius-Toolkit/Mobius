@@ -113,11 +113,19 @@ type Comment struct {
 	Body   string
 }
 
-// AddIssue adds the open issue number with title and the author "owner".
+// AddIssue adds the open issue number with title and the author "owner". The issue is a year old, so it is no new
+// issue for the Triager.
 func (g *FakeGitHub) AddIssue(repository string, number int64, title string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.insertIssue(issueKey{repository, number}, title, "", "owner")
+	g.insertOldIssue(issueKey{repository, number}, title)
+}
+
+// CreateIssue adds the open issue number with title, body and author, created now.
+func (g *FakeGitHub) CreateIssue(repository string, number int64, title, body, author string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.insertIssue(issueKey{repository, number}, title, body, author)
 }
 
 // HasIssue tells if the repository has the issue or the pull request number.
@@ -164,7 +172,7 @@ func (g *FakeGitHub) AddSubIssueOf(repository string, parent, number int64, titl
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	key := issueKey{repository, number}
-	g.insertIssue(key, title, "", "owner")
+	g.insertOldIssue(key, title)
 	found := g.issues[issueKey{repository, parent}]
 	found.subIssues = append(found.subIssues, key)
 }
@@ -472,6 +480,11 @@ func (g *FakeGitHub) Labels(repository string, number int64) []string {
 func (g *FakeGitHub) insertIssue(key issueKey, title, body, author string) {
 	g.issues[key] = &issue{title: title, body: body, author: author, state: "open", updatedAt: g.tick()}
 	g.createdAt[key] = g.issues[key].updatedAt
+}
+
+func (g *FakeGitHub) insertOldIssue(key issueKey, title string) {
+	g.insertIssue(key, title, "", "owner")
+	g.createdAt[key] -= 365 * 24 * 60 * 60
 }
 
 func (g *FakeGitHub) label(key issueKey, label, actor string) {
