@@ -28,6 +28,7 @@ const fullSlotsWait = 30 * time.Minute
 //     App needs Autopilot for that. Each other issue with a live task, also a task that waits for a human, loses
 //     mobius:ready.
 //   - An issue with an open blocker or with mobius:triage waits.
+//   - An issue with no live task continues its earlier task when the pull request of that task is still open.
 //   - Each other issue gets a new task. A stopped task with no pull request ends first.
 //
 // The drain holds each new dispatch and Triager, and then the next poll after the drain reads the same list again.
@@ -100,6 +101,18 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		}
 		if issue.GetIssueDependenciesSummary().GetBlockedBy() > 0 || hasLabel(issue, triageLabel) {
 			continue
+		}
+		if !live {
+			earlier, found, err := e.endedTaskToContinue(ctx, repository, number)
+			if err != nil {
+				return err
+			}
+			if found {
+				if err := e.continueEndedTask(ctx, repository, issue, earlier, actor); err != nil {
+					return err
+				}
+				continue
+			}
 		}
 		if live {
 			if err := e.queries.EndTask(ctx, task.ID); err != nil {

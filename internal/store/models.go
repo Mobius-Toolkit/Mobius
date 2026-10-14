@@ -152,6 +152,7 @@ type Task struct {
 	LongWaitAt     sql.NullString
 	CheckErrors    int64
 	LeadFindings   string
+	Recoveries     int64
 }
 
 type TaskState struct {
