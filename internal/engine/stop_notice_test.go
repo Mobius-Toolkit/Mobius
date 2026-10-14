@@ -16,13 +16,17 @@ const nextStep = "\n\nNext step: "
 func wantStopNotice(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, reason, text, next string) inboxItem {
 	t.Helper()
 	body := text + nextStep + next
-	var comments []string
-	for _, comment := range fake.Comments(shop, 41) {
-		if comment.Author == "mobius-test[bot]" && strings.Contains(comment.Body, nextStep) {
-			comments = append(comments, comment.Body)
+	noticeComments := func() []string {
+		var comments []string
+		for _, comment := range fake.Comments(shop, 41) {
+			if comment.Author == "mobius-test[bot]" && strings.Contains(comment.Body, nextStep) {
+				comments = append(comments, comment.Body)
+			}
 		}
+		return comments
 	}
-	if len(comments) != 1 || comments[0] != body {
+	testkit.WaitFor(t, func() bool { return len(noticeComments()) > 0 && len(itemsOf(t, server, "stopped")) > 0 })
+	if comments := noticeComments(); len(comments) != 1 || comments[0] != body {
 		t.Errorf("comments = %q, want %q", comments, body)
 	}
 	items := itemsOf(t, server, "stopped")
