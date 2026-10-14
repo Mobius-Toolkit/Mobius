@@ -215,6 +215,8 @@ func TestServer(t *testing.T) {
 	github.SetBody("plants/garden", 18, "Cut the **old** canes in March.")
 	github.SetBody("plants/garden", 19, "Put **bark** on the beds.")
 	github.AddIssue("owner/shop", 40, "Renew a month early")
+	github.AddIssue("owner/shop", 35, "Hold the plan renewals")
+	github.AddLabel("owner/shop", 35, "mobius:working", testkit.AppSlug+"[bot]")
 	github.AddLabel("owner/shop", 41, "mobius:needs-human", "owner")
 	github.AddLabel("owner/shop", 42, "mobius:needs-human", "owner")
 	github.AddSubIssueOf("owner/shop", 12, 38, "Show the plan prices")
@@ -579,9 +581,8 @@ func TestServer(t *testing.T) {
 	}
 	go func() { _, _ = server.Engine.Drain(ctx) }()
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
-	held := implementerSpec(t, server, 42)
+	held := implementerSpec(t, server, 35)
 	go func() { _, _ = server.Engine.Start(ctx, held) }()
-	setNeedsHuman(t, server, held.Task)
 	testkit.WaitFor(t, func() bool {
 		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_reason = 'Mobius prepares an upgrade'", "2026-09-28T09:30:00Z")
 		if err != nil {
