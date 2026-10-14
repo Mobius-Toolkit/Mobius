@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { completeWorkstream, resumeIssue, setAutopilot, type NeedsHuman } from "@/api/api.gen";
 import { ErrorBadge, List, Row } from "@/components/page";
@@ -163,6 +163,7 @@ export function Chat({
   const [closeBusy, setCloseBusy] = useState(false);
   const [closeError, setCloseError] = useState("");
   const navigate = useNavigate();
+  const router = useRouter();
   const missing = workstreams.list !== undefined && !workstream;
 
   useEffect(() => {
@@ -185,10 +186,13 @@ export function Chat({
   const close = () => {
     setCloseBusy(true);
     setCloseError("");
+    const pathname = router.state.location.pathname;
     completeWorkstream(owner, name, number)
       .then((res) => {
         if (res.status === 204) {
-          void navigate({ to: "/workstreams" });
+          if (router.state.location.pathname === pathname) {
+            void navigate({ to: "/workstreams" });
+          }
         } else {
           setCloseError(res.data.error);
           setCloseBusy(false);

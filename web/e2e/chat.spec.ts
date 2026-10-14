@@ -2186,6 +2186,64 @@ test("the Details tab closes the Workstream with its open issues", async ({ page
   ).toMatchObject({ open: false });
 });
 
+test("the close of a Workstream does not leave the page that the user opened", async ({ page }) => {
+  const second = "/workstreams/owner/shop/14";
+  await page.route("**/api/workstreams", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { repository: string; number: number; allTasksClosed: boolean }[];
+    };
+    for (const workstream of body.data) {
+      if (workstream.repository === "owner/shop" && workstream.number === 12) {
+        workstream.allTasksClosed = true;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  let held: Route | undefined;
+  await page.route("**/api/workstreams/*/*/*/complete", (route) => {
+    held = route;
+  });
+  await page.goto(shop);
+  await page.getByRole("main").getByRole("button", { name: "Close Workstream" }).click();
+  await expect.poll(() => held).toBeDefined();
+
+  await page.locator(`nav a[href="${second}"]`).filter({ visible: true }).click();
+  await expect(page).toHaveURL(second);
+  const answered = page.waitForResponse("**/api/workstreams/owner/shop/12/complete");
+  await held?.fulfill({ status: 204 });
+  await answered;
+  await expect(page).toHaveURL(second);
+  await expect(page.getByRole("main").getByLabel("Message to the Lead")).toBeVisible();
+});
+
+test("the close of a Workstream in the Details tab does not leave the page that the user opened", async ({
+  page,
+}) => {
+  const second = "/workstreams/owner/shop/14";
+  let held: Route | undefined;
+  await page.route("**/api/workstreams/*/*/*/close", (route) => {
+    held = route;
+  });
+  await page.goto(shop);
+  await page.getByRole("tab", { name: "Details" }).filter({ visible: true }).click();
+  await page
+    .getByRole("tabpanel", { name: "Details" })
+    .getByRole("button", { name: "Close" })
+    .click();
+  await page.getByRole("dialog").getByRole("button", { name: "Close as won't do" }).click();
+  await expect.poll(() => held).toBeDefined();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toBeHidden();
+
+  await page.locator(`nav a[href="${second}"]`).filter({ visible: true }).click();
+  await expect(page).toHaveURL(second);
+  const answered = page.waitForResponse("**/api/workstreams/owner/shop/12/close");
+  await held?.fulfill({ status: 204 });
+  await answered;
+  await expect(page).toHaveURL(second);
+});
+
 test("the voice button is not there without SpeechRecognition", async ({ page }) => {
   await page.addInitScript(
     "delete window.SpeechRecognition; delete window.webkitSpeechRecognition",

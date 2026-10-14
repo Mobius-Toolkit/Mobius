@@ -1,4 +1,4 @@
-import { useNavigate, type LinkProps } from "@tanstack/react-router";
+import { useRouter, type LinkProps } from "@tanstack/react-router";
 import { use, useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   fixLabels,
@@ -340,17 +340,20 @@ export function CheckupLabels({ organization }: { organization: string }) {
 
 export function CheckupWorkstreams({ organization }: { organization: string }) {
   const { selectOrganization } = useShell();
-  const navigate = useNavigate();
+  const router = useRouter();
   const { checkup, error } = useCheckup(organization);
   const [creating, setCreating] = useState<string>();
   const [createError, setCreateError] = useState<string>();
 
   const create = (repository: string) => {
     setCreating(repository);
+    const pathname = router.state.location.pathname;
     addCoordinatorMessage(organization, `Draft the maintenance Workstream for ${repository}.`)
       .then(() => {
         selectOrganization(organization);
-        return navigate({ to: "/chat" });
+        if (router.state.location.pathname === pathname) {
+          return router.navigate({ to: "/chat" });
+        }
       })
       .catch((err: unknown) => {
         setCreateError(String(err));
