@@ -51,13 +51,17 @@ func (e *Engine) readDefaultBranchCI(ctx context.Context, repository github.Repo
 		}
 	}
 	for workflow, run := range newest {
-		if !open[workflow] && (run.GetConclusion() == "failure" || run.GetConclusion() == "timed_out") {
+		if !open[workflow] && failedRunConclusion(run.GetConclusion()) {
 			if err := e.startCIBreak(ctx, repository, run); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func failedRunConclusion(conclusion string) bool {
+	return conclusion == "failure" || conclusion == "timed_out" || conclusion == "startup_failure"
 }
 
 // startCIBreak stores the break of the failed run. A run with a later attempt is already run again, so its failure is
@@ -112,7 +116,7 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 	if ciBreak.Result == "" && rerunCompleted && run.GetConclusion() == "success" {
 		return e.queries.EndCIBreak(ctx, store.EndCIBreakParams{Result: "flaky", EndedRunID: run.GetID(), EndedAt: now(), ID: ciBreak.ID})
 	}
-	newerFailed := newest != nil && newest.GetID() > ciBreak.RunID && (newest.GetConclusion() == "failure" || newest.GetConclusion() == "timed_out")
+	newerFailed := newest != nil && newest.GetID() > ciBreak.RunID && failedRunConclusion(newest.GetConclusion())
 	if ciBreak.Result == "" && (rerunCompleted || newerFailed) {
 		ciBreak.Result = "hard"
 		if err := e.queries.SetCIBreakResult(ctx, store.SetCIBreakResultParams{Result: ciBreak.Result, ID: ciBreak.ID}); err != nil {
