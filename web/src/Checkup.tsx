@@ -338,6 +338,26 @@ export function CheckupLabels({ organization }: { organization: string }) {
   );
 }
 
+const maintenanceWorkstreamRequest = (
+  repository: string,
+) => `Create the maintenance Workstream for ${repository}, with the labels \`mobius:maintenance\` and \`mobius:evergreen\`.
+
+Use this Brief:
+
+**Goal**
+Keep the default branch of the repository healthy, so that the work of the other Workstreams can merge. This Workstream has no end.
+
+**Scope**
+- Each task issue that Mobius creates for the repository.
+- Failures of the CI on the default branch, and flaky tests.
+- The development tools, the scripts, the project setup, and the CI configuration.
+- Small defects of the application that no open Workstream covers.
+- When the cause of a failure is outside the repository, close the issue with the cause in a comment.
+
+**Limits**
+- Do not add a feature or change a user flow.
+- Do not take work that belongs to another open Workstream.`;
+
 export function CheckupWorkstreams({ organization }: { organization: string }) {
   const { selectOrganization } = useShell();
   const router = useRouter();
@@ -348,7 +368,7 @@ export function CheckupWorkstreams({ organization }: { organization: string }) {
   const create = (repository: string) => {
     setCreating(repository);
     const pathname = router.state.location.pathname;
-    addCoordinatorMessage(organization, `Draft the maintenance Workstream for ${repository}.`)
+    addCoordinatorMessage(organization, maintenanceWorkstreamRequest(repository))
       .then(() => {
         selectOrganization(organization);
         if (router.state.location.pathname === pathname) {
@@ -364,6 +384,10 @@ export function CheckupWorkstreams({ organization }: { organization: string }) {
   return (
     <CheckupCard title="Workstreams">
       {(error ?? createError) && <ErrorBadge>{error ?? createError}</ErrorBadge>}
+      <p className={cn("text-muted-foreground", inset)}>
+        A maintenance Workstream gets each task issue that Mobius creates for the repository, and
+        the CI failures of its default branch. Create opens the chat with a draft for your approval.
+      </p>
       {checkup?.repositories.length === 0 && (
         <p className={cn("text-muted-foreground", inset)}>
           The Mobius App has no repository in this organization.
