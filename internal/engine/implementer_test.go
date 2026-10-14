@@ -890,7 +890,7 @@ func TestStartImplementerAfterTheAnswerOfTheOwnerWorksWithNoQuestionLabel(t *tes
 	server, _ := connectTask(t, fake, lead, commits, noChange)
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
-	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:question") })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "asked" })
 	fake.AddComment(shop, 41, "owner", "Cents.")
 
 	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:question") })
