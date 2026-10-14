@@ -282,6 +282,13 @@ func (g *FakeGitHub) FailSubIssues(repository string, number int64, fail bool) {
 	g.failedSubIssues[issueKey{repository, number}] = fail
 }
 
+// FailAddSubIssue makes each new sub-issue that Mobius adds below the issue fail, or work again when fail is false.
+func (g *FakeGitHub) FailAddSubIssue(repository string, number int64, fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedSubIssueAdds[issueKey{repository, number}] = fail
+}
+
 // FailParents makes each read of the parent of the issue fail, or work again when fail is false.
 func (g *FakeGitHub) FailParents(repository string, number int64, fail bool) {
 	g.mu.Lock()
@@ -294,6 +301,13 @@ func (g *FakeGitHub) FailAddComment(repository string, number int64, fail bool) 
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.failedComments[issueKey{repository, number}] = fail
+}
+
+// FailUpdateComment makes each update of a comment of the issue fail, or work again when fail is false.
+func (g *FakeGitHub) FailUpdateComment(repository string, number int64, fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedCommentUpdates[issueKey{repository, number}] = fail
 }
 
 // FailAddLabels makes each new label that Mobius adds to the issue fail, or work again when fail is false.
@@ -793,6 +807,10 @@ func (g *FakeGitHub) addSubIssue(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if g.failedSubIssueAdds[key] {
+		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
 	child := issueKey{key.repository, request.SubIssueID - issueIDOffset}
 	if _, ok := g.issues[child]; !ok {
 		notFound(w)
@@ -961,6 +979,12 @@ func (g *FakeGitHub) updateComment(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	for key, found := range g.issues {
+		if key.repository == repository(r) && g.failedCommentUpdates[key] && slices.ContainsFunc(found.comments, func(comment commentJSON) bool { return comment.ID == id }) {
+			message(w, http.StatusInternalServerError, "Server Error")
+			return
+		}
+	}
 	if comment, ok := g.editComment(repository(r), id, request.Body); ok {
 		writeJSON(w, http.StatusOK, comment)
 		return

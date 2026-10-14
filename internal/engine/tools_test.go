@@ -379,6 +379,19 @@ func TestCreateIssueCreatesASubIssueWithABlockerInAnotherWorkstream(t *testing.T
 	}
 }
 
+func TestCreateIssueGivesTheNumberOfTheIssueWhenTheSubIssueAddFails(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("create_issue", `{ title = "Add plan model", body = "", parent = 12, blocked_by = [] }`))
+	fake.FailAddSubIssue(shop, 12, true)
+
+	session := run(t, server, leadSpec(t), "Plan the work.")
+
+	if got := reply(t, server, session); !strings.HasPrefix(got, "error: GitHub created #13, but the add of #13 below #12 failed. Do not create the issue again: ") {
+		t.Errorf("reply = %q", got)
+	}
+}
+
 func TestCreateIssueRefusesAParentOutsideTheWorkstreamAndABadBlocker(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -524,6 +537,19 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 		if labels := fake.Labels(shop, number); title != "Billing" || body != "Bill the plans." || !reflect.DeepEqual(labels, []string{"mobius:workstream"}) {
 			t.Errorf("#%d = %q, %q, %v", number, title, body, labels)
 		}
+	}
+}
+
+func TestCreateWorkstreamGivesTheNumberOfTheIssueWhenTheLabelAddFails(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
+	fake.FailAddLabels(shop, 13, true)
+
+	session := run(t, server, leadSpec(t), "Create it.")
+
+	if got := reply(t, server, session); !strings.HasPrefix(got, "error: GitHub created #13, but the add of the Workstream labels failed. Do not create the Workstream again: ") {
+		t.Errorf("reply = %q", got)
 	}
 }
 

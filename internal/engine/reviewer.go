@@ -144,8 +144,7 @@ func (e *Engine) reviewer(ctx context.Context, j *reviewJob) error {
 		if err := e.stopAtLimit(ctx, repository, j.round(task, "", j.parent), "review"); err != nil {
 			return err
 		}
-		_, err := repository.AddComment(ctx, number, fmt.Sprintf("Review not started. Limit reached (%d of %d). Mobius added mobius:needs-human. Add a comment on this pull request to continue.", limit, limit))
-		return err
+		return e.addOrKeepComment(ctx, repository, number, fmt.Sprintf("Review not started. Limit reached (%d of %d). Mobius added mobius:needs-human. Add a comment on this pull request to continue.", limit, limit))
 	}
 	a, err := e.addAgent(ctx, Spec{
 		Role:         ReviewerRole,
@@ -355,14 +354,14 @@ func (e *Engine) endReview(ctx context.Context, repository github.Repository, j 
 }
 
 // endRound writes the result of the review round of the task with the links of the open threads into the comment of
-// the round, and counts the round. A review after a conflict round is not counted.
+// the round, and counts the round. A failed update stays in comment_writes. A review after a conflict round is not counted.
 func (e *Engine) endRound(ctx context.Context, repository github.Repository, j *reviewJob, task store.Task, comment int64, result string, open []github.ReviewThread) error {
 	var links strings.Builder
 	for _, thread := range open {
 		fmt.Fprintf(&links, "- %s#discussion_r%d\n", j.pullRequest.GetHTMLURL(), thread.Comment)
 	}
 	body := fmt.Sprintf("Review ended%s\n\nResult: %s\nOpen findings: %d\n\n%s", e.reviewRoundText(task), result, len(open), links.String())
-	if err := repository.UpdateComment(ctx, comment, strings.TrimRight(body, "\n")); err != nil {
+	if err := e.updateOrKeepComment(ctx, repository, comment, strings.TrimRight(body, "\n")); err != nil {
 		return err
 	}
 	if err := e.queries.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task.ID}); err != nil {
@@ -375,13 +374,13 @@ func (e *Engine) endRound(ctx context.Context, repository github.Repository, j *
 }
 
 // abandonRound writes the reason into the comment of the review run of the task that did not end. A task with no
-// comment of a run needs no update. The id leaves the task also when the update fails, so the failure does not repeat.
+// comment of a run needs no update. A failed update stays in comment_writes.
 func (e *Engine) abandonRound(ctx context.Context, repository github.Repository, task store.Task, reason string) error {
 	comment, err := e.queries.GetReviewComment(ctx, task.ID)
 	if err != nil || !comment.Valid {
 		return err
 	}
-	updateErr := repository.UpdateComment(ctx, comment.Int64, fmt.Sprintf("Review stopped%s\n\n%s", e.reviewRoundText(task), reason))
+	updateErr := e.updateOrKeepComment(ctx, repository, comment.Int64, fmt.Sprintf("Review stopped%s\n\n%s", e.reviewRoundText(task), reason))
 	return errors.Join(e.queries.SetReviewComment(ctx, store.SetReviewCommentParams{ID: task.ID}), updateErr)
 }
 

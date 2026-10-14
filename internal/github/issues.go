@@ -257,6 +257,12 @@ func (r Repository) AddLabel(ctx context.Context, number int64, label string) er
 	return err
 }
 
+// NotFound tells whether err is the answer 404 Not Found or 410 Gone of GitHub.
+func NotFound(err error) bool {
+	var response *gh.ErrorResponse
+	return errors.As(err, &response) && (response.Response.StatusCode == http.StatusNotFound || response.Response.StatusCode == http.StatusGone)
+}
+
 // RemoveLabel removes label from the issue number. An issue with no such label is no error.
 func (r Repository) RemoveLabel(ctx context.Context, number int64, label string) error {
 	_, err := r.Client.Issues.RemoveLabelForIssue(ctx, r.Owner(), r.Name(), int(number), label)

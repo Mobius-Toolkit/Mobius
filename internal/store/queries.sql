@@ -426,6 +426,15 @@ SELECT review_comment FROM tasks WHERE id = ?;
 -- name: SetReviewComment :exec
 UPDATE tasks SET review_comment = ? WHERE id = ?;
 
+-- name: AddCommentWrite :exec
+INSERT INTO comment_writes (repository, number, comment, body) VALUES (?, ?, ?, ?);
+
+-- name: ListCommentWrites :many
+SELECT * FROM comment_writes WHERE repository = ? ORDER BY id;
+
+-- name: DeleteCommentWrite :exec
+DELETE FROM comment_writes WHERE id = ?;
+
 -- name: SetJudgedAt :exec
 UPDATE tasks SET judged_at = ? WHERE id = ?;
 
