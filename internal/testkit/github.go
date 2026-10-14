@@ -117,7 +117,9 @@ type FakeGitHub struct {
 	goneIssues                                 map[issueKey]bool
 	failedSubIssues                            map[issueKey]bool
 	failedParents                              map[issueKey]bool
+	failedSubIssueAdds                         map[issueKey]bool
 	failedComments                             map[issueKey]bool
+	failedCommentUpdates                       map[issueKey]bool
 	failedLabels                               map[issueKey]bool
 	labelWrites                                map[issueKey]int
 	reactions                                  map[reactionKey][]storedReaction
@@ -135,6 +137,8 @@ type FakeGitHub struct {
 	rateLimited bool
 	// hangs holds the route patterns whose next request gets no answer.
 	hangs map[string]bool
+	// routeLimits holds the route patterns whose next request gets the rate-limit answer, with the reset time.
+	routeLimits map[string]time.Time
 	// routeHolds holds the route patterns whose next request waits for the close of the channel.
 	routeHolds   map[string]chan struct{}
 	pullRequests []pullRequest
@@ -211,7 +215,9 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		goneIssues:              map[issueKey]bool{},
 		failedSubIssues:         map[issueKey]bool{},
 		failedParents:           map[issueKey]bool{},
+		failedSubIssueAdds:      map[issueKey]bool{},
 		failedComments:          map[issueKey]bool{},
+		failedCommentUpdates:    map[issueKey]bool{},
 		failedLabels:            map[issueKey]bool{},
 		labelWrites:             map[issueKey]int{},
 		holds:                   map[issueKey]*hold{},
@@ -219,6 +225,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		issueHolds:              map[issueKey]*hold{},
 		hangs:                   map[string]bool{},
 		routeHolds:              map[string]chan struct{}{},
+		routeLimits:             map[string]time.Time{},
 		createdAt:               map[issueKey]int64{},
 		behind:                  map[issueKey]bool{},
 		pushedHeads:             map[issueKey]string{},
@@ -305,6 +312,14 @@ func (g *FakeGitHub) HangNext(pattern string) {
 	g.hangs[pattern] = true
 }
 
+// RateLimitNext makes the next request to the route pattern get the rate-limit answer of GitHub, with reset as the
+// time of the reset of the limit.
+func (g *FakeGitHub) RateLimitNext(pattern string, reset time.Time) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.routeLimits[pattern] = reset
+}
+
 // HoldNext makes the next request to the route pattern wait until the returned function is called.
 func (g *FakeGitHub) HoldNext(pattern string) (release func()) {
 	g.mu.Lock()
@@ -366,10 +381,15 @@ func (g *FakeGitHub) hanging(mux *http.ServeMux) http.Handler {
 		delete(g.hangs, pattern)
 		routeHold := g.routeHolds[pattern]
 		delete(g.routeHolds, pattern)
+		reset, routeLimited := g.routeLimits[pattern]
+		delete(g.routeLimits, pattern)
 		g.mu.Unlock()
-		if limited {
+		if limited || routeLimited {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-RateLimit-Remaining", "0")
+			if routeLimited {
+				w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset.Unix(), 10))
+			}
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = io.WriteString(w, `{"message": "API rate limit exceeded for installation ID 1."}`)
 			return
