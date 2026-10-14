@@ -25,3 +25,27 @@ export function routeReasons(page: Page) {
     await route.fulfill({ response, json: body });
   });
 }
+
+export const longTitle =
+  "Replace the old plan table with a new table that holds the seat limit and the price of each plan in cents";
+
+// Adds the stopped issue #409 with a long title, a question and a pull request to the Workstream owner/shop#12.
+export function routeLongTitle(page: Page) {
+  return page.route(needsHumanRoute, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: object[] };
+    body.data.push({
+      number: 409,
+      pullRequest: 624,
+      pullRequestUrl: "https://github.com/owner/shop/pull/624",
+      question: true,
+      reason: longReason,
+      repository: "owner/shop",
+      stopped: true,
+      title: longTitle,
+      url: "https://github.com/owner/shop/issues/409",
+      workstream: 12,
+    });
+    await route.fulfill({ response, json: body });
+  });
+}

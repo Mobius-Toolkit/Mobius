@@ -93,7 +93,7 @@ function NeedsHumanList({
             href={issue.url}
             target="_blank"
             rel="noreferrer"
-            className="min-w-0 flex-1 text-primary underline-offset-4 hover:underline"
+            className="min-w-0 basis-full text-primary underline-offset-4 hover:underline md:flex-1"
           >
             #{issue.number} {issue.title}
           </a>

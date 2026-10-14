@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { png } from "./images.js";
-import { needsHumanRoute, routeReasons } from "./stops.js";
+import { needsHumanRoute, longTitle, routeLongTitle, routeReasons } from "./stops.js";
 
 const viewports = {
   desktop: { width: 1280, height: 800 },
@@ -229,6 +229,13 @@ test("screenshots", async ({ page }) => {
     () => main.getByRole("button", { name: "Details" }).click(),
     () => page.keyboard.press("Escape"),
   );
+  await page.unroute(needsHumanRoute);
+  await routeLongTitle(page);
+  await screenshot(page, "chat-stop-long-title", "/workstreams/owner/shop/12", (device) => [
+    ...frame(device, drain),
+    main.getByRole("link", { name: `#409 ${longTitle}` }),
+    main.getByRole("link", { name: "PR #624" }),
+  ]);
   await page.unroute(needsHumanRoute);
   const photos = [
     { name: "plan.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#2563eb") },

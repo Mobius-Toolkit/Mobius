@@ -1,6 +1,6 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import { pasteImage, png } from "./images.js";
-import { routeReasons } from "./stops.js";
+import { longTitle, routeLongTitle, routeReasons } from "./stops.js";
 
 const phone = { width: 390, height: 844 };
 const shop = "/workstreams/owner/shop/12";
@@ -990,6 +990,43 @@ test("a long stop reason takes two lines, and Details shows it in full", async (
   await expect(dialog).not.toContainText("**");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
+});
+
+async function boxOf(locator: Locator) {
+  const found = await locator.boundingBox();
+  expect(found).not.toBeNull();
+  return found ?? { x: 0, y: 0, width: 0, height: 0 };
+}
+
+test("a long title of a stopped task has its own line on a phone, and shares the line on a desktop", async ({
+  page,
+}) => {
+  await routeLongTitle(page);
+  const main = page.getByRole("main");
+  const title = main.getByRole("link", { name: `#409 ${longTitle}` });
+  const row = title.locator("..");
+  const pullRequest = row.getByRole("link", { name: "PR #624" });
+  const buttons = ["Answer", "Resume", "Details"].map((name) =>
+    row.getByRole(name === "Answer" ? "link" : "button", { name }),
+  );
+
+  await page.setViewportSize(phone);
+  await page.goto(shop);
+  await expect(title).toBeVisible();
+  const phoneTitle = await boxOf(title);
+  expect(Math.abs(phoneTitle.width - (await boxOf(row)).width)).toBeLessThanOrEqual(1);
+  for (const next of [pullRequest, ...buttons]) {
+    await expect(next).toBeVisible();
+    expect((await boxOf(next)).y).toBeGreaterThanOrEqual(phoneTitle.y + phoneTitle.height);
+  }
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(shop);
+  await expect(title).toBeVisible();
+  const desktopTitle = await boxOf(title);
+  const desktopPullRequest = await boxOf(pullRequest);
+  expect(desktopPullRequest.y).toBeLessThan(desktopTitle.y + desktopTitle.height);
+  expect(desktopPullRequest.y + desktopPullRequest.height).toBeGreaterThan(desktopTitle.y);
 });
 
 test("Start gives only an open task with no blocker a button, and the row shows ready", async ({
