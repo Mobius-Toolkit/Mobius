@@ -22,6 +22,13 @@ const errorTail = 2000
 // restartDelays are the waits before the first, the second, and each later restart of a Worker.
 var restartDelays = []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute}
 
+// rateLimitGrace is the wait after the reset of a GitHub rate limit before the Worker starts again. The first call after
+// the reset must not fail on the same limit.
+var rateLimitGrace = 5 * time.Second
+
+// abuseWait is the wait after a secondary rate limit that gives no RetryAfter, before rateLimitGrace.
+const abuseWait = time.Minute
+
 // errWorkerLost is the error of a Worker that the poll restarts because the task has no Worker.
 var errWorkerLost = errors.New("the Worker of the task ended with no state change")
 
@@ -61,16 +68,25 @@ func (e *Engine) restartLost(ctx context.Context, repository github.Repository, 
 
 // RestartWorker tells if the Worker of the task starts again after err. title is the title of the issue of the task.
 //
-// Before true, RestartWorker waits: the wait grows with each restart, and after a GitHub rate limit it lasts at
-// least until the reset of the limit. At max_worker_restarts, it hands the task to a human, adds a stop event with
-// the end of err for the Lead, and gives false. A task that is not queued or working also gives false.
+// Before true, RestartWorker waits: the wait grows with each restart. A GitHub rate limit in err is not a failure of the
+// Worker. Then RestartWorker does not count a restart, and it waits until the reset of the limit plus rateLimitGrace.
+// At max_worker_restarts, it hands the task to a human, adds a stop event with the end of err for the Lead, and gives
+// false. A task that is not queued or working also gives false.
 func (e *Engine) RestartWorker(ctx context.Context, task store.Task, title string, err error) (bool, error) {
+	if wait, limited := rateLimitWait(err, e.timeNow()); limited {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(wait):
+		}
+		return true, nil
+	}
 	restarts, dbErr := e.queries.AddWorkerRestart(ctx, store.AddWorkerRestartParams{ID: task.ID, Max: int64(e.config.MaxWorkerRestarts)})
 	if dbErr == nil {
 		select {
 		case <-ctx.Done():
 			return false, ctx.Err()
-		case <-time.After(restartDelay(restarts, err, time.Now())):
+		case <-time.After(restartDelay(restarts)):
 		}
 		return true, nil
 	}
@@ -82,18 +98,26 @@ func (e *Engine) RestartWorker(ctx context.Context, task store.Task, title strin
 	return false, e.handOverFailed(ctx, task, title, reason, "Restart limit", "The Worker failed too many times. Mobius does not start it again.")
 }
 
-// restartDelay gives the wait before the restart number restart, which counts from 1, after err at now.
-func restartDelay(restart int64, err error, now time.Time) time.Duration {
-	delay := restartDelays[min(int(restart), len(restartDelays))-1]
+// restartDelay gives the wait before the restart number restart, which counts from 1.
+func restartDelay(restart int64) time.Duration {
+	return restartDelays[min(int(restart), len(restartDelays))-1]
+}
+
+// rateLimitWait tells if err holds a GitHub rate limit, and gives the wait until its reset at now plus rateLimitGrace.
+func rateLimitWait(err error, now time.Time) (time.Duration, bool) {
 	var rateLimit *gh.RateLimitError
 	if errors.As(err, &rateLimit) {
-		delay = max(delay, rateLimit.Rate.Reset.Sub(now))
+		return max(rateLimit.Rate.Reset.Sub(now), 0) + rateLimitGrace, true
 	}
 	var abuse *gh.AbuseRateLimitError
-	if errors.As(err, &abuse) && abuse.RetryAfter != nil {
-		delay = max(delay, *abuse.RetryAfter)
+	if errors.As(err, &abuse) {
+		wait := abuseWait
+		if abuse.RetryAfter != nil {
+			wait = *abuse.RetryAfter
+		}
+		return wait + rateLimitGrace, true
 	}
-	return delay
+	return 0, false
 }
 
 // tail gives the last count characters of text.
