@@ -506,6 +506,7 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	go func() { _ = implementer.Prompt(ctx, "Store the plan prices in cents.", nil) }()
+	setNeedsHuman(t, server, spec.Task)
 	lead := engine.Spec{Role: engine.LeadRole, Organization: "owner", Repository: "owner/shop", Workstream: 12, Dir: t.TempDir()}
 	if _, err := server.Engine.Start(ctx, lead); err != nil {
 		t.Fatal(err)
@@ -577,7 +578,7 @@ func TestServer(t *testing.T) {
 	}
 	go func() { _, _ = server.Engine.Drain(ctx) }()
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
-	held := implementerSpec(t, server, 42)
+	held := implementerSpec(t, server, 45)
 	go func() { _, _ = server.Engine.Start(ctx, held) }()
 	testkit.WaitFor(t, func() bool {
 		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_reason = 'Mobius prepares an upgrade'", "2026-09-28T09:30:00Z")
@@ -859,6 +860,15 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 		}
 	}
 	if _, err := server.DB.Exec("UPDATE chat_messages SET text = '2026-09-28 09:30 UTC' || substr(text, 21) WHERE author = 'Event' AND text LIKE '____-__-__ __:__ UTC %'"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// setNeedsHuman moves the task to needs_human, so that the poll keeps mobius:needs-human on its issue. The Worker of
+// the task stays.
+func setNeedsHuman(t *testing.T, server *testserver.Server, task int64) {
+	t.Helper()
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE id = ?", task); err != nil {
 		t.Fatal(err)
 	}
 }
