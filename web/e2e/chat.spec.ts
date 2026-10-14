@@ -992,6 +992,16 @@ test("a long stop reason takes two lines, and Details shows it in full", async (
   await expect(dialog).toBeHidden();
 });
 
+test("a stopped task with an open question shows Answer and no Resume", async ({ page }) => {
+  await routeLongTitle(page);
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const asked = main.getByRole("listitem").filter({ hasText: longTitle });
+  await expect(asked.getByRole("link", { name: "Answer" })).toBeVisible();
+  await expect(asked.getByRole("button", { name: "Resume" })).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "Resume" })).toHaveCount(2);
+});
+
 async function boxOf(locator: Locator) {
   const found = await locator.boundingBox();
   expect(found).not.toBeNull();
@@ -1008,7 +1018,7 @@ test("a stopped task shares the line with its links on a phone, and shows its ti
   const reason = row.locator(".line-clamp-2");
   const reference = row.getByRole("link", { name: "#409", exact: true });
   const pullRequest = row.getByRole("link", { name: "PR #624" });
-  const buttons = ["Answer", "Resume", "Details"].map((name) =>
+  const buttons = ["Answer", "Details"].map((name) =>
     row.getByRole(name === "Answer" ? "link" : "button", { name }),
   );
   const noHorizontalScroll = () =>
@@ -1043,9 +1053,9 @@ test("a stopped task shares the line with its links on a phone, and shows its ti
   expect(desktopPullRequest.y + desktopPullRequest.height).toBeGreaterThan(desktopTitle.y);
   await expect(title).toHaveJSProperty("scrollWidth", await title.evaluate((el) => el.clientWidth));
   expect((await boxOf(reason)).height).toBeLessThanOrEqual(24);
-  await expect(buttons[2]).toBeVisible();
+  await expect(buttons[1]).toBeVisible();
   const desktopRow = await boxOf(row);
-  const details = await boxOf(buttons[2]);
+  const details = await boxOf(buttons[1]);
   expect(details.x + details.width).toBeLessThanOrEqual(desktopRow.x + desktopRow.width);
   expect(await noHorizontalScroll()).toBe(true);
 });
