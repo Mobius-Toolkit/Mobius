@@ -142,6 +142,22 @@ func TestARefusedRerunDoesNotStopThePollAndGivesAHardBreak(t *testing.T) {
 	}
 }
 
+func TestALaterAttemptOfTheFailedRunThatPassesEndsAHardBreakAlsoWhenGitHubRefusedTheRerun(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.RefuseRerun(http.StatusForbidden)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true, result: "hard"})
+
+	fake.RerunWorkflowRun(run, "success")
+
+	waitForCIBreak(t, server, ciBreak{runID: run, endedRunID: run, rerun: true, result: "hard"})
+	if breaks := openHardBreaks(t, server); len(breaks) != 0 {
+		t.Errorf("open hard breaks = %+v", breaks)
+	}
+}
+
 func TestARefusedListOfRunsDoesNotStopTheDispatch(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

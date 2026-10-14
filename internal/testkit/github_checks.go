@@ -213,6 +213,17 @@ func (g *FakeGitHub) SetWorkflowRunStatus(id int64, status, conclusion string) {
 	g.workflowRuns[id-1].Conclusion = conclusion
 }
 
+// RerunWorkflowRun adds a new attempt to the workflow run id, as a user does by hand. The attempt is completed with
+// the conclusion.
+func (g *FakeGitHub) RerunWorkflowRun(id int64, conclusion string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	run := &g.workflowRuns[id-1]
+	run.Attempt = max(run.Attempt, 1) + 1
+	run.Status = "completed"
+	run.Conclusion = conclusion
+}
+
 // RefuseRerun makes the re-run of the failed jobs of a workflow run give the status.
 func (g *FakeGitHub) RefuseRerun(status int) {
 	g.mu.Lock()
