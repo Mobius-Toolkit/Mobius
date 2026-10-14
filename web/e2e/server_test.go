@@ -343,6 +343,7 @@ func TestServer(t *testing.T) {
 	})
 	github.AddRepository("owner/shop")
 	github.AddRepository("plants/garden")
+	github.PushCommit("owner/shop", "mobius/41", "Add the plan model")
 
 	// The first poll of owner/shop after the Playwright tests create the App creates the
 	// Mobius labels. Then, for the Checkup screen, one label is missing again and one label
