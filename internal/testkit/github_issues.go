@@ -282,6 +282,13 @@ func (g *FakeGitHub) FailSubIssues(repository string, number int64, fail bool) {
 	g.failedSubIssues[issueKey{repository, number}] = fail
 }
 
+// FailAddSubIssue makes each new sub-issue that Mobius adds below the issue fail, or work again when fail is false.
+func (g *FakeGitHub) FailAddSubIssue(repository string, number int64, fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedSubIssueAdds[issueKey{repository, number}] = fail
+}
+
 // FailParents makes each read of the parent of the issue fail, or work again when fail is false.
 func (g *FakeGitHub) FailParents(repository string, number int64, fail bool) {
 	g.mu.Lock()
@@ -791,6 +798,10 @@ func (g *FakeGitHub) addSubIssue(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	key, ok := g.issue(w, r)
 	if !ok {
+		return
+	}
+	if g.failedSubIssueAdds[key] {
+		message(w, http.StatusInternalServerError, "Server Error")
 		return
 	}
 	child := issueKey{key.repository, request.SubIssueID - issueIDOffset}

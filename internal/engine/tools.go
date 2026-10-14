@@ -615,11 +615,11 @@ func addIssue(ctx context.Context, repository github.Repository, input issueInpu
 		return "", err
 	}
 	if _, _, err := repository.Client.SubIssue.Add(ctx, owner, name, input.Parent, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
-		return "", err
+		return "", fmt.Errorf("GitHub created #%d, but the add of #%d below #%d failed. Do not create the issue again: %w", issue.GetNumber(), issue.GetNumber(), input.Parent, err)
 	}
-	for _, id := range blockerIDs {
+	for i, id := range blockerIDs {
 		if _, _, err := repository.Client.Issues.AddBlockedBy(ctx, owner, name, int64(issue.GetNumber()), gh.IssueDependencyRequest{IssueID: id}); err != nil {
-			return "", err
+			return "", fmt.Errorf("GitHub created #%d, but the add of the blocker #%d failed. Do not create the issue again: %w", issue.GetNumber(), input.BlockedBy[i], err)
 		}
 	}
 	return fmt.Sprintf("Created #%d.", issue.GetNumber()), nil
@@ -753,7 +753,7 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 		return "", err
 	}
 	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), append([]string{workstreamLabel}, input.Labels...)); err != nil {
-		return "", err
+		return "", fmt.Errorf("GitHub created #%d, but the add of the Workstream labels failed. Do not create the Workstream again: %w", issue.GetNumber(), err)
 	}
 	if _, err := e.updateCopy(ctx, repository, issue, nil, false); err != nil {
 		log.Printf("copy the new Workstream %s#%d: %v", repository.FullName, issue.GetNumber(), err)
