@@ -1,58 +1,100 @@
-import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useNavigate, useRouter } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { completeWorkstream, resumeIssue, setAutopilot, type NeedsHuman } from "@/api/api.gen";
-import { Badge } from "@/components/ui/badge";
+import { ErrorBadge, List, Row } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 import type { Workstreams } from "@/lib/workstreams";
 import { AgentPanel } from "./AgentPanel";
 import { Conversation } from "./Conversation";
+import { link } from "./Inbox";
 import { Markdown } from "./Markdown";
 import { TopBar } from "./TopBar";
 
-function Reason({ issue }: { issue: NeedsHuman }) {
-  const text = useRef<HTMLDivElement>(null);
+function NeedsHumanRow({
+  issue,
+  pending,
+  onResume,
+}: {
+  issue: NeedsHuman;
+  pending: boolean;
+  onResume: () => void;
+}) {
   const [clipped, setClipped] = useState(false);
-  useEffect(() => {
-    const element = text.current;
-    if (!element) {
-      return;
-    }
+  const measure = (element: HTMLDivElement) => {
     const observer = new ResizeObserver(() =>
       setClipped(element.scrollHeight > element.clientHeight),
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  };
   return (
-    <>
-      {clipped && (
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button variant="link" size="sm">
-              Details
-            </Button>
-          </DialogTrigger>
-          <DialogContent
-            aria-describedby={undefined}
-            className="grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] sm:max-w-lg"
-          >
-            <DialogTitle className="pr-8">
-              #{issue.number} {issue.title}
-            </DialogTitle>
-            <div className="overflow-y-auto">
+    <Row className="flex-wrap gap-y-2 py-2">
+      <div className="flex min-w-0 grow basis-full flex-wrap items-center gap-x-2 gap-y-2 sm:flex-nowrap">
+        <span className="flex min-w-0 grow basis-full flex-wrap items-baseline gap-x-2 sm:basis-0 sm:flex-nowrap">
+          <a href={issue.url} target="_blank" rel="noreferrer" className={cn("shrink-0", link)}>
+            #{issue.number}
+          </a>
+          {issue.pullRequestUrl && (
+            <a
+              href={issue.pullRequestUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={cn("shrink-0", link)}
+            >
+              PR #{issue.pullRequest}
+            </a>
+          )}
+          <span className="grow basis-0 truncate sm:grow-0 sm:basis-auto">{issue.title}</span>
+          {issue.reason && (
+            <div
+              ref={measure}
+              className="line-clamp-2 min-w-0 basis-full text-sm text-muted-foreground sm:line-clamp-1 sm:grow sm:basis-0 [&>div]:block"
+            >
               <Markdown text={issue.reason} />
             </div>
-          </DialogContent>
-        </Dialog>
-      )}
-      <div ref={text} className="line-clamp-2 w-full text-sm text-muted-foreground [&>div]:block">
-        <Markdown text={issue.reason} />
+          )}
+        </span>
+        <div className="flex basis-full items-center gap-2 empty:hidden sm:basis-auto sm:shrink-0">
+          {issue.question && (
+            <Button size="sm" asChild>
+              <a href={issue.url} target="_blank" rel="noreferrer">
+                Answer
+              </a>
+            </Button>
+          )}
+          {issue.stopped && (
+            <Button size="sm" pending={pending} onClick={onResume}>
+              Resume
+            </Button>
+          )}
+          {clipped && (
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="link" size="sm">
+                  Details
+                </Button>
+              </DialogTrigger>
+              <DialogContent
+                aria-describedby={undefined}
+                className="grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] sm:max-w-lg"
+              >
+                <DialogTitle className="pr-8">
+                  #{issue.number} {issue.title}
+                </DialogTitle>
+                <div className="overflow-y-auto">
+                  <Markdown text={issue.reason} />
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
       </div>
-    </>
+    </Row>
   );
 }
 
@@ -81,51 +123,18 @@ function NeedsHumanList({
       );
   };
   return (
-    <div className="grid gap-1 border-t px-4 py-2">
-      {error && (
-        <Badge variant="destructive" className="h-auto w-full justify-start whitespace-normal">
-          {error}
-        </Badge>
-      )}
-      {issues.map((issue) => (
-        <div key={issue.number} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <a
-            href={issue.url}
-            target="_blank"
-            rel="noreferrer"
-            className="min-w-0 flex-1 text-primary underline-offset-4 hover:underline"
-          >
-            #{issue.number} {issue.title}
-          </a>
-          {issue.pullRequestUrl && (
-            <a
-              href={issue.pullRequestUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="shrink-0 text-primary underline-offset-4 hover:underline"
-            >
-              PR #{issue.pullRequest}
-            </a>
-          )}
-          {issue.question && (
-            <Button size="sm" asChild>
-              <a href={issue.url} target="_blank" rel="noreferrer">
-                Answer
-              </a>
-            </Button>
-          )}
-          {issue.stopped && (
-            <Button
-              size="sm"
-              pending={pending.includes(issue.number)}
-              onClick={() => resume(issue)}
-            >
-              Resume
-            </Button>
-          )}
-          {issue.reason && <Reason key={issue.reason} issue={issue} />}
-        </div>
-      ))}
+    <div className="grid grid-cols-1 gap-1 border-t py-2 md:px-4">
+      {error && <ErrorBadge>{error}</ErrorBadge>}
+      <List>
+        {issues.map((issue) => (
+          <NeedsHumanRow
+            key={issue.number}
+            issue={issue}
+            pending={pending.includes(issue.number)}
+            onResume={() => resume(issue)}
+          />
+        ))}
+      </List>
     </div>
   );
 }
@@ -154,6 +163,7 @@ export function Chat({
   const [closeBusy, setCloseBusy] = useState(false);
   const [closeError, setCloseError] = useState("");
   const navigate = useNavigate();
+  const router = useRouter();
   const missing = workstreams.list !== undefined && !workstream;
 
   useEffect(() => {
@@ -176,10 +186,13 @@ export function Chat({
   const close = () => {
     setCloseBusy(true);
     setCloseError("");
+    const pathname = router.state.location.pathname;
     completeWorkstream(owner, name, number)
       .then((res) => {
         if (res.status === 204) {
-          void navigate({ to: "/workstreams" });
+          if (router.state.location.pathname === pathname) {
+            void navigate({ to: "/workstreams" });
+          }
         } else {
           setCloseError(res.data.error);
           setCloseBusy(false);

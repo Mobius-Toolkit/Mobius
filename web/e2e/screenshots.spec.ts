@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { png } from "./images.js";
-import { needsHumanRoute, routeReasons } from "./stops.js";
+import { needsHumanRoute, longTitle, routeLongTitle, routeReasons } from "./stops.js";
 
 const viewports = {
   desktop: { width: 1280, height: 800 },
@@ -229,6 +229,13 @@ test("screenshots", async ({ page }) => {
     () => main.getByRole("button", { name: "Details" }).click(),
     () => page.keyboard.press("Escape"),
   );
+  await page.unroute(needsHumanRoute);
+  await routeLongTitle(page);
+  await screenshot(page, "chat-stop-long-title", "/workstreams/owner/shop/12", (device) => [
+    ...frame(device, drain),
+    main.getByText(longTitle),
+    main.getByRole("link", { name: "PR #624" }),
+  ]);
   await page.unroute(needsHumanRoute);
   const photos = [
     { name: "plan.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#2563eb") },
@@ -611,7 +618,7 @@ test("screenshots", async ({ page }) => {
   );
   await screenshot(page, "checkup", "/settings/checkup", (device) => [
     ...frame(device, release),
-    main.getByRole("link", { name: "Tools" }),
+    main.getByRole("link", { name: "Tools" }).getByText("needs you"),
     main.getByRole("heading", { name: "owner", exact: true }),
     main.getByRole("heading", { name: "plants", exact: true }),
     main.getByText("needs you").nth(3),
@@ -623,7 +630,7 @@ test("screenshots", async ({ page }) => {
   ]);
   await screenshot(page, "checkup-tools", "/settings/checkup/tools", (device) => [
     ...frame(device, release),
-    main.getByText("2.1.284 (Claude Code)"),
+    main.getByText("2.1.284 (Claude Code) · newest 2.1.300"),
   ]);
   await screenshot(page, "checkup-permissions", "/settings/checkup/owner/permissions", (device) => [
     ...frame(device, release),

@@ -446,6 +446,9 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 			}
 		}
 	}
+	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN recoveries"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN lead_findings"); err != nil {
 		t.Fatal(err)
 	}
@@ -530,6 +533,7 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		"ALTER TABLE tasks DROP COLUMN recoveries",
 		"ALTER TABLE events DROP COLUMN organization",
 		"ALTER TABLE harness_pauses ADD COLUMN inbox_item INTEGER NOT NULL DEFAULT 0",
 		"DROP TABLE harness_pause_ends",
@@ -611,6 +615,7 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		"ALTER TABLE tasks DROP COLUMN recoveries",
 		"ALTER TABLE inbox_items DROP COLUMN chat_message",
 		"DROP TABLE ci_breaks",
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",

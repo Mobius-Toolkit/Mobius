@@ -1,6 +1,6 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import { pasteImage, png } from "./images.js";
-import { routeReasons } from "./stops.js";
+import { longTitle, routeLongTitle, routeReasons } from "./stops.js";
 
 const phone = { width: 390, height: 844 };
 const shop = "/workstreams/owner/shop/12";
@@ -912,8 +912,8 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
   await page.goto("/api/github/user-callback?code=user-code");
   const main = page.getByRole("main");
   for (const [size, workstream, numbers, issues] of [
-    [undefined, 20, [21, 22], ["#21 Dig the tulip beds", "#22 Buy tulip bulbs"]],
-    [phone, 30, [31, 32], ["#31 Dig the lily beds", "#32 Buy lily bulbs"]],
+    [undefined, 20, [21, 22], ["Dig the tulip beds", "Buy tulip bulbs"]],
+    [phone, 30, [31, 32], ["Dig the lily beds", "Buy lily bulbs"]],
   ] as const) {
     if (size) {
       await page.setViewportSize(size);
@@ -948,12 +948,12 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
     await expect(hint).toBeAttached();
 
     await resume.first().click();
-    await expect(main.getByText(issues[0])).toBeHidden();
-    await expect(main.getByText(issues[1])).toBeVisible();
+    await expect(main.getByRole("listitem").filter({ hasText: issues[0] })).toBeHidden();
+    await expect(main.getByRole("listitem").filter({ hasText: issues[1] })).toBeVisible();
     await expect(hint).toBeAttached();
     await expect.poll(() => live(numbers[0])).toBe(true);
     await resume.click();
-    await expect(main.getByText(issues[1])).toBeHidden();
+    await expect(main.getByRole("listitem").filter({ hasText: issues[1] })).toBeHidden();
     await expect(hint).not.toBeAttached();
     await expect.poll(() => live(numbers[1])).toBe(true);
   }
@@ -990,6 +990,64 @@ test("a long stop reason takes two lines, and Details shows it in full", async (
   await expect(dialog).not.toContainText("**");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
+});
+
+async function boxOf(locator: Locator) {
+  const found = await locator.boundingBox();
+  expect(found).not.toBeNull();
+  return found ?? { x: 0, y: 0, width: 0, height: 0 };
+}
+
+test("a stopped task shares the line with its links on a phone, and shows its title in full on a desktop", async ({
+  page,
+}) => {
+  await routeLongTitle(page);
+  const main = page.getByRole("main");
+  const row = main.getByRole("listitem").filter({ hasText: longTitle });
+  const title = row.getByText(longTitle);
+  const reason = row.locator(".line-clamp-2");
+  const reference = row.getByRole("link", { name: "#409", exact: true });
+  const pullRequest = row.getByRole("link", { name: "PR #624" });
+  const buttons = ["Answer", "Resume", "Details"].map((name) =>
+    row.getByRole(name === "Answer" ? "link" : "button", { name }),
+  );
+  const noHorizontalScroll = () =>
+    page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth");
+
+  await page.setViewportSize(phone);
+  await page.goto(shop);
+  await expect(title).toBeVisible();
+  const phoneTitle = await boxOf(title);
+  expect(phoneTitle.height).toBeLessThanOrEqual(24);
+  for (const link of [reference, pullRequest]) {
+    const box = await boxOf(link);
+    expect(box.y).toBeLessThan(phoneTitle.y + phoneTitle.height);
+    expect(box.y + box.height).toBeGreaterThan(phoneTitle.y);
+  }
+  const phoneReason = await boxOf(reason);
+  expect(phoneReason.y).toBeGreaterThanOrEqual(phoneTitle.y + phoneTitle.height);
+  for (const next of buttons) {
+    await expect(next).toBeVisible();
+    const box = await boxOf(next);
+    expect(box.y).toBeGreaterThanOrEqual(phoneReason.y + phoneReason.height);
+    expect(box.x + box.width).toBeLessThanOrEqual(phone.width);
+  }
+  expect(await noHorizontalScroll()).toBe(true);
+
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto(shop);
+  await expect(title).toBeVisible();
+  const desktopTitle = await boxOf(title);
+  const desktopPullRequest = await boxOf(pullRequest);
+  expect(desktopPullRequest.y).toBeLessThan(desktopTitle.y + desktopTitle.height);
+  expect(desktopPullRequest.y + desktopPullRequest.height).toBeGreaterThan(desktopTitle.y);
+  await expect(title).toHaveJSProperty("scrollWidth", await title.evaluate((el) => el.clientWidth));
+  expect((await boxOf(reason)).height).toBeLessThanOrEqual(24);
+  await expect(buttons[2]).toBeVisible();
+  const desktopRow = await boxOf(row);
+  const details = await boxOf(buttons[2]);
+  expect(details.x + details.width).toBeLessThanOrEqual(desktopRow.x + desktopRow.width);
+  expect(await noHorizontalScroll()).toBe(true);
 });
 
 test("Start gives only an open task with no blocker a button, and the row shows ready", async ({
@@ -2126,6 +2184,64 @@ test("the Details tab closes the Workstream with its open issues", async ({ page
   expect(
     await get<{ open: boolean }>(page, "/api/workstreams/plants/garden/30/details"),
   ).toMatchObject({ open: false });
+});
+
+test("the close of a Workstream does not leave the page that the user opened", async ({ page }) => {
+  const second = "/workstreams/owner/shop/14";
+  await page.route("**/api/workstreams", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { repository: string; number: number; allTasksClosed: boolean }[];
+    };
+    for (const workstream of body.data) {
+      if (workstream.repository === "owner/shop" && workstream.number === 12) {
+        workstream.allTasksClosed = true;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  let held: Route | undefined;
+  await page.route("**/api/workstreams/*/*/*/complete", (route) => {
+    held = route;
+  });
+  await page.goto(shop);
+  await page.getByRole("main").getByRole("button", { name: "Close Workstream" }).click();
+  await expect.poll(() => held).toBeDefined();
+
+  await page.locator(`nav a[href="${second}"]`).filter({ visible: true }).click();
+  await expect(page).toHaveURL(second);
+  const answered = page.waitForResponse("**/api/workstreams/owner/shop/12/complete");
+  await held?.fulfill({ status: 204 });
+  await answered;
+  await expect(page).toHaveURL(second);
+  await expect(page.getByRole("main").getByLabel("Message to the Lead")).toBeVisible();
+});
+
+test("the close of a Workstream in the Details tab does not leave the page that the user opened", async ({
+  page,
+}) => {
+  const second = "/workstreams/owner/shop/14";
+  let held: Route | undefined;
+  await page.route("**/api/workstreams/*/*/*/close", (route) => {
+    held = route;
+  });
+  await page.goto(shop);
+  await page.getByRole("tab", { name: "Details" }).filter({ visible: true }).click();
+  await page
+    .getByRole("tabpanel", { name: "Details" })
+    .getByRole("button", { name: "Close" })
+    .click();
+  await page.getByRole("dialog").getByRole("button", { name: "Close as won't do" }).click();
+  await expect.poll(() => held).toBeDefined();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toBeHidden();
+
+  await page.locator(`nav a[href="${second}"]`).filter({ visible: true }).click();
+  await expect(page).toHaveURL(second);
+  const answered = page.waitForResponse("**/api/workstreams/owner/shop/12/close");
+  await held?.fulfill({ status: 204 });
+  await answered;
+  await expect(page).toHaveURL(second);
 });
 
 test("the voice button is not there without SpeechRecognition", async ({ page }) => {

@@ -1,4 +1,4 @@
-import { useNavigate, type LinkProps } from "@tanstack/react-router";
+import { useRouter, type LinkProps } from "@tanstack/react-router";
 import { use, useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   fixLabels,
@@ -58,7 +58,11 @@ function PermissionStatus({ permission }: { permission: PermissionCheck }) {
 }
 
 function ToolProblem({ tool }: { tool: ToolCheck }) {
-  return <Badge variant="destructive">{tool.status.replace("-", " ")}</Badge>;
+  return (
+    <Badge variant="destructive">
+      {tool.outdated ? "outdated" : tool.status.replace("-", " ")}
+    </Badge>
+  );
 }
 
 function useCheckup(organization: string) {
@@ -208,7 +212,7 @@ export function Checkup({ organizations }: { organizations: string[] }) {
           <CheckupLink
             link={{ to: "/settings/checkup/tools" }}
             title="Tools"
-            needsYou={!!tools?.some((tool) => tool.status !== "")}
+            needsYou={!!tools?.some((tool) => tool.status !== "" || tool.outdated)}
           />
         </List>
       </Section>
@@ -232,13 +236,15 @@ export function CheckupTools() {
               <span className="grid min-w-0">
                 {tool.name}
                 {tool.status === "" && (
-                  <span className="text-muted-foreground text-sm break-words">{tool.version}</span>
+                  <span className="text-muted-foreground text-sm break-words">
+                    {tool.outdated ? `${tool.version} · newest ${tool.newest}` : tool.version}
+                  </span>
                 )}
                 {tool.path && (
                   <span className="text-muted-foreground text-sm break-all">{tool.path}</span>
                 )}
               </span>
-              {tool.status !== "" && <ToolProblem tool={tool} />}
+              {(tool.status !== "" || tool.outdated) && <ToolProblem tool={tool} />}
             </Row>
           ))}
         </List>
@@ -334,17 +340,20 @@ export function CheckupLabels({ organization }: { organization: string }) {
 
 export function CheckupWorkstreams({ organization }: { organization: string }) {
   const { selectOrganization } = useShell();
-  const navigate = useNavigate();
+  const router = useRouter();
   const { checkup, error } = useCheckup(organization);
   const [creating, setCreating] = useState<string>();
   const [createError, setCreateError] = useState<string>();
 
   const create = (repository: string) => {
     setCreating(repository);
+    const pathname = router.state.location.pathname;
     addCoordinatorMessage(organization, `Draft the maintenance Workstream for ${repository}.`)
       .then(() => {
         selectOrganization(organization);
-        return navigate({ to: "/chat" });
+        if (router.state.location.pathname === pathname) {
+          return router.navigate({ to: "/chat" });
+        }
       })
       .catch((err: unknown) => {
         setCreateError(String(err));
