@@ -228,19 +228,14 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	listChanged := false
 	for _, issue := range page.Issues {
 		number := int64(issue.GetNumber())
-		triaged, err := e.startTriage(ctx, repository, issue, since)
+		triaged, err := e.startTriage(ctx, repository, issue, conversation[number], since)
 		if err != nil {
 			return err
 		}
-		// The first turn reads the new comments of the issue.
-		if triaged {
-			events, _ := e.replies(repository.AppSlug, conversation[number])
-			err = acknowledge(ctx, repository, events)
-		} else {
-			err = e.routeComments(ctx, repository, issue, conversation[number], review[number])
-		}
-		if err != nil {
-			return err
+		if !triaged {
+			if err := e.routeComments(ctx, repository, issue, conversation[number], review[number]); err != nil {
+				return err
+			}
 		}
 		if issue.IsPullRequest() {
 			continue

@@ -33,17 +33,25 @@ type triage struct {
 	done chan struct{}
 }
 
+// triageEndpoint is the endpoint in the sync_cursors table that holds the time of the last mobius:triage label that
+// started a turn of the issue number.
+func triageEndpoint(number int64) string {
+	return fmt.Sprintf("triage/%d", number)
+}
+
 // startTriage starts the first turn of the Triager of the open issue, which has no Workstream, in two cases. A trusted
-// user created the issue after since. Or the issue has mobius:triage, and a trusted user added that label after since.
-// The first case adds mobius:triage. The first poll of a repository, with no since, starts no Triager. It gives true
-// when it started a turn.
-func (e *Engine) startTriage(ctx context.Context, repository github.Repository, issue *gh.Issue, since time.Time) (bool, error) {
+// user created the issue at or after since. Or the issue has mobius:triage, and a trusted user added that label at or after
+// since, and no earlier turn started for that label.
+// The first case adds mobius:triage. The first poll of a repository, with no since, starts no Triager. It adds the
+// reaction of an agent to the comments, because the first turn reads them. It gives true when it started a turn.
+func (e *Engine) startTriage(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment, since time.Time) (bool, error) {
 	if issue.IsPullRequest() || issue.GetState() != "open" || since.IsZero() {
 		return false, nil
 	}
 	number := int64(issue.GetNumber())
 	labeled := hasLabel(issue, triageLabel)
-	if !labeled && (!e.trustedUser(issue.GetUser().GetLogin()) || !issue.GetCreatedAt().After(since)) {
+	labeledAt := ""
+	if !labeled && (!e.trustedUser(issue.GetUser().GetLogin()) || issue.GetCreatedAt().Before(since)) {
 		return false, nil
 	}
 	workstream, err := e.commentWorkstream(ctx, repository, issue)
@@ -56,13 +64,33 @@ func (e *Engine) startTriage(ctx context.Context, repository github.Repository, 
 			return false, err
 		}
 		_, event := lastEvent(events, "labeled", triageLabel)
-		if event == nil || !event.GetCreatedAt().After(since) || !e.trustedUser(event.GetActor().GetLogin()) {
+		if event != nil {
+			labeledAt = event.GetCreatedAt().UTC().Format(time.RFC3339)
+		}
+		if event == nil || event.GetCreatedAt().Before(since) || !e.trustedUser(event.GetActor().GetLogin()) {
+			return false, nil
+		}
+		cursor, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: triageEndpoint(number)})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return false, err
+		}
+		if cursor.Since.String == labeledAt {
 			return false, nil
 		}
 	} else if err := repository.AddLabel(ctx, number, triageLabel); err != nil {
 		return false, err
 	}
-	return true, e.restartTriager(ctx, repository, number)
+	replies, _ := e.replies(repository.AppSlug, comments)
+	if err := acknowledge(ctx, repository, replies); err != nil {
+		return false, err
+	}
+	if err := e.restartTriager(ctx, repository, number); err != nil {
+		return false, err
+	}
+	if labeledAt == "" {
+		return true, nil
+	}
+	return true, e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{Repository: repository.FullName, Endpoint: triageEndpoint(number), Since: sql.NullString{String: labeledAt, Valid: true}})
 }
 
 // retriage starts the Triager of the open issue with mobius:triage and no Workstream again after the comments of events,
