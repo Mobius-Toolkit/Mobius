@@ -518,13 +518,13 @@ func (e *Engine) trustedUser(login string) bool {
 }
 
 // replies gives the comments that are events, and true when the newest of them is newer than the last
-// comment of the Mobius App.
+// question of the Mobius App. A stop comment is no question.
 func (e *Engine) replies(appSlug string, comments []*gh.IssueComment) ([]*gh.IssueComment, bool) {
 	var askedAt, repliedAt time.Time
 	var replies []*gh.IssueComment
 	for _, comment := range comments {
 		createdAt := comment.GetCreatedAt().Time
-		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(appSlug)) && createdAt.After(askedAt) {
+		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(appSlug)) && !isStopComment(comment.GetBody()) && createdAt.After(askedAt) {
 			askedAt = createdAt
 		}
 		if e.commentIsEvent(appSlug, comment) {

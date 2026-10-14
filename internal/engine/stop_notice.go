@@ -3,10 +3,19 @@ package engine
 import (
 	"context"
 	"errors"
-	"fmt"
+	"strings"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
+
+// nextStepMarker starts the next action in the comment of a stop notice.
+const nextStepMarker = "\n\nNext step: "
+
+// isStopComment tells if the body is a comment of tellStop or the lost comment of handLostTasks. Such a comment is no
+// question.
+func isStopComment(body string) bool {
+	return body == lostText || strings.Contains(body, nextStepMarker)
+}
 
 // stopNotice tells the Owner why a task stopped and what to do next.
 type stopNotice struct {
@@ -33,7 +42,7 @@ func (e *Engine) tellStop(ctx context.Context, task store.Task, title string, no
 	if err != nil {
 		return err
 	}
-	text := fmt.Sprintf("%s\n\nNext step: %s", notice.text, notice.next)
+	text := notice.text + nextStepMarker + notice.next
 	_, commentErr := repository.AddComment(ctx, task.Issue, text)
 	if notice.output != "" {
 		text += "\n\n" + notice.output
