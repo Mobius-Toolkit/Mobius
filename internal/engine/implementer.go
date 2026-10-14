@@ -812,13 +812,31 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		text := fmt.Sprintf("%s cannot_do on #%d \"%s\" by the Implementer:\n\n%s", time.Now().UTC().Format(timeFormat), task.Issue, j.title, quote(r.text))
 		return errors.Join(checkErr, e.addLeadEvent(ended, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "cannot_do", text))
 	case checkFailed:
-		return e.handOver(ended, task, j.title, fmt.Sprintf(".mobius/check failed %d times. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.", e.config.MaxCheckAttempts))
+		return e.handOver(ended, task, j.title, fmt.Sprintf(".mobius/check failed %d times. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.", e.config.MaxCheckAttempts), stopNotice{
+			reason: "Local check failed",
+			text:   fmt.Sprintf("The local check .mobius/check failed %d times. Mobius pushed the work.", e.config.MaxCheckAttempts),
+			next:   "Read the output of the failed check in the Transcript of the Implementer. Fix the cause, then Resume.",
+		})
 	case notMerged:
-		return e.handOver(ended, task, j.title, "the conflict round did not merge the base branch. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.")
+		return e.handOver(ended, task, j.title, "the conflict round did not merge the base branch. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.", stopNotice{
+			reason: "Base branch not merged",
+			text:   "The conflict round did not merge the base branch. Mobius pushed the work.",
+			next:   fmt.Sprintf("Merge the base branch into the branch of PR #%d and resolve the conflicts. Then Resume.", j.pullRequest.GetNumber()),
+		})
 	case mergeConflict:
-		return e.handOver(ended, task, j.title, fmt.Sprintf("the local branch diverged from origin/%s, and the merge had conflicts. Mobius pushed nothing and added mobius:needs-human. Git gave this error: %s. Resume gives the same conflict. First, in %s, merge origin/%s into the local branch and resolve the conflicts, or reset the local branch to origin/%s.", j.branch, r.text, a.spec.Dir, j.branch, j.branch))
+		return e.handOver(ended, task, j.title, fmt.Sprintf("the local branch diverged from origin/%s, and the merge had conflicts. Mobius pushed nothing and added mobius:needs-human. Git gave this error: %s. Resume gives the same conflict. First, in %s, merge origin/%s into the local branch and resolve the conflicts, or reset the local branch to origin/%s.", j.branch, r.text, a.spec.Dir, j.branch, j.branch), stopNotice{
+			reason: "Local branch diverged",
+			text:   "The local branch diverged from the remote branch, and the merge had conflicts. Mobius pushed nothing.",
+			output: fmt.Sprintf("Git gave this error: %s\nThe local branch is in %s.", r.text, a.spec.Dir),
+			next:   "Merge the remote branch into the local branch and resolve the conflicts, or reset the local branch to the remote branch. Then Resume.",
+		})
 	}
-	return e.handOverFailed(ended, task, j.title, fmt.Sprintf("GitHub rejected the push. Mobius added mobius:needs-human. Git gave this error:\n\n```\n%s\n```", r.text), "Push rejected", "GitHub rejected the push of the work.")
+	return e.handOverFailed(ended, task, j.title, fmt.Sprintf("GitHub rejected the push. Mobius added mobius:needs-human. Git gave this error:\n\n```\n%s\n```", r.text), "Push rejected", "GitHub rejected the push of the work.", stopNotice{
+		reason: "Push rejected",
+		text:   "GitHub rejected the push of the work.",
+		output: fmt.Sprintf("Git gave this error:\n\n```\n%s\n```", r.text),
+		next:   "Read the error in the Lead chat or the Inbox. Fix the cause, then Resume.",
+	})
 }
 
 // stopAtLimit hands the task of the round to a human, because the pull request has open items after max_fix_rounds
@@ -838,19 +856,24 @@ func (e *Engine) stopAtLimit(ctx context.Context, repository github.Repository, 
 		return err
 	}
 	reason := fmt.Sprintf("the pull request has open items after %d %s rounds. Mobius set the Mobius check to failure and added mobius:needs-human.", rounds, limit)
-	return e.addLeadEvent(ctx, r.task.Repository, r.task.Workstream, sql.NullInt64{Int64: r.task.Issue, Valid: true}, "stop", stopText(r.task.Issue, r.title, reason))
+	noticeErr := e.tellStop(ctx, r.task, r.title, stopNotice{
+		reason: "Round limit",
+		text:   summary,
+		next:   fmt.Sprintf("Read the open items of PR #%d. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.", pullRequest.GetNumber()),
+	})
+	return errors.Join(noticeErr, e.addLeadEvent(ctx, r.task.Repository, r.task.Workstream, sql.NullInt64{Int64: r.task.Issue, Valid: true}, "stop", stopText(r.task.Issue, r.title, reason)))
 }
 
-// handOver hands the task to a human, and gives the Lead a stop event with reason. A task that is not queued or
-// working, for example after a decline, gets no event.
-func (e *Engine) handOver(ctx context.Context, task store.Task, title, reason string) error {
-	return e.handOverFailed(ctx, task, title, reason, "", "")
+// handOver hands the task to a human, and gives the Lead a stop event with reason, and the Owner a comment and an Inbox
+// item with notice. A task that is not queued or working, for example after a decline, gets none of them.
+func (e *Engine) handOver(ctx context.Context, task store.Task, title, reason string, notice stopNotice) error {
+	return e.handOverFailed(ctx, task, title, reason, "", "", notice)
 }
 
 // handOverFailed does handOver, and completes the Mobius check of the pull request of the task as failure with
 // checkTitle and checkSummary. An empty checkTitle leaves the check as it is. The Lead gets the stop event also when
 // the check fails.
-func (e *Engine) handOverFailed(ctx context.Context, task store.Task, title, reason, checkTitle, checkSummary string) error {
+func (e *Engine) handOverFailed(ctx context.Context, task store.Task, title, reason, checkTitle, checkSummary string, notice stopNotice) error {
 	handed, err := e.handToHuman(ctx, task)
 	if err != nil || !handed {
 		return err
@@ -859,8 +882,9 @@ func (e *Engine) handOverFailed(ctx context.Context, task store.Task, title, rea
 	if checkTitle != "" {
 		checkErr = e.failCheckRun(ctx, task, checkTitle, checkSummary)
 	}
+	noticeErr := e.tellStop(ctx, task, title, notice)
 	eventErr := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", stopText(task.Issue, title, reason))
-	return errors.Join(checkErr, eventErr)
+	return errors.Join(checkErr, noticeErr, eventErr)
 }
 
 // failCheckRun completes the open Mobius check of the head of the pull request of the task as failure. It reads the task

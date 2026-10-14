@@ -271,6 +271,11 @@ func judgeToHumanWith(t *testing.T, fake *testkit.FakeGitHub, judge string) *tes
 			return strings.HasPrefix(comment.Body, "Review not started.")
 		})
 	})
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(fake.Comments(shop, 41), func(comment testkit.Comment) bool {
+			return strings.Contains(comment.Body, nextStep)
+		})
+	})
 	return server
 }
 
@@ -361,7 +366,7 @@ func TestARemovalOfNeedsHumanWhileTheJudgeOfTheHumanTaskRunsContinuesTheTask(t *
 	dir := t.TempDir()
 	start, running, release := filepath.Join(dir, "start"), filepath.Join(dir, "running"), filepath.Join(dir, "release")
 	waits := fmt.Sprintf("shell = \"if [ -e '%[1]s' ]; then touch '%[2]s'; while [ ! -e '%[3]s' ]; do sleep 0.05; done; fi\"\n"+
-		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 5, actions = [{ verdict = \"follow-up\", text = \"Later.\" }] }] } }\n",
+		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 6, actions = [{ verdict = \"follow-up\", text = \"Later.\" }] }] } }\n",
 		start, running, release)
 	server := judgeToHumanWith(t, fake, waits)
 	rounds := implementerRounds(t, server)
@@ -369,7 +374,7 @@ func TestARemovalOfNeedsHumanWhileTheJudgeOfTheHumanTaskRunsContinuesTheTask(t *
 	if err := os.WriteFile(start, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if comment := fake.AddComment(shop, 42, "owner", "Later."); comment != 5 {
+	if comment := fake.AddComment(shop, 42, "owner", "Later."); comment != 6 {
 		t.Fatalf("comment = %d", comment)
 	}
 	testkit.WaitFor(t, func() bool { _, err := os.Stat(running); return err == nil })
@@ -392,14 +397,14 @@ func TestAFixRoundOfTheJudgeFromNeedsHumanResetsTheCountersOfTheTask(t *testing.
 	dir := t.TempDir()
 	start, running, release := filepath.Join(dir, "start"), filepath.Join(dir, "running"), filepath.Join(dir, "release")
 	waits := fmt.Sprintf("shell = \"if [ -e '%[1]s' ]; then touch '%[2]s'; while [ ! -e '%[3]s' ]; do sleep 0.05; done; fi\"\n"+
-		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 5, actions = [{ verdict = \"fix\", text = \"Continue.\" }] }] } }\n",
+		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 6, actions = [{ verdict = \"fix\", text = \"Continue.\" }] }] } }\n",
 		start, running, release)
 	server := judgeToHumanWith(t, fake, waits)
 	rounds := implementerRounds(t, server)
 	if err := os.WriteFile(start, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if comment := fake.AddComment(shop, 42, "owner", "Continue."); comment != 5 {
+	if comment := fake.AddComment(shop, 42, "owner", "Continue."); comment != 6 {
 		t.Fatalf("comment = %d", comment)
 	}
 	testkit.WaitFor(t, func() bool { _, err := os.Stat(running); return err == nil })
@@ -428,14 +433,14 @@ func TestAFollowUpOfTheJudgeFromNeedsHumanContinuesTheTask(t *testing.T) {
 	dir := t.TempDir()
 	start, running, release := filepath.Join(dir, "start"), filepath.Join(dir, "running"), filepath.Join(dir, "release")
 	waits := fmt.Sprintf("shell = \"if [ -e '%[1]s' ]; then touch '%[2]s'; while [ ! -e '%[3]s' ]; do sleep 0.05; done; fi\"\n"+
-		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 5, actions = [{ verdict = \"follow-up\", text = \"Later.\" }] }] } }\n",
+		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 6, actions = [{ verdict = \"follow-up\", text = \"Later.\" }] }] } }\n",
 		start, running, release)
 	server := judgeToHumanWith(t, fake, waits)
 	rounds := implementerRounds(t, server)
 	if err := os.WriteFile(start, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if comment := fake.AddComment(shop, 42, "owner", "Later."); comment != 5 {
+	if comment := fake.AddComment(shop, 42, "owner", "Later."); comment != 6 {
 		t.Fatalf("comment = %d", comment)
 	}
 	testkit.WaitFor(t, func() bool { _, err := os.Stat(running); return err == nil })
@@ -479,4 +484,8 @@ func TestAFailedJudgeStopsTheTaskWithItsOwnReason(t *testing.T) {
 		}
 		return false
 	})
+	item := wantStopNotice(t, server, fake, "Judge failed", "The Judge failed.", "Read the error in the Lead chat or the Inbox. Fix the cause, then Resume.")
+	if !strings.Contains(item.Text, "The Judge crashed.") {
+		t.Errorf("item text = %s", item.Text)
+	}
 }

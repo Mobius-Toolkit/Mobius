@@ -185,7 +185,7 @@ func TestTheHangAfterTheThirdRetryStopsTheSessionAndHandsTheTaskToAHuman(t *test
 		}
 	}
 	text := fmt.Sprintf("Mobius stopped the implementer session %d. It had no activity after 3 retries. The session worked on #41.", session.ID)
-	if len(found) != 1 || found[0].Text != text || found[0].Issue != 41 || found[0].Repository != shop || found[0].Link != "https://github.com/"+shop+"/issues/41" {
+	if len(found) != 1 || !strings.HasPrefix(found[0].Text, text) || found[0].Issue != 41 || found[0].Repository != shop || found[0].Link != "https://github.com/"+shop+"/issues/41" {
 		t.Errorf("Inbox items = %+v", found)
 	}
 	if state := taskState(t, server); state != "needs_human" {
@@ -198,6 +198,7 @@ func TestTheHangAfterTheThirdRetryStopsTheSessionAndHandsTheTaskToAHuman(t *test
 		t.Errorf("Worker restarts = %d", task.WorkerRestarts)
 	}
 	waitForPolls(t, fake)
+	wantStopNotice(t, server, fake, "The implementer session hung", text, "Resume to start a new session.")
 	if count := implementers(t, server); count != 1 {
 		t.Errorf("Implementers = %d", count)
 	}

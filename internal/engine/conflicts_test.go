@@ -215,7 +215,7 @@ func TestAStalePullRequestWithAMergeConflictGoesToAHuman(t *testing.T) {
 		Issue:          41,
 		Title:          "Add plan model",
 		Reason:         "PR #42 has a merge conflict",
-		Text:           "Pull request #42 of #41 \"Add plan model\" has a merge conflict and is older than 7 days.",
+		Text:           stale[0].Text,
 		Link:           "https://github.com/owner/shop/issues/41",
 		PullRequest:    42,
 		PullRequestURL: "https://github.com/owner/shop/pull/42",
@@ -223,6 +223,8 @@ func TestAStalePullRequestWithAMergeConflictGoesToAHuman(t *testing.T) {
 	if !reflect.DeepEqual(stale, want) {
 		t.Errorf("stale items = %+v", stale)
 	}
+	wantStopNotice(t, server, fake, "PR #42 has a merge conflict", "Pull request #42 of #41 \"Add plan model\" has a merge conflict and is older than 7 days.",
+		"Close the pull request, or Resume for a conflict round.")
 	if state := taskState(t, server); state != "needs_human" {
 		t.Errorf("state = %s", state)
 	}
@@ -279,6 +281,8 @@ func TestAConflictRoundThatDoesNotMergeTheBaseBranchStopsTheTask(t *testing.T) {
 	if state := taskState(t, server); state != "needs_human" {
 		t.Errorf("state = %s", state)
 	}
+	wantStopNotice(t, server, fake, "Base branch not merged", "The conflict round did not merge the base branch. Mobius pushed the work.",
+		"Merge the base branch into the branch of PR #42 and resolve the conflicts. Then Resume.")
 	sessions := roleSessions(t, server, engine.ImplementerRole)
 	if len(sessions) != 2 || sessions[1].EndReason.String != "not_merged" {
 		t.Errorf("Implementers = %+v", sessions)
@@ -318,17 +322,9 @@ func TestAStalePullRequestBehindItsBaseGoesToAHumanWithTheBehindReason(t *testin
 
 	fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
 
-	stale := testkit.WaitForValue(t, func() (inboxItem, bool) {
-		for _, item := range inbox(t, server) {
-			if item.Kind == "stopped" {
-				return item, true
-			}
-		}
-		return inboxItem{}, false
-	})
-	if stale.Text != "Pull request #42 of #41 \"Add plan model\" is behind its base branch and is older than 7 days." || stale.Reason != "PR #42 is behind its base branch" {
-		t.Errorf("text = %s, reason = %s", stale.Text, stale.Reason)
-	}
+	waitForItem(t, server, "stopped")
+	wantStopNotice(t, server, fake, "PR #42 is behind its base branch", "Pull request #42 of #41 \"Add plan model\" is behind its base branch and is older than 7 days.",
+		"Close the pull request, or Resume for a conflict round.")
 	if state := taskState(t, server); state != "needs_human" {
 		t.Errorf("state = %s", state)
 	}

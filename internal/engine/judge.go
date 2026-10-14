@@ -296,7 +296,13 @@ func (e *Engine) runJudge(ctx context.Context, j judgeJob) {
 		log.Printf("Judge of %s#%d: %v", j.task.Repository, j.task.Issue, err)
 	}
 	reason := fmt.Sprintf("the Judge failed. Mobius added mobius:needs-human. The error ends with these lines:\n\n```\n%s\n```", tail(err.Error(), errorTail))
-	if err := e.handOver(ended, j.task, j.title, reason); err != nil {
+	notice := stopNotice{
+		reason: "Judge failed",
+		text:   "The Judge failed.",
+		output: fmt.Sprintf("The error ends with these lines:\n\n```\n%s\n```", tail(err.Error(), errorTail)),
+		next:   "Read the error in the Lead chat or the Inbox. Fix the cause, then Resume.",
+	}
+	if err := e.handOver(ended, j.task, j.title, reason, notice); err != nil {
 		log.Printf("stop of %s#%d: %v", j.task.Repository, j.task.Issue, err)
 	}
 }

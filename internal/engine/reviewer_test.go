@@ -437,6 +437,8 @@ func TestTheReviewRoundAtMaxFixRoundsShowsTheLimitAndStartsNoNextRound(t *testin
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the pull request has open items after 7 review rounds.")
+	wantStopNotice(t, server, fake, "Round limit", "The pull request has open items after 7 review rounds.",
+		"Read the open items of PR #42. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.")
 	if reviewers := roleSessions(t, server, engine.ReviewerRole); len(reviewers) != 7 {
 		t.Errorf("Reviewers = %d", len(reviewers))
 	}
