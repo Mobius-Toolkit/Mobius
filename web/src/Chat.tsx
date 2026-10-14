@@ -53,7 +53,7 @@ function NeedsHumanRow({
           {issue.reason && (
             <div
               ref={measure}
-              className="line-clamp-2 min-w-0 basis-full text-sm text-muted-foreground sm:basis-auto [&>div]:block"
+              className="line-clamp-2 min-w-0 basis-full text-sm text-muted-foreground sm:line-clamp-1 sm:grow sm:basis-0 [&>div]:block"
             >
               <Markdown text={issue.reason} />
             </div>

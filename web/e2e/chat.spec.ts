@@ -998,13 +998,14 @@ async function boxOf(locator: Locator) {
   return found ?? { x: 0, y: 0, width: 0, height: 0 };
 }
 
-test("a long title of a stopped task stays on one line on a phone, and shares the line on a desktop", async ({
+test("a stopped task shares the line with its links on a phone, and shows its title in full on a desktop", async ({
   page,
 }) => {
   await routeLongTitle(page);
   const main = page.getByRole("main");
   const row = main.getByRole("listitem").filter({ hasText: longTitle });
   const title = row.getByText(longTitle);
+  const reason = row.locator(".line-clamp-2");
   const reference = row.getByRole("link", { name: "#409", exact: true });
   const pullRequest = row.getByRole("link", { name: "PR #624" });
   const buttons = ["Answer", "Resume", "Details"].map((name) =>
@@ -1018,25 +1019,31 @@ test("a long title of a stopped task stays on one line on a phone, and shares th
   await expect(title).toBeVisible();
   const phoneTitle = await boxOf(title);
   expect(phoneTitle.height).toBeLessThanOrEqual(24);
-  const phoneReference = await boxOf(reference);
-  expect(phoneReference.y).toBeLessThan(phoneTitle.y + phoneTitle.height);
-  expect(phoneReference.y + phoneReference.height).toBeGreaterThan(phoneTitle.y);
-  await expect(pullRequest).toBeVisible();
+  for (const link of [reference, pullRequest]) {
+    const box = await boxOf(link);
+    expect(box.y).toBeLessThan(phoneTitle.y + phoneTitle.height);
+    expect(box.y + box.height).toBeGreaterThan(phoneTitle.y);
+  }
+  const phoneReason = await boxOf(reason);
+  expect(phoneReason.y).toBeGreaterThanOrEqual(phoneTitle.y + phoneTitle.height);
   for (const next of buttons) {
     await expect(next).toBeVisible();
     const box = await boxOf(next);
-    expect(box.y).toBeGreaterThanOrEqual(phoneTitle.y + phoneTitle.height);
+    expect(box.y).toBeGreaterThanOrEqual(phoneReason.y + phoneReason.height);
     expect(box.x + box.width).toBeLessThanOrEqual(phone.width);
   }
   expect(await noHorizontalScroll()).toBe(true);
 
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(shop);
   await expect(title).toBeVisible();
-  const desktopReference = await boxOf(reference);
+  const desktopTitle = await boxOf(title);
   const desktopPullRequest = await boxOf(pullRequest);
-  expect(desktopPullRequest.y).toBeLessThan(desktopReference.y + desktopReference.height);
-  expect(desktopPullRequest.y + desktopPullRequest.height).toBeGreaterThan(desktopReference.y);
+  expect(desktopPullRequest.y).toBeLessThan(desktopTitle.y + desktopTitle.height);
+  expect(desktopPullRequest.y + desktopPullRequest.height).toBeGreaterThan(desktopTitle.y);
+  await expect(title).toHaveJSProperty("scrollWidth", await title.evaluate((el) => el.clientWidth));
+  expect((await boxOf(reason)).height).toBeLessThanOrEqual(24);
+  await expect(buttons[2]).toBeVisible();
   const desktopRow = await boxOf(row);
   const details = await boxOf(buttons[2]);
   expect(details.x + details.width).toBeLessThanOrEqual(desktopRow.x + desktopRow.width);

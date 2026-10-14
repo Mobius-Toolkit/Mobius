@@ -27,7 +27,7 @@ export function routeReasons(page: Page) {
 }
 
 export const longTitle =
-  "Replace the old plan table with a new table that holds the seat limit and the price of each plan in cents";
+  "Replace the old plan table with a new table for the seat limit and the price of a plan";
 
 // Adds the stopped issue #409 with a long title, a question and a pull request to the Workstream owner/shop#12.
 export function routeLongTitle(page: Page) {
