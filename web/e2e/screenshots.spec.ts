@@ -233,7 +233,7 @@ test("screenshots", async ({ page }) => {
   await routeLongTitle(page);
   await screenshot(page, "chat-stop-long-title", "/workstreams/owner/shop/12", (device) => [
     ...frame(device, drain),
-    main.getByRole("link", { name: `#409 ${longTitle}` }),
+    main.getByText(longTitle),
     main.getByRole("link", { name: "PR #624" }),
   ]);
   await page.unroute(needsHumanRoute);

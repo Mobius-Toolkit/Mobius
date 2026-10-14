@@ -912,8 +912,8 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
   await page.goto("/api/github/user-callback?code=user-code");
   const main = page.getByRole("main");
   for (const [size, workstream, numbers, issues] of [
-    [undefined, 20, [21, 22], ["#21 Dig the tulip beds", "#22 Buy tulip bulbs"]],
-    [phone, 30, [31, 32], ["#31 Dig the lily beds", "#32 Buy lily bulbs"]],
+    [undefined, 20, [21, 22], ["Dig the tulip beds", "Buy tulip bulbs"]],
+    [phone, 30, [31, 32], ["Dig the lily beds", "Buy lily bulbs"]],
   ] as const) {
     if (size) {
       await page.setViewportSize(size);
@@ -948,12 +948,12 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
     await expect(hint).toBeAttached();
 
     await resume.first().click();
-    await expect(main.getByText(issues[0])).toBeHidden();
-    await expect(main.getByText(issues[1])).toBeVisible();
+    await expect(main.getByRole("listitem").filter({ hasText: issues[0] })).toBeHidden();
+    await expect(main.getByRole("listitem").filter({ hasText: issues[1] })).toBeVisible();
     await expect(hint).toBeAttached();
     await expect.poll(() => live(numbers[0])).toBe(true);
     await resume.click();
-    await expect(main.getByText(issues[1])).toBeHidden();
+    await expect(main.getByRole("listitem").filter({ hasText: issues[1] })).toBeHidden();
     await expect(hint).not.toBeAttached();
     await expect.poll(() => live(numbers[1])).toBe(true);
   }
@@ -998,35 +998,49 @@ async function boxOf(locator: Locator) {
   return found ?? { x: 0, y: 0, width: 0, height: 0 };
 }
 
-test("a long title of a stopped task has its own line on a phone, and shares the line on a desktop", async ({
+test("a long title of a stopped task stays on one line on a phone, and shares the line on a desktop", async ({
   page,
 }) => {
   await routeLongTitle(page);
   const main = page.getByRole("main");
-  const title = main.getByRole("link", { name: `#409 ${longTitle}` });
-  const row = title.locator("..");
+  const row = main.getByRole("listitem").filter({ hasText: longTitle });
+  const title = row.getByText(longTitle);
+  const reference = row.getByRole("link", { name: "#409", exact: true });
   const pullRequest = row.getByRole("link", { name: "PR #624" });
   const buttons = ["Answer", "Resume", "Details"].map((name) =>
     row.getByRole(name === "Answer" ? "link" : "button", { name }),
   );
+  const noHorizontalScroll = () =>
+    page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth");
 
   await page.setViewportSize(phone);
   await page.goto(shop);
   await expect(title).toBeVisible();
   const phoneTitle = await boxOf(title);
-  expect(Math.abs(phoneTitle.width - (await boxOf(row)).width)).toBeLessThanOrEqual(1);
-  for (const next of [pullRequest, ...buttons]) {
+  expect(phoneTitle.height).toBeLessThanOrEqual(24);
+  const phoneReference = await boxOf(reference);
+  expect(phoneReference.y).toBeLessThan(phoneTitle.y + phoneTitle.height);
+  expect(phoneReference.y + phoneReference.height).toBeGreaterThan(phoneTitle.y);
+  await expect(pullRequest).toBeVisible();
+  for (const next of buttons) {
     await expect(next).toBeVisible();
-    expect((await boxOf(next)).y).toBeGreaterThanOrEqual(phoneTitle.y + phoneTitle.height);
+    const box = await boxOf(next);
+    expect(box.y).toBeGreaterThanOrEqual(phoneTitle.y + phoneTitle.height);
+    expect(box.x + box.width).toBeLessThanOrEqual(phone.width);
   }
+  expect(await noHorizontalScroll()).toBe(true);
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(shop);
   await expect(title).toBeVisible();
-  const desktopTitle = await boxOf(title);
+  const desktopReference = await boxOf(reference);
   const desktopPullRequest = await boxOf(pullRequest);
-  expect(desktopPullRequest.y).toBeLessThan(desktopTitle.y + desktopTitle.height);
-  expect(desktopPullRequest.y + desktopPullRequest.height).toBeGreaterThan(desktopTitle.y);
+  expect(desktopPullRequest.y).toBeLessThan(desktopReference.y + desktopReference.height);
+  expect(desktopPullRequest.y + desktopPullRequest.height).toBeGreaterThan(desktopReference.y);
+  const desktopRow = await boxOf(row);
+  const details = await boxOf(buttons[2]);
+  expect(details.x + details.width).toBeLessThanOrEqual(desktopRow.x + desktopRow.width);
+  expect(await noHorizontalScroll()).toBe(true);
 });
 
 test("Start gives only an open task with no blocker a button, and the row shows ready", async ({
