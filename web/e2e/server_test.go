@@ -639,7 +639,7 @@ func fixTools(t *testing.T, dataDir string) {
 	t.Setenv("CLAUDE_CODE_EXECUTABLE", filepath.Join(harnesses, "claude"))
 	registry := testkit.NewFakeNPM(t)
 	registry.SetVersion("@agentclientprotocol/claude-agent-acp", "0.5.0")
-	registry.SetVersion("@anthropic-ai/claude-code", "2.1.284")
+	registry.SetVersion("@anthropic-ai/claude-code", "2.1.300")
 	was := engine.NPMRegistry
 	engine.NPMRegistry = registry.URL
 	t.Cleanup(func() { engine.NPMRegistry = was })

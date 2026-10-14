@@ -58,7 +58,11 @@ function PermissionStatus({ permission }: { permission: PermissionCheck }) {
 }
 
 function ToolProblem({ tool }: { tool: ToolCheck }) {
-  return <Badge variant="destructive">{tool.status.replace("-", " ")}</Badge>;
+  return (
+    <Badge variant="destructive">
+      {tool.outdated ? "outdated" : tool.status.replace("-", " ")}
+    </Badge>
+  );
 }
 
 function useCheckup(organization: string) {
@@ -208,7 +212,7 @@ export function Checkup({ organizations }: { organizations: string[] }) {
           <CheckupLink
             link={{ to: "/settings/checkup/tools" }}
             title="Tools"
-            needsYou={!!tools?.some((tool) => tool.status !== "")}
+            needsYou={!!tools?.some((tool) => tool.status !== "" || tool.outdated)}
           />
         </List>
       </Section>
@@ -232,13 +236,15 @@ export function CheckupTools() {
               <span className="grid min-w-0">
                 {tool.name}
                 {tool.status === "" && (
-                  <span className="text-muted-foreground text-sm break-words">{tool.version}</span>
+                  <span className="text-muted-foreground text-sm break-words">
+                    {tool.outdated ? `${tool.version} · newest ${tool.newest}` : tool.version}
+                  </span>
                 )}
                 {tool.path && (
                   <span className="text-muted-foreground text-sm break-all">{tool.path}</span>
                 )}
               </span>
-              {tool.status !== "" && <ToolProblem tool={tool} />}
+              {(tool.status !== "" || tool.outdated) && <ToolProblem tool={tool} />}
             </Row>
           ))}
         </List>
