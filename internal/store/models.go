@@ -21,6 +21,14 @@ type ChatMessage struct {
 	StoppedAt    sql.NullString
 }
 
+type CommentWrite struct {
+	ID         int64
+	Repository string
+	Number     sql.NullInt64
+	Comment    sql.NullInt64
+	Body       string
+}
+
 type Event struct {
 	ID           int64
 	Time         string

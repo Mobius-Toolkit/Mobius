@@ -430,6 +430,42 @@ func TestAReviewRoundPostsACommentAndUpdatesTheSameCommentWithTheResults(t *test
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).ReviewRounds == 1 })
 }
 
+func TestAFailedUpdateOfTheReviewCommentGoesToTheNextPoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	goFile := filepath.Join(dataDir, "go")
+	reviewer := strings.Replace(finding, "\ncall = ", fmt.Sprintf("\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\ncall = ", goFile), 1)
+	server, _ := connectTaskIn(t, fake, dataDir, reviewer+leadStarts, eachFix+commits, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool { return len(roundComments(fake)) > 0 })
+	fake.FailUpdateComment(shop, 42, true)
+
+	touch(t, goFile)
+
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).ReviewRounds == 1 && commentWrites(t, server) == 1 })
+	if comments := roundComments(fake); !slices.Equal(comments, []string{"Review started, round 1 of 10"}) {
+		t.Errorf("comments = %q", comments)
+	}
+
+	fake.FailUpdateComment(shop, 42, false)
+
+	testkit.WaitFor(t, func() bool {
+		comments := roundComments(fake)
+		return commentWrites(t, server) == 0 && strings.HasPrefix(comments[0], "Review ended, round 1 of 10\n")
+	})
+}
+
+// commentWrites gives the number of comment writes that wait for the next poll.
+func commentWrites(t *testing.T, server *testserver.Server) int {
+	t.Helper()
+	var count int
+	if err := server.DB.QueryRow("SELECT count(*) FROM comment_writes").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count
+}
+
 func TestTheReviewRoundAtMaxFixRoundsShowsTheLimitAndStartsNoNextRound(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, finding+leadStarts, eachFix+commits, func(cfg *config.Config) { cfg.MaxFixRounds = 7 })

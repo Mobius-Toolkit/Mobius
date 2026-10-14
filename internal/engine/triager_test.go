@@ -194,6 +194,34 @@ func TestARemovalOfTheLabelStopsTheTriagerAndAProposalGoesToTheIssue(t *testing.
 	}
 }
 
+func TestAProposalThatGitHubRefusesGoesToTheIssueAtTheNextPoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.AddIssue(shop, 51, "Rename plans")
+	fake.AddIssue(shop, 52, "Add loyalty points")
+	fake.AddLabel(shop, 51, "mobius:ready", "owner")
+	fake.AddLabel(shop, 52, "mobius:ready", "owner")
+	testkit.WaitFor(t, func() bool {
+		return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 && slices.Equal(fake.Labels(shop, 51), []string{"mobius:no-workstream"})
+	})
+	fake.FailAddComment(shop, 52, true)
+
+	fake.RemoveLabel(shop, 51, "mobius:no-workstream", "owner")
+
+	testkit.WaitFor(t, func() bool { return commentWrites(t, server) == 1 })
+	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: `Create the Workstream "Loyalty points" for this issue.`}
+	if slices.Contains(fake.Comments(shop, 52), proposal) {
+		t.Error("the proposal is on the issue")
+	}
+
+	fake.FailAddComment(shop, 52, false)
+
+	testkit.WaitFor(t, func() bool {
+		return slices.Contains(fake.Comments(shop, 52), proposal) && commentWrites(t, server) == 0
+	})
+}
+
 func TestACommentOfATrustedUserStartsTheTriagerAgainWithTheCommentsOfTrustedAuthors(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

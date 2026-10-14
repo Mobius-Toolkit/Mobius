@@ -53,6 +53,27 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 	return i, err
 }
 
+const addCommentWrite = `-- name: AddCommentWrite :exec
+INSERT INTO comment_writes (repository, number, comment, body) VALUES (?, ?, ?, ?)
+`
+
+type AddCommentWriteParams struct {
+	Repository string
+	Number     sql.NullInt64
+	Comment    sql.NullInt64
+	Body       string
+}
+
+func (q *Queries) AddCommentWrite(ctx context.Context, arg AddCommentWriteParams) error {
+	_, err := q.db.ExecContext(ctx, addCommentWrite,
+		arg.Repository,
+		arg.Number,
+		arg.Comment,
+		arg.Body,
+	)
+	return err
+}
+
 const addCopiedBlocker = `-- name: AddCopiedBlocker :exec
 INSERT INTO copied_blockers (repository, workstream, position, blocker_repository, number, blocker_workstream, blocker_workstream_title)
 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -791,6 +812,15 @@ DELETE FROM chat_messages WHERE id = ?
 
 func (q *Queries) DeleteChatMessage(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, deleteChatMessage, id)
+	return err
+}
+
+const deleteCommentWrite = `-- name: DeleteCommentWrite :exec
+DELETE FROM comment_writes WHERE id = ?
+`
+
+func (q *Queries) DeleteCommentWrite(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteCommentWrite, id)
 	return err
 }
 
@@ -1992,6 +2022,39 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 			&i.BrowserID,
 			&i.DeliveredAt,
 			&i.StoppedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCommentWrites = `-- name: ListCommentWrites :many
+SELECT id, repository, number, comment, body FROM comment_writes WHERE repository = ? ORDER BY id
+`
+
+func (q *Queries) ListCommentWrites(ctx context.Context, repository string) ([]CommentWrite, error) {
+	rows, err := q.db.QueryContext(ctx, listCommentWrites, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CommentWrite
+	for rows.Next() {
+		var i CommentWrite
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Number,
+			&i.Comment,
+			&i.Body,
 		); err != nil {
 			return nil, err
 		}

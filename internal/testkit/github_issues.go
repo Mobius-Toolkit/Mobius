@@ -296,6 +296,13 @@ func (g *FakeGitHub) FailAddComment(repository string, number int64, fail bool) 
 	g.failedComments[issueKey{repository, number}] = fail
 }
 
+// FailUpdateComment makes each update of a comment of the issue fail, or work again when fail is false.
+func (g *FakeGitHub) FailUpdateComment(repository string, number int64, fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failedCommentUpdates[issueKey{repository, number}] = fail
+}
+
 // FailAddLabels makes each new label that Mobius adds to the issue fail, or work again when fail is false.
 func (g *FakeGitHub) FailAddLabels(repository string, number int64, fail bool) {
 	g.mu.Lock()
@@ -961,6 +968,12 @@ func (g *FakeGitHub) updateComment(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	for key, found := range g.issues {
+		if key.repository == repository(r) && g.failedCommentUpdates[key] && slices.ContainsFunc(found.comments, func(comment commentJSON) bool { return comment.ID == id }) {
+			message(w, http.StatusInternalServerError, "Server Error")
+			return
+		}
+	}
 	if comment, ok := g.editComment(repository(r), id, request.Body); ok {
 		writeJSON(w, http.StatusOK, comment)
 		return
