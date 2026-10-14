@@ -255,7 +255,7 @@ func TestTheFullSyncCopiesTheNestedSubIssuesWithStateLabelsAndAuthor(t *testing.
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 41, "Add plan model")
-	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	fake.AddLabel(shop, 41, "mobius:question", "owner")
 	fake.AddLabel(shop, 41, "bug", "owner")
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddIssue(shop, 50, "Store the price in cents")
@@ -281,7 +281,7 @@ func TestTheFullSyncCopiesTheNestedSubIssuesWithStateLabelsAndAuthor(t *testing.
 	if got := copiedIssues(t, server); !reflect.DeepEqual(got, want) {
 		t.Errorf("issues = %+v", got)
 	}
-	if got := copiedLabels(t, server, 41); !slices.Equal(got, []string{"bug", "mobius:ready"}) {
+	if got := copiedLabels(t, server, 41); !slices.Equal(got, []string{"bug", "mobius:question"}) {
 		t.Errorf("labels of #41 = %v", got)
 	}
 	if got := copiedLabels(t, server, 50); len(got) != 0 {
