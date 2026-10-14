@@ -14,8 +14,8 @@ import (
 // readDefaultBranchCI keeps the breaks of the CI of the default branch. A break of a workflow starts when its newest
 // completed run failed. Mobius runs the failed jobs of that run again one time. The result of the break is flaky when
 // the new attempt passes, and hard when it fails. A hard break ends when a newer run of the workflow passes, or when a
-// later attempt of the failed run passes. When GitHub
-// refuses the list of runs with a 4xx status (for example with no permission), Mobius skips the CI for this poll.
+// later attempt of the failed run passes. When GitHub refuses the list of runs with a 4xx status (for example with no
+// permission), Mobius skips the CI for this poll.
 func (e *Engine) readDefaultBranchCI(ctx context.Context, repository github.Repository) error {
 	runs, err := repository.BranchWorkflowRuns(ctx, repository.DefaultBranch)
 	var refused *gh.ErrorResponse
@@ -79,13 +79,14 @@ func (e *Engine) startCIBreak(ctx context.Context, repository github.Repository,
 	return e.queries.AddCIBreak(ctx, params)
 }
 
-// advanceCIBreak runs the failed jobs again when Mobius did not do it yet and no newer run of the workflow passed, stores the result of the new attempt, and
-// ends the break when a newer run of the workflow passed. A hard break also ends when a later attempt of the failed
-// run passed: the list of runs gives the newest attempt of each run. A new attempt that completes with another conclusion than
-// success (for example cancelled), and a newer failed run, make the break hard. Mobius stores the mark of the re-run after the call, so a
-// run that already has a new attempt (for example after a stop between the call and the mark) is not run again.
-// When GitHub refuses the call with a 4xx status (for example with no permission, or for a run older than 30 days),
-// the failure stays a failure, so the break is hard. Another error returns, and the next poll tries again.
+// advanceCIBreak runs the failed jobs again when Mobius did not do it yet and no newer run of the workflow passed,
+// stores the result of the new attempt, and ends the break when a newer run of the workflow passed. A hard break also
+// ends when a later attempt of the failed run passed: the list of runs gives the newest attempt of each run. A new
+// attempt that completes with another conclusion than success (for example cancelled), and a newer failed run, make the
+// break hard. Mobius stores the mark of the re-run after the call, so a run that already has a new attempt (for example
+// after a stop between the call and the mark) is not run again. When GitHub refuses the call with a 4xx status (for
+// example with no permission, or for a run older than 30 days), the failure stays a failure, so the break is hard.
+// Another error returns, and the next poll tries again.
 func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repository, ciBreak store.CiBreak, byID map[int64]*gh.WorkflowRun, newest *gh.WorkflowRun) error {
 	run := byID[ciBreak.RunID]
 	passedAgain := newest != nil && newest.GetID() > ciBreak.RunID && newest.GetConclusion() == "success"
