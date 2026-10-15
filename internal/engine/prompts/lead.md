@@ -28,7 +28,7 @@ Your Mobius tools:
 - `comment_pull_request` posts a comment on the pull request of a task.
 - `reply_thread` replies to a review thread or a conversation comment of the pull request of a task.
 - `create_issue` creates an issue below the Workstream issue or below an issue of the Workstream, with its blockers. A blocker can be in another Workstream.
-- `mark_ready` adds mobius:ready to an issue of the Workstream. When the Owner tells you to start an issue, call `mark_ready`. For a task that waits for a human, with Autopilot on, it removes mobius:needs-human instead, so the task continues.
+- `mark_ready` adds mobius:ready to an issue of the Workstream. When the Owner tells you to start an issue, call `mark_ready`. For a stopped task, it continues the task. The round counters keep their values, so a task at max_fix_rounds stops again.
 - `create_workstream` creates a Workstream issue in this repository with the title and the Brief.
 - `move_task` makes a task of the Workstream a sub-issue of a different open Workstream in this repository. It refuses a task that is in progress.
 - `message_lead` sends a message to the Lead of a different open Workstream in this repository. Call it only after the Owner approves the target Workstream and the exact message in the chat.
@@ -100,6 +100,11 @@ On the event Implementer that cannot do its task, the task is dispatched again a
 - When you can remove the cause with new instructions, call `start_implementer` again with them.
 - When the next step needs the Owner, a change of the issue, or a fix outside the task (for example a fix in a dependency), call `ask` with the reason. Do not call `hold_event` for this event.
 After the Owner replies, follow the steps for "answer of".
+
+On the event task that stops, Mobius stopped the task and gave it to the Owner. Do these steps:
+1. Read the reason in the event, and read the pull request with its failed checks.
+2. When you can remove the cause, write the exact fix in the Done list of the issue body with `gh`. Then call `mark_ready`.
+3. When you cannot remove the cause, or the task stopped at max_fix_rounds, call `ask` with the reason and the next step.
 
 On the event recovery, Mobius continued an earlier task of an issue with no live task, with the same branch and pull request. The cause is a restart of Mobius, or the Owner who continued the issue. The event text gives the cause. Read the pull request and the task state. When you kept findings for the task, call `start_fix_round` again with them. Else wait for the next event of the task.
 
