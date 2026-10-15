@@ -114,7 +114,7 @@ test("the Checkup page shows a needs you badge on Workstreams when a repository 
   await expect(row("owner").getByText("needs you")).toBeHidden();
 });
 
-test("the Workstreams page links the maintenance Workstream and sends the draft request to the Coordinator chat", async ({
+test("the Workstreams page explains the maintenance Workstream, links it and sends the full request to the Coordinator chat", async ({
   page,
 }) => {
   const main = page.getByRole("main");
@@ -140,6 +140,11 @@ test("the Workstreams page links the maintenance Workstream and sends the draft 
     .click();
 
   await expect(page).toHaveURL("/settings/checkup/plants/workstreams");
+  await expect(
+    main.getByText(
+      "A maintenance Workstream gets each task issue that Mobius creates for the repository, and the CI failures of its default branch. Create opens the chat with a draft for your approval.",
+    ),
+  ).toBeVisible();
   const link = main
     .locator("section")
     .filter({ hasText: "plants/pond" })
@@ -155,7 +160,10 @@ test("the Workstreams page links the maintenance Workstream and sends the draft 
     .click();
 
   const body = (await request).postData() ?? "";
-  expect(body).toContain("Draft the maintenance Workstream for plants/garden.");
+  const text = body.replaceAll("\r\n", "\n");
+  expect(text).toContain(
+    "Create the maintenance Workstream for plants/garden, with the labels `mobius:maintenance` and `mobius:evergreen`.\n\nUse this Brief:\n\n**Goal**\nKeep the default branch of the repository healthy, so that the work of the other Workstreams can merge. This Workstream has no end.\n\n**Scope**\n- Each task issue that Mobius creates for the repository.\n- Failures of the CI on the default branch, and flaky tests.\n- The development tools, the scripts, the project setup, and the CI configuration.\n- Small defects of the application that no open Workstream covers.\n- When the cause of a failure is outside the repository, close the issue with the cause in a comment.\n\n**Limits**\n- Do not add a feature or change a user flow.\n- Do not take work that belongs to another open Workstream.",
+  );
   expect(body).toContain('name="organization"\r\n\r\nplants\r\n');
   expect(body).toContain('name="repository"\r\n\r\n\r\n');
   await expect(page).toHaveURL("/chat");
