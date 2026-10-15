@@ -525,8 +525,8 @@ func (e *Engine) commentIsEvent(appSlug string, comment *gh.IssueComment) bool {
 }
 
 // ask posts the question text on the issue of a live task of the Workstream or on the Workstream issue, adds
-// mobius:question, and adds an Inbox item. The reply comes later as a comment event. A dispatched task moves to asked
-// and frees its Autopilot slot, and the reply dispatches it again.
+// mobius:question, and adds an Inbox item that replaces the stopped item of the issue. The reply comes later as a
+// comment event. A dispatched task moves to asked and frees its Autopilot slot, and the reply dispatches it again.
 func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository, input textInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -571,6 +571,9 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 		Link:         issue.GetHTMLURL(),
 	})
 	if err != nil {
+		return "", err
+	}
+	if err := e.dismissIssueItems(ctx, repository.FullName, input.N, stoppedKind); err != nil {
 		return "", err
 	}
 	if task.State == "dispatched" {

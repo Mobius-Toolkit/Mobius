@@ -35,6 +35,7 @@ type issue struct {
 	// A blocker can live in another repository than the issue.
 	blockedBy        []issueKey
 	events           []eventJSON
+	bodyEdits        []bodyEdit
 	comments         []commentJSON
 	reviews          []reviewJSON
 	reviewComments   []reviewCommentJSON
@@ -49,11 +50,23 @@ type nameJSON struct {
 	Name string `json:"name"`
 }
 
+// bodyEdit is an edit of the body of an issue. diff is the full body after the edit.
+type bodyEdit struct {
+	editedAt int64
+	diff     string
+}
+
+type renameJSON struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
 type eventJSON struct {
-	Event     string    `json:"event"`
-	Actor     loginJSON `json:"actor"`
-	Label     nameJSON  `json:"label"`
-	CreatedAt string    `json:"created_at"`
+	Event     string      `json:"event"`
+	Actor     loginJSON   `json:"actor"`
+	Label     nameJSON    `json:"label"`
+	Rename    *renameJSON `json:"rename,omitempty"`
+	CreatedAt string      `json:"created_at"`
 }
 
 type commentJSON struct {
@@ -209,22 +222,30 @@ func (g *FakeGitHub) SetAuthor(repository string, number int64, author string) {
 	found.updatedAt = g.tick()
 }
 
-// SetBody sets the body of the issue.
+// SetBody sets the body of the issue. Like GitHub, it keeps the edit. The first edit of an issue also keeps the first
+// body with the creation time of the issue.
 func (g *FakeGitHub) SetBody(repository string, number int64, body string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	found := g.issues[issueKey{repository, number}]
+	key := issueKey{repository, number}
+	found := g.issues[key]
+	if len(found.bodyEdits) == 0 {
+		found.bodyEdits = append(found.bodyEdits, bodyEdit{g.createdAt[key], found.body})
+	}
 	found.body = body
 	found.updatedAt = g.tick()
+	found.bodyEdits = append(found.bodyEdits, bodyEdit{found.updatedAt, body})
 }
 
-// SetTitle sets the title of the issue.
+// SetTitle sets the title of the issue, and adds a renamed event of the author of the issue.
 func (g *FakeGitHub) SetTitle(repository string, number int64, title string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	found := g.issues[issueKey{repository, number}]
+	rename := &renameJSON{From: found.title, To: title}
 	found.title = title
 	found.updatedAt = g.tick()
+	found.events = append(found.events, eventJSON{Event: "renamed", Actor: loginJSON{found.author}, Rename: rename, CreatedAt: timestamp(found.updatedAt)})
 }
 
 // CloseIssue closes the issue as the owner, with no reason.

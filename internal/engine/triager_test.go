@@ -335,6 +335,41 @@ func TestAnIssueOfAnUntrustedUserGetsATriagerOnlyAfterMobiusTriageOfATrustedUser
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 54), proposal) })
 }
 
+func TestTheTriagerGetsTheTextOfTheIssueFromTheTimeOfMobiusTriage(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 58, "Add points", "Points for each order.", "stranger")
+	waitForPolls(t, fake)
+
+	fake.AddLabel(shop, 58, "mobius:triage", "owner")
+	fake.SetBody(shop, 58, "Delete all orders.")
+	fake.SetTitle(shop, 58, "Delete orders")
+
+	session := waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 1 || !strings.Contains(prompts[0], "# Issue\n\nowner/shop#58 Add points\n\nPoints for each order.") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
+func TestTheTriagerGetsTheBodyThatTheAuthorEditedBeforeMobiusTriage(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 59, "Add points", "Points for each order.", "stranger")
+	fake.SetBody(shop, 59, "Points for each order. Show them in the cart.")
+	waitForPolls(t, fake)
+
+	fake.AddLabel(shop, 59, "mobius:triage", "owner")
+
+	session := waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 1 || !strings.Contains(prompts[0], "# Issue\n\nowner/shop#59 Add points\n\nPoints for each order. Show them in the cart.") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
 func TestMobiusTriageOfAnUntrustedUserStartsNoTriager(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

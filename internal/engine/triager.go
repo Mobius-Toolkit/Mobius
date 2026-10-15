@@ -238,6 +238,13 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err != nil {
 		return fail(err)
 	}
+	title, body := issue.GetTitle(), issue.GetBody()
+	if !e.trustedUser(issue.GetUser().GetLogin()) {
+		title, body, err = e.labeledText(ctx, repository, issue)
+		if err != nil {
+			return fail(err)
+		}
+	}
 	workstreams, err := e.openWorkstreams(ctx, []github.Repository{repository})
 	if err != nil {
 		return fail(err)
@@ -255,7 +262,7 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if over {
 		return a.End(ended, "done")
 	}
-	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n%s#%d %s\n\n%s", triagerPrompt, workstreams, repository.FullName, number, issue.GetTitle(), issue.GetBody())
+	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n%s#%d %s\n\n%s", triagerPrompt, workstreams, repository.FullName, number, title, body)
 	if len(comments) > 0 {
 		prompt += "\n\n# Comments\n"
 		for _, comment := range comments {
@@ -325,6 +332,46 @@ func (e *Engine) closeEndedTriage(ctx context.Context, repository github.Reposit
 	}
 	_, err = repository.CloseIssue(ctx, number, "completed")
 	return err == nil, err
+}
+
+// labeledText gives the title and the body of the issue at the time when a trusted user last added mobius:triage. The
+// body is the newest edit at or before that time, and the title is the old name of the first rename after it. The
+// current text stays where no edit or rename shows the change.
+func (e *Engine) labeledText(ctx context.Context, repository github.Repository, issue *gh.Issue) (string, string, error) {
+	title, body := issue.GetTitle(), issue.GetBody()
+	number := int64(issue.GetNumber())
+	events, err := repository.IssueEvents(ctx, number)
+	if err != nil {
+		return "", "", err
+	}
+	var labeledAt time.Time
+	for _, event := range slices.Backward(events) {
+		login := event.GetActor().GetLogin()
+		if event.GetEvent() == "labeled" && event.GetLabel().GetName() == triageLabel && e.trustedUser(login) && !strings.EqualFold(login, appLogin(repository.AppSlug)) {
+			labeledAt = event.GetCreatedAt().Time
+			break
+		}
+	}
+	if labeledAt.IsZero() {
+		return title, body, nil
+	}
+	edits, err := repository.IssueBodyEdits(ctx, number)
+	if err != nil {
+		return "", "", err
+	}
+	for _, edit := range edits {
+		if !edit.EditedAt.After(labeledAt) {
+			body = edit.Diff
+			break
+		}
+	}
+	for _, event := range events {
+		if event.GetEvent() == "renamed" && event.GetCreatedAt().After(labeledAt) {
+			title = event.GetRename().GetFrom()
+			break
+		}
+	}
+	return title, body, nil
 }
 
 // stopTriager stops the Triager of the issue number, and ends its turn in the database, when a person removed

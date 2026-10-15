@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -302,17 +303,18 @@ func (g *FakeGitHub) PullRequestReads() int {
 var pullRequestAlias = regexp.MustCompile(`pr(\d+): pullRequest\(number: (\d+)\)`)
 
 // graphql answers the query of the reviews and the review threads of pull requests, the query of the next page of a
-// connection, and the mutations resolveReviewThread, markPullRequestReadyForReview and convertPullRequestToDraft.
+// connection, the query of the body edits of an issue, and the mutations resolveReviewThread, markPullRequestReadyForReview and convertPullRequestToDraft.
 // The node id of a thread is "RT_" and the id of its first comment, the node id of a review is "RV_" and its id, and
 // the node id of a pull request is "PR_" and its number.
 func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Query     string `json:"query"`
 		Variables struct {
-			ID    string `json:"id"`
-			Owner string `json:"owner"`
-			Name  string `json:"name"`
-			After string `json:"after"`
+			ID     string `json:"id"`
+			Owner  string `json:"owner"`
+			Name   string `json:"name"`
+			After  string `json:"after"`
+			Number int64  `json:"number"`
 		} `json:"variables"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -356,6 +358,8 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 		}
 		g.resolvedThreads[root] = true
 		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"resolveReviewThread": map[string]any{"clientMutationId": nil}}})
+	case strings.Contains(request.Query, "userContentEdits"):
+		g.bodyEdits(w, issueKey{repository, variables.Number}, variables.After)
 	case strings.Contains(request.Query, "node(id:"):
 		g.nextPage(w, request.Query, variables.ID, variables.After)
 	default:
@@ -371,6 +375,22 @@ func (g *FakeGitHub) graphql(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": pulls}})
 	}
+}
+
+// bodyEdits answers the query of the edits of the body of an issue, the newest first, from the cursor after. The caller
+// must hold the lock.
+func (g *FakeGitHub) bodyEdits(w http.ResponseWriter, key issueKey, after string) {
+	found, ok := g.issues[key]
+	if !ok {
+		writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": map[string]any{"issue": nil}}})
+		return
+	}
+	nodes := []map[string]any{}
+	for _, edit := range slices.Backward(found.bodyEdits) {
+		nodes = append(nodes, map[string]any{"editedAt": timestamp(edit.editedAt), "diff": edit.diff})
+	}
+	page := g.connection(nodes, after)
+	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"repository": map[string]any{"issue": map[string]any{"page": page}}}})
 }
 
 // pullRequestNode gives the node of the pull request, or nil when the repository has no such pull request. The caller
