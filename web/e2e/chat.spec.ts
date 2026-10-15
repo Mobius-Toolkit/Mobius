@@ -643,6 +643,29 @@ test("a new message scrolls the chat to its end", async ({ page }) => {
   }
 });
 
+test("the chat stays at its end when the input gets taller", async ({ page }) => {
+  await page.goto(shop);
+  await expect(page.locator("[data-message]").first()).toBeVisible();
+  await page.evaluate(`(async () => {
+    for (let n = 0; n < 10; n++) {
+      const form = new FormData()
+      form.append('organization', 'owner')
+      form.append('repository', 'owner/shop')
+      form.append('workstream', '12')
+      form.append('id', crypto.randomUUID())
+      form.append('text', 'tall ' + n + ' ' + 'word '.repeat(40))
+      await fetch('/api/chat/messages', { method: 'POST', body: form })
+    }
+  })()`);
+  await expect.poll(() => page.evaluate(shows("tall 9 ", "end"))).toBe(true);
+  const main = page.getByRole("main");
+  await pasteImage(page, await png(page, 40, 30, "red"));
+  await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
+  await expect.poll(() => page.evaluate(shows("tall 9 ", "end"))).toBe(true);
+  await page.getByLabel("Message to the Lead").fill("one\ntwo\nthree\nfour\nfive\nsix");
+  await expect.poll(() => page.evaluate(shows("tall 9 ", "end"))).toBe(true);
+});
+
 test("an event shows folded and muted in the chat, and wraps on a phone", async ({ page }) => {
   const main = page.getByRole("main");
   // The tests have no DOM types, so the checks are scripts.
