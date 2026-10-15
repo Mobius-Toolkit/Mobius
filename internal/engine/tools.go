@@ -553,14 +553,14 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 			return "", refuse("#%d is not in this Workstream.", input.Parent)
 		}
 	}
-	text, err := addIssue(ctx, repository, input, nil)
+	number, err := addIssue(ctx, repository, input, nil)
 	if err != nil {
 		return "", err
 	}
 	if err := e.recopyTrees(ctx, repository, c.workstream); err != nil {
 		log.Printf("copy the tree of %s#%d: %v", repository.FullName, c.workstream, err)
 	}
-	return text, nil
+	return fmt.Sprintf("Created #%d.", number), nil
 }
 
 // createMaintenanceIssue creates an issue with mobius:triage below the maintenance Workstream of the Curator c. It
@@ -575,12 +575,12 @@ func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repositor
 	if c.agent.issues == maintenanceIssues {
 		return "", refuse("You created %d issues in this session. This is the maximum.", maintenanceIssues)
 	}
-	text, err := addIssue(ctx, repository, issue, []string{triageLabel})
+	number, err := addIssue(ctx, repository, issue, []string{triageLabel})
 	if err != nil {
 		return "", err
 	}
 	c.agent.issues++
-	return text, nil
+	return fmt.Sprintf("Created #%d.", number), nil
 }
 
 func checkIssue(input issueInput) error {
@@ -593,36 +593,37 @@ func checkIssue(input issueInput) error {
 	return nil
 }
 
-// addIssue creates an issue with labels below the issue input.Parent, with the blockers input.BlockedBy.
-func addIssue(ctx context.Context, repository github.Repository, input issueInput, labels []string) (string, error) {
+// addIssue creates an issue with labels below the issue input.Parent, with the blockers input.BlockedBy, and gives its
+// number. When GitHub created the issue but a later call failed, it gives the number with the error.
+func addIssue(ctx context.Context, repository github.Repository, input issueInput, labels []string) (int, error) {
 	var blockerIDs []int64
 	for _, number := range input.BlockedBy {
 		blocker, err := repository.Issue(ctx, number)
 		if err != nil {
-			return "", err
+			return 0, err
 		}
 		if blocker == nil || blocker.IsPullRequest() {
-			return "", refuse("#%d is not an issue of the repository.", number)
+			return 0, refuse("#%d is not an issue of the repository.", number)
 		}
 		if slices.Contains(blockerIDs, blocker.GetID()) {
-			return "", refuse("#%d is two times in blocked_by.", number)
+			return 0, refuse("#%d is two times in blocked_by.", number)
 		}
 		blockerIDs = append(blockerIDs, blocker.GetID())
 	}
 	owner, name := repository.Owner(), repository.Name()
 	issue, _, err := repository.Client.Issues.Create(ctx, owner, name, gh.CreateIssueRequest{Title: input.Title, Body: &input.Body, Labels: labels})
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 	if _, _, err := repository.Client.SubIssue.Add(ctx, owner, name, input.Parent, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)}); err != nil {
-		return "", fmt.Errorf("GitHub created #%d, but the add of #%d below #%d failed. Do not create the issue again: %w", issue.GetNumber(), issue.GetNumber(), input.Parent, err)
+		return issue.GetNumber(), fmt.Errorf("GitHub created #%d, but the add of #%d below #%d failed. Do not create the issue again: %w", issue.GetNumber(), issue.GetNumber(), input.Parent, err)
 	}
 	for i, id := range blockerIDs {
 		if _, _, err := repository.Client.Issues.AddBlockedBy(ctx, owner, name, int64(issue.GetNumber()), gh.IssueDependencyRequest{IssueID: id}); err != nil {
-			return "", fmt.Errorf("GitHub created #%d, but the add of the blocker #%d failed. Do not create the issue again: %w", issue.GetNumber(), input.BlockedBy[i], err)
+			return issue.GetNumber(), fmt.Errorf("GitHub created #%d, but the add of the blocker #%d failed. Do not create the issue again: %w", issue.GetNumber(), input.BlockedBy[i], err)
 		}
 	}
-	return fmt.Sprintf("Created #%d.", issue.GetNumber()), nil
+	return issue.GetNumber(), nil
 }
 
 func (e *Engine) stopTaskTool(ctx context.Context, c caller, repository github.Repository, input numberInput) (string, error) {
