@@ -275,15 +275,29 @@ func (e *Engine) trustedComments(repository github.Repository, comments []*gh.Is
 	})
 }
 
-// closeEndedTriage closes the issue number as completed when the Mobius App commented that the triage ends, and tells if
-// it did. A close that failed after that comment stays open until this step runs.
+// closeEndedTriage closes the issue number as completed when the Mobius App commented that the triage ends and nobody
+// reopened the issue after that comment, and tells if it did. A close that failed after that comment stays open until
+// this step runs.
 func (e *Engine) closeEndedTriage(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment) (bool, error) {
-	if !slices.ContainsFunc(comments, func(comment *gh.IssueComment) bool {
-		return strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && strings.HasPrefix(comment.GetBody(), triageEndText)
+	var ended time.Time
+	for _, comment := range comments {
+		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && strings.HasPrefix(comment.GetBody(), triageEndText) && comment.GetCreatedAt().After(ended) {
+			ended = comment.GetCreatedAt().Time
+		}
+	}
+	if ended.IsZero() {
+		return false, nil
+	}
+	events, err := repository.IssueEvents(ctx, number)
+	if err != nil {
+		return false, err
+	}
+	if slices.ContainsFunc(events, func(event *gh.IssueEvent) bool {
+		return event.GetEvent() == "reopened" && event.GetCreatedAt().After(ended)
 	}) {
 		return false, nil
 	}
-	_, err := repository.CloseIssue(ctx, number, "completed")
+	_, err = repository.CloseIssue(ctx, number, "completed")
 	return err == nil, err
 }
 

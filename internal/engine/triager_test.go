@@ -18,6 +18,10 @@ import (
 
 const triager = `
 [[prompts]]
+when = "Keep triaging."
+reply = ["The triage goes on."]
+
+[[prompts]]
 when = "Report of the Researcher"
 reply = ["Thanks for the report."]
 
@@ -53,6 +57,10 @@ reply = ["Proposal: the Workstream Refunds."]
 
 [[prompts]]
 when = "# Issue\n\nowner/shop#66 "
+reply = ["Proposal: the Workstream Refunds."]
+
+[[prompts]]
+when = "# Issue\n\nowner/shop#68 "
 reply = ["Proposal: the Workstream Refunds."]
 
 [[prompts]]
@@ -533,6 +541,30 @@ func TestAnIssueWhoseCloseFailedAfterTheEndOfTheTriageClosesAgainWithoutANewWork
 	waitForPolls(t, fake)
 	if got := slices.DeleteFunc(fake.Comments(shop, 66), func(comment testkit.Comment) bool { return !strings.HasPrefix(comment.Body, "The triage ends.") }); len(got) != 1 {
 		t.Errorf("comments = %v", got)
+	}
+}
+
+func TestAnIssueThatTheOwnerReopensAfterTheEndOfTheTriageGetsANewTurn(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 68, "Add refunds", "Refund each order.", "owner")
+	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Proposal: the Workstream Refunds."}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 68), proposal) })
+	fake.AddComment(shop, 68, "owner", "Create it as proposed.")
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 68); return state == "closed" })
+	testkit.WaitFor(t, func() bool {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return len(sessions) == 2 && sessions[1].EndedAt.Valid
+	})
+
+	fake.ReopenIssue(shop, 68)
+	fake.AddComment(shop, 68, "owner", "Keep triaging.")
+
+	answer := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "The triage goes on."}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 68), answer) })
+	if state, _ := fake.State(shop, 68); state != "open" {
+		t.Errorf("state = %s", state)
 	}
 }
 
