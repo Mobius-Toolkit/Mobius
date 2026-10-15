@@ -75,6 +75,8 @@ type LiveEvents struct {
 	Inbox *InboxItem `gork:"inbox"`
 	// Pauses is the list of the pauses of all Harnesses at each start and each end of a pause
 	Pauses *[]Pause `gork:"pauses"`
+	// CIStops is the list of the CI stops of all repositories at each change of a stop
+	CIStops *[]CIStop `gork:"ciStops"`
 	// WorkstreamCreated is a Workstream that the Coordinator chat created, so the client can open it
 	WorkstreamCreated *WorkstreamRef `gork:"workstreamCreated"`
 	// Ping has no data. The server sends it at a fixed interval, so the client can find a connection that is dead
@@ -108,7 +110,7 @@ type WorkstreamRef struct {
 // StreamEvents sends the latest activities, and then each new activity, each change of a session,
 // each change of the drain, each start and failure of an upgrade,
 // each change of the Workstream list, each new or longer chat message, each new unread count, each change of the
-// state of a chat, each new or dismissed Inbox item, each change of the pauses, and each Workstream that the Coordinator chat created.
+// state of a chat, each new or dismissed Inbox item, each change of the pauses, each change of the CI stops, and each Workstream that the Coordinator chat created.
 // It also sends a ping at a fixed interval.
 // When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities.
 // When the client does not read the session changes fast enough, the stream ends.
@@ -210,6 +212,12 @@ func (h *handlers) sendChange(ctx context.Context, stream *api.Stream[LiveEvents
 			return err
 		}
 		return stream.Send(LiveEvents{Pauses: &pauses})
+	case change.CIStops:
+		stops, err := h.ciStops(ctx)
+		if err != nil {
+			return err
+		}
+		return stream.Send(LiveEvents{CIStops: &stops})
 	case change.Created != nil:
 		return stream.Send(LiveEvents{WorkstreamCreated: &WorkstreamRef{Repository: change.Created.Repository, Number: change.Created.Number}})
 	}

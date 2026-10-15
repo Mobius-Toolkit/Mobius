@@ -9,7 +9,7 @@ import {
   WifiOffIcon,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import type { InboxItem, Pause, Unread } from "@/api/api.gen";
+import type { CIStop, InboxItem, Pause, Unread } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useNewBuild } from "@/lib/build";
@@ -19,6 +19,7 @@ import { unreadCount } from "@/lib/unread";
 import { hasUpgradeControls, useUpgrade } from "@/lib/upgrade";
 import { cn } from "@/lib/utils";
 import { chatParams, organizationWorkstreams, type Workstreams } from "@/lib/workstreams";
+import { CIStops } from "./CIStops";
 import { OrganizationSwitch } from "./OrganizationSwitch";
 import { Pauses } from "./Pauses";
 import { UpgradeControls, UpgradeDialog } from "./Upgrade";
@@ -88,6 +89,7 @@ export function Frame({
   unread,
   inbox,
   pauses,
+  ciStops,
   fill,
   connection,
   children,
@@ -101,6 +103,7 @@ export function Frame({
   unread: Unread[];
   inbox: InboxItem[];
   pauses: Pause[];
+  ciStops: CIStop[];
   fill: boolean;
   connection: Connection;
   children: ReactNode;
@@ -196,6 +199,7 @@ export function Frame({
               fill ? "md:px-4" : "md:mx-auto md:w-full md:max-w-3xl md:p-0 md:pb-4",
             )}
           >
+            <CIStops stops={ciStops} />
             <Pauses pauses={pauses} />
           </div>
           <div className="grid gap-2 px-4 pt-4 empty:hidden md:hidden">

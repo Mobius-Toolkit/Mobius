@@ -95,6 +95,7 @@ func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repos
 		if storeErr := e.queries.SetCIBreakIssue(ctx, store.SetCIBreakIssueParams{Issue: stored, ID: ciBreak.ID}); storeErr != nil {
 			return number, storeErr
 		}
+		e.publishCIStops(ciBreak.Result)
 	}
 	if refusedByGitHub(err) {
 		log.Printf("create the issue of the CI break of %s: %v", repository.FullName, err)
@@ -118,8 +119,11 @@ func (e *Engine) addCIBreakIssueBelow(ctx context.Context, repository github.Rep
 	if err != nil {
 		return false, err
 	}
-	err = e.queries.SetCIBreakIssue(ctx, store.SetCIBreakIssueParams{Issue: number, ID: ciBreak.ID})
-	return issue != nil, err
+	if err := e.queries.SetCIBreakIssue(ctx, store.SetCIBreakIssueParams{Issue: number, ID: ciBreak.ID}); err != nil {
+		return issue != nil, err
+	}
+	e.publishCIStops(ciBreak.Result)
+	return issue != nil, nil
 }
 
 // ciBreakBody gives the body of the issue of ciBreak: the run, the result of the re-run, and each failed job of the
@@ -245,6 +249,19 @@ func (e *Engine) ciStop(ctx context.Context, repository string) (map[int64]bool,
 		}
 	}
 	return stop, nil
+}
+
+// CIStops gives the open hard breaks that have a task issue, in the order of the repositories and then of the break
+// ids. Each one stops the dispatch of its repository.
+func (e *Engine) CIStops(ctx context.Context) ([]store.CiBreak, error) {
+	return e.queries.ListAllOpenHardCIBreaks(ctx)
+}
+
+// publishCIStops tells the listeners that the stop changed, when result is the result of a hard break.
+func (e *Engine) publishCIStops(result string) {
+	if result == "hard" {
+		e.publish(Change{CIStops: true})
+	}
 }
 
 // ciStopRefusal gives the refusal for a start of a task of issue number while the stop of repository is on, or nil.

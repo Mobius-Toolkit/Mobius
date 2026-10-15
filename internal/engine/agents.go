@@ -171,6 +171,7 @@ type Change struct {
 	Chat         *ChatState
 	Inbox        *store.InboxItem
 	Pauses       bool
+	CIStops      bool
 	Created      *Created
 }
 
