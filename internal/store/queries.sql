@@ -595,6 +595,20 @@ FROM copied_issues i
 WHERE has_needs_human OR has_question
 ORDER BY i.repository, i.workstream, i.number;
 
+-- name: ListEndedTaskIssueLabels :many
+SELECT DISTINCT i.number, i.repository_url, l.name
+FROM copied_issues i
+JOIN copied_issue_labels l ON l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position
+WHERE i.repository = sqlc.arg(repository) AND i.state = 'open'
+  AND l.name IN (sqlc.arg(working), sqlc.arg(review), sqlc.arg(question), sqlc.arg(needs_human))
+  AND EXISTS (SELECT 1 FROM tasks t WHERE t.repository = i.repository AND t.issue = i.number AND t.state = 'ended')
+  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.repository = i.repository AND t.issue = i.number AND t.state <> 'ended')
+  AND NOT (l.name = sqlc.arg(needs_human) AND EXISTS (
+      SELECT 1 FROM inbox_items n
+      WHERE n.kind = 'lost' AND n.dismissed_at IS NULL AND n.repository = i.repository AND n.issue = i.number
+  ))
+ORDER BY i.number, l.name;
+
 -- name: AddMemoryVersion :exec
 INSERT INTO memory_versions (repository, time, author, reason, text) VALUES (?, ?, ?, ?, ?);
 

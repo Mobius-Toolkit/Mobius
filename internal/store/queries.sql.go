@@ -2766,6 +2766,64 @@ func (q *Queries) ListDeviceLogins(ctx context.Context) ([]ListDeviceLoginsRow, 
 	return items, nil
 }
 
+const listEndedTaskIssueLabels = `-- name: ListEndedTaskIssueLabels :many
+SELECT DISTINCT i.number, i.repository_url, l.name
+FROM copied_issues i
+JOIN copied_issue_labels l ON l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position
+WHERE i.repository = ?1 AND i.state = 'open'
+  AND l.name IN (?2, ?3, ?4, ?5)
+  AND EXISTS (SELECT 1 FROM tasks t WHERE t.repository = i.repository AND t.issue = i.number AND t.state = 'ended')
+  AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.repository = i.repository AND t.issue = i.number AND t.state <> 'ended')
+  AND NOT (l.name = ?5 AND EXISTS (
+      SELECT 1 FROM inbox_items n
+      WHERE n.kind = 'lost' AND n.dismissed_at IS NULL AND n.repository = i.repository AND n.issue = i.number
+  ))
+ORDER BY i.number, l.name
+`
+
+type ListEndedTaskIssueLabelsParams struct {
+	Repository string
+	Working    string
+	Review     string
+	Question   string
+	NeedsHuman string
+}
+
+type ListEndedTaskIssueLabelsRow struct {
+	Number        int64
+	RepositoryUrl string
+	Name          string
+}
+
+func (q *Queries) ListEndedTaskIssueLabels(ctx context.Context, arg ListEndedTaskIssueLabelsParams) ([]ListEndedTaskIssueLabelsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEndedTaskIssueLabels,
+		arg.Repository,
+		arg.Working,
+		arg.Review,
+		arg.Question,
+		arg.NeedsHuman,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEndedTaskIssueLabelsRow
+	for rows.Next() {
+		var i ListEndedTaskIssueLabelsRow
+		if err := rows.Scan(&i.Number, &i.RepositoryUrl, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEventsAfter = `-- name: ListEventsAfter :many
 SELECT id, time, repository, workstream, issue, actor, text, link, organization FROM events WHERE id > ? ORDER BY id
 `

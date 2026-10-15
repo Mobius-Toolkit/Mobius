@@ -215,6 +215,8 @@ func TestServer(t *testing.T) {
 	github.SetBody("plants/garden", 18, "Cut the **old** canes in March.")
 	github.SetBody("plants/garden", 19, "Put **bark** on the beds.")
 	github.AddIssue("owner/shop", 40, "Renew a month early")
+	github.AddIssue("owner/shop", 35, "Hold the plan renewals")
+	github.AddLabel("owner/shop", 35, "mobius:working", testkit.AppSlug+"[bot]")
 	github.AddLabel("owner/shop", 41, "mobius:needs-human", "owner")
 	github.AddLabel("owner/shop", 42, "mobius:needs-human", "owner")
 	github.AddSubIssueOf("owner/shop", 12, 38, "Show the plan prices")
@@ -343,6 +345,7 @@ func TestServer(t *testing.T) {
 	})
 	github.AddRepository("owner/shop")
 	github.AddRepository("plants/garden")
+	github.PushCommit("owner/shop", "mobius/41", "Add the plan model")
 
 	// The first poll of owner/shop after the Playwright tests create the App creates the
 	// Mobius labels. Then, for the Checkup screen, one label is missing again and one label
@@ -506,6 +509,7 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	go func() { _ = implementer.Prompt(ctx, "Store the plan prices in cents.", nil) }()
+	setNeedsHuman(t, server, spec.Task)
 	lead := engine.Spec{Role: engine.LeadRole, Organization: "owner", Repository: "owner/shop", Workstream: 12, Dir: t.TempDir()}
 	if _, err := server.Engine.Start(ctx, lead); err != nil {
 		t.Fatal(err)
@@ -577,7 +581,7 @@ func TestServer(t *testing.T) {
 	}
 	go func() { _, _ = server.Engine.Drain(ctx) }()
 	testkit.WaitFor(t, func() bool { return server.Engine.Draining().On })
-	held := implementerSpec(t, server, 42)
+	held := implementerSpec(t, server, 35)
 	go func() { _, _ = server.Engine.Start(ctx, held) }()
 	testkit.WaitFor(t, func() bool {
 		result, err := server.DB.Exec("UPDATE sessions SET started_at = ? WHERE queue_reason = 'Mobius prepares an upgrade'", "2026-09-28T09:30:00Z")
@@ -859,6 +863,15 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 		}
 	}
 	if _, err := server.DB.Exec("UPDATE chat_messages SET text = '2026-09-28 09:30 UTC' || substr(text, 21) WHERE author = 'Event' AND text LIKE '____-__-__ __:__ UTC %'"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// setNeedsHuman moves the task to needs_human, so that the poll keeps mobius:needs-human on its issue. The Worker of
+// the task stays.
+func setNeedsHuman(t *testing.T, server *testserver.Server, task int64) {
+	t.Helper()
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE id = ?", task); err != nil {
 		t.Fatal(err)
 	}
 }
