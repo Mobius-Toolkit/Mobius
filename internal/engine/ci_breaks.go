@@ -15,7 +15,8 @@ import (
 // completed run failed. Mobius runs the failed jobs of that run again one time. The result of the break is flaky when
 // the new attempt passes, and hard when it fails. A hard break ends when a newer run of the workflow passes, or when a
 // later attempt of the failed run passes. When GitHub refuses the list of runs with a 4xx status (for example with no
-// permission), Mobius skips the CI for this poll.
+// permission), Mobius skips the CI for this poll. A workflow whose newest failed run already had a break, also an ended
+// one, starts a new break only with a newer failed run.
 func (e *Engine) readDefaultBranchCI(ctx context.Context, repository github.Repository) error {
 	runs, err := repository.BranchWorkflowRuns(ctx, repository.DefaultBranch)
 	var refused *gh.ErrorResponse
@@ -51,13 +52,24 @@ func (e *Engine) readDefaultBranchCI(ctx context.Context, repository github.Repo
 		}
 	}
 	for workflow, run := range newest {
-		if !open[workflow] && failedRunConclusion(run.GetConclusion()) {
-			if err := e.startCIBreak(ctx, repository, run); err != nil {
-				return err
-			}
+		if open[workflow] || !failedRunConclusion(run.GetConclusion()) {
+			continue
+		}
+		newestRun, err := e.queries.NewestCIBreakRun(ctx, store.NewestCIBreakRunParams{Repository: repository.FullName, WorkflowID: workflow})
+		if err != nil {
+			return err
+		}
+		if run.GetID() <= newestRun {
+			continue
+		}
+		if err := e.startCIBreak(ctx, repository, run); err != nil {
+			return err
 		}
 	}
-	return e.createCIBreakIssues(ctx, repository)
+	if err := e.createCIBreakIssues(ctx, repository); err != nil {
+		return err
+	}
+	return e.startCIBreakTasks(ctx, repository)
 }
 
 func failedRunConclusion(conclusion string) bool {
@@ -91,7 +103,8 @@ func (e *Engine) startCIBreak(ctx context.Context, repository github.Repository,
 // after a stop between the call and the mark) is not run again. When GitHub refuses the call with a 4xx status (for
 // example with no permission, or for a run older than 30 days), the failure stays a failure, so the break is hard.
 // Another error returns, and the next poll tries again. A hard break that ends with a passed run closes its open task
-// issue first.
+// issue first. A hard break with a task issue also ends when that issue is closed or GitHub does not find it, with no
+// ended run.
 func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repository, ciBreak store.CiBreak, byID map[int64]*gh.WorkflowRun, newest *gh.WorkflowRun) error {
 	run := byID[ciBreak.RunID]
 	passedAgain := newest != nil && newest.GetID() > ciBreak.RunID && newest.GetConclusion() == "success"
@@ -131,6 +144,12 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 			}
 		}
 		return e.queries.EndCIBreak(ctx, store.EndCIBreakParams{Result: ciBreak.Result, EndedRunID: newest.GetID(), EndedAt: now(), ID: ciBreak.ID})
+	}
+	if ciBreak.Result == "hard" && ciBreak.Issue > 0 {
+		if closed, err := e.ciBreakIssueClosed(ctx, repository, ciBreak.Issue); err != nil || !closed {
+			return err
+		}
+		return e.queries.EndCIBreak(ctx, store.EndCIBreakParams{Result: ciBreak.Result, EndedAt: now(), ID: ciBreak.ID})
 	}
 	return nil
 }

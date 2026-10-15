@@ -31,10 +31,15 @@ const fullSlotsWait = 30 * time.Minute
 //   - An issue with no live task continues its earlier task when the pull request of that task is still open.
 //   - Each other issue gets a new task. A stopped task with no pull request ends first.
 //
-// The drain holds each new dispatch, and then the next poll after the drain reads the same list again.
+// The drain holds each new dispatch, and then the next poll after the drain reads the same list again. The stop of a
+// hard break of the CI holds each issue except the issue of a CI task in the same way: the issue keeps mobius:ready.
 func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository) error {
 	if e.draining() {
 		return nil
+	}
+	stop, err := e.ciStop(ctx, repository.FullName)
+	if err != nil {
+		return err
 	}
 	cursor, err := e.queries.GetSyncCursor(ctx, store.GetSyncCursorParams{Repository: repository.FullName, Endpoint: readyEndpoint})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -44,11 +49,16 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 	if err != nil || !changed {
 		return err
 	}
+	held := false
 	for _, issue := range page.Issues {
 		if issue.IsPullRequest() {
 			continue
 		}
 		number := int64(issue.GetNumber())
+		if len(stop) > 0 && !stop[number] {
+			held = true
+			continue
+		}
 		events, err := repository.IssueEvents(ctx, number)
 		if err != nil {
 			return err
@@ -117,6 +127,9 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		if err := e.dispatch(ctx, repository, issue, workstream, actor); err != nil {
 			return err
 		}
+	}
+	if held {
+		return nil
 	}
 	return e.queries.SetSyncCursor(ctx, store.SetSyncCursorParams{
 		Repository: repository.FullName,
@@ -251,13 +264,18 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 }
 
 // answerAsked acts on the reply of a trusted user to the question of the task in asked. With Autopilot on, the task
-// waits in answered for a free slot. Else the task dispatches again at once.
+// waits in answered for a free slot. Else the task dispatches again at once. During the stop of a hard break of the CI,
+// the task of another issue than a CI task waits in answered in both cases.
 func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
 	on, err := e.workstreamAutopilot(ctx, repository, task.Workstream)
 	if err != nil {
 		return err
 	}
-	if on {
+	stop, err := e.ciStop(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	if on || len(stop) > 0 && !stop[task.Issue] {
 		_, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "answered", ID: task.ID, FromState: "asked"})
 		return err
 	}
@@ -591,12 +609,16 @@ func (e *Engine) workstreamTask(ctx context.Context, repository github.Repositor
 // startAutopilot dispatches the tasks of each open Workstream with Autopilot, in the order of the sub-issues, while
 // fewer tasks are active than roles.implementer.max. An issue that had a task, also an ended one, gets no new task: only a
 // trusted user starts it again. A task in answered in a Workstream with Autopilot off dispatches again at once. The
-// drain holds each new dispatch.
+// drain holds each new dispatch. During the stop of a hard break of the CI, Autopilot starts only the issues in stop.
 func (e *Engine) startAutopilot(ctx context.Context, repository github.Repository) error {
 	if e.draining() {
 		return nil
 	}
-	if err := e.dispatchAnsweredWithoutAutopilot(ctx, repository); err != nil {
+	stop, err := e.ciStop(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	if err := e.dispatchAnsweredWithoutAutopilot(ctx, repository, stop); err != nil {
 		return err
 	}
 	active, err := e.queries.CountActiveTasks(ctx)
@@ -616,7 +638,7 @@ func (e *Engine) startAutopilot(ctx context.Context, repository github.Repositor
 		return err
 	}
 	for _, workstream := range workstreams {
-		full, err := e.autopilotTree(ctx, repository, workstream, workstream)
+		full, err := e.autopilotTree(ctx, repository, workstream, workstream, stop)
 		if err != nil || full {
 			return err
 		}
@@ -625,14 +647,14 @@ func (e *Engine) startAutopilot(ctx context.Context, repository github.Repositor
 }
 
 // dispatchAnsweredWithoutAutopilot dispatches again each task in answered whose Workstream has Autopilot off, for
-// example when the Owner turned Autopilot off after the reply.
-func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repository github.Repository) error {
+// example when the Owner turned Autopilot off after the reply. The task of an issue that is not in stop waits.
+func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repository github.Repository, stop map[int64]bool) error {
 	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
 	if err != nil {
 		return err
 	}
 	for _, task := range tasks {
-		if task.State != "answered" {
+		if task.State != "answered" || len(stop) > 0 && !stop[task.Issue] {
 			continue
 		}
 		on, err := e.workstreamAutopilot(ctx, repository, task.Workstream)
@@ -654,8 +676,8 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 }
 
 // autopilotTree dispatches the tasks below parent in the Workstream, depth first. It gives true when as many tasks
-// are active as roles.implementer.max.
-func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository, workstream, parent int64) (bool, error) {
+// are active as roles.implementer.max. When stop has some issues, it starts only these.
+func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository, workstream, parent int64, stop map[int64]bool) (bool, error) {
 	issues, err := repository.SubIssues(ctx, parent)
 	if err != nil {
 		return false, err
@@ -679,7 +701,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 				}
 				start = !had
 			}
-			if start {
+			if start && (len(stop) == 0 || stop[number]) {
 				active, err := e.queries.CountActiveTasks(ctx)
 				if err != nil {
 					return false, err
@@ -697,7 +719,7 @@ func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository
 				}
 			}
 		}
-		full, err := e.autopilotTree(ctx, repository, workstream, number)
+		full, err := e.autopilotTree(ctx, repository, workstream, number, stop)
 		if err != nil || full {
 			return full, err
 		}
