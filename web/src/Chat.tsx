@@ -67,7 +67,7 @@ function NeedsHumanRow({
               </a>
             </Button>
           )}
-          {issue.stopped && (
+          {issue.stopped && !issue.question && (
             <Button size="sm" pending={pending} onClick={onResume}>
               Resume
             </Button>
