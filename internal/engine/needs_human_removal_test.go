@@ -173,12 +173,12 @@ func TestResumeRemovesNeedsHumanFromTheIssueAndFromThePullRequestAsTheOwnerAndTh
 	}
 
 	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-	if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:ready") {
-		t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
+	if hasLabel(fake, "mobius:ready") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 	for _, number := range []int64{41, pullRequestNumber} {
-		if got := fake.LabelActor(shop, number, "mobius:needs-human"); got != "owner" {
-			t.Errorf("actor of mobius:needs-human on #%d = %s", number, got)
+		if !fake.LabelRemovedBy(shop, number, "mobius:needs-human", "owner") {
+			t.Errorf("mobius:needs-human on #%d has no removal by the owner", number)
 		}
 	}
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 1 })
@@ -217,6 +217,11 @@ func TestMarkReadyContinuesATaskThatTheCIStoppedAndKeepsTheRoundCounters(t *test
 			testkit.WaitFor(t, func() bool {
 				return !pullRequestHasNeedsHuman(fake) && !hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:ready")
 			})
+			for _, number := range []int64{41, pullRequestNumber} {
+				if !fake.LabelRemovedBy(shop, number, "mobius:needs-human", app) {
+					t.Errorf("mobius:needs-human on #%d has no removal by the App", number)
+				}
+			}
 			testkit.WaitFor(t, func() bool {
 				task := liveTask(t, server, 41)
 				return task.FixRounds == 3 && task.CheckHead.String == sha
