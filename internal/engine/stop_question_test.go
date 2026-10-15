@@ -9,10 +9,11 @@ import (
 )
 
 const (
-	leadSeesAnswer = "[[prompts]]\nwhen = \"Cents.\"\nreply = [\"Seen\"]\n\n"
-	askCall        = "call = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n\n"
-	leadAsksOnStop = leadSeesAnswer + "[[prompts]]\nwhen = \" stop of #41\"\n" + askCall
-	leadAsksInChat = leadSeesAnswer + "[[prompts]]\nwhen = \" stop of #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"Ask about #41\"\n" + askCall
+	leadSeesAnswer     = "[[prompts]]\nwhen = \"Cents.\"\nreply = [\"Seen\"]\n\n"
+	askCall            = "call = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n\n"
+	leadAsksOnStop     = leadSeesAnswer + "[[prompts]]\nwhen = \" stop of #41\"\n" + askCall
+	leadAsksInChat     = leadSeesAnswer + "[[prompts]]\nwhen = \" stop of #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"Ask about #41\"\n" + askCall
+	leadAsksAfterStops = leadSeesAnswer + "[[prompts]]\nwhen = \"Ask about #41\"\n" + askCall + "[[prompts]]\nwhen = \" stop of #41\"\nreply = [\"Seen\"]\n\n"
 )
 
 // openKinds gives the kinds of the open Inbox items of issue #41.
@@ -102,7 +103,7 @@ func TestTheEndOfAQuestionAfterAResumeOpensNoStoppedItem(t *testing.T) {
 func TestTheEndOfAQuestionAfterAFailedJudgeOfAStoppedTaskOpensTheStoppedItemOfTheStop(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	first := leadAsksInChat + "[[prompts]]\nwhen = \"Judge again.\"\nerror = { code = -32000, message = \"The Judge crashed.\" }\n\n"
+	first := leadAsksAfterStops + "[[prompts]]\nwhen = \"Judge again.\"\nerror = { code = -32000, message = \"The Judge crashed.\" }\n\n"
 	server := judgeToHumanAfter(t, fake, first, "shell = \"true\"\n")
 	waitForItem(t, server, "stopped")
 	stops := func() (count int) {
