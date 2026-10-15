@@ -1,7 +1,9 @@
 package engine_test
 
 import (
+	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -69,7 +71,10 @@ func TestClosingTheWorkstreamIssueOrAnIssueOfAnotherWorkstreamIsRefused(t *testi
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 51, "Other task")
 	fake.AddSubIssue(shop, 13, 51)
-	waitForTasks(t, server, []taskLine{})
+	testkit.WaitFor(t, func() bool {
+		status, text := send(t, server, http.MethodGet, "/api/workstreams/owner/shop/13/tasks", "")
+		return status == http.StatusOK && strings.Contains(text, `"number":51`)
+	})
 
 	session := run(t, server, leadSpec(t), "Close 12", "Close 51")
 
