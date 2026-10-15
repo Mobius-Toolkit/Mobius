@@ -124,8 +124,8 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 //   - A removal of the label that the state needs by a person stops the task: mobius:review for a task in ready_for_review,
 //     and mobius:working for a task in another live state. A Judge that runs from ready_for_review needs mobius:review,
 //     and a Judge that runs from needs_human needs no label.
-//   - A removal of mobius:needs-human by a trusted user continues a task in needs_human, and a removal by the Mobius App
-//     continues it when Autopilot is on (continueByRemoval).
+//   - A removal of mobius:needs-human by a trusted user or by the Mobius App continues a task in needs_human
+//     (continueByRemoval).
 //   - The issue and the pull request of a live task get the labels of its state, and lose the other Mobius state labels
 //     (setStateLabels). A person who removed the needed label stopped the task before. When the App removed it, or
 //     nobody did, the label comes back and the check goes on.
@@ -236,7 +236,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 }
 
 // continueByRemoval resumes the task in needs_human when an actor removed mobius:needs-human from its issue or from its
-// pull request, and the actor is a trusted user, or the Mobius App with Autopilot on. It reads the label events only
+// pull request, and the actor is a trusted user or the Mobius App. It reads the label events only
 // when one of the two items lacks the label. A removal counts only when it is newer than the move of the task to
 // needs_human, because resume removes the label from both items.
 func (e *Engine) continueByRemoval(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest) (bool, error) {
@@ -270,15 +270,6 @@ func (e *Engine) continueByRemoval(ctx context.Context, repository github.Reposi
 	for _, actor := range actors {
 		if actor == "" || !e.TrustedAuthor(repository.AppSlug, actor) {
 			continue
-		}
-		if strings.EqualFold(actor, appLogin(repository.AppSlug)) {
-			on, err := e.workstreamAutopilot(ctx, repository, task.Workstream)
-			if err != nil {
-				return false, err
-			}
-			if !on {
-				continue
-			}
 		}
 		return true, e.resume(ctx, repository, issue, task, actor)
 	}

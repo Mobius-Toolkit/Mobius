@@ -1,9 +1,13 @@
 package engine_test
 
 import (
+	"fmt"
 	"net/http"
+	"slices"
 	"testing"
+	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -75,13 +79,16 @@ func TestARemovalOfNeedsHumanByTheAppContinuesTheTaskWhenAutopilotIsOn(t *testin
 	}
 }
 
-func TestARemovalOfNeedsHumanByTheAppHasNoEffectWhenAutopilotIsOff(t *testing.T) {
+func TestARemovalOfNeedsHumanByTheAppContinuesTheTaskWhenAutopilotIsOff(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server := needsHumanWithLabels(t, fake, false)
 
 	fake.RemoveLabel(shop, 41, "mobius:needs-human", app)
 
-	hasNoEffect(t, fake, server)
+	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
+	if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
+	}
 }
 
 func TestARemovalOfNeedsHumanByAnUntrustedUserHasNoEffect(t *testing.T) {
@@ -158,6 +165,7 @@ func TestResumeRemovesNeedsHumanFromTheIssueAndFromThePullRequestAsTheOwnerAndTh
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
 	server := needsHumanWithLabels(t, fake, false)
 	authorize(t, server)
+	setFixRounds(t, server, 2)
 
 	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/resume", ""); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
@@ -172,21 +180,73 @@ func TestResumeRemovesNeedsHumanFromTheIssueAndFromThePullRequestAsTheOwnerAndTh
 			t.Errorf("actor of mobius:needs-human on #%d = %s", number, got)
 		}
 	}
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 1 })
 }
 
-func TestMarkReadyRemovesNeedsHumanFromTheIssueAndFromThePullRequestOfATaskInNeedsHumanUnderAutopilotAndTheNextPollContinuesTheTask(t *testing.T) {
+func setFixRounds(t *testing.T, server *testserver.Server, rounds int) {
+	t.Helper()
+	if _, err := server.DB.Exec("UPDATE tasks SET fix_rounds = ? WHERE id = 1", rounds); err != nil {
+		t.Fatal(err)
+	}
+}
+
+const markReadyLead = "[[prompts]]\nwhen = \"Start #41.\"\ncall = { tool = \"mark_ready\", arguments = { n = 41 } }\n\n"
+
+func TestMarkReadyContinuesATaskInNeedsHumanAndKeepsTheRoundCounters(t *testing.T) {
+	for _, autopilot := range []bool{true, false} {
+		t.Run(fmt.Sprintf("autopilot=%t", autopilot), func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := seedWaitingWith(t, fake, "needs_human", markReadyLead)
+			if autopilot {
+				fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+			}
+			testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake) })
+			waitForPolls(t, fake)
+			setFixRounds(t, server, 2)
+
+			sendChat(t, server, leadChat, "Start #41.")
+
+			testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
+			if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:ready") {
+				t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
+			}
+			testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 3 })
+		})
+	}
+}
+
+func TestMarkReadyOnATaskAtMaxFixRoundsStopsTheTaskAgainWithNoImplementer(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"Start #41.\"\ncall = { tool = \"mark_ready\", arguments = { n = 41 } }\n\n"
-	server, _ := seedWaitingWith(t, fake, "needs_human", lead)
-	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	server, _ := seedWaitingAdjusted(t, fake, "needs_human", markReadyLead, func(cfg *config.Config) { cfg.MaxFixRounds = 2 })
 	testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake) })
 	waitForPolls(t, fake)
+	setFixRounds(t, server, 2)
+
+	sendChat(t, server, leadChat, "Start #41.")
+
+	testkit.WaitFor(t, func() bool { return slices.Contains(mobiusTitles(fake), "Round limit") })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	if rounds := implementerRounds(t, server); rounds != 0 {
+		t.Errorf("Implementers = %d", rounds)
+	}
+	if task := liveTask(t, server, 41); task.FixRounds != 2 {
+		t.Errorf("task = %+v", task)
+	}
+}
+
+func TestMarkReadyContinuesAStoppedTaskWithAPullRequestWhenAutopilotIsOff(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, markReadyLead, func(cfg *config.Config) { cfg.LeadIdleTimeout = 5 * time.Second })
+	addStoppedTask(t, fake, server)
 
 	sendChat(t, server, leadChat, "Start #41.")
 
 	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-	if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:ready") {
-		t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 4 })
+	if hasLabel(fake, "mobius:ready") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
 }

@@ -348,6 +348,12 @@ func seedWaiting(t *testing.T, fake *testkit.FakeGitHub, state string) (*testser
 // seedWaitingWith is seedWaiting with the script of the fake agent after the options.
 func seedWaitingWith(t *testing.T, fake *testkit.FakeGitHub, state, script string) (*testserver.Server, string) {
 	t.Helper()
+	return seedWaitingAdjusted(t, fake, state, script, func(*config.Config) {})
+}
+
+// seedWaitingAdjusted is seedWaitingWith with adjust applied to the config of the server.
+func seedWaitingAdjusted(t *testing.T, fake *testkit.FakeGitHub, state, script string, adjust func(*config.Config)) (*testserver.Server, string) {
+	t.Helper()
 	dataDir := t.TempDir()
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
@@ -360,6 +366,7 @@ func seedWaitingWith(t *testing.T, fake *testkit.FakeGitHub, state, script strin
 		 VALUES (1, 'owner/shop', 41, 12, '`+state+`', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'mobius/41', 42)`)
 	cfg := testserver.Config(t, dataDir)
 	cfg.ReviewQuietPeriod = time.Hour
+	adjust(cfg)
 	server := startServerWith(t, fake, cfg, "")
 	fake.PushCommit(shop, "mobius/41", "Add plan model")
 	if number := fake.OpenPullRequest(shop, "Add plan model", "mobius/41"); number != 42 {
