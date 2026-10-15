@@ -788,10 +788,13 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	return fmt.Sprintf("Created the Workstream #%d.", issue.GetNumber()), nil
 }
 
+// triageEndText starts the comment of the Mobius App that ends the triage of an issue.
+const triageEndText = "The triage ends."
+
 // endTriage comments on the issue of the Triager c with the link to the Workstream and closes the issue as completed.
 func (e *Engine) endTriage(ctx context.Context, c caller, repository github.Repository, workstream int64) error {
 	number := c.agent.spec.Issue.Int64
-	text := fmt.Sprintf("The triage ends. The Workstream is %s", issueLink(repository.FullName, workstream))
+	text := fmt.Sprintf("%s The Workstream is %s", triageEndText, issueLink(repository.FullName, workstream))
 	if err := e.addOrKeepComment(ctx, repository, number, text); err != nil {
 		return err
 	}

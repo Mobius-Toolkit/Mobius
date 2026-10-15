@@ -262,6 +262,13 @@ func (g *FakeGitHub) FailClose(repository string, number int64) {
 	g.failedCloses[issueKey{repository, number}] = true
 }
 
+// AllowClose makes the closes of the issue work again after FailClose.
+func (g *FakeGitHub) AllowClose(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.failedCloses, issueKey{repository, number})
+}
+
 // FailIssueReads makes the next times reads of the issue fail.
 func (g *FakeGitHub) FailIssueReads(repository string, number int64, times int) {
 	g.mu.Lock()

@@ -221,10 +221,15 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		return fail(err)
 	}
 	e.launchTriagerComments(ctx, repository, comments)
+	comments = e.trustedComments(repository, comments)
+	over, err := e.closeEndedTriage(ctx, repository, number, comments)
+	if err != nil {
+		return fail(err)
+	}
+	if over {
+		return a.End(ended, "done")
+	}
 	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n%s#%d %s\n\n%s", triagerPrompt, workstreams, repository.FullName, number, issue.GetTitle(), issue.GetBody())
-	comments = slices.DeleteFunc(comments, func(comment *gh.IssueComment) bool {
-		return !e.TrustedAuthor(repository.AppSlug, comment.GetUser().GetLogin())
-	})
 	if len(comments) > 0 {
 		prompt += "\n\n# Comments\n"
 		for _, comment := range comments {
@@ -244,11 +249,16 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err := a.End(ended, "done"); err != nil {
 		return err
 	}
-	if empty(text) {
-		return nil
-	}
 	issue, err = repository.Issue(ctx, number)
 	if err != nil || issue == nil || issue.GetState() != "open" || !hasLabel(issue, triageLabel) {
+		return err
+	}
+	comments, err = repository.Comments(ctx, number)
+	if err != nil {
+		return err
+	}
+	over, err = e.closeEndedTriage(ctx, repository, number, e.trustedComments(repository, comments))
+	if err != nil || over || empty(text) {
 		return err
 	}
 	workstream, err := e.commentWorkstream(ctx, repository, issue)
@@ -256,6 +266,25 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		return err
 	}
 	return e.addOrKeepComment(ctx, repository, number, text)
+}
+
+// trustedComments gives the comments of trusted authors and of the Mobius App.
+func (e *Engine) trustedComments(repository github.Repository, comments []*gh.IssueComment) []*gh.IssueComment {
+	return slices.DeleteFunc(slices.Clone(comments), func(comment *gh.IssueComment) bool {
+		return !e.TrustedAuthor(repository.AppSlug, comment.GetUser().GetLogin())
+	})
+}
+
+// closeEndedTriage closes the issue number as completed when the Mobius App commented that the triage ends, and tells if
+// it did. A close that failed after that comment stays open until this step runs.
+func (e *Engine) closeEndedTriage(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment) (bool, error) {
+	if !slices.ContainsFunc(comments, func(comment *gh.IssueComment) bool {
+		return strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && strings.HasPrefix(comment.GetBody(), triageEndText)
+	}) {
+		return false, nil
+	}
+	_, err := repository.CloseIssue(ctx, number, "completed")
+	return err == nil, err
 }
 
 // stopTriager stops the Triager of the issue number when a person removed mobius:triage last. Mobius ignores its own
