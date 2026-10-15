@@ -25,9 +25,10 @@ function postToGitHub(form: ManifestForm) {
 export function GitHub({ apps, back }: { apps: GitHubApp[]; back?: boolean }) {
   const showLogin = use(LoginContext);
   const [account, setAccount] = useState("");
-  const [name, setName] = useState("");
+  const [typedName, setTypedName] = useState<string>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const name = typedName ?? `Mobius ${account}`.slice(0, 34).trimEnd();
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -63,9 +64,8 @@ export function GitHub({ apps, back }: { apps: GitHubApp[]; back?: boolean }) {
           <FieldLabel htmlFor="name">App name</FieldLabel>
           <Input
             id="name"
-            placeholder={`Mobius ${account}`}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => setTypedName(e.target.value)}
             aria-invalid={error !== undefined}
           />
           <FieldDescription>
