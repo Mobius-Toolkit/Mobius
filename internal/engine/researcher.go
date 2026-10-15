@@ -9,9 +9,11 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"unicode/utf8"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 //go:embed prompts/researcher.md
@@ -29,8 +31,8 @@ type researcherTextInput struct {
 	Text string `json:"text"`
 }
 
-// startResearcher starts a Researcher with the question of the Lead or of the Coordinator chat c. The report goes to the
-// chat of c as a Researcher message. A stop of the Lead stops its Researchers with no report. It gives the id of the
+// startResearcher starts a Researcher with the question of the Lead, of the Coordinator chat or of the Triager c. The
+// report goes to the chat of c as a Researcher message, or to the issue of the Triager as a comment. A stop of the Lead stops its Researchers with no report. It gives the id of the
 // Researcher.
 func (e *Engine) startResearcher(ctx context.Context, c caller, repository github.Repository, input questionInput) (string, error) {
 	if empty(input.Question) {
@@ -44,6 +46,7 @@ func (e *Engine) startResearcher(ctx context.Context, c caller, repository githu
 		Organization: c.organization,
 		Repository:   repository.FullName,
 		Workstream:   c.workstream,
+		Issue:        c.agent.spec.Issue,
 		Parent:       sql.NullInt64{Int64: c.session, Valid: true},
 	})
 	if err != nil {
@@ -153,15 +156,15 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 	case stopped:
 		return a.End(ended, "stopped")
 	case errors.Is(err, errHung):
-		return errors.Join(a.endHung(ended), e.deliverReport(ended, c, a.id, question, "The Researcher failed: "+err.Error()))
+		return errors.Join(a.endHung(ended), e.deliverReport(ended, c, repository, a.id, question, "The Researcher failed: "+err.Error()))
 	case err != nil:
 		failure := a.Fail(ended, err)
-		return errors.Join(failure, e.deliverReport(ended, c, a.id, question, "The Researcher failed: "+err.Error()))
+		return errors.Join(failure, e.deliverReport(ended, c, repository, a.id, question, "The Researcher failed: "+err.Error()))
 	}
 	if err := a.End(ended, "done"); err != nil {
 		return err
 	}
-	return e.deliverReport(ended, c, a.id, question, report)
+	return e.deliverReport(ended, c, repository, a.id, question, report)
 }
 
 // leave removes the Researcher id from e.researchers. It tells if a stop came before, as ctx shows.
@@ -208,10 +211,48 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 	}
 }
 
-// deliverReport gives the report of the Researcher id on the question to the chat of c as a Researcher message.
-func (e *Engine) deliverReport(ctx context.Context, c caller, id int64, question, report string) error {
-	text := fmt.Sprintf("Report of the Researcher %d on \"%s\":\n\n%s", id, question, report)
+// commentLimit is the number of characters that GitHub accepts in a comment.
+const commentLimit = 65_535
+
+// deliverReport gives the report of the Researcher id on the question to the chat of c as a Researcher message. For
+// the Triager c, it is a comment on the issue of the Triager, and it starts the next turn of the Triager, because a
+// comment of the Mobius App starts no turn. The comment keeps the end of a report that is too long for GitHub. When the
+// triage has ended, the report goes nowhere. When a read of the issue fails, the report goes out, because runTriager
+// reads the issue again. When GitHub refuses the comment, the comment stays in comment_writes and the turn stays held
+// until the poll sends the comment.
+func (e *Engine) deliverReport(ctx context.Context, c caller, repository github.Repository, id int64, question, report string) error {
+	header := fmt.Sprintf("Report of the Researcher %d on \"%s\":\n\n", id, question)
+	text := header + report
+	if c.role == TriagerRole {
+		text = header + tail(report, commentLimit-utf8.RuneCountInString(header))
+		number := c.agent.spec.Issue.Int64
+		if !e.triagingOrUnknown(ctx, repository, number) {
+			return nil
+		}
+		if _, err := repository.AddComment(ctx, number, text); err != nil {
+			log.Printf("add a comment to %s#%d: %v", repository.FullName, number, err)
+			if err := e.queries.AddCommentWrite(ctx, store.AddCommentWriteParams{
+				Repository: repository.FullName,
+				Number:     sql.NullInt64{Int64: number, Valid: true},
+				Body:       text,
+			}); err != nil {
+				return err
+			}
+			return e.queries.AddTriagerTurn(ctx, store.AddTriagerTurnParams{Repository: repository.FullName, Issue: number})
+		}
+		return e.restartTriager(ctx, repository, number)
+	}
 	return e.postChat(ctx, ChatKey{c.organization, c.repository, c.workstream}, researcherAuthor, "", text, nil)
+}
+
+// triagingOrUnknown tells if the issue number is in the triage, or if a failed read does not show it.
+func (e *Engine) triagingOrUnknown(ctx context.Context, repository github.Repository, number int64) bool {
+	issue, err := repository.Issue(ctx, number)
+	if err != nil {
+		return true
+	}
+	triaging, err := e.triaging(ctx, repository, issue)
+	return err != nil || triaging
 }
 
 // addCopy adds the worktree dir of repository, detached at the default branch.

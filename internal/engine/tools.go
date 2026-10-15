@@ -295,7 +295,25 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.createMaintenanceIssue))
 	case TriagerRole:
-		return []mcp.Tool{moveIssueTool(e, c)}
+		return []mcp.Tool{
+			tool(e, c, "create_workstream",
+				"Create a Workstream in this repository: an issue with mobius:workstream. Call it only after a trusted user approves the exact title and Brief in a comment on the issue. Mobius then closes the issue with a link to the Workstream.",
+				workstreamProperties,
+				e.createWorkstream),
+			tool(e, c, "message_lead",
+				"Send a message to the Lead of an open Workstream. Call it only after a trusted user approves the target Workstream and the exact message in a comment on the issue. Mobius adds the link to the issue to the message, and then closes the issue with a link to the Workstream.",
+				map[string]any{
+					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue."},
+					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
+				},
+				e.messageLead),
+			tool(e, c, "start_researcher",
+				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the question. The tool returns at once, and the report arrives later as a comment on the issue.",
+				map[string]any{
+					"question": map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
+				},
+				e.startResearcher),
+		}
 	case CoordinatorRole:
 		return []mcp.Tool{
 			tool(e, c, "create_workstream",
@@ -770,7 +788,26 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	if c.role == CoordinatorRole {
 		e.publish(Change{Created: &Created{repository.FullName, int64(issue.GetNumber())}})
 	}
+	if c.role == TriagerRole {
+		if err := e.endTriage(ctx, c, repository, int64(issue.GetNumber())); err != nil {
+			return "", fmt.Errorf("GitHub created #%d, but the end of the triage failed. Do not create the Workstream again: %w", issue.GetNumber(), err)
+		}
+	}
 	return fmt.Sprintf("Created the Workstream #%d.", issue.GetNumber()), nil
+}
+
+// triageEndText starts the comment of the Mobius App that ends the triage of an issue.
+const triageEndText = "The triage ends."
+
+// endTriage comments on the issue of the Triager c with the link to the Workstream and closes the issue as completed.
+func (e *Engine) endTriage(ctx context.Context, c caller, repository github.Repository, workstream int64) error {
+	number := c.agent.spec.Issue.Int64
+	text := fmt.Sprintf("%s The Workstream is %s", triageEndText, issueLink(repository.FullName, workstream))
+	if err := e.addOrKeepComment(ctx, repository, number, text); err != nil {
+		return err
+	}
+	_, err := repository.CloseIssue(ctx, number, "completed")
+	return err
 }
 
 // openWorkstream checks that the issue number is an open Workstream issue.
@@ -872,11 +909,14 @@ func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repo
 
 func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Repository, input messageLeadInput) (string, error) {
 	kind, sender := "coordinator", "the Coordinator"
-	if c.role == LeadRole {
+	switch c.role {
+	case LeadRole:
 		kind, sender = "lead", fmt.Sprintf("the Lead of #%d", c.workstream)
 		if input.Workstream == c.workstream {
 			return "", refuse("A Lead cannot send a message to its own Workstream.")
 		}
+	case TriagerRole:
+		kind, sender = "triager", "the Triager"
 	}
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
@@ -889,8 +929,16 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 		return "", refuse("#%d is not an open Workstream.", input.Workstream)
 	}
 	text := fmt.Sprintf("Message of %s, approved by the Owner:\n\n%s", sender, input.Text)
+	if c.role == TriagerRole {
+		text += "\n\n" + issueLink(repository.FullName, c.agent.spec.Issue.Int64)
+	}
 	if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, kind, text); err != nil {
 		return "", err
+	}
+	if c.role == TriagerRole {
+		if err := e.endTriage(ctx, c, repository, input.Workstream); err != nil {
+			return "", fmt.Errorf("the Lead of #%d got the message, but the end of the triage failed. Do not send the message again: %w", input.Workstream, err)
+		}
 	}
 	return fmt.Sprintf("Sent the message to the Lead of #%d.", input.Workstream), nil
 }

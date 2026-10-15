@@ -131,7 +131,8 @@ func (e *Engine) restartTriager(ctx context.Context, repository github.Repositor
 }
 
 // startHeldTriagers starts the turns that did not end and do not run, when the issue is still open, has mobius:triage
-// and has no Workstream. For another issue, it ends the turn. It starts none while the drain is on.
+// and has no Workstream. For another issue, it ends the turn. It starts none while the drain is on. It keeps the issue
+// held while a comment write of the issue waits, because that comment can be the report of a Researcher.
 func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Repository) error {
 	if e.draining() {
 		return nil
@@ -146,24 +147,24 @@ func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Reposi
 	if err != nil {
 		return err
 	}
+	writes, err := e.queries.ListCommentWrites(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
 	for _, number := range numbers {
+		if slices.ContainsFunc(writes, func(write store.CommentWrite) bool { return write.Number.Int64 == number }) {
+			continue
+		}
 		issue, err := repository.Issue(ctx, number)
 		if err != nil {
 			return err
 		}
-		end := store.EndTriagerTurnParams{Repository: repository.FullName, Issue: number}
-		if issue == nil || issue.GetState() != "open" || !hasLabel(issue, triageLabel) {
-			if err := e.queries.EndTriagerTurn(ctx, end); err != nil {
-				return err
-			}
-			continue
-		}
-		workstream, err := e.commentWorkstream(ctx, repository, issue)
+		triaging, err := e.triaging(ctx, repository, issue)
 		if err != nil {
 			return err
 		}
-		if workstream != 0 {
-			if err := e.queries.EndTriagerTurn(ctx, end); err != nil {
+		if !triaging {
+			if err := e.queries.EndTriagerTurn(ctx, store.EndTriagerTurnParams{Repository: repository.FullName, Issue: number}); err != nil {
 				return err
 			}
 			continue
@@ -173,6 +174,15 @@ func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Reposi
 		}
 	}
 	return nil
+}
+
+// triaging tells if the issue is open, has triageLabel and has no Workstream.
+func (e *Engine) triaging(ctx context.Context, repository github.Repository, issue *gh.Issue) (bool, error) {
+	if issue == nil || issue.GetState() != "open" || !hasLabel(issue, triageLabel) {
+		return false, nil
+	}
+	workstream, err := e.commentWorkstream(ctx, repository, issue)
+	return workstream == 0, err
 }
 
 // startTriager runs the Triager of the issue number in a goroutine. The caller holds a tryTrack. A turn that ends with
@@ -244,10 +254,15 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		return fail(err)
 	}
 	e.launchTriagerComments(ctx, repository, comments)
+	comments = e.trustedComments(repository, comments)
+	over, err := e.closeEndedTriage(ctx, repository, number, comments)
+	if err != nil {
+		return fail(err)
+	}
+	if over {
+		return a.End(ended, "done")
+	}
 	prompt := fmt.Sprintf("%s\n%s\n# Issue\n\n%s#%d %s\n\n%s", triagerPrompt, workstreams, repository.FullName, number, title, body)
-	comments = slices.DeleteFunc(comments, func(comment *gh.IssueComment) bool {
-		return !e.TrustedAuthor(repository.AppSlug, comment.GetUser().GetLogin())
-	})
 	if len(comments) > 0 {
 		prompt += "\n\n# Comments\n"
 		for _, comment := range comments {
@@ -267,11 +282,16 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err := a.End(ended, "done"); err != nil {
 		return err
 	}
-	if empty(text) {
-		return nil
-	}
 	issue, err = repository.Issue(ctx, number)
 	if err != nil || issue == nil || issue.GetState() != "open" || !hasLabel(issue, triageLabel) {
+		return err
+	}
+	comments, err = repository.Comments(ctx, number)
+	if err != nil {
+		return err
+	}
+	over, err = e.closeEndedTriage(ctx, repository, number, e.trustedComments(repository, comments))
+	if err != nil || over || empty(text) {
 		return err
 	}
 	workstream, err := e.commentWorkstream(ctx, repository, issue)
@@ -279,6 +299,39 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 		return err
 	}
 	return e.addOrKeepComment(ctx, repository, number, text)
+}
+
+// trustedComments gives the comments of trusted authors and of the Mobius App.
+func (e *Engine) trustedComments(repository github.Repository, comments []*gh.IssueComment) []*gh.IssueComment {
+	return slices.DeleteFunc(slices.Clone(comments), func(comment *gh.IssueComment) bool {
+		return !e.TrustedAuthor(repository.AppSlug, comment.GetUser().GetLogin())
+	})
+}
+
+// closeEndedTriage closes the issue number as completed when the Mobius App commented that the triage ends and nobody
+// reopened the issue after that comment, and tells if it did. A close that failed after that comment stays open until
+// this step runs.
+func (e *Engine) closeEndedTriage(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment) (bool, error) {
+	var ended time.Time
+	for _, comment := range comments {
+		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && strings.HasPrefix(comment.GetBody(), triageEndText) && comment.GetCreatedAt().After(ended) {
+			ended = comment.GetCreatedAt().Time
+		}
+	}
+	if ended.IsZero() {
+		return false, nil
+	}
+	events, err := repository.IssueEvents(ctx, number)
+	if err != nil {
+		return false, err
+	}
+	if slices.ContainsFunc(events, func(event *gh.IssueEvent) bool {
+		return event.GetEvent() == "reopened" && event.GetCreatedAt().After(ended)
+	}) {
+		return false, nil
+	}
+	_, err = repository.CloseIssue(ctx, number, "completed")
+	return err == nil, err
 }
 
 // labeledText gives the title and the body of the issue at the time when a trusted user last added mobius:triage. The
