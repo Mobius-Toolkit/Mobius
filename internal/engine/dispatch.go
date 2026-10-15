@@ -593,12 +593,25 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 
 // closeQuestion posts text on the issue as the Mobius App, continues a task in asked as after a reply on the issue,
 // removes mobius:question, and dismisses the open question items of the issue. An issue whose task is in needs_human
-// gets its stopped item back. mobius:question stays until the task continues, so a failed call can run again.
+// gets its stopped item back. mobius:question stays until the task continues, so a failed call can run again. A call
+// posts no comment when the newest comment of the Mobius App already has text.
 // task is the zero value for the Workstream issue.
 func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, text string) error {
 	number := int64(issue.GetNumber())
-	if _, err := repository.AddComment(ctx, number, text); err != nil {
+	comments, err := repository.Comments(ctx, number)
+	if err != nil {
 		return err
+	}
+	var newest *gh.IssueComment
+	for _, comment := range comments {
+		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && (newest == nil || comment.GetCreatedAt().After(newest.GetCreatedAt().Time)) {
+			newest = comment
+		}
+	}
+	if newest == nil || newest.GetBody() != text {
+		if _, err := repository.AddComment(ctx, number, text); err != nil {
+			return err
+		}
 	}
 	if task.State == "asked" {
 		if err := e.answerAsked(ctx, repository, issue, task); err != nil {

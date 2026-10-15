@@ -109,7 +109,17 @@ reply = ["Seen"]
 	if slices.Contains(fake.Labels(shop, 41), "mobius:question") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
-	waitForLeadPrompt(t, server, ` answer of #41 "Add plan model"`)
+	want := []testkit.Comment{
+		{Author: testkit.AppSlug + "[bot]", Body: "Cents or dollars?"},
+		{Author: testkit.AppSlug + "[bot]", Body: "The Owner answered in the Lead chat:\n\n> Dollars."},
+	}
+	if got := fake.Comments(shop, 41); !slices.Equal(got, want) {
+		t.Errorf("comments = %v", got)
+	}
+	prompt := waitForLeadPrompt(t, server, ` answer of #41 "Add plan model"`)
+	if got := strings.Count(prompt, "The Owner answered in the Lead chat:"); got != 1 {
+		t.Errorf("answers in the dispatch event = %d", got)
+	}
 }
 
 func TestCloseQuestionRefusesAnIssueWithNoQuestionAndWritesNothing(t *testing.T) {
