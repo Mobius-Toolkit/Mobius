@@ -212,6 +212,7 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 	}
 	e.ownerAnswerMu.Lock()
 	defer e.ownerAnswerMu.Unlock()
+	ctx = context.WithoutCancel(ctx)
 	comment, err := asOwner.AddComment(ctx, item.Issue, text)
 	if err != nil {
 		return "", err
