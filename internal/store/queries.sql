@@ -618,15 +618,15 @@ UPDATE tasks SET approved_review = ? WHERE id = ?;
 -- name: SetTaskRefusedReview :exec
 UPDATE tasks SET refused_review = ? WHERE id = ?;
 
--- name: HoldTriager :exec
-INSERT INTO held_triagers (repository, issue) VALUES (?, ?)
+-- name: AddTriagerTurn :exec
+INSERT INTO triager_turns (repository, issue) VALUES (?, ?)
 ON CONFLICT (repository, issue) DO NOTHING;
 
--- name: ListHeldTriagers :many
-SELECT issue FROM held_triagers WHERE repository = ? ORDER BY issue;
+-- name: ListTriagerTurns :many
+SELECT issue FROM triager_turns WHERE repository = ? ORDER BY issue;
 
--- name: ReleaseTriager :exec
-DELETE FROM held_triagers WHERE repository = ? AND issue = ?;
+-- name: EndTriagerTurn :exec
+DELETE FROM triager_turns WHERE repository = ? AND issue = ?;
 
 -- name: ListMemoryVersions :many
 SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? ORDER BY id DESC;

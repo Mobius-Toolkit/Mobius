@@ -653,6 +653,21 @@ func (q *Queries) AddTranscriptRow(ctx context.Context, arg AddTranscriptRowPara
 	return i, err
 }
 
+const addTriagerTurn = `-- name: AddTriagerTurn :exec
+INSERT INTO triager_turns (repository, issue) VALUES (?, ?)
+ON CONFLICT (repository, issue) DO NOTHING
+`
+
+type AddTriagerTurnParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) AddTriagerTurn(ctx context.Context, arg AddTriagerTurnParams) error {
+	_, err := q.db.ExecContext(ctx, addTriagerTurn, arg.Repository, arg.Issue)
+	return err
+}
+
 const addTurnUsage = `-- name: AddTurnUsage :exec
 INSERT INTO turn_usage (session, task, issue, workstream, organization, repository, role, harness, model, reported_model,
                         effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd)
@@ -1227,6 +1242,20 @@ UPDATE tasks SET state = 'ended', lead_findings = '', state_at = strftime('%Y-%m
 
 func (q *Queries) EndTask(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, endTask, id)
+	return err
+}
+
+const endTriagerTurn = `-- name: EndTriagerTurn :exec
+DELETE FROM triager_turns WHERE repository = ? AND issue = ?
+`
+
+type EndTriagerTurnParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) EndTriagerTurn(ctx context.Context, arg EndTriagerTurnParams) error {
+	_, err := q.db.ExecContext(ctx, endTriagerTurn, arg.Repository, arg.Issue)
 	return err
 }
 
@@ -1862,21 +1891,6 @@ UPDATE lead_events SET held = 1 WHERE id = ?
 
 func (q *Queries) HoldLeadEvent(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, holdLeadEvent, id)
-	return err
-}
-
-const holdTriager = `-- name: HoldTriager :exec
-INSERT INTO held_triagers (repository, issue) VALUES (?, ?)
-ON CONFLICT (repository, issue) DO NOTHING
-`
-
-type HoldTriagerParams struct {
-	Repository string
-	Issue      int64
-}
-
-func (q *Queries) HoldTriager(ctx context.Context, arg HoldTriagerParams) error {
-	_, err := q.db.ExecContext(ctx, holdTriager, arg.Repository, arg.Issue)
 	return err
 }
 
@@ -3006,33 +3020,6 @@ func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error)
 	return items, nil
 }
 
-const listHeldTriagers = `-- name: ListHeldTriagers :many
-SELECT issue FROM held_triagers WHERE repository = ? ORDER BY issue
-`
-
-func (q *Queries) ListHeldTriagers(ctx context.Context, repository string) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, listHeldTriagers, repository)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var issue int64
-		if err := rows.Scan(&issue); err != nil {
-			return nil, err
-		}
-		items = append(items, issue)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listHungSessionsSince = `-- name: ListHungSessionsSince :many
 SELECT id, role, issue, ended_at FROM sessions
 WHERE repository = ?1 AND role <> 'curator' AND end_reason = 'hung'
@@ -3980,6 +3967,33 @@ func (q *Queries) ListTranscript(ctx context.Context, session int64) ([]Transcri
 	return items, nil
 }
 
+const listTriagerTurns = `-- name: ListTriagerTurns :many
+SELECT issue FROM triager_turns WHERE repository = ? ORDER BY issue
+`
+
+func (q *Queries) ListTriagerTurns(ctx context.Context, repository string) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listTriagerTurns, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var issue int64
+		if err := rows.Scan(&issue); err != nil {
+			return nil, err
+		}
+		items = append(items, issue)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTurnUsageBetween = `-- name: ListTurnUsageBetween :many
 SELECT id, session, task, issue, workstream, organization, repository, role, harness, model, reported_model, effort, started_at, ended_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd FROM turn_usage WHERE started_at >= ?1 AND started_at < ?2
 `
@@ -4265,20 +4279,6 @@ func (q *Queries) RecoverTask(ctx context.Context, arg RecoverTaskParams) (int64
 		return 0, err
 	}
 	return result.RowsAffected()
-}
-
-const releaseTriager = `-- name: ReleaseTriager :exec
-DELETE FROM held_triagers WHERE repository = ? AND issue = ?
-`
-
-type ReleaseTriagerParams struct {
-	Repository string
-	Issue      int64
-}
-
-func (q *Queries) ReleaseTriager(ctx context.Context, arg ReleaseTriagerParams) error {
-	_, err := q.db.ExecContext(ctx, releaseTriager, arg.Repository, arg.Issue)
-	return err
 }
 
 const requeueTask = `-- name: RequeueTask :execrows
