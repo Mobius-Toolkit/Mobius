@@ -1,7 +1,6 @@
 package engine_test
 
 import (
-	"database/sql"
 	"encoding/json"
 	"io/fs"
 	"net/http"
@@ -779,7 +778,7 @@ func TestMoveIssueMovesAnIssueWithNoWorkstreamAndMakesItReady(t *testing.T) {
 	server, _ := connect(t, fake, call("move_issue", "{ n = 50, workstream = 12 }")+call("move_issue", "{ n = 50, workstream = 12 }"))
 	fake.AddIssue(shop, 50, "Add invoices")
 	fake.AddLabel(shop, 50, "mobius:no-workstream", "mobius-test[bot]")
-	spec := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Repository: shop, Issue: sql.NullInt64{Int64: 50, Valid: true}, Dir: t.TempDir()}
+	spec := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 
 	session := run(t, server, spec, "1. ", "2. ")
 
