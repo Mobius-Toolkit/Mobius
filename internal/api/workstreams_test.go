@@ -11,10 +11,10 @@ import (
 func TestListWorkstreams(t *testing.T) {
 	mux, db := testMux(t)
 	exec(t, db, `
-		INSERT INTO copied_workstreams (repository, number, title, body, autopilot) VALUES
-			('o/a', 1, 'Loyalty plans', 'Ship the plans.', 1),
-			('o/a', 2, 'Seasonal prices', '', 0),
-			('o/a', 3, 'Early renewals', '', 0);
+		INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen) VALUES
+			('o/a', 1, 'Loyalty plans', 'Ship the plans.', 1, 0),
+			('o/a', 2, 'Seasonal prices', '', 0, 0),
+			('o/a', 3, 'Early renewals', '', 0, 1);
 		INSERT INTO copied_issues (repository, workstream, position, number, parent, title, body, state, author, html_url, repository_url) VALUES
 			('o/a', 1, 0, 11, 1, 'Plan model', '', 'closed', 'owner', '', '');
 		INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES
@@ -35,6 +35,7 @@ func TestListWorkstreams(t *testing.T) {
 		Title          string `json:"title"`
 		Brief          string `json:"brief"`
 		Autopilot      bool   `json:"autopilot"`
+		Evergreen      bool   `json:"evergreen"`
 		AllTasksClosed bool   `json:"allTasksClosed"`
 		ReadyToMerge   bool   `json:"readyToMerge"`
 	}
@@ -45,7 +46,7 @@ func TestListWorkstreams(t *testing.T) {
 		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
 	}
 	want := []workstream{
-		{Repository: "o/a", Number: 3, Title: "Early renewals"},
+		{Repository: "o/a", Number: 3, Title: "Early renewals", Evergreen: true},
 		{Repository: "o/a", Number: 2, Title: "Seasonal prices", ReadyToMerge: true},
 		{Repository: "o/a", Number: 1, Title: "Loyalty plans", Brief: "Ship the plans.", Autopilot: true, AllTasksClosed: true},
 	}

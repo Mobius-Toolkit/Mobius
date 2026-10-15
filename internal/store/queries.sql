@@ -1,5 +1,6 @@
 -- name: ListCopiedWorkstreams :many
 SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
+       CAST(w.evergreen AS BOOLEAN) AS evergreen,
        CAST(EXISTS (SELECT 1 FROM copied_issues i
                WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number)
        AND NOT EXISTS (SELECT 1 FROM copied_issues i

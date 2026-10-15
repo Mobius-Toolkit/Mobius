@@ -118,6 +118,7 @@ export function Frame({
   for (const chat of unread) {
     counts.set(chat.organization, (counts.get(chat.organization) ?? 0) + chat.count);
   }
+  const shown = organizationWorkstreams(workstreams, organization);
   const inboxCount = inbox.filter((item) => item.organization === organization).length;
   const chatCount = unreadCount(unread, { organization, repository: "", workstream: 0 });
   const organizationSwitch = organizations.length > 1 && (
@@ -152,20 +153,37 @@ export function Frame({
           <span className="grow">Inbox</span>
           {inboxCount > 0 && <Badge>{inboxCount}</Badge>}
         </SideLink>
+        {shown
+          ?.filter((workstream) => workstream.evergreen)
+          .map((workstream) => (
+            <SideLink
+              key={`${workstream.repository}#${workstream.number}`}
+              link={{
+                to: "/workstreams/$owner/$name/$number",
+                params: chatParams(workstream),
+              }}
+              className="h-auto min-h-8 flex-wrap py-1.5 whitespace-normal"
+            >
+              <span className="grow">{workstream.title}</span>
+              <WorkstreamBadges workstream={workstream} workstreams={workstreams} unread={unread} />
+            </SideLink>
+          ))}
         <SideLink link={{ to: "/workstreams" }}>Workstreams</SideLink>
-        {organizationWorkstreams(workstreams, organization)?.map((workstream) => (
-          <SideLink
-            key={`${workstream.repository}#${workstream.number}`}
-            link={{
-              to: "/workstreams/$owner/$name/$number",
-              params: chatParams(workstream),
-            }}
-            className="h-auto min-h-8 flex-wrap py-1.5 pl-5 whitespace-normal"
-          >
-            <span className="grow">{workstream.title}</span>
-            <WorkstreamBadges workstream={workstream} workstreams={workstreams} unread={unread} />
-          </SideLink>
-        ))}
+        {shown
+          ?.filter((workstream) => !workstream.evergreen)
+          .map((workstream) => (
+            <SideLink
+              key={`${workstream.repository}#${workstream.number}`}
+              link={{
+                to: "/workstreams/$owner/$name/$number",
+                params: chatParams(workstream),
+              }}
+              className="h-auto min-h-8 flex-wrap py-1.5 pl-5 whitespace-normal"
+            >
+              <span className="grow">{workstream.title}</span>
+              <WorkstreamBadges workstream={workstream} workstreams={workstreams} unread={unread} />
+            </SideLink>
+          ))}
         <div className="grow" />
         <UpgradeControls upgrade={upgrade} newBuild={newBuild} />
         {settingsPages.map((page) => (

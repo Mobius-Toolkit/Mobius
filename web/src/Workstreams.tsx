@@ -1,7 +1,7 @@
 import { GitPullRequestArrowIcon, PlaneIcon } from "lucide-react";
 import type { Unread, Workstream } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
-import { ErrorBadge, inset, LinkRow, List, PageHeader } from "@/components/page";
+import { ErrorBadge, inset, LinkRow, List, PageHeader, Section } from "@/components/page";
 import { unreadCount } from "@/lib/unread";
 import { cn } from "@/lib/utils";
 import {
@@ -55,7 +55,9 @@ export function WorkstreamBadges({
         </span>
       )}
       <span className="text-muted-foreground">#{workstream.number}</span>
-      {workstream.allTasksClosed && <Badge variant="secondary">done</Badge>}
+      {workstream.allTasksClosed && !workstream.evergreen && (
+        <Badge variant="secondary">done</Badge>
+      )}
       {needsHuman && (
         <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400">needs you</Badge>
       )}
@@ -74,6 +76,17 @@ export function Workstreams({
   unread: Unread[];
 }) {
   const shown = organizationWorkstreams(workstreams, organization);
+  const evergreen = shown?.filter((workstream) => workstream.evergreen);
+  const others = shown?.filter((workstream) => !workstream.evergreen);
+  const row = (workstream: Workstream) => (
+    <LinkRow
+      key={`${workstream.repository}#${workstream.number}`}
+      link={{ to: "/workstreams/$owner/$name/$number", params: chatParams(workstream) }}
+      title={workstream.title}
+    >
+      <WorkstreamBadges workstream={workstream} workstreams={workstreams} unread={unread} />
+    </LinkRow>
+  );
   return (
     <>
       <TopBar title="Workstreams" />
@@ -84,17 +97,12 @@ export function Workstreams({
           This organization has no open Workstream.
         </p>
       )}
-      <List>
-        {shown?.map((workstream) => (
-          <LinkRow
-            key={`${workstream.repository}#${workstream.number}`}
-            link={{ to: "/workstreams/$owner/$name/$number", params: chatParams(workstream) }}
-            title={workstream.title}
-          >
-            <WorkstreamBadges workstream={workstream} workstreams={workstreams} unread={unread} />
-          </LinkRow>
-        ))}
-      </List>
+      {evergreen && evergreen.length > 0 && (
+        <Section title="Evergreen">
+          <List>{evergreen.map(row)}</List>
+        </Section>
+      )}
+      {others && others.length > 0 && <List>{others.map(row)}</List>}
     </>
   );
 }
