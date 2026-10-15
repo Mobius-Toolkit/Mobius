@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"slices"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
+	gh "github.com/google/go-github/v92/github"
 )
 
 // The kinds of the Inbox items.
@@ -43,6 +45,8 @@ func (e *Engine) Inbox(ctx context.Context) ([]store.InboxItem, error) {
 //   - A stopped task is done when the issue has no mobius:needs-human.
 //   - A lost task is done when the issue has a live task.
 //   - Each item is done when its issue is closed.
+//
+// When a question is done and the task of its issue is still stopped, the newest stopped item of the stop opens again.
 func (e *Engine) closeInboxItems(ctx context.Context, repository github.Repository) error {
 	items, err := e.Inbox(ctx)
 	if err != nil {
@@ -52,24 +56,30 @@ func (e *Engine) closeInboxItems(ctx context.Context, repository github.Reposito
 		if item.Repository != repository.FullName || !slices.Contains([]string{questionKind, stoppedKind, lostKind, readyForReviewKind}, item.Kind) {
 			continue
 		}
-		done, err := e.actionDone(ctx, repository, item)
+		issue, err := repository.Issue(ctx, item.Issue)
 		if err != nil {
 			return err
 		}
-		if done {
-			if err := e.Dismiss(ctx, item.ID); err != nil {
+		done, err := e.actionDone(ctx, issue, item)
+		if err != nil {
+			return err
+		}
+		if !done {
+			continue
+		}
+		if item.Kind == questionKind && issue != nil && issue.GetState() != "closed" && hasLabel(issue, needsHumanLabel) {
+			if err := e.reopenStoppedItem(ctx, item); err != nil {
 				return err
 			}
+		}
+		if err := e.Dismiss(ctx, item.ID); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func (e *Engine) actionDone(ctx context.Context, repository github.Repository, item store.InboxItem) (bool, error) {
-	issue, err := repository.Issue(ctx, item.Issue)
-	if err != nil {
-		return false, err
-	}
+func (e *Engine) actionDone(ctx context.Context, issue *gh.Issue, item store.InboxItem) (bool, error) {
 	if issue == nil || issue.GetState() == "closed" {
 		return true, nil
 	}
@@ -86,6 +96,43 @@ func (e *Engine) actionDone(ctx context.Context, repository github.Repository, i
 		return err == nil, err
 	}
 	return false, nil
+}
+
+// reopenStoppedItem opens the newest stopped item of the issue of the question item again, when the live task of the
+// issue is in needs_human and the question item replaced that stopped item: the stopped item closed after the question
+// item opened.
+func (e *Engine) reopenStoppedItem(ctx context.Context, question store.InboxItem) error {
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: question.Repository, Issue: question.Issue})
+	if errors.Is(err, sql.ErrNoRows) || err == nil && task.State != "needs_human" {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	stopped, err := e.queries.GetNewestInboxItem(ctx, store.GetNewestInboxItemParams{Repository: question.Repository, Issue: question.Issue, Kind: stoppedKind})
+	if errors.Is(err, sql.ErrNoRows) || err == nil && !stopped.DismissedAt.Valid {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	asked, err := time.Parse(time.RFC3339Nano, question.Time)
+	if err != nil {
+		return err
+	}
+	dismissed, err := time.Parse(time.RFC3339Nano, stopped.DismissedAt.String)
+	if err != nil {
+		return err
+	}
+	if dismissed.Before(asked) {
+		return nil
+	}
+	item, err := e.queries.ReopenInboxItem(ctx, stopped.ID)
+	if err != nil {
+		return err
+	}
+	e.publish(Change{Inbox: &item})
+	return nil
 }
 
 // dismissIssueItems dismisses each Inbox item of the kinds that is open on the issue number of repository.

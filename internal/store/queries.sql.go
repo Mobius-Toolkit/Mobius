@@ -1719,6 +1719,39 @@ func (q *Queries) GetMemoryVersionBefore(ctx context.Context, arg GetMemoryVersi
 	return text, err
 }
 
+const getNewestInboxItem = `-- name: GetNewestInboxItem :one
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1
+`
+
+type GetNewestInboxItemParams struct {
+	Repository string
+	Issue      int64
+	Kind       string
+}
+
+func (q *Queries) GetNewestInboxItem(ctx context.Context, arg GetNewestInboxItemParams) (InboxItem, error) {
+	row := q.db.QueryRowContext(ctx, getNewestInboxItem, arg.Repository, arg.Issue, arg.Kind)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Text,
+		&i.Link,
+		&i.Time,
+		&i.DismissedAt,
+		&i.Organization,
+		&i.Title,
+		&i.Reason,
+		&i.PullRequest,
+		&i.ReportLink,
+		&i.ChatMessage,
+	)
+	return i, err
+}
+
 const getNewestMemoryVersionID = `-- name: GetNewestMemoryVersionID :one
 SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM memory_versions WHERE repository = ?
 `
@@ -4299,6 +4332,34 @@ func (q *Queries) RecoverTask(ctx context.Context, arg RecoverTaskParams) (int64
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const reopenInboxItem = `-- name: ReopenInboxItem :one
+UPDATE inbox_items SET dismissed_at = NULL WHERE id = ?
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message
+`
+
+func (q *Queries) ReopenInboxItem(ctx context.Context, id int64) (InboxItem, error) {
+	row := q.db.QueryRowContext(ctx, reopenInboxItem, id)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Text,
+		&i.Link,
+		&i.Time,
+		&i.DismissedAt,
+		&i.Organization,
+		&i.Title,
+		&i.Reason,
+		&i.PullRequest,
+		&i.ReportLink,
+		&i.ChatMessage,
+	)
+	return i, err
 }
 
 const requeueTask = `-- name: RequeueTask :execrows

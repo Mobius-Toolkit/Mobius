@@ -128,6 +128,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"reason": map[string]any{"type": "string", "minLength": 1, "description": "The reason for the people on the issue."},
 				},
 				e.decline),
+			tool(e, c, "close_task",
+				"Close a task issue that has no work left. Mobius posts the reason as a comment on the issue. For a live task, Mobius closes its open pull request and ends the task. Then Mobius removes mobius:ready and closes the issue as not planned. The branch stays.",
+				map[string]any{
+					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+					"reason": map[string]any{"type": "string", "minLength": 1, "description": "The reason for the people on the issue."},
+				},
+				e.closeTask),
 			tool(e, c, "create_issue",
 				"Create an issue below an issue of the Workstream. Mobius adds the blockers as native issue dependencies.",
 				map[string]any{
