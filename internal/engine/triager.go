@@ -103,10 +103,12 @@ func (e *Engine) retriage(ctx context.Context, repository github.Repository, iss
 }
 
 // restartTriager starts the Triager of the issue number again. A running Triager stops first, so the new run reads the
-// comments again. While the drain is on, the database keeps the issue for startHeldTriagers.
+// comments again. The database keeps the issue until the turn ends, so startHeldTriagers starts the turn again when the
+// drain or a restart of Mobius stops it.
 func (e *Engine) restartTriager(ctx context.Context, repository github.Repository, number int64) error {
+	turn := store.AddTriagerTurnParams{Repository: repository.FullName, Issue: number}
 	if !e.tryTrack() {
-		return e.queries.HoldTriager(ctx, store.HoldTriagerParams{Repository: repository.FullName, Issue: number})
+		return e.queries.AddTriagerTurn(ctx, turn)
 	}
 	e.triagesMu.Lock()
 	running, ok := e.triages[triageKey{repository.FullName, number}]
@@ -120,18 +122,28 @@ func (e *Engine) restartTriager(ctx context.Context, repository github.Repositor
 			return ctx.Err()
 		}
 	}
+	if err := e.queries.AddTriagerTurn(ctx, turn); err != nil {
+		e.untrack()
+		return err
+	}
 	e.startTriager(repository, number)
 	return nil
 }
 
-// startHeldTriagers starts the Triagers that the drain held, when the issue is still open, has mobius:triage and has no
-// Workstream. It starts none while the drain is on. It keeps the issue held while a comment write of the issue waits,
-// because that comment can be the report of a Researcher.
+// startHeldTriagers starts the turns that did not end and do not run, when the issue is still open, has mobius:triage
+// and has no Workstream. For another issue, it ends the turn. It starts none while the drain is on. It keeps the issue
+// held while a comment write of the issue waits, because that comment can be the report of a Researcher.
 func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Repository) error {
 	if e.draining() {
 		return nil
 	}
-	numbers, err := e.queries.ListHeldTriagers(ctx, repository.FullName)
+	e.triagesMu.Lock()
+	numbers, err := e.queries.ListTriagerTurns(ctx, repository.FullName)
+	numbers = slices.DeleteFunc(numbers, func(number int64) bool {
+		_, running := e.triages[triageKey{repository.FullName, number}]
+		return running
+	})
+	e.triagesMu.Unlock()
 	if err != nil {
 		return err
 	}
@@ -147,14 +159,14 @@ func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Reposi
 		if err != nil {
 			return err
 		}
-		if err := e.queries.ReleaseTriager(ctx, store.ReleaseTriagerParams{Repository: repository.FullName, Issue: number}); err != nil {
-			return err
-		}
 		triaging, err := e.triaging(ctx, repository, issue)
 		if err != nil {
 			return err
 		}
 		if !triaging {
+			if err := e.queries.EndTriagerTurn(ctx, store.EndTriagerTurnParams{Repository: repository.FullName, Issue: number}); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := e.restartTriager(ctx, repository, number); err != nil {
@@ -173,7 +185,8 @@ func (e *Engine) triaging(ctx context.Context, repository github.Repository, iss
 	return workstream == 0, err
 }
 
-// startTriager runs the Triager of the issue number in a goroutine. The caller holds a tryTrack.
+// startTriager runs the Triager of the issue number in a goroutine. The caller holds a tryTrack. A turn that ends with
+// no stop ends in the database. A turn that a stop ends stays there.
 func (e *Engine) startTriager(repository github.Repository, number int64) {
 	triageCtx, stop := context.WithCancel(context.Background())
 	key := triageKey{repository.FullName, number}
@@ -187,6 +200,11 @@ func (e *Engine) startTriager(repository github.Repository, number int64) {
 			log.Printf("Triager of %s#%d: %v", repository.FullName, number, err)
 		}
 		e.triagesMu.Lock()
+		if triageCtx.Err() == nil {
+			if err := e.queries.EndTriagerTurn(context.Background(), store.EndTriagerTurnParams{Repository: repository.FullName, Issue: number}); err != nil {
+				log.Printf("Triager of %s#%d: %v", repository.FullName, number, err)
+			}
+		}
 		delete(e.triages, key)
 		e.triagesMu.Unlock()
 		stop()
@@ -309,8 +327,8 @@ func (e *Engine) closeEndedTriage(ctx context.Context, repository github.Reposit
 	return err == nil, err
 }
 
-// stopTriager stops the Triager of the issue number when a person removed mobius:triage last. Mobius ignores its own
-// removal of that label.
+// stopTriager stops the Triager of the issue number, and ends its turn in the database, when a person removed
+// mobius:triage last. Mobius ignores its own removal of that label.
 func (e *Engine) stopTriager(ctx context.Context, repository github.Repository, number int64) error {
 	key := triageKey{repository.FullName, number}
 	e.triagesMu.Lock()
@@ -335,7 +353,7 @@ func (e *Engine) stopTriager(ctx context.Context, repository github.Repository, 
 			running.stop()
 		}
 		e.triagesMu.Unlock()
-		return nil
+		return e.queries.EndTriagerTurn(ctx, store.EndTriagerTurnParams{Repository: repository.FullName, Issue: number})
 	}
 	return nil
 }

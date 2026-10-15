@@ -269,6 +269,13 @@ func (g *FakeGitHub) AllowClose(repository string, number int64) {
 	delete(g.failedCloses, issueKey{repository, number})
 }
 
+// RefuseCloses makes each close of an issue give the status. The status 0 makes the close work.
+func (g *FakeGitHub) RefuseCloses(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.closeRefusal = status
+}
+
 // FailIssueReads makes the next times reads of the issue fail.
 func (g *FakeGitHub) FailIssueReads(repository string, number int64, times int) {
 	g.mu.Lock()
@@ -726,6 +733,10 @@ func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if request.State != "closed" {
 		message(w, http.StatusUnprocessableEntity, "The fake GitHub only closes.")
+		return
+	}
+	if g.closeRefusal != 0 {
+		message(w, g.closeRefusal, "Resource not accessible by integration")
 		return
 	}
 	if g.failedCloses[key] {

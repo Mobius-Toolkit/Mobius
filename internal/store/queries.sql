@@ -618,15 +618,15 @@ UPDATE tasks SET approved_review = ? WHERE id = ?;
 -- name: SetTaskRefusedReview :exec
 UPDATE tasks SET refused_review = ? WHERE id = ?;
 
--- name: HoldTriager :exec
-INSERT INTO held_triagers (repository, issue) VALUES (?, ?)
+-- name: AddTriagerTurn :exec
+INSERT INTO triager_turns (repository, issue) VALUES (?, ?)
 ON CONFLICT (repository, issue) DO NOTHING;
 
--- name: ListHeldTriagers :many
-SELECT issue FROM held_triagers WHERE repository = ? ORDER BY issue;
+-- name: ListTriagerTurns :many
+SELECT issue FROM triager_turns WHERE repository = ? ORDER BY issue;
 
--- name: ReleaseTriager :exec
-DELETE FROM held_triagers WHERE repository = ? AND issue = ?;
+-- name: EndTriagerTurn :exec
+DELETE FROM triager_turns WHERE repository = ? AND issue = ?;
 
 -- name: ListMemoryVersions :many
 SELECT id, time, author, reason, text FROM memory_versions WHERE repository = ? ORDER BY id DESC;
@@ -735,3 +735,12 @@ UPDATE ci_breaks SET result = ? WHERE id = ?;
 
 -- name: EndCIBreak :exec
 UPDATE ci_breaks SET result = ?, ended_run_id = ?, ended_at = ? WHERE id = ?;
+
+-- name: ListCIBreaksWithoutIssue :many
+SELECT * FROM ci_breaks WHERE repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '') ORDER BY id;
+
+-- name: ListCIBreaksNotBelowWorkstream :many
+SELECT * FROM ci_breaks WHERE repository = ? AND issue < 0 ORDER BY id;
+
+-- name: SetCIBreakIssue :exec
+UPDATE ci_breaks SET issue = ? WHERE id = ?;

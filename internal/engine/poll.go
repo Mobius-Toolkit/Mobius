@@ -93,7 +93,7 @@ func repositoryKeys(repositories []github.Repository) []string {
 }
 
 // recover hands the lost tasks of repository to a human, gives the messages of the Owner and the events that wait
-// from the earlier run of the server to the agents of the chats, starts a Curator for the requests of the Owner that wait, and starts each Worker of the earlier
+// from the earlier run of the server to the agents of the chats, starts a Curator for the requests of the Owner that wait, starts each Triager turn of the earlier run again, and starts each Worker of the earlier
 // run again.
 func (e *Engine) recover(ctx context.Context, repository github.Repository) error {
 	if err := e.handLostTasks(ctx, repository); err != nil {
@@ -126,6 +126,9 @@ func (e *Engine) recover(ctx context.Context, repository github.Repository) erro
 		if err := e.startCurator(ctx, repository.FullName); err != nil {
 			return err
 		}
+	}
+	if err := e.startHeldTriagers(ctx, repository); err != nil {
+		return err
 	}
 	e.recovered[repository.FullName] = true
 	return e.restartLost(ctx, repository, true)

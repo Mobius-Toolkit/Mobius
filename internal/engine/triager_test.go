@@ -239,6 +239,76 @@ func TestANewIssueOfATrustedUserGetsMobiusTriageAndOneTriagerThatReplies(t *test
 	}
 }
 
+// triagerTurns gives the issues of owner/shop with a Triager turn that did not end.
+func triagerTurns(t *testing.T, server *testserver.Server) []int64 {
+	t.Helper()
+	numbers, err := store.New(server.DB).ListTriagerTurns(t.Context(), shop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return numbers
+}
+
+func TestARestartStartsAgainATriagerTurnThatDidNotEndAndTheTurnEndsAfterTheReply(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	seed(t, dataDir, "INSERT INTO triager_turns (repository, issue) VALUES ('owner/shop', 52)")
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 52, "Add loyalty points")
+	fake.AddLabel(shop, 52, "mobius:triage", "owner")
+	fake.AddIssue(shop, 60, "Later change")
+	testkit.InstallFakeAgent(t, dataDir, options+triager)
+
+	server := startServer(t, fake, dataDir, "")
+
+	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: `Create the Workstream "Loyalty points" for this issue.`}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 52), proposal) })
+	testkit.WaitFor(t, func() bool { return len(triagerTurns(t, server)) == 0 })
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 1 {
+		t.Errorf("sessions = %+v", got)
+	}
+}
+
+func TestATriagerTurnThatEndedDoesNotStartAgainAfterARestart(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 52, "Add loyalty points")
+	fake.AddLabel(shop, 52, "mobius:triage", "owner")
+	fake.AddIssue(shop, 60, "Later change")
+	testkit.InstallFakeAgent(t, dataDir, options+triager)
+
+	server := startServer(t, fake, dataDir, "")
+
+	waitForPolls(t, fake)
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 || len(fake.Comments(shop, 52)) != 0 {
+		t.Errorf("sessions = %+v, comments = %v", got, fake.Comments(shop, 52))
+	}
+}
+
+func TestATriagerTurnForAnIssueWithoutMobiusTriageEndsAtTheStartAndStartsNoTriager(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	seed(t, dataDir, "INSERT INTO triager_turns (repository, issue) VALUES ('owner/shop', 52)")
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 52, "Add loyalty points")
+	testkit.InstallFakeAgent(t, dataDir, options+triager)
+
+	server := startServer(t, fake, dataDir, "")
+
+	testkit.WaitFor(t, func() bool { return len(triagerTurns(t, server)) == 0 })
+	if got := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(got) != 0 {
+		t.Errorf("sessions = %+v", got)
+	}
+}
+
 func TestAnIssueOfAnUntrustedUserGetsATriagerOnlyAfterMobiusTriageOfATrustedUser(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -331,6 +401,7 @@ func TestARemovalOfTheLabelStopsTheTriagerAndAProposalGoesToTheIssue(t *testing.
 	if got := fake.Comments(shop, 51); len(got) != 0 {
 		t.Errorf("comments of #51 = %v", got)
 	}
+	testkit.WaitFor(t, func() bool { return len(triagerTurns(t, server)) == 0 })
 }
 
 func TestAProposalThatGitHubRefusesGoesToTheIssueAtTheNextPoll(t *testing.T) {

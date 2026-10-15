@@ -231,7 +231,7 @@ func (e *Engine) deliverReport(ctx context.Context, c caller, repository github.
 			}); err != nil {
 				return err
 			}
-			return e.queries.HoldTriager(ctx, store.HoldTriagerParams{Repository: repository.FullName, Issue: number})
+			return e.queries.AddTriagerTurn(ctx, store.AddTriagerTurnParams{Repository: repository.FullName, Issue: number})
 		}
 		return e.restartTriager(ctx, repository, number)
 	}

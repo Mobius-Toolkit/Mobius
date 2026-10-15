@@ -55,6 +55,27 @@ type workflowRun struct {
 	WorkflowRun
 }
 
+// WorkflowJob is a job of an attempt of a workflow run. Its ID is the id of its job log (AddJobLog).
+type WorkflowJob struct {
+	ID         int64
+	Name       string
+	Conclusion string
+	Steps      []WorkflowStep
+}
+
+// WorkflowStep is a step of a job of a workflow run.
+type WorkflowStep struct {
+	Name       string
+	Conclusion string
+}
+
+type workflowJob struct {
+	repository string
+	run        int64
+	attempt    int
+	WorkflowJob
+}
+
 type pullRequest struct {
 	repository string
 	PullRequest
@@ -205,6 +226,13 @@ func (g *FakeGitHub) AddWorkflowRun(repository string, run WorkflowRun) int64 {
 	return int64(len(g.workflowRuns))
 }
 
+// AddWorkflowJob adds the job to the attempt of the workflow run id of repository.
+func (g *FakeGitHub) AddWorkflowJob(repository string, id int64, attempt int, job WorkflowJob) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.workflowJobs = append(g.workflowJobs, workflowJob{repository, id, attempt, job})
+}
+
 // SetWorkflowRunStatus sets the status and the conclusion of the workflow run id.
 func (g *FakeGitHub) SetWorkflowRunStatus(id int64, status, conclusion string) {
 	g.mu.Lock()
@@ -236,6 +264,20 @@ func (g *FakeGitHub) RefuseWorkflowRuns(status int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.runListRefusal = status
+}
+
+// RefuseWorkflowJobs makes the list of the jobs of a run attempt give the status. The status 0 makes the list work.
+func (g *FakeGitHub) RefuseWorkflowJobs(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.jobListRefusal = status
+}
+
+// RefuseJobLogs makes the link to a job log give the status. The status 0 makes the link work.
+func (g *FakeGitHub) RefuseJobLogs(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.jobLogRefusal = status
 }
 
 // WorkflowRunAttempt gives the number of the attempt of the workflow run id.
@@ -534,6 +576,10 @@ func (g *FakeGitHub) checkRunAnnotations(w http.ResponseWriter, r *http.Request)
 func (g *FakeGitHub) jobLogLink(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.jobLogRefusal != 0 {
+		message(w, g.jobLogRefusal, "Server Error")
+		return
+	}
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if _, ok := g.jobLogs[id]; !ok {
 		notFound(w)
@@ -583,6 +629,29 @@ func (g *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 		runs = append(runs, body)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(runs), "workflow_runs": page(w, r, runs)})
+}
+
+func (g *FakeGitHub) listWorkflowJobsAttempt(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	attempt, _ := strconv.Atoi(r.PathValue("attempt"))
+	if g.jobListRefusal != 0 {
+		message(w, g.jobListRefusal, "Resource not accessible by integration")
+		return
+	}
+	jobs := []map[string]any{}
+	for _, job := range g.workflowJobs {
+		if job.repository != repository(r) || job.run != id || job.attempt != attempt {
+			continue
+		}
+		steps := []map[string]any{}
+		for _, step := range job.Steps {
+			steps = append(steps, map[string]any{"name": step.Name, "conclusion": step.Conclusion})
+		}
+		jobs = append(jobs, map[string]any{"id": job.ID, "name": job.Name, "conclusion": job.Conclusion, "steps": steps})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(jobs), "jobs": page(w, r, jobs)})
 }
 
 func (g *FakeGitHub) rerunFailedJobs(w http.ResponseWriter, r *http.Request) {
