@@ -334,6 +334,9 @@ func TestSendAgainAddsTheOwnerMessageWithItsImagesToTheChatAndClosesTheItem(t *t
 	if len(owner) != 2 || owner[1].Text != "Plan the loyalty API" || owner[1].ID == owner[0].ID {
 		t.Fatalf("Owner messages = %+v", owner)
 	}
+	if !owner[1].BrowserID.Valid {
+		t.Error("the new message has no browser id")
+	}
 	for position, want := range []engine.Image{pngImage, jpegImage} {
 		image, err := server.Engine.MessageImage(owner[1].ID, position)
 		if err != nil || image == nil || !reflect.DeepEqual(*image, want) {

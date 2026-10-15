@@ -154,6 +154,9 @@ const Message = memo(function Message({ message }: { message: ChatMessage }) {
           ))}
         </div>
       )}
+      {message.author === "Owner" && !message.deliveredAt && !message.stoppedAt && (
+        <span className="text-xs text-muted-foreground">Waits for the agent</span>
+      )}
     </div>
   );
 });
@@ -328,6 +331,7 @@ export function Conversation({
   const [older, setOlder] = useState(false);
   const [harness, setHarness] = useState("");
   const [writing, setWriting] = useState(false);
+  const [stoppable, setStoppable] = useState(false);
   const [pausedUntil, setPausedUntil] = useState<string | null>(null);
   const [failure, setFailure] = useState("");
   const [error, setError] = useState<string>();
@@ -470,8 +474,9 @@ export function Conversation({
     }
     setHarness(newestPage.harness);
     setWriting(newestPage.writing);
+    setStoppable(newestPage.stoppable);
     setPausedUntil(newestPage.pausedUntil);
-    if (!newestPage.writing) {
+    if (!newestPage.stoppable) {
       setStopping(false);
     }
     setLoaded(true);
@@ -528,8 +533,9 @@ export function Conversation({
     const removeState = onEvent<LiveEvents, "chat">(source, "chat", (state) => {
       if (sameChat(state, key)) {
         setWriting(state.writing);
+        setStoppable(state.stoppable);
         setPausedUntil(state.pausedUntil);
-        if (!state.writing) {
+        if (!state.stoppable) {
           setStopping(false);
         }
         setFailure(state.error);
@@ -728,7 +734,7 @@ export function Conversation({
   };
 
   const empty = !text.trim() && images.length === 0;
-  const showStop = empty && writing;
+  const showStop = empty && stoppable;
   const buttonPending = showStop && stopping;
 
   const send = () => {
@@ -976,11 +982,11 @@ export function Conversation({
                 aria-label={showStop ? "Stop the reply" : "Send"}
                 title={showStop ? "Stop the reply" : "Send"}
                 pending={buttonPending}
-                disabled={empty && !writing}
+                disabled={empty && !showStop}
                 className={cn(
                   "rounded-full max-md:size-11",
                   empty &&
-                    !writing &&
+                    !showStop &&
                     "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
                 )}
                 onMouseDown={(event) => event.preventDefault()}

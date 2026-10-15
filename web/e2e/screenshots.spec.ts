@@ -195,12 +195,37 @@ test("screenshots", async ({ page }) => {
   await main.getByLabel("Message to the Lead").fill("");
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
-    const body = (await response.json()) as { data: { writing: boolean } };
+    const body = (await response.json()) as { data: { writing: boolean; stoppable: boolean } };
     body.data.writing = true;
+    body.data.stoppable = true;
     await route.fulfill({ response, json: body });
   });
   await screenshot(page, "chat-writing", "/workstreams/owner/shop/12", (device) => [
     ...chatReady(device),
+    main.getByRole("button", { name: "Stop the reply" }),
+  ]);
+  await page.unroute("**/api/chat?*");
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: {
+        writing: boolean;
+        stoppable: boolean;
+        messages: { author: string; deliveredAt: string | null }[];
+      };
+    };
+    body.data.writing = true;
+    body.data.stoppable = true;
+    for (const message of body.data.messages) {
+      if (message.author === "Owner") {
+        message.deliveredAt = null;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(page, "chat-waiting", "/workstreams/owner/shop/12", (device) => [
+    ...chatReady(device),
+    main.getByText("Waits for the agent").first(),
     main.getByRole("button", { name: "Stop the reply" }),
   ]);
   await page.unroute("**/api/chat?*");
