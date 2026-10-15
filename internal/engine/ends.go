@@ -648,6 +648,9 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
+	if live && task.Workstream != c.workstream {
+		return "", refuse("#%d has no live task in this Workstream.", input.N)
+	}
 	if _, err := repository.AddComment(ctx, input.N, input.Reason); err != nil {
 		return "", err
 	}
