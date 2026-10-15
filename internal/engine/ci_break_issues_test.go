@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -183,6 +184,39 @@ func TestABreakWithoutAMaintenanceWorkstreamGetsAnIssueWhenTheWorkstreamAppears(
 	waitForPolls(t, fake)
 	if numbers := fake.SubIssueNumbers(shop, maintenance); len(numbers) != 1 {
 		t.Errorf("sub-issues = %v", numbers)
+	}
+}
+
+func TestTwoFailedJobsWithLongLogsGiveOneIssueBelowTheLimitOfGitHub(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := fake.AddWorkflowRun(shop, failedMainRun(7))
+	for i, name := range []string{"check", "e2e"} {
+		id := int64(910 + i)
+		fake.AddWorkflowJob(shop, run, 1, testkit.WorkflowJob{ID: id, Name: name, Conclusion: "failure", Steps: []testkit.WorkflowStep{
+			{Name: "Run " + name, Conclusion: "failure"},
+		}})
+		var log strings.Builder
+		for line := 1; line <= 200; line++ {
+			fmt.Fprintf(&log, "%s line %03d %s\n", name, line, strings.Repeat("x", 480))
+		}
+		fake.AddJobLog(id, log.String())
+	}
+	addMaintenanceWorkstream(fake, maintenance)
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+
+	fake.SetWorkflowRunStatus(run, "completed", "failure")
+
+	number := ciBreakIssue(t, fake)
+	_, body := fake.Issue(shop, number)
+	if len(body) >= 65536 {
+		t.Errorf("body length = %d", len(body))
+	}
+	for _, want := range []string{"Failed job: check", "Failed step: Run check", "check line 200 ", "Failed job: e2e", "Failed step: Run e2e", "e2e line 200 "} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not have %q", want)
+		}
 	}
 }
 

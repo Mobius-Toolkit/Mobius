@@ -13,6 +13,11 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
+// issueBodyBytes is below the limit of GitHub for the body of an issue: 65,536 characters.
+const issueBodyBytes = 60000
+
+const logFormat = "\nEnd of the job log:\n\n````\n%s\n````\n"
+
 // refusedByGitHub tells whether err is an answer of GitHub with a 4xx status, for example for a missing permission.
 // The next poll tries a refused call again.
 func refusedByGitHub(err error) bool {
@@ -79,37 +84,69 @@ func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repos
 }
 
 // ciBreakBody gives the body of the issue of ciBreak: the run, the result of the re-run, and each failed job of the
-// failed attempt with its failed step and the end of its log.
+// failed attempt with its failed step and the end of its log. The body has less than issueBodyBytes bytes: a long log
+// loses its first lines.
 func ciBreakBody(ctx context.Context, repository github.Repository, ciBreak store.CiBreak) (string, error) {
 	jobs, err := repository.RunAttemptJobs(ctx, ciBreak.RunID, ciBreak.RunAttempt)
 	if err != nil {
 		return "", err
 	}
-	var body strings.Builder
-	fmt.Fprintf(&body, "The workflow \"%s\" failed on %s.\n\nRun: %s\nAttempt: %d\n\n", ciBreak.WorkflowName, repository.DefaultBranch, ciBreak.RunUrl, ciBreak.RunAttempt)
+	var head strings.Builder
+	fmt.Fprintf(&head, "The workflow \"%s\" failed on %s.\n\nRun: %s\nAttempt: %d\n\n", ciBreak.WorkflowName, repository.DefaultBranch, ciBreak.RunUrl, ciBreak.RunAttempt)
 	if ciBreak.Result == "flaky" {
-		body.WriteString("Result of the re-run: flaky. The re-run of the failed jobs passed.\n")
+		head.WriteString("Result of the re-run: flaky. The re-run of the failed jobs passed.\n")
 	} else {
-		body.WriteString("Result of the re-run: hard. The re-run of the failed jobs failed again, or GitHub refused the re-run.\n")
+		head.WriteString("Result of the re-run: hard. The re-run of the failed jobs failed again, or GitHub refused the re-run.\n")
 	}
+	var sections, logs []string
+	used := head.Len()
 	for _, job := range jobs {
 		if !failedRunConclusion(job.GetConclusion()) {
 			continue
 		}
-		fmt.Fprintf(&body, "\nFailed job: %s\n", job.GetName())
+		var section strings.Builder
+		fmt.Fprintf(&section, "\nFailed job: %s\n", job.GetName())
 		for _, step := range job.Steps {
 			if failedRunConclusion(step.GetConclusion()) {
-				fmt.Fprintf(&body, "Failed step: %s\n", step.GetName())
+				fmt.Fprintf(&section, "Failed step: %s\n", step.GetName())
 				break
 			}
 		}
+		sections = append(sections, section.String())
 		// A job log that cannot download leaves the issue with the job and the step.
-		if jobLog, err := repository.JobLog(ctx, job.GetID()); err == nil {
-			lines := strings.Split(strings.TrimRight(jobLog, "\n"), "\n")
-			fmt.Fprintf(&body, "\nEnd of the job log:\n\n````\n%s\n````\n", strings.Join(lines[max(0, len(lines)-jobLogLines):], "\n"))
+		jobLog, err := repository.JobLog(ctx, job.GetID())
+		if err != nil {
+			jobLog = ""
+		}
+		logs = append(logs, strings.TrimRight(jobLog, "\n"))
+		used += len(section.String()) + len(fmt.Sprintf(logFormat, ""))
+	}
+	body := head.String()
+	for i, section := range sections {
+		body += section
+		if logs[i] != "" {
+			body += fmt.Sprintf(logFormat, jobLogTail(logs[i], max(0, issueBodyBytes-used)/len(sections)))
 		}
 	}
-	return body.String(), nil
+	return body, nil
+}
+
+// jobLogTail gives the last lines of jobLog, at most jobLogLines lines and at most limit bytes. It always keeps the end of
+// the last line.
+func jobLogTail(jobLog string, limit int) string {
+	lines := strings.Split(jobLog, "\n")
+	lines = lines[max(0, len(lines)-jobLogLines):]
+	size := 0
+	first := len(lines)
+	for first > 0 && size+len(lines[first-1])+1 <= limit {
+		first--
+		size += len(lines[first]) + 1
+	}
+	if first == len(lines) {
+		last := lines[len(lines)-1]
+		return strings.ToValidUTF8(last[max(0, len(last)-limit):], "")
+	}
+	return strings.Join(lines[first:], "\n")
 }
 
 // closeCIBreakIssue closes the task issue of ciBreak with a comment that links to the passed run, when the issue is
