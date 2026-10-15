@@ -126,6 +126,11 @@ func TestACITaskTakesTheNextSlotBeforeAQueuedTask(t *testing.T) {
 	fake.AddWorkflowRun(shop, failedMainRun(7))
 	number := ciBreakIssue(t, fake)
 	waitForState(t, server, number, "queued")
+	for _, queued := range []int64{number, 43} {
+		testkit.WaitFor(t, func() bool {
+			return countRows(t, server, "SELECT count(*) FROM sessions WHERE role = 'implementer' AND issue = ? AND queue_reason IS NOT NULL", queued) == 1
+		})
+	}
 	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +141,7 @@ func TestACITaskTakesTheNextSlotBeforeAQueuedTask(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = server.DB.QueryRow("SELECT coalesce(max(started_at), '') FROM sessions WHERE role = 'implementer' AND issue = 43").Scan(&queuedStart)
+		err = server.DB.QueryRow("SELECT coalesce(max(started_at), '') FROM sessions WHERE role = 'implementer' AND issue = 43 AND queue_reason IS NULL").Scan(&queuedStart)
 		if err != nil {
 			t.Fatal(err)
 		}
