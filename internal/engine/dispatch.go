@@ -221,7 +221,7 @@ func lastEvent(events []*gh.IssueEvent, kind, label string) (int, *gh.IssueEvent
 
 // commentEvents acts on the new comments of the issue of a live task: a new comment that is an event resets the
 // counters of the task and goes to the Lead. It also continues a task in needs_human, as the author of the newest such
-// comment. When the newest such comment is newer than the last comment of the Mobius App, the question, it answers the
+// comment, when that comment is newer than the move of the task to needs_human. When the newest such comment is newer than the last comment of the Mobius App, the question, it answers the
 // question: mobius:question goes away.
 // Each such comment gets the reaction of an agent that gets it. For an issue with no live task, see commentsWithoutTask.
 func (e *Engine) commentEvents(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
@@ -252,11 +252,20 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 		return nil
 	}
 	if task.State == "needs_human" && len(replies) > 0 {
-		if err := e.resume(ctx, repository, issue, task, replies[len(replies)-1].GetUser().GetLogin()); err != nil {
-			return err
+		newest := replies[len(replies)-1]
+		var since time.Time
+		if task.NeedsHumanAt.Valid {
+			if since, err = time.Parse(time.RFC3339Nano, task.NeedsHumanAt.String); err != nil {
+				return err
+			}
 		}
-		if task, err = e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number}); err != nil {
-			return err
+		if newest.GetCreatedAt().After(since) {
+			if err := e.resume(ctx, repository, issue, task, newest.GetUser().GetLogin()); err != nil {
+				return err
+			}
+			if task, err = e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number}); err != nil {
+				return err
+			}
 		}
 	}
 	return e.commentEventsOf(ctx, repository, task, issue, replies)

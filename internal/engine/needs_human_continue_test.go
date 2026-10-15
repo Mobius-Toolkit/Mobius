@@ -231,3 +231,22 @@ func TestACommentOfTheLeadWithGhOnTheIssueOfATaskInNeedsHumanDoesNotContinueTheT
 		t.Errorf("Implementers = %d", count)
 	}
 }
+
+func TestACommentThatIsOlderThanTheStopOfATaskInNeedsHumanDoesNotContinueTheTask(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := stoppedOnFailedCI(t, fake, noChange)
+	before := implementers(t, server)
+
+	fake.AddCommentCreatedAt(shop, 41, "owner", "Use cents.", time.Now().Add(-time.Hour))
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "> Use cents.") })
+	})
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+	if count := implementers(t, server); count != before {
+		t.Errorf("Implementers = %d", count)
+	}
+}

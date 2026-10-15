@@ -431,6 +431,19 @@ func (g *FakeGitHub) AddCommentInLastSecond(repository string, number int64, aut
 	return g.commentAt(issueKey{repository, number}, author, body, g.clock).ID
 }
 
+// AddCommentCreatedAt adds a comment of author to the issue that was created at createdAt, and gives the id of the
+// comment. Its update time is new, so the poll reads it as a new comment. It shows a comment that Mobius reads only
+// after the event that it precedes.
+func (g *FakeGitHub) AddCommentCreatedAt(repository string, number int64, author, body string, createdAt time.Time) int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	key := issueKey{repository, number}
+	comment := g.comment(key, author, body)
+	comments := g.issues[key].comments
+	comments[len(comments)-1].CreatedAt = timestamp(createdAt.Unix())
+	return comment.ID
+}
+
 // EditComment replaces the body of the comment id of an issue of the repository. It gives false when the repository
 // has no such comment.
 func (g *FakeGitHub) EditComment(repository string, id int64, body string) bool {
