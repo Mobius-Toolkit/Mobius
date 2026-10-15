@@ -85,7 +85,8 @@ func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repos
 
 // ciBreakBody gives the body of the issue of ciBreak: the run, the result of the re-run, and each failed job of the
 // failed attempt with its failed step and the end of its log. The body has less than issueBodyBytes bytes: a long log
-// loses its first lines.
+// loses its first lines. A job log that GitHub refuses with a 4xx status, for example an expired log, gives a job with
+// no log.
 func ciBreakBody(ctx context.Context, repository github.Repository, ciBreak store.CiBreak) (string, error) {
 	jobs, err := repository.RunAttemptJobs(ctx, ciBreak.RunID, ciBreak.RunAttempt)
 	if err != nil {
@@ -113,10 +114,9 @@ func ciBreakBody(ctx context.Context, repository github.Repository, ciBreak stor
 			}
 		}
 		sections = append(sections, section.String())
-		// A job log that cannot download leaves the issue with the job and the step.
 		jobLog, err := repository.JobLog(ctx, job.GetID())
-		if err != nil {
-			jobLog = ""
+		if err != nil && !refusedByGitHub(err) {
+			return "", err
 		}
 		logs = append(logs, strings.TrimRight(jobLog, "\n"))
 		used += len(section.String()) + len(fmt.Sprintf(logFormat, ""))

@@ -273,6 +273,13 @@ func (g *FakeGitHub) RefuseWorkflowJobs(status int) {
 	g.jobListRefusal = status
 }
 
+// RefuseJobLogs makes the link to a job log give the status. The status 0 makes the link work.
+func (g *FakeGitHub) RefuseJobLogs(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.jobLogRefusal = status
+}
+
 // WorkflowRunAttempt gives the number of the attempt of the workflow run id.
 func (g *FakeGitHub) WorkflowRunAttempt(id int64) int {
 	g.mu.Lock()
@@ -569,6 +576,10 @@ func (g *FakeGitHub) checkRunAnnotations(w http.ResponseWriter, r *http.Request)
 func (g *FakeGitHub) jobLogLink(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.jobLogRefusal != 0 {
+		message(w, g.jobLogRefusal, "Server Error")
+		return
+	}
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if _, ok := g.jobLogs[id]; !ok {
 		notFound(w)

@@ -242,6 +242,28 @@ func TestARefusedJobListCreatesNoIssueUntilTheListWorks(t *testing.T) {
 	}
 }
 
+func TestAFailedJobLogReadCreatesNoIssueUntilTheReadWorks(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := failedRunWithJob(fake)
+	addMaintenanceWorkstream(fake, maintenance)
+	fake.RefuseJobLogs(http.StatusInternalServerError)
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	fake.SetWorkflowRunStatus(run, "completed", "failure")
+	waitForPolls(t, fake)
+
+	if created := createdIssues(fake); created != 0 {
+		t.Fatalf("created issues = %d", created)
+	}
+	fake.RefuseJobLogs(0)
+
+	number := ciBreakIssue(t, fake)
+	if _, body := fake.Issue(shop, number); !strings.Contains(body, "--- FAIL: TestPlan") {
+		t.Errorf("body = %q", body)
+	}
+}
+
 func TestARefusedCloseKeepsTheBreakOpenUntilTheCloseWorks(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
