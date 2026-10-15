@@ -479,6 +479,22 @@ func (e *Engine) stopLead(repository string, workstream int64) {
 	if c, ok := e.chats[key]; ok {
 		delete(e.chats, key)
 		c.halt()
+		e.dropWaitingMessages(c)
+	}
+}
+
+// dropWaitingMessages stops each message of the Owner that a chat which ends for good did not take: its first
+// message and its queued messages. A restart of Mobius gives such a message again only when the chat ends in a
+// drain. The caller holds e.chatsMu.
+func (e *Engine) dropWaitingMessages(c *chat) {
+	ctx := context.Background()
+	if c.first.message != nil {
+		if err := e.stopMessage(ctx, c.first.message); err != nil {
+			log.Printf("stop the first message of the chat %v: %v", c.key, err)
+		}
+	}
+	if err := e.dropQueuedOwnerMessages(ctx, c); err != nil {
+		log.Printf("stop the queued messages of the chat %v: %v", c.key, err)
 	}
 }
 
@@ -720,6 +736,9 @@ func (e *Engine) finishChat(c *chat, failure string) {
 	if e.chats[c.key] == c {
 		delete(e.chats, c.key)
 	}
+	if failure != "" {
+		e.dropWaitingMessages(c)
+	}
 	e.chatsMu.Unlock()
 	e.publish(Change{Chat: &ChatState{Key: c.key, Error: failure}})
 }
@@ -817,7 +836,7 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 		}
 		if c.key.Workstream != 0 {
 			a.setAuthor("")
-			if err := e.turn(c, a, savePrompt, nil, true); err != nil {
+			if err := e.turn(c, a, savePrompt, nil, false); err != nil {
 				return err
 			}
 		}
