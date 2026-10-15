@@ -32,8 +32,9 @@ type stopNotice struct {
 
 // tellStop posts the reason text and the next action of notice on the issue of the task, and adds a stopped Inbox item
 // with the same text. When the issue has an open question item, the stopped item is dismissed at once, so the issue has
-// one open item. A comment that GitHub refuses goes to comment_writes, and the next poll sends it again. Call tellStop after the labels change,
-// because closeInboxItems dismisses a stopped item of an issue with no mobius:needs-human.
+// one open item. A comment that GitHub refuses goes to comment_writes, and the next poll sends it again.
+// Call tellStop after the labels change, because closeInboxItems dismisses a stopped item of an issue with no
+// mobius:needs-human.
 func (e *Engine) tellStop(ctx context.Context, task store.Task, title string, notice stopNotice) error {
 	repository, err := e.repository(task.Repository)
 	if err != nil {
