@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -192,18 +193,23 @@ func setFixRounds(t *testing.T, server *testserver.Server, rounds int) {
 
 const markReadyLead = "[[prompts]]\nwhen = \"Start #41.\"\ncall = { tool = \"mark_ready\", arguments = { n = 41 } }\n\n"
 
-func TestMarkReadyContinuesATaskInNeedsHumanAndKeepsTheRoundCounters(t *testing.T) {
+func TestMarkReadyContinuesATaskThatTheCIStoppedAndKeepsTheRoundCounters(t *testing.T) {
 	for _, autopilot := range []bool{true, false} {
 		t.Run(fmt.Sprintf("autopilot=%t", autopilot), func(t *testing.T) {
 			t.Parallel()
 			fake := testkit.NewFakeGitHub(t)
-			server, _ := seedWaitingWith(t, fake, "needs_human", markReadyLead)
+			server, sha := seedWaitingWith(t, fake, "checks", markReadyLead)
 			if autopilot {
 				fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
 			}
-			testkit.WaitFor(t, func() bool { return hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake) })
+			if _, err := server.DB.Exec("UPDATE tasks SET fix_rounds = 2, check_head = ? WHERE id = 1", sha); err != nil {
+				t.Fatal(err)
+			}
+			fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+			testkit.WaitFor(t, func() bool {
+				return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake)
+			})
 			waitForPolls(t, fake)
-			setFixRounds(t, server, 2)
 
 			sendChat(t, server, leadChat, "Start #41.")
 
@@ -211,7 +217,14 @@ func TestMarkReadyContinuesATaskInNeedsHumanAndKeepsTheRoundCounters(t *testing.
 			if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:ready") {
 				t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
 			}
-			testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 3 })
+			testkit.WaitFor(t, func() bool {
+				task := liveTask(t, server, 41)
+				return task.FixRounds == 3 && task.CheckHead.String == sha
+			})
+			testkit.WaitFor(t, func() bool {
+				prompts := implementerPrompts(t, server)
+				return len(prompts) == 1 && strings.Contains(prompts[0], `Check run "build"`)
+			})
 		})
 	}
 }
