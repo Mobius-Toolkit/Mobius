@@ -214,9 +214,9 @@ func TestMarkReadyContinuesATaskThatTheCIStoppedAndKeepsTheRoundCounters(t *test
 			sendChat(t, server, leadChat, "Start #41.")
 
 			testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-			if pullRequestHasNeedsHuman(fake) || hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:ready") {
-				t.Errorf("labels = %v, pull request labels = %v", fake.Labels(shop, 41), fake.Labels(shop, pullRequestNumber))
-			}
+			testkit.WaitFor(t, func() bool {
+				return !pullRequestHasNeedsHuman(fake) && !hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:ready")
+			})
 			testkit.WaitFor(t, func() bool {
 				task := liveTask(t, server, 41)
 				return task.FixRounds == 3 && task.CheckHead.String == sha
