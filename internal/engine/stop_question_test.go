@@ -100,7 +100,7 @@ func TestTheEndOfAQuestionAfterAResumeOpensNoStoppedItem(t *testing.T) {
 	wantOpenKinds(t, server)
 }
 
-func TestTheEndOfAQuestionAfterAFailedJudgeOfAStoppedTaskOpensTheStoppedItemOfTheStop(t *testing.T) {
+func TestTheAnswerOfAQuestionAfterAFailedJudgeOfAStoppedTaskContinuesTheTaskAndOpensNoStoppedItem(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	first := leadAsksAfterStops + "[[prompts]]\nwhen = \"Judge again.\"\nerror = { code = -32000, message = \"The Judge crashed.\" }\n\n"
@@ -124,7 +124,8 @@ func TestTheEndOfAQuestionAfterAFailedJudgeOfAStoppedTaskOpensTheStoppedItemOfTh
 
 	fake.AddComment(shop, 41, "owner", "Cents.")
 
-	waitForItem(t, server, "stopped")
+	waitForNoItem(t, server, "question")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) != "needs_human" && !hasLabel(fake, "mobius:needs-human") })
 	waitForPolls(t, fake)
-	wantOpenKinds(t, server, "stopped")
+	wantOpenKinds(t, server)
 }
