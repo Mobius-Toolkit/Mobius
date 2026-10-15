@@ -701,6 +701,51 @@
         ]
       }
     },
+    "/api/ci-stops": {
+      "get": {
+        "description": "ListCIStops returns one item for each open hard CI break that has a task issue, in the order of the repositories and then of the break ids.",
+        "operationId": "ListCIStops",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Array_CIStop"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "ci-stops"
+        ]
+      }
+    },
     "/api/devices": {
       "get": {
         "description": "ListDevices returns the device logins.",
@@ -921,7 +966,7 @@
     },
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, each change of the pauses, and each Workstream that the Coordinator chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
+        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, each change of the pauses, each change of the CI stops, and each Workstream that the Coordinator chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
         "operationId": "StreamEvents",
         "parameters": [
           {
@@ -3541,6 +3586,45 @@
         ],
         "description": "Blocker is an open blocker of a task."
       },
+      "CIStop": {
+        "type": "object",
+        "title": "CIStop",
+        "properties": {
+          "branch": {
+            "type": "string",
+            "description": "Branch is the default branch of the repository"
+          },
+          "issue": {
+            "type": "integer",
+            "description": "Issue is the number of the task issue of the break"
+          },
+          "issueUrl": {
+            "type": "string",
+            "description": "IssueUrl is the GitHub URL of the task issue"
+          },
+          "repository": {
+            "type": "string",
+            "description": "Repository is the full name of the repository, as \"owner/name\""
+          },
+          "runUrl": {
+            "type": "string",
+            "description": "RunUrl is the GitHub URL of the failed run"
+          },
+          "workflow": {
+            "type": "string",
+            "description": "Workflow is the name of the workflow that fails"
+          }
+        },
+        "required": [
+          "repository",
+          "branch",
+          "workflow",
+          "runUrl",
+          "issue",
+          "issueUrl"
+        ],
+        "description": "CIStop is the stop of the dispatch of a repository because of a hard CI break on its default branch."
+      },
       "Chat": {
         "type": "object",
         "title": "Chat",
@@ -3923,6 +4007,24 @@
             "description": "Data is the payload of the response",
             "items": {
               "$ref": "#/components/schemas/Agent"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_Array_CIStop": {
+        "type": "object",
+        "title": "Envelope_Array_CIStop",
+        "properties": {
+          "data": {
+            "type": "array",
+            "title": "[]CIStop",
+            "description": "Data is the payload of the response",
+            "items": {
+              "$ref": "#/components/schemas/CIStop"
             }
           }
         },
@@ -4778,6 +4880,34 @@
               "event": {
                 "type": "string",
                 "const": "pauses"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "type": "array",
+                  "title": "[]CIStop",
+                  "description": "Array of CIStop",
+                  "items": {
+                    "$ref": "#/components/schemas/CIStop"
+                  }
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "ciStops"
               },
               "id": {
                 "type": "string"

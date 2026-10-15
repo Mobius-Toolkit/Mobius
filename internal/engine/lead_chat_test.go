@@ -712,7 +712,7 @@ func TestAnEventDuringATurnForAnOwnerMessageGetsItsOwnTurnAfterThatTurn(t *testi
 	}
 }
 
-func TestAnEventKeepsItsPlaceBeforeALaterOwnerMessage(t *testing.T) {
+func TestAnOwnerMessageComesBeforeAQueuedEventOfAnEarlierTurn(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nwhen = \"Plan the API\"\nhang = true\n\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Done.\"]\n", keepSessionOpen)
 	sendChat(t, server, leadChat, "Plan the API")
@@ -728,7 +728,60 @@ func TestAnEventKeepsItsPlaceBeforeALaterOwnerMessage(t *testing.T) {
 		prompts := promptTexts(t, server, session.ID)
 		return prompts, len(prompts) == 3 && eventDelivered(t, server)
 	})
-	if !strings.Contains(prompts[1], " dispatch of #41 ") || prompts[2] != "Also add a price" {
+	if prompts[1] != "Also add a price" || !strings.Contains(prompts[2], " dispatch of #41 ") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
+func TestAnOwnerMessageComesBeforeAnEventThatCameDuringASlowTurnForAnEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	release := filepath.Join(t.TempDir(), "release")
+	server, _ := connectWith(t, fake, fmt.Sprintf("[[prompts]]\nwhen = \" dispatch of #41 \"\nshell = 'until [ -e %s ]; do sleep 0.05; done'\n\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Noted.\"]\n", release), keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 1
+	})
+	dispatchTask(fake, 42, "Add plan route")
+	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 2 })
+	sendChat(t, server, leadChat, "Decision")
+
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
+		prompts := onlySession(t, server)
+		return prompts, len(prompts) == 3 && eventDelivered(t, server)
+	})
+	if !strings.Contains(prompts[0], " dispatch of #41 ") || prompts[1] != "Decision" || !strings.Contains(prompts[2], " dispatch of #42 ") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
+func TestOwnerMessagesKeepTheirOrderBeforeAnEventThatWaitsBehindASlowTurn(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	release := filepath.Join(t.TempDir(), "release")
+	server, _ := connectWith(t, fake, fmt.Sprintf("[[prompts]]\nwhen = \" dispatch of #41 \"\nshell = 'until [ -e %s ]; do sleep 0.05; done'\n\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Noted.\"]\n", release), keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 1
+	})
+	dispatchTask(fake, 42, "Add plan route")
+	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 2 })
+	sendChat(t, server, leadChat, "First")
+	sendChat(t, server, leadChat, "Second")
+
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
+		prompts := onlySession(t, server)
+		return prompts, len(prompts) == 4 && eventDelivered(t, server)
+	})
+	if prompts[1] != "First" || prompts[2] != "Second" || !strings.Contains(prompts[3], " dispatch of #42 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 }
@@ -999,7 +1052,7 @@ reply = ["Noted."]
 		prompts := onlySession(t, server)
 		return prompts, len(prompts) == 5 && eventDelivered(t, server)
 	})
-	if prompts[1] != "First decision" || !strings.Contains(prompts[2], " dispatch of #41 ") || prompts[3] != "Second decision" || !strings.Contains(prompts[4], " dispatch of #42 ") {
+	if prompts[1] != "First decision" || prompts[2] != "Second decision" || !strings.Contains(prompts[3], " dispatch of #41 ") || !strings.Contains(prompts[4], " dispatch of #42 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 }

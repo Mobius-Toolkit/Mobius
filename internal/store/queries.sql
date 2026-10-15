@@ -737,6 +737,9 @@ SELECT * FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id;
 -- name: ListOpenHardCIBreaks :many
 SELECT * FROM ci_breaks WHERE repository = ? AND ended_at = '' AND result = 'hard' ORDER BY id;
 
+-- name: ListAllOpenHardCIBreaks :many
+SELECT * FROM ci_breaks WHERE ended_at = '' AND result = 'hard' AND issue != 0 ORDER BY repository, id;
+
 -- name: SetCIBreakRerun :exec
 UPDATE ci_breaks SET rerun_at = ? WHERE id = ?;
 

@@ -110,7 +110,7 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 	passedAgain := newest != nil && newest.GetID() > ciBreak.RunID && newest.GetConclusion() == "success"
 	if ciBreak.RerunAt == "" {
 		if passedAgain {
-			return e.queries.EndCIBreak(ctx, store.EndCIBreakParams{Result: ciBreak.Result, EndedRunID: newest.GetID(), EndedAt: now(), ID: ciBreak.ID})
+			return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: ciBreak.Result, EndedRunID: newest.GetID(), EndedAt: now(), ID: ciBreak.ID})
 		}
 		if run == nil || int64(run.GetRunAttempt()) <= ciBreak.RunAttempt {
 			var refused *gh.ErrorResponse
@@ -128,7 +128,7 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 	passedAgain = passedAgain || newest != nil && newest.GetID() == ciBreak.RunID && newest.GetConclusion() == "success"
 	rerunCompleted := run != nil && run.GetStatus() == "completed" && int64(run.GetRunAttempt()) > ciBreak.RunAttempt
 	if ciBreak.Result == "" && rerunCompleted && run.GetConclusion() == "success" {
-		return e.queries.EndCIBreak(ctx, store.EndCIBreakParams{Result: "flaky", EndedRunID: run.GetID(), EndedAt: now(), ID: ciBreak.ID})
+		return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: "flaky", EndedRunID: run.GetID(), EndedAt: now(), ID: ciBreak.ID})
 	}
 	newerFailed := newest != nil && newest.GetID() > ciBreak.RunID && failedRunConclusion(newest.GetConclusion())
 	if ciBreak.Result == "" && (rerunCompleted || newerFailed) {
@@ -143,13 +143,24 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 				return err
 			}
 		}
-		return e.queries.EndCIBreak(ctx, store.EndCIBreakParams{Result: ciBreak.Result, EndedRunID: newest.GetID(), EndedAt: now(), ID: ciBreak.ID})
+		return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: ciBreak.Result, EndedRunID: newest.GetID(), EndedAt: now(), ID: ciBreak.ID})
 	}
 	if ciBreak.Result == "hard" && ciBreak.Issue > 0 {
 		if closed, err := e.ciBreakIssueClosed(ctx, repository, ciBreak.Issue); err != nil || !closed {
 			return err
 		}
-		return e.queries.EndCIBreak(ctx, store.EndCIBreakParams{Result: ciBreak.Result, EndedAt: now(), ID: ciBreak.ID})
+		return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: ciBreak.Result, EndedAt: now(), ID: ciBreak.ID})
+	}
+	return nil
+}
+
+// endCIBreak ends ciBreak. The end of a hard break with a task issue ends the stop of its repository.
+func (e *Engine) endCIBreak(ctx context.Context, ciBreak store.CiBreak, params store.EndCIBreakParams) error {
+	if err := e.queries.EndCIBreak(ctx, params); err != nil {
+		return err
+	}
+	if ciBreak.Issue != 0 {
+		e.publishCIStops(params.Result)
 	}
 	return nil
 }

@@ -482,6 +482,9 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 	}
 	if len(routes.round) == 0 {
 		if j.from == "needs_human" {
+			if err := e.queries.ResetTaskCounters(ctx, j.task.ID); err != nil {
+				return err
+			}
 			_, err := e.continueTask(ctx, repository, j.title, j.task, j.pullRequest, "working")
 			return err
 		}
@@ -503,6 +506,9 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 		return err
 	}
 	if j.from == "needs_human" {
+		if err := e.queries.ResetTaskCounters(ctx, j.task.ID); err != nil {
+			return err
+		}
 		if err := e.unstop(ctx, repository, j.task); err != nil {
 			return err
 		}
