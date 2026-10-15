@@ -142,14 +142,11 @@ func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Reposi
 		if err := e.queries.ReleaseTriager(ctx, store.ReleaseTriagerParams{Repository: repository.FullName, Issue: number}); err != nil {
 			return err
 		}
-		if issue == nil || issue.GetState() != "open" || !hasLabel(issue, triageLabel) {
-			continue
-		}
-		workstream, err := e.commentWorkstream(ctx, repository, issue)
+		triaging, err := e.triaging(ctx, repository, issue)
 		if err != nil {
 			return err
 		}
-		if workstream != 0 {
+		if !triaging {
 			continue
 		}
 		if err := e.restartTriager(ctx, repository, number); err != nil {
@@ -157,6 +154,15 @@ func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Reposi
 		}
 	}
 	return nil
+}
+
+// triaging tells if the issue is open, has triageLabel and has no Workstream.
+func (e *Engine) triaging(ctx context.Context, repository github.Repository, issue *gh.Issue) (bool, error) {
+	if issue == nil || issue.GetState() != "open" || !hasLabel(issue, triageLabel) {
+		return false, nil
+	}
+	workstream, err := e.commentWorkstream(ctx, repository, issue)
+	return workstream == 0, err
 }
 
 // startTriager runs the Triager of the issue number in a goroutine. The caller holds a tryTrack.

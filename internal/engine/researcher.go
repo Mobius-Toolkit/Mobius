@@ -211,11 +211,19 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 
 // deliverReport gives the report of the Researcher id on the question to the chat of c as a Researcher message. For
 // the Triager c, it is a comment on the issue of the Triager, and it starts the next turn of the Triager, because a
-// comment of the Mobius App starts no turn.
+// comment of the Mobius App starts no turn. When the triage has ended, the report goes nowhere.
 func (e *Engine) deliverReport(ctx context.Context, c caller, repository github.Repository, id int64, question, report string) error {
 	text := fmt.Sprintf("Report of the Researcher %d on \"%s\":\n\n%s", id, question, report)
 	if c.role == TriagerRole {
 		number := c.agent.spec.Issue.Int64
+		issue, err := repository.Issue(ctx, number)
+		if err != nil {
+			return err
+		}
+		triaging, err := e.triaging(ctx, repository, issue)
+		if err != nil || !triaging {
+			return err
+		}
 		if err := e.addOrKeepComment(ctx, repository, number, text); err != nil {
 			return err
 		}

@@ -30,6 +30,11 @@ when = "Send it to the Lead."
 call = { tool = "message_lead", arguments = { workstream = 12, text = "Add refunds to the loyalty plans." } }
 
 [[prompts]]
+when = "Where do refunds end?"
+busy = "1s"
+reply = ["Refunds end in the ledger."]
+
+[[prompts]]
 when = "You are a Researcher"
 reply = ["Refunds live in the plan model."]
 
@@ -48,6 +53,10 @@ reply = ["Proposal: a message to the Lead of #12."]
 [[prompts]]
 when = "# Issue\n\nowner/shop#63 "
 call = { tool = "start_researcher", arguments = { question = "Where do refunds live?" } }
+
+[[prompts]]
+when = "# Issue\n\nowner/shop#64 "
+call = { tool = "start_researcher", arguments = { question = "Where do refunds end?" } }
 
 [[prompts]]
 when = "Please use points."
@@ -537,6 +546,25 @@ func TestTheReportOfAResearcherOfTheTriagerIsACommentThatStartsTheNextTurn(t *te
 	}
 	thanks := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Thanks for the report."}
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 63), thanks) })
+}
+
+func TestTheReportOfAResearcherAfterTheEndOfTheTriageStartsNoTurn(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 64, "Add refunds", "Refund each order.", "owner")
+	researcher := waitForChatSession(t, server, issueTriagers, engine.ResearcherRole, func(session store.Session) bool { return true })
+
+	fake.CloseIssue(shop, 64)
+
+	waitForChatSession(t, server, issueTriagers, engine.ResearcherRole, func(session store.Session) bool { return session.ID == researcher.ID && session.EndedAt.Valid })
+	waitForPolls(t, fake)
+	if got := fake.Comments(shop, 64); len(got) != 0 {
+		t.Errorf("comments = %v", got)
+	}
+	if sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(sessions) != 1 {
+		t.Errorf("sessions = %d", len(sessions))
+	}
 }
 
 func TestTheCoordinatorChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
