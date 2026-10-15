@@ -1291,6 +1291,9 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	if err != nil {
 		return result{}, err
 	}
+	if j.pullRequest != nil {
+		e.markPushed(repository, int64(j.pullRequest.GetNumber()))
+	}
 	if j.pullRequest == nil {
 		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, fmt.Sprintf("Workstream:\n- #%d\n\nIssue:\n- #%d\n\nCloses #%d", j.task.Workstream, j.task.Issue, j.task.Issue))
 		if err != nil {
