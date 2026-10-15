@@ -2197,6 +2197,42 @@ test("the Details tab closes the Workstream with its open issues", async ({ page
   ).toMatchObject({ open: false });
 });
 
+test("an evergreen Workstream with all tasks closed shows no done badge and no Close Workstream button", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await page.route("**/api/workstreams", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { repository: string; number: number; allTasksClosed: boolean; evergreen: boolean }[];
+    };
+    for (const workstream of body.data) {
+      if (workstream.repository === "owner/shop" && workstream.number === 12) {
+        workstream.allTasksClosed = true;
+      }
+      if (workstream.repository === "owner/shop" && workstream.number === 14) {
+        workstream.allTasksClosed = true;
+        workstream.evergreen = true;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+
+  await page.goto("/workstreams");
+  await expect(main.getByText("done")).toHaveCount(1);
+  await expect(
+    main.getByRole("link").filter({ hasText: "Integrate loyalty plans" }).getByText("done"),
+  ).toBeVisible();
+
+  await page.goto("/workstreams/owner/shop/14");
+  await expect(main.getByLabel("Message to the Lead")).toBeVisible();
+  await expect(main.getByText("All tasks are closed.")).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "Close Workstream" })).toHaveCount(0);
+
+  await page.goto(shop);
+  await expect(main.getByRole("button", { name: "Close Workstream" })).toBeVisible();
+});
+
 test("the close of a Workstream does not leave the page that the user opened", async ({ page }) => {
   const second = "/workstreams/owner/shop/14";
   await page.route("**/api/workstreams", async (route) => {

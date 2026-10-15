@@ -775,6 +775,8 @@ export interface Workstream {
   autopilot: boolean;
   /** Brief is the body of the Workstream issue: the goal, the scope and the limits of the Workstream */
   brief: string;
+  /** Evergreen is true when the Workstream issue has mobius:evergreen */
+  evergreen: boolean;
   /** Number is the number of the Workstream issue */
   number: number;
   /** ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it */

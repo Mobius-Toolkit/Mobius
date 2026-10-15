@@ -5929,6 +5929,10 @@
             "type": "string",
             "description": "Brief is the body of the Workstream issue: the goal, the scope and the limits of the Workstream"
           },
+          "evergreen": {
+            "type": "boolean",
+            "description": "Evergreen is true when the Workstream issue has mobius:evergreen"
+          },
           "number": {
             "type": "integer",
             "description": "Number is the number of the Workstream issue"
@@ -5952,6 +5956,7 @@
           "title",
           "brief",
           "autopilot",
+          "evergreen",
           "allTasksClosed",
           "readyToMerge"
         ],
