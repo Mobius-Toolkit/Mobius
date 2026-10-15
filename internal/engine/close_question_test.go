@@ -58,6 +58,9 @@ reply = ["Seen"]
 	if !strings.Contains(prompt, "The Owner answered in the Lead chat:\n\n> Dollars.") {
 		t.Errorf("dispatch event = %q", prompt)
 	}
+	if strings.Contains(prompt, "by @:") {
+		t.Errorf("dispatch event has no actor: %q", prompt)
+	}
 }
 
 func TestCloseQuestionRunsAgainWhenTheTaskDoesNotContinue(t *testing.T) {

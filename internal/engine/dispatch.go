@@ -291,6 +291,9 @@ func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repositor
 			actor = comment.GetUser().GetLogin()
 			replies.WriteString("\n\n" + eventText(comment.GetCreatedAt().Time, "reply on", issue, actor, comment.GetBody()))
 		} else if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && strings.HasPrefix(comment.GetBody(), chatAnswerPrefix) {
+			if actor == "" {
+				actor = comment.GetUser().GetLogin()
+			}
 			replies.WriteString("\n\n" + comment.GetBody())
 		}
 	}
