@@ -146,10 +146,6 @@ func (c *chat) state() ChatState {
 	return ChatState{Key: c.key, Writing: c.writing, Stoppable: waitingMessage || c.stoppable || queuedOwner}
 }
 
-func isOwnerMessage(i item) bool {
-	return i.message != nil && i.message.Author == ownerAuthor
-}
-
 func (c *chat) notify() {
 	select {
 	case c.wake <- struct{}{}:
