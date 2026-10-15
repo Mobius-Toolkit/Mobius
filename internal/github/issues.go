@@ -81,11 +81,6 @@ func (r Repository) graphql(ctx context.Context, query string, variables map[str
 
 // BodyEdit is an edit of the body of an issue. Diff is the full body after the edit.
 type BodyEdit struct {
-	EditedAt time.Time
-	Diff     string
-}
-
-type bodyEditNode struct {
 	EditedAt time.Time `json:"editedAt"`
 	Diff     string    `json:"diff"`
 }
@@ -99,7 +94,7 @@ func (r Repository) IssueBodyEdits(ctx context.Context, number int64) ([]BodyEdi
 		var data struct {
 			Repository struct {
 				Issue struct {
-					Page connection[bodyEditNode] `json:"page"`
+					Page connection[BodyEdit] `json:"page"`
 				} `json:"issue"`
 			} `json:"repository"`
 		}
@@ -108,9 +103,7 @@ func (r Repository) IssueBodyEdits(ctx context.Context, number int64) ([]BodyEdi
 			return nil, err
 		}
 		page := data.Repository.Issue.Page
-		for _, node := range page.Nodes {
-			edits = append(edits, BodyEdit{EditedAt: node.EditedAt, Diff: node.Diff})
-		}
+		edits = append(edits, page.Nodes...)
 		if !page.PageInfo.HasNextPage {
 			return edits, nil
 		}
