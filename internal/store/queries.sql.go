@@ -2676,6 +2676,7 @@ func (q *Queries) ListCopiedTreeLabels(ctx context.Context, arg ListCopiedTreeLa
 
 const listCopiedWorkstreams = `-- name: ListCopiedWorkstreams :many
 SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
+       CAST(w.evergreen AS BOOLEAN) AS evergreen,
        CAST(EXISTS (SELECT 1 FROM copied_issues i
                WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number)
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
@@ -2693,6 +2694,7 @@ type ListCopiedWorkstreamsRow struct {
 	Title          string
 	Body           string
 	Autopilot      bool
+	Evergreen      bool
 	AllTasksClosed bool
 	ReadyToMerge   bool
 }
@@ -2712,6 +2714,7 @@ func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkst
 			&i.Title,
 			&i.Body,
 			&i.Autopilot,
+			&i.Evergreen,
 			&i.AllTasksClosed,
 			&i.ReadyToMerge,
 		); err != nil {

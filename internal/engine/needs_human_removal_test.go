@@ -213,9 +213,9 @@ func TestMarkReadyContinuesATaskThatTheCIStoppedAndKeepsTheRoundCounters(t *test
 			sendChat(t, server, leadChat, "Start #41.")
 
 			testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
-			if hasLabel(fake, "mobius:ready") {
-				t.Errorf("labels = %v", fake.Labels(shop, 41))
-			}
+			testkit.WaitFor(t, func() bool {
+				return !pullRequestHasNeedsHuman(fake) && !hasLabel(fake, "mobius:needs-human") && !hasLabel(fake, "mobius:ready")
+			})
 			for _, number := range []int64{41, pullRequestNumber} {
 				if !fake.LabelRemovedBy(shop, number, "mobius:needs-human", app) {
 					t.Errorf("mobius:needs-human on #%d has no removal by the App", number)
@@ -263,7 +263,5 @@ func TestMarkReadyContinuesAStoppedTaskWithAPullRequestWhenAutopilotIsOff(t *tes
 
 	testkit.WaitFor(t, func() bool { return implementerRounds(t, server) == 1 })
 	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).FixRounds == 4 })
-	if hasLabel(fake, "mobius:ready") {
-		t.Errorf("labels = %v", fake.Labels(shop, 41))
-	}
+	testkit.WaitFor(t, func() bool { return !hasLabel(fake, "mobius:ready") })
 }
