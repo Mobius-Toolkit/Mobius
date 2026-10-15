@@ -296,10 +296,10 @@ export function Conversation({
   const pinned = useRef(true);
   // The scrollTop of the last scroll to the end. A scroll event can come after an image has made the list longer.
   const endTop = useRef<number>(undefined);
-  const scrollToEnd = (list: HTMLElement) => {
+  const scrollToEnd = useCallback((list: HTMLElement) => {
     list.scrollTop = list.scrollHeight;
     endTop.current = list.scrollTop;
-  };
+  }, []);
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined);
   const loadingOlder = useRef(false);
@@ -536,6 +536,21 @@ export function Conversation({
       loadOlder();
     }
   }, [loaded, queueLoaded, older, waiting, openUnread, loadOlder]);
+
+  // The list gets shorter when the input gets taller, and the end of the list must stay in view.
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      if (pinned.current) {
+        scrollToEnd(list);
+      }
+    });
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [scrollToEnd]);
 
   // The first scroll shows the first unread message, or the end. Then a new message scrolls to the end, and a longer
   // last message scrolls only while the Owner is at the end.
