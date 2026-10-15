@@ -27,3 +27,28 @@ test("a change of the installations shows with no reload", async ({ page }) => {
   await expect(organization).toBeHidden();
   expect(await page.evaluate("window.sameLoad")).toBe(true);
 });
+
+test("the App name follows the account until the user edits it", async ({ page }) => {
+  await page.goto("/github");
+  await page.getByLabel("Access password").fill("correct horse");
+  await page.getByRole("button", { name: "Log in" }).click();
+  await expect(page.getByLabel("Access password")).toBeHidden();
+  const account = page.getByLabel("Account or organization");
+  const name = page.getByLabel("App name");
+
+  await expect(name).toHaveValue("Mobius");
+
+  await account.fill("acme");
+
+  await expect(name).toHaveValue("Mobius acme");
+
+  const long = "a".repeat(39);
+  await account.fill(long);
+
+  await expect(name).toHaveValue(`Mobius ${long}`.slice(0, 34));
+
+  await name.fill("My App");
+  await account.fill("plants");
+
+  await expect(name).toHaveValue("My App");
+});

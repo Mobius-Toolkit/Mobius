@@ -132,6 +132,15 @@ func (r Repository) RerunFailedJobs(ctx context.Context, id int64) error {
 	return err
 }
 
+// RunAttemptJobs gives the jobs of the attempt of the workflow run id. It reads one page, because a run has few jobs.
+func (r Repository) RunAttemptJobs(ctx context.Context, id, attempt int64) ([]*gh.WorkflowJob, error) {
+	jobs, _, err := r.Client.Actions.ListWorkflowJobsAttempt(ctx, r.Owner(), r.Name(), id, attempt, &gh.ListOptions{PerPage: 100})
+	if err != nil {
+		return nil, err
+	}
+	return jobs.Jobs, nil
+}
+
 // CheckRunAnnotations gives the annotations of the check run id.
 func (r Repository) CheckRunAnnotations(ctx context.Context, id int64) ([]*gh.CheckRunAnnotation, error) {
 	return all(r.Client.Checks.ListCheckRunAnnotationsIter(ctx, r.Owner(), r.Name(), id, &gh.ListOptions{PerPage: 100}))

@@ -446,6 +446,12 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 			}
 		}
 	}
+	if _, err := db.Exec("DROP TABLE triager_turns"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("CREATE TABLE held_triagers (repository TEXT NOT NULL, issue INTEGER NOT NULL, PRIMARY KEY (repository, issue))"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec("DROP TABLE comment_writes"); err != nil {
 		t.Fatal(err)
 	}
@@ -536,6 +542,8 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		"DROP TABLE triager_turns",
+		"CREATE TABLE held_triagers (repository TEXT NOT NULL, issue INTEGER NOT NULL, PRIMARY KEY (repository, issue))",
 		"DROP TABLE comment_writes",
 		"ALTER TABLE tasks DROP COLUMN recoveries",
 		"ALTER TABLE events DROP COLUMN organization",
@@ -619,6 +627,8 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		"DROP TABLE triager_turns",
+		"CREATE TABLE held_triagers (repository TEXT NOT NULL, issue INTEGER NOT NULL, PRIMARY KEY (repository, issue))",
 		"DROP TABLE comment_writes",
 		"ALTER TABLE tasks DROP COLUMN recoveries",
 		"ALTER TABLE inbox_items DROP COLUMN chat_message",
