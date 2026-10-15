@@ -35,6 +35,11 @@ busy = "1s"
 reply = ["Refunds end in the ledger."]
 
 [[prompts]]
+when = "Where do refunds start?"
+busy = "1s"
+reply = ["Refunds start at the order."]
+
+[[prompts]]
 when = "You are a Researcher"
 reply = ["Refunds live in the plan model."]
 
@@ -57,6 +62,10 @@ call = { tool = "start_researcher", arguments = { question = "Where do refunds l
 [[prompts]]
 when = "# Issue\n\nowner/shop#64 "
 call = { tool = "start_researcher", arguments = { question = "Where do refunds end?" } }
+
+[[prompts]]
+when = "# Issue\n\nowner/shop#65 "
+call = { tool = "start_researcher", arguments = { question = "Where do refunds start?" } }
 
 [[prompts]]
 when = "Please use points."
@@ -567,6 +576,24 @@ func TestTheReportOfAResearcherAfterTheEndOfTheTriageStartsNoTurn(t *testing.T) 
 	if sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(sessions) != 1 {
 		t.Errorf("sessions = %d", len(sessions))
 	}
+}
+
+// Serial: the read of the issue must fail while the busy Researcher still works.
+func TestTheReportOfAResearcherArrivesWhenTheReadOfTheIssueFails(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 65, "Add refunds", "Refund each order.", "owner")
+	researcher := waitForChatSession(t, server, issueTriagers, engine.ResearcherRole, func(store.Session) bool { return true })
+	testkit.WaitFor(t, func() bool {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return len(sessions) == 1 && sessions[0].EndedAt.Valid
+	})
+
+	fake.FailIssueReads(shop, 65, 1)
+
+	report := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: fmt.Sprintf("Report of the Researcher %d on \"Where do refunds start?\":\n\nRefunds start at the order.", researcher.ID)}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 65), report) })
+	testkit.WaitFor(t, func() bool { return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 })
 }
 
 func TestTheCoordinatorChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {

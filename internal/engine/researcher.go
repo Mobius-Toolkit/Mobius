@@ -211,18 +211,14 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 
 // deliverReport gives the report of the Researcher id on the question to the chat of c as a Researcher message. For
 // the Triager c, it is a comment on the issue of the Triager, and it starts the next turn of the Triager, because a
-// comment of the Mobius App starts no turn. When the triage has ended, the report goes nowhere.
+// comment of the Mobius App starts no turn. When the triage has ended, the report goes nowhere. When a read of the
+// issue fails, the report goes out, because runTriager reads the issue again.
 func (e *Engine) deliverReport(ctx context.Context, c caller, repository github.Repository, id int64, question, report string) error {
 	text := fmt.Sprintf("Report of the Researcher %d on \"%s\":\n\n%s", id, question, report)
 	if c.role == TriagerRole {
 		number := c.agent.spec.Issue.Int64
-		issue, err := repository.Issue(ctx, number)
-		if err != nil {
-			return err
-		}
-		triaging, err := e.triaging(ctx, repository, issue)
-		if err != nil || !triaging {
-			return err
+		if !e.triagingOrUnknown(ctx, repository, number) {
+			return nil
 		}
 		if err := e.addOrKeepComment(ctx, repository, number, text); err != nil {
 			return err
@@ -230,6 +226,16 @@ func (e *Engine) deliverReport(ctx context.Context, c caller, repository github.
 		return e.restartTriager(ctx, repository, number)
 	}
 	return e.postChat(ctx, ChatKey{c.organization, c.repository, c.workstream}, researcherAuthor, "", text, nil)
+}
+
+// triagingOrUnknown tells if the issue number is in the triage, or if a failed read does not show it.
+func (e *Engine) triagingOrUnknown(ctx context.Context, repository github.Repository, number int64) bool {
+	issue, err := repository.Issue(ctx, number)
+	if err != nil {
+		return true
+	}
+	triaging, err := e.triaging(ctx, repository, issue)
+	return err != nil || triaging
 }
 
 // addCopy adds the worktree dir of repository, detached at the default branch.
