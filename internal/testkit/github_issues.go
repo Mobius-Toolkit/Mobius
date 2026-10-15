@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type issueKey struct {
@@ -283,6 +284,13 @@ func (g *FakeGitHub) FailClose(repository string, number int64) {
 	g.failedCloses[issueKey{repository, number}] = true
 }
 
+// AllowClose makes the closes of the issue work again after FailClose.
+func (g *FakeGitHub) AllowClose(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.failedCloses, issueKey{repository, number})
+}
+
 // RefuseCloses makes each close of an issue give the status. The status 0 makes the close work.
 func (g *FakeGitHub) RefuseCloses(status int) {
 	g.mu.Lock()
@@ -302,6 +310,13 @@ func (g *FakeGitHub) GoneIssue(repository string, number int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.goneIssues[issueKey{repository, number}] = true
+}
+
+// ForbidIssue makes each read of the issue answer 403 Forbidden.
+func (g *FakeGitHub) ForbidIssue(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.forbiddenIssues[issueKey{repository, number}] = true
 }
 
 // PendingIssueReadFailures gives the number of reads of the issue that FailIssueReads still makes fail.
@@ -793,6 +808,10 @@ func (g *FakeGitHub) getIssue(w http.ResponseWriter, r *http.Request) {
 		message(w, http.StatusGone, "Gone")
 		return
 	}
+	if g.forbiddenIssues[key] {
+		message(w, http.StatusForbidden, "Forbidden")
+		return
+	}
 	if key, ok := g.issue(w, r); ok {
 		writeJSON(w, http.StatusOK, g.issueJSON(key))
 	}
@@ -1008,6 +1027,10 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 	}
 	if g.failedComments[key] {
 		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
+	if utf8.RuneCountInString(request.Body) > 65535 {
+		message(w, http.StatusUnprocessableEntity, "Validation Failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, g.comment(key, caller.login, request.Body))

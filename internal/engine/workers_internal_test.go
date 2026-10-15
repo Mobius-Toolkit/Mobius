@@ -95,7 +95,7 @@ func order(work map[int64]Work, queue [][2]int64) []int64 {
 		times[queued[0]] = queued[1]
 	}
 	slices.SortFunc(tasks, func(a, b int64) int {
-		return taskRank(work, a, at(times[a])).compare(taskRank(work, b, at(times[b])))
+		return taskRank(work, a, at(times[a]), false).compare(taskRank(work, b, at(times[b]), false))
 	})
 	return tasks
 }
@@ -126,15 +126,30 @@ func TestTasksWithWorkFollowTheCreationTimeOfTheirPullRequest(t *testing.T) {
 	}
 }
 
+func TestACITaskComesBeforeATaskWithWork(t *testing.T) {
+	t.Parallel()
+	tasksWithWork := map[int64]Work{1: work(7, 100)}
+
+	if taskRank(tasksWithWork, 2, at(900), true).compare(taskRank(tasksWithWork, 1, at(10), false)) >= 0 {
+		t.Error("the CI task comes after the task with work")
+	}
+	if taskRank(tasksWithWork, 2, at(900), true).compare(taskRank(nil, 3, at(10), false)) >= 0 {
+		t.Error("the CI task comes after the older task with no work")
+	}
+	if taskRank(tasksWithWork, 2, at(900), true).compare(waiterRank(waiter{at(5), 9})) >= 0 {
+		t.Error("the CI task comes after the session")
+	}
+}
+
 func TestAWaitingSessionWithNoTaskComesAfterEachTaskWithWork(t *testing.T) {
 	t.Parallel()
 	tasksWithWork := map[int64]Work{2: work(7, 500)}
 	session := waiterRank(waiter{at(5), 9})
 
-	if taskRank(tasksWithWork, 2, at(20)).compare(session) >= 0 {
+	if taskRank(tasksWithWork, 2, at(20), false).compare(session) >= 0 {
 		t.Error("the task with work comes after the session")
 	}
-	if taskRank(tasksWithWork, 1, at(10)).compare(session) <= 0 {
+	if taskRank(tasksWithWork, 1, at(10), false).compare(session) <= 0 {
 		t.Error("the task with no work comes before the older session")
 	}
 }

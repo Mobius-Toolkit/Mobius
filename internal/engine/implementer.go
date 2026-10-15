@@ -168,6 +168,9 @@ func (e *Engine) startImplementerTool(ctx context.Context, c caller, repository 
 	if empty(input.Instructions) {
 		return "", refuse("instructions must not be empty.")
 	}
+	if err := e.ciStopRefusal(ctx, repository, input.N); err != nil {
+		return "", err
+	}
 	return e.startImplementer(ctx, repository, c.workstream, input.N, input.Instructions, sql.NullInt64{Int64: c.session, Valid: true})
 }
 

@@ -3525,12 +3525,16 @@ func (q *Queries) ListOwnerMessagesSince(ctx context.Context, arg ListOwnerMessa
 }
 
 const listQueuedTasks = `-- name: ListQueuedTasks :many
-SELECT id, queued_at FROM tasks WHERE state = 'queued' ORDER BY queued_at, id
+SELECT id, queued_at, EXISTS (
+  SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = tasks.repository AND ci_breaks.issue = tasks.issue
+    AND ci_breaks.result = 'hard' AND ci_breaks.ended_at = ''
+) AS ci FROM tasks WHERE state = 'queued' ORDER BY queued_at, id
 `
 
 type ListQueuedTasksRow struct {
 	ID       int64
 	QueuedAt sql.NullString
+	Ci       bool
 }
 
 func (q *Queries) ListQueuedTasks(ctx context.Context) ([]ListQueuedTasksRow, error) {
@@ -3542,7 +3546,7 @@ func (q *Queries) ListQueuedTasks(ctx context.Context) ([]ListQueuedTasksRow, er
 	var items []ListQueuedTasksRow
 	for rows.Next() {
 		var i ListQueuedTasksRow
-		if err := rows.Scan(&i.ID, &i.QueuedAt); err != nil {
+		if err := rows.Scan(&i.ID, &i.QueuedAt, &i.Ci); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -4270,6 +4274,22 @@ SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM chat_messages
 
 func (q *Queries) MaxChatMessageID(ctx context.Context) (int64, error) {
 	row := q.db.QueryRowContext(ctx, maxChatMessageID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const newestCIBreakRun = `-- name: NewestCIBreakRun :one
+SELECT CAST(COALESCE(MAX(run_id), 0) AS INTEGER) FROM ci_breaks WHERE repository = ? AND workflow_id = ?
+`
+
+type NewestCIBreakRunParams struct {
+	Repository string
+	WorkflowID int64
+}
+
+func (q *Queries) NewestCIBreakRun(ctx context.Context, arg NewestCIBreakRunParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, newestCIBreakRun, arg.Repository, arg.WorkflowID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
