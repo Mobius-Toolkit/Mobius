@@ -125,6 +125,21 @@ func TestAReplyBeforeTheLastCommentOfTheMobiusAppDoesNotAnswerIt(t *testing.T) {
 	}
 }
 
+func TestAReplyBeforeAStopCommentOfTheMobiusAppAnswersTheQuestion(t *testing.T) {
+	t.Parallel()
+	stop := comment(app, "", 3)
+	stop.Body = new("CI failed." + nextStepMarker + "Resume.")
+	lost := comment(app, "", 4)
+	lost.Body = new(lostText)
+	comments := []*gh.IssueComment{comment(app, "", 1), comment("owner", "", 2), stop, lost}
+
+	replies, answered := trustingEngine().replies("mobius-app", comments)
+
+	if len(replies) != 1 || !answered {
+		t.Errorf("replies = %d, answered = %t", len(replies), answered)
+	}
+}
+
 func TestACommentOfATrustedUserCounts(t *testing.T) {
 	t.Parallel()
 	e := trustingEngine()

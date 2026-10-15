@@ -250,9 +250,8 @@ func TestAFindingAfterMaxFixRoundsStopsTheTaskUntilACommentOfATrustedUser(t *tes
 	if !hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:working") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
-	if items := inbox(t, server); len(items) != 0 {
-		t.Errorf("Inbox = %+v", items)
-	}
+	wantStopNotice(t, server, fake, "Round limit", "The pull request has open items after 2 review rounds.",
+		"Read the open items of PR #42. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.")
 	if task := liveTask(t, server, 41); task.State != "needs_human" || task.FixRounds != 1 {
 		t.Errorf("task = %+v", task)
 	}
@@ -473,6 +472,8 @@ func TestTheReviewRoundAtMaxFixRoundsShowsTheLimitAndStartsNoNextRound(t *testin
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 	waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the pull request has open items after 7 review rounds.")
+	wantStopNotice(t, server, fake, "Round limit", "The pull request has open items after 7 review rounds.",
+		"Read the open items of PR #42. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.")
 	if reviewers := roleSessions(t, server, engine.ReviewerRole); len(reviewers) != 7 {
 		t.Errorf("Reviewers = %d", len(reviewers))
 	}

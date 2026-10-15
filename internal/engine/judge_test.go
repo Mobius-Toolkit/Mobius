@@ -44,7 +44,13 @@ const (
 // item 4 and starts the Implementer, which plays implementer.
 func connectJudge(t *testing.T, fake *testkit.FakeGitHub, judge, implementer string, adjust func(*config.Config)) *testserver.Server {
 	t.Helper()
-	lead := "[[prompts]]\nwhen = \"You are the Judge\"\n" + judge + "\n" + noFinding +
+	return connectJudgeAfter(t, fake, "", judge, implementer, adjust)
+}
+
+// connectJudgeAfter is connectJudge with the prompt entries of first before the entry of the Judge.
+func connectJudgeAfter(t *testing.T, fake *testkit.FakeGitHub, first, judge, implementer string, adjust func(*config.Config)) *testserver.Server {
+	t.Helper()
+	lead := first + "[[prompts]]\nwhen = \"You are the Judge\"\n" + judge + "\n" + noFinding +
 		"[[prompts]]\nwhen = \"follow-up on pull request #42\"\ncall = { tool = \"reply_thread\", arguments = { thread = 4, text = \"Follow-up: #99.\" } }\n\n" + leadApproves + leadStarts
 	server, _ := connectTask(t, fake, lead, implementer+commits, func(cfg *config.Config) {
 		cfg.TrustedBots = []string{bot}
@@ -260,7 +266,13 @@ func judgeToHuman(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 // judgeToHumanWith is judgeToHuman with the script of the Judge.
 func judgeToHumanWith(t *testing.T, fake *testkit.FakeGitHub, judge string) *testserver.Server {
 	t.Helper()
-	server := connectJudge(t, fake, judge, fixesEach, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
+	return judgeToHumanAfter(t, fake, "", judge)
+}
+
+// judgeToHumanAfter is judgeToHumanWith with the prompt entries of first before the entry of the Judge.
+func judgeToHumanAfter(t *testing.T, fake *testkit.FakeGitHub, first, judge string) *testserver.Server {
+	t.Helper()
+	server := connectJudgeAfter(t, fake, first, judge, fixesEach, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
 	fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier.")
 	fake.AddReviewComment(shop, 42, 0, bot, "Rename tier to plan.")
 	testkit.WaitFor(t, func() bool {
@@ -269,6 +281,11 @@ func judgeToHumanWith(t *testing.T, fake *testkit.FakeGitHub, judge string) *tes
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(fake.Comments(shop, 42), func(comment testkit.Comment) bool {
 			return strings.HasPrefix(comment.Body, "Review not started.")
+		})
+	})
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(fake.Comments(shop, 41), func(comment testkit.Comment) bool {
+			return strings.Contains(comment.Body, nextStep)
 		})
 	})
 	return server
@@ -361,7 +378,7 @@ func TestARemovalOfNeedsHumanWhileTheJudgeOfTheHumanTaskRunsContinuesTheTask(t *
 	dir := t.TempDir()
 	start, running, release := filepath.Join(dir, "start"), filepath.Join(dir, "running"), filepath.Join(dir, "release")
 	waits := fmt.Sprintf("shell = \"if [ -e '%[1]s' ]; then touch '%[2]s'; while [ ! -e '%[3]s' ]; do sleep 0.05; done; fi\"\n"+
-		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 5, actions = [{ verdict = \"follow-up\", text = \"Later.\" }] }] } }\n",
+		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 6, actions = [{ verdict = \"follow-up\", text = \"Later.\" }] }] } }\n",
 		start, running, release)
 	server := judgeToHumanWith(t, fake, waits)
 	rounds := implementerRounds(t, server)
@@ -369,7 +386,7 @@ func TestARemovalOfNeedsHumanWhileTheJudgeOfTheHumanTaskRunsContinuesTheTask(t *
 	if err := os.WriteFile(start, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if comment := fake.AddComment(shop, 42, "owner", "Later."); comment != 5 {
+	if comment := fake.AddComment(shop, 42, "owner", "Later."); comment != 6 {
 		t.Fatalf("comment = %d", comment)
 	}
 	testkit.WaitFor(t, func() bool { _, err := os.Stat(running); return err == nil })
@@ -392,14 +409,14 @@ func TestAFixRoundOfTheJudgeFromNeedsHumanResetsTheCountersOfTheTask(t *testing.
 	dir := t.TempDir()
 	start, running, release := filepath.Join(dir, "start"), filepath.Join(dir, "running"), filepath.Join(dir, "release")
 	waits := fmt.Sprintf("shell = \"if [ -e '%[1]s' ]; then touch '%[2]s'; while [ ! -e '%[3]s' ]; do sleep 0.05; done; fi\"\n"+
-		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 5, actions = [{ verdict = \"fix\", text = \"Continue.\" }] }] } }\n",
+		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 6, actions = [{ verdict = \"fix\", text = \"Continue.\" }] }] } }\n",
 		start, running, release)
 	server := judgeToHumanWith(t, fake, waits)
 	rounds := implementerRounds(t, server)
 	if err := os.WriteFile(start, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if comment := fake.AddComment(shop, 42, "owner", "Continue."); comment != 5 {
+	if comment := fake.AddComment(shop, 42, "owner", "Continue."); comment != 6 {
 		t.Fatalf("comment = %d", comment)
 	}
 	testkit.WaitFor(t, func() bool { _, err := os.Stat(running); return err == nil })
@@ -428,14 +445,14 @@ func TestAFollowUpOfTheJudgeFromNeedsHumanContinuesTheTask(t *testing.T) {
 	dir := t.TempDir()
 	start, running, release := filepath.Join(dir, "start"), filepath.Join(dir, "running"), filepath.Join(dir, "release")
 	waits := fmt.Sprintf("shell = \"if [ -e '%[1]s' ]; then touch '%[2]s'; while [ ! -e '%[3]s' ]; do sleep 0.05; done; fi\"\n"+
-		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 5, actions = [{ verdict = \"follow-up\", text = \"Later.\" }] }] } }\n",
+		"call = { tool = \"submit_verdicts\", arguments = { items = [{ item = 6, actions = [{ verdict = \"follow-up\", text = \"Later.\" }] }] } }\n",
 		start, running, release)
 	server := judgeToHumanWith(t, fake, waits)
 	rounds := implementerRounds(t, server)
 	if err := os.WriteFile(start, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if comment := fake.AddComment(shop, 42, "owner", "Later."); comment != 5 {
+	if comment := fake.AddComment(shop, 42, "owner", "Later."); comment != 6 {
 		t.Fatalf("comment = %d", comment)
 	}
 	testkit.WaitFor(t, func() bool { _, err := os.Stat(running); return err == nil })
@@ -479,4 +496,43 @@ func TestAFailedJudgeStopsTheTaskWithItsOwnReason(t *testing.T) {
 		}
 		return false
 	})
+	item := wantStopNotice(t, server, fake, "Judge failed", "The Judge failed.", "Read the error in the Lead chat or the Inbox. Fix the cause, then Resume.")
+	if !strings.Contains(item.Text, "The Judge crashed.") {
+		t.Errorf("item text = %s", item.Text)
+	}
+}
+
+func TestAFailedJudgeOfATaskThatWaitsForAHumanAddsNoSecondStoppedItem(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := judgeToHumanAfter(t, fake,
+		"[[prompts]]\nwhen = \"Judge again.\"\nerror = { code = -32000, message = \"The Judge crashed.\" }\n\n", "shell = \"true\"\n")
+	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "stopped")) == 1 })
+	stops := func() (count int) {
+		if err := server.DB.QueryRow("SELECT count(*) FROM lead_events WHERE kind = 'stop' AND issue = 41").Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	before := stops()
+
+	fake.AddComment(shop, 42, "owner", "Judge again.")
+
+	testkit.WaitFor(t, func() bool { return stops() > before })
+	waitForPolls(t, fake)
+	if state := taskState(t, server); state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+	if items := itemsOf(t, server, "stopped"); len(items) != 1 || items[0].Reason != "Round limit" {
+		t.Errorf("stopped items = %+v", items)
+	}
+	notices := 0
+	for _, comment := range fake.Comments(shop, 41) {
+		if strings.Contains(comment.Body, nextStep) {
+			notices++
+		}
+	}
+	if notices != 1 {
+		t.Errorf("notices = %d", notices)
+	}
 }

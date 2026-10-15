@@ -303,6 +303,8 @@ func TestAFailedCheckRunAtMaxFixRoundsHandsTheTaskToAHuman(t *testing.T) {
 		t.Errorf("check runs = %+v", runs)
 	}
 	waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the pull request has open items after 1 fix rounds.")
+	wantStopNotice(t, server, fake, "Round limit", "The pull request has open items after 1 fix rounds.",
+		"Read the open items of PR #42. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.")
 }
 
 var replacedOutput = &testkit.CheckRunOutput{Title: "Replaced by a new head", Summary: "A new head of the pull request replaced this commit."}

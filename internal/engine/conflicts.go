@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -58,22 +59,12 @@ func (e *Engine) stale(ctx context.Context, repository github.Repository, task s
 	}
 	age := fmt.Sprintf("%g days", e.config.StalePRAge.Hours()/24)
 	number := pullRequest.GetNumber()
-	err = e.addInboxItem(ctx, store.AddInboxItemParams{
-		Kind:         stoppedKind,
-		Organization: repository.Owner(),
-		Repository:   task.Repository,
-		Workstream:   task.Workstream,
-		Issue:        task.Issue,
-		Title:        issue.GetTitle(),
-		Reason:       fmt.Sprintf("PR #%d %s", number, reason),
-		Text:         fmt.Sprintf("Pull request #%d of #%d \"%s\" %s and is older than %s.", number, task.Issue, issue.GetTitle(), reason, age),
-		Link:         issue.GetHTMLURL(),
-		PullRequest:  int64(number),
+	err = e.tellStop(ctx, task, issue.GetTitle(), stopNotice{
+		reason: fmt.Sprintf("PR #%d %s", number, reason),
+		text:   fmt.Sprintf("Pull request #%d of #%d \"%s\" %s and is older than %s.", number, task.Issue, issue.GetTitle(), reason, age),
+		next:   "Close the pull request, or Resume for a conflict round.",
 	})
-	if err != nil {
-		return err
-	}
 	text := fmt.Sprintf("%s stale pull request #%d of #%d \"%s\": it %s and is older than %s. %s",
 		time.Now().UTC().Format(timeFormat), number, task.Issue, issue.GetTitle(), reason, age, pullRequest.GetHTMLURL())
-	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stale_pull_request", text)
+	return errors.Join(err, e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stale_pull_request", text))
 }

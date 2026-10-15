@@ -109,6 +109,15 @@ func TestAWorkerThatDiesAfterMaxWorkerRestartsGoesToAHuman(t *testing.T) {
 	if labels := fake.Labels(shop, 41); !reflect.DeepEqual(labels, []string{"mobius:needs-human"}) {
 		t.Errorf("labels = %q", labels)
 	}
+	item := wantStopNotice(t, server, fake, "Restart limit", "The Worker failed after 1 restarts. Mobius does not start it again.", "Read the error in the Lead chat or the Inbox. Fix the cause, then Resume.")
+	if !strings.Contains(item.Text, "The last error ends with these lines:\n\n```\n{\"code\":-32603") {
+		t.Errorf("item text = %s", item.Text)
+	}
+	for _, comment := range fake.Comments(shop, 41) {
+		if strings.Contains(comment.Body, "-32603") {
+			t.Errorf("comment = %s", comment.Body)
+		}
+	}
 	var kind, payload string
 	var issue, message sql.NullInt64
 	if err := server.DB.QueryRow("SELECT kind, payload, issue, chat_message FROM lead_events WHERE workstream = 12").Scan(&kind, &payload, &issue, &message); err != nil {

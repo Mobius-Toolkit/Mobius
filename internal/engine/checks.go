@@ -271,7 +271,13 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 		return err
 	}
 	reason := "the CI of the head commit failed, and a fix round cannot change it. Mobius set the Mobius check to failure and added mobius:needs-human."
-	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", stopText(task.Issue, issue.GetTitle(), reason))
+	noticeErr := e.tellStop(ctx, task, issue.GetTitle(), stopNotice{
+		reason: "CI failed",
+		text:   "The CI of the head commit failed, and a fix round cannot change it.",
+		next: fmt.Sprintf("Read the failed jobs of PR #%d. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.",
+			pullRequest.GetNumber()),
+	})
+	return errors.Join(noticeErr, e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", stopText(task.Issue, issue.GetTitle(), reason)))
 }
 
 // ci is what the check runs of other Apps and the workflow runs of GitHub Actions on a head show.

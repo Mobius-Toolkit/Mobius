@@ -310,6 +310,11 @@ func TestAMergeWithConflictsStopsTheTaskWithNoRestartAndLeavesACleanWorktree(t *
 	if !hasLabel(fake, "mobius:needs-human") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
 	}
+	item := wantStopNotice(t, server, fake, "Local branch diverged", "The local branch diverged from the remote branch, and the merge had conflicts. Mobius pushed nothing.",
+		"Merge the remote branch into the local branch and resolve the conflicts, or reset the local branch to the remote branch. Then Resume.")
+	if !strings.Contains(item.Text, "merge conflict in plan.txt") || !strings.Contains(item.Text, "The local branch is in "+worktree+".") {
+		t.Errorf("item text = %s", item.Text)
+	}
 	if status := testkit.Git(t, worktree, "status", "--porcelain"); status != "" {
 		t.Errorf("status = %s", status)
 	}
@@ -397,6 +402,15 @@ func TestAPushThatGitHubRejectsStopsTheTaskWithNoRestart(t *testing.T) {
 	prompt := waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": GitHub rejected the push.")
 	if !strings.Contains(prompt, "deny updating a hidden ref") || !strings.Contains(prompt, "[remote rejected]") {
 		t.Errorf("prompt = %s", prompt)
+	}
+	item := wantStopNotice(t, server, fake, "Push rejected", "GitHub rejected the push of the work.", "Read the error in the Lead chat or the Inbox. Fix the cause, then Resume.")
+	if !strings.Contains(item.Text, "deny updating a hidden ref") {
+		t.Errorf("item text = %s", item.Text)
+	}
+	for _, comment := range fake.Comments(shop, 41) {
+		if strings.Contains(comment.Body, "hidden ref") || strings.Contains(comment.Body, "[remote rejected]") {
+			t.Errorf("comment = %s", comment.Body)
+		}
 	}
 	if !hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:working") {
 		t.Errorf("labels = %v", fake.Labels(shop, 41))
@@ -500,6 +514,8 @@ func TestAfterMaxCheckAttemptsMobiusPushesFailsTheCheckRunAndStopsTheTask(t *tes
 	if !pullRequestHasNeedsHuman(fake) {
 		t.Errorf("labels of the pull request = %v", fake.Labels(shop, pullRequestNumber))
 	}
+	wantStopNotice(t, server, fake, "Local check failed", "The local check .mobius/check failed 3 times. Mobius pushed the work.",
+		"Read the output of the failed check in the Transcript of the Implementer. Fix the cause, then Resume.")
 	if state := taskState(t, server); state != "needs_human" {
 		t.Errorf("state = %s", state)
 	}

@@ -230,6 +230,9 @@ func assertCIStop(t *testing.T, server *testserver.Server, fake *testkit.FakeGit
 	if events := readyEvents(t, server); events != 0 {
 		t.Errorf("events = %d", events)
 	}
+	waitForPolls(t, fake)
+	wantStopNotice(t, server, fake, "CI failed", "The CI of the head commit failed, and a fix round cannot change it.",
+		"Read the failed jobs of PR #42. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.")
 }
 
 func TestAFailedWorkflowRunWithNoCheckRunHandsTheTaskToAHuman(t *testing.T) {
