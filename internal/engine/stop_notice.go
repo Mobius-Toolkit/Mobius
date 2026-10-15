@@ -31,7 +31,8 @@ type stopNotice struct {
 }
 
 // tellStop posts the reason text and the next action of notice on the issue of the task, and adds a stopped Inbox item
-// with the same text. A failure of the comment does not skip the Inbox item. Call tellStop after the labels change,
+// with the same text. When the issue has an open question item, the stopped item is dismissed at once, so the issue has
+// one open item. A failure of the comment does not skip the Inbox item. Call tellStop after the labels change,
 // because closeInboxItems dismisses a stopped item of an issue with no mobius:needs-human.
 func (e *Engine) tellStop(ctx context.Context, task store.Task, title string, notice stopNotice) error {
 	repository, err := e.repository(task.Repository)
@@ -59,5 +60,23 @@ func (e *Engine) tellStop(ctx context.Context, task store.Task, title string, no
 		Link:         issueLink(task.Repository, task.Issue),
 		PullRequest:  current.PullRequest.Int64,
 	})
+	if itemErr == nil {
+		itemErr = e.dismissStoppedItemOfQuestion(ctx, task)
+	}
 	return errors.Join(commentErr, itemErr)
+}
+
+// dismissStoppedItemOfQuestion dismisses the stopped items of the issue of the task when the issue has an open question
+// item.
+func (e *Engine) dismissStoppedItemOfQuestion(ctx context.Context, task store.Task) error {
+	items, err := e.Inbox(ctx)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if item.Repository == task.Repository && item.Issue == task.Issue && item.Kind == questionKind {
+			return e.dismissIssueItems(ctx, task.Repository, task.Issue, stoppedKind)
+		}
+	}
+	return nil
 }
