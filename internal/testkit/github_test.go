@@ -650,6 +650,32 @@ func TestAMergeAddsOneSquashCommitToTheBaseAndRefusesAWrongHeadAndAClosedPullReq
 	}
 }
 
+func TestAnUpdateOfTheBranchMergesTheBaseIntoTheHeadAndRefusesAWrongHeadAndAConflict(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddRepository("owner/shop")
+	github.PushCommit("owner/shop", "feature", "Add plans")
+	number := github.OpenPullRequest("owner/shop", "Add plans", "feature")
+	remote := github.Remote("owner/shop")
+	head := Git(t, remote, "rev-parse", "feature")
+	installation := installationToken(t, github)
+	update := fmt.Sprintf("%s/repos/owner/shop/pulls/%d/update-branch", github.URL, number)
+	github.CommitFile("owner/shop", "price.txt", "cents\n", "Add price")
+
+	if response := send(t, http.MethodPut, update, installation, `{"expected_head_sha": "0000000000000000000000000000000000000000"}`, nil); response.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("status with a wrong head = %d", response.StatusCode)
+	}
+	if response := send(t, http.MethodPut, update, installation, fmt.Sprintf(`{"expected_head_sha": %q}`, head), nil); response.StatusCode != http.StatusAccepted {
+		t.Errorf("status = %d", response.StatusCode)
+	}
+	merged := Git(t, remote, "rev-parse", "feature")
+	if parents := Git(t, remote, "rev-list", "--parents", "-n", "1", merged); parents != merged+" "+head+" "+Git(t, remote, "rev-parse", "main") {
+		t.Errorf("parents = %s", parents)
+	}
+	if got := github.UpdateBranchCalls(); got != 2 {
+		t.Errorf("update calls = %d", got)
+	}
+}
+
 func TestAReactionGoesToAConversationCommentOrAReviewCommentOnceForEachContent(t *testing.T) {
 	github := NewFakeGitHub(t)
 	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")

@@ -147,6 +147,13 @@ func (g *FakeGitHub) MergeCalls() int {
 	return g.mergeCalls
 }
 
+// UpdateBranchCalls gives the number of requests to update the branch of a pull request, also a refused one.
+func (g *FakeGitHub) UpdateBranchCalls() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.updateBranchCalls
+}
+
 // CheckRunReads gives the number of requests for the check runs of a commit.
 func (g *FakeGitHub) CheckRunReads() int {
 	g.mu.Lock()
@@ -450,6 +457,42 @@ func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
 	found.merged = true
 	found.updatedAt = g.tick()
 	writeJSON(w, http.StatusOK, map[string]any{"sha": sha, "merged": true, "message": "Pull Request successfully merged"})
+}
+
+// updatePullRequestBranch adds a merge commit of the base into the head branch, and gives status 202. It refuses with
+// status 422 an expected_head_sha that is not the head, and a merge with a conflict.
+func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		ExpectedHeadSHA string `json:"expected_head_sha"`
+	}
+	if !decode(w, r, &request) {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.updateBranchCalls++
+	key, ok := g.issue(w, r)
+	if !ok {
+		return
+	}
+	pull := g.pullRequests[slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == key.repository && pull.Number == key.number })]
+	remote := g.Remote(key.repository)
+	tree, treeErr := gitCommand(remote, "merge-tree", "--write-tree", pull.Base, pull.Head).Output()
+	switch {
+	case request.ExpectedHeadSHA != g.headOf(key.repository, key.number):
+		message(w, http.StatusUnprocessableEntity, "expected head sha didn't match current head ref.")
+		return
+	case treeErr != nil:
+		message(w, http.StatusUnprocessableEntity, "merge conflict between base and head")
+		return
+	}
+	merge, err := gitCommand(remote, "commit-tree", strings.Fields(string(tree))[0], "-p", pull.Head, "-p", pull.Base, "-m", "Merge "+pull.Base).Output()
+	if err != nil {
+		g.t.Errorf("commit-tree: %v", err)
+	}
+	g.git(remote, "update-ref", "refs/heads/"+pull.Head, strings.TrimSpace(string(merge)))
+	g.issues[key].updatedAt = g.tick()
+	message(w, http.StatusAccepted, "Updating pull request branch.")
 }
 
 // markReadyForReview answers the GraphQL mutation markPullRequestReadyForReview. The caller must hold the lock.

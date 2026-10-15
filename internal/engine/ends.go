@@ -134,6 +134,9 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 //     head that stopped it passes (continueNeedsHuman).
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
 //     conflict round. A failed check run of another App on its head gets a fix round.
+//   - A task whose head failed its CI while the default branch has an open break of its CI waits, with no fix round and no
+//     stop, and a pull request that is only behind its base gets no conflict round (waitsForBreak). When the break
+//     ends, the branch of the pull request updates (endBreakWait). The task of the issue of the break does not wait.
 //   - Else a task in checks, approval or ready_for_review with kept findings of the Lead gets a fix round with them
 //     (startKeptRound).
 //   - Else a task in checks moves to approval when the CI of the head passed (onChecks).
@@ -185,8 +188,15 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	if task, err = e.keepApproval(ctx, repository, task); err != nil {
 		return Work{}, false, err
 	}
+	if updated, err := e.endBreakWait(ctx, repository, task, pullRequest); err != nil || updated {
+		return Work{}, false, err
+	}
+	breakWaits, err := e.waitsForBreak(ctx, repository, task, pullRequest)
+	if err != nil {
+		return Work{}, false, err
+	}
 	work := pullRequestWork(repository, pullRequest)
-	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest)
+	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest) && !breakWaits
 	if task.State == "needs_human" {
 		var round bool
 		if task, round, err = e.continueNeedsHuman(ctx, repository, task, pullRequest, conflict); err != nil || round {
@@ -204,7 +214,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	case afterReview(task.State) && task.LeadFindings != "":
 		round, err := e.startKeptRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest})
 		return work, round, err
-	case afterReview(task.State):
+	case afterReview(task.State) && !breakWaits:
 		round, err := e.onFailure(ctx, repository, task, pullRequest)
 		if err != nil || round {
 			return work, round, err

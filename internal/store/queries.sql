@@ -757,3 +757,6 @@ SELECT * FROM ci_breaks WHERE repository = ? AND issue < 0 ORDER BY id;
 
 -- name: SetCIBreakIssue :exec
 UPDATE ci_breaks SET issue = ? WHERE id = ?;
+
+-- name: SetTaskBreakWaitHead :exec
+UPDATE tasks SET break_wait_head = ? WHERE id = ?;
