@@ -79,6 +79,45 @@ func (r Repository) graphql(ctx context.Context, query string, variables map[str
 	return nil
 }
 
+// BodyEdit is an edit of the body of an issue. Diff is the full body after the edit.
+type BodyEdit struct {
+	EditedAt time.Time
+	Diff     string
+}
+
+type bodyEditNode struct {
+	EditedAt time.Time `json:"editedAt"`
+	Diff     string    `json:"diff"`
+}
+
+// IssueBodyEdits gives the edits of the body of the issue number, the newest first. An issue with no edit has none.
+func (r Repository) IssueBodyEdits(ctx context.Context, number int64) ([]BodyEdit, error) {
+	const query = `query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { issue(number: $number) { page: userContentEdits(first: 100, after: $after) { nodes { editedAt diff } ` + pageInfoFields + ` } } } }`
+	var edits []BodyEdit
+	var after *string
+	for {
+		var data struct {
+			Repository struct {
+				Issue struct {
+					Page connection[bodyEditNode] `json:"page"`
+				} `json:"issue"`
+			} `json:"repository"`
+		}
+		variables := map[string]any{"owner": r.Owner(), "name": r.Name(), "number": number, "after": after}
+		if err := r.graphql(ctx, query, variables, &data); err != nil {
+			return nil, err
+		}
+		page := data.Repository.Issue.Page
+		for _, node := range page.Nodes {
+			edits = append(edits, BodyEdit{EditedAt: node.EditedAt, Diff: node.Diff})
+		}
+		if !page.PageInfo.HasNextPage {
+			return edits, nil
+		}
+		after = &page.PageInfo.EndCursor
+	}
+}
+
 // ResolveReviewThread resolves the review thread with the GraphQL node id.
 func (r Repository) ResolveReviewThread(ctx context.Context, id string) error {
 	const query = `mutation($id: ID!) { resolveReviewThread(input: { threadId: $id }) { clientMutationId } }`

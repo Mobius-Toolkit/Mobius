@@ -483,6 +483,34 @@ func TestPullRequestReviewsReadsTheNextPagesOfEachConnection(t *testing.T) {
 	}
 }
 
+func TestIssueBodyEditsReadsTheNextPagesNewestFirst(t *testing.T) {
+	const shop = "owner/shop"
+	fake := testkit.NewFakeGitHub(t)
+	gh := connect(t, fake)
+	repository, _ := gh.Repository(shop)
+	fake.CreateIssue(shop, 41, "Add plan model", "First.", "owner")
+	fake.SetBody(shop, 41, "Second.")
+	fake.SetBody(shop, 41, "Third.")
+	fake.SetBody(shop, 41, "Fourth.")
+	fake.SetGraphQLPageSize(2)
+
+	edits, err := repository.IssueBodyEdits(t.Context(), 41)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	var diffs []string
+	for _, edit := range edits {
+		diffs = append(diffs, edit.Diff)
+	}
+	if want := []string{"Fourth.", "Third.", "Second.", "First."}; !slices.Equal(diffs, want) {
+		t.Errorf("diffs = %v, want %v", diffs, want)
+	}
+	if !edits[0].EditedAt.After(edits[3].EditedAt) {
+		t.Errorf("edits = %+v", edits)
+	}
+}
+
 func TestMergePullRequestTellsAMergeApartFromAChangedHeadAndARefusal(t *testing.T) {
 	const shop = "owner/shop"
 	fake := testkit.NewFakeGitHub(t)
