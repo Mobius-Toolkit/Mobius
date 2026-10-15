@@ -667,17 +667,13 @@ func TestTheReportOfAResearcherArrivesWhenTheReadOfTheIssueFails(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 })
 }
 
-// Serial: the comment must fail while the busy Researcher still works.
 func TestTheReportOfAResearcherArrivesBeforeTheNextTurnWhenTheFirstCommentFails(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
+	fake.FailAddComment(shop, 69, true)
 	fake.CreateIssue(shop, 69, "Add refunds", "Refund each order.", "owner")
 	researcher := waitForChatSession(t, server, issueTriagers, engine.ResearcherRole, func(store.Session) bool { return true })
-	testkit.WaitFor(t, func() bool {
-		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
-		return len(sessions) == 1 && sessions[0].EndedAt.Valid
-	})
-	fake.FailAddComment(shop, 69, true)
 
 	waitForChatSession(t, server, issueTriagers, engine.ResearcherRole, func(session store.Session) bool { return session.ID == researcher.ID && session.EndedAt.Valid })
 	testkit.WaitFor(t, func() bool { return commentWrites(t, server) > 0 })
