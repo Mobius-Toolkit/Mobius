@@ -67,13 +67,13 @@ func (e *Engine) closeInboxItems(ctx context.Context, repository github.Reposito
 		if !done {
 			continue
 		}
-		if err := e.Dismiss(ctx, item.ID); err != nil {
-			return err
-		}
 		if item.Kind == questionKind && issue != nil && issue.GetState() != "closed" && hasLabel(issue, needsHumanLabel) {
 			if err := e.reopenStoppedItem(ctx, item); err != nil {
 				return err
 			}
+		}
+		if err := e.Dismiss(ctx, item.ID); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -119,9 +119,11 @@ func (e *Engine) reopenStoppedItem(ctx context.Context, question store.InboxItem
 	if err != nil {
 		return err
 	}
-	stoppedAt, err := time.Parse(time.RFC3339Nano, task.NeedsHumanAt.String)
-	if err != nil {
-		return err
+	var stoppedAt time.Time
+	if task.NeedsHumanAt.Valid {
+		if stoppedAt, err = time.Parse(time.RFC3339Nano, task.NeedsHumanAt.String); err != nil {
+			return err
+		}
 	}
 	if itemTime.Before(stoppedAt) {
 		return nil
