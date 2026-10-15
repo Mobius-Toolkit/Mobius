@@ -203,6 +203,13 @@ SELECT * FROM chat_messages WHERE id = ?;
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
 RETURNING *;
 
+-- name: ReopenInboxItem :one
+UPDATE inbox_items SET dismissed_at = NULL WHERE id = ?
+RETURNING *;
+
+-- name: GetNewestInboxItem :one
+SELECT * FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1;
+
 -- name: ListOpenInboxItems :many
 SELECT * FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id;
 
