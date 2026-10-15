@@ -367,8 +367,8 @@ func TestASessionThatWaitsForACheckSlotHasACheckSlotRowAndAStopEndsTheWaitWithTh
 		return store.Session{}, false
 	})
 
-	fake.AddLabel(shop, 43, "mobius:question", testkit.AppSlug+"[bot]")
-	fake.CloseIssue(shop, 43)
+	fake.AddLabel(shop, waiting.Issue.Int64, "mobius:question", testkit.AppSlug+"[bot]")
+	fake.CloseIssue(shop, waiting.Issue.Int64)
 
 	rows := waitForSteps(t, server, "check_slot", 1)
 	if !slices.Equal(stepResults(rows), []string{"stopped"}) || rows[0].Session != nullInt(waiting.ID) || rows[0].Attempt.Valid {
