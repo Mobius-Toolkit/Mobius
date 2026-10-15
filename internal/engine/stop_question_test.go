@@ -120,6 +120,7 @@ func TestTheEndOfAQuestionAfterAFailedJudgeOfAStoppedTaskOpensTheStoppedItemOfTh
 	waitForPolls(t, fake)
 	sendChat(t, server, leadChat, "Ask about #41")
 	waitForItem(t, server, "question")
+	waitForNoItem(t, server, "stopped")
 	wantOpenKinds(t, server, "question")
 
 	fake.AddComment(shop, 41, "owner", "Cents.")
