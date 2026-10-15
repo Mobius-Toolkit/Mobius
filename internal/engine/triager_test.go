@@ -80,6 +80,10 @@ when = "# Issue\n\nowner/shop#65 "
 call = { tool = "start_researcher", arguments = { question = "Where do refunds start?" } }
 
 [[prompts]]
+when = "# Issue\n\nowner/shop#69 "
+call = { tool = "start_researcher", arguments = { question = "Where do refunds start?" } }
+
+[[prompts]]
 when = "Please use points."
 reply = ["Move it to the loyalty Workstream."]
 
@@ -661,6 +665,36 @@ func TestTheReportOfAResearcherArrivesWhenTheReadOfTheIssueFails(t *testing.T) {
 	report := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: fmt.Sprintf("Report of the Researcher %d on \"Where do refunds start?\":\n\nRefunds start at the order.", researcher.ID)}
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 65), report) })
 	testkit.WaitFor(t, func() bool { return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 })
+}
+
+// Serial: the comment must fail while the busy Researcher still works.
+func TestTheReportOfAResearcherArrivesBeforeTheNextTurnWhenTheFirstCommentFails(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 69, "Add refunds", "Refund each order.", "owner")
+	researcher := waitForChatSession(t, server, issueTriagers, engine.ResearcherRole, func(store.Session) bool { return true })
+	testkit.WaitFor(t, func() bool {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return len(sessions) == 1 && sessions[0].EndedAt.Valid
+	})
+	fake.FailAddComment(shop, 69, true)
+
+	waitForChatSession(t, server, issueTriagers, engine.ResearcherRole, func(session store.Session) bool { return session.ID == researcher.ID && session.EndedAt.Valid })
+	testkit.WaitFor(t, func() bool { return commentWrites(t, server) > 0 })
+	waitForPolls(t, fake)
+	if sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(sessions) != 1 {
+		t.Errorf("sessions = %d", len(sessions))
+	}
+	fake.FailAddComment(shop, 69, false)
+
+	sessions := testkit.WaitForValue(t, func() ([]store.Session, bool) {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return sessions, len(sessions) == 2 && sessions[1].EndedAt.Valid
+	})
+	report := fmt.Sprintf("Report of the Researcher %d on \"Where do refunds start?\":\n\nRefunds start at the order.", researcher.ID)
+	if prompts := promptTexts(t, server, sessions[1].ID); len(prompts) != 1 || !strings.Contains(prompts[0], report) {
+		t.Errorf("prompts = %q", prompts)
+	}
 }
 
 func TestTheCoordinatorChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {

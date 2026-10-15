@@ -12,6 +12,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 //go:embed prompts/researcher.md
@@ -212,7 +213,8 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 // deliverReport gives the report of the Researcher id on the question to the chat of c as a Researcher message. For
 // the Triager c, it is a comment on the issue of the Triager, and it starts the next turn of the Triager, because a
 // comment of the Mobius App starts no turn. When the triage has ended, the report goes nowhere. When a read of the
-// issue fails, the report goes out, because runTriager reads the issue again.
+// issue fails, the report goes out, because runTriager reads the issue again. When GitHub refuses the comment, the
+// comment stays in comment_writes and the turn stays held until the poll sends the comment.
 func (e *Engine) deliverReport(ctx context.Context, c caller, repository github.Repository, id int64, question, report string) error {
 	text := fmt.Sprintf("Report of the Researcher %d on \"%s\":\n\n%s", id, question, report)
 	if c.role == TriagerRole {
@@ -220,8 +222,16 @@ func (e *Engine) deliverReport(ctx context.Context, c caller, repository github.
 		if !e.triagingOrUnknown(ctx, repository, number) {
 			return nil
 		}
-		if err := e.addOrKeepComment(ctx, repository, number, text); err != nil {
-			return err
+		if _, err := repository.AddComment(ctx, number, text); err != nil {
+			log.Printf("add a comment to %s#%d: %v", repository.FullName, number, err)
+			if err := e.queries.AddCommentWrite(ctx, store.AddCommentWriteParams{
+				Repository: repository.FullName,
+				Number:     sql.NullInt64{Int64: number, Valid: true},
+				Body:       text,
+			}); err != nil {
+				return err
+			}
+			return e.queries.HoldTriager(ctx, store.HoldTriagerParams{Repository: repository.FullName, Issue: number})
 		}
 		return e.restartTriager(ctx, repository, number)
 	}

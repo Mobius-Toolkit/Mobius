@@ -125,7 +125,8 @@ func (e *Engine) restartTriager(ctx context.Context, repository github.Repositor
 }
 
 // startHeldTriagers starts the Triagers that the drain held, when the issue is still open, has mobius:triage and has no
-// Workstream. It starts none while the drain is on.
+// Workstream. It starts none while the drain is on. It keeps the issue held while a comment write of the issue waits,
+// because that comment can be the report of a Researcher.
 func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Repository) error {
 	if e.draining() {
 		return nil
@@ -134,7 +135,14 @@ func (e *Engine) startHeldTriagers(ctx context.Context, repository github.Reposi
 	if err != nil {
 		return err
 	}
+	writes, err := e.queries.ListCommentWrites(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
 	for _, number := range numbers {
+		if slices.ContainsFunc(writes, func(write store.CommentWrite) bool { return write.Number.Int64 == number }) {
+			continue
+		}
 		issue, err := repository.Issue(ctx, number)
 		if err != nil {
 			return err
