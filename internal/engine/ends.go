@@ -589,23 +589,8 @@ func (e *Engine) decline(ctx context.Context, c caller, repository github.Reposi
 	if _, err := repository.AddComment(ctx, input.N, input.Reason); err != nil {
 		return "", err
 	}
-	if task.PullRequest.Valid {
-		pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
-		if err != nil {
-			return "", err
-		}
-		if pullRequest.GetState() == "open" {
-			number := task.PullRequest.Int64
-			if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", "Declined", input.Reason); err != nil {
-				return "", err
-			}
-			if _, err := repository.AddComment(ctx, number, input.Reason); err != nil {
-				return "", err
-			}
-			if err := repository.ClosePullRequest(ctx, number); err != nil {
-				return "", err
-			}
-		}
+	if err := closeOpenPullRequest(ctx, repository, task, "Declined", input.Reason); err != nil {
+		return "", err
 	}
 	if err := e.endTask(ctx, repository, task); err != nil {
 		return "", err
@@ -614,4 +599,79 @@ func (e *Engine) decline(ctx context.Context, c caller, repository github.Reposi
 		return "", err
 	}
 	return fmt.Sprintf("Declined #%d.", input.N), nil
+}
+
+// closeOpenPullRequest sets a failed Mobius check with title and reason on the open pull request of the task, posts
+// the reason on it, and closes it. It does nothing for a task with no open pull request.
+func closeOpenPullRequest(ctx context.Context, repository github.Repository, task store.Task, title, reason string) error {
+	if !task.PullRequest.Valid {
+		return nil
+	}
+	number := task.PullRequest.Int64
+	pullRequest, err := repository.PullRequest(ctx, number)
+	if err != nil {
+		return err
+	}
+	if pullRequest.GetState() != "open" {
+		return nil
+	}
+	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", title, reason); err != nil {
+		return err
+	}
+	if _, err := repository.AddComment(ctx, number, reason); err != nil {
+		return err
+	}
+	return repository.ClosePullRequest(ctx, number)
+}
+
+// closeTask closes a task issue of the Workstream that has no work left. The branch stays.
+func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repository, input declineInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	if empty(input.Reason) {
+		return "", refuse("reason must not be empty.")
+	}
+	issue, err := existingIssue(ctx, repository, input.N)
+	if err != nil {
+		return "", err
+	}
+	workstream, known, err := e.copiedWorkstreamOf(ctx, repository.FullName, input.N, issue.GetRepositoryURL())
+	if err != nil {
+		return "", err
+	}
+	if !known || workstream != c.workstream || input.N == c.workstream {
+		return "", refuse("#%d is not a task issue of this Workstream.", input.N)
+	}
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: input.N})
+	live := err == nil
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	if _, err := repository.AddComment(ctx, input.N, input.Reason); err != nil {
+		return "", err
+	}
+	if live {
+		if err := closeOpenPullRequest(ctx, repository, task, "Closed", input.Reason); err != nil {
+			return "", err
+		}
+		if err := e.endTask(ctx, repository, task); err != nil {
+			return "", err
+		}
+	}
+	if err := repository.RemoveLabel(ctx, input.N, readyLabel); err != nil {
+		return "", err
+	}
+	closed, err := repository.CloseIssue(ctx, input.N, "not_planned")
+	if err != nil {
+		return "", err
+	}
+	if _, err := e.updateCopy(ctx, repository, closed, nil, false); err != nil {
+		return "", err
+	}
+	e.publish(Change{Workstreams: true})
+	if err := e.addActivity(ctx, repository.FullName, c.workstream, issue, appLogin(repository.AppSlug), fmt.Sprintf("Closed \"%s\"", issue.GetTitle())); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Closed #%d.", input.N), nil
 }
