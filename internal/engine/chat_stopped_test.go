@@ -113,7 +113,7 @@ func TestAStopDuringTheTurnOfAnOwnerMessageDoesNotMarkTheMessage(t *testing.T) {
 	}
 }
 
-func TestAStopWhileTheFirstItemIsAnEventMarksNoMessage(t *testing.T) {
+func TestAStopWhileTheFirstItemIsAnEventStopsTheQueuedMessage(t *testing.T) {
 	t.Parallel()
 	server, fake := connectWaitingPoints(t)
 	fake.AddIssue(shop, 51, "Add points model")
@@ -125,7 +125,7 @@ func TestAStopWhileTheFirstItemIsAnEventMarksNoMessage(t *testing.T) {
 	stopChat(t, server, pointsChat)
 
 	for _, message := range chatView(t, server, pointsChat).Messages {
-		if message.StoppedAt.Valid {
+		if message.Author == "Owner" && !message.StoppedAt.Valid {
 			t.Errorf("message = %+v", message)
 		}
 	}

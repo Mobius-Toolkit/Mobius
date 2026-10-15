@@ -144,6 +144,24 @@ export interface Blocker {
 }
 
 /**
+ * CIStop is the stop of the dispatch of a repository because of a hard CI break on its default branch.
+ */
+export interface CIStop {
+  /** Branch is the default branch of the repository */
+  branch: string;
+  /** Issue is the number of the task issue of the break */
+  issue: number;
+  /** IssueUrl is the GitHub URL of the task issue */
+  issueUrl: string;
+  /** Repository is the full name of the repository, as "owner/name" */
+  repository: string;
+  /** RunUrl is the GitHub URL of the failed run */
+  runUrl: string;
+  /** Workflow is the name of the workflow that fails */
+  workflow: string;
+}
+
+/**
  * Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry
  */
 export type ChatMessageAuthor = typeof ChatMessageAuthor[keyof typeof ChatMessageAuthor];
@@ -207,6 +225,8 @@ export interface Chat {
      * @nullable
      */
   pausedUntil: string | null;
+  /** Stoppable is true while a stop ends the turn that answers a message, or drops a message of the Owner that waits */
+  stoppable: boolean;
   /** Writing is true while the agent has a turn that runs or a message that waits */
   writing: boolean;
 }
@@ -226,6 +246,8 @@ export interface ChatState {
   pausedUntil: string | null;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository: string;
+  /** Stoppable is true while a stop ends the turn that answers a message, or drops a message of the Owner that waits */
+  stoppable: boolean;
   /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream: number;
   /** Writing is true while the agent has a turn that runs or an item that waits */
@@ -422,6 +444,14 @@ export interface EnvelopeActiveAgents {
 export interface EnvelopeArrayAgent {
   /** Data is the payload of the response */
   data: Agent[];
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeArrayCIStop {
+  /** Data is the payload of the response */
+  data: CIStop[];
 }
 
 /**
@@ -745,6 +775,8 @@ export interface Workstream {
   autopilot: boolean;
   /** Brief is the body of the Workstream issue: the goal, the scope and the limits of the Workstream */
   brief: string;
+  /** Evergreen is true when the Workstream issue has mobius:evergreen */
+  evergreen: boolean;
   /** Number is the number of the Workstream issue */
   number: number;
   /** ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it */
@@ -1154,6 +1186,11 @@ export type LiveEvents = {
   /** Array of Pause */
   data: Pause[];
   event: 'pauses';
+  id?: string;
+} | {
+  /** Array of CIStop */
+  data: CIStop[];
+  event: 'ciStops';
   id?: string;
 } | {
   data: WorkstreamRef;
@@ -2181,6 +2218,71 @@ export const getCheckupTools = async ( ): Promise<getCheckupToolsResponse> => {
 
   const data: getCheckupToolsResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getCheckupToolsResponse
+}
+
+
+
+export type listCIStopsResponse200 = {
+  data: EnvelopeArrayCIStop
+  status: 200
+}
+
+export type listCIStopsResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type listCIStopsResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type listCIStopsResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type listCIStopsResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type listCIStopsResponseSuccess = (listCIStopsResponse200) & {
+  headers: Headers;
+};
+export type listCIStopsResponseError = (listCIStopsResponse400 | listCIStopsResponse401 | listCIStopsResponse422 | listCIStopsResponse500) & {
+  headers: Headers;
+};
+
+export type listCIStopsResponse = (listCIStopsResponseSuccess | listCIStopsResponseError)
+
+export const getListCIStopsUrl = () => {
+
+
+
+
+  return `/api/ci-stops`
+}
+
+/**
+ * ListCIStops returns one item for each open hard CI break that has a task issue, in the order of the repositories and then of the break ids.
+ */
+export const listCIStops = async ( ): Promise<listCIStopsResponse> => {
+
+  const res = await fetch(getListCIStopsUrl(),
+  {
+
+    method: 'GET'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: listCIStopsResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as listCIStopsResponse
 }
 
 

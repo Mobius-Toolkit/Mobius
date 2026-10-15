@@ -1,5 +1,6 @@
 -- name: ListCopiedWorkstreams :many
 SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
+       CAST(w.evergreen AS BOOLEAN) AS evergreen,
        CAST(EXISTS (SELECT 1 FROM copied_issues i
                WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number)
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
@@ -736,6 +737,9 @@ SELECT * FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id;
 
 -- name: ListOpenHardCIBreaks :many
 SELECT * FROM ci_breaks WHERE repository = ? AND ended_at = '' AND result = 'hard' ORDER BY id;
+
+-- name: ListAllOpenHardCIBreaks :many
+SELECT * FROM ci_breaks WHERE ended_at = '' AND result = 'hard' AND issue != 0 ORDER BY repository, id;
 
 -- name: SetCIBreakRerun :exec
 UPDATE ci_breaks SET rerun_at = ? WHERE id = ?;

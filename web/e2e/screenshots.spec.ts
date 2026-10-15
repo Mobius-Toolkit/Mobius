@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
 import { needsHumanRoute, longTitle, routeLongTitle, routeReasons } from "./stops.js";
 
@@ -99,6 +100,7 @@ test("screenshots", async ({ page }) => {
   const drain = page.getByText("Upgrade waits for 2 agents").filter({ visible: true });
   // The server starts the drain after the chats of the fake agents end.
   await expect(drain).toBeVisible({ timeout: 60_000 });
+  await waitForEvergreen(page);
   // The frame shows its data after the live connection opens. Only the side bar of a desktop shows the Workstreams.
   // A phone shows the upgrade controls only on the Settings page, and the organization switch only on the Workstreams
   // and Inbox pages.
@@ -120,7 +122,12 @@ test("screenshots", async ({ page }) => {
         .filter({ visible: true })
         .getByText(inboxCount, { exact: true }),
       page.getByText(/^antigravity paused until Sep 28, 12:00\sPM$/),
-      ...(desktop ? [page.locator("nav").first().getByText("needs you")] : []),
+      ...(desktop
+        ? [
+            page.locator("nav").first().getByText("needs you"),
+            page.locator("nav").first().getByText("Early renewals"),
+          ]
+        : []),
     ];
   };
   // Each test that opens the Coordinator chat of owner marks its messages as seen. Thus the screenshots get a fixed count.
@@ -142,6 +149,7 @@ test("screenshots", async ({ page }) => {
   const workstreamsReady = (device: string) => [
     chatCount,
     ...frame(device, drain, { organizations: true }),
+    main.getByRole("heading", { name: "Evergreen" }),
     main.getByText("Seasonal prices"),
     main.getByRole("img", { name: "Autopilot" }),
     main.getByRole("img", { name: "Agent running" }),
@@ -195,12 +203,37 @@ test("screenshots", async ({ page }) => {
   await main.getByLabel("Message to the Lead").fill("");
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
-    const body = (await response.json()) as { data: { writing: boolean } };
+    const body = (await response.json()) as { data: { writing: boolean; stoppable: boolean } };
     body.data.writing = true;
+    body.data.stoppable = true;
     await route.fulfill({ response, json: body });
   });
   await screenshot(page, "chat-writing", "/workstreams/owner/shop/12", (device) => [
     ...chatReady(device),
+    main.getByRole("button", { name: "Stop the reply" }),
+  ]);
+  await page.unroute("**/api/chat?*");
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: {
+        writing: boolean;
+        stoppable: boolean;
+        messages: { author: string; deliveredAt: string | null }[];
+      };
+    };
+    body.data.writing = true;
+    body.data.stoppable = true;
+    for (const message of body.data.messages) {
+      if (message.author === "Owner") {
+        message.deliveredAt = null;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await screenshot(page, "chat-waiting", "/workstreams/owner/shop/12", (device) => [
+    ...chatReady(device),
+    main.getByText("Waits for the agent").first(),
     main.getByRole("button", { name: "Stop the reply" }),
   ]);
   await page.unroute("**/api/chat?*");
@@ -474,6 +507,31 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute("/api/inbox");
+  await page.route("**/api/ci-stops", (route) =>
+    route.fulfill({
+      json: {
+        data: [
+          {
+            repository: "owner/shop",
+            branch: "main",
+            workflow: "Continuous integration of the checkout service",
+            runUrl: "https://github.com/owner/shop/actions/runs/1",
+            issue: 30,
+            issueUrl: "https://github.com/owner/shop/issues/30",
+          },
+        ],
+      },
+    }),
+  );
+  await screenshot(page, "ci-stop", "/workstreams", (device) => [
+    ...frame(device, drain, { organizations: true }),
+    page.getByText("Dispatch stopped: CI fails on main"),
+    page.getByRole("link", { name: "#30" }),
+  ]);
+  expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
+    true,
+  );
+  await page.unroute("**/api/ci-stops");
   await screenshot(page, "inbox-activity", "/inbox/activity", (device) => [
     chatCount,
     ...frame(device, drain, { organizations: true }),

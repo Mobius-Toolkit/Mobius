@@ -1,16 +1,11 @@
 import {
-  ArrowUpIcon,
   BanIcon,
   CheckCheckIcon,
   CheckIcon,
   ChevronRightIcon,
   CircleAlertIcon,
   ClockIcon,
-  MicIcon,
-  PaperclipIcon,
-  SquareIcon,
   Trash2Icon,
-  XIcon,
 } from "lucide-react";
 import {
   Fragment,
@@ -24,7 +19,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { flushSync } from "react-dom";
 import {
   getChat,
   getGetChatImageUrl,
@@ -38,10 +32,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Textarea } from "@/components/ui/textarea";
-import { chatDraftKey, loadDraft, saveDraft } from "@/lib/draft";
+import { chatDraftKey } from "@/lib/draft";
 import { onEvent } from "@/lib/events";
-import { fitImage, maxImages } from "@/lib/images";
 import { LoginContext } from "@/lib/login";
 import {
   addQueued,
@@ -55,10 +47,9 @@ import { atEnd } from "@/lib/scroll";
 import { clock, clockSeconds, dayClock, dayLabel, localTimes } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
-import { useVoice } from "@/lib/voice";
+import { FileImage } from "./FileImage";
 import { Markdown } from "./Markdown";
-
-const tooManyImages = `A message has at most ${maxImages} images.`;
+import { MessageInput } from "./MessageInput";
 
 // The wait after each failed send. The last wait repeats.
 const retryDelays = [2000, 5000, 10_000, 30_000];
@@ -154,6 +145,9 @@ const Message = memo(function Message({ message }: { message: ChatMessage }) {
           ))}
         </div>
       )}
+      {message.author === "Owner" && !message.deliveredAt && !message.stoppedAt && (
+        <span className="text-xs text-muted-foreground">Waits for the agent</span>
+      )}
     </div>
   );
 });
@@ -170,18 +164,6 @@ function DaySeparator({ label }: { label: string }) {
       <span className="h-px grow bg-border" />
     </div>
   );
-}
-
-function FileImage({ file, alt, className }: { file: File; alt: string; className: string }) {
-  const show = useCallback(
-    (image: HTMLImageElement) => {
-      const url = URL.createObjectURL(file);
-      image.src = url;
-      return () => URL.revokeObjectURL(url);
-    },
-    [file],
-  );
-  return <img ref={show} alt={alt} className={className} />;
 }
 
 function QueuedMessage({
@@ -264,38 +246,6 @@ function QueuedMessage({
   );
 }
 
-function Thumbnail({
-  file,
-  position,
-  remove,
-}: {
-  file: File;
-  position: number;
-  remove: () => void;
-}) {
-  return (
-    <div className="relative">
-      <FileImage
-        file={file}
-        alt={`Image ${position}`}
-        className="size-16 rounded-lg border object-cover"
-      />
-      <Button
-        type="button"
-        variant="secondary"
-        size="icon-sm"
-        aria-label={`Remove image ${position}`}
-        title={`Remove image ${position}`}
-        className="absolute top-0.5 right-0.5 rounded-full max-md:size-8"
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={remove}
-      >
-        <XIcon />
-      </Button>
-    </div>
-  );
-}
-
 // The chat of the agent: a Lead chat, or the Coordinator chat with the empty repository and the Workstream 0. unread is
 // undefined until the first read of the unread counts.
 export function Conversation({
@@ -328,21 +278,10 @@ export function Conversation({
   const [older, setOlder] = useState(false);
   const [harness, setHarness] = useState("");
   const [writing, setWriting] = useState(false);
+  const [stoppable, setStoppable] = useState(false);
   const [pausedUntil, setPausedUntil] = useState<string | null>(null);
   const [failure, setFailure] = useState("");
   const [error, setError] = useState<string>();
-  const draftKey = chatDraftKey(organization, repository, workstream);
-  const [draft, setDraft] = useState({ key: draftKey, text: loadDraft(draftKey) });
-  let text = draft.text;
-  if (draft.key !== draftKey) {
-    text = loadDraft(draftKey);
-    setDraft({ key: draftKey, text });
-  }
-  const setText = (value: string) => {
-    saveDraft(draftKey, value);
-    setDraft({ key: draftKey, text: value });
-  };
-  const [images, setImages] = useState<File[]>([]);
   const [sendError, setSendError] = useState("");
   const [stopping, setStopping] = useState(false);
   // The messages that the server did not store, or stored but the list does not have yet.
@@ -352,24 +291,15 @@ export function Conversation({
   const [attempt, setAttempt] = useState<Failure>();
   // Ends the wait before the next try of the first message.
   const skipWait = useRef<() => void>(undefined);
-  // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
-  // message. The next render has the empty input and clears the ref.
-  const justSent = useRef(false);
-  useEffect(() => {
-    justSent.current = false;
-  });
-  const imagesRef = useRef<File[]>([]);
   const [briefOpen, setBriefOpen] = useState<boolean>();
   const listRef = useRef<HTMLDivElement>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
-  const picker = useRef<HTMLInputElement>(null);
   const pinned = useRef(true);
   // The scrollTop of the last scroll to the end. A scroll event can come after an image has made the list longer.
   const endTop = useRef<number>(undefined);
-  const scrollToEnd = (list: HTMLElement) => {
+  const scrollToEnd = useCallback((list: HTMLElement) => {
     list.scrollTop = list.scrollHeight;
     endTop.current = list.scrollTop;
-  };
+  }, []);
   // The number of messages at the last scroll, or undefined before the first scroll.
   const scrolledCount = useRef<number>(undefined);
   const loadingOlder = useRef(false);
@@ -377,58 +307,6 @@ export function Conversation({
   const newest = useRef<number>(undefined);
   // The place of a message on the screen before the list gets older messages at its start.
   const anchor = useRef<{ id: number; offset: number }>(undefined);
-  // The place of the voice text in the field. value and cursor describe what the voice input wrote last.
-  const voiceInsert = useRef<{ lead: string; trail: string; value: string; cursor: number }>(
-    undefined,
-  );
-  const voice = useVoice(
-    (voiceText, first) => {
-      const field = input.current;
-      if (!field) {
-        return;
-      }
-      let insert = first ? undefined : voiceInsert.current;
-      if (!voiceText) {
-        return;
-      }
-      if (!insert) {
-        const focused = document.activeElement === field;
-        const start = focused ? field.selectionStart : field.value.length;
-        const end = focused ? field.selectionEnd : field.value.length;
-        const before = field.value.slice(0, start);
-        const after = field.value.slice(end);
-        insert = {
-          lead: before === "" || /\s$/.test(before) ? before : `${before} `,
-          trail: after === "" || /^\s/.test(after) ? after : ` ${after}`,
-          value: "",
-          cursor: 0,
-        };
-      }
-      const value = insert.lead + voiceText + insert.trail;
-      const cursor = insert.lead.length + voiceText.length;
-      voiceInsert.current = { ...insert, value, cursor };
-      flushSync(() => setText(value));
-      // The height of the text up to the end of the voice text gives the scroll position. setSelectionRange does not
-      // scroll a field without the focus, and WebKit on iOS does not scroll it reliably.
-      field.value = insert.lead + voiceText;
-      const top = field.scrollHeight - field.clientHeight;
-      field.value = value;
-      field.setSelectionRange(cursor, cursor);
-      field.scrollTop = top;
-    },
-    () => {
-      const field = input.current;
-      const insert = voiceInsert.current;
-      return (
-        !!field &&
-        !!insert &&
-        (field.value !== insert.value ||
-          field.selectionStart !== insert.cursor ||
-          field.selectionEnd !== insert.cursor)
-      );
-    },
-  );
-
   const fetchPage = useCallback(
     async (before?: number): Promise<Chat | undefined> => {
       const res = await getChat({ organization, repository, workstream, before });
@@ -470,8 +348,9 @@ export function Conversation({
     }
     setHarness(newestPage.harness);
     setWriting(newestPage.writing);
+    setStoppable(newestPage.stoppable);
     setPausedUntil(newestPage.pausedUntil);
-    if (!newestPage.writing) {
+    if (!newestPage.stoppable) {
       setStopping(false);
     }
     setLoaded(true);
@@ -528,8 +407,9 @@ export function Conversation({
     const removeState = onEvent<LiveEvents, "chat">(source, "chat", (state) => {
       if (sameChat(state, key)) {
         setWriting(state.writing);
+        setStoppable(state.stoppable);
         setPausedUntil(state.pausedUntil);
-        if (!state.writing) {
+        if (!state.stoppable) {
           setStopping(false);
         }
         setFailure(state.error);
@@ -657,6 +537,21 @@ export function Conversation({
     }
   }, [loaded, queueLoaded, older, waiting, openUnread, loadOlder]);
 
+  // The list gets shorter when the input gets taller, and the end of the list must stay in view.
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      if (pinned.current) {
+        scrollToEnd(list);
+      }
+    });
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [scrollToEnd]);
+
   // The first scroll shows the first unread message, or the end. Then a new message scrolls to the end, and a longer
   // last message scrolls only while the Owner is at the end.
   useLayoutEffect(() => {
@@ -702,53 +597,16 @@ export function Conversation({
     }
   });
 
-  // The ref has the images at once, so two calls that wait for fitImage count the images of each other.
-  const changeImages = (change: (current: File[]) => File[]) => {
-    imagesRef.current = change(imagesRef.current);
-    setImages(imagesRef.current);
-  };
-
-  const addImages = async (files: File[]) => {
-    const room = maxImages - imagesRef.current.length;
-    let problem = "";
-    const added: File[] = [];
-    for (const file of files.slice(0, room)) {
-      try {
-        added.push(await fitImage(file));
-      } catch (err) {
-        problem = err instanceof Error ? err.message : String(err);
-      }
-    }
-    const all = [...imagesRef.current, ...added];
-    changeImages(() => all.slice(0, maxImages));
-    if (!problem && (files.length > room || all.length > maxImages)) {
-      problem = tooManyImages;
-    }
-    setSendError(problem);
-  };
-
-  const empty = !text.trim() && images.length === 0;
-  const showStop = empty && writing;
-  const buttonPending = showStop && stopping;
-
-  const send = () => {
-    if (empty || justSent.current) {
-      return;
-    }
+  const send = (text: string, images: File[]) => {
     const item: Queued = {
       id: newMessageId(),
       organization,
       repository,
       workstream,
       text,
-      images: imagesRef.current,
+      images,
       time: new Date().toISOString(),
     };
-    voice.abort();
-    justSent.current = true;
-    setText("");
-    changeImages(() => []);
-    setSendError("");
     setQueue((current) => [...current, item]);
     addQueued(item).catch((err: unknown) => setSendError(String(err)));
   };
@@ -870,142 +728,17 @@ export function Conversation({
         )}
       </div>
       {footer}
-      <form
-        className="grid gap-1 border-t p-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          send();
-        }}
-      >
-        <input
-          ref={picker}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(event) => {
-            void addImages([...(event.target.files ?? [])]);
-            event.target.value = "";
-          }}
-        />
-        <div className="grid gap-1 rounded-2xl border border-input bg-background p-2 transition-colors has-[textarea:focus-visible]:border-ring dark:bg-input/30">
-          {images.length > 0 && (
-            <div className="flex flex-wrap gap-2 pb-1">
-              {images.map((image, index) => (
-                <Thumbnail
-                  key={index}
-                  file={image}
-                  position={index + 1}
-                  remove={() => changeImages((current) => current.filter((_, i) => i !== index))}
-                />
-              ))}
-            </div>
-          )}
-          <Textarea
-            ref={input}
-            rows={1}
-            aria-label={`Message to the ${agent}`}
-            placeholder={`Write to the ${agent}`}
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            // Safari on iOS scrolls the page when the keyboard opens, and it can keep that offset after the keyboard closes.
-            onBlur={() => window.scrollTo(0, 0)}
-            onPaste={(event) => {
-              const pasted = [...event.clipboardData.files].filter((file) =>
-                file.type.startsWith("image/"),
-              );
-              // Spreadsheet and word processor apps put the text and a picture of the selection on the clipboard.
-              if (pasted.length > 0 && !event.clipboardData.getData("text/plain")) {
-                event.preventDefault();
-                void addImages(pasted);
-              }
-            }}
-            onKeyDown={(event) => {
-              // On a touch screen, Enter adds a line and only the Send button sends. Safari gives the Enter that
-              // ends an IME composition with isComposing false and keyCode 229.
-              if (
-                event.key === "Enter" &&
-                !event.shiftKey &&
-                !event.nativeEvent.isComposing &&
-                event.keyCode !== 229 &&
-                !window.matchMedia("(pointer: coarse)").matches
-              ) {
-                event.preventDefault();
-                send();
-              }
-            }}
-            className="max-h-40 min-h-9 w-full resize-none rounded-none border-0 px-1 py-1.5 focus-visible:ring-0 dark:bg-transparent"
-          />
-          <div className="flex items-center justify-between gap-2">
-            {/* A button that takes the focus closes the keyboard of a phone, and the button moves before the click. */}
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label="Attach images"
-              title="Attach images"
-              className="rounded-full text-muted-foreground max-md:size-11"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => picker.current?.click()}
-            >
-              <PaperclipIcon />
-            </Button>
-            <div className="flex items-center gap-1">
-              {voice.supported && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={voice.listening ? "Stop voice input" : "Start voice input"}
-                  title={voice.listening ? "Stop voice input" : "Start voice input"}
-                  aria-pressed={voice.listening}
-                  className={cn(
-                    "rounded-full text-muted-foreground max-md:size-11",
-                    voice.listening &&
-                      "bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive motion-safe:animate-pulse",
-                  )}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={voice.toggle}
-                >
-                  {voice.listening ? <SquareIcon /> : <MicIcon />}
-                </Button>
-              )}
-              <Button
-                type={showStop ? "button" : "submit"}
-                size="icon"
-                aria-label={showStop ? "Stop the reply" : "Send"}
-                title={showStop ? "Stop the reply" : "Send"}
-                pending={buttonPending}
-                disabled={empty && !writing}
-                className={cn(
-                  "rounded-full max-md:size-11",
-                  empty &&
-                    !writing &&
-                    "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
-                )}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={showStop ? stop : undefined}
-              >
-                {buttonPending ? null : showStop ? (
-                  <SquareIcon className="size-3 fill-current" />
-                ) : (
-                  <ArrowUpIcon />
-                )}
-              </Button>
-            </div>
-          </div>
-        </div>
-        {voice.error && (
-          <p role="alert" className="text-sm text-destructive">
-            {voice.error}
-          </p>
-        )}
-        {sendError && (
-          <p role="alert" className="text-sm text-destructive">
-            {sendError}
-          </p>
-        )}
-      </form>
+      <MessageInput
+        draftKey={chatDraftKey(organization, repository, workstream)}
+        label={`Message to the ${agent}`}
+        placeholder={`Write to the ${agent}`}
+        images
+        error={sendError}
+        onError={setSendError}
+        stopping={stopping}
+        onStop={stoppable ? stop : undefined}
+        onSend={send}
+      />
     </section>
   );
 }
