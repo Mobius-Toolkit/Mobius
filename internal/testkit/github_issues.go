@@ -513,6 +513,15 @@ func (g *FakeGitHub) LabelActor(repository string, number int64, label string) s
 	return ""
 }
 
+// LabelRemovedBy tells whether the issue has an unlabeled event of label by actor.
+func (g *FakeGitHub) LabelRemovedBy(repository string, number int64, label, actor string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.ContainsFunc(g.issues[issueKey{repository, number}].events, func(event eventJSON) bool {
+		return event.Event == "unlabeled" && event.Label.Name == label && event.Actor.Login == actor
+	})
+}
+
 // Labels gives the labels of the issue, in the order of their addition.
 func (g *FakeGitHub) Labels(repository string, number int64) []string {
 	g.mu.Lock()
