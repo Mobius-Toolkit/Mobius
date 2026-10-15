@@ -654,7 +654,7 @@ func (g *FakeGitHub) listIssues(w http.ResponseWriter, r *http.Request) {
 		if key.repository == repository(r) &&
 			(state == "all" || state == found.state) &&
 			found.updatedAt >= since &&
-			!(g.pullRequestsUnlisted && found.pullRequest) &&
+			(!g.pullRequestsUnlisted || !found.pullRequest) &&
 			!slices.ContainsFunc(labels, func(label string) bool { return !slices.Contains(found.labels, label) }) {
 			keys = append(keys, key)
 		}
