@@ -89,6 +89,7 @@ func TestTheEndOfAQuestionAfterAResumeOpensNoStoppedItem(t *testing.T) {
 	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
 	waitForItem(t, server, "question")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && pullRequestHasNeedsHuman(fake) })
+	waitForPolls(t, fake)
 	wantOpenKinds(t, server, "question")
 
 	resume(t, server)
