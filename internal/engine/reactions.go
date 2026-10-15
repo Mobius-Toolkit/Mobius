@@ -172,10 +172,15 @@ func (e *Engine) launchEventComment(ctx context.Context, event *store.LeadEvent)
 }
 
 // launchTriagerComments adds the reaction of a Triager run that starts to each comment of an event that the run reads.
-func (e *Engine) launchTriagerComments(ctx context.Context, repository github.Repository, comments []*gh.IssueComment) {
+func (e *Engine) launchTriagerComments(ctx context.Context, repository github.Repository, comments []*gh.IssueComment) error {
 	for _, comment := range comments {
-		if e.commentIsEvent(repository.AppSlug, comment) {
+		isEvent, err := e.commentIsEvent(ctx, repository, comment)
+		if err != nil {
+			return err
+		}
+		if isEvent {
 			launched(ctx, repository, false, comment.GetID())
 		}
 	}
+	return nil
 }

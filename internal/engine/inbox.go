@@ -181,6 +181,47 @@ func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 	return e.Dismiss(ctx, id)
 }
 
+// ErrNoInboxItem is the error of an Inbox item that does not exist.
+var ErrNoInboxItem = errors.New("the Inbox has no such item")
+
+// ErrNoInboxIssue is the error of an Inbox item with no issue.
+var ErrNoInboxIssue = errors.New("the Inbox item has no issue")
+
+// AnswerInboxItem posts text as a comment on the issue of the Inbox item id, with the user token of the Owner, and
+// gives the GitHub URL of the comment. It stores the id of the comment in owner_answers, so the poll treats the comment
+// as a comment of a trusted user. It returns a refusal when the Owner did not authorize the Mobius App.
+func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (string, error) {
+	item, err := e.queries.GetInboxItem(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNoInboxItem
+	}
+	if err != nil {
+		return "", err
+	}
+	if item.Issue == 0 {
+		return "", ErrNoInboxIssue
+	}
+	repository, err := e.repository(item.Repository)
+	if err != nil {
+		return "", err
+	}
+	asOwner, err := e.github.AsOwner(ctx, repository)
+	if err != nil {
+		// The text tells the Owner how to authorize the Mobius App.
+		return "", refusal(err.Error())
+	}
+	e.ownerAnswerMu.Lock()
+	defer e.ownerAnswerMu.Unlock()
+	comment, err := asOwner.AddComment(ctx, item.Issue, text)
+	if err != nil {
+		return "", err
+	}
+	if err := e.queries.AddOwnerAnswer(ctx, store.AddOwnerAnswerParams{Repository: repository.FullName, CommentID: comment.GetID()}); err != nil {
+		return "", err
+	}
+	return comment.GetHTMLURL(), nil
+}
+
 // Dismiss removes the Inbox item id from the Inbox.
 func (e *Engine) Dismiss(ctx context.Context, id int64) error {
 	item, err := e.queries.DismissInboxItem(ctx, store.DismissInboxItemParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: id})

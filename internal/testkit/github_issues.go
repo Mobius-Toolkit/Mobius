@@ -1033,7 +1033,7 @@ func changedComments[T any](r *http.Request, comments []T, fields func(T) (int64
 	return comments
 }
 
-// addComment adds the comment as the token owner: the user of a user token, or the App bot of an installation token.
+// addComment adds the comment as the token owner: the user of a user token, through the App of the token, or the App bot of an installation token.
 func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Body string `json:"body"`
@@ -1056,7 +1056,13 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 		message(w, http.StatusUnprocessableEntity, "Validation Failed")
 		return
 	}
-	writeJSON(w, http.StatusCreated, g.comment(key, caller.login, request.Body))
+	created := g.comment(key, caller.login, request.Body)
+	if !caller.installation {
+		comments := g.issues[key].comments
+		comments[len(comments)-1].PerformedViaGitHubApp = &slugJSON{apps[caller.app].slug}
+		created = comments[len(comments)-1]
+	}
+	writeJSON(w, http.StatusCreated, created)
 }
 
 // updateComment replaces the body of the comment of an issue of the repository.

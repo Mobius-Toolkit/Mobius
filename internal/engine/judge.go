@@ -210,8 +210,14 @@ func (e *Engine) newItems(ctx context.Context, repository github.Repository, tas
 		login, at := comment.GetUser().GetLogin(), comment.GetCreatedAt().Time
 		if isNew(login, at) {
 			var comments []int64
-			if !bot(login) && e.commentIsEvent(repository.AppSlug, comment) {
-				comments = []int64{id}
+			if !bot(login) {
+				isEvent, err := e.commentIsEvent(ctx, repository, comment)
+				if err != nil {
+					return nil, err
+				}
+				if isEvent {
+					comments = []int64{id}
+				}
 			}
 			items = append(items, judgeItem{id: id, bot: bot(login), text: fmt.Sprintf("\nComment %d:\n%s", id, entry(login, at, "", comment.GetBody())), at: at, comments: comments})
 		}

@@ -761,3 +761,9 @@ SELECT * FROM ci_breaks WHERE repository = ? AND issue < 0 ORDER BY id;
 
 -- name: SetCIBreakIssue :exec
 UPDATE ci_breaks SET issue = ? WHERE id = ?;
+
+-- name: AddOwnerAnswer :exec
+INSERT OR IGNORE INTO owner_answers (repository, comment_id) VALUES (?, ?);
+
+-- name: IsOwnerAnswer :one
+SELECT EXISTS (SELECT 1 FROM owner_answers WHERE repository = ? AND comment_id = ?);

@@ -41,6 +41,9 @@ type Engine struct {
 	// creates a Workstream and adds it to the copy, take turns. Else syncCopy can replace the copy with a list that
 	// does not have the new Workstream.
 	copyWrite sync.Mutex
+	// ownerAnswerMu makes AnswerInboxItem, which posts a comment and then stores its id, and the poll read of the new
+	// comments take turns. Else the poll can read the comment before its id is stored and ignore it.
+	ownerAnswerMu sync.Mutex
 	// quiet holds the newest item of the Judge of each task in its quiet period, by the id of the task. Only the poll
 	// uses it.
 	quiet map[int64]quietItem
