@@ -12,6 +12,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -662,7 +664,26 @@ func TestAnUpdateOfTheBranchMergesTheBaseIntoTheHeadAndRefusesAWrongHeadAndAConf
 	if response := send(t, http.MethodPut, update, installation, fmt.Sprintf(`{"expected_head_sha": %q}`, head), nil); response.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status with each commit of the base in the head = %d", response.StatusCode)
 	}
+	work := t.TempDir()
+	Git(t, work, "clone", "--branch=main", remote, ".")
+	Git(t, work, "switch", "--create", "conflicting")
+	if err := os.WriteFile(filepath.Join(work, "price.txt"), []byte("euros\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	Git(t, work, "add", "price.txt")
+	Git(t, work, "commit", "--message", "Add price in euros")
+	Git(t, work, "push", "origin", "conflicting")
+	conflicting := github.OpenPullRequest("owner/shop", "Add price in euros", "conflicting")
+	conflictingHead := Git(t, remote, "rev-parse", "conflicting")
 	github.CommitFile("owner/shop", "price.txt", "cents\n", "Add price")
+
+	conflictingUpdate := fmt.Sprintf("%s/repos/owner/shop/pulls/%d/update-branch", github.URL, conflicting)
+	if response := send(t, http.MethodPut, conflictingUpdate, installation, fmt.Sprintf(`{"expected_head_sha": %q}`, conflictingHead), nil); response.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("status with a conflict = %d", response.StatusCode)
+	}
+	if got := Git(t, remote, "rev-parse", "conflicting"); got != conflictingHead {
+		t.Errorf("head after the conflict = %s, want %s", got, conflictingHead)
+	}
 
 	if response := send(t, http.MethodPut, update, installation, `{"expected_head_sha": "0000000000000000000000000000000000000000"}`, nil); response.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("status with a wrong head = %d", response.StatusCode)
@@ -674,7 +695,7 @@ func TestAnUpdateOfTheBranchMergesTheBaseIntoTheHeadAndRefusesAWrongHeadAndAConf
 	if parents := Git(t, remote, "rev-list", "--parents", "-n", "1", merged); parents != merged+" "+head+" "+Git(t, remote, "rev-parse", "main") {
 		t.Errorf("parents = %s", parents)
 	}
-	if got := github.UpdateBranchCalls(); got != 3 {
+	if got := github.UpdateBranchCalls(); got != 4 {
 		t.Errorf("update calls = %d", got)
 	}
 }

@@ -192,6 +192,26 @@ func TestABranchWithEachCommitOfItsBaseWhenTheBreakEndsGetsARefusedUpdateAndTheU
 	}
 }
 
+func TestAWaitingHeadWhoseCIPassesWhileTheBreakIsOpenMovesToApprovalWithNoBranchUpdate(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
+	sha := checksHead(t, server, fake)
+	hardBreak(t, server, fake)
+	failed := fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+	testkit.WaitFor(t, func() bool { return breakWaitHead(t, server) == sha })
+
+	fake.SetCheckRunStatus(failed, "completed", "success")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	if got, calls := breakWaitHead(t, server), fake.UpdateBranchCalls(); got != "" || calls != 0 {
+		t.Errorf("break_wait_head = %s, update calls = %d", got, calls)
+	}
+	if task := liveTask(t, server, 41); task.FixRounds != 0 || implementers(t, server) != 1 {
+		t.Errorf("task = %+v, Implementers = %d", task, implementers(t, server))
+	}
+}
+
 func TestTheTaskOfTheIssueOfAnOpenBreakGetsTheUsualFixRoundForAFailedCI(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

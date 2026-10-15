@@ -34,7 +34,8 @@ func (e *Engine) breakOpenFor(ctx context.Context, repository string, task store
 // waitsForBreak tells if the head of the pull request of the task in checks, approval or ready_for_review waits for the
 // end of a break of the CI of the default branch. The head waits when the repository has an open break and the CI of the
 // head failed. The head stays in break_wait_head, so the wait survives a restart. A waiting task gets no fix round and
-// no stop.
+// no stop. When the CI of the waiting head shows no failure any more, for example after a run of its failed jobs again,
+// the wait ends and the usual flow reads the CI.
 func (e *Engine) waitsForBreak(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	if !afterReview(task.State) {
 		return false, nil
@@ -44,14 +45,21 @@ func (e *Engine) waitsForBreak(ctx context.Context, repository github.Repository
 		return false, err
 	}
 	head := pullRequest.GetHead().GetSHA()
-	if task.BreakWaitHead.String == head {
-		return true, nil
-	}
 	state, err := ciOf(ctx, repository, head)
-	if err != nil || !state.failedCheck && !state.failedWorkflow {
+	if err != nil {
 		return false, err
 	}
-	return true, e.queries.SetTaskBreakWaitHead(ctx, store.SetTaskBreakWaitHeadParams{BreakWaitHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
+	waiting := task.BreakWaitHead.String == head
+	if state.failedCheck || state.failedWorkflow {
+		if waiting {
+			return true, nil
+		}
+		return true, e.queries.SetTaskBreakWaitHead(ctx, store.SetTaskBreakWaitHeadParams{BreakWaitHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
+	}
+	if waiting {
+		return false, e.queries.SetTaskBreakWaitHead(ctx, store.SetTaskBreakWaitHeadParams{ID: task.ID})
+	}
+	return false, nil
 }
 
 // endBreakWait ends the wait of the task when the repository has no open break. It updates the branch of the pull
