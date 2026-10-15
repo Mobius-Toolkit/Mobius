@@ -8,6 +8,7 @@ import {
   type LiveEvents,
 } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
+import { useCIStops } from "@/lib/ciStops";
 import { onEvent } from "@/lib/events";
 import { useInbox } from "@/lib/inbox";
 import { LoginContext } from "@/lib/login";
@@ -73,6 +74,7 @@ function App() {
   const unread = useUnread(source);
   const inbox = useInbox(source);
   const pauses = usePauses(source);
+  const ciStops = useCIStops(source);
 
   useEffect(() => {
     chatOwner.current = chat?.params.owner;
@@ -265,6 +267,7 @@ function App() {
         unread={unread ?? []}
         inbox={inbox}
         pauses={pauses}
+        ciStops={ciStops}
         fill={chat !== undefined || pathname === "/chat"}
         connection={!online ? "offline" : link === "connecting" ? "connecting" : "connected"}
       >

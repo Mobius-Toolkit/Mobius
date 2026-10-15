@@ -474,6 +474,31 @@ test("screenshots", async ({ page }) => {
     },
   );
   await page.unroute("/api/inbox");
+  await page.route("**/api/ci-stops", (route) =>
+    route.fulfill({
+      json: {
+        data: [
+          {
+            repository: "owner/shop",
+            branch: "main",
+            workflow: "Continuous integration of the checkout service",
+            runUrl: "https://github.com/owner/shop/actions/runs/1",
+            issue: 30,
+            issueUrl: "https://github.com/owner/shop/issues/30",
+          },
+        ],
+      },
+    }),
+  );
+  await screenshot(page, "ci-stop", "/workstreams", (device) => [
+    ...frame(device, drain, { organizations: true }),
+    page.getByText("Dispatch stopped: CI fails on main"),
+    page.getByRole("link", { name: "#30" }),
+  ]);
+  expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
+    true,
+  );
+  await page.unroute("**/api/ci-stops");
   await screenshot(page, "inbox-activity", "/inbox/activity", (device) => [
     chatCount,
     ...frame(device, drain, { organizations: true }),
