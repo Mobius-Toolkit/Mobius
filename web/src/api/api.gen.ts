@@ -207,6 +207,8 @@ export interface Chat {
      * @nullable
      */
   pausedUntil: string | null;
+  /** Stoppable is true while a stop ends the turn that answers a message, or drops a message of the Owner that waits */
+  stoppable: boolean;
   /** Writing is true while the agent has a turn that runs or a message that waits */
   writing: boolean;
 }
@@ -226,6 +228,8 @@ export interface ChatState {
   pausedUntil: string | null;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository: string;
+  /** Stoppable is true while a stop ends the turn that answers a message, or drops a message of the Owner that waits */
+  stoppable: boolean;
   /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream: number;
   /** Writing is true while the agent has a turn that runs or an item that waits */

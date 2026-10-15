@@ -91,6 +91,8 @@ type ChatState struct {
 	Workstream int64 `gork:"workstream"`
 	// Writing is true while the agent has a turn that runs or an item that waits
 	Writing bool `gork:"writing"`
+	// Stoppable is true while a stop ends the turn that answers a message, or drops a message of the Owner that waits
+	Stoppable bool `gork:"stoppable"`
 	// PausedUntil is the end of the usage-limit pause that the agent waits for, or null while the agent does not wait for a pause
 	PausedUntil *time.Time `gork:"pausedUntil"`
 	// Error is the error that ended the last session of the agent, or empty
@@ -195,6 +197,7 @@ func (h *handlers) sendChange(ctx context.Context, stream *api.Stream[LiveEvents
 			Repository:   key.Repository,
 			Workstream:   key.Workstream,
 			Writing:      change.Chat.Writing,
+			Stoppable:    change.Chat.Stoppable,
 			PausedUntil:  pausedUntil,
 			Error:        change.Chat.Error,
 		}})

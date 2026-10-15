@@ -120,8 +120,9 @@ test("Start in the Tasks list shows the spinner in place of the icon", async ({ 
 test("Stop in the chat shows the spinner while the request runs", async ({ page }) => {
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
-    const body = (await response.json()) as { data: { writing: boolean } };
+    const body = (await response.json()) as { data: { writing: boolean; stoppable: boolean } };
     body.data.writing = true;
+    body.data.stoppable = true;
     await route.fulfill({ response, json: body });
   });
   await page.goto("/workstreams/owner/shop/12");
