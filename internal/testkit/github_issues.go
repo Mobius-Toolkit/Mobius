@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type issueKey struct {
@@ -994,6 +995,10 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 	}
 	if g.failedComments[key] {
 		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
+	if utf8.RuneCountInString(request.Body) > 65535 {
+		message(w, http.StatusUnprocessableEntity, "Validation Failed")
 		return
 	}
 	writeJSON(w, http.StatusCreated, g.comment(key, caller.login, request.Body))

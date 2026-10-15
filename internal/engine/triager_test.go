@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
@@ -42,6 +43,10 @@ reply = ["Refunds end in the ledger."]
 when = "Where do refunds start?"
 busy = "1s"
 reply = ["Refunds start at the order."]
+
+[[prompts]]
+when = "# Question\n\nWhere do refunds stop?"
+reply = ["LONG_REPORT"]
 
 [[prompts]]
 when = "You are a Researcher"
@@ -82,6 +87,10 @@ call = { tool = "start_researcher", arguments = { question = "Where do refunds s
 [[prompts]]
 when = "# Issue\n\nowner/shop#69 "
 call = { tool = "start_researcher", arguments = { question = "Where do refunds start?" } }
+
+[[prompts]]
+when = "# Issue\n\nowner/shop#70 "
+call = { tool = "start_researcher", arguments = { question = "Where do refunds stop?" } }
 
 [[prompts]]
 when = "Please use points."
@@ -761,6 +770,37 @@ func TestTheReportOfAResearcherArrivesBeforeTheNextTurnWhenTheFirstCommentFails(
 	report := fmt.Sprintf("Report of the Researcher %d on \"Where do refunds start?\":\n\nRefunds start at the order.", researcher.ID)
 	if prompts := promptTexts(t, server, sessions[1].ID); len(prompts) != 1 || !strings.Contains(prompts[0], report) {
 		t.Errorf("prompts = %q", prompts)
+	}
+}
+
+func TestTheReportOfAResearcherThatIsTooLongForACommentArrivesCutAndStartsTheNextTurn(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, strings.Replace(triager, "LONG_REPORT", "first"+strings.Repeat("a", 70_000)+"last", 1))
+	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	waitForPoll(t, server, fake)
+
+	fake.CreateIssue(shop, 70, "Add refunds", "Refund each order.", "owner")
+
+	researcher := waitForChatSession(t, server, issueTriagers, engine.ResearcherRole, func(session store.Session) bool { return session.EndedAt.Valid })
+	header := fmt.Sprintf("Report of the Researcher %d on \"Where do refunds stop?\":\n\n", researcher.ID)
+	report := testkit.WaitForValue(t, func() (string, bool) {
+		for _, comment := range fake.Comments(shop, 70) {
+			if strings.HasPrefix(comment.Body, header) {
+				return comment.Body, true
+			}
+		}
+		return "", false
+	})
+	if count := utf8.RuneCountInString(report); count != 65_535 || !strings.HasSuffix(report, "aaalast") || strings.Contains(report, "first") {
+		t.Errorf("report = %d characters, ends with %q", count, report[len(report)-7:])
+	}
+	second := testkit.WaitForValue(t, func() (store.Session, bool) {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return sessions[len(sessions)-1], len(sessions) == 2 && sessions[1].EndedAt.Valid
+	})
+	if prompts := promptTexts(t, server, second.ID); len(prompts) != 1 || !strings.Contains(prompts[0], report) {
+		t.Errorf("the prompt has no report")
 	}
 }
 

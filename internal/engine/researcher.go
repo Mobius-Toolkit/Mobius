@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"unicode/utf8"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
@@ -210,14 +211,20 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 	}
 }
 
+// commentLimit is the number of characters that GitHub accepts in a comment.
+const commentLimit = 65_535
+
 // deliverReport gives the report of the Researcher id on the question to the chat of c as a Researcher message. For
 // the Triager c, it is a comment on the issue of the Triager, and it starts the next turn of the Triager, because a
-// comment of the Mobius App starts no turn. When the triage has ended, the report goes nowhere. When a read of the
-// issue fails, the report goes out, because runTriager reads the issue again. When GitHub refuses the comment, the
-// comment stays in comment_writes and the turn stays held until the poll sends the comment.
+// comment of the Mobius App starts no turn. The comment keeps the end of a report that is too long for GitHub. When the
+// triage has ended, the report goes nowhere. When a read of the issue fails, the report goes out, because runTriager
+// reads the issue again. When GitHub refuses the comment, the comment stays in comment_writes and the turn stays held
+// until the poll sends the comment.
 func (e *Engine) deliverReport(ctx context.Context, c caller, repository github.Repository, id int64, question, report string) error {
-	text := fmt.Sprintf("Report of the Researcher %d on \"%s\":\n\n%s", id, question, report)
+	header := fmt.Sprintf("Report of the Researcher %d on \"%s\":\n\n", id, question)
+	text := header + report
 	if c.role == TriagerRole {
+		text = header + tail(report, commentLimit-utf8.RuneCountInString(header))
 		number := c.agent.spec.Issue.Int64
 		if !e.triagingOrUnknown(ctx, repository, number) {
 			return nil
