@@ -553,7 +553,7 @@ func TestTheReportOfAResearcherAfterTheEndOfTheTriageStartsNoTurn(t *testing.T) 
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.CreateIssue(shop, 64, "Add refunds", "Refund each order.", "owner")
-	researcher := waitForChatSession(t, server, issueTriagers, engine.ResearcherRole, func(session store.Session) bool { return true })
+	researcher := waitForChatSession(t, server, issueTriagers, engine.ResearcherRole, func(store.Session) bool { return true })
 
 	fake.CloseIssue(shop, 64)
 
