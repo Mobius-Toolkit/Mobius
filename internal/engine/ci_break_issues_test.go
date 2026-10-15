@@ -186,6 +186,59 @@ func TestABreakWithoutAMaintenanceWorkstreamGetsAnIssueWhenTheWorkstreamAppears(
 	}
 }
 
+func TestARefusedJobListCreatesNoIssueUntilTheListWorks(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := failedRunWithJob(fake)
+	addMaintenanceWorkstream(fake, maintenance)
+	fake.RefuseWorkflowJobs(http.StatusForbidden)
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	fake.SetWorkflowRunStatus(run, "completed", "failure")
+	waitForPolls(t, fake)
+
+	if created := createdIssues(fake); created != 0 {
+		t.Fatalf("created issues = %d", created)
+	}
+	fake.RefuseWorkflowJobs(0)
+
+	number := ciBreakIssue(t, fake)
+	if _, body := fake.Issue(shop, number); !strings.Contains(body, "Failed step: Run go test") {
+		t.Errorf("body = %q", body)
+	}
+}
+
+func TestARefusedCloseKeepsTheBreakOpenUntilTheCloseWorks(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := failedRunWithJob(fake)
+	addMaintenanceWorkstream(fake, maintenance)
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	fake.SetWorkflowRunStatus(run, "completed", "failure")
+	number := ciBreakIssue(t, fake)
+	fake.RefuseCloses(http.StatusForbidden)
+
+	passed := failedMainRun(7)
+	passed.Conclusion = "success"
+	newer := fake.AddWorkflowRun(shop, passed)
+	waitForPolls(t, fake)
+
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true, result: "hard"})
+	if state, _ := fake.State(shop, number); state != "open" {
+		t.Fatalf("state = %q", state)
+	}
+	fake.RefuseCloses(0)
+
+	waitForCIBreak(t, server, ciBreak{runID: run, endedRunID: newer, rerun: true, result: "hard"})
+	if state, reason := fake.State(shop, number); state != "closed" || reason != "completed" {
+		t.Errorf("state = %q, reason = %q", state, reason)
+	}
+	if comments := fake.Comments(shop, number); len(comments) != 1 {
+		t.Errorf("comments = %v", comments)
+	}
+}
+
 func createdIssues(fake *testkit.FakeGitHub) int {
 	count := 0
 	for _, request := range fake.Requests() {

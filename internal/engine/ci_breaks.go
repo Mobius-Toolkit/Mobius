@@ -126,7 +126,7 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 	}
 	if passedAgain {
 		if ciBreak.Result == "hard" && ciBreak.Issue > 0 {
-			if err := e.closeCIBreakIssue(ctx, repository, ciBreak, newest); err != nil {
+			if closed, err := e.closeCIBreakIssue(ctx, repository, ciBreak, newest); err != nil || !closed {
 				return err
 			}
 		}

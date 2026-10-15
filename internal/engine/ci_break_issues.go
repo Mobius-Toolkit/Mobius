@@ -50,9 +50,13 @@ func (e *Engine) createCIBreakIssues(ctx context.Context, repository github.Repo
 }
 
 // createCIBreakIssue creates the issue of ciBreak and stores its number. It gives the number, or 0 when GitHub created
-// no issue. A 4xx answer of GitHub is no error.
+// no issue. A 4xx answer of GitHub is no error. When GitHub refuses the list of jobs, it creates no issue.
 func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repository, workstream int64, ciBreak store.CiBreak) (int, error) {
 	body, err := ciBreakBody(ctx, repository, ciBreak)
+	if refusedByGitHub(err) {
+		log.Printf("read the jobs of the run %d of %s: %v", ciBreak.RunID, repository.FullName, err)
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -75,12 +79,10 @@ func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repos
 }
 
 // ciBreakBody gives the body of the issue of ciBreak: the run, the result of the re-run, and each failed job of the
-// failed attempt with its failed step and the end of its log. When GitHub refuses the list of jobs, the body has no job.
+// failed attempt with its failed step and the end of its log.
 func ciBreakBody(ctx context.Context, repository github.Repository, ciBreak store.CiBreak) (string, error) {
 	jobs, err := repository.RunAttemptJobs(ctx, ciBreak.RunID, ciBreak.RunAttempt)
-	if refusedByGitHub(err) {
-		log.Printf("read the jobs of the run %d of %s: %v", ciBreak.RunID, repository.FullName, err)
-	} else if err != nil {
+	if err != nil {
 		return "", err
 	}
 	var body strings.Builder
@@ -111,19 +113,26 @@ func ciBreakBody(ctx context.Context, repository github.Repository, ciBreak stor
 }
 
 // closeCIBreakIssue closes the task issue of ciBreak with a comment that links to the passed run, when the issue is
-// open. A closed issue and an issue that GitHub does not find need no close. A 4xx answer of GitHub is no error.
-func (e *Engine) closeCIBreakIssue(ctx context.Context, repository github.Repository, ciBreak store.CiBreak, passed *gh.WorkflowRun) error {
+// open. It tells whether the issue needs no more close: it is closed, or GitHub does not find it. A 4xx answer of GitHub
+// is no error, and the break stays open until the next poll tries again.
+func (e *Engine) closeCIBreakIssue(ctx context.Context, repository github.Repository, ciBreak store.CiBreak, passed *gh.WorkflowRun) (bool, error) {
 	issue, err := repository.Issue(ctx, ciBreak.Issue)
-	if err == nil && issue != nil && issue.GetState() != "closed" {
+	if err == nil && (issue == nil || issue.GetState() == "closed") {
+		return true, nil
+	}
+	if err == nil {
 		_, err = repository.CloseIssue(ctx, ciBreak.Issue, "completed")
-		if err == nil {
-			text := fmt.Sprintf("The workflow \"%s\" passed again on %s in the run %s. Mobius closes this issue.", ciBreak.WorkflowName, repository.DefaultBranch, passed.GetHTMLURL())
-			return e.addOrKeepComment(ctx, repository, ciBreak.Issue, text)
-		}
+	}
+	if err == nil {
+		text := fmt.Sprintf("The workflow \"%s\" passed again on %s in the run %s. Mobius closes this issue.", ciBreak.WorkflowName, repository.DefaultBranch, passed.GetHTMLURL())
+		return true, e.addOrKeepComment(ctx, repository, ciBreak.Issue, text)
+	}
+	if github.NotFound(err) {
+		return true, nil
 	}
 	if refusedByGitHub(err) {
 		log.Printf("close the issue #%d of %s: %v", ciBreak.Issue, repository.FullName, err)
-		return nil
+		return false, nil
 	}
-	return err
+	return false, err
 }
