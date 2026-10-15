@@ -14,11 +14,11 @@ type CIStop struct {
 	// Workflow is the name of the workflow that fails
 	Workflow string `gork:"workflow"`
 	// RunUrl is the GitHub URL of the failed run
-	RunUrl string `gork:"runUrl"`
+	RunURL string `gork:"runUrl"`
 	// Issue is the number of the task issue of the break
 	Issue int64 `gork:"issue"`
 	// IssueUrl is the GitHub URL of the task issue
-	IssueUrl string `gork:"issueUrl"`
+	IssueURL string `gork:"issueUrl"`
 }
 
 // ListCIStopsRequest is the request of ListCIStops.
@@ -55,9 +55,9 @@ func (h *handlers) ciStops(ctx context.Context) ([]CIStop, error) {
 			Repository: row.Repository,
 			Branch:     branches[row.Repository],
 			Workflow:   row.WorkflowName,
-			RunUrl:     row.RunUrl,
+			RunURL:     row.RunUrl,
 			Issue:      issue,
-			IssueUrl:   fmt.Sprintf("https://github.com/%s/issues/%d", row.Repository, issue),
+			IssueURL:   fmt.Sprintf("https://github.com/%s/issues/%d", row.Repository, issue),
 		})
 	}
 	return stops, nil
