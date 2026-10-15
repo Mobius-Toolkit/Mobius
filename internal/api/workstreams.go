@@ -25,6 +25,8 @@ type Workstream struct {
 	Brief string `gork:"brief"`
 	// Autopilot is true when a trusted user added mobius:autopilot last
 	Autopilot bool `gork:"autopilot"`
+	// Evergreen is true when the Workstream issue has mobius:evergreen
+	Evergreen bool `gork:"evergreen"`
 	// AllTasksClosed is true when the Workstream issue has sub-issues and each one is closed
 	AllTasksClosed bool `gork:"allTasksClosed"`
 	// ReadyToMerge is true when the pull request of at least one task of the Workstream waits for the Owner to merge it
@@ -51,6 +53,7 @@ func (h *handlers) ListWorkstreams(ctx context.Context, _ ListWorkstreamsRequest
 			Title:          row.Title,
 			Brief:          row.Body,
 			Autopilot:      row.Autopilot,
+			Evergreen:      row.Evergreen,
 			AllTasksClosed: row.AllTasksClosed,
 			ReadyToMerge:   row.ReadyToMerge,
 		})

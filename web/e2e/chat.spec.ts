@@ -293,7 +293,8 @@ test.describe("images", () => {
         await expect(pictures.nth(position)).toHaveJSProperty("naturalWidth", 200);
       }
     }
-    await expect(onlyImage.locator(":scope > *")).toHaveCount(2);
+    await expect(onlyImage.locator(":scope > *")).toHaveCount(3);
+    await expect(onlyImage.locator(":scope > *").last()).toHaveText("Waits for the agent");
     await page.reload();
     await expect(withText.getByRole("img", { name: picture })).toHaveCount(2);
     await expect(withText.getByRole("img", { name: picture }).first()).toHaveJSProperty(
@@ -640,6 +641,29 @@ test("a new message scrolls the chat to its end", async ({ page }) => {
     })()`);
     await expect.poll(() => page.evaluate(shows(`spam ${device} 19 `, "end"))).toBe(true);
   }
+});
+
+test("the chat stays at its end when the input gets taller", async ({ page }) => {
+  await page.goto(shop);
+  await expect(page.locator("[data-message]").first()).toBeVisible();
+  await page.evaluate(`(async () => {
+    for (let n = 0; n < 10; n++) {
+      const form = new FormData()
+      form.append('organization', 'owner')
+      form.append('repository', 'owner/shop')
+      form.append('workstream', '12')
+      form.append('id', crypto.randomUUID())
+      form.append('text', 'tall ' + n + ' ' + 'word '.repeat(40))
+      await fetch('/api/chat/messages', { method: 'POST', body: form })
+    }
+  })()`);
+  await expect.poll(() => page.evaluate(shows("tall 9 ", "end"))).toBe(true);
+  const main = page.getByRole("main");
+  await pasteImage(page, await png(page, 40, 30, "red"));
+  await expect(main.getByRole("img", { name: "Image 1" })).toBeVisible();
+  await expect.poll(() => page.evaluate(shows("tall 9 ", "end"))).toBe(true);
+  await page.getByLabel("Message to the Lead").fill("one\ntwo\nthree\nfour\nfive\nsix");
+  await expect.poll(() => page.evaluate(shows("tall 9 ", "end"))).toBe(true);
 });
 
 test("an event shows folded and muted in the chat, and wraps on a phone", async ({ page }) => {
@@ -2196,6 +2220,42 @@ test("the Details tab closes the Workstream with its open issues", async ({ page
   ).toMatchObject({ open: false });
 });
 
+test("an evergreen Workstream with all tasks closed shows no done badge and no Close Workstream button", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  await page.route("**/api/workstreams", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { repository: string; number: number; allTasksClosed: boolean; evergreen: boolean }[];
+    };
+    for (const workstream of body.data) {
+      if (workstream.repository === "owner/shop" && workstream.number === 12) {
+        workstream.allTasksClosed = true;
+      }
+      if (workstream.repository === "owner/shop" && workstream.number === 14) {
+        workstream.allTasksClosed = true;
+        workstream.evergreen = true;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+
+  await page.goto("/workstreams");
+  await expect(main.getByText("done")).toHaveCount(1);
+  await expect(
+    main.getByRole("link").filter({ hasText: "Integrate loyalty plans" }).getByText("done"),
+  ).toBeVisible();
+
+  await page.goto("/workstreams/owner/shop/14");
+  await expect(main.getByLabel("Message to the Lead")).toBeVisible();
+  await expect(main.getByText("All tasks are closed.")).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "Close Workstream" })).toHaveCount(0);
+
+  await page.goto(shop);
+  await expect(main.getByRole("button", { name: "Close Workstream" })).toBeVisible();
+});
+
 test("the close of a Workstream does not leave the page that the user opened", async ({ page }) => {
   const second = "/workstreams/owner/shop/14";
   await page.route("**/api/workstreams", async (route) => {
@@ -2300,8 +2360,9 @@ test("the voice button shows an icon, a name and its state", async ({ page }) =>
 const writingNow = (page: Page) =>
   page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
-    const body = (await response.json()) as { data: { writing: boolean } };
+    const body = (await response.json()) as { data: { writing: boolean; stoppable: boolean } };
     body.data.writing = true;
+    body.data.stoppable = true;
     await route.fulfill({ response, json: body });
   });
 
@@ -2328,6 +2389,20 @@ test("the send button follows the text and the writing agent", async ({ page }) 
   const stopped = page.waitForRequest((request) => request.url().endsWith("/api/chat/stop"));
   await stop.click();
   await stopped;
+});
+
+test("the stop button shows only while a stop has an effect", async ({ page }) => {
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { writing: boolean; stoppable: boolean } };
+    body.data.writing = true;
+    body.data.stoppable = false;
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await expect(main.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  await expect(main.getByRole("button", { name: "Stop the reply" })).toHaveCount(0);
 });
 
 test("the send button is disabled with no text while the agent does not write", async ({
@@ -2440,8 +2515,9 @@ test.describe("on a phone", () => {
     await page.addInitScript(fakeRecognition);
     await page.route("**/api/chat?*", async (route) => {
       const response = await route.fetch();
-      const body = (await response.json()) as { data: { writing: boolean } };
+      const body = (await response.json()) as { data: { writing: boolean; stoppable: boolean } };
       body.data.writing = true;
+      body.data.stoppable = true;
       await route.fulfill({ response, json: body });
     });
     await page.goto(shop);
@@ -2648,6 +2724,7 @@ async function expectStates(page: Page) {
   });
   await expect(stored).toBeVisible();
   await expect(stored).toHaveAttribute("title", "Stored, waits for the agent");
+  await expect(message("Stored note").getByText("Waits for the agent")).toBeVisible();
   const delivered = message("Delivered note").getByRole("img", {
     name: "Delivered to the agent at 08:40 AM",
   });
@@ -2659,6 +2736,7 @@ async function expectStates(page: Page) {
   await expect(stopped).toBeVisible();
   await expect(stopped).toHaveAttribute("title", "Stopped, the agent did not get it, at 08:41 AM");
   await expect(message("Lead note").getByRole("img")).toHaveCount(0);
+  await expect(main.getByText("Waits for the agent")).toHaveCount(1);
 }
 
 async function fulfillLoad(route: Route, deliveredAt: string | null) {

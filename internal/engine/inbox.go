@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"slices"
@@ -152,7 +153,8 @@ func (e *Engine) dismissIssueItems(ctx context.Context, repository string, numbe
 }
 
 // SendAgain adds a new Owner message to the chat of the open Lead failed item id, with the text and the images of the
-// message that the Lead did not take. Then it removes the item from the Inbox.
+// message that the Lead did not take. The new message has a browser id, so a restart of Mobius gives it again. Then
+// it removes the item from the Inbox.
 func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 	item, err := e.queries.GetInboxItem(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -173,7 +175,7 @@ func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 		return err
 	}
 	key := ChatKey{Organization: message.Organization, Repository: message.Repository, Workstream: message.Workstream}
-	if err := e.postChat(ctx, key, ownerAuthor, "", message.Text, images); err != nil {
+	if err := e.postChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images); err != nil {
 		return err
 	}
 	return e.Dismiss(ctx, id)

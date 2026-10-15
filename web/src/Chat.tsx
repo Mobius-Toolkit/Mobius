@@ -257,7 +257,7 @@ export function Chat({
             {autopilotError && (
               <p className="border-b px-4 py-2 text-sm text-destructive">{autopilotError}</p>
             )}
-            {workstream?.allTasksClosed && (
+            {workstream?.allTasksClosed && !workstream.evergreen && (
               <div className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
                 <span>All tasks are closed.</span>
                 <Button size="sm" pending={closeBusy} onClick={close}>

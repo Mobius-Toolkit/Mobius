@@ -121,6 +121,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue."},
 				},
 				e.ask),
+			tool(e, c, "close_question",
+				"Close your question on a task issue or on the Workstream issue when the Owner answers it in the chat. Mobius posts the answer as a comment on the issue, removes mobius:question, and dismisses the question Inbox item. On a task that waits for the answer, the task continues, and you get a dispatch event with \"answer of\".",
+				map[string]any{
+					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
+					"answer": map[string]any{"type": "string", "minLength": 1, "description": "The answer of the Owner."},
+				},
+				e.closeQuestionTool),
 			tool(e, c, "decline",
 				"Decline a task. Mobius posts the reason as a comment on the issue, removes mobius:working, and ends the task.",
 				map[string]any{
@@ -145,7 +152,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.createIssue),
 			tool(e, c, "mark_ready",
-				"Add mobius:ready to an issue of the Workstream. Use it when the Owner tells you to start an issue. For a task that waits for a human, with Autopilot on, it removes mobius:needs-human instead, so the task continues.",
+				"Add mobius:ready to an issue of the Workstream. Use it when the Owner tells you to start an issue. For a stopped task, it continues the task. The round counters keep their values, so a task at max_fix_rounds stops again.",
 				map[string]any{
 					"n": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the issue."},
 				},
@@ -531,6 +538,11 @@ type questionInput struct {
 	Question string `json:"question"`
 }
 
+type answerInput struct {
+	N      int64  `json:"n"`
+	Answer string `json:"answer"`
+}
+
 type declineInput struct {
 	N      int64  `json:"n"`
 	Reason string `json:"reason"`
@@ -696,16 +708,10 @@ func (e *Engine) markReady(ctx context.Context, c caller, repository github.Repo
 		return "", err
 	}
 	if err == nil && task.State == "needs_human" {
-		on, err := e.workstreamAutopilot(ctx, repository, c.workstream)
-		if err != nil {
+		if err := removeNeedsHuman(ctx, repository, task); err != nil {
 			return "", err
 		}
-		if on {
-			if err := removeNeedsHuman(ctx, repository, task); err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("Removed mobius:needs-human from #%d, so the task continues.", input.N), nil
-		}
+		return fmt.Sprintf("Removed mobius:needs-human from #%d, so the task continues.", input.N), nil
 	}
 	if _, _, err := repository.Client.Issues.AddLabelsToIssue(ctx, repository.Owner(), repository.Name(), int(input.N), []string{readyLabel}); err != nil {
 		return "", err

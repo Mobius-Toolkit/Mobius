@@ -78,6 +78,8 @@ type ChatState struct {
 	Key ChatKey
 	// Writing is true while the agent of the chat has a turn that runs or an item that waits.
 	Writing bool
+	// Stoppable is true while a stop ends the turn that answers a message, or drops a message of the Owner that waits.
+	Stoppable bool
 	// Error is the error that ended the last session of the chat, or "".
 	Error string
 }
@@ -90,8 +92,9 @@ type ChatView struct {
 	// Messages are the messages of the page, the oldest first.
 	Messages []store.ChatMessage
 	// Older is true when the chat has a message before the first message of the page.
-	Older   bool
-	Writing bool
+	Older     bool
+	Writing   bool
+	Stoppable bool
 	// PausedUntil is the end of the usage-limit pause that the agent of the chat waits for, or nil.
 	PausedUntil *time.Time
 	// Harness is the Harness of the Lead, or of the Coordinator for the Coordinator chat.
@@ -134,6 +137,13 @@ type chat struct {
 	// stoppable tells that the turn that runs answers a message of the Owner, so a stop cancels the turn.
 	stoppable bool
 	writing   bool
+}
+
+// state gives the state of the chat. The caller holds e.chatsMu.
+func (c *chat) state() ChatState {
+	waitingMessage := c.stopWait != nil && c.first.message != nil
+	queuedOwner := slices.ContainsFunc(c.queue, isOwnerMessage)
+	return ChatState{Key: c.key, Writing: c.writing, Stoppable: waitingMessage || c.stoppable || queuedOwner}
 }
 
 func (c *chat) notify() {
@@ -233,6 +243,20 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 	return nil
 }
 
+func isOwnerMessage(i item) bool {
+	return i.message != nil && i.message.Author == ownerAuthor
+}
+
+// afterOwnerMessages returns the index after the last message of the Owner in queue.
+func afterOwnerMessages(queue []item) int {
+	for index := len(queue); index > 0; index-- {
+		if isOwnerMessage(queue[index-1]) {
+			return index
+		}
+	}
+	return 0
+}
+
 // give gives the items to the chat of key, and starts the chat when none runs. tracked tells that the drain counts the
 // first session of a new chat from a tryTrack of the caller. The caller holds e.chatOrder.
 func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
@@ -240,7 +264,13 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	c, ok := e.chats[key]
 	var agent *Agent
 	if ok {
-		c.queue = append(c.queue, items...)
+		for _, queued := range items {
+			if isOwnerMessage(queued) {
+				c.queue = slices.Insert(c.queue, afterOwnerMessages(c.queue), queued)
+			} else {
+				c.queue = append(c.queue, queued)
+			}
+		}
 		c.writing = true
 		agent = c.agent
 		c.notify()
@@ -254,8 +284,9 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 		e.chats[key] = c
 		go e.runChat(c)
 	}
+	state := c.state()
 	e.chatsMu.Unlock()
-	e.publish(Change{Chat: &ChatState{Key: key, Writing: true}})
+	e.publish(Change{Chat: &state})
 	e.publishSession(agent)
 }
 
@@ -390,29 +421,52 @@ func (e *Engine) earlierMessages(ctx context.Context, organization, repository s
 	return chats, nil
 }
 
-// StopChat stops the turn of the chat that answers a message of the Owner. A turn for an event goes on. A chat
-// whose session waits for its slot drops its first message, and it ends when no later item waits.
+// StopChat stops the turn of the chat that answers a message of the Owner. A turn for an event goes on, and a stop
+// drops each queued message of the Owner. A chat whose session waits for its slot drops its first message, and it
+// ends when no later item waits.
 func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 	e.chatsMu.Lock()
-	defer e.chatsMu.Unlock()
 	c, ok := e.chats[key]
+	if !ok {
+		e.chatsMu.Unlock()
+		return nil
+	}
+	var err error
 	switch {
-	case !ok:
-		return nil
-	case c.stopWait != nil && c.first.event != nil:
-		return nil
+	case c.stopWait != nil && c.first.event != nil, c.stopWait == nil && !c.stoppable:
+		err = e.dropQueuedOwnerMessages(ctx, c)
 	case c.stopWait != nil && len(c.queue) > 0:
 		dropped := c.first
 		c.first, c.queue = c.queue[0], c.queue[1:]
-		return e.stopMessage(ctx, dropped.message)
+		err = e.stopMessage(ctx, dropped.message)
 	case c.stopWait != nil:
 		delete(e.chats, key)
 		c.stopWait()
-		return e.stopMessage(ctx, c.first.message)
-	case c.stoppable:
-		return c.agent.stop(ctx)
+		err = e.stopMessage(ctx, c.first.message)
+	default:
+		err = c.agent.stop(ctx)
 	}
-	return nil
+	state := c.state()
+	ended := e.chats[key] != c
+	e.chatsMu.Unlock()
+	if !ended {
+		e.publish(Change{Chat: &state})
+	}
+	return err
+}
+
+// dropQueuedOwnerMessages removes each message of the Owner from the queue of c and stops it. The caller holds
+// e.chatsMu.
+func (e *Engine) dropQueuedOwnerMessages(ctx context.Context, c *chat) error {
+	var errs []error
+	c.queue = slices.DeleteFunc(c.queue, func(queued item) bool {
+		if !isOwnerMessage(queued) {
+			return false
+		}
+		errs = append(errs, e.stopMessage(ctx, queued.message))
+		return true
+	})
+	return errors.Join(errs...)
 }
 
 // stopMessage sets the stop time of a message of the Owner that a stop dropped before its turn, and sends the
@@ -441,6 +495,22 @@ func (e *Engine) stopLead(repository string, workstream int64) {
 	if c, ok := e.chats[key]; ok {
 		delete(e.chats, key)
 		c.halt()
+		e.dropWaitingMessages(c)
+	}
+}
+
+// dropWaitingMessages stops each message of the Owner that a chat which ends for good did not take: its first
+// message and its queued messages. A restart of Mobius gives such a message again only when the chat ends in a
+// drain. The caller holds e.chatsMu.
+func (e *Engine) dropWaitingMessages(c *chat) {
+	ctx := context.Background()
+	if c.first.message != nil {
+		if err := e.stopMessage(ctx, c.first.message); err != nil {
+			log.Printf("stop the first message of the chat %v: %v", c.key, err)
+		}
+	}
+	if err := e.dropQueuedOwnerMessages(ctx, c); err != nil {
+		log.Printf("stop the queued messages of the chat %v: %v", c.key, err)
 	}
 }
 
@@ -504,7 +574,8 @@ func (e *Engine) ChatView(ctx context.Context, key ChatKey, before int64) (ChatV
 	}
 	e.chatsMu.Lock()
 	if c, ok := e.chats[key]; ok {
-		view.Writing = c.writing
+		state := c.state()
+		view.Writing, view.Stoppable = state.Writing, state.Stoppable
 	}
 	e.chatsMu.Unlock()
 	view.PausedUntil, err = e.ChatPausedUntil(ctx, key)
@@ -538,10 +609,12 @@ func (e *Engine) publishChat(a *Agent) {
 	}
 	key := ChatKey{a.spec.Organization, a.spec.Repository, a.spec.Workstream}
 	e.chatsMu.Lock()
-	c, ok := e.chats[key]
-	writing := ok && c.writing
+	state := ChatState{Key: key}
+	if c, ok := e.chats[key]; ok {
+		state = c.state()
+	}
 	e.chatsMu.Unlock()
-	e.publish(Change{Chat: &ChatState{Key: key, Writing: writing}})
+	e.publish(Change{Chat: &state})
 }
 
 // SeeChat records that the Owner saw the messages of the chat up to the message id.
@@ -679,6 +752,9 @@ func (e *Engine) finishChat(c *chat, failure string) {
 	if e.chats[c.key] == c {
 		delete(e.chats, c.key)
 	}
+	if failure != "" {
+		e.dropWaitingMessages(c)
+	}
 	e.chatsMu.Unlock()
 	e.publish(Change{Chat: &ChatState{Key: c.key, Error: failure}})
 }
@@ -776,7 +852,7 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 		}
 		if c.key.Workstream != 0 {
 			a.setAuthor("")
-			if err := e.turn(c, a, savePrompt, nil, true); err != nil {
+			if err := e.turn(c, a, savePrompt, nil, false); err != nil {
 				return err
 			}
 		}
@@ -890,19 +966,23 @@ func (e *Engine) deliverMessage(ctx context.Context, id int64) error {
 func (e *Engine) turn(c *chat, a *Agent, prompt string, images []Image, stoppable bool) error {
 	e.chatsMu.Lock()
 	c.stoppable = stoppable
+	started := c.state()
 	e.chatsMu.Unlock()
+	e.publish(Change{Chat: &started})
 	defer func() {
 		e.chatsMu.Lock()
 		c.stoppable = false
 		a.takeStop()
+		ended := c.state()
 		e.chatsMu.Unlock()
+		e.publish(Change{Chat: &ended})
 	}()
 	return a.Prompt(c.ctx, prompt, images)
 }
 
 // endTurn delivers the event of the turn, or holds it when the Lead called hold_event. The end of a turn for a
-// message of the Owner frees each held event. The freed events and the ready events of their task issues go in
-// front of the queue and replace their queued copies. Each other queued item keeps its place.
+// message of the Owner frees each held event. The freed events and the ready events of their task issues go after
+// the queued messages of the Owner and replace their queued copies. Each other queued item keeps its place.
 func (e *Engine) endTurn(c *chat, current item) error {
 	ctx := c.ctx
 	e.chatsMu.Lock()
@@ -938,7 +1018,7 @@ func (e *Engine) endTurn(c *chat, current item) error {
 	c.queue = slices.DeleteFunc(c.queue, func(queued item) bool {
 		return queued.event != nil && slices.ContainsFunc(affected, func(other item) bool { return other.event.ID == queued.event.ID })
 	})
-	c.queue = append(affected, c.queue...)
+	c.queue = slices.Insert(c.queue, afterOwnerMessages(c.queue), affected...)
 	return nil
 }
 

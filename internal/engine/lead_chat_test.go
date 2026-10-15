@@ -712,7 +712,7 @@ func TestAnEventDuringATurnForAnOwnerMessageGetsItsOwnTurnAfterThatTurn(t *testi
 	}
 }
 
-func TestAnEventKeepsItsPlaceBeforeALaterOwnerMessage(t *testing.T) {
+func TestAnOwnerMessageComesBeforeAQueuedEventOfAnEarlierTurn(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nwhen = \"Plan the API\"\nhang = true\n\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Done.\"]\n", keepSessionOpen)
 	sendChat(t, server, leadChat, "Plan the API")
@@ -728,7 +728,60 @@ func TestAnEventKeepsItsPlaceBeforeALaterOwnerMessage(t *testing.T) {
 		prompts := promptTexts(t, server, session.ID)
 		return prompts, len(prompts) == 3 && eventDelivered(t, server)
 	})
-	if !strings.Contains(prompts[1], " dispatch of #41 ") || prompts[2] != "Also add a price" {
+	if prompts[1] != "Also add a price" || !strings.Contains(prompts[2], " dispatch of #41 ") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
+func TestAnOwnerMessageComesBeforeAnEventThatCameDuringASlowTurnForAnEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	release := filepath.Join(t.TempDir(), "release")
+	server, _ := connectWith(t, fake, fmt.Sprintf("[[prompts]]\nwhen = \" dispatch of #41 \"\nshell = 'until [ -e %s ]; do sleep 0.05; done'\n\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Noted.\"]\n", release), keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 1
+	})
+	dispatchTask(fake, 42, "Add plan route")
+	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 2 })
+	sendChat(t, server, leadChat, "Decision")
+
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
+		prompts := onlySession(t, server)
+		return prompts, len(prompts) == 3 && eventDelivered(t, server)
+	})
+	if !strings.Contains(prompts[0], " dispatch of #41 ") || prompts[1] != "Decision" || !strings.Contains(prompts[2], " dispatch of #42 ") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
+func TestOwnerMessagesKeepTheirOrderBeforeAnEventThatWaitsBehindASlowTurn(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	release := filepath.Join(t.TempDir(), "release")
+	server, _ := connectWith(t, fake, fmt.Sprintf("[[prompts]]\nwhen = \" dispatch of #41 \"\nshell = 'until [ -e %s ]; do sleep 0.05; done'\n\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Noted.\"]\n", release), keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 1
+	})
+	dispatchTask(fake, 42, "Add plan route")
+	testkit.WaitFor(t, func() bool { return len(undelivered(t, server)) == 2 })
+	sendChat(t, server, leadChat, "First")
+	sendChat(t, server, leadChat, "Second")
+
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
+		prompts := onlySession(t, server)
+		return prompts, len(prompts) == 4 && eventDelivered(t, server)
+	})
+	if prompts[1] != "First" || prompts[2] != "Second" || !strings.Contains(prompts[3], " dispatch of #42 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 }
@@ -771,6 +824,98 @@ func TestAStopDoesNotCancelATurnForAnEvent(t *testing.T) {
 	}
 	if got := undelivered(t, server); len(got) != 1 {
 		t.Errorf("undelivered = %+v", got)
+	}
+}
+
+// Serial: the stop must come before the busy turn ends.
+func TestAStopDropsTheQueuedOwnerMessagesDuringATurnForAnEvent(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "[[prompts]]\nbusy = \"1s\"\nreply = [\"Noted.\"]\n", keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 1
+	})
+	sendChat(t, server, leadChat, "Also add a price")
+	testkit.WaitFor(t, func() bool { return chatView(t, server, leadChat).Stoppable })
+
+	stopChat(t, server, leadChat)
+
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
+	view := chatView(t, server, leadChat)
+	var owner []store.ChatMessage
+	for _, message := range view.Messages {
+		if message.Author == "Owner" {
+			owner = append(owner, message)
+		}
+	}
+	if len(owner) != 1 || !owner[0].StoppedAt.Valid || owner[0].DeliveredAt.Valid {
+		t.Errorf("owner messages = %+v", owner)
+	}
+	if view.Stoppable {
+		t.Error("the chat is still stoppable")
+	}
+	if got := chatSessions(t, server, leadChat, engine.LeadRole)[0]; got.EndedAt.Valid || len(promptTexts(t, server, session.ID)) != 1 {
+		t.Errorf("session = %+v, prompts = %q", got, promptTexts(t, server, session.ID))
+	}
+}
+
+func TestAChatIsStoppableDuringATurnForAnEventOnlyWhileAnOwnerMessageWaits(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "[[prompts]]\nhang = true\n", keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 1
+	})
+	if view := chatView(t, server, leadChat); !view.Writing || view.Stoppable {
+		t.Errorf("writing = %v, stoppable = %v", view.Writing, view.Stoppable)
+	}
+
+	changes := listen(t, server)
+	sendChat(t, server, leadChat, "Also add a price")
+
+	if view := chatView(t, server, leadChat); !view.Stoppable {
+		t.Error("the chat is not stoppable")
+	}
+	waitForChange(t, changes, func(change engine.Change) bool { return change.Chat != nil && change.Chat.Stoppable })
+}
+
+func TestAChatIsNotStoppableDuringTheMemorySaveTurn(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First answer\"]\n\n[[prompts]]\nhang = true\n")
+	sendChat(t, server, leadChat, "Plan the loyalty API")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 2
+	})
+
+	if view := chatView(t, server, leadChat); view.Stoppable {
+		t.Error("the chat is stoppable")
+	}
+}
+
+func TestTheCloseOfAWorkstreamStopsTheQueuedOwnerMessages(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "[[prompts]]\nhang = true\n", keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 1
+	})
+	sendChat(t, server, leadChat, "Also add a price")
+
+	if err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 12); err != nil {
+		t.Fatal(err)
+	}
+
+	var owner []store.ChatMessage
+	for _, message := range chatView(t, server, leadChat).Messages {
+		if message.Author == "Owner" {
+			owner = append(owner, message)
+		}
+	}
+	if len(owner) != 1 || !owner[0].StoppedAt.Valid {
+		t.Errorf("owner messages = %+v", owner)
 	}
 }
 
@@ -907,7 +1052,7 @@ reply = ["Noted."]
 		prompts := onlySession(t, server)
 		return prompts, len(prompts) == 5 && eventDelivered(t, server)
 	})
-	if prompts[1] != "First decision" || !strings.Contains(prompts[2], " dispatch of #41 ") || prompts[3] != "Second decision" || !strings.Contains(prompts[4], " dispatch of #42 ") {
+	if prompts[1] != "First decision" || prompts[2] != "Second decision" || !strings.Contains(prompts[3], " dispatch of #41 ") || !strings.Contains(prompts[4], " dispatch of #42 ") {
 		t.Errorf("prompts = %q", prompts)
 	}
 }

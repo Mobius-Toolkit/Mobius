@@ -2000,6 +2000,47 @@ func (q *Queries) ListActiveTasks(ctx context.Context) ([]ListActiveTasksRow, er
 	return items, nil
 }
 
+const listAllOpenHardCIBreaks = `-- name: ListAllOpenHardCIBreaks :many
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE ended_at = '' AND result = 'hard' AND issue != 0 ORDER BY repository, id
+`
+
+func (q *Queries) ListAllOpenHardCIBreaks(ctx context.Context) ([]CiBreak, error) {
+	rows, err := q.db.QueryContext(ctx, listAllOpenHardCIBreaks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CiBreak
+	for rows.Next() {
+		var i CiBreak
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.WorkflowID,
+			&i.WorkflowName,
+			&i.RunID,
+			&i.RunUrl,
+			&i.RunAttempt,
+			&i.RerunAt,
+			&i.Result,
+			&i.EndedRunID,
+			&i.EndedAt,
+			&i.Issue,
+			&i.StartedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAutopilotWorkstreams = `-- name: ListAutopilotWorkstreams :many
 SELECT number FROM copied_workstreams WHERE repository = ? AND autopilot ORDER BY number DESC
 `
@@ -2635,6 +2676,7 @@ func (q *Queries) ListCopiedTreeLabels(ctx context.Context, arg ListCopiedTreeLa
 
 const listCopiedWorkstreams = `-- name: ListCopiedWorkstreams :many
 SELECT w.repository, w.number, w.title, w.body, CAST(w.autopilot AS BOOLEAN) AS autopilot,
+       CAST(w.evergreen AS BOOLEAN) AS evergreen,
        CAST(EXISTS (SELECT 1 FROM copied_issues i
                WHERE i.repository = w.repository AND i.workstream = w.number AND i.parent = w.number)
        AND NOT EXISTS (SELECT 1 FROM copied_issues i
@@ -2652,6 +2694,7 @@ type ListCopiedWorkstreamsRow struct {
 	Title          string
 	Body           string
 	Autopilot      bool
+	Evergreen      bool
 	AllTasksClosed bool
 	ReadyToMerge   bool
 }
@@ -2671,6 +2714,7 @@ func (q *Queries) ListCopiedWorkstreams(ctx context.Context) ([]ListCopiedWorkst
 			&i.Title,
 			&i.Body,
 			&i.Autopilot,
+			&i.Evergreen,
 			&i.AllTasksClosed,
 			&i.ReadyToMerge,
 		); err != nil {

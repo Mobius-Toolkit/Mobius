@@ -91,6 +91,33 @@ test("the status line shows each pause, and Resume now ends the pause of its Har
   await expect.poll(() => resumed).toEqual(["/api/pauses/devin/resume"]);
 });
 
+test("the status line shows each CI stop with its task issue, and drops it when the stop ends", async ({
+  page,
+}) => {
+  const stop = {
+    repository: "owner/shop",
+    branch: "main",
+    workflow: "ci",
+    runUrl: "https://github.com/owner/shop/actions/runs/1",
+    issue: 30,
+    issueUrl: "https://github.com/owner/shop/issues/30",
+  };
+  let stops = [stop];
+  await page.route("**/api/ci-stops", (route) => route.fulfill({ json: { data: stops } }));
+  await page.goto("/workstreams");
+  const banner = page.getByText("Dispatch stopped: CI fails on main").locator("..");
+  await expect(banner.getByText('owner/shop: the workflow "ci" fails.')).toBeVisible();
+  await expect(banner.getByRole("link", { name: "#30" })).toHaveAttribute(
+    "href",
+    "https://github.com/owner/shop/issues/30",
+  );
+
+  stops = [];
+  await page.reload();
+
+  await expect(page.getByText("Dispatch stopped: CI fails on main")).toBeHidden();
+});
+
 test("a tap on Dismiss disables the button of the row", async ({ page }) => {
   await page.goto("/inbox");
   const dismiss = page
@@ -120,8 +147,9 @@ test("Start in the Tasks list shows the spinner in place of the icon", async ({ 
 test("Stop in the chat shows the spinner while the request runs", async ({ page }) => {
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
-    const body = (await response.json()) as { data: { writing: boolean } };
+    const body = (await response.json()) as { data: { writing: boolean; stoppable: boolean } };
     body.data.writing = true;
+    body.data.stoppable = true;
     await route.fulfill({ response, json: body });
   });
   await page.goto("/workstreams/owner/shop/12");
