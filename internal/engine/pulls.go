@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"slices"
+	"time"
 
 	gh "github.com/google/go-github/v92/github"
 
@@ -32,8 +33,10 @@ type pullState struct {
 	baseHead    string
 	// changed tells that the issue list of the poll had the pull request after the last read.
 	changed bool
-	// updatedHead is the head for which the break wait updated the branch. GitHub adds the merge commit after its answer.
+	// updatedHead is the head for which the break wait updated the branch, and updatedAt is the time of the update.
+	// GitHub adds the merge commit after its answer.
 	updatedHead string
+	updatedAt   time.Time
 }
 
 // pull gives the state of the pull request number, and adds it when it is missing.

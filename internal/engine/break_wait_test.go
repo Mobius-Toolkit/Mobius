@@ -3,6 +3,7 @@ package engine_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -126,6 +127,26 @@ func TestTheWaitGoesOnWithNoConflictRoundUntilGitHubAddsTheMergeCommitOfTheBranc
 	}
 	if task := liveTask(t, server, 41); task.FixRounds != 0 || implementers(t, server) != 1 {
 		t.Errorf("task = %+v, Implementers = %d", task, implementers(t, server))
+	}
+}
+
+func TestTheWaitEndsWhenGitHubDoesNotAddTheMergeCommitOfTheBranchUpdateInTime(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, sha, _ := waitingTask(t, fake)
+	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	fake.SetBehind(shop, 42)
+	fake.HoldBranchUpdates()
+	passMain(fake)
+	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
+	wantWaiting(t, server, fake)
+
+	server.Engine.SetClock(func() time.Time { return time.Now().Add(10 * time.Minute) })
+
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+	waitForPolls(t, fake)
+	if calls, got := fake.UpdateBranchCalls(), breakWaitHead(t, server); calls != 1 || got != "" || head(t, fake, "mobius/41") != sha {
+		t.Errorf("update calls = %d, break_wait_head = %s", calls, got)
 	}
 }
 
