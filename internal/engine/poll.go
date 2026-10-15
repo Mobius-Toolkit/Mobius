@@ -24,8 +24,8 @@ const issuesEndpoint = "issues"
 // gives, and it removes the copy of each repository that it did not find. Then, for each repository, it fixes the labels
 // at the first sight in this run of the server, copies the open Workstreams until that step works one time, hands
 // the lost tasks to a human and starts the Workers of the earlier run again until that step works one time, reads the
-// changed issues, dispatches the ready issues, starts the tasks of the Workstreams with Autopilot, checks the live
-// tasks, and starts the Worker again of each task that has none. The work of a repository starts again at its first
+// changed issues, reads the CI of the default branch, dispatches the ready issues, starts the tasks of the Workstreams
+// with Autopilot, checks the live tasks, and starts the Worker again of each task that has none. The work of a repository starts again at its first
 // poll, because the work needs GitHub. At the end, the pull requests with work for an agent replace the ones of the
 // last poll. With no App, the poll does nothing.
 func (e *Engine) poll(ctx context.Context) {
@@ -144,6 +144,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	}
 	e.checkCopiedTrees(ctx, repository)
 	if err := e.startHeldTriagers(ctx, repository); err != nil {
+		return err
+	}
+	if err := e.readDefaultBranchCI(ctx, repository); err != nil {
 		return err
 	}
 	if err := e.dispatchReady(ctx, repository); err != nil {
