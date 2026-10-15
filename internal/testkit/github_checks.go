@@ -460,7 +460,8 @@ func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // updatePullRequestBranch adds a merge commit of the base into the head branch, and gives status 202. It refuses with
-// status 422 an expected_head_sha that is not the head, and a merge with a conflict. After HoldBranchUpdates, it gives
+// status 422 an expected_head_sha that is not the head, a branch that has each commit of the base, and a merge with a
+// conflict. After HoldBranchUpdates, it gives
 // status 202 and adds the merge commit only at ReleaseBranchUpdates.
 func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Request) {
 	var request struct {
@@ -479,9 +480,13 @@ func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Requ
 	pull := g.pullRequests[slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == key.repository && pull.Number == key.number })]
 	remote := g.Remote(key.repository)
 	_, treeErr := gitCommand(remote, "merge-tree", "--write-tree", pull.Base, pull.Head).Output()
+	upToDate := gitCommand(remote, "merge-base", "--is-ancestor", pull.Base, pull.Head).Run() == nil
 	switch {
 	case request.ExpectedHeadSHA != g.headOf(key.repository, key.number):
 		message(w, http.StatusUnprocessableEntity, "expected head sha didn't match current head ref.")
+		return
+	case upToDate:
+		message(w, http.StatusUnprocessableEntity, "there are no new commits on the base branch.")
 		return
 	case treeErr != nil:
 		message(w, http.StatusUnprocessableEntity, "merge conflict between base and head")

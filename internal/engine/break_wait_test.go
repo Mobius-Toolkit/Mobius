@@ -104,7 +104,6 @@ func TestTheWaitGoesOnWithNoConflictRoundUntilGitHubAddsTheMergeCommitOfTheBranc
 	fake := testkit.NewFakeGitHub(t)
 	server, sha, _ := waitingTask(t, fake)
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
-	fake.SetBehind(shop, 42)
 	fake.HoldBranchUpdates()
 
 	passMain(fake)
@@ -135,7 +134,6 @@ func TestTheWaitEndsWhenGitHubDoesNotAddTheMergeCommitOfTheBranchUpdateInTime(t 
 	fake := testkit.NewFakeGitHub(t)
 	server, sha, _ := waitingTask(t, fake)
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
-	fake.SetBehind(shop, 42)
 	fake.HoldBranchUpdates()
 	passMain(fake)
 	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
@@ -155,7 +153,6 @@ func TestANewHeadWithAFailedCIAfterTheEndOfTheBreakGetsTheUsualFixRound(t *testi
 	fake := testkit.NewFakeGitHub(t)
 	server, sha, _ := waitingTask(t, fake)
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
-	fake.SetBehind(shop, 42)
 	passMain(fake)
 	testkit.WaitFor(t, func() bool { return breakWaitHead(t, server) == "" })
 	merged := head(t, fake, "mobius/41")
@@ -173,7 +170,7 @@ func TestANewHeadWithAFailedCIAfterTheEndOfTheBreakGetsTheUsualFixRound(t *testi
 	}
 }
 
-func TestAHeadThatIsNotBehindItsBaseWhenTheBreakEndsGetsNoUpdateAndTheUsualFixRound(t *testing.T) {
+func TestABranchWithEachCommitOfItsBaseWhenTheBreakEndsGetsARefusedUpdateAndTheUsualFixRound(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, sha, _ := waitingTask(t, fake)
@@ -184,8 +181,11 @@ func TestAHeadThatIsNotBehindItsBaseWhenTheBreakEndsGetsNoUpdateAndTheUsualFixRo
 	if round := roundPrompt(t, server); !strings.Contains(round, "Check run \"build\"") {
 		t.Errorf("round = %s", round)
 	}
-	if calls, got := fake.UpdateBranchCalls(), breakWaitHead(t, server); calls != 0 || got != "" {
+	if calls, got := fake.UpdateBranchCalls(), breakWaitHead(t, server); calls != 1 || got != "" {
 		t.Errorf("update calls = %d, break_wait_head = %s", calls, got)
+	}
+	if got := head(t, fake, "mobius/41"); got != sha {
+		t.Errorf("head = %s", got)
 	}
 	if task := liveTask(t, server, 41); task.CheckHead.String != sha {
 		t.Errorf("task = %+v", task)
@@ -228,7 +228,6 @@ func TestARestartKeepsTheWaitOfATaskAndTheEndOfTheBreakUpdatesItsBranch(t *testi
 	fake.AddWorkflowRun(shop, failedMainRun(7))
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
-	fake.SetBehind(shop, 42)
 
 	waitForPolls(t, fake)
 

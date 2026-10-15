@@ -131,7 +131,7 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 //     nobody did, the label comes back and the check goes on.
 //   - A task in dispatched for more than 2 hours, with no open question, gives the Lead a reminder (remindDispatch).
 //   - A task in needs_human continues with no Resume when its pull request has a merge conflict, or when the CI of the
-//     head that stopped it passes (continueNeedsHuman).
+//     task passes on its head, also on a new head (continueNeedsHuman).
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
 //     conflict round. A failed check run of another App on its head gets a fix round.
 //   - A task whose head failed its CI while the default branch has an open break of its CI waits, with no fix round and no
@@ -386,8 +386,8 @@ func (e *Engine) clearEndedTaskLabels(ctx context.Context, repository github.Rep
 //   - A pull request with a merge conflict, or behind its base, gets a conflict round. A head gets one automatic round
 //     (conflict_head), so a round that fails does not start again on each poll. A pull request older than stale_pr_age
 //     gets no round, and no new event or Inbox item.
-//   - A pull request with no conflict, whose CI failed on its head (ci_failed_head) and passes now on the same head,
-//     moves to checks. The review of the head was clean before the stop. A task that stopped for another reason, for
+//   - A pull request with no conflict, whose CI stopped the task (ci_failed_head) and passes now on its head, which can
+//     be a new head, moves to checks. The review was clean before the stop. A task that stopped for another reason, for
 //     example the round limit, stays.
 //
 // After a conflict round, the issue keeps mobius:needs-human until setStateLabels removes it at the next check. The CI
@@ -403,7 +403,7 @@ func (e *Engine) continueNeedsHuman(ctx context.Context, repository github.Repos
 		}
 		return task, true, e.conflictRound(ctx, repository, task, pullRequest)
 	}
-	if task.CiFailedHead.String != head || pullRequest.Mergeable == nil {
+	if !task.CiFailedHead.Valid || pullRequest.Mergeable == nil {
 		return task, false, nil
 	}
 	state, err := ciOf(ctx, repository, head)

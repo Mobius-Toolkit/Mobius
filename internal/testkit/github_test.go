@@ -659,6 +659,9 @@ func TestAnUpdateOfTheBranchMergesTheBaseIntoTheHeadAndRefusesAWrongHeadAndAConf
 	head := Git(t, remote, "rev-parse", "feature")
 	installation := installationToken(t, github)
 	update := fmt.Sprintf("%s/repos/owner/shop/pulls/%d/update-branch", github.URL, number)
+	if response := send(t, http.MethodPut, update, installation, fmt.Sprintf(`{"expected_head_sha": %q}`, head), nil); response.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("status with each commit of the base in the head = %d", response.StatusCode)
+	}
 	github.CommitFile("owner/shop", "price.txt", "cents\n", "Add price")
 
 	if response := send(t, http.MethodPut, update, installation, `{"expected_head_sha": "0000000000000000000000000000000000000000"}`, nil); response.StatusCode != http.StatusUnprocessableEntity {
@@ -671,7 +674,7 @@ func TestAnUpdateOfTheBranchMergesTheBaseIntoTheHeadAndRefusesAWrongHeadAndAConf
 	if parents := Git(t, remote, "rev-list", "--parents", "-n", "1", merged); parents != merged+" "+head+" "+Git(t, remote, "rev-parse", "main") {
 		t.Errorf("parents = %s", parents)
 	}
-	if got := github.UpdateBranchCalls(); got != 2 {
+	if got := github.UpdateBranchCalls(); got != 3 {
 		t.Errorf("update calls = %d", got)
 	}
 }
