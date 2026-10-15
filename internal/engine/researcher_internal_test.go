@@ -14,7 +14,7 @@ import (
 
 var (
 	shopRepository = github.Repository{FullName: "owner/shop"}
-	leadCaller     = caller{role: LeadRole, organization: "owner", repository: "owner/shop", workstream: 12}
+	leadCaller     = caller{role: LeadRole, organization: "owner", repository: "owner/shop", workstream: 12, agent: &Agent{}}
 )
 
 func researchEngine(t *testing.T) *Engine {

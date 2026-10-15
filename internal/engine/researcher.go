@@ -29,8 +29,8 @@ type researcherTextInput struct {
 	Text string `json:"text"`
 }
 
-// startResearcher starts a Researcher with the question of the Lead or of the Coordinator chat c. The report goes to the
-// chat of c as a Researcher message. A stop of the Lead stops its Researchers with no report. It gives the id of the
+// startResearcher starts a Researcher with the question of the Lead, of the Coordinator chat or of the Triager c. The
+// report goes to the chat of c as a Researcher message, or to the issue of the Triager as a comment. A stop of the Lead stops its Researchers with no report. It gives the id of the
 // Researcher.
 func (e *Engine) startResearcher(ctx context.Context, c caller, repository github.Repository, input questionInput) (string, error) {
 	if empty(input.Question) {
@@ -44,6 +44,7 @@ func (e *Engine) startResearcher(ctx context.Context, c caller, repository githu
 		Organization: c.organization,
 		Repository:   repository.FullName,
 		Workstream:   c.workstream,
+		Issue:        c.agent.spec.Issue,
 		Parent:       sql.NullInt64{Int64: c.session, Valid: true},
 	})
 	if err != nil {
@@ -153,15 +154,15 @@ func (e *Engine) research(ctx context.Context, c caller, repository github.Repos
 	case stopped:
 		return a.End(ended, "stopped")
 	case errors.Is(err, errHung):
-		return errors.Join(a.endHung(ended), e.deliverReport(ended, c, a.id, question, "The Researcher failed: "+err.Error()))
+		return errors.Join(a.endHung(ended), e.deliverReport(ended, c, repository, a.id, question, "The Researcher failed: "+err.Error()))
 	case err != nil:
 		failure := a.Fail(ended, err)
-		return errors.Join(failure, e.deliverReport(ended, c, a.id, question, "The Researcher failed: "+err.Error()))
+		return errors.Join(failure, e.deliverReport(ended, c, repository, a.id, question, "The Researcher failed: "+err.Error()))
 	}
 	if err := a.End(ended, "done"); err != nil {
 		return err
 	}
-	return e.deliverReport(ended, c, a.id, question, report)
+	return e.deliverReport(ended, c, repository, a.id, question, report)
 }
 
 // leave removes the Researcher id from e.researchers. It tells if a stop came before, as ctx shows.
@@ -208,9 +209,18 @@ func (e *Engine) researchTurn(ctx context.Context, a *Agent, question string) (s
 	}
 }
 
-// deliverReport gives the report of the Researcher id on the question to the chat of c as a Researcher message.
-func (e *Engine) deliverReport(ctx context.Context, c caller, id int64, question, report string) error {
+// deliverReport gives the report of the Researcher id on the question to the chat of c as a Researcher message. For
+// the Triager c, it is a comment on the issue of the Triager, and it starts the next turn of the Triager, because a
+// comment of the Mobius App starts no turn.
+func (e *Engine) deliverReport(ctx context.Context, c caller, repository github.Repository, id int64, question, report string) error {
 	text := fmt.Sprintf("Report of the Researcher %d on \"%s\":\n\n%s", id, question, report)
+	if c.role == TriagerRole {
+		number := c.agent.spec.Issue.Int64
+		if err := e.addOrKeepComment(ctx, repository, number, text); err != nil {
+			return err
+		}
+		return e.restartTriager(ctx, repository, number)
+	}
 	return e.postChat(ctx, ChatKey{c.organization, c.repository, c.workstream}, researcherAuthor, "", text, nil)
 }
 
