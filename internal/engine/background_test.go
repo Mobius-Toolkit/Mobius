@@ -98,7 +98,7 @@ func TestACannotDoInAnAutonomousTurnEndsTheWaitAndSendsNoPrompt(t *testing.T) {
 
 func TestAStopWhileAnAutonomousTurnRunsEndsTheWaitAndSendsNoPrompt(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First\"]\nlater = { after = \"10ms\", updates = ['"+workUpdate+"'] }\n")
+	server, _ := connectWith(t, fake, "[[prompts]]\nreply = [\"First\"]\nlater = { after = \"10ms\", updates = ['"+workUpdate+"'] }\n", keepSessionOpen)
 	sendChat(t, server, leadChat, "Plan the loyalty API")
 	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
 		return lineID(t, server, session.ID, "update", "The task ended.") != 0

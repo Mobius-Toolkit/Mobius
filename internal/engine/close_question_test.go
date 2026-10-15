@@ -178,7 +178,5 @@ func TestApprovePullRequestClosesTheOpenQuestionOfTheTask(t *testing.T) {
 	if len(items) != 1 || items[0].Kind != "ready for review" {
 		t.Errorf("inbox = %+v", items)
 	}
-	if rows := apiData[[]needsHuman](t, server, "/api/needs-human"); len(rows) != 0 {
-		t.Errorf("rows = %+v", rows)
-	}
+	testkit.WaitFor(t, func() bool { return len(apiData[[]needsHuman](t, server, "/api/needs-human")) == 0 })
 }
