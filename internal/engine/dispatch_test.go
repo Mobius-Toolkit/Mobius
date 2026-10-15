@@ -426,7 +426,7 @@ func TestAReviewCommentOfATrustedUserResetsTheCountersOfTheTask(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return liveTaskOf(t, server, 41).FixRounds == 0 })
 }
 
-func TestACommentOfTheOwnerKeepsMobiusNeedsHumanOnATaskInNeedsHuman(t *testing.T) {
+func TestACommentOfTheOwnerContinuesATaskInNeedsHuman(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
@@ -443,13 +443,11 @@ func TestACommentOfTheOwnerKeepsMobiusNeedsHumanOnATaskInNeedsHuman(t *testing.T
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "comment on #41") })
 	})
-	waitForPolls(t, fake)
-	if !slices.Contains(fake.Labels(shop, 41), "mobius:needs-human") {
-		t.Errorf("labels = %v", fake.Labels(shop, 41))
-	}
+	testkit.WaitFor(t, func() bool { return liveTaskOf(t, server, 41).State == "dispatched" })
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:needs-human") })
 }
 
-func TestAnAnswerRemovesMobiusQuestionAndKeepsMobiusNeedsHumanOnATaskInNeedsHuman(t *testing.T) {
+func TestAnAnswerRemovesMobiusQuestionAndContinuesATaskInNeedsHuman(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectSeen(t, fake)
@@ -465,13 +463,8 @@ func TestAnAnswerRemovesMobiusQuestionAndKeepsMobiusNeedsHumanOnATaskInNeedsHuma
 	fake.AddComment(shop, 41, "owner", "Cents.")
 
 	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:question") })
-	waitForPolls(t, fake)
-	if got := fake.Labels(shop, 41); !slices.Equal(got, []string{"mobius:needs-human"}) {
-		t.Errorf("labels = %v", got)
-	}
-	if got := liveTaskOf(t, server, 41).State; got != "needs_human" {
-		t.Errorf("state = %s", got)
-	}
+	testkit.WaitFor(t, func() bool { return liveTaskOf(t, server, 41).State == "dispatched" })
+	testkit.WaitFor(t, func() bool { return slices.Equal(fake.Labels(shop, 41), []string{"mobius:working"}) })
 }
 
 func TestTheLeadDeclinesADispatchedTask(t *testing.T) {
