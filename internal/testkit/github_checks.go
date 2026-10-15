@@ -460,7 +460,8 @@ func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // updatePullRequestBranch adds a merge commit of the base into the head branch, and gives status 202. It refuses with
-// status 422 an expected_head_sha that is not the head, and a merge with a conflict.
+// status 422 an expected_head_sha that is not the head, and a merge with a conflict. After HoldBranchUpdates, it gives
+// status 202 and adds the merge commit only at ReleaseBranchUpdates.
 func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		ExpectedHeadSHA string `json:"expected_head_sha"`
@@ -477,7 +478,7 @@ func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Requ
 	}
 	pull := g.pullRequests[slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == key.repository && pull.Number == key.number })]
 	remote := g.Remote(key.repository)
-	tree, treeErr := gitCommand(remote, "merge-tree", "--write-tree", pull.Base, pull.Head).Output()
+	_, treeErr := gitCommand(remote, "merge-tree", "--write-tree", pull.Base, pull.Head).Output()
 	switch {
 	case request.ExpectedHeadSHA != g.headOf(key.repository, key.number):
 		message(w, http.StatusUnprocessableEntity, "expected head sha didn't match current head ref.")
@@ -486,13 +487,48 @@ func (g *FakeGitHub) updatePullRequestBranch(w http.ResponseWriter, r *http.Requ
 		message(w, http.StatusUnprocessableEntity, "merge conflict between base and head")
 		return
 	}
+	if g.holdBranchUpdates {
+		g.heldBranchUpdates = append(g.heldBranchUpdates, key)
+	} else {
+		g.mergeBase(key)
+	}
+	message(w, http.StatusAccepted, "Updating pull request branch.")
+}
+
+// mergeBase adds a merge commit of the base into the head branch of the pull request key. The caller must hold the lock.
+func (g *FakeGitHub) mergeBase(key issueKey) {
+	pull := g.pullRequests[slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == key.repository && pull.Number == key.number })]
+	remote := g.Remote(key.repository)
+	tree, err := gitCommand(remote, "merge-tree", "--write-tree", pull.Base, pull.Head).Output()
+	if err != nil {
+		g.t.Errorf("merge-tree: %v", err)
+		return
+	}
 	merge, err := gitCommand(remote, "commit-tree", strings.Fields(string(tree))[0], "-p", pull.Head, "-p", pull.Base, "-m", "Merge "+pull.Base).Output()
 	if err != nil {
 		g.t.Errorf("commit-tree: %v", err)
 	}
 	g.git(remote, "update-ref", "refs/heads/"+pull.Head, strings.TrimSpace(string(merge)))
 	g.issues[key].updatedAt = g.tick()
-	message(w, http.StatusAccepted, "Updating pull request branch.")
+}
+
+// HoldBranchUpdates makes the next requests to update the branch of a pull request give status 202 at once and add the
+// merge commit later, as GitHub does.
+func (g *FakeGitHub) HoldBranchUpdates() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.holdBranchUpdates = true
+}
+
+// ReleaseBranchUpdates adds the merge commits of the held updates of branches.
+func (g *FakeGitHub) ReleaseBranchUpdates() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.holdBranchUpdates = false
+	for _, key := range g.heldBranchUpdates {
+		g.mergeBase(key)
+	}
+	g.heldBranchUpdates = nil
 }
 
 // markReadyForReview answers the GraphQL mutation markPullRequestReadyForReview. The caller must hold the lock.

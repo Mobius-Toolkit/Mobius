@@ -98,6 +98,37 @@ func TestATaskWhoseCIFailsWhileTheDefaultBranchBreaksWaitsAndTheEndOfTheBreakUpd
 	}
 }
 
+func TestTheWaitGoesOnWithNoConflictRoundUntilGitHubAddsTheMergeCommitOfTheBranchUpdate(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, sha, _ := waitingTask(t, fake)
+	fake.CommitFile(shop, "price.txt", "cents\n", "Add price")
+	fake.SetBehind(shop, 42)
+	fake.HoldBranchUpdates()
+
+	passMain(fake)
+
+	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
+	wantWaiting(t, server, fake)
+	if calls, got := fake.UpdateBranchCalls(), breakWaitHead(t, server); calls != 1 || got != sha {
+		t.Errorf("update calls = %d, break_wait_head = %s", calls, got)
+	}
+
+	fake.ReleaseBranchUpdates()
+
+	testkit.WaitFor(t, func() bool { return breakWaitHead(t, server) == "" })
+	merged := head(t, fake, "mobius/41")
+	isAncestor(t, fake, "main", merged)
+	fake.AddCheckRun(shop, checkRun("build", merged, "completed", "success"))
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	if calls := fake.UpdateBranchCalls(); calls != 1 {
+		t.Errorf("update calls = %d", calls)
+	}
+	if task := liveTask(t, server, 41); task.FixRounds != 0 || implementers(t, server) != 1 {
+		t.Errorf("task = %+v, Implementers = %d", task, implementers(t, server))
+	}
+}
+
 func TestANewHeadWithAFailedCIAfterTheEndOfTheBreakGetsTheUsualFixRound(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -191,7 +222,5 @@ func TestARestartKeepsTheWaitOfATaskAndTheEndOfTheBreakUpdatesItsBranch(t *testi
 
 	testkit.WaitFor(t, func() bool { return fake.UpdateBranchCalls() == 1 })
 	isAncestor(t, fake, "main", head(t, fake, "mobius/41"))
-	if got := breakWaitHead(t, server); got != "" {
-		t.Errorf("break_wait_head = %s", got)
-	}
+	testkit.WaitFor(t, func() bool { return breakWaitHead(t, server) == "" })
 }

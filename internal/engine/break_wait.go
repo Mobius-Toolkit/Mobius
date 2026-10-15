@@ -50,10 +50,11 @@ func (e *Engine) waitsForBreak(ctx context.Context, repository github.Repository
 }
 
 // endBreakWait ends the wait of the task when the repository has no open break. It updates the branch of the pull
-// request when its head is still the waiting head and the pull request is behind its base, and it gives true then,
-// because the new head gets a new read at the next poll. In each other case, and when GitHub refuses the update with a
-// 4xx status, it only clears break_wait_head, so that the usual flow reads the CI of the head. It clears
-// break_wait_head after the update succeeds. A 5xx answer or another error returns, and the next poll tries again.
+// request when its head is still the waiting head and the pull request is behind its base. GitHub adds the merge commit
+// after it answers, so the wait goes on, with a new read of the pull request at each poll, until the head is not the
+// waiting head. It gives true while the wait goes on, so the usual flow does not act on the old head. In each other case,
+// and when GitHub refuses the update with a 4xx status, it clears break_wait_head, so that the usual flow reads the CI
+// of the head. A 5xx answer or another error returns, and the next poll tries again.
 func (e *Engine) endBreakWait(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	if !task.BreakWaitHead.Valid {
 		return false, nil
@@ -63,14 +64,21 @@ func (e *Engine) endBreakWait(ctx context.Context, repository github.Repository,
 		return false, err
 	}
 	head := pullRequest.GetHead().GetSHA()
-	updated := false
+	state := e.pull(repository, task.PullRequest.Int64)
+	if head == task.BreakWaitHead.String && state.updatedHead == head {
+		state.changed = true
+		return true, nil
+	}
 	if afterReview(task.State) && head == task.BreakWaitHead.String && behind(pullRequest) {
 		var refused *gh.ErrorResponse
 		err := repository.UpdatePullRequestBranch(ctx, task.PullRequest.Int64, head)
-		if err != nil && (!errors.As(err, &refused) || refused.Response.StatusCode >= 500) {
+		if err == nil {
+			state.updatedHead, state.changed = head, true
+			return true, nil
+		}
+		if !errors.As(err, &refused) || refused.Response.StatusCode >= 500 {
 			return false, err
 		}
-		updated = err == nil
 	}
-	return updated, e.queries.SetTaskBreakWaitHead(ctx, store.SetTaskBreakWaitHeadParams{ID: task.ID})
+	return false, e.queries.SetTaskBreakWaitHead(ctx, store.SetTaskBreakWaitHeadParams{ID: task.ID})
 }

@@ -154,6 +154,9 @@ type FakeGitHub struct {
 	// mergeCalls, updateBranchCalls and checkRunReads are the numbers of requests to merge a pull request, to update
 	// its branch and to list the check runs of a commit.
 	mergeCalls, updateBranchCalls, checkRunReads int
+	// holdBranchUpdates tells that an update of a branch gives status 202 and waits in heldBranchUpdates for the merge.
+	holdBranchUpdates bool
+	heldBranchUpdates []issueKey
 	// afterCheckRunRead runs once at the end of the first request for the check runs of a commit after a GraphQL answer
 	// gave a review of a pull request. reviewRead tells if such an answer was given.
 	afterCheckRunRead func()
