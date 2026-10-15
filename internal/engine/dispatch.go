@@ -282,8 +282,12 @@ func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, 
 	return e.dispatchAnswer(ctx, repository, issue, task)
 }
 
+// chatAnswerPrefix starts the comment that closeQuestionTool posts. It is the answer of the Owner, not a question.
+const chatAnswerPrefix = "The Owner answered in the Lead chat:"
+
 // dispatchAnswer dispatches the task in asked or answered again. The dispatch event has the body of the issue and each
-// comment of a trusted user after the last comment of the Mobius App, the question.
+// comment of a trusted user, and each answer comment of the Mobius App, after the last question comment of the
+// Mobius App.
 func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
 	comments, err := repository.Comments(ctx, task.Issue)
 	if err != nil {
@@ -291,16 +295,24 @@ func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repositor
 	}
 	var askedAt time.Time
 	for _, comment := range comments {
-		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && comment.GetCreatedAt().After(askedAt) {
+		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && !strings.HasPrefix(comment.GetBody(), chatAnswerPrefix) && comment.GetCreatedAt().After(askedAt) {
 			askedAt = comment.GetCreatedAt().Time
 		}
 	}
 	var actor string
 	var replies strings.Builder
 	for _, comment := range comments {
-		if e.commentIsEvent(repository.AppSlug, comment) && comment.GetCreatedAt().After(askedAt) {
+		if !comment.GetCreatedAt().After(askedAt) {
+			continue
+		}
+		if e.commentIsEvent(repository.AppSlug, comment) {
 			actor = comment.GetUser().GetLogin()
 			replies.WriteString("\n\n" + eventText(comment.GetCreatedAt().Time, "reply on", issue, actor, comment.GetBody()))
+		} else if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && strings.HasPrefix(comment.GetBody(), chatAnswerPrefix) {
+			if actor == "" {
+				actor = comment.GetUser().GetLogin()
+			}
+			replies.WriteString("\n\n" + comment.GetBody())
 		}
 	}
 	text := eventText(time.Now(), "answer of", issue, actor, issue.GetBody()) + replies.String()
@@ -598,6 +610,87 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 		_, err = e.setTaskState(ctx, store.SetTaskStateParams{State: "asked", ID: task.ID, FromState: "dispatched"})
 	}
 	return fmt.Sprintf("Asked on #%d.", input.N), err
+}
+
+// closeQuestion posts text on the issue as the Mobius App, continues a task in asked as after a reply on the issue,
+// removes mobius:question, and dismisses the open question items of the issue. An issue whose task is in needs_human
+// gets its stopped item back. mobius:question stays until the task continues, so a failed call can run again. A call
+// posts no comment when the newest comment of the Mobius App already has text.
+// task is the zero value for the Workstream issue.
+func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, text string) error {
+	number := int64(issue.GetNumber())
+	comments, err := repository.Comments(ctx, number)
+	if err != nil {
+		return err
+	}
+	var newest *gh.IssueComment
+	for _, comment := range comments {
+		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && (newest == nil || comment.GetCreatedAt().After(newest.GetCreatedAt().Time)) {
+			newest = comment
+		}
+	}
+	if newest == nil || newest.GetBody() != text {
+		if _, err := repository.AddComment(ctx, number, text); err != nil {
+			return err
+		}
+	}
+	if task.State == "asked" {
+		if err := e.answerAsked(ctx, repository, issue, task); err != nil {
+			return err
+		}
+	}
+	if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
+		return err
+	}
+	if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{questionLabel}); err != nil {
+		return err
+	}
+	items, err := e.Inbox(ctx)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if item.Repository != repository.FullName || item.Issue != number || item.Kind != questionKind {
+			continue
+		}
+		if err := e.reopenStoppedItem(ctx, item); err != nil {
+			return err
+		}
+		if err := e.Dismiss(ctx, item.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// closeQuestionTool closes the question of the Lead on the Workstream issue or on the issue of a live task of the
+// Workstream, after the Owner answered it in the chat.
+func (e *Engine) closeQuestionTool(ctx context.Context, c caller, repository github.Repository, input answerInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	if empty(input.Answer) {
+		return "", refuse("answer must not be empty.")
+	}
+	var task store.Task
+	if input.N != c.workstream {
+		var err error
+		if task, err = e.workstreamTask(ctx, repository, c.workstream, input.N); err != nil {
+			return "", err
+		}
+	}
+	issue, err := existingIssue(ctx, repository, input.N)
+	if err != nil {
+		return "", err
+	}
+	if !hasLabel(issue, questionLabel) {
+		return "", refuse("#%d has no open question.", input.N)
+	}
+	text := chatAnswerPrefix + "\n\n" + quote(input.Answer)
+	if err := e.closeQuestion(ctx, repository, issue, task, text); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Closed the question on #%d.", input.N), nil
 }
 
 // workstreamTask gives the live task of the issue number in the Workstream.

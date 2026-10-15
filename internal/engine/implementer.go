@@ -299,7 +299,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 	if moved == 0 {
 		return "", refuse("The task of #%d is not approval any more.", input.N)
 	}
-	if err := e.approve(ctx, repository, task, issue.GetTitle(), pullRequest, checkRun, input.Report); err != nil {
+	if err := e.approve(ctx, repository, task, issue, pullRequest, checkRun, input.Report); err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: "approval", ID: task.ID, FromState: "ready_for_review"})
 		return "", errors.Join(err, stateErr)
 	}
@@ -380,7 +380,12 @@ func replaceCheckRun(ctx context.Context, repository github.Repository, head str
 	return repository.UpdateCheckRun(ctx, checkRun, checkRunName, "completed", "neutral", "Replaced by a new head", "A new head of the pull request replaced this commit.")
 }
 
-func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, title string, pullRequest *gh.PullRequest, checkRun int64, report string) error {
+func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, checkRun int64, report string) error {
+	if hasLabel(issue, questionLabel) {
+		if err := e.closeQuestion(ctx, repository, issue, task, fmt.Sprintf("The Lead approved PR #%d, so the question is closed.", pullRequest.GetNumber())); err != nil {
+			return err
+		}
+	}
 	comment, err := repository.AddComment(ctx, int64(pullRequest.GetNumber()), report)
 	if err != nil {
 		return err
@@ -399,6 +404,7 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
+	title := issue.GetTitle()
 	return e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         readyForReviewKind,
 		Organization: repository.Owner(),

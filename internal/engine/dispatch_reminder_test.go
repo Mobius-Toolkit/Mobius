@@ -79,6 +79,7 @@ func TestATaskInDispatchedWithAQuestionGetsNoReminder(t *testing.T) {
 	t.Parallel()
 	fake, server := dispatchedTask(t)
 	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
+	waitForPolls(t, fake)
 	server.Engine.SetClock(func() time.Time { return time.Now().Add(3 * time.Hour) })
 
 	waitForPolls(t, fake)

@@ -121,6 +121,13 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue."},
 				},
 				e.ask),
+			tool(e, c, "close_question",
+				"Close your question on a task issue or on the Workstream issue when the Owner answers it in the chat. Mobius posts the answer as a comment on the issue, removes mobius:question, and dismisses the question Inbox item. On a task that waits for the answer, the task continues, and you get a dispatch event with \"answer of\".",
+				map[string]any{
+					"n":      map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
+					"answer": map[string]any{"type": "string", "minLength": 1, "description": "The answer of the Owner."},
+				},
+				e.closeQuestionTool),
 			tool(e, c, "decline",
 				"Decline a task. Mobius posts the reason as a comment on the issue, removes mobius:working, and ends the task.",
 				map[string]any{
@@ -529,6 +536,11 @@ type findingsInput struct {
 
 type questionInput struct {
 	Question string `json:"question"`
+}
+
+type answerInput struct {
+	N      int64  `json:"n"`
+	Answer string `json:"answer"`
 }
 
 type declineInput struct {
