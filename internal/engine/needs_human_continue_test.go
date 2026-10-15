@@ -250,3 +250,19 @@ func TestACommentThatIsOlderThanTheStopOfATaskInNeedsHumanDoesNotContinueTheTask
 		t.Errorf("Implementers = %d", count)
 	}
 }
+
+func TestAnEditOfAnOldCommentDoesNotHideANewCommentThatContinuesATaskInNeedsHuman(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := stoppedOnFailedCI(t, fake, noChange)
+	oldComment := fake.AddCommentCreatedAt(shop, 41, "owner", "Use cents.", time.Now().Add(-time.Hour))
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "> Use cents.") })
+	})
+	waitForPolls(t, fake)
+	before := implementers(t, server)
+
+	fake.AddComment(shop, 41, "owner", "Continue now.")
+	fake.EditComment(shop, oldComment, "Use cents, please.")
+
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == before+1 })
+}
