@@ -548,8 +548,8 @@ func TestTheReportOfAResearcherOfTheTriagerIsACommentThatStartsTheNextTurn(t *te
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 63), thanks) })
 }
 
+// Serial: the issue must close before the busy Researcher reports.
 func TestTheReportOfAResearcherAfterTheEndOfTheTriageStartsNoTurn(t *testing.T) {
-	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTriager(t, fake)
 	fake.CreateIssue(shop, 64, "Add refunds", "Refund each order.", "owner")
