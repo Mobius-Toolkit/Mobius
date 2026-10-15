@@ -129,7 +129,7 @@ func TestACommentOnAnIssueInNoWorkstreamGetsConfusedAndOneReply(t *testing.T) {
 	waitForReactions(t, fake, id, reactions("confused"))
 	waitForPolls(t, fake)
 	got := replies(fake, 60)
-	if len(got) != 1 || !strings.Contains(got[0], "This issue is in no Workstream. To start work on it, add the label `mobius:ready`.") {
+	if len(got) != 1 || !strings.Contains(got[0], "This issue is in no Workstream. To start the triage of it, add the label `mobius:triage`.") {
 		t.Errorf("replies = %q", got)
 	}
 	if got := fake.Reactions(shop, id); !slices.Equal(got, reactions("confused")) {
@@ -150,7 +150,7 @@ func TestACommentOnAnIssueWithAReadyLabelOfAnUntrustedUserGetsConfusedAndOneRepl
 	waitForReactions(t, fake, id, reactions("confused"))
 	waitForPolls(t, fake)
 	got := replies(fake, 61)
-	if len(got) != 1 || !strings.Contains(got[0], "add the label `mobius:ready`") {
+	if len(got) != 1 || !strings.Contains(got[0], "add the label `mobius:triage`") {
 		t.Errorf("replies = %q", got)
 	}
 }
@@ -220,8 +220,7 @@ func TestACommentThatStartsTheTriagerAgainGetsEyes(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	connectTriager(t, fake)
 	fake.AddIssue(shop, 53, "Add points")
-	fake.AddLabel(shop, 53, "mobius:ready", "owner")
-	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 53), "mobius:no-workstream") })
+	fake.AddLabel(shop, 53, "mobius:triage", "owner")
 	testkit.WaitFor(t, func() bool { return len(replies(fake, 53)) == 1 })
 
 	id := fake.AddComment(shop, 53, "owner", "Please use points.")

@@ -20,7 +20,7 @@ const (
 
 // The replies to a comment that Mobius does not act on. Each reply gives the reason and the correct action.
 const (
-	noWorkstreamReply = "Mobius does not act on this comment. This issue is in no Workstream. To start work on it, add the label `mobius:ready`."
+	noWorkstreamReply = "Mobius does not act on this comment. This issue is in no Workstream. To start the triage of it, add the label `mobius:triage`."
 	closedIssueReply  = "Mobius does not act on a comment on a closed issue. To make Mobius act, reopen the issue and write the comment again."
 	noTaskReply       = "Mobius does not act on this comment. This pull request has no live task. To request work, add the label `mobius:ready` to an issue."
 	closedThreadReply = "Mobius does not act on this comment. Mobius acts only on an open review thread that a trusted author starts. " +
