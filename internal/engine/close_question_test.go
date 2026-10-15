@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -54,8 +55,8 @@ reply = ["Seen"]
 		t.Errorf("rows = %+v", rows)
 	}
 	prompt := waitForLeadPrompt(t, server, ` answer of #41 "Add plan model"`)
-	if prompt == "" {
-		t.Error("no dispatch event")
+	if !strings.Contains(prompt, "The Owner answered in the Lead chat:\n\n> Dollars.") {
+		t.Errorf("dispatch event = %q", prompt)
 	}
 }
 

@@ -264,8 +264,12 @@ func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, 
 	return e.dispatchAnswer(ctx, repository, issue, task)
 }
 
+// chatAnswerPrefix starts the comment that closeQuestionTool posts. It is the answer of the Owner, not a question.
+const chatAnswerPrefix = "The Owner answered in the Lead chat:"
+
 // dispatchAnswer dispatches the task in asked or answered again. The dispatch event has the body of the issue and each
-// comment of a trusted user after the last comment of the Mobius App, the question.
+// comment of a trusted user, and each answer comment of the Mobius App, after the last question comment of the
+// Mobius App.
 func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
 	comments, err := repository.Comments(ctx, task.Issue)
 	if err != nil {
@@ -273,16 +277,21 @@ func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repositor
 	}
 	var askedAt time.Time
 	for _, comment := range comments {
-		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && comment.GetCreatedAt().After(askedAt) {
+		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && !strings.HasPrefix(comment.GetBody(), chatAnswerPrefix) && comment.GetCreatedAt().After(askedAt) {
 			askedAt = comment.GetCreatedAt().Time
 		}
 	}
 	var actor string
 	var replies strings.Builder
 	for _, comment := range comments {
-		if e.commentIsEvent(repository.AppSlug, comment) && comment.GetCreatedAt().After(askedAt) {
+		if !comment.GetCreatedAt().After(askedAt) {
+			continue
+		}
+		if e.commentIsEvent(repository.AppSlug, comment) {
 			actor = comment.GetUser().GetLogin()
 			replies.WriteString("\n\n" + eventText(comment.GetCreatedAt().Time, "reply on", issue, actor, comment.GetBody()))
+		} else if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && strings.HasPrefix(comment.GetBody(), chatAnswerPrefix) {
+			replies.WriteString("\n\n" + comment.GetBody())
 		}
 	}
 	text := eventText(time.Now(), "answer of", issue, actor, issue.GetBody()) + replies.String()
@@ -640,7 +649,7 @@ func (e *Engine) closeQuestionTool(ctx context.Context, c caller, repository git
 	if !hasLabel(issue, questionLabel) {
 		return "", refuse("#%d has no open question.", input.N)
 	}
-	text := "The Owner answered in the Lead chat:\n\n> " + strings.ReplaceAll(input.Answer, "\n", "\n> ")
+	text := chatAnswerPrefix + "\n\n" + quote(input.Answer)
 	if err := e.closeQuestion(ctx, repository, issue, task, text); err != nil {
 		return "", err
 	}
