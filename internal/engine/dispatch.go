@@ -582,6 +582,71 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	return fmt.Sprintf("Asked on #%d.", input.N), err
 }
 
+// closeQuestion posts text on the issue as the Mobius App, removes mobius:question, and dismisses the open question
+// items of the issue. An issue whose task is in needs_human gets its stopped item back. A task in asked continues as
+// after a reply on the issue. task is the zero value for the Workstream issue.
+func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, text string) error {
+	number := int64(issue.GetNumber())
+	if _, err := repository.AddComment(ctx, number, text); err != nil {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
+		return err
+	}
+	if err := e.changeCopiedLabels(ctx, repository.FullName, number, nil, []string{questionLabel}); err != nil {
+		return err
+	}
+	items, err := e.Inbox(ctx)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if item.Repository != repository.FullName || item.Issue != number || item.Kind != questionKind {
+			continue
+		}
+		if err := e.reopenStoppedItem(ctx, item); err != nil {
+			return err
+		}
+		if err := e.Dismiss(ctx, item.ID); err != nil {
+			return err
+		}
+	}
+	if task.State == "asked" {
+		return e.answerAsked(ctx, repository, issue, task)
+	}
+	return nil
+}
+
+// closeQuestionTool closes the question of the Lead on the Workstream issue or on the issue of a live task of the
+// Workstream, after the Owner answered it in the chat.
+func (e *Engine) closeQuestionTool(ctx context.Context, c caller, repository github.Repository, input answerInput) (string, error) {
+	if input.N < 1 {
+		return "", refuse("n must be 1 or more.")
+	}
+	if empty(input.Answer) {
+		return "", refuse("answer must not be empty.")
+	}
+	var task store.Task
+	if input.N != c.workstream {
+		var err error
+		if task, err = e.workstreamTask(ctx, repository, c.workstream, input.N); err != nil {
+			return "", err
+		}
+	}
+	issue, err := existingIssue(ctx, repository, input.N)
+	if err != nil {
+		return "", err
+	}
+	if !hasLabel(issue, questionLabel) {
+		return "", refuse("#%d has no open question.", input.N)
+	}
+	text := "The Owner answered in the Lead chat:\n\n> " + strings.ReplaceAll(input.Answer, "\n", "\n> ")
+	if err := e.closeQuestion(ctx, repository, issue, task, text); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Closed the question on #%d.", input.N), nil
+}
+
 // workstreamTask gives the live task of the issue number in the Workstream.
 func (e *Engine) workstreamTask(ctx context.Context, repository github.Repository, workstream, number int64) (store.Task, error) {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
