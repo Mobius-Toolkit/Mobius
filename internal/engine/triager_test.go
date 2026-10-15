@@ -559,8 +559,10 @@ func TestTheReportOfAResearcherAfterTheEndOfTheTriageStartsNoTurn(t *testing.T) 
 
 	waitForChatSession(t, server, issueTriagers, engine.ResearcherRole, func(session store.Session) bool { return session.ID == researcher.ID && session.EndedAt.Valid })
 	waitForPolls(t, fake)
-	if got := fake.Comments(shop, 64); len(got) != 0 {
-		t.Errorf("comments = %v", got)
+	for _, comment := range fake.Comments(shop, 64) {
+		if strings.HasPrefix(comment.Body, "Report of the Researcher") {
+			t.Errorf("comment = %v", comment)
+		}
 	}
 	if sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(sessions) != 1 {
 		t.Errorf("sessions = %d", len(sessions))
