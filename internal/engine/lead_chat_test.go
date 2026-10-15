@@ -774,6 +774,7 @@ func TestAStopDoesNotCancelATurnForAnEvent(t *testing.T) {
 	}
 }
 
+// Serial: the stop must come before the busy turn ends.
 func TestAStopDropsTheQueuedOwnerMessagesDuringATurnForAnEvent(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nbusy = \"1s\"\nreply = [\"Noted.\"]\n", keepSessionOpen)
@@ -806,6 +807,7 @@ func TestAStopDropsTheQueuedOwnerMessagesDuringATurnForAnEvent(t *testing.T) {
 }
 
 func TestAChatIsStoppableDuringATurnForAnEventOnlyWhileAnOwnerMessageWaits(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nhang = true\n", keepSessionOpen)
 	dispatchTask(fake, 41, "Add plan model")
@@ -826,6 +828,7 @@ func TestAChatIsStoppableDuringATurnForAnEventOnlyWhileAnOwnerMessageWaits(t *te
 }
 
 func TestAChatIsNotStoppableDuringTheMemorySaveTurn(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First answer\"]\n\n[[prompts]]\nhang = true\n")
 	sendChat(t, server, leadChat, "Plan the loyalty API")
@@ -839,6 +842,7 @@ func TestAChatIsNotStoppableDuringTheMemorySaveTurn(t *testing.T) {
 }
 
 func TestTheCloseOfAWorkstreamStopsTheQueuedOwnerMessages(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nhang = true\n", keepSessionOpen)
 	dispatchTask(fake, 41, "Add plan model")
