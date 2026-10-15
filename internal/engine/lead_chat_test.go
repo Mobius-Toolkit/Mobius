@@ -734,6 +734,7 @@ func TestAnOwnerMessageComesBeforeAQueuedEventOfAnEarlierTurn(t *testing.T) {
 }
 
 func TestAnOwnerMessageComesBeforeAnEventThatCameDuringASlowTurnForAnEvent(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	release := filepath.Join(t.TempDir(), "release")
 	server, _ := connectWith(t, fake, fmt.Sprintf("[[prompts]]\nwhen = \" dispatch of #41 \"\nshell = 'until [ -e %s ]; do sleep 0.05; done'\n\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Noted.\"]\n", release), keepSessionOpen)
@@ -759,6 +760,7 @@ func TestAnOwnerMessageComesBeforeAnEventThatCameDuringASlowTurnForAnEvent(t *te
 }
 
 func TestOwnerMessagesKeepTheirOrderBeforeAnEventThatWaitsBehindASlowTurn(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	release := filepath.Join(t.TempDir(), "release")
 	server, _ := connectWith(t, fake, fmt.Sprintf("[[prompts]]\nwhen = \" dispatch of #41 \"\nshell = 'until [ -e %s ]; do sleep 0.05; done'\n\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Noted.\"]\n\n[[prompts]]\nreply = [\"Noted.\"]\n", release), keepSessionOpen)
