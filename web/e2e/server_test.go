@@ -509,7 +509,7 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	go func() { _ = implementer.Prompt(ctx, "Store the plan prices in cents.", nil) }()
-	setNeedsHuman(t, server, spec.Task)
+	setNeedsHuman(t, server, github, spec.Task)
 	lead := engine.Spec{Role: engine.LeadRole, Organization: "owner", Repository: "owner/shop", Workstream: 12, Dir: t.TempDir()}
 	if _, err := server.Engine.Start(ctx, lead); err != nil {
 		t.Fatal(err)
@@ -528,7 +528,7 @@ func TestServer(t *testing.T) {
 		}
 		return slices.ContainsFunc(found, func(issue engine.NeedsHuman) bool {
 			return issue.Number == 41 && issue.Stopped && issue.PullRequest == 44
-		})
+		}) && slices.Contains(github.Labels("owner/shop", 41), "mobius:needs-human")
 	})
 	if err := queries.SetHarnessPause(ctx, store.SetHarnessPauseParams{Harness: "antigravity", PausedUntil: "2026-09-28T12:00:00Z"}); err != nil {
 		t.Fatal(err)
@@ -877,11 +877,13 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 }
 
 // setNeedsHuman moves the task to needs_human, so that the poll keeps mobius:needs-human on its issue. The Worker of
-// the task stays. needs_human_at is set, because a poll of the task before the move removes the label, and
-// continueByRemoval resumes the task for each removal that is not older than needs_human_at.
-func setNeedsHuman(t *testing.T, server *testserver.Server, task int64) {
+// the task stays. continueByRemoval resumes the task for each removal of the label that is newer than needs_human_at.
+// The fake GitHub dates its events from its own clock, which runs ahead of the wall clock, and a poll of the task
+// before the move can still write a removal. Thus needs_human_at is one hour after the clock of the fake GitHub.
+func setNeedsHuman(t *testing.T, server *testserver.Server, github *testkit.FakeGitHub, task int64) {
 	t.Helper()
-	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", task); err != nil {
+	since := github.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human', needs_human_at = ? WHERE id = ?", since, task); err != nil {
 		t.Fatal(err)
 	}
 }
