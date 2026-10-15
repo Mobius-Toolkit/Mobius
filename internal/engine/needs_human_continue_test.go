@@ -194,6 +194,7 @@ func TestATaskThatContinuesKeepsMobiusQuestion(t *testing.T) {
 }
 
 func TestACommentOfATrustedUserOnTheIssueOfATaskInNeedsHumanContinuesTheTaskAndResetsItsCounters(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := stoppedOnFailedCI(t, fake, noChange)
 	if stopped := liveTask(t, server, 41); stopped.FixRounds != 1 {
@@ -214,6 +215,7 @@ func TestACommentOfATrustedUserOnTheIssueOfATaskInNeedsHumanContinuesTheTaskAndR
 }
 
 func TestACommentOfTheLeadWithGhOnTheIssueOfATaskInNeedsHumanDoesNotContinueTheTask(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := stoppedOnFailedCI(t, fake, noChange)
 	stopped := liveTask(t, server, 41)
@@ -233,6 +235,7 @@ func TestACommentOfTheLeadWithGhOnTheIssueOfATaskInNeedsHumanDoesNotContinueTheT
 }
 
 func TestACommentThatIsOlderThanTheStopOfATaskInNeedsHumanDoesNotContinueTheTask(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := stoppedOnFailedCI(t, fake, noChange)
 	before := implementers(t, server)
@@ -252,6 +255,7 @@ func TestACommentThatIsOlderThanTheStopOfATaskInNeedsHumanDoesNotContinueTheTask
 }
 
 func TestAnEditOfAnOldCommentDoesNotHideANewCommentThatContinuesATaskInNeedsHuman(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := stoppedOnFailedCI(t, fake, noChange)
 	oldComment := fake.AddCommentCreatedAt(shop, 41, "owner", "Use cents.", time.Now().Add(-time.Hour))
