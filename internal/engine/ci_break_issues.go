@@ -2,9 +2,12 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
+	"maps"
+	"slices"
 	"strings"
 
 	gh "github.com/google/go-github/v92/github"
@@ -209,4 +212,101 @@ func (e *Engine) closeCIBreakIssue(ctx context.Context, repository github.Reposi
 		return false, nil
 	}
 	return false, err
+}
+
+// ciBreakIssueClosed tells whether the task issue number of a hard break is closed, or GitHub does not find it. A 4xx
+// answer of GitHub is no error, and the break stays open until the next poll tries again.
+func (e *Engine) ciBreakIssueClosed(ctx context.Context, repository github.Repository, number int64) (bool, error) {
+	issue, err := repository.Issue(ctx, number)
+	if err == nil {
+		return issue == nil || issue.GetState() == "closed", nil
+	}
+	if github.NotFound(err) {
+		return true, nil
+	}
+	if refusedByGitHub(err) {
+		log.Printf("read the issue #%d of %s: %v", number, repository.FullName, err)
+		return false, nil
+	}
+	return false, err
+}
+
+// ciStop gives the task issue numbers of the open hard breaks of repository that have an issue, also an issue that is
+// not below the Workstream yet. While it has some, Mobius starts no task in repository except these issues.
+func (e *Engine) ciStop(ctx context.Context, repository string) (map[int64]bool, error) {
+	breaks, err := e.queries.ListOpenHardCIBreaks(ctx, repository)
+	if err != nil {
+		return nil, err
+	}
+	stop := map[int64]bool{}
+	for _, ciBreak := range breaks {
+		if ciBreak.Issue != 0 {
+			stop[max(ciBreak.Issue, -ciBreak.Issue)] = true
+		}
+	}
+	return stop, nil
+}
+
+// ciStopRefusal gives the refusal for a start of a task of issue number while the stop of repository is on, or nil.
+func (e *Engine) ciStopRefusal(ctx context.Context, repository github.Repository, number int64) error {
+	stop, err := e.ciStop(ctx, repository.FullName)
+	if err != nil || len(stop) == 0 || stop[number] {
+		return err
+	}
+	var links []string
+	for _, issue := range slices.Sorted(maps.Keys(stop)) {
+		links = append(links, issueLink(repository.FullName, issue))
+	}
+	return refuse("Mobius started no task: the CI of %s has a hard break. Fix it first in %s.", repository.DefaultBranch, strings.Join(links, ", "))
+}
+
+// ciTaskInstructions are the instructions of the Implementer of a CI task.
+const ciTaskInstructions = "Mobius started this task for a hard break of the CI of the default branch. The issue body gives the failed run, the failed jobs, the failed steps and the end of the logs."
+
+// startCIBreakTasks dispatches the task issue of each open hard break that never had a task, and starts its Implementer
+// at once, also with Autopilot off. An issue that had a task, also an ended one, gets no new start: the Lead or the
+// Owner continues it. When the Implementer fails to start, the task stays dispatched, and the Lead can start it. The
+// drain holds the start.
+func (e *Engine) startCIBreakTasks(ctx context.Context, repository github.Repository) error {
+	if e.draining() {
+		return nil
+	}
+	breaks, err := e.queries.ListOpenHardCIBreaks(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	for _, ciBreak := range breaks {
+		if ciBreak.Issue <= 0 {
+			continue
+		}
+		had, err := e.queries.HasTask(ctx, store.HasTaskParams{Repository: repository.FullName, Issue: ciBreak.Issue})
+		if err != nil {
+			return err
+		}
+		if had {
+			continue
+		}
+		workstream, err := maintenanceWorkstream(ctx, repository)
+		if err != nil || workstream == 0 {
+			return err
+		}
+		issue, err := repository.Issue(ctx, ciBreak.Issue)
+		if refusedByGitHub(err) {
+			log.Printf("read the issue #%d of %s: %v", ciBreak.Issue, repository.FullName, err)
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if issue == nil || issue.GetState() != "open" {
+			continue
+		}
+		if err := e.dispatch(ctx, repository, issue, workstream, appLogin(repository.AppSlug)); err != nil {
+			return err
+		}
+		if _, err := e.startImplementer(ctx, repository, workstream, ciBreak.Issue, ciTaskInstructions, sql.NullInt64{}); err != nil {
+			log.Printf("start the Implementer of #%d of %s: %v", ciBreak.Issue, repository.FullName, err)
+		}
+	}
+	return nil
 }

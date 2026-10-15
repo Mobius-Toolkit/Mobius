@@ -154,7 +154,10 @@ LEFT JOIN copied_issues i
 WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
 
 -- name: ListQueuedTasks :many
-SELECT id, queued_at FROM tasks WHERE state = 'queued' ORDER BY queued_at, id;
+SELECT id, queued_at, EXISTS (
+  SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = tasks.repository AND ci_breaks.issue = tasks.issue
+    AND ci_breaks.result = 'hard' AND ci_breaks.ended_at = ''
+) AS ci FROM tasks WHERE state = 'queued' ORDER BY queued_at, id;
 
 -- name: SetTaskState :execrows
 UPDATE tasks SET state = sqlc.arg(state), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
@@ -742,6 +745,9 @@ UPDATE ci_breaks SET result = ? WHERE id = ?;
 
 -- name: EndCIBreak :exec
 UPDATE ci_breaks SET result = ?, ended_run_id = ?, ended_at = ? WHERE id = ?;
+
+-- name: NewestCIBreakRun :one
+SELECT CAST(COALESCE(MAX(run_id), 0) AS INTEGER) FROM ci_breaks WHERE repository = ? AND workflow_id = ?;
 
 -- name: ListCIBreaksWithoutIssue :many
 SELECT * FROM ci_breaks WHERE repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '') ORDER BY id;

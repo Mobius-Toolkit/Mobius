@@ -3,6 +3,7 @@ package engine_test
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -65,7 +66,7 @@ func TestAHardBreakGivesOneIssueBelowTheMaintenanceWorkstreamWithTheFailureAndNo
 	if strings.Contains(body, "lint") {
 		t.Errorf("body has the passed job:\n%s", body)
 	}
-	if labels := fake.Labels(shop, number); len(labels) != 0 {
+	if labels := fake.Labels(shop, number); slices.Contains(labels, "mobius:ready") {
 		t.Errorf("labels = %v", labels)
 	}
 	waitForPolls(t, fake)

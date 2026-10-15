@@ -312,6 +312,13 @@ func (g *FakeGitHub) GoneIssue(repository string, number int64) {
 	g.goneIssues[issueKey{repository, number}] = true
 }
 
+// ForbidIssue makes each read of the issue answer 403 Forbidden.
+func (g *FakeGitHub) ForbidIssue(repository string, number int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.forbiddenIssues[issueKey{repository, number}] = true
+}
+
 // PendingIssueReadFailures gives the number of reads of the issue that FailIssueReads still makes fail.
 func (g *FakeGitHub) PendingIssueReadFailures(repository string, number int64) int {
 	g.mu.Lock()
@@ -799,6 +806,10 @@ func (g *FakeGitHub) getIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if g.goneIssues[key] {
 		message(w, http.StatusGone, "Gone")
+		return
+	}
+	if g.forbiddenIssues[key] {
+		message(w, http.StatusForbidden, "Forbidden")
 		return
 	}
 	if key, ok := g.issue(w, r); ok {

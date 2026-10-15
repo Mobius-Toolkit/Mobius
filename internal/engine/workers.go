@@ -152,11 +152,12 @@ func (e *Engine) WakeQueue() {
 	e.workers.changed.notify()
 }
 
-// rank is the place of a queued session: the lowest rank gets the next slot. A task of a pull request with work
-// (a fix round for a failed check run or a conflict round) comes first, by the creation time of the pull request.
-// The others follow by their time in the queue, and at the same time a task comes before a session with no task.
+// rank is the place of a queued session: the lowest rank gets the next slot. A CI task (see queuedTask) comes first,
+// by its time in the queue. A task of a pull request with work (a fix round for a failed check run or a conflict
+// round) follows, by the creation time of the pull request. The others follow by their time in the queue, and at the
+// same time a task comes before a session with no task.
 type rank struct {
-	// class is 0 for a task with work and 1 for the others.
+	// class is 0 for a CI task, 1 for a task with work and 2 for the others.
 	class int
 	at    time.Time
 	// kind is 0 for a task and 1 for a session with no task.
@@ -169,21 +170,26 @@ func (r rank) compare(other rank) int {
 	return cmp.Or(cmp.Compare(r.class, other.class), r.at.Compare(other.at), cmp.Compare(r.kind, other.kind), cmp.Compare(r.id, other.id))
 }
 
-func taskRank(work map[int64]Work, task int64, queuedAt time.Time) rank {
-	if found, ok := work[task]; ok {
-		return rank{0, found.CreatedAt, 0, task}
+func taskRank(work map[int64]Work, task int64, queuedAt time.Time, ci bool) rank {
+	if ci {
+		return rank{0, queuedAt, 0, task}
 	}
-	return rank{1, queuedAt, 0, task}
+	if found, ok := work[task]; ok {
+		return rank{1, found.CreatedAt, 0, task}
+	}
+	return rank{2, queuedAt, 0, task}
 }
 
 func waiterRank(w waiter) rank {
-	return rank{1, w.since, 1, w.session}
+	return rank{2, w.since, 1, w.session}
 }
 
-// queuedTask is a task in the state queued with its time in the queue.
+// queuedTask is a task in the state queued with its time in the queue. ci tells that its issue is the task issue of an
+// open hard break of the CI of the default branch.
 type queuedTask struct {
 	id       int64
 	queuedAt time.Time
+	ci       bool
 }
 
 func (e *Engine) queuedTasks(ctx context.Context) ([]queuedTask, error) {
@@ -197,7 +203,7 @@ func (e *Engine) queuedTasks(ctx context.Context) ([]queuedTask, error) {
 		if err != nil {
 			return nil, err
 		}
-		tasks = append(tasks, queuedTask{row.ID, queuedAt})
+		tasks = append(tasks, queuedTask{row.ID, queuedAt, row.Ci})
 	}
 	return tasks, nil
 }
@@ -293,7 +299,7 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 		if index < 0 {
 			return "", false
 		}
-		own = taskRank(w.work, task, queue[index].queuedAt)
+		own = taskRank(w.work, task, queue[index].queuedAt, queue[index].ci)
 	}
 	type ranked struct {
 		rank rank
@@ -302,7 +308,7 @@ func (e *Engine) slotReason(a *Agent, place waiter, queue []queuedTask, worker b
 	var earlier []ranked
 	for _, queued := range queue {
 		other, ok := w.queued[queued.id]
-		if r := taskRank(w.work, queued.id, queued.queuedAt); ok && r.compare(own) < 0 {
+		if r := taskRank(w.work, queued.id, queued.queuedAt, queued.ci); ok && r.compare(own) < 0 {
 			earlier = append(earlier, ranked{r, other})
 		}
 	}
