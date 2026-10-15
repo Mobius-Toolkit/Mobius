@@ -233,6 +233,20 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 	return nil
 }
 
+func isOwnerMessage(i item) bool {
+	return i.message != nil && i.message.Author == ownerAuthor
+}
+
+// afterOwnerMessages returns the index after the last message of the Owner in queue.
+func afterOwnerMessages(queue []item) int {
+	for index := len(queue); index > 0; index-- {
+		if isOwnerMessage(queue[index-1]) {
+			return index
+		}
+	}
+	return 0
+}
+
 // give gives the items to the chat of key, and starts the chat when none runs. tracked tells that the drain counts the
 // first session of a new chat from a tryTrack of the caller. The caller holds e.chatOrder.
 func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
@@ -240,7 +254,13 @@ func (e *Engine) give(key ChatKey, tracked bool, items ...item) {
 	c, ok := e.chats[key]
 	var agent *Agent
 	if ok {
-		c.queue = append(c.queue, items...)
+		for _, queued := range items {
+			if isOwnerMessage(queued) {
+				c.queue = slices.Insert(c.queue, afterOwnerMessages(c.queue), queued)
+			} else {
+				c.queue = append(c.queue, queued)
+			}
+		}
 		c.writing = true
 		agent = c.agent
 		c.notify()
@@ -901,8 +921,8 @@ func (e *Engine) turn(c *chat, a *Agent, prompt string, images []Image, stoppabl
 }
 
 // endTurn delivers the event of the turn, or holds it when the Lead called hold_event. The end of a turn for a
-// message of the Owner frees each held event. The freed events and the ready events of their task issues go in
-// front of the queue and replace their queued copies. Each other queued item keeps its place.
+// message of the Owner frees each held event. The freed events and the ready events of their task issues go after
+// the queued messages of the Owner and replace their queued copies. Each other queued item keeps its place.
 func (e *Engine) endTurn(c *chat, current item) error {
 	ctx := c.ctx
 	e.chatsMu.Lock()
@@ -938,7 +958,7 @@ func (e *Engine) endTurn(c *chat, current item) error {
 	c.queue = slices.DeleteFunc(c.queue, func(queued item) bool {
 		return queued.event != nil && slices.ContainsFunc(affected, func(other item) bool { return other.event.ID == queued.event.ID })
 	})
-	c.queue = append(affected, c.queue...)
+	c.queue = slices.Insert(c.queue, afterOwnerMessages(c.queue), affected...)
 	return nil
 }
 
