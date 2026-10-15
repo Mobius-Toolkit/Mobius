@@ -521,6 +521,15 @@ func TestServer(t *testing.T) {
 		}
 		return lines == 1
 	})
+	testkit.WaitFor(t, func() bool {
+		found, err := server.Engine.NeedsHuman(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.ContainsFunc(found, func(issue engine.NeedsHuman) bool {
+			return issue.Number == 41 && issue.Stopped && issue.PullRequest == 44
+		})
+	})
 	if err := queries.SetHarnessPause(ctx, store.SetHarnessPauseParams{Harness: "antigravity", PausedUntil: "2026-09-28T12:00:00Z"}); err != nil {
 		t.Fatal(err)
 	}
@@ -868,10 +877,11 @@ func fixTimes(t *testing.T, server *testserver.Server, github *testkit.FakeGitHu
 }
 
 // setNeedsHuman moves the task to needs_human, so that the poll keeps mobius:needs-human on its issue. The Worker of
-// the task stays.
+// the task stays. needs_human_at is set, because a poll of the task before the move removes the label, and
+// continueByRemoval resumes the task for each removal that is not older than needs_human_at.
 func setNeedsHuman(t *testing.T, server *testserver.Server, task int64) {
 	t.Helper()
-	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human' WHERE id = ?", task); err != nil {
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?", task); err != nil {
 		t.Fatal(err)
 	}
 }
