@@ -1980,6 +1980,47 @@ func (q *Queries) ListAutopilotWorkstreams(ctx context.Context, repository strin
 	return items, nil
 }
 
+const listCIBreaksNotBelowWorkstream = `-- name: ListCIBreaksNotBelowWorkstream :many
+SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE repository = ? AND issue < 0 ORDER BY id
+`
+
+func (q *Queries) ListCIBreaksNotBelowWorkstream(ctx context.Context, repository string) ([]CiBreak, error) {
+	rows, err := q.db.QueryContext(ctx, listCIBreaksNotBelowWorkstream, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CiBreak
+	for rows.Next() {
+		var i CiBreak
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.WorkflowID,
+			&i.WorkflowName,
+			&i.RunID,
+			&i.RunUrl,
+			&i.RunAttempt,
+			&i.RerunAt,
+			&i.Result,
+			&i.EndedRunID,
+			&i.EndedAt,
+			&i.Issue,
+			&i.StartedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCIBreaksWithoutIssue = `-- name: ListCIBreaksWithoutIssue :many
 SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '') ORDER BY id
 `

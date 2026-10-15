@@ -739,5 +739,8 @@ UPDATE ci_breaks SET result = ?, ended_run_id = ?, ended_at = ? WHERE id = ?;
 -- name: ListCIBreaksWithoutIssue :many
 SELECT * FROM ci_breaks WHERE repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '') ORDER BY id;
 
+-- name: ListCIBreaksNotBelowWorkstream :many
+SELECT * FROM ci_breaks WHERE repository = ? AND issue < 0 ORDER BY id;
+
 -- name: SetCIBreakIssue :exec
 UPDATE ci_breaks SET issue = ? WHERE id = ?;

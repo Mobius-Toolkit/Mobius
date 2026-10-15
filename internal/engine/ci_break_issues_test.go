@@ -264,6 +264,30 @@ func TestAFailedJobLogReadCreatesNoIssueUntilTheReadWorks(t *testing.T) {
 	}
 }
 
+func TestAFailedAddBelowTheWorkstreamGivesOneIssueThatTheNextPollAddsBelowTheWorkstream(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	run := failedRunWithJob(fake)
+	addMaintenanceWorkstream(fake, maintenance)
+	fake.FailAddSubIssue(shop, maintenance, true)
+	server := startServer(t, fake, t.TempDir(), "")
+	waitForCIBreak(t, server, ciBreak{runID: run, rerun: true})
+	fake.SetWorkflowRunStatus(run, "completed", "failure")
+	testkit.WaitFor(t, func() bool { return createdIssues(fake) == 1 })
+	waitForPolls(t, fake)
+
+	if numbers := fake.SubIssueNumbers(shop, maintenance); len(numbers) != 0 {
+		t.Fatalf("sub-issues = %v", numbers)
+	}
+	fake.FailAddSubIssue(shop, maintenance, false)
+
+	ciBreakIssue(t, fake)
+	waitForPolls(t, fake)
+	if created := createdIssues(fake); created != 1 {
+		t.Errorf("created issues = %d", created)
+	}
+}
+
 func TestARefusedCloseKeepsTheBreakOpenUntilTheCloseWorks(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
