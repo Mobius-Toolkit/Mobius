@@ -31,7 +31,7 @@ const errorMessages: Record<string, string> = {
 };
 
 // The hook that receives the events of the run.
-type Target = {
+export type Target = {
   onText: (text: string, first: boolean) => void;
   touched: () => boolean;
   setListening: (listening: boolean) => void;
@@ -40,11 +40,11 @@ type Target = {
 
 // WebKit allows one start() for each end event, and a recognition object that a new page part makes can fail
 // silently. Thus the page has one recognition object, and each start waits for the end event of the run before it.
-// The state of the object and of its run does not belong to one mount of useVoice.
+// The state of the object and of its run does not belong to one mount of useVoice. One hook owns the run at one
+// time: a start by a different hook stops the run of the owner.
 const state = {
   recognition: undefined as Recognition | undefined,
-  mounted: undefined as Target | undefined,
-  // The hook that started the run. An unmount clears it, so the events of the run go nowhere.
+  // The hook that started the run. An abort clears it, so the events of the run go nowhere.
   owner: undefined as Target | undefined,
   wanted: false,
   running: false,
@@ -131,7 +131,6 @@ const voiceText = () => [...state.finals, visibleDraft()].filter(Boolean).join("
 
 const begin = (live: Recognition) => {
   live.lang = navigator.language;
-  state.owner = state.mounted;
   state.added = 0;
   state.skips = [];
   state.stale = false;
@@ -200,7 +199,7 @@ const create = (Ctor: new () => Recognition) => {
     state.canRestart = true;
   });
   live.addEventListener("error", (event) => {
-    if (!state.owner || !state.wanted || event.error === "aborted") {
+    if (!state.owner || !state.wanted || state.stale || event.error === "aborted") {
       return;
     }
     stopWanting();
@@ -231,6 +230,54 @@ const abortRun = () => {
   state.recognition?.abort();
 };
 
+// The calls of one hook stop, start or abort the run only when the hook owns it.
+export const toggleVoice = (target: Target) => {
+  if (state.wanted && state.owner === target) {
+    stopWanting();
+    target.setListening(false);
+    state.recognition?.stop();
+    return;
+  }
+  if (!Speech) {
+    return;
+  }
+  if (state.wanted) {
+    state.owner?.setListening(false);
+    state.recognition?.stop();
+  }
+  state.owner = target;
+  state.recognition ??= create(Speech);
+  state.finals = [];
+  state.draft = [];
+  state.shown = [];
+  state.skips = [];
+  state.spoken = "";
+  state.first = true;
+  state.wanted = true;
+  holdScreen();
+  target.setError("");
+  target.setListening(true);
+  if (state.running) {
+    state.stale = true;
+    state.canRestart = true;
+  } else {
+    begin(state.recognition);
+  }
+};
+
+// abortVoice drops the voice text that the run still holds.
+export const abortVoice = (target: Target) => {
+  target.setListening(false);
+  target.setError("");
+  releaseVoice(target);
+};
+
+export const releaseVoice = (target: Target) => {
+  if (!state.owner || state.owner === target) {
+    abortRun();
+  }
+};
+
 // useVoice gives the voice text of the recording to onText after each result. The voice text has the final texts and
 // the draft. first is true for the first voice text of a recording. When a run ends, its draft becomes a final text.
 // The voice input stays on until toggle stops it, abort runs or an error occurs. useVoice returns the error of the
@@ -242,61 +289,25 @@ export function useVoice(onText: (text: string, first: boolean) => void, touched
   const [error, setError] = useState("");
   const latestOnText = useRef(onText);
   const latestTouched = useRef(touched);
+  const [target] = useState<Target>(() => ({
+    onText: (text, first) => latestOnText.current(text, first),
+    touched: () => latestTouched.current(),
+    setListening,
+    setError,
+  }));
 
   useEffect(() => {
     latestOnText.current = onText;
     latestTouched.current = touched;
   });
 
-  useEffect(() => {
-    const target: Target = {
-      onText: (text, first) => latestOnText.current(text, first),
-      touched: () => latestTouched.current(),
-      setListening,
-      setError,
-    };
-    state.mounted = target;
-    return () => {
-      state.mounted = undefined;
-      abortRun();
-    };
-  }, []);
+  useEffect(() => () => releaseVoice(target), [target]);
 
-  // abort drops the voice text that the run still holds.
-  const abort = () => {
-    setListening(false);
-    setError("");
-    abortRun();
+  return {
+    supported: Boolean(Speech),
+    listening,
+    error,
+    toggle: () => toggleVoice(target),
+    abort: () => abortVoice(target),
   };
-
-  const toggle = () => {
-    if (state.wanted) {
-      stopWanting();
-      setListening(false);
-      state.recognition?.stop();
-      return;
-    }
-    if (!Speech) {
-      return;
-    }
-    state.recognition ??= create(Speech);
-    state.finals = [];
-    state.draft = [];
-    state.shown = [];
-    state.skips = [];
-    state.spoken = "";
-    state.first = true;
-    state.wanted = true;
-    holdScreen();
-    setError("");
-    setListening(true);
-    if (state.running) {
-      state.stale = true;
-      state.canRestart = true;
-    } else {
-      begin(state.recognition);
-    }
-  };
-
-  return { supported: Boolean(Speech), listening, error, toggle, abort };
 }

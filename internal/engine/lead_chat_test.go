@@ -827,6 +827,98 @@ func TestAStopDoesNotCancelATurnForAnEvent(t *testing.T) {
 	}
 }
 
+// Serial: the stop must come before the busy turn ends.
+func TestAStopDropsTheQueuedOwnerMessagesDuringATurnForAnEvent(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "[[prompts]]\nbusy = \"1s\"\nreply = [\"Noted.\"]\n", keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 1
+	})
+	sendChat(t, server, leadChat, "Also add a price")
+	testkit.WaitFor(t, func() bool { return chatView(t, server, leadChat).Stoppable })
+
+	stopChat(t, server, leadChat)
+
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
+	view := chatView(t, server, leadChat)
+	var owner []store.ChatMessage
+	for _, message := range view.Messages {
+		if message.Author == "Owner" {
+			owner = append(owner, message)
+		}
+	}
+	if len(owner) != 1 || !owner[0].StoppedAt.Valid || owner[0].DeliveredAt.Valid {
+		t.Errorf("owner messages = %+v", owner)
+	}
+	if view.Stoppable {
+		t.Error("the chat is still stoppable")
+	}
+	if got := chatSessions(t, server, leadChat, engine.LeadRole)[0]; got.EndedAt.Valid || len(promptTexts(t, server, session.ID)) != 1 {
+		t.Errorf("session = %+v, prompts = %q", got, promptTexts(t, server, session.ID))
+	}
+}
+
+func TestAChatIsStoppableDuringATurnForAnEventOnlyWhileAnOwnerMessageWaits(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "[[prompts]]\nhang = true\n", keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 1
+	})
+	if view := chatView(t, server, leadChat); !view.Writing || view.Stoppable {
+		t.Errorf("writing = %v, stoppable = %v", view.Writing, view.Stoppable)
+	}
+
+	changes := listen(t, server)
+	sendChat(t, server, leadChat, "Also add a price")
+
+	if view := chatView(t, server, leadChat); !view.Stoppable {
+		t.Error("the chat is not stoppable")
+	}
+	waitForChange(t, changes, func(change engine.Change) bool { return change.Chat != nil && change.Chat.Stoppable })
+}
+
+func TestAChatIsNotStoppableDuringTheMemorySaveTurn(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First answer\"]\n\n[[prompts]]\nhang = true\n")
+	sendChat(t, server, leadChat, "Plan the loyalty API")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 2
+	})
+
+	if view := chatView(t, server, leadChat); view.Stoppable {
+		t.Error("the chat is stoppable")
+	}
+}
+
+func TestTheCloseOfAWorkstreamStopsTheQueuedOwnerMessages(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "[[prompts]]\nhang = true\n", keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return len(promptTexts(t, server, session.ID)) == 1
+	})
+	sendChat(t, server, leadChat, "Also add a price")
+
+	if err := server.Engine.CloseWorkstreamWontDo(t.Context(), shop, 12); err != nil {
+		t.Fatal(err)
+	}
+
+	var owner []store.ChatMessage
+	for _, message := range chatView(t, server, leadChat).Messages {
+		if message.Author == "Owner" {
+			owner = append(owner, message)
+		}
+	}
+	if len(owner) != 1 || !owner[0].StoppedAt.Valid {
+		t.Errorf("owner messages = %+v", owner)
+	}
+}
+
 // eventLines gives the number of events in the chat.
 func eventLines(t *testing.T, server *testserver.Server) int {
 	t.Helper()

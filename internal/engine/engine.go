@@ -46,6 +46,11 @@ type Engine struct {
 	quiet map[int64]quietItem
 	// pulls holds what the poll read of each pull request, for the Judge. Only the poll uses it.
 	pulls map[pullKey]*pullState
+	// pushedMu guards pushed.
+	pushedMu sync.Mutex
+	// pushed holds the pull requests that a Worker pushed to after the poll read them. The poll reads them from GitHub
+	// at the next read.
+	pushed map[pullKey]bool
 	// ciWait holds the head of each task in checks that has no CI, with the time of its first poll, by the id of the task.
 	// Only the poll uses it.
 	ciWait map[int64]ciWait
@@ -154,6 +159,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		copied:       map[string]bool{},
 		quiet:        map[int64]quietItem{},
 		pulls:        map[pullKey]*pullState{},
+		pushed:       map[pullKey]bool{},
 		ciWait:       map[int64]ciWait{},
 		newest:       map[string]newestVersion{},
 		workers:      newWorkers(),
