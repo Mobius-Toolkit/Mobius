@@ -98,3 +98,32 @@ func TestTheEndOfAQuestionAfterAResumeOpensNoStoppedItem(t *testing.T) {
 	waitForPolls(t, fake)
 	wantOpenKinds(t, server)
 }
+
+func TestTheEndOfAQuestionAfterAFailedJudgeOfAStoppedTaskOpensTheStoppedItemOfTheStop(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	first := leadAsksInChat + "[[prompts]]\nwhen = \"Judge again.\"\nerror = { code = -32000, message = \"The Judge crashed.\" }\n\n"
+	server := judgeToHumanAfter(t, fake, first, "shell = \"true\"\n")
+	waitForItem(t, server, "stopped")
+	stops := func() (count int) {
+		if err := server.DB.QueryRow("SELECT count(*) FROM lead_events WHERE kind = 'stop' AND issue = 41").Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		return count
+	}
+	before := stops()
+
+	fake.AddComment(shop, 42, "owner", "Judge again.")
+
+	testkit.WaitFor(t, func() bool { return stops() > before })
+	waitForPolls(t, fake)
+	sendChat(t, server, leadChat, "Ask about #41")
+	waitForItem(t, server, "question")
+	wantOpenKinds(t, server, "question")
+
+	fake.AddComment(shop, 41, "owner", "Cents.")
+
+	waitForItem(t, server, "stopped")
+	waitForPolls(t, fake)
+	wantOpenKinds(t, server, "stopped")
+}

@@ -99,7 +99,8 @@ func (e *Engine) actionDone(ctx context.Context, issue *gh.Issue, item store.Inb
 }
 
 // reopenStoppedItem opens the newest stopped item of the issue of the question item again, when the live task of the
-// issue is in needs_human and the item is not older than that stop.
+// issue is in needs_human and the question item replaced that stopped item: the stopped item closed after the question
+// item opened.
 func (e *Engine) reopenStoppedItem(ctx context.Context, question store.InboxItem) error {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: question.Repository, Issue: question.Issue})
 	if errors.Is(err, sql.ErrNoRows) || err == nil && task.State != "needs_human" {
@@ -109,23 +110,21 @@ func (e *Engine) reopenStoppedItem(ctx context.Context, question store.InboxItem
 		return err
 	}
 	stopped, err := e.queries.GetNewestInboxItem(ctx, store.GetNewestInboxItemParams{Repository: question.Repository, Issue: question.Issue, Kind: stoppedKind})
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) || err == nil && !stopped.DismissedAt.Valid {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	itemTime, err := time.Parse(time.RFC3339Nano, stopped.Time)
+	asked, err := time.Parse(time.RFC3339Nano, question.Time)
 	if err != nil {
 		return err
 	}
-	var stoppedAt time.Time
-	if task.NeedsHumanAt.Valid {
-		if stoppedAt, err = time.Parse(time.RFC3339Nano, task.NeedsHumanAt.String); err != nil {
-			return err
-		}
+	dismissed, err := time.Parse(time.RFC3339Nano, stopped.DismissedAt.String)
+	if err != nil {
+		return err
 	}
-	if itemTime.Before(stoppedAt) {
+	if dismissed.Before(asked) {
 		return nil
 	}
 	item, err := e.queries.ReopenInboxItem(ctx, stopped.ID)
