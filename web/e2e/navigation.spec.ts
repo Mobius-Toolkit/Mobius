@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { waitForEvergreen } from "./evergreen.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -74,13 +75,19 @@ test("the tab bar of a phone shows the tabs in order, and the Chat tab shows the
   await expect(tabs).toHaveText([/^Chat\s*1$/, /^Workstreams$/, /^Inbox$/, /^Settings$/]);
 });
 
-test("the sidebar of a desktop shows Chat and Inbox above the Workstreams", async ({ page }) => {
+test("the sidebar of a desktop shows Chat, Inbox, the evergreen Workstream and the Workstreams in order", async ({
+  page,
+}) => {
   const links = page.getByRole("navigation").first().getByRole("link");
 
   await page.goto("/workstreams");
+  await waitForEvergreen(page);
+  await page.reload();
   await expect(links.nth(0)).toHaveText(/^Chat$/);
   await expect(links.nth(1)).toHaveText(/^Inbox\s*1$/);
-  await expect(links.nth(2)).toHaveText(/^Workstreams$/);
+  await expect(links.nth(2)).toHaveText(/^Early renewals/);
+  await expect(links.nth(3)).toHaveText(/^Workstreams$/);
+  await expect(links.filter({ hasText: "Early renewals" })).toHaveCount(1);
   await expect(links.filter({ hasText: /^Activity$/ })).toHaveCount(0);
   await expect(links.filter({ hasText: /^New Workstream$/ })).toHaveCount(0);
 
@@ -398,6 +405,26 @@ test("a switch to another organization leaves the chat of the old organization",
   await organization("owner").click();
   await page.getByRole("menuitemradio", { name: "plants" }).click();
   await expect(page).toHaveURL("/inbox");
+});
+
+test("the Workstreams page of a phone shows the evergreen Workstreams in a section above the others", async ({
+  page,
+}) => {
+  const main = page.getByRole("main");
+  const section = main
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: "Evergreen" }) });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/workstreams");
+  await waitForEvergreen(page);
+  await page.reload();
+  await expect(section.getByRole("link")).toHaveText([/^Early renewals/]);
+  const others = main.getByRole("link").filter({ hasText: "Integrate loyalty plans" });
+  await expect(others).toBeVisible();
+  const above = await section.boundingBox();
+  const below = await others.boundingBox();
+  expect(above!.y + above!.height).toBeLessThanOrEqual(below!.y);
 });
 
 test("a Workstream with Autopilot on shows the Autopilot icon", async ({ page }) => {
