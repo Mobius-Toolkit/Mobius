@@ -115,6 +115,7 @@ type FakeGitHub struct {
 	failedCloses                               map[issueKey]bool
 	failedIssueReads                           map[issueKey]int
 	goneIssues                                 map[issueKey]bool
+	forbiddenIssues                            map[issueKey]bool
 	failedSubIssues                            map[issueKey]bool
 	failedParents                              map[issueKey]bool
 	failedSubIssueAdds                         map[issueKey]bool
@@ -224,6 +225,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedCloses:            map[issueKey]bool{},
 		failedIssueReads:        map[issueKey]int{},
 		goneIssues:              map[issueKey]bool{},
+		forbiddenIssues:         map[issueKey]bool{},
 		failedSubIssues:         map[issueKey]bool{},
 		failedParents:           map[issueKey]bool{},
 		failedSubIssueAdds:      map[issueKey]bool{},

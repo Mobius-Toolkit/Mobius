@@ -291,6 +291,10 @@ func (e *Engine) startCIBreakTasks(ctx context.Context, repository github.Reposi
 			return err
 		}
 		issue, err := repository.Issue(ctx, ciBreak.Issue)
+		if refusedByGitHub(err) {
+			log.Printf("read the issue #%d of %s: %v", ciBreak.Issue, repository.FullName, err)
+			continue
+		}
 		if err != nil {
 			return err
 		}

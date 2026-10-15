@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -262,6 +263,26 @@ func TestAnAnsweredTaskWaitsInAnsweredDuringTheStopAndDispatchesAfterIt(t *testi
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
 }
 
+func TestARefusedReadOfTheCITaskIssueDoesNotStopThePoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	prepareAutopilot(fake, false)
+	addTaskIssue(fake, 41, "Add plan model")
+	prepareCIIssue(fake, false)
+	fake.ForbidIssue(shop, ciIssue)
+	server := startWithStatements(t, fake, hardBreakSQL(ciIssue),
+		`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at)
+		 VALUES ('owner/shop', 41, 12, 'ended', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`)
+	server.WaitForFirstPoll(t, shop)
+
+	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
+
+	testkit.WaitFor(t, func() bool { return len(fake.Labels(shop, 41)) == 0 })
+	if count := tasksOf(t, server, ciIssue); count != 0 {
+		t.Errorf("tasks = %d", count)
+	}
+}
+
 func TestDuringTheStopStartImplementerRefusesWithTheLinkToTheCITaskIssue(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -283,13 +304,14 @@ func TestDuringTheStopStartImplementerRefusesWithTheLinkToTheCITaskIssue(t *test
 	}
 }
 
-func TestDuringTheStopARunningImplementerAndTheLeadContinue(t *testing.T) {
+func TestDuringTheStopARunningImplementerTheLeadAndTheTriagerContinue(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	goFile := filepath.Join(t.TempDir(), "go")
 	implementer := fmt.Sprintf("[[prompts]]\nshell = '''while [ ! -e '%s' ]; do sleep 0.05; done; %s'''\n", goFile,
 		"echo cents > plan.txt && git add plan.txt && git commit -q -m 'Add plan model'")
-	server, _ := connectTask(t, fake, leadStarts, implementer, func(cfg *config.Config) {
+	triager := "[[prompts]]\nwhen = \"You are the Triager\"\nreply = [\"A proposal.\"]\n\n"
+	server, _ := connectTask(t, fake, triager+leadStarts, implementer, func(cfg *config.Config) {
 		cfg.ReviewQuietPeriod = 200 * time.Millisecond
 		keepSessionOpen(cfg)
 	})
@@ -302,6 +324,9 @@ func TestDuringTheStopARunningImplementerAndTheLeadContinue(t *testing.T) {
 
 	fake.AddComment(shop, 12, "owner", "Plan the next step.")
 	waitForLeadPrompt(t, server, ` comment on #12 "Integrate loyalty plans" by @owner:`)
+	fake.AddIssue(shop, 50, "Change request")
+	fake.AddLabel(shop, 50, "mobius:triage", "owner")
+	testkit.WaitFor(t, func() bool { return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) > 0 })
 	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
