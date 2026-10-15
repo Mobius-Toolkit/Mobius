@@ -57,7 +57,7 @@ func (e *Engine) readDefaultBranchCI(ctx context.Context, repository github.Repo
 			}
 		}
 	}
-	return nil
+	return e.createCIBreakIssues(ctx, repository)
 }
 
 func failedRunConclusion(conclusion string) bool {
@@ -90,7 +90,8 @@ func (e *Engine) startCIBreak(ctx context.Context, repository github.Repository,
 // break hard. Mobius stores the mark of the re-run after the call, so a run that already has a new attempt (for example
 // after a stop between the call and the mark) is not run again. When GitHub refuses the call with a 4xx status (for
 // example with no permission, or for a run older than 30 days), the failure stays a failure, so the break is hard.
-// Another error returns, and the next poll tries again.
+// Another error returns, and the next poll tries again. A hard break that ends with a passed run closes its open task
+// issue first.
 func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repository, ciBreak store.CiBreak, byID map[int64]*gh.WorkflowRun, newest *gh.WorkflowRun) error {
 	run := byID[ciBreak.RunID]
 	passedAgain := newest != nil && newest.GetID() > ciBreak.RunID && newest.GetConclusion() == "success"
@@ -124,6 +125,11 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 		}
 	}
 	if passedAgain {
+		if ciBreak.Result == "hard" && ciBreak.Issue > 0 {
+			if err := e.closeCIBreakIssue(ctx, repository, ciBreak, newest); err != nil {
+				return err
+			}
+		}
 		return e.queries.EndCIBreak(ctx, store.EndCIBreakParams{Result: ciBreak.Result, EndedRunID: newest.GetID(), EndedAt: now(), ID: ciBreak.ID})
 	}
 	return nil

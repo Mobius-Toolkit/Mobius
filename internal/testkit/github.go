@@ -166,6 +166,7 @@ type FakeGitHub struct {
 	jobLogs      map[int64]string
 	// The id of a workflow run is its index plus 1.
 	workflowRuns []workflowRun
+	workflowJobs []workflowJob
 	// rerunRefusal is the status that the re-run of the failed jobs gives, or 0 when it works.
 	rerunRefusal int
 	// runListRefusal is the status that the list of workflow runs gives, or 0 when it works.
@@ -300,6 +301,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/check-runs/{id}/annotations", g.withToken(g.checkRunAnnotations))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/commits/{sha}/check-runs", g.withToken(g.commitCheckRuns))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs", g.withToken(g.listWorkflowRuns))
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}/attempts/{attempt}/jobs", g.withToken(g.listWorkflowJobsAttempt))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{id}/rerun-failed-jobs", g.withToken(g.rerunFailedJobs))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/jobs/{id}/logs", g.withToken(g.jobLogLink))
 	mux.HandleFunc("GET /job-logs/{id}", g.jobLog)

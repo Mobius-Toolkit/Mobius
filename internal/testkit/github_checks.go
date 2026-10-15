@@ -55,6 +55,27 @@ type workflowRun struct {
 	WorkflowRun
 }
 
+// WorkflowJob is a job of an attempt of a workflow run. Its ID is the id of its job log (AddJobLog).
+type WorkflowJob struct {
+	ID         int64
+	Name       string
+	Conclusion string
+	Steps      []WorkflowStep
+}
+
+// WorkflowStep is a step of a job of a workflow run.
+type WorkflowStep struct {
+	Name       string
+	Conclusion string
+}
+
+type workflowJob struct {
+	repository string
+	run        int64
+	attempt    int
+	WorkflowJob
+}
+
 type pullRequest struct {
 	repository string
 	PullRequest
@@ -203,6 +224,13 @@ func (g *FakeGitHub) AddWorkflowRun(repository string, run WorkflowRun) int64 {
 	defer g.mu.Unlock()
 	g.workflowRuns = append(g.workflowRuns, workflowRun{repository, run})
 	return int64(len(g.workflowRuns))
+}
+
+// AddWorkflowJob adds the job to the attempt of the workflow run id of repository.
+func (g *FakeGitHub) AddWorkflowJob(repository string, id int64, attempt int, job WorkflowJob) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.workflowJobs = append(g.workflowJobs, workflowJob{repository, id, attempt, job})
 }
 
 // SetWorkflowRunStatus sets the status and the conclusion of the workflow run id.
@@ -583,6 +611,25 @@ func (g *FakeGitHub) listWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 		runs = append(runs, body)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(runs), "workflow_runs": page(w, r, runs)})
+}
+
+func (g *FakeGitHub) listWorkflowJobsAttempt(w http.ResponseWriter, r *http.Request) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	attempt, _ := strconv.Atoi(r.PathValue("attempt"))
+	jobs := []map[string]any{}
+	for _, job := range g.workflowJobs {
+		if job.repository != repository(r) || job.run != id || job.attempt != attempt {
+			continue
+		}
+		steps := []map[string]any{}
+		for _, step := range job.Steps {
+			steps = append(steps, map[string]any{"name": step.Name, "conclusion": step.Conclusion})
+		}
+		jobs = append(jobs, map[string]any{"id": job.ID, "name": job.Name, "conclusion": job.Conclusion, "steps": steps})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(jobs), "jobs": page(w, r, jobs)})
 }
 
 func (g *FakeGitHub) rerunFailedJobs(w http.ResponseWriter, r *http.Request) {
