@@ -591,13 +591,19 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	return fmt.Sprintf("Asked on #%d.", input.N), err
 }
 
-// closeQuestion posts text on the issue as the Mobius App, removes mobius:question, and dismisses the open question
-// items of the issue. An issue whose task is in needs_human gets its stopped item back. A task in asked continues as
-// after a reply on the issue. task is the zero value for the Workstream issue.
+// closeQuestion posts text on the issue as the Mobius App, continues a task in asked as after a reply on the issue,
+// removes mobius:question, and dismisses the open question items of the issue. An issue whose task is in needs_human
+// gets its stopped item back. mobius:question stays until the task continues, so a failed call can run again.
+// task is the zero value for the Workstream issue.
 func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, text string) error {
 	number := int64(issue.GetNumber())
 	if _, err := repository.AddComment(ctx, number, text); err != nil {
 		return err
+	}
+	if task.State == "asked" {
+		if err := e.answerAsked(ctx, repository, issue, task); err != nil {
+			return err
+		}
 	}
 	if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
 		return err
@@ -619,9 +625,6 @@ func (e *Engine) closeQuestion(ctx context.Context, repository github.Repository
 		if err := e.Dismiss(ctx, item.ID); err != nil {
 			return err
 		}
-	}
-	if task.State == "asked" {
-		return e.answerAsked(ctx, repository, issue, task)
 	}
 	return nil
 }

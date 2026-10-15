@@ -60,6 +60,58 @@ reply = ["Seen"]
 	}
 }
 
+func TestCloseQuestionRunsAgainWhenTheTaskDoesNotContinue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, `
+[[prompts]]
+when = "answer of #41"
+reply = ["Seen"]
+
+[[prompts]]
+when = "Dollars again"
+call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+
+[[prompts]]
+when = "Dollars were chosen"
+call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+
+[[prompts]]
+reply = ["Seen"]
+`)
+	dispatchTask(fake, 41, "Add plan model")
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(apiData[[]needsHuman](t, server, "/api/needs-human"), func(row needsHuman) bool { return row.Number == 41 && row.Question })
+	})
+	fake.FailAddLabels(shop, 41, true)
+
+	sendChat(t, server, leadChat, "Dollars were chosen")
+
+	testkit.WaitFor(t, func() bool {
+		calls := leadCalls(t, server)
+		return len(calls) == 2 && calls[1]["error"] != nil
+	})
+	if !slices.Contains(fake.Labels(shop, 41), "mobius:question") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+	fake.FailAddLabels(shop, 41, false)
+
+	sendChat(t, server, leadChat, "Dollars again")
+
+	testkit.WaitFor(t, func() bool {
+		calls := leadCalls(t, server)
+		return len(calls) == 3 && calls[2]["result"] == "Closed the question on #41."
+	})
+	if slices.Contains(fake.Labels(shop, 41), "mobius:question") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+	waitForLeadPrompt(t, server, ` answer of #41 "Add plan model"`)
+}
+
 func TestCloseQuestionRefusesAnIssueWithNoQuestionAndWritesNothing(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

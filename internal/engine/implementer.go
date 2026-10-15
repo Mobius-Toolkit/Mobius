@@ -378,6 +378,11 @@ func replaceCheckRun(ctx context.Context, repository github.Repository, head str
 }
 
 func (e *Engine) approve(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, pullRequest *gh.PullRequest, checkRun int64, report string) error {
+	if hasLabel(issue, questionLabel) {
+		if err := e.closeQuestion(ctx, repository, issue, task, fmt.Sprintf("The Lead approved PR #%d, so the question is closed.", pullRequest.GetNumber())); err != nil {
+			return err
+		}
+	}
 	comment, err := repository.AddComment(ctx, int64(pullRequest.GetNumber()), report)
 	if err != nil {
 		return err
@@ -395,11 +400,6 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 	}
 	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
-	}
-	if hasLabel(issue, questionLabel) {
-		if err := e.closeQuestion(ctx, repository, issue, task, fmt.Sprintf("The Lead approved PR #%d, so the question is closed.", pullRequest.GetNumber())); err != nil {
-			return err
-		}
 	}
 	title := issue.GetTitle()
 	return e.addInboxItem(ctx, store.AddInboxItemParams{
