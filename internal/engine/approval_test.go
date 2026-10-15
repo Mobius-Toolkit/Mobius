@@ -247,6 +247,21 @@ func TestAFailedWorkflowRunWithNoCheckRunHandsTheTaskToAHuman(t *testing.T) {
 	assertCIStop(t, server, fake, sha)
 }
 
+func TestACIStopSendsTheRefusedStopCommentAgainAndPostsItOnce(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.FailAddComment(shop, 41, true)
+
+	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "startup_failure"})
+
+	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "stopped")) == 1 })
+	waitForPolls(t, fake)
+	fake.FailAddComment(shop, 41, false)
+	assertCIStop(t, server, fake, sha)
+}
+
 func TestAPullRequestWithAnUnknownMergeabilityStaysInChecks(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

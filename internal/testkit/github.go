@@ -149,6 +149,8 @@ type FakeGitHub struct {
 	// pushedHeads holds the head commit of each pull request at the last list of the issues of its repository. A new
 	// head sets the update time of the pull request, as a push does on GitHub.
 	pushedHeads map[issueKey]string
+	// pullRequestsUnlisted tells that the list of the issues has no pull request.
+	pullRequestsUnlisted bool
 	// mergeRefusals holds the reason that the merge of a pull request gets, for each pull request that refuses a merge.
 	mergeRefusals map[issueKey]string
 	// mergeCalls, updateBranchCalls and checkRunReads are the numbers of requests to merge a pull request, to update

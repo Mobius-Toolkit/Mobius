@@ -74,6 +74,14 @@ func (g *FakeGitHub) getBranchRef(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// UnlistPullRequests makes the list of the issues not show the pull requests, as GitHub does for a short time after a
+// push, or shows them again.
+func (g *FakeGitHub) UnlistPullRequests(unlisted bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.pullRequestsUnlisted = unlisted
+}
+
 // touchPushedPullRequests sets the update time of each pull request of the repository whose head commit is not the
 // head at the last call. The caller must hold the lock.
 func (g *FakeGitHub) touchPushedPullRequests(repository string) {
