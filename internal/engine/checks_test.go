@@ -18,6 +18,8 @@ const (
 	fixes = "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"echo 'cents per month' > plan.txt && git commit -q -am 'Fix the check'\"\n\n" + commits
 	// fixesNothing is an Implementer that commits plan.txt with cents, and makes no commit in a fix round.
 	fixesNothing = "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"true\"\n\n" + commits
+	// fixesInANewFile is an Implementer that commits a new file in a fix round.
+	fixesInANewFile = "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"echo fix > fix.txt && git add fix.txt && git commit -q -m 'Fix the check'\"\n\n" + commits
 )
 
 // approvalHead dispatches #41, waits until its task waits for the Lead, and gives the head of its branch.
@@ -308,3 +310,20 @@ func TestAFailedCheckRunAtMaxFixRoundsHandsTheTaskToAHuman(t *testing.T) {
 }
 
 var replacedOutput = &testkit.CheckRunOutput{Title: "Replaced by a new head", Summary: "A new head of the pull request replaced this commit."}
+
+func TestAFailedCheckRunOfTheOldHeadDoesNotStopATaskAfterAFixRoundPushed(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, sha := seedWaitingWith(t, fake, "checks", fixesInANewFile)
+	waitForPolls(t, fake)
+	fake.UnlistPullRequests(true)
+
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+
+	testkit.WaitFor(t, func() bool { return head(t, fake, "mobius/41") != sha && roundEnded(taskState(t, server)) })
+	waitForPolls(t, fake)
+	task := liveTask(t, server, 41)
+	if task.State != "checks" || task.CiFailedHead.Valid {
+		t.Errorf("state = %s, ci_failed_head = %v", task.State, task.CiFailedHead)
+	}
+}
