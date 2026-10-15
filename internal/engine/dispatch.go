@@ -24,9 +24,8 @@ const fullSlotsWait = 30 * time.Minute
 
 // dispatchReady acts on the open issues with mobius:ready of a trusted actor:
 //   - An issue with no Workstream waits.
-//   - A stopped task with a pull request continues (Mobius-rust#225, Mobius-rust#253). A mobius:ready of the Mobius
-//     App needs Autopilot for that. Each other issue with a live task, also a task that waits for a human, loses
-//     mobius:ready.
+//   - A stopped task with a pull request continues (Mobius-rust#225, Mobius-rust#253). Each other issue with a live
+//     task, also a task that waits for a human, loses mobius:ready.
 //   - An issue with an open blocker or with mobius:triage waits.
 //   - An issue with no live task continues its earlier task when the pull request of that task is still open.
 //   - Each other issue gets a new task. A stopped task with no pull request ends first.
@@ -74,15 +73,6 @@ func (e *Engine) dispatchReady(ctx context.Context, repository github.Repository
 		}
 		switch {
 		case live && task.State == "stopped" && task.PullRequest.Valid:
-			if strings.EqualFold(actor, appLogin(repository.AppSlug)) {
-				on, err := e.workstreamAutopilot(ctx, repository, task.Workstream)
-				if err != nil {
-					return err
-				}
-				if !on {
-					continue
-				}
-			}
 			if err := e.resume(ctx, repository, issue, task, actor); err != nil {
 				return err
 			}
@@ -863,9 +853,14 @@ func (e *Engine) noteFullSlots(ctx context.Context, repository github.Repository
 
 // resume continues the task of the issue that waits for a human, or the stopped task with a pull request, for the
 // actor: a task with a pull request continues as continueTask says, and a task with no pull request goes back to the
-// Lead with a dispatch event.
+// Lead with a dispatch event. The counters of the task go back to 0 when the actor is not the Mobius App.
 // mobius:ready goes away last, so a failure before the round starts leaves the issue in the ready list.
 func (e *Engine) resume(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, actor string) error {
+	if !strings.EqualFold(actor, appLogin(repository.AppSlug)) {
+		if err := e.queries.ResetTaskCounters(ctx, task.ID); err != nil {
+			return err
+		}
+	}
 	var moved bool
 	var err error
 	if task.PullRequest.Valid {
@@ -904,16 +899,12 @@ func (e *Engine) redispatch(ctx context.Context, repository github.Repository, i
 	return true, nil
 }
 
-// unstop marks the task as working again: it adds mobius:working, removes mobius:needs-human, and resets the counters
-// of the task.
+// unstop marks the task as working again: it adds mobius:working and removes mobius:needs-human.
 func (e *Engine) unstop(ctx context.Context, repository github.Repository, task store.Task) error {
 	if err := repository.AddLabel(ctx, task.Issue, workingLabel); err != nil {
 		return err
 	}
-	if err := removeNeedsHuman(ctx, repository, task); err != nil {
-		return err
-	}
-	return e.queries.ResetTaskCounters(ctx, task.ID)
+	return removeNeedsHuman(ctx, repository, task)
 }
 
 // continueTask continues the task with the pull request. A pull request with a merge conflict gets a conflict round.
