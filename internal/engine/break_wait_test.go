@@ -35,11 +35,73 @@ func passMain(fake *testkit.FakeGitHub) int64 {
 	return fake.AddWorkflowRun(shop, passed)
 }
 
+// logStateOnFailure logs the task, the breaks of the CI, the sessions, the errors of the sessions, the pull requests,
+// their check runs and the latest requests of the fake GitHub when the test fails. Thus a failed wait shows the step
+// that did not finish. Few requests at the end show a poll that blocks.
+func logStateOnFailure(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) {
+	t.Helper()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		for _, query := range []string{
+			"SELECT 'task', state, state_at, coalesce(worker, ''), worker_restarts, fix_rounds, coalesce(check_head, ''), coalesce(ci_failed_head, ''), coalesce(break_wait_head, ''), coalesce(rerun_head, '') FROM tasks WHERE issue = 41",
+			"SELECT 'break', run_id, rerun_at != '', result, ended_at != '', issue FROM ci_breaks",
+			"SELECT 'session', id, role, coalesce(end_reason, ''), coalesce(ended_at, '') FROM sessions",
+			"SELECT 'error', session, kind, json FROM transcript WHERE kind = 'error'",
+		} {
+			dbRows, err := server.DB.Query(query)
+			if err != nil {
+				t.Error(err)
+				continue
+			}
+			columns, _ := dbRows.Columns()
+			for dbRows.Next() {
+				values := make([]any, len(columns))
+				for i := range values {
+					values[i] = new(any)
+				}
+				if err := dbRows.Scan(values...); err != nil {
+					t.Error(err)
+					break
+				}
+				line := make([]any, len(values))
+				for i, value := range values {
+					line[i] = *value.(*any)
+				}
+				t.Log(line...)
+			}
+			_ = dbRows.Close()
+		}
+		for _, pull := range fake.PullRequests(shop) {
+			sha := head(t, fake, pull.Head)
+			t.Logf("pull request #%d head %s %s", pull.Number, pull.Head, sha)
+			for _, run := range fake.CheckRuns(shop) {
+				if run.HeadSHA == sha {
+					t.Logf("check run %q on %s: %s %q", run.Name, run.HeadSHA, run.Status, run.Conclusion)
+				}
+			}
+		}
+		requests := fake.Requests()
+		recent := 0
+		for _, request := range requests {
+			if time.Since(request.Time) <= 10*time.Second {
+				recent++
+			}
+		}
+		t.Logf("%d requests in the last 10 seconds", recent)
+		for _, request := range requests[max(len(requests)-20, 0):] {
+			t.Logf("%s %s %s?%s %d", request.Time.Format("15:04:05.000"), request.Method, request.Path, request.Query, request.Status)
+		}
+	})
+}
+
 // waitingTask dispatches #41 and waits until its CI fails on the head while the default branch has a hard break. It
 // gives the head.
 func waitingTask(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, string, int64) {
 	t.Helper()
 	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
+	logStateOnFailure(t, server, fake)
 	sha := checksHead(t, server, fake)
 	run := hardBreak(t, server, fake)
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
@@ -200,6 +262,7 @@ func TestAWaitingHeadWhoseCIPassesWhileTheBreakIsOpenMovesToApprovalWithNoBranch
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
+	logStateOnFailure(t, server, fake)
 	sha := checksHead(t, server, fake)
 	hardBreak(t, server, fake)
 	failed := fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
@@ -220,6 +283,7 @@ func TestTheTaskOfTheIssueOfAnOpenBreakGetsTheUsualFixRoundForAFailedCI(t *testi
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
+	logStateOnFailure(t, server, fake)
 	sha := checksHead(t, server, fake)
 	hardBreak(t, server, fake)
 	if _, err := server.DB.Exec("UPDATE ci_breaks SET issue = 41"); err != nil {
@@ -240,6 +304,7 @@ func TestARestartKeepsTheWaitOfATaskAndTheEndOfTheBreakUpdatesItsBranch(t *testi
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, sha := seedWaiting(t, fake, "checks")
+	logStateOnFailure(t, server, fake)
 	for _, statement := range []string{
 		`INSERT INTO ci_breaks (repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, started_at)
 			VALUES ('owner/shop', 7, 'ci', 1, '', 1, '2026-10-04T10:00:00Z', 'hard', '2026-10-04T10:00:00Z')`,
