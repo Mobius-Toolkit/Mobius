@@ -327,3 +327,95 @@ func TestAFailedCheckRunOfTheOldHeadDoesNotStopATaskAfterAFixRoundPushed(t *test
 		t.Errorf("state = %s, ci_failed_head = %v", task.State, task.CiFailedHead)
 	}
 }
+
+// rerunHead gives the re-run head of the live task of #41.
+func rerunHead(t *testing.T, server *testserver.Server) string {
+	t.Helper()
+	return liveTask(t, server, 41).RerunHead.String
+}
+
+// failedFirstAttempt dispatches #41, adds a failed workflow run and a failed check run on its head, and waits until
+// Mobius ran the failed jobs again. The fix round of the failed check run makes no commit.
+func failedFirstAttempt(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) (sha string, workflow, check int64) {
+	t.Helper()
+	sha = checksHead(t, server, fake)
+	workflow = fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
+	check = fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+	testkit.WaitFor(t, func() bool { return rerunHead(t, server) == sha })
+	return sha, workflow, check
+}
+
+func TestAFailedCIAfterTheFixRoundRunsTheFailedJobsAgainOneTimeAndThePassedSecondAttemptMovesTheTaskToApproval(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
+	_, workflow, check := failedFirstAttempt(t, server, fake)
+	waitForPolls(t, fake)
+
+	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(workflow); state != "checks" || attempt != 2 || hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("state = %s, attempt = %d", state, attempt)
+	}
+
+	fake.SetCheckRunStatus(check, "completed", "success")
+	fake.SetWorkflowRunStatus(workflow, "completed", "success")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	if attempt := fake.WorkflowRunAttempt(workflow); attempt != 2 {
+		t.Errorf("attempt = %d", attempt)
+	}
+}
+
+func TestAFailedSecondAttemptHandsTheTaskToAHumanAndTheJobsRunNoThirdTime(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
+	_, workflow, check := failedFirstAttempt(t, server, fake)
+
+	fake.SetCheckRunStatus(check, "completed", "failure")
+	fake.SetWorkflowRunStatus(workflow, "completed", "failure")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	waitForPolls(t, fake)
+	if attempt := fake.WorkflowRunAttempt(workflow); attempt != 2 {
+		t.Errorf("attempt = %d", attempt)
+	}
+}
+
+func TestARefusedRerunHandsTheTaskToAHumanAtOnce(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.RefuseRerun(403)
+	workflow := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	if attempt := fake.WorkflowRunAttempt(workflow); attempt != 1 || rerunHead(t, server) != "" {
+		t.Errorf("attempt = %d, rerun_head = %s", attempt, rerunHead(t, server))
+	}
+}
+
+func TestARerunThatGitHubAnswersWithA5xxStatusIsTriedAgainAtTheNextPoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.RefuseRerun(500)
+	workflow := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+	endedImplementers(t, server, 2)
+	waitForPolls(t, fake)
+
+	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(workflow); state != "checks" || attempt != 1 {
+		t.Errorf("state = %s, attempt = %d", state, attempt)
+	}
+
+	fake.RefuseRerun(0)
+
+	testkit.WaitFor(t, func() bool { return rerunHead(t, server) == sha })
+	if attempt := fake.WorkflowRunAttempt(workflow); attempt != 2 || hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("attempt = %d", attempt)
+	}
+}

@@ -754,5 +754,12 @@ func (g *FakeGitHub) rerunFailedJobs(w http.ResponseWriter, r *http.Request) {
 	run.Attempt = max(run.Attempt, 1) + 1
 	run.Status = "queued"
 	run.Conclusion = ""
+	for i := range g.checkRuns {
+		check := &g.checkRuns[i]
+		if run.HeadSHA != "" && check.HeadSHA == run.HeadSHA && check.repository == run.repository && check.Conclusion == "failure" {
+			check.Status = "queued"
+			check.Conclusion = ""
+		}
+	}
 	w.WriteHeader(http.StatusCreated)
 }
