@@ -491,9 +491,10 @@ func TestAFailedCheckGoesBackToTheSameImplementerWithTheOutput(t *testing.T) {
 }
 
 func TestAfterMaxCheckAttemptsMobiusPushesFailsTheCheckRunAndStopsTheTask(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) { cfg.CheckTimeout = 300 * time.Millisecond })
-	fake.SetCheck(shop, "echo 'tests failed'\nsleep 10")
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	fake.SetCheck(shop, "echo 'tests failed'\nexit 1")
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
@@ -502,7 +503,7 @@ func TestAfterMaxCheckAttemptsMobiusPushesFailsTheCheckRunAndStopsTheTask(t *tes
 	if len(runs) != 1 || runs[0].HeadSHA != head(t, fake, "mobius/41") || runs[0].Status != "completed" || runs[0].Conclusion != "failure" {
 		t.Fatalf("check runs = %+v", runs)
 	}
-	if runs[0].Output.Title != "Local check failed" || !strings.Contains(runs[0].Output.Summary, "tests failed\n\n.mobius/check did not end in 300ms.") {
+	if runs[0].Output.Title != "Local check failed" || !strings.Contains(runs[0].Output.Summary, "tests failed") {
 		t.Errorf("output = %+v", runs[0].Output)
 	}
 	if len(fake.PullRequests(shop)) != 1 {

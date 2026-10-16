@@ -85,6 +85,33 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 	return i, err
 }
 
+const addCheckTimeout = `-- name: AddCheckTimeout :exec
+INSERT INTO check_timeouts (repository, task_issue, session, timeout, output, created_at)
+SELECT ?1, ?2, ?3, ?4, ?5, ?6
+WHERE NOT EXISTS (SELECT 1 FROM check_timeouts WHERE repository = ?1 AND ended_at = '')
+`
+
+type AddCheckTimeoutParams struct {
+	Repository string
+	TaskIssue  int64
+	Session    int64
+	Timeout    string
+	Output     string
+	CreatedAt  string
+}
+
+func (q *Queries) AddCheckTimeout(ctx context.Context, arg AddCheckTimeoutParams) error {
+	_, err := q.db.ExecContext(ctx, addCheckTimeout,
+		arg.Repository,
+		arg.TaskIssue,
+		arg.Session,
+		arg.Timeout,
+		arg.Output,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const addCommentWrite = `-- name: AddCommentWrite :exec
 INSERT INTO comment_writes (repository, number, comment, body) VALUES (?, ?, ?, ?)
 `
@@ -1210,6 +1237,20 @@ func (q *Queries) EndCIBreak(ctx context.Context, arg EndCIBreakParams) error {
 	return err
 }
 
+const endCheckTimeout = `-- name: EndCheckTimeout :exec
+UPDATE check_timeouts SET ended_at = ? WHERE id = ?
+`
+
+type EndCheckTimeoutParams struct {
+	EndedAt string
+	ID      int64
+}
+
+func (q *Queries) EndCheckTimeout(ctx context.Context, arg EndCheckTimeoutParams) error {
+	_, err := q.db.ExecContext(ctx, endCheckTimeout, arg.EndedAt, arg.ID)
+	return err
+}
+
 const endFullSlots = `-- name: EndFullSlots :exec
 DELETE FROM full_slots
 `
@@ -1810,6 +1851,27 @@ func (q *Queries) GetNewestStopText(ctx context.Context, arg GetNewestStopTextPa
 	var text string
 	err := row.Scan(&text)
 	return text, err
+}
+
+const getOpenCheckTimeout = `-- name: GetOpenCheckTimeout :one
+SELECT id, repository, task_issue, session, timeout, output, issue, created_at, ended_at FROM check_timeouts WHERE repository = ? AND ended_at = ''
+`
+
+func (q *Queries) GetOpenCheckTimeout(ctx context.Context, repository string) (CheckTimeout, error) {
+	row := q.db.QueryRowContext(ctx, getOpenCheckTimeout, repository)
+	var i CheckTimeout
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.TaskIssue,
+		&i.Session,
+		&i.Timeout,
+		&i.Output,
+		&i.Issue,
+		&i.CreatedAt,
+		&i.EndedAt,
+	)
+	return i, err
 }
 
 const getReviewComment = `-- name: GetReviewComment :one
@@ -4548,6 +4610,20 @@ func (q *Queries) SetChatSeen(ctx context.Context, arg SetChatSeenParams) error 
 		arg.Workstream,
 		arg.Message,
 	)
+	return err
+}
+
+const setCheckTimeoutIssue = `-- name: SetCheckTimeoutIssue :exec
+UPDATE check_timeouts SET issue = ? WHERE id = ?
+`
+
+type SetCheckTimeoutIssueParams struct {
+	Issue int64
+	ID    int64
+}
+
+func (q *Queries) SetCheckTimeoutIssue(ctx context.Context, arg SetCheckTimeoutIssueParams) error {
+	_, err := q.db.ExecContext(ctx, setCheckTimeoutIssue, arg.Issue, arg.ID)
 	return err
 }
 

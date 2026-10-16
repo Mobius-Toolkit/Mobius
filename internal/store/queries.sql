@@ -762,6 +762,20 @@ SELECT * FROM ci_breaks WHERE repository = ? AND issue < 0 ORDER BY id;
 -- name: SetCIBreakIssue :exec
 UPDATE ci_breaks SET issue = ? WHERE id = ?;
 
+-- name: AddCheckTimeout :exec
+INSERT INTO check_timeouts (repository, task_issue, session, timeout, output, created_at)
+SELECT ?1, ?2, ?3, ?4, ?5, ?6
+WHERE NOT EXISTS (SELECT 1 FROM check_timeouts WHERE repository = ?1 AND ended_at = '');
+
+-- name: GetOpenCheckTimeout :one
+SELECT * FROM check_timeouts WHERE repository = ? AND ended_at = '';
+
+-- name: SetCheckTimeoutIssue :exec
+UPDATE check_timeouts SET issue = ? WHERE id = ?;
+
+-- name: EndCheckTimeout :exec
+UPDATE check_timeouts SET ended_at = ? WHERE id = ?;
+
 -- name: AddOwnerAnswer :exec
 INSERT OR IGNORE INTO owner_answers (repository, comment_id) VALUES (?, ?);
 
