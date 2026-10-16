@@ -35,11 +35,52 @@ func passMain(fake *testkit.FakeGitHub) int64 {
 	return fake.AddWorkflowRun(shop, passed)
 }
 
+// logStateOnFailure logs the task, the breaks of the CI, the sessions and the errors of the sessions when the test
+// fails. Thus a failed wait of waitingTask shows the step that did not finish.
+func logStateOnFailure(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		for _, query := range []string{
+			"SELECT 'task', state, coalesce(worker, ''), worker_restarts, coalesce(break_wait_head, ''), coalesce(check_head, '') FROM tasks",
+			"SELECT 'break', run_id, rerun_at != '', result, ended_at != '', issue FROM ci_breaks",
+			"SELECT 'session', id, role, coalesce(end_reason, ''), coalesce(ended_at, '') FROM sessions",
+			"SELECT 'error', session, kind, json FROM transcript WHERE kind = 'error'",
+		} {
+			dbRows, err := server.DB.Query(query)
+			if err != nil {
+				t.Error(err)
+				continue
+			}
+			columns, _ := dbRows.Columns()
+			for dbRows.Next() {
+				values := make([]any, len(columns))
+				for i := range values {
+					values[i] = new(any)
+				}
+				if err := dbRows.Scan(values...); err != nil {
+					t.Error(err)
+					break
+				}
+				line := make([]any, len(values))
+				for i, value := range values {
+					line[i] = *value.(*any)
+				}
+				t.Log(line...)
+			}
+			_ = dbRows.Close()
+		}
+	})
+}
+
 // waitingTask dispatches #41 and waits until its CI fails on the head while the default branch has a hard break. It
 // gives the head.
 func waitingTask(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, string, int64) {
 	t.Helper()
 	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
+	logStateOnFailure(t, server)
 	sha := checksHead(t, server, fake)
 	run := hardBreak(t, server, fake)
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
