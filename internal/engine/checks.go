@@ -98,12 +98,16 @@ func ciItems(ctx context.Context, repository github.Repository, head string) (st
 }
 
 // onFailure starts a fix round when check runs of other Apps failed on the head of the pull request of the task in
-// ready_for_review, checks or approval. A head gets one round. It gives true when a round started, or when
-// the task left its state.
+// ready_for_review, checks or approval, and each check run and workflow run of the head completed. A head gets one
+// round. It gives true when a round started, or when the task left its state.
 func (e *Engine) onFailure(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	head := pullRequest.GetHead().GetSHA()
 	if task.CheckHead.String == head {
 		return false, nil
+	}
+	state, err := ciOf(ctx, repository, head)
+	if err != nil || state.running {
+		return false, err
 	}
 	items, err := ciItems(ctx, repository, head)
 	if err != nil {
@@ -161,6 +165,9 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 	case task.RerunHead.String == head && (state.running || len(rerunWaiting(task, state)) > 0):
 		return e.onLongCIWait(ctx, repository, task, pullRequest, append(state.incomplete, rerunWaiting(task, state)...))
 	case state.failedCheck && task.CheckHead.String != head:
+		if state.running {
+			return e.onLongCIWait(ctx, repository, task, pullRequest, state.incomplete)
+		}
 		return nil
 	case state.failedCheck || state.failedWorkflow:
 		if task.CheckHead.String == head && task.RerunHead.String != head {
