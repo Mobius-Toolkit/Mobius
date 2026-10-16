@@ -82,3 +82,27 @@ func TestACIThatCompletesGivesNoLongCIEvent(t *testing.T) {
 		t.Errorf("events = %d", events)
 	}
 }
+
+func TestAFailedCheckRunWhileAnotherRunOfTheHeadRunsGivesTheLeadOneLongCIEvent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("e2e", sha, "completed", "failure"))
+	fake.AddCheckRun(shop, checkRun("check", sha, "in_progress", ""))
+	start := time.Now()
+
+	server.Engine.SetClock(func() time.Time { return start.Add(2*time.Hour + time.Minute) })
+
+	prompt := waitForLeadPrompt(t, server, " the CI of #41 \"Add plan model\" runs for more than 2h0m0s")
+	if want := "did not complete: check."; !strings.Contains(prompt, want) {
+		t.Errorf("prompt = %s, want %q", prompt, want)
+	}
+	waitForPolls(t, fake)
+	if events := longCIEvents(t, server); events != 1 {
+		t.Errorf("events = %d", events)
+	}
+	if state := taskState(t, server); state != "checks" {
+		t.Errorf("state = %s", state)
+	}
+}

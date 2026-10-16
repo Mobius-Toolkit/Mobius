@@ -262,17 +262,73 @@ func TestAFailedCheckRunMobiusHasNoEffect(t *testing.T) {
 	}
 }
 
-func TestARunningCheckRunAndAPassedCheckRunHaveNoEffect(t *testing.T) {
+func TestAPassedCheckRunHasNoEffect(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
 	sha := approvalHead(t, server, fake)
 
-	fake.AddCheckRun(shop, checkRun("running", sha, "in_progress", ""))
 	fake.AddCheckRun(shop, checkRun("passed", sha, "completed", "success"))
 	round := sentinelRound(t, server, fake, sha)
 
-	if !strings.Contains(round, "Check run \"sentinel\"") || strings.Contains(round, "Check run \"running\"") || strings.Contains(round, "Check run \"passed\"") {
+	if !strings.Contains(round, "Check run \"sentinel\"") || strings.Contains(round, "Check run \"passed\"") {
+		t.Errorf("round = %s", round)
+	}
+}
+
+func TestAFailedCheckRunWaitsForARunningCheckRunOfTheHeadAndThenOneFixRoundGetsBothFailedCheckRuns(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("e2e", sha, "completed", "failure"))
+	running := fake.AddCheckRun(shop, checkRun("check", sha, "in_progress", ""))
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "checks" {
+		t.Errorf("state = %s", state)
+	}
+	if hasLabel(fake, "mobius:needs-human") {
+		t.Error("the issue has mobius:needs-human")
+	}
+	if count := implementers(t, server); count != 1 {
+		t.Errorf("Implementers = %d", count)
+	}
+	if task := liveTask(t, server, 41); task.CheckHead.Valid || task.FixRounds != 0 {
+		t.Errorf("check head = %+v, fix rounds = %d", task.CheckHead, task.FixRounds)
+	}
+
+	fake.SetCheckRunStatus(running, "completed", "failure")
+
+	round := roundPrompt(t, server)
+	for _, part := range []string{"Check run \"e2e\"", "Check run \"check\""} {
+		if !strings.Contains(round, part) {
+			t.Errorf("%q is not in %s", part, round)
+		}
+	}
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).CheckHead.String == sha })
+	if task := liveTask(t, server, 41); task.FixRounds != 1 {
+		t.Errorf("fix rounds = %d", task.FixRounds)
+	}
+}
+
+func TestAFailedCheckRunWaitsForARunningWorkflowRunOfTheHead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.AddCheckRun(shop, checkRun("e2e", sha, "completed", "failure"))
+	workflow := fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "in_progress"})
+	waitForPolls(t, fake)
+
+	if count := implementers(t, server); count != 1 {
+		t.Errorf("Implementers = %d", count)
+	}
+
+	fake.SetWorkflowRunStatus(workflow, "completed", "failure")
+
+	round := roundPrompt(t, server)
+	if !strings.Contains(round, "Check run \"e2e\"") {
 		t.Errorf("round = %s", round)
 	}
 }
