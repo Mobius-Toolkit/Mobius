@@ -461,17 +461,17 @@ func TestTheJobsRunAgainOnlyAfterEachRunOfTheHeadCompletedAndEachFailedRunRunsOn
 	slow := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "e2e", HeadSHA: sha, WorkflowID: 6, Status: "in_progress"})
 	fast := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
-	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
-	endedImplementers(t, server, 2)
 	waitForPolls(t, fake)
 	waitForPolls(t, fake)
 
-	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(fast); state != "checks" || attempt != 1 || rerunHead(t, server) != "" || hasLabel(fake, "mobius:needs-human") {
-		t.Errorf("state = %s, attempt = %d, rerun_head = %s", state, attempt, rerunHead(t, server))
+	if state, attempt, count := taskState(t, server), fake.WorkflowRunAttempt(fast), implementers(t, server); state != "checks" || attempt != 1 || count != 1 || rerunHead(t, server) != "" || hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("state = %s, attempt = %d, Implementers = %d, rerun_head = %s", state, attempt, count, rerunHead(t, server))
 	}
 
 	fake.SetWorkflowRunStatus(slow, "completed", "failure")
 
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+	endedImplementers(t, server, 2)
 	testkit.WaitFor(t, func() bool { return rerunHead(t, server) == sha })
 	if state, first, second := taskState(t, server), fake.WorkflowRunAttempt(fast), fake.WorkflowRunAttempt(slow); state != "checks" || first != 2 || second != 2 || hasLabel(fake, "mobius:needs-human") {
 		t.Errorf("state = %s, attempts = %d and %d", state, first, second)
