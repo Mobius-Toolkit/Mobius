@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
-import { needsHumanRoute, longTitle, routeLongTitle, routeReasons } from "./stops.js";
+import { inboxRoute, longTitle, longTitleItem, routeInboxItems, stoppedItems } from "./stops.js";
 
 const viewports = {
   desktop: { width: 1280, height: 800 },
@@ -176,11 +176,13 @@ test("screenshots", async ({ page }) => {
     },
     () => page.unroute("/api/events"),
   );
+  // The server gives one Inbox item to the chat of owner/shop#12. The route adds the stopped issues #41 and #42.
+  await routeInboxItems(page, stoppedItems);
   const chatReady = (device: string) => [
-    ...frame(device, drain),
+    ...frame(device, drain, {}, "3"),
     main.getByText("#42 and #45 wait for your decision."),
-    main.getByRole("link", { name: "PR #44" }),
-    main.getByRole("link", { name: "Answer" }),
+    main.getByRole("listitem").filter({ hasText: "Add plan model" }),
+    main.getByRole("button", { name: "Answer" }).first(),
     ...(device === "desktop"
       ? [page.getByRole("complementary").getByText("Lead chat session").first()]
       : []),
@@ -249,27 +251,19 @@ test("screenshots", async ({ page }) => {
     main.getByText(/waits for the usage limit until/),
   ]);
   await page.unroute("**/api/chat?*");
-  await routeReasons(page);
+  const stoppedRow = main.getByRole("listitem").filter({ hasText: "Add plan model" });
   await screenshot(page, "chat-stop-reason", "/workstreams/owner/shop/12", (device) => [
     ...chatReady(device),
-    main.getByRole("button", { name: "Details" }),
+    stoppedRow.getByRole("button", { name: "Details" }),
   ]);
   await screenshot(
     page,
     "chat-stop-details",
     "/workstreams/owner/shop/12",
-    () => page.getByRole("dialog", { name: "#41 Add plan model" }),
-    () => main.getByRole("button", { name: "Details" }).click(),
+    () => page.getByRole("dialog", { name: "Add plan model" }),
+    () => stoppedRow.getByRole("button", { name: "Details" }).click(),
     () => page.keyboard.press("Escape"),
   );
-  await page.unroute(needsHumanRoute);
-  await routeLongTitle(page);
-  await screenshot(page, "chat-stop-long-title", "/workstreams/owner/shop/12", (device) => [
-    ...frame(device, drain),
-    main.getByText(longTitle),
-    main.getByRole("link", { name: "PR #624" }),
-  ]);
-  await page.unroute(needsHumanRoute);
   const photos = [
     { name: "plan.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#2563eb") },
     { name: "cart.png", mimeType: "image/png", buffer: await png(page, 200, 150, "#16a34a") },
@@ -292,6 +286,14 @@ test("screenshots", async ({ page }) => {
     },
   );
   await main.getByLabel("Message to the Lead").fill("");
+  await page.unroute(inboxRoute);
+  await routeInboxItems(page, [longTitleItem]);
+  await screenshot(page, "chat-stop-long-title", "/workstreams/owner/shop/12", (device) => [
+    ...frame(device, drain, {}, "2"),
+    main.getByText(longTitle),
+    main.getByRole("link", { name: "#409" }),
+  ]);
+  await page.unroute(inboxRoute);
   await setQueueReason(page, "waits for a low load");
   await screenshot(
     page,

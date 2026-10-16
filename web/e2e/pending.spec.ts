@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { addStoppedItems, removeItems } from "./stopped-items.js";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -42,6 +43,10 @@ async function checkPending(button: Locator, held: Awaited<ReturnType<typeof hol
 
 test("Resume in the Lead chat shows the spinner while the request runs", async ({ page }) => {
   await page.goto("/api/github/user-callback?code=user-code");
+  const ids = await addStoppedItems(page, 20, [
+    [21, "Dig the tulip beds"],
+    [22, "Buy tulip bulbs"],
+  ]);
   await page.goto("/workstreams/plants/garden/20");
   const main = page.getByRole("main");
   const held = await hold(page, "**/api/repositories/*/*/issues/*/resume", "POST");
@@ -51,6 +56,7 @@ test("Resume in the Lead chat shows the spinner while the request runs", async (
   await checkPending(resume.first(), held);
   await expect(resume.nth(1)).toBeEnabled();
   await expect(main.getByText("The server failed.")).toBeVisible();
+  await removeItems(page, ids);
 });
 
 test("Resume now in the status line shows the spinner while the request runs", async ({ page }) => {

@@ -1,6 +1,14 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import { pasteImage, png } from "./images.js";
-import { longTitle, routeLongTitle, routeReasons } from "./stops.js";
+import { addStoppedItems, removeItems } from "./stopped-items.js";
+import {
+  inboxRoute,
+  longTitle,
+  longTitleItem,
+  otherItems,
+  routeInboxItems,
+  stoppedItems,
+} from "./stops.js";
 
 const phone = { width: 390, height: 844 };
 const shop = "/workstreams/owner/shop/12";
@@ -951,6 +959,10 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
       const state = tasks.find((task) => task.number === number)?.state;
       return state === "queued" || state === "working" || state === "waits for start_implementer";
     };
+    const ids = await addStoppedItems(page, workstream, [
+      [numbers[0], issues[0]],
+      [numbers[1], issues[1]],
+    ]);
     await page.goto(`/workstreams/plants/garden/${workstream}`);
     const resume = main.getByRole("button", { name: "Resume" });
     await expect(resume).toHaveCount(2);
@@ -980,24 +992,17 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
     await expect(main.getByRole("listitem").filter({ hasText: issues[1] })).toBeHidden();
     await expect(hint).not.toBeAttached();
     await expect.poll(() => live(numbers[1])).toBe(true);
+    await removeItems(page, ids);
   }
 });
 
-test("a long stop reason takes two lines, and Details shows it in full", async ({ page }) => {
+test("Details of a row in the chat opens a panel with the rendered text", async ({ page }) => {
   await page.setViewportSize(phone);
-  await routeReasons(page);
+  await routeInboxItems(page, stoppedItems);
   await page.goto(shop);
   const main = page.getByRole("main");
-  const details = main.getByRole("button", { name: "Details" });
-  const reason = main.locator(".line-clamp-2").first();
-  await expect(reason).toContainText("which plan model do you want?");
-  await expect(details).toHaveCount(1);
-  await expect(main.getByText("The agent did not push.")).toBeVisible();
-  await expect(main.getByRole("button", { name: "Resume" })).toHaveCount(2);
-
-  await expect(reason).not.toContainText("**");
-  await expect(reason).toHaveCSS("line-height", "20px");
-  expect((await reason.boundingBox())?.height).toBeLessThanOrEqual(40);
+  const row = main.getByRole("listitem").filter({ hasText: "Add plan model" });
+  await expect(row.getByRole("button", { name: "Resume" })).toBeVisible();
   const box = async (selector: string) =>
     (await page.locator(selector).last().boundingBox()) ?? { y: 0, height: 0 };
   const message = await box("[data-message]");
@@ -1005,8 +1010,8 @@ test("a long stop reason takes two lines, and Details shows it in full", async (
   expect(message.y + message.height).toBeLessThanOrEqual(input.y);
   expect(message.height).toBeGreaterThan(0);
 
-  await details.click();
-  const dialog = page.getByRole("dialog", { name: "#41 Add plan model" });
+  await row.getByRole("button", { name: "Details" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add plan model" });
   await expect(
     dialog.getByText("Each plan needs a limit of seats and a price in cents."),
   ).toBeVisible();
@@ -1016,14 +1021,109 @@ test("a long stop reason takes two lines, and Details shows it in full", async (
   await expect(dialog).toBeHidden();
 });
 
-test("a stopped task with an open question shows Answer and no Resume", async ({ page }) => {
-  await routeLongTitle(page);
+// The names of the buttons and links of the row of an item, and the link to GitHub.
+async function actionsOf(page: Page, path: string, title: string) {
+  await page.goto(path);
+  const row = page.getByRole("main").getByRole("listitem").filter({ hasText: title });
+  await expect(row).toBeVisible();
+  return {
+    buttons: await row.getByRole("button").allTextContents(),
+    links: await row
+      .getByRole("link")
+      .evaluateAll((links) =>
+        links.map((link) => `${link.textContent}:${link.getAttribute("href")}`),
+      ),
+  };
+}
+
+test("a question shows the same row, with the same buttons, in the Inbox and in the chat", async ({
+  page,
+}) => {
+  await routeInboxItems(page, [longTitleItem]);
+  const inbox = await actionsOf(page, "/inbox", longTitle);
+  const chat = await actionsOf(page, shop, longTitle);
+
+  expect(chat).toEqual(inbox);
+  expect(chat.buttons).toEqual(["Answer", "Details"]);
+  expect(chat.links).toEqual([
+    "#409:https://github.com/owner/shop/issues/409",
+    "Open GitHub:https://github.com/owner/shop/issues/409",
+  ]);
+});
+
+test("a stopped task shows Resume, Answer and Open GitHub in the chat", async ({ page }) => {
+  await routeInboxItems(page, stoppedItems);
+  const chat = await actionsOf(page, shop, "Let customers change plans");
+
+  expect(chat.buttons).toEqual(["Resume", "Answer", "Details"]);
+  expect(chat.links).toContain("Open GitHub:https://github.com/owner/shop/issues/42");
+});
+
+test("only a Lead failed row in the chat has Dismiss", async ({ page }) => {
+  await routeInboxItems(page, [...stoppedItems, longTitleItem, ...otherItems]);
   await page.goto(shop);
-  const main = page.getByRole("main");
-  const asked = main.getByRole("listitem").filter({ hasText: longTitle });
-  await expect(asked.getByRole("link", { name: "Answer" })).toBeVisible();
-  await expect(asked.getByRole("button", { name: "Resume" })).toHaveCount(0);
-  await expect(main.getByRole("button", { name: "Resume" })).toHaveCount(2);
+  const rows = page.getByRole("main").getByRole("listitem");
+  const dismiss = rows.getByRole("button", { name: "Dismiss" });
+
+  await expect(rows.filter({ hasText: "The Lead did not get your message" })).toBeVisible();
+  await expect(dismiss).toHaveCount(1);
+  await expect(
+    rows.filter({ hasText: "The Lead did not get your message" }).getByRole("button", {
+      name: "Dismiss",
+    }),
+  ).toBeVisible();
+});
+
+test("a sent answer closes the panel, and the chat stays open", async ({ page }) => {
+  await page.goto("/api/github/user-callback?code=shop-code");
+  const created = await page.request.post("/e2e/inbox-items");
+  const id = Number(await created.text());
+  try {
+    await page.route(inboxRoute, (route) =>
+      route.fulfill({ json: { data: [{ ...longTitleItem, id, issue: 40 }] } }),
+    );
+    await page.goto(shop);
+    const main = page.getByRole("main");
+    const panel = page.getByRole("dialog");
+
+    await main.getByRole("button", { name: "Answer" }).click();
+    await expect(panel.locator("strong", { hasText: "Question:" })).toBeVisible();
+    await panel.getByRole("textbox", { name: "Your answer" }).fill("Ten seats.");
+    const response = page.waitForResponse(`**/api/inbox/${id}/answer`);
+    await panel.getByRole("button", { name: "Send" }).click();
+
+    expect((await response).status()).toBe(200);
+    await expect(panel).toHaveCount(0);
+    await expect(page).toHaveURL(shop);
+    await expect(main.getByLabel("Message to the Lead")).toBeVisible();
+    await expect(main.getByRole("listitem").filter({ hasText: longTitle })).toBeVisible();
+  } finally {
+    await page.request.delete(`/e2e/inbox-items/${id}`);
+  }
+});
+
+test("the chat of a Workstream does not show an item of another Workstream", async ({ page }) => {
+  const other = {
+    ...longTitleItem,
+    organization: "plants",
+    repository: "plants/garden",
+    title: "Water the roses",
+  };
+  await routeInboxItems(page, [
+    other,
+    { ...other, id: 208, repository: "owner/shop", workstream: 14, title: "Plan the autumn sale" },
+  ]);
+
+  await page.goto(shop);
+  await expect(page.getByRole("main").getByLabel("Message to the Lead")).toBeVisible();
+  await expect(page.getByText("Water the roses")).toHaveCount(0);
+  await expect(page.getByText("Plan the autumn sale")).toHaveCount(0);
+
+  await page.goto("/workstreams/plants/garden/12");
+  await expect(
+    page.getByRole("main").getByRole("listitem").filter({ hasText: "Water the roses" }),
+  ).toBeVisible();
+  await expect(page.getByText("Plan the autumn sale")).toHaveCount(0);
 });
 
 async function boxOf(locator: Locator) {
@@ -1032,19 +1132,16 @@ async function boxOf(locator: Locator) {
   return found ?? { x: 0, y: 0, width: 0, height: 0 };
 }
 
-test("a stopped task shares the line with its links on a phone, and shows its title in full on a desktop", async ({
+test("a row in the chat shares the line with its link on a phone, and shows its title in full on a desktop", async ({
   page,
 }) => {
-  await routeLongTitle(page);
+  await routeInboxItems(page, [longTitleItem]);
   const main = page.getByRole("main");
   const row = main.getByRole("listitem").filter({ hasText: longTitle });
   const title = row.getByText(longTitle);
-  const reason = row.locator(".line-clamp-2");
+  const reason = row.getByText("The Lead asks a question");
   const reference = row.getByRole("link", { name: "#409", exact: true });
-  const pullRequest = row.getByRole("link", { name: "PR #624" });
-  const buttons = ["Answer", "Details"].map((name) =>
-    row.getByRole(name === "Answer" ? "link" : "button", { name }),
-  );
+  const buttons = ["Answer", "Details"].map((name) => row.getByRole("button", { name }));
   const noHorizontalScroll = () =>
     page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth");
 
@@ -1053,11 +1150,9 @@ test("a stopped task shares the line with its links on a phone, and shows its ti
   await expect(title).toBeVisible();
   const phoneTitle = await boxOf(title);
   expect(phoneTitle.height).toBeLessThanOrEqual(24);
-  for (const link of [reference, pullRequest]) {
-    const box = await boxOf(link);
-    expect(box.y).toBeLessThan(phoneTitle.y + phoneTitle.height);
-    expect(box.y + box.height).toBeGreaterThan(phoneTitle.y);
-  }
+  const phoneReference = await boxOf(reference);
+  expect(phoneReference.y).toBeLessThan(phoneTitle.y + phoneTitle.height);
+  expect(phoneReference.y + phoneReference.height).toBeGreaterThan(phoneTitle.y);
   const phoneReason = await boxOf(reason);
   expect(phoneReason.y).toBeGreaterThanOrEqual(phoneTitle.y + phoneTitle.height);
   for (const next of buttons) {
@@ -1072,11 +1167,10 @@ test("a stopped task shares the line with its links on a phone, and shows its ti
   await page.goto(shop);
   await expect(title).toBeVisible();
   const desktopTitle = await boxOf(title);
-  const desktopPullRequest = await boxOf(pullRequest);
-  expect(desktopPullRequest.y).toBeLessThan(desktopTitle.y + desktopTitle.height);
-  expect(desktopPullRequest.y + desktopPullRequest.height).toBeGreaterThan(desktopTitle.y);
+  const desktopReference = await boxOf(reference);
+  expect(desktopReference.y).toBeLessThan(desktopTitle.y + desktopTitle.height);
+  expect(desktopReference.y + desktopReference.height).toBeGreaterThan(desktopTitle.y);
   await expect(title).toHaveJSProperty("scrollWidth", await title.evaluate((el) => el.clientWidth));
-  expect((await boxOf(reason)).height).toBeLessThanOrEqual(24);
   await expect(buttons[1]).toBeVisible();
   const desktopRow = await boxOf(row);
   const details = await boxOf(buttons[1]);
