@@ -336,20 +336,20 @@ func rerunHead(t *testing.T, server *testserver.Server) string {
 
 // failedFirstAttempt dispatches #41, adds a failed workflow run and a failed check run on its head, and waits until
 // Mobius ran the failed jobs again. The fix round of the failed check run makes no commit.
-func failedFirstAttempt(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) (sha string, workflow, check int64) {
+func failedFirstAttempt(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) (workflow, check int64) {
 	t.Helper()
-	sha = checksHead(t, server, fake)
+	sha := checksHead(t, server, fake)
 	workflow = fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
 	check = fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	testkit.WaitFor(t, func() bool { return rerunHead(t, server) == sha })
-	return sha, workflow, check
+	return workflow, check
 }
 
 func TestAFailedCIAfterTheFixRoundRunsTheFailedJobsAgainOneTimeAndThePassedSecondAttemptMovesTheTaskToApproval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
-	_, workflow, check := failedFirstAttempt(t, server, fake)
+	workflow, check := failedFirstAttempt(t, server, fake)
 	waitForPolls(t, fake)
 
 	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(workflow); state != "checks" || attempt != 2 || hasLabel(fake, "mobius:needs-human") {
@@ -369,7 +369,7 @@ func TestAFailedSecondAttemptHandsTheTaskToAHumanAndTheJobsRunNoThirdTime(t *tes
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
-	_, workflow, check := failedFirstAttempt(t, server, fake)
+	workflow, check := failedFirstAttempt(t, server, fake)
 
 	fake.SetCheckRunStatus(check, "completed", "failure")
 	fake.SetWorkflowRunStatus(workflow, "completed", "failure")
