@@ -248,6 +248,17 @@ func (g *FakeGitHub) SetWorkflowRunStatus(id int64, status, conclusion string) {
 	g.workflowRuns[id-1].Conclusion = conclusion
 }
 
+// SetWorkflowRunAttempt sets the attempt, the status and the conclusion of the workflow run id, for example to show
+// the stale list that GitHub gives for some time after a re-run.
+func (g *FakeGitHub) SetWorkflowRunAttempt(id int64, attempt int, status, conclusion string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	run := &g.workflowRuns[id-1]
+	run.Attempt = attempt
+	run.Status = status
+	run.Conclusion = conclusion
+}
+
 // RerunWorkflowRun adds a new attempt to the workflow run id, as a user does by hand. The attempt is completed with
 // the conclusion.
 func (g *FakeGitHub) RerunWorkflowRun(id int64, conclusion string) {

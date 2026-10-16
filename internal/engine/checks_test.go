@@ -378,6 +378,25 @@ func TestTheTaskWaitsWhileTheFailedCheckRunOfTheFirstAttemptStaysAndTheJobsRunOn
 	}
 }
 
+func TestTheTaskWaitsWhileTheWorkflowRunsStillShowTheFailedFirstAttemptAndTheJobsRunOnlyOneTime(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
+	workflow, check := failedFirstAttempt(t, server, fake)
+	fake.SetWorkflowRunAttempt(workflow, 1, "completed", "failure")
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+
+	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(workflow); state != "checks" || attempt != 1 || hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("state = %s, attempt = %d", state, attempt)
+	}
+
+	fake.SetCheckRunStatus(check, "completed", "success")
+	fake.SetWorkflowRunAttempt(workflow, 2, "completed", "success")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+}
+
 func TestAFailedSecondAttemptHandsTheTaskToAHumanAndTheJobsRunNoThirdTime(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

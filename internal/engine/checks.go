@@ -143,8 +143,8 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 // has no merge conflict, and gives the Lead the event ready_for_approval one time for the head. A task that is not in
 // checks, for example after a decline, stays as it is. A pull request whose mergeability GitHub still calculates waits.
 // A head whose CI failed after its fix round has its failed jobs run again one time, and then goes to a human. The
-// task waits while a run of that head does not complete, because the check runs of the first attempt stay failed until
-// the second attempt queues its jobs. A head whose workflow run failed with no failed check run to fix goes to a human.
+// task waits while a run of that head does not complete, or while a failed run is still in its first attempt, because
+// GitHub can list the first attempt and its failed check runs for some time after the re-run. A head whose workflow run failed with no failed check run to fix goes to a human.
 func (e *Engine) onChecks(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
 	if pullRequest.Mergeable == nil {
 		return nil
@@ -155,7 +155,7 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		return err
 	}
 	switch {
-	case state.running && task.RerunHead.String == head:
+	case (state.running || state.failedFirstAttempt) && task.RerunHead.String == head:
 		return e.onLongCIWait(ctx, repository, task, pullRequest, state.incomplete)
 	case state.failedCheck && task.CheckHead.String != head:
 		return nil
@@ -318,6 +318,8 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 // ci is what the check runs of other Apps and the workflow runs of GitHub Actions on a head show.
 type ci struct {
 	failedCheck, failedWorkflow, running bool
+	// failedFirstAttempt is true when a newest workflow run completed with a failure in its first attempt.
+	failedFirstAttempt bool
 	// incomplete holds the names of the check runs and the workflow runs that did not complete.
 	incomplete []string
 	// absent is true for a head with no check run of another App and no workflow run: its CI has not started, or the
@@ -357,6 +359,7 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 			state.incomplete = append(state.incomplete, workflow.GetName())
 		case failedWorkflowRun(workflow):
 			state.failedWorkflow = true
+			state.failedFirstAttempt = state.failedFirstAttempt || workflow.GetRunAttempt() == 1
 		}
 	}
 	state.absent = others+len(workflows) == 0
