@@ -455,6 +455,12 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("DROP TABLE comment_writes"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN rerun_head"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN rerun_runs"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN break_wait_head"); err != nil {
 		t.Fatal(err)
 	}
@@ -551,6 +557,8 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"DROP TABLE triager_turns",
 		"CREATE TABLE held_triagers (repository TEXT NOT NULL, issue INTEGER NOT NULL, PRIMARY KEY (repository, issue))",
 		"DROP TABLE comment_writes",
+		"ALTER TABLE tasks DROP COLUMN rerun_head",
+		"ALTER TABLE tasks DROP COLUMN rerun_runs",
 		"ALTER TABLE tasks DROP COLUMN break_wait_head",
 		"ALTER TABLE tasks DROP COLUMN recoveries",
 		"ALTER TABLE events DROP COLUMN organization",
@@ -638,6 +646,8 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		"DROP TABLE triager_turns",
 		"CREATE TABLE held_triagers (repository TEXT NOT NULL, issue INTEGER NOT NULL, PRIMARY KEY (repository, issue))",
 		"DROP TABLE comment_writes",
+		"ALTER TABLE tasks DROP COLUMN rerun_head",
+		"ALTER TABLE tasks DROP COLUMN rerun_runs",
 		"ALTER TABLE tasks DROP COLUMN break_wait_head",
 		"ALTER TABLE tasks DROP COLUMN recoveries",
 		"ALTER TABLE inbox_items DROP COLUMN chat_message",

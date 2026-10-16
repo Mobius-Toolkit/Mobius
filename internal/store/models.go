@@ -178,6 +178,8 @@ type Task struct {
 	LeadFindings   string
 	Recoveries     int64
 	BreakWaitHead  sql.NullString
+	RerunHead      sql.NullString
+	RerunRuns      sql.NullString
 }
 
 type TaskState struct {
