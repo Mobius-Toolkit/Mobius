@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -213,4 +214,82 @@ func TestATaskThatContinuesKeepsMobiusQuestion(t *testing.T) {
 	if labels := fake.Labels(shop, 41); !slices.Contains(labels, "mobius:question") {
 		t.Errorf("labels = %v", labels)
 	}
+}
+
+func TestACommentOfATrustedUserOnTheIssueOfATaskInNeedsHumanContinuesTheTaskAndResetsItsCounters(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := stoppedOnFailedCI(t, fake, noChange)
+	if stopped := liveTask(t, server, 41); stopped.FixRounds != 1 {
+		t.Fatalf("fix rounds = %d", stopped.FixRounds)
+	}
+	before := implementers(t, server)
+
+	fake.AddComment(shop, 41, "owner", "Continue now.")
+
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == before+1 })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	if task := liveTask(t, server, 41); task.FixRounds != 1 {
+		t.Errorf("fix rounds = %d", task.FixRounds)
+	}
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "> Continue now.") })
+	})
+}
+
+func TestACommentOfTheLeadWithGhOnTheIssueOfATaskInNeedsHumanDoesNotContinueTheTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := stoppedOnFailedCI(t, fake, noChange)
+	stopped := liveTask(t, server, 41)
+	before := implementers(t, server)
+
+	fake.AddAppComment(shop, 41, "owner", "The fix is in the Done list.")
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+
+	task := liveTask(t, server, 41)
+	if task.State != "needs_human" || task.FixRounds != stopped.FixRounds || task.ReviewRounds != stopped.ReviewRounds || task.WorkerRestarts != stopped.WorkerRestarts {
+		t.Errorf("task = %+v, stopped = %+v", task, stopped)
+	}
+	if count := implementers(t, server); count != before {
+		t.Errorf("Implementers = %d", count)
+	}
+}
+
+func TestACommentThatIsOlderThanTheStopOfATaskInNeedsHumanDoesNotContinueTheTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := stoppedOnFailedCI(t, fake, noChange)
+	before := implementers(t, server)
+
+	fake.AddCommentCreatedAt(shop, 41, "owner", "Use cents.", time.Now().Add(-time.Hour))
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "> Use cents.") })
+	})
+	waitForPolls(t, fake)
+
+	if state := taskState(t, server); state != "needs_human" {
+		t.Errorf("state = %s", state)
+	}
+	if count := implementers(t, server); count != before {
+		t.Errorf("Implementers = %d", count)
+	}
+}
+
+func TestAnEditOfAnOldCommentDoesNotHideANewCommentThatContinuesATaskInNeedsHuman(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := stoppedOnFailedCI(t, fake, noChange)
+	oldComment := fake.AddCommentCreatedAt(shop, 41, "owner", "Use cents.", time.Now().Add(-time.Hour))
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, "> Use cents.") })
+	})
+	waitForPolls(t, fake)
+	before := implementers(t, server)
+
+	fake.AddComment(shop, 41, "owner", "Continue now.")
+	fake.EditComment(shop, oldComment, "Use cents, please.")
+
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == before+1 })
 }
