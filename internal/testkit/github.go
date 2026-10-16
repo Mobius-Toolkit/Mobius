@@ -356,6 +356,7 @@ type Request struct {
 	Path   string
 	Query  string
 	Status int
+	Time   time.Time
 }
 
 // Requests gives a copy of the log of the requests that the fake GitHub got, the oldest first.
@@ -386,7 +387,7 @@ func (s *statusRecorder) Unwrap() http.ResponseWriter {
 func (g *FakeGitHub) logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		g.requestsMu.Lock()
-		g.requests = append(g.requests, Request{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Status: http.StatusOK})
+		g.requests = append(g.requests, Request{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Status: http.StatusOK, Time: time.Now()})
 		index := len(g.requests) - 1
 		g.requestsMu.Unlock()
 		next.ServeHTTP(&statusRecorder{ResponseWriter: w, g: g, index: index}, r)

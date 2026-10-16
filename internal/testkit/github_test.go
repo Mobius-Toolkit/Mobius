@@ -808,9 +808,21 @@ func TestTheRequestLogShowsAnOKAnswerAndANotModifiedAnswerOfTheIssueList(t *test
 		{Method: http.MethodGet, Path: "/repos/owner/shop/issues", Query: "state=open", Status: http.StatusOK},
 		{Method: http.MethodGet, Path: "/repos/owner/shop/issues", Query: "state=open", Status: http.StatusNotModified},
 	}
-	if got := github.Requests()[start:]; !reflect.DeepEqual(got, want) {
+	if got := untimed(t, github.Requests()[start:]); !reflect.DeepEqual(got, want) {
 		t.Errorf("requests = %+v, want %+v", got, want)
 	}
+}
+
+// untimed checks that each request has a time, and gives the requests with no time.
+func untimed(t *testing.T, requests []Request) []Request {
+	t.Helper()
+	for i := range requests {
+		if requests[i].Time.IsZero() {
+			t.Errorf("request %+v has no time", requests[i])
+		}
+		requests[i].Time = time.Time{}
+	}
+	return requests
 }
 
 func TestTheRequestLogShowsTheStatusOfARequestThatGetsNotFound(t *testing.T) {
@@ -821,7 +833,7 @@ func TestTheRequestLogShowsTheStatusOfARequestThatGetsNotFound(t *testing.T) {
 	reply := send(t, http.MethodGet, github.URL+"/repos/owner/shop/issues/99", token, "", nil)
 
 	want := []Request{{Method: http.MethodGet, Path: "/repos/owner/shop/issues/99", Status: http.StatusNotFound}}
-	if got := github.Requests()[start:]; reply.StatusCode != http.StatusNotFound || !reflect.DeepEqual(got, want) {
+	if got := untimed(t, github.Requests()[start:]); reply.StatusCode != http.StatusNotFound || !reflect.DeepEqual(got, want) {
 		t.Errorf("status = %d, requests = %+v, want %+v", reply.StatusCode, got, want)
 	}
 }
