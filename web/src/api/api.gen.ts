@@ -125,6 +125,19 @@ export interface Activity {
   workstream: number;
 }
 
+export interface AnswerInboxItemBody {
+  /** Text is the answer of the Owner */
+  text?: string;
+}
+
+/**
+ * AnsweredComment is the comment that AnswerInboxItem posted.
+ */
+export interface AnsweredComment {
+  /** URL is the GitHub URL of the comment */
+  url: string;
+}
+
 /**
  * Blocker is an open blocker of a task.
  */
@@ -436,6 +449,14 @@ export interface DrainEnd {
 export interface EnvelopeActiveAgents {
   /** Data is the payload of the response */
   data: ActiveAgents;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeAnsweredComment {
+  /** Data is the payload of the response */
+  data: AnsweredComment;
 }
 
 /**
@@ -3018,6 +3039,82 @@ export const listInbox = async ( ): Promise<listInboxResponse> => {
 
   const data: listInboxResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as listInboxResponse
+}
+
+
+
+export type answerInboxItemResponse200 = {
+  data: EnvelopeAnsweredComment
+  status: 200
+}
+
+export type answerInboxItemResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type answerInboxItemResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type answerInboxItemResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type answerInboxItemResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type answerInboxItemResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type answerInboxItemResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type answerInboxItemResponseSuccess = (answerInboxItemResponse200) & {
+  headers: Headers;
+};
+export type answerInboxItemResponseError = (answerInboxItemResponse400 | answerInboxItemResponse401 | answerInboxItemResponse404 | answerInboxItemResponse409 | answerInboxItemResponse422 | answerInboxItemResponse500) & {
+  headers: Headers;
+};
+
+export type answerInboxItemResponse = (answerInboxItemResponseSuccess | answerInboxItemResponseError)
+
+export const getAnswerInboxItemUrl = (id: number,) => {
+
+
+
+
+  return `/api/inbox/${id}/answer`
+}
+
+/**
+ * AnswerInboxItem posts the text as a comment of the Owner on the issue of an Inbox item. Mobius treats the comment as a comment of a trusted user. Mobius posts it with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 404 for an unknown item, 400 for an item with no issue and for an empty text, and 409 with the steps when the Owner did not authorize the App.
+ */
+export const answerInboxItem = async (id: number,
+    answerInboxItemBody: AnswerInboxItemBody, ): Promise<answerInboxItemResponse> => {
+
+  const res = await fetch(getAnswerInboxItemUrl(id),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(answerInboxItemBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: answerInboxItemResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as answerInboxItemResponse
 }
 
 

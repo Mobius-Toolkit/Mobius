@@ -318,7 +318,11 @@ func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repositor
 		if !comment.GetCreatedAt().After(askedAt) {
 			continue
 		}
-		if e.commentIsEvent(repository.AppSlug, comment) {
+		isEvent, err := e.commentIsEvent(ctx, repository, comment)
+		if err != nil {
+			return err
+		}
+		if isEvent {
 			actor = comment.GetUser().GetLogin()
 			replies.WriteString("\n\n" + eventText(comment.GetCreatedAt().Time, "reply on", issue, actor, comment.GetBody()))
 		} else if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && strings.HasPrefix(comment.GetBody(), chatAnswerPrefix) {
@@ -336,7 +340,10 @@ func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repositor
 // commentsWithoutTask acts on the new comments of an issue with no live task. Mobius does not act on a comment on a
 // closed issue. Any other issue goes to workstreamCommentEvents.
 func (e *Engine) commentsWithoutTask(ctx context.Context, repository github.Repository, issue *gh.Issue, comments []*gh.IssueComment) error {
-	events, answered := e.replies(repository.AppSlug, comments)
+	events, answered, err := e.replies(ctx, repository, comments)
+	if err != nil {
+		return err
+	}
 	if len(events) == 0 {
 		return nil
 	}
@@ -486,7 +493,10 @@ func laterOf(a, b time.Time) time.Time {
 // declineOnPullRequest declines each conversation comment that is an event, and each review comment of a trusted user,
 // on the pull request number with no live task.
 func (e *Engine) declineOnPullRequest(ctx context.Context, repository github.Repository, number int64, comments []*gh.IssueComment, reviewComments []*gh.PullRequestComment) error {
-	events, _ := e.replies(repository.AppSlug, comments)
+	events, _, err := e.replies(ctx, repository, comments)
+	if err != nil {
+		return err
+	}
 	if err := e.declineComments(ctx, repository, number, events, noTaskReply); err != nil {
 		return err
 	}
@@ -504,7 +514,10 @@ func (e *Engine) declineOnPullRequest(ctx context.Context, repository github.Rep
 // newComments resets the counters of the task when comments have a comment that is an event. It gives the comments
 // that are events, and true when the newest of them is newer than the last comment of the Mobius App.
 func (e *Engine) newComments(ctx context.Context, repository github.Repository, task store.Task, comments []*gh.IssueComment) ([]*gh.IssueComment, bool, error) {
-	replies, answered := e.replies(repository.AppSlug, comments)
+	replies, answered, err := e.replies(ctx, repository, comments)
+	if err != nil {
+		return nil, false, err
+	}
 	if len(replies) > 0 {
 		if err := e.queries.ResetTaskCounters(ctx, task.ID); err != nil {
 			return nil, false, err
@@ -541,28 +554,39 @@ func (e *Engine) trustedUser(login string) bool {
 
 // replies gives the comments that are events, and true when the newest of them is newer than the last
 // question of the Mobius App. A stop comment is no question.
-func (e *Engine) replies(appSlug string, comments []*gh.IssueComment) ([]*gh.IssueComment, bool) {
+func (e *Engine) replies(ctx context.Context, repository github.Repository, comments []*gh.IssueComment) ([]*gh.IssueComment, bool, error) {
 	var askedAt, repliedAt time.Time
 	var replies []*gh.IssueComment
 	for _, comment := range comments {
 		createdAt := comment.GetCreatedAt().Time
-		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(appSlug)) && !isStopComment(comment.GetBody()) && createdAt.After(askedAt) {
+		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && !isStopComment(comment.GetBody()) && createdAt.After(askedAt) {
 			askedAt = createdAt
 		}
-		if e.commentIsEvent(appSlug, comment) {
+		isEvent, err := e.commentIsEvent(ctx, repository, comment)
+		if err != nil {
+			return nil, false, err
+		}
+		if isEvent {
 			replies = append(replies, comment)
 			if createdAt.After(repliedAt) {
 				repliedAt = createdAt
 			}
 		}
 	}
-	return replies, len(replies) > 0 && repliedAt.After(askedAt)
+	return replies, len(replies) > 0 && repliedAt.After(askedAt), nil
 }
 
 // commentIsEvent tells if the comment is an event for the Lead: a comment of a trusted user. A comment of the Lead
-// session has a trusted user as its author and the Mobius App in performed_via_github_app, so it is no event.
-func (e *Engine) commentIsEvent(appSlug string, comment *gh.IssueComment) bool {
-	return e.trustedUser(comment.GetUser().GetLogin()) && comment.GetPerformedViaGithubApp().GetSlug() != appSlug
+// session has a trusted user as its author and the Mobius App in performed_via_github_app, so it is no event. An
+// answer of the Owner from the app has the same marks, and its id is in owner_answers.
+func (e *Engine) commentIsEvent(ctx context.Context, repository github.Repository, comment *gh.IssueComment) (bool, error) {
+	if !e.trustedUser(comment.GetUser().GetLogin()) {
+		return false, nil
+	}
+	if comment.GetPerformedViaGithubApp().GetSlug() != repository.AppSlug {
+		return true, nil
+	}
+	return e.queries.IsOwnerAnswer(ctx, store.IsOwnerAnswerParams{Repository: repository.FullName, CommentID: comment.GetID()})
 }
 
 // ask posts the question text on the issue of a live task of the Workstream or on the Workstream issue, adds

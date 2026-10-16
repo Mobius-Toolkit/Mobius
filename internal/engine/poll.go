@@ -200,7 +200,9 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 	var commentCursors []store.SetSyncCursorParams
 	if !firstPoll {
 		var conversationCursor, reviewCursor store.SetSyncCursorParams
+		e.ownerAnswerMu.Lock()
 		conversation, conversationCursor, err = newComments(ctx, e.queries, repository, issueCommentsEndpoint, since, repository.CommentsSince, issueCommentNumber)
+		e.ownerAnswerMu.Unlock()
 		if err != nil {
 			return err
 		}

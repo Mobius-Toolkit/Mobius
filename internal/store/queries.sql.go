@@ -463,6 +463,20 @@ func (q *Queries) AddMemoryVersion(ctx context.Context, arg AddMemoryVersionPara
 	return err
 }
 
+const addOwnerAnswer = `-- name: AddOwnerAnswer :exec
+INSERT OR IGNORE INTO owner_answers (repository, comment_id) VALUES (?, ?)
+`
+
+type AddOwnerAnswerParams struct {
+	Repository string
+	CommentID  int64
+}
+
+func (q *Queries) AddOwnerAnswer(ctx context.Context, arg AddOwnerAnswerParams) error {
+	_, err := q.db.ExecContext(ctx, addOwnerAnswer, arg.Repository, arg.CommentID)
+	return err
+}
+
 const addReviewRound = `-- name: AddReviewRound :exec
 UPDATE tasks SET review_rounds = review_rounds + 1 WHERE id = ?
 `
@@ -1943,6 +1957,22 @@ type IsCommentAnsweredParams struct {
 
 func (q *Queries) IsCommentAnswered(ctx context.Context, arg IsCommentAnsweredParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, isCommentAnswered, arg.Repository, arg.Review, arg.Comment)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const isOwnerAnswer = `-- name: IsOwnerAnswer :one
+SELECT EXISTS (SELECT 1 FROM owner_answers WHERE repository = ? AND comment_id = ?)
+`
+
+type IsOwnerAnswerParams struct {
+	Repository string
+	CommentID  int64
+}
+
+func (q *Queries) IsOwnerAnswer(ctx context.Context, arg IsOwnerAnswerParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isOwnerAnswer, arg.Repository, arg.CommentID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

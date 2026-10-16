@@ -1,13 +1,30 @@
 package engine
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
 	gh "github.com/google/go-github/v92/github"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 const app = "mobius-app[bot]"
+
+var appRepository = github.Repository{FullName: "owner/shop", AppSlug: "mobius-app"}
+
+func storingEngine(t *testing.T) *Engine {
+	t.Helper()
+	db, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return New(db, nil, &config.Config{TrustedUsers: []string{"owner"}, TrustedBots: []string{"coderabbitai[bot]"}}, Agents{})
+}
 
 func TestTheReadyActorIsTheActorOfTheLastReadyLabel(t *testing.T) {
 	t.Parallel()
@@ -87,8 +104,9 @@ func comment(author string, viaApp string, seconds int64) *gh.IssueComment {
 
 func TestACommentOfATrustedUserIsAnEvent(t *testing.T) {
 	t.Parallel()
+	e := storingEngine(t)
 	for _, c := range []*gh.IssueComment{comment("Owner", "", 0), comment("owner", "other-app", 0)} {
-		if !trustingEngine().commentIsEvent("mobius-app", c) {
+		if isEvent, err := e.commentIsEvent(t.Context(), appRepository, c); err != nil || !isEvent {
 			t.Errorf("comment of %s via %s is no event", c.GetUser().GetLogin(), c.GetPerformedViaGithubApp().GetSlug())
 		}
 	}
@@ -96,10 +114,38 @@ func TestACommentOfATrustedUserIsAnEvent(t *testing.T) {
 
 func TestACommentOfTheLeadABotOrAStrangerIsNoEvent(t *testing.T) {
 	t.Parallel()
+	e := storingEngine(t)
 	for _, c := range []*gh.IssueComment{comment("owner", "mobius-app", 0), comment("coderabbitai[bot]", "", 0), comment(app, "", 0), comment("mallory", "", 0)} {
-		if trustingEngine().commentIsEvent("mobius-app", c) {
+		if isEvent, err := e.commentIsEvent(t.Context(), appRepository, c); err != nil || isEvent {
 			t.Errorf("comment of %s via %s is an event", c.GetUser().GetLogin(), c.GetPerformedViaGithubApp().GetSlug())
 		}
+	}
+}
+
+func TestACommentOfATrustedUserThroughTheMobiusAppIsAnEventOnlyWhenItIsAnOwnerAnswer(t *testing.T) {
+	t.Parallel()
+	e := storingEngine(t)
+	answer := comment("owner", "mobius-app", 0)
+	answer.ID = new(int64(7))
+	if err := e.queries.AddOwnerAnswer(t.Context(), store.AddOwnerAnswerParams{Repository: "owner/shop", CommentID: 7}); err != nil {
+		t.Fatal(err)
+	}
+	other := comment("owner", "mobius-app", 0)
+	other.ID = new(int64(8))
+	stranger := comment("mallory", "mobius-app", 0)
+	stranger.ID = new(int64(7))
+
+	for _, c := range []struct {
+		comment *gh.IssueComment
+		want    bool
+	}{{answer, true}, {other, false}, {stranger, false}} {
+		if isEvent, err := e.commentIsEvent(t.Context(), appRepository, c.comment); err != nil || isEvent != c.want {
+			t.Errorf("comment %d of %s: event = %t, err = %v", c.comment.GetID(), c.comment.GetUser().GetLogin(), isEvent, err)
+		}
+	}
+	elsewhere := github.Repository{FullName: "owner/other", AppSlug: "mobius-app"}
+	if isEvent, err := e.commentIsEvent(t.Context(), elsewhere, answer); err != nil || isEvent {
+		t.Errorf("the answer is an event of another repository: %t, %v", isEvent, err)
 	}
 }
 
@@ -107,8 +153,11 @@ func TestAReplyAfterTheLastCommentOfTheMobiusAppAnswersIt(t *testing.T) {
 	t.Parallel()
 	comments := []*gh.IssueComment{comment("owner", "", 1), comment(app, "", 2), comment("owner", "", 3)}
 
-	replies, answered := trustingEngine().replies("mobius-app", comments)
+	replies, answered, err := storingEngine(t).replies(t.Context(), appRepository, comments)
 
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(replies) != 2 || !answered {
 		t.Errorf("replies = %d, answered = %t", len(replies), answered)
 	}
@@ -118,8 +167,11 @@ func TestAReplyBeforeTheLastCommentOfTheMobiusAppDoesNotAnswerIt(t *testing.T) {
 	t.Parallel()
 	comments := []*gh.IssueComment{comment("owner", "", 1), comment(app, "", 2), comment("mallory", "", 3)}
 
-	replies, answered := trustingEngine().replies("mobius-app", comments)
+	replies, answered, err := storingEngine(t).replies(t.Context(), appRepository, comments)
 
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(replies) != 1 || answered {
 		t.Errorf("replies = %d, answered = %t", len(replies), answered)
 	}
@@ -133,8 +185,11 @@ func TestAReplyBeforeAStopCommentOfTheMobiusAppAnswersTheQuestion(t *testing.T) 
 	lost.Body = new(lostText)
 	comments := []*gh.IssueComment{comment(app, "", 1), comment("owner", "", 2), stop, lost}
 
-	replies, answered := trustingEngine().replies("mobius-app", comments)
+	replies, answered, err := storingEngine(t).replies(t.Context(), appRepository, comments)
 
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(replies) != 1 || !answered {
 		t.Errorf("replies = %d, answered = %t", len(replies), answered)
 	}

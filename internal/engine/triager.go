@@ -80,7 +80,10 @@ func (e *Engine) startTriage(ctx context.Context, repository github.Repository, 
 	} else if err := repository.AddLabel(ctx, number, triageLabel); err != nil {
 		return false, err
 	}
-	replies, _ := e.replies(repository.AppSlug, comments)
+	replies, _, err := e.replies(ctx, repository, comments)
+	if err != nil {
+		return false, err
+	}
 	if err := acknowledge(ctx, repository, replies); err != nil {
 		return false, err
 	}
@@ -253,7 +256,9 @@ func (e *Engine) runTriager(ctx context.Context, repository github.Repository, n
 	if err != nil {
 		return fail(err)
 	}
-	e.launchTriagerComments(ctx, repository, comments)
+	if err := e.launchTriagerComments(ctx, repository, comments); err != nil {
+		return fail(err)
+	}
 	comments = e.trustedComments(repository, comments)
 	over, err := e.closeEndedTriage(ctx, repository, number, comments)
 	if err != nil {

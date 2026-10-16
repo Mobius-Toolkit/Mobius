@@ -1353,6 +1353,92 @@
         ]
       }
     },
+    "/api/inbox/{id}/answer": {
+      "post": {
+        "description": "AnswerInboxItem posts the text as a comment of the Owner on the issue of an Inbox item. Mobius treats the comment as a comment of a trusted user. Mobius posts it with the user token of the Owner, so the Owner must authorize the Mobius App first. It returns 404 for an unknown item, 400 for an item with no issue and for an empty text, and 409 with the steps when the Owner did not authorize the App.",
+        "operationId": "AnswerInboxItem",
+        "parameters": [
+          {
+            "description": "ID is the id of the Inbox item",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnswerInboxItemBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_AnsweredComment"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "inbox"
+        ]
+      }
+    },
     "/api/inbox/{id}/dismiss": {
       "post": {
         "description": "Dismiss removes an item from the Inbox.",
@@ -3556,6 +3642,30 @@
         ],
         "description": "AgentGroup is the open sessions of one Role."
       },
+      "AnswerInboxItemBody": {
+        "type": "object",
+        "title": "AnswerInboxItemBody",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Text is the answer of the Owner"
+          }
+        }
+      },
+      "AnsweredComment": {
+        "type": "object",
+        "title": "AnsweredComment",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL is the GitHub URL of the comment"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "description": "AnsweredComment is the comment that AnswerInboxItem posted."
+      },
       "Blocker": {
         "type": "object",
         "title": "Blocker",
@@ -3989,6 +4099,20 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/ActiveAgents",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_AnsweredComment": {
+        "type": "object",
+        "title": "Envelope_AnsweredComment",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AnsweredComment",
             "description": "Data is the payload of the response"
           }
         },

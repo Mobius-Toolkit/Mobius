@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -105,6 +106,53 @@ func (h *handlers) SendAgain(ctx context.Context, req SendAgainRequest) error {
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}
 	return err
+}
+
+// AnswerInboxItemRequest is the request of AnswerInboxItem.
+type AnswerInboxItemRequest struct {
+	Path struct {
+		// ID is the id of the Inbox item
+		ID int64 `gork:"id"`
+	}
+	Body struct {
+		// Text is the answer of the Owner
+		Text string `gork:"text"`
+	}
+}
+
+// AnswerInboxItemResponse is the response of AnswerInboxItem.
+type AnswerInboxItemResponse struct {
+	Body Envelope[AnsweredComment]
+}
+
+// AnsweredComment is the comment that AnswerInboxItem posted.
+type AnsweredComment struct {
+	// URL is the GitHub URL of the comment
+	URL string `gork:"url"`
+}
+
+// AnswerInboxItem posts the text as a comment of the Owner on the issue of an Inbox item. Mobius treats the comment as
+// a comment of a trusted user. Mobius posts it with the user token of the Owner, so the Owner must authorize the Mobius
+// App first. It returns 404 for an unknown item, 400 for an item with no issue and for an empty text, and 409 with the
+// steps when the Owner did not authorize the App.
+func (h *handlers) AnswerInboxItem(ctx context.Context, req AnswerInboxItemRequest) (*AnswerInboxItemResponse, error) {
+	if strings.TrimSpace(req.Body.Text) == "" {
+		return nil, api.NewHTTPError(http.StatusBadRequest, "The text must not be empty.")
+	}
+	url, err := h.engine.AnswerInboxItem(ctx, req.Path.ID, req.Body.Text)
+	if errors.Is(err, engine.ErrNoInboxItem) {
+		return nil, api.NewHTTPError(http.StatusNotFound, "The Inbox has no such item.")
+	}
+	if errors.Is(err, engine.ErrNoInboxIssue) {
+		return nil, api.NewHTTPError(http.StatusBadRequest, "The Inbox item has no issue.")
+	}
+	if engine.Refused(err) {
+		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &AnswerInboxItemResponse{Body: Envelope[AnsweredComment]{Data: AnsweredComment{URL: url}}}, nil
 }
 
 func (h *handlers) inboxItemOf(item store.InboxItem) (InboxItem, error) {

@@ -454,12 +454,12 @@ func TestAProposalThatGitHubRefusesGoesToTheIssueAtTheNextPoll(t *testing.T) {
 	server, _ := connectTriager(t, fake)
 	fake.AddIssue(shop, 51, "Rename plans")
 	fake.AddIssue(shop, 52, "Add loyalty points")
+	fake.FailAddComment(shop, 52, true)
 	fake.AddLabel(shop, 51, "mobius:triage", "owner")
 	fake.AddLabel(shop, 52, "mobius:triage", "owner")
 	testkit.WaitFor(t, func() bool {
 		return len(chatSessions(t, server, issueTriagers, engine.TriagerRole)) == 2 && slices.Equal(fake.Labels(shop, 51), []string{"mobius:triage"})
 	})
-	fake.FailAddComment(shop, 52, true)
 
 	fake.RemoveLabel(shop, 51, "mobius:triage", "owner")
 
