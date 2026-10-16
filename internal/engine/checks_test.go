@@ -431,6 +431,24 @@ func TestTheJobsRunAgainOnlyAfterEachRunOfTheHeadCompletedAndEachFailedRunRunsOn
 	}
 }
 
+func TestAFailedRunThatMobiusDidNotRunAgainHandsTheTaskToAHumanAfterTheSecondAttemptPassed(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
+	workflow, check := failedFirstAttempt(t, server, fake)
+	sha := head(t, fake, "mobius/41")
+	other := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "screenshots", HeadSHA: sha, WorkflowID: 7, Status: "completed", Conclusion: "failure"})
+
+	fake.SetCheckRunStatus(check, "completed", "success")
+	fake.SetWorkflowRunStatus(workflow, "completed", "success")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	waitForPolls(t, fake)
+	if first, second := fake.WorkflowRunAttempt(workflow), fake.WorkflowRunAttempt(other); first != 2 || second != 1 {
+		t.Errorf("attempts = %d and %d", first, second)
+	}
+}
+
 func TestAFailedSecondAttemptHandsTheTaskToAHumanAndTheJobsRunNoThirdTime(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

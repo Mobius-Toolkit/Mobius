@@ -766,4 +766,4 @@ UPDATE ci_breaks SET issue = ? WHERE id = ?;
 UPDATE tasks SET break_wait_head = ? WHERE id = ?;
 
 -- name: SetTaskRerunHead :exec
-UPDATE tasks SET rerun_head = ? WHERE id = ?;
+UPDATE tasks SET rerun_head = ?, rerun_runs = ? WHERE id = ?;

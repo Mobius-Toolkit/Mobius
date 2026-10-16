@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -144,8 +145,9 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 // checks, for example after a decline, stays as it is. A pull request whose mergeability GitHub still calculates waits.
 // A head whose CI failed after its fix round waits until each run of the head completes. Then its failed jobs run
 // again one time, and then the task goes to a human. After the re-run, the task waits while a run of that head does
-// not complete, or while a failed run is still in its first attempt, because
-// GitHub can list the first attempt and its failed check runs for some time after the re-run. A head whose workflow run failed with no failed check run to fix goes to a human.
+// not complete, or while a run that Mobius ran again is still in its first attempt, because
+// GitHub can list the first attempt and its failed check runs for some time after the re-run. A failed run that Mobius
+// did not run again goes to a human. A head whose workflow run failed with no failed check run to fix goes to a human.
 func (e *Engine) onChecks(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
 	if pullRequest.Mergeable == nil {
 		return nil
@@ -156,8 +158,8 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		return err
 	}
 	switch {
-	case (state.running || state.failedFirstAttempt) && task.RerunHead.String == head:
-		return e.onLongCIWait(ctx, repository, task, pullRequest, state.incomplete)
+	case task.RerunHead.String == head && (state.running || len(rerunWaiting(task, state)) > 0):
+		return e.onLongCIWait(ctx, repository, task, pullRequest, append(state.incomplete, rerunWaiting(task, state)...))
 	case state.failedCheck && task.CheckHead.String != head:
 		return nil
 	case state.failedCheck || state.failedWorkflow:
@@ -270,7 +272,9 @@ func (e *Engine) rerunFailedJobs(ctx context.Context, repository github.Reposito
 	failed := slices.DeleteFunc(newestWorkflowRuns(workflows), func(run *gh.WorkflowRun) bool {
 		return !failedWorkflowRun(run) || run.GetRunAttempt() != 1
 	})
+	ids := make([]string, 0, len(failed))
 	for _, run := range failed {
+		ids = append(ids, strconv.FormatInt(run.GetID(), 10))
 		var refused *gh.ErrorResponse
 		if err := repository.RerunFailedJobs(ctx, run.GetID()); errors.As(err, &refused) && refused.Response.StatusCode < 500 {
 			return false, nil
@@ -281,7 +285,19 @@ func (e *Engine) rerunFailedJobs(ctx context.Context, repository github.Reposito
 	if len(failed) == 0 {
 		return false, nil
 	}
-	return true, e.queries.SetTaskRerunHead(ctx, store.SetTaskRerunHeadParams{RerunHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
+	return true, e.queries.SetTaskRerunHead(ctx, store.SetTaskRerunHeadParams{RerunHead: sql.NullString{String: head, Valid: true}, RerunRuns: sql.NullString{String: strings.Join(ids, ","), Valid: true}, ID: task.ID})
+}
+
+// rerunWaiting gives the names of the runs that Mobius ran again and that are still in their first attempt and failed.
+func rerunWaiting(task store.Task, state ci) []string {
+	ids := strings.Split(task.RerunRuns.String, ",")
+	var names []string
+	for _, run := range state.failedFirstAttempt {
+		if slices.Contains(ids, strconv.FormatInt(run.GetID(), 10)) {
+			names = append(names, run.GetName())
+		}
+	}
+	return names
 }
 
 // ciFailed hands the task in checks to a human, with a failed Mobius check and a stop event for the Lead. The task
@@ -322,8 +338,8 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 // ci is what the check runs of other Apps and the workflow runs of GitHub Actions on a head show.
 type ci struct {
 	failedCheck, failedWorkflow, running bool
-	// failedFirstAttempt is true when a newest workflow run completed with a failure in its first attempt.
-	failedFirstAttempt bool
+	// failedFirstAttempt holds the newest workflow runs that completed with a failure in their first attempt.
+	failedFirstAttempt []*gh.WorkflowRun
 	// incomplete holds the names of the check runs and the workflow runs that did not complete.
 	incomplete []string
 	// absent is true for a head with no check run of another App and no workflow run: its CI has not started, or the
@@ -363,7 +379,9 @@ func ciOf(ctx context.Context, repository github.Repository, head string) (ci, e
 			state.incomplete = append(state.incomplete, workflow.GetName())
 		case failedWorkflowRun(workflow):
 			state.failedWorkflow = true
-			state.failedFirstAttempt = state.failedFirstAttempt || workflow.GetRunAttempt() == 1
+			if workflow.GetRunAttempt() == 1 {
+				state.failedFirstAttempt = append(state.failedFirstAttempt, workflow)
+			}
 		}
 	}
 	state.absent = others+len(workflows) == 0
