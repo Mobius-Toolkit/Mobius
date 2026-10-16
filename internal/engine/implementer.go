@@ -1026,32 +1026,40 @@ func (e *Engine) prepareWorktree(ctx context.Context, j *job, worktree string) e
 // turnsAndChecks runs the turns of the agent until the local check passes. It gives a result when the Implementer
 // calls cannot_do, and the end of the output of the last check when the check fails max_check_attempts times. New
 // details of the Owner stop the turn that runs and go to the agent as the next prompt, with no check and no attempt
-// of their own.
+// of their own. A check that does not end in check_timeout is no fault of the code, so it counts as an attempt and
+// runs again with no prompt.
 func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result, string, error) {
 	prompt := j.prompt
 	attempts := 1
+	timedOut := false
 	for {
-		err := a.Prompt(ctx, prompt, nil)
-		a.mu.Lock()
-		reason := a.cannotDo
-		a.mu.Unlock()
-		if reason != "" {
-			return &result{outcome: cannotDo, text: reason}, "", nil
+		if !timedOut {
+			err := a.Prompt(ctx, prompt, nil)
+			a.mu.Lock()
+			reason := a.cannotDo
+			a.mu.Unlock()
+			if reason != "" {
+				return &result{outcome: cannotDo, text: reason}, "", nil
+			}
+			if details := e.takeDetails(e.implementers, j.task.ID, a, false); details != "" && ctx.Err() == nil {
+				prompt = detailsPrompt("task", details)
+				continue
+			}
+			if err != nil {
+				return nil, "", err
+			}
 		}
-		if details := e.takeDetails(e.implementers, j.task.ID, a, false); details != "" && ctx.Err() == nil {
-			prompt = detailsPrompt("task", details)
-			continue
-		}
-		if err != nil {
-			return nil, "", err
-		}
-		output, passed, err := e.check(ctx, a, j, sql.NullInt64{Int64: int64(attempts), Valid: true})
+		var output string
+		var passed bool
+		var err error
+		output, passed, timedOut, err = e.check(ctx, a, j, sql.NullInt64{Int64: int64(attempts), Valid: true})
 		if err != nil {
 			return nil, "", err
 		}
 		last := passed || attempts >= e.config.MaxCheckAttempts
 		if details := e.takeDetails(e.implementers, j.task.ID, a, last); details != "" && ctx.Err() == nil {
 			prompt = detailsPrompt("task", details)
+			timedOut = false
 			continue
 		}
 		if passed {
@@ -1062,6 +1070,9 @@ func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result,
 			return nil, output, nil
 		}
 		attempts++
+		if timedOut {
+			continue
+		}
 		prompt = fmt.Sprintf("The local check `.mobius/check` failed. Fix the code and commit your work. The output ends with these lines:\n\n```\n%s\n```", output)
 	}
 }
@@ -1126,10 +1137,11 @@ func (e *Engine) sendDetails(ctx context.Context, c caller, repository github.Re
 	return fmt.Sprintf("Sent the details to the Implementer of #%d.", input.N), nil
 }
 
-// check runs the local check of the worktree of a in a check slot, and gives its output and true when it passes. A
+// check runs the local check of the worktree of a in a check slot, and gives its output, true when it passes, and true
+// when it did not end in check_timeout. A timeout adds a record for the maintenance issue. A
 // check on a full disk waits for free space and runs again, with no new attempt (Mobius-rust#231). The session shows
 // each phase of the check in its queue reason and in its Transcript (Mobius-rust#401).
-func (e *Engine) check(ctx context.Context, a *Agent, j *job, attempt sql.NullInt64) (string, bool, error) {
+func (e *Engine) check(ctx context.Context, a *Agent, j *job, attempt sql.NullInt64) (string, bool, bool, error) {
 	for {
 		select {
 		case e.checks <- struct{}{}:
@@ -1145,7 +1157,7 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job, attempt sql.NullIn
 			}
 			a.endStep(ctx, "check_slot", slotWaitedAt, sql.NullInt64{}, err)
 			if err != nil {
-				return "", false, err
+				return "", false, false, err
 			}
 		}
 		err := e.waitForLowLoad(ctx, a, j)
@@ -1166,27 +1178,34 @@ func (e *Engine) check(ctx context.Context, a *Agent, j *job, attempt sql.NullIn
 		endedAt = now()
 		<-e.checks
 		if err != nil {
-			return "", false, err
+			return "", false, false, err
 		}
 		elapsed := time.Since(started).Round(time.Millisecond)
+		timedOut := false
 		text, result := fmt.Sprintf(".mobius/check failed in %s.", elapsed), "fail"
 		switch {
 		case passed:
 			text, result = fmt.Sprintf(".mobius/check passed in %s.", elapsed), "pass"
 		case elapsed >= e.config.CheckTimeout:
 			text, result = fmt.Sprintf(".mobius/check did not end in %s.", e.config.CheckTimeout), "timeout"
+			timedOut = true
 		}
 		if err := a.addStep(ctx, "check", startedAt, endedAt, attempt, result); err != nil {
 			log.Printf("add the check run of the session %d: %v", a.id, err)
 		}
 		if err := a.checkPhase(ctx, "", text); err != nil {
-			return "", false, err
+			return "", false, false, err
 		}
 		if passed || !strings.Contains(output, diskFull) {
-			return output, passed, nil
+			if timedOut {
+				if err := e.recordCheckTimeout(ctx, a, j, output); err != nil {
+					log.Printf("store the timeout of the check of the session %d: %v", a.id, err)
+				}
+			}
+			return output, passed, timedOut, nil
 		}
 		if err := e.waitForDisk(ctx, j.task, j.title); err != nil {
-			return "", false, err
+			return "", false, false, err
 		}
 	}
 }
@@ -1265,7 +1284,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		return result{}, err
 	}
 	if failedLog == "" && after != before {
-		output, passed, err := e.check(ctx, a, j, sql.NullInt64{})
+		output, passed, _, err := e.check(ctx, a, j, sql.NullInt64{})
 		if err != nil {
 			return result{}, err
 		}

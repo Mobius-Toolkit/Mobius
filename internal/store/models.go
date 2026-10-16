@@ -21,6 +21,18 @@ type ChatMessage struct {
 	StoppedAt    sql.NullString
 }
 
+type CheckTimeout struct {
+	ID         int64
+	Repository string
+	TaskIssue  int64
+	Session    int64
+	Timeout    string
+	Output     string
+	Issue      int64
+	CreatedAt  string
+	EndedAt    string
+}
+
 type CiBreak struct {
 	ID           int64
 	Repository   string
