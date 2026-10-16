@@ -2,6 +2,10 @@ export function chatDraftKey(organization: string, repository: string, workstrea
   return `chatDraft:${organization}/${repository}/${workstream}`;
 }
 
+export function answerDraftKey(id: number) {
+  return `answerDraft:${id}`;
+}
+
 export function loadDraft(key: string) {
   try {
     return localStorage.getItem(key) ?? "";

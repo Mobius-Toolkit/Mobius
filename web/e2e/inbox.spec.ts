@@ -31,7 +31,7 @@ const items = [
     kind: "question",
     title: "Pick the plan limits",
     reason: "The Lead asks a question",
-    text: "Which seat limit?",
+    text: "Which seat limit?\n\n- `10` seats\n- `40` seats",
     link: `${link}/issues/45`,
   },
   {
@@ -40,7 +40,7 @@ const items = [
     issue: 42,
     kind: "stopped",
     title: "Let customers change plans",
-    reason: "The session hung three times",
+    reason: "The implementer session hung",
     text: "Mobius stopped the session at 2026-09-28 09:30 UTC.",
     link: `${link}/issues/42`,
   },
@@ -100,13 +100,15 @@ test("each item shows on one line with the action of its kind, oldest first", as
   await expect(rows.nth(5)).toContainText("#46");
 
   const action = (row: number, name: string) => rows.nth(row).getByRole("link", { name });
-  await expect(action(0, "Answer")).toHaveAttribute("href", `${link}/issues/45`);
-  await expect(rows.nth(1).getByRole("button", { name: "Resume" })).toBeVisible();
-  await expect(rows.nth(2).getByRole("button", { name: "Start again" })).toBeVisible();
+  await expect(rows.nth(0).getByRole("button")).toHaveText(["Answer", "Details"]);
+  await expect(action(0, "Open GitHub")).toHaveAttribute("href", `${link}/issues/45`);
+  await expect(rows.nth(1).getByRole("button")).toHaveText(["Resume", "Answer", "Details"]);
+  await expect(action(1, "Open GitHub")).toHaveAttribute("href", `${link}/issues/42`);
+  await expect(rows.nth(2).getByRole("button")).toHaveText(["Start again", "Details"]);
   await expect(action(3, "Open PR")).toHaveAttribute("href", `${link}/pull/44`);
   await expect(rows.nth(4).getByRole("button")).toHaveText(["Send again", "Details", "Dismiss"]);
-  await expect(rows.nth(5).getByRole("button")).toHaveText(["Details", "Dismiss"]);
-  await expect(rows.getByRole("button", { name: "Dismiss" })).toHaveCount(6);
+  await expect(rows.nth(5).getByRole("button")).toHaveText(["Details"]);
+  await expect(rows.getByRole("button", { name: "Dismiss" })).toHaveCount(1);
   await expect(page.getByRole("main").getByRole("tab", { name: "To do 6" })).toBeVisible();
 });
 
@@ -117,12 +119,19 @@ test("the reason is on the line of the title on a desktop and below it on a phon
   await page.goto("/inbox");
   const row = page.getByRole("main").getByRole("listitem").nth(1);
   const title = row.getByText("Let customers change plans");
-  const reason = row.getByText("The session hung three times");
+  const reason = row.getByText("The implementer session hung");
   const buttons = row.getByRole("button", { name: "Resume" });
 
   await page.setViewportSize({ width: 1280, height: 800 });
   const desktop = { title: await title.boundingBox(), reason: await reason.boundingBox() };
   expect(desktop.reason!.y).toBeLessThan(desktop.title!.y + desktop.title!.height);
+  // scrollWidth rounds, so a cut of less than one pixel needs the width of the text itself.
+  const cut = await title.evaluate((e) => {
+    const range = document.createRange();
+    range.selectNodeContents(e);
+    return range.getBoundingClientRect().width - e.getBoundingClientRect().width;
+  });
+  expect(cut).toBeLessThanOrEqual(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   const phone = {
@@ -136,27 +145,12 @@ test("the reason is on the line of the title on a desktop and below it on a phon
   await expect(reason).toHaveJSProperty("scrollWidth", await reason.evaluate((e) => e.clientWidth));
 });
 
-test("Details and Dismiss sit at the right edge of each item, the action at the left edge on a phone", async ({
+test("Details sits at the right edge of each item, the action at the left edge on a phone", async ({
   page,
 }) => {
   await routeInbox(page, items);
   await page.goto("/inbox");
   const rows = page.getByRole("main").getByRole("listitem");
-
-  const edges = async () => {
-    const result = [];
-    for (let row = 0; row < 6; row++) {
-      const item = await rows.nth(row).boundingBox();
-      const details = await rows.nth(row).getByRole("button", { name: "Details" }).boundingBox();
-      const dismiss = await rows.nth(row).getByRole("button", { name: "Dismiss" }).boundingBox();
-      result.push({
-        item: item!,
-        details: details!,
-        dismiss: dismiss!,
-      });
-    }
-    return result;
-  };
 
   for (const size of [
     { width: 1280, height: 800 },
@@ -164,40 +158,129 @@ test("Details and Dismiss sit at the right edge of each item, the action at the 
   ]) {
     await page.setViewportSize(size);
     await expect(rows.nth(0)).toBeVisible();
-    const measured = await edges();
-    for (const row of measured) {
-      expect(row.dismiss.x + row.dismiss.width).toBeCloseTo(
-        measured[0].dismiss.x + measured[0].dismiss.width,
-        0,
-      );
-      expect(row.details.x).toBeCloseTo(measured[0].details.x, 0);
-      expect(row.item.x + row.item.width - (row.dismiss.x + row.dismiss.width)).toBeLessThan(24);
+    for (const row of [0, 1, 2, 3, 5]) {
+      const item = await rows.nth(row).boundingBox();
+      const details = await rows.nth(row).getByRole("button", { name: "Details" }).boundingBox();
+      expect(item!.x + item!.width - (details!.x + details!.width)).toBeLessThan(24);
     }
   }
 
-  const answer = await rows.nth(0).getByRole("link", { name: "Answer" }).boundingBox();
+  const answer = await rows.nth(0).getByRole("button", { name: "Answer" }).boundingBox();
   const item = await rows.nth(0).boundingBox();
   expect(answer!.x - item!.x).toBeLessThan(24);
 });
 
-test("Details is closed by default and shows the full text after a click", async ({ page }) => {
+test("Details opens a panel with the text and no input, and the panel closes", async ({ page }) => {
   await routeInbox(page, items);
   await page.goto("/inbox");
   const row = page.getByRole("main").getByRole("listitem").nth(3);
-  const details = row.getByRole("button", { name: "Details" });
+  const panel = page.getByRole("dialog");
 
-  await expect(row.getByText("The pull request waits.")).toHaveCount(0);
-  await expect(details).toHaveAttribute("aria-expanded", "false");
-  await details.click();
-  await expect(details).toHaveAttribute("aria-expanded", "true");
-  await expect(row.getByText("The pull request waits.")).toBeVisible();
-  await expect(row.getByText(/^Integrate loyalty plans · Sep 28, 09:30\sAM$/)).toBeVisible();
-  await expect(row.getByRole("link", { name: "Approval report" })).toHaveAttribute(
+  await expect(panel).toHaveCount(0);
+  await row.getByRole("button", { name: "Details" }).click();
+  await expect(panel.getByRole("heading", { name: "Name the plan tiers" })).toBeVisible();
+  await expect(panel.getByText("The pull request waits for your approval")).toBeVisible();
+  await expect(panel.getByText("The pull request waits.")).toBeVisible();
+  await expect(panel.getByText(/^Integrate loyalty plans · Sep 28, 09:30\sAM$/)).toBeVisible();
+  await expect(panel.getByRole("link", { name: "Approval report" })).toHaveAttribute(
     "href",
     `${link}/pull/44#issuecomment-1`,
   );
-  await details.click();
-  await expect(row.getByText("The pull request waits.")).toHaveCount(0);
+  await expect(panel.getByRole("textbox")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(row).toBeVisible();
+});
+
+test("Answer opens a panel with the rendered text, and a sent answer closes the panel", async ({
+  page,
+}) => {
+  await page.goto("/api/github/user-callback?code=shop-code");
+  const created = await page.request.post("/e2e/inbox-items");
+  const id = Number(await created.text());
+  try {
+    await routeInbox(page, [{ ...items[0], id, issue: 40, link: `${link}/issues/40` }]);
+    await page.goto("/inbox");
+    const main = page.getByRole("main");
+    const panel = page.getByRole("dialog");
+
+    await main.getByRole("button", { name: "Answer" }).click();
+    await expect(panel.getByRole("listitem")).toHaveText(["10 seats", "40 seats"]);
+    await expect(panel.locator("code")).toHaveText(["10", "40"]);
+    await panel.getByRole("textbox", { name: "Your answer" }).fill("Ten seats.");
+    const response = page.waitForResponse(`**/api/inbox/${id}/answer`);
+    await panel.getByRole("button", { name: "Send" }).click();
+
+    const answered = (await (await response).json()) as { data: { url: string } };
+    expect(answered.data.url).toContain("/issues/40#issuecomment-");
+    await expect(panel).toHaveCount(0);
+    await expect(main.getByRole("listitem")).toHaveCount(1);
+    await expect(main.getByRole("button", { name: "Answer" })).toBeVisible();
+
+    await main.getByRole("button", { name: "Answer" }).click();
+    await expect(panel.getByRole("textbox", { name: "Your answer" })).toHaveValue("");
+  } finally {
+    await page.request.delete(`/e2e/inbox-items/${id}`);
+  }
+});
+
+test("a failed answer keeps the panel and the text, and shows the error", async ({ page }) => {
+  await routeInbox(page, items);
+  await page.route("**/api/inbox/*/answer", (route) =>
+    route.fulfill({ status: 409, json: { error: "The Owner must authorize the Mobius App." } }),
+  );
+  await page.goto("/inbox");
+  const panel = page.getByRole("dialog");
+
+  await page.getByRole("main").getByRole("button", { name: "Answer" }).first().click();
+  const input = panel.getByRole("textbox", { name: "Your answer" });
+  await input.fill("Ten seats.");
+  await panel.getByRole("button", { name: "Send" }).click();
+
+  await expect(panel.getByRole("alert")).toHaveText("The Owner must authorize the Mobius App.");
+  await expect(input).toHaveValue("Ten seats.");
+});
+
+test("each item keeps its own draft of the answer", async ({ page }) => {
+  await routeInbox(page, items);
+  await page.goto("/inbox");
+  const rows = page.getByRole("main").getByRole("listitem");
+  const panel = page.getByRole("dialog");
+  const input = panel.getByRole("textbox", { name: "Your answer" });
+
+  await rows.nth(0).getByRole("button", { name: "Answer" }).click();
+  await input.fill("Ten seats.");
+  await page.keyboard.press("Escape");
+  await rows.nth(1).getByRole("button", { name: "Answer" }).click();
+  await expect(input).toHaveValue("");
+  await page.keyboard.press("Escape");
+  await rows.nth(0).getByRole("button", { name: "Answer" }).click();
+  await expect(input).toHaveValue("Ten seats.");
+});
+
+test("the input of the panel stays visible on a phone while it has the focus", async ({ page }) => {
+  await routeInbox(page, items);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/inbox");
+  const panel = page.getByRole("dialog");
+
+  await page.getByRole("main").getByRole("button", { name: "Answer" }).first().click();
+  const input = panel.getByRole("textbox", { name: "Your answer" });
+  await input.focus();
+  await expect(input).toBeFocused();
+  await expect(input).toBeInViewport({ ratio: 1 });
+
+  await expect
+    .poll(async () => {
+      const box = await panel.boundingBox();
+      return [box!.x, box!.y + box!.height, box!.width];
+    })
+    .toEqual([0, 844, 390]);
+
+  await page.setViewportSize({ width: 390, height: 420 });
+  await expect(input).toBeInViewport({ ratio: 1 });
+  await expect(panel.getByRole("button", { name: "Send" })).toBeInViewport({ ratio: 1 });
+  await expect(panel.getByRole("heading", { name: "Pick the plan limits" })).toBeInViewport();
 });
 
 test("Resume and Start again resume the issue", async ({ page }) => {

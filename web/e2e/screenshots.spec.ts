@@ -492,19 +492,32 @@ test("screenshots", async ({ page }) => {
     main.getByText("The Lead did not get your message"),
   ];
   await screenshot(page, "inbox", "/inbox", inboxReady);
+  // Radix hides the page behind the panel from the role queries, so the open step waits for the page first.
+  const openPanel = (button: string, index: number) => async (device: string) => {
+    for (const locator of inboxReady(device)) {
+      await expect(locator).toBeVisible();
+    }
+    await main.getByRole("button", { name: button }).nth(index).click();
+  };
   await screenshot(
     page,
     "inbox-details",
     "/inbox",
-    (device) => [
-      ...inboxReady(device),
-      main.getByText("#45 needs a decision: one seat limit"),
-      main.getByRole("link", { name: "Approval report" }),
+    () => [
+      page.getByRole("dialog").getByText("is ready for review."),
+      page.getByRole("dialog").getByRole("link", { name: "Approval report" }),
     ],
-    async () => {
-      await main.getByRole("button", { name: "Details" }).first().click();
-      await main.getByRole("button", { name: "Details" }).nth(3).click();
-    },
+    openPanel("Details", 3),
+  );
+  await screenshot(
+    page,
+    "inbox-answer",
+    "/inbox",
+    () => [
+      page.getByRole("dialog").getByText("#45 needs a decision: one seat limit"),
+      page.getByRole("dialog").getByRole("textbox", { name: "Your answer" }),
+    ],
+    openPanel("Answer", 0),
   );
   await page.unroute("/api/inbox");
   await page.route("**/api/ci-stops", (route) =>

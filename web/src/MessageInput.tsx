@@ -45,7 +45,8 @@ function Thumbnail({
 
 // The text field with the voice button and the Send button. The field keeps its text under draftKey. When onStop is
 // set and the field is empty, the Send button stops the reply. error is the text of a failure that the parent shows
-// under the field. The input gives its own failures to onError.
+// under the field. The input gives its own failures to onError. When onSend gives a promise, the field gets the text
+// back if the promise gives false.
 export function MessageInput({
   draftKey,
   label,
@@ -65,7 +66,7 @@ export function MessageInput({
   onError: (error: string) => void;
   stopping: boolean;
   onStop?: () => void;
-  onSend: (text: string, images: File[]) => void;
+  onSend: (text: string, images: File[]) => void | Promise<boolean>;
 }) {
   const [draft, setDraft] = useState({ key: draftKey, text: loadDraft(draftKey) });
   let text = draft.text;
@@ -178,7 +179,14 @@ export function MessageInput({
     setText("");
     changeImages(() => []);
     onError("");
-    onSend(text, sent);
+    const result = onSend(text, sent);
+    if (result instanceof Promise) {
+      void result.then((done) => {
+        if (!done) {
+          setText(text);
+        }
+      });
+    }
   };
 
   return (

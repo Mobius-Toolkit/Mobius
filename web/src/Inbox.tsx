@@ -1,4 +1,3 @@
-import { ChevronDownIcon } from "lucide-react";
 import { use, useState } from "react";
 import {
   dismiss,
@@ -14,8 +13,8 @@ import {
 import { ErrorBadge, inset, List, Row } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { LoginContext } from "@/lib/login";
-import { dayClock, localTimes } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { AnswerPanel } from "./AnswerPanel";
 
 export function Inbox({
   organization,
@@ -59,7 +58,7 @@ function InboxRow({
 }) {
   const showLogin = use(LoginContext);
   const [running, setRunning] = useState<"action" | "dismiss" | null>(null);
-  const [open, setOpen] = useState(false);
+  const [panel, setPanel] = useState<"answer" | "details" | null>(null);
 
   const act = (
     name: "action" | "dismiss",
@@ -110,18 +109,20 @@ function InboxRow({
           ) : (
             <span className="shrink-0">{reference}</span>
           )}
-          <span className="grow basis-0 truncate sm:grow-0 sm:basis-auto">{item.title}</span>
-          <span className="basis-full truncate text-sm text-muted-foreground sm:basis-auto">
-            {item.reason}
+          <span className="contents sm:flex sm:min-w-0 sm:items-baseline sm:gap-x-2">
+            <span className="grow basis-0 truncate sm:max-w-full sm:shrink-0 sm:grow-0 sm:basis-auto">
+              {item.title}
+            </span>
+            <span className="basis-full truncate text-sm text-muted-foreground sm:basis-auto">
+              {item.reason}
+            </span>
           </span>
         </span>
         <div className="flex basis-full items-center gap-2 sm:basis-auto sm:shrink-0 sm:gap-4">
-          <div className="flex items-center justify-start empty:hidden sm:w-24 sm:justify-end sm:empty:flex">
+          <div className="flex flex-wrap items-center gap-2 empty:hidden">
             {item.kind === InboxItemKind.question && (
-              <Button size="sm" asChild>
-                <a href={item.link} target="_blank" rel="noreferrer">
-                  Answer
-                </a>
+              <Button size="sm" onClick={() => setPanel("answer")}>
+                Answer
               </Button>
             )}
             {(item.kind === InboxItemKind.stopped || item.kind === InboxItemKind.lost) && (
@@ -132,6 +133,18 @@ function InboxRow({
                 onClick={resume}
               >
                 {item.kind === InboxItemKind.stopped ? "Resume" : "Start again"}
+              </Button>
+            )}
+            {item.kind === InboxItemKind.stopped && (
+              <Button variant="outline" size="sm" onClick={() => setPanel("answer")}>
+                Answer
+              </Button>
+            )}
+            {(item.kind === InboxItemKind.question || item.kind === InboxItemKind.stopped) && (
+              <Button variant="outline" size="sm" asChild>
+                <a href={item.link} target="_blank" rel="noreferrer">
+                  Open GitHub
+                </a>
               </Button>
             )}
             {item.kind === InboxItemKind.Lead_failed && (
@@ -153,38 +166,35 @@ function InboxRow({
             )}
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
+            <Button variant="ghost" size="sm" onClick={() => setPanel("details")}>
               Details
-              <ChevronDownIcon className={cn("size-4", open && "rotate-180")} />
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={running !== null}
-              pending={running === "dismiss"}
-              onClick={() => act("dismiss", () => dismiss(item.id))}
-            >
-              Dismiss
-            </Button>
+            {item.kind === InboxItemKind.Lead_failed && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={running !== null}
+                pending={running === "dismiss"}
+                onClick={() => act("dismiss", () => dismiss(item.id))}
+              >
+                Dismiss
+              </Button>
+            )}
           </div>
         </div>
       </div>
-      {open && (
-        <div className="grid basis-full gap-1 text-sm">
-          <span className="break-words whitespace-pre-wrap">{localTimes(item.text)}</span>
-          <span className="text-muted-foreground">
-            {workstreams?.find(
+      {panel && (
+        <AnswerPanel
+          item={item}
+          input={panel === "answer"}
+          workstream={
+            workstreams?.find(
               (workstream) =>
                 workstream.repository === item.repository && workstream.number === item.workstream,
-            )?.title ?? `#${item.workstream}`}{" "}
-            · {dayClock(item.time)}
-          </span>
-          {item.reportUrl && (
-            <a href={item.reportUrl} target="_blank" rel="noreferrer" className={link}>
-              Approval report
-            </a>
-          )}
-        </div>
+            )?.title ?? `#${item.workstream}`
+          }
+          onClose={() => setPanel(null)}
+        />
       )}
     </Row>
   );
