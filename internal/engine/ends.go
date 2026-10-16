@@ -131,9 +131,12 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 //     nobody did, the label comes back and the check goes on.
 //   - A task in dispatched for more than 2 hours, with no open question, gives the Lead a reminder (remindDispatch).
 //   - A task in needs_human continues with no Resume when its pull request has a merge conflict, or when the CI of the
-//     head that stopped it passes (continueNeedsHuman).
+//     task passes on its head, also on a new head (continueNeedsHuman).
 //   - A pull request of a task in checks, approval or ready_for_review with a merge conflict, or behind its base, gets a
 //     conflict round. A failed check run of another App on its head gets a fix round.
+//   - A task whose head failed its CI while the default branch has an open break of its CI waits, with no fix round and no
+//     stop, and a pull request that is only behind its base gets no conflict round (waitsForBreak). When the break
+//     ends, the branch of the pull request updates (endBreakWait). The task of the issue of the break does not wait.
 //   - Else a task in checks, approval or ready_for_review with kept findings of the Lead gets a fix round with them
 //     (startKeptRound).
 //   - Else a task in checks moves to approval when the CI of the head passed (onChecks).
@@ -185,8 +188,15 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	if task, err = e.keepApproval(ctx, repository, task); err != nil {
 		return Work{}, false, err
 	}
+	if updated, err := e.endBreakWait(ctx, repository, task, pullRequest); err != nil || updated {
+		return Work{}, false, err
+	}
+	breakWaits, err := e.waitsForBreak(ctx, repository, task, pullRequest)
+	if err != nil {
+		return Work{}, false, err
+	}
 	work := pullRequestWork(repository, pullRequest)
-	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest)
+	conflict := pullRequest.Mergeable != nil && !pullRequest.GetMergeable() || behind(pullRequest) && !breakWaits
 	if task.State == "needs_human" {
 		var round bool
 		if task, round, err = e.continueNeedsHuman(ctx, repository, task, pullRequest, conflict); err != nil || round {
@@ -204,7 +214,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	case afterReview(task.State) && task.LeadFindings != "":
 		round, err := e.startKeptRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest})
 		return work, round, err
-	case afterReview(task.State):
+	case afterReview(task.State) && !breakWaits:
 		round, err := e.onFailure(ctx, repository, task, pullRequest)
 		if err != nil || round {
 			return work, round, err
@@ -376,8 +386,8 @@ func (e *Engine) clearEndedTaskLabels(ctx context.Context, repository github.Rep
 //   - A pull request with a merge conflict, or behind its base, gets a conflict round. A head gets one automatic round
 //     (conflict_head), so a round that fails does not start again on each poll. A pull request older than stale_pr_age
 //     gets no round, and no new event or Inbox item.
-//   - A pull request with no conflict, whose CI failed on its head (ci_failed_head) and passes now on the same head,
-//     moves to checks. The review of the head was clean before the stop. A task that stopped for another reason, for
+//   - A pull request with no conflict, whose CI stopped the task (ci_failed_head) and passes now on its head, which can
+//     be a new head, moves to checks. The review was clean before the stop. A task that stopped for another reason, for
 //     example the round limit, stays.
 //
 // After a conflict round, the issue keeps mobius:needs-human until setStateLabels removes it at the next check. The CI
@@ -393,7 +403,7 @@ func (e *Engine) continueNeedsHuman(ctx context.Context, repository github.Repos
 		}
 		return task, true, e.conflictRound(ctx, repository, task, pullRequest)
 	}
-	if task.CiFailedHead.String != head || pullRequest.Mergeable == nil {
+	if !task.CiFailedHead.Valid || pullRequest.Mergeable == nil {
 		return task, false, nil
 	}
 	state, err := ciOf(ctx, repository, head)

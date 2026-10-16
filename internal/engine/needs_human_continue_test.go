@@ -155,6 +155,29 @@ func TestAPassedCIOnTheHeadOfAStopOnFailedCIMovesTheTaskToApprovalWithNoNeedsHum
 	}
 }
 
+func TestAPassedCIOnANewHeadOfAStopOnFailedCIMovesTheTaskToApprovalWithNoResume(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := stoppedOnFailedCI(t, fake, noChange)
+	stopped := head(t, fake, "mobius/41")
+	work := t.TempDir()
+	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
+	testkit.Git(t, work, "commit", "--allow-empty", "-m", "Fix by a human")
+	testkit.Git(t, work, "push", "origin", "HEAD:refs/heads/mobius/41")
+	fixed := head(t, fake, "mobius/41")
+
+	fake.AddCheckRun(shop, checkRun("build", fixed, "completed", "success"))
+
+	testkit.WaitFor(t, func() bool {
+		return taskState(t, server) == "approval" && !hasLabel(fake, "mobius:needs-human") && !pullRequestHasNeedsHuman(fake)
+	})
+	if fixed == stopped {
+		t.Errorf("head = %s", fixed)
+	}
+	if count := implementers(t, server); count != 2 {
+		t.Errorf("Implementers = %d", count)
+	}
+}
+
 func TestAStopOnTheRoundLimitStaysInNeedsHumanWhenTheCIPasses(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })

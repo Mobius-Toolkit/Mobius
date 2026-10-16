@@ -184,6 +184,17 @@ func (r Repository) MergePullRequest(ctx context.Context, number int64, sha stri
 	return err == nil, "", err
 }
 
+// UpdatePullRequestBranch merges the base branch of the pull request number into its head branch, if the head is sha.
+// GitHub answers 202 Accepted when it starts the update, which is a success.
+func (r Repository) UpdatePullRequestBranch(ctx context.Context, number int64, sha string) error {
+	_, _, err := r.Client.PullRequests.UpdateBranch(ctx, r.Owner(), r.Name(), int(number), &gh.PullRequestBranchUpdateOptions{ExpectedHeadSHA: &sha})
+	var accepted *gh.AcceptedError
+	if errors.As(err, &accepted) {
+		return nil
+	}
+	return err
+}
+
 // UserID gives the id of the account login.
 func (r Repository) UserID(ctx context.Context, login string) (int64, error) {
 	user, _, err := r.Client.Users.Get(ctx, login)

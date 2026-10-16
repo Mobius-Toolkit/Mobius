@@ -177,6 +177,7 @@ type Task struct {
 	CheckErrors    int64
 	LeadFindings   string
 	Recoveries     int64
+	BreakWaitHead  sql.NullString
 }
 
 type TaskState struct {
