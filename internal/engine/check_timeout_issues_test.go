@@ -42,9 +42,12 @@ func checkTimeoutIssue(t *testing.T, fake *testkit.FakeGitHub) (int64, string) {
 func TestATimeoutOfTheCheckSendsNoFixPromptAndRunsTheCheckAgain(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, dataDir := connectTask(t, fake, leadStarts, commits, timeoutConfig(3))
+	server, dataDir := connectTask(t, fake, leadStarts, commits, func(cfg *config.Config) {
+		cfg.CheckTimeout = 5 * time.Second
+		cfg.MaxCheckAttempts = 3
+	})
 	marker := filepath.Join(dataDir, "timed-out")
-	fake.SetCheck(shop, fmt.Sprintf("if [ ! -f '%s' ]; then touch '%s'; sleep 10; fi", marker, marker))
+	fake.SetCheck(shop, fmt.Sprintf("if [ ! -f '%s' ]; then touch '%s'; sleep 30; fi", marker, marker))
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 

@@ -57,7 +57,7 @@ func (e *Engine) recordCheckTimeout(ctx context.Context, a *Agent, j *job, outpu
 // createCheckTimeoutIssue acts on the open record of a check timeout of repository. A record with no issue gets an
 // issue below the maintenance Workstream, with mobius:ready. A repository with no open maintenance Workstream gets no
 // issue, and the record ends. The number of an issue that GitHub created but did not add below the Workstream is
-// stored as a negative number, and the next poll adds it. The record ends when its issue is closed, or GitHub does not
+// stored as a negative number, and the next poll adds it. Until the Workstream is open, that record stays open. The record ends when its issue is closed, or GitHub does not
 // find it. A 4xx answer of GitHub is no error, and the next poll tries again.
 func (e *Engine) createCheckTimeoutIssue(ctx context.Context, repository github.Repository) error {
 	timeout, err := e.queries.GetOpenCheckTimeout(ctx, repository.FullName)
@@ -79,6 +79,9 @@ func (e *Engine) createCheckTimeoutIssue(ctx context.Context, repository github.
 		return err
 	}
 	if workstream == 0 {
+		if timeout.Issue < 0 {
+			return nil
+		}
 		return e.queries.EndCheckTimeout(ctx, store.EndCheckTimeoutParams{EndedAt: now(), ID: timeout.ID})
 	}
 	var changed bool
