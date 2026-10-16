@@ -1,8 +1,10 @@
 package testkit
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
@@ -369,7 +371,7 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 	index := slices.IndexFunc(g.pullRequests, func(pull pullRequest) bool { return pull.repository == repository && pull.Number == number })
 	pull := g.pullRequests[index]
 	remote := g.Remote(repository)
-	mergeable := gitCommand(remote, "merge-tree", "--write-tree", pull.Base, pull.Head).Run() == nil
+	mergeable := g.mergeable(remote, pull.Base, pull.Head)
 	state := "clean"
 	if g.behind[key] && gitCommand(remote, "merge-base", "--is-ancestor", pull.Base, pull.Head).Run() != nil {
 		state = "behind"
@@ -392,6 +394,23 @@ func (g *FakeGitHub) pullRequestJSON(repository string, number int64) map[string
 		"created_at":      timestamp(g.createdAt[key]),
 		"labels":          g.issueJSON(key).Labels,
 	}
+}
+
+// mergeable tells if git merge-tree finds no conflict between base and head. Only the exit code 1 means a conflict.
+// A command that fails in another way is not an answer, so it runs again, and a third failure fails the test. The
+// caller must hold the lock.
+func (g *FakeGitHub) mergeable(remote, base, head string) bool {
+	var err error
+	for range 3 {
+		if err = gitCommand(remote, "merge-tree", "--write-tree", base, head).Run(); err == nil {
+			return true
+		}
+		if exit, ok := errors.AsType[*exec.ExitError](err); ok && exit.ExitCode() == 1 {
+			return false
+		}
+	}
+	g.t.Errorf("merge-tree %s %s: %v", base, head, err)
+	return false
 }
 
 // headOf gives the id of the head commit of the pull request, or "" for a pull request with no branch. The caller must
