@@ -156,7 +156,8 @@ const question = "What is the state of the plans? The full report is at " +
 // check that runs, a check that waits for a slot, a pause, and a full Role.
 // The Workstream plants/garden#60 has a Lead chat of 50 messages, and the Owner saw the first 15. POST
 // /e2e/seed-notes/{count} adds count Lead messages to that chat, with no event.
-// POST /e2e/inbox-items adds an Inbox item for owner/shop#40 and gives its id, and DELETE /e2e/inbox-items/{id}
+// POST /e2e/inbox-items adds an Inbox item for owner/shop#40 and gives its id. With the query kind, repository,
+// workstream, issue, title and reason, it adds that item instead. DELETE /e2e/inbox-items/{id}
 // removes it. An answer to that item adds a comment to the issue and changes nothing else. POST and DELETE
 // /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
 // /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event. DELETE
@@ -288,7 +289,8 @@ func TestServer(t *testing.T) {
 		}
 	})
 	server.Mux.HandleFunc("POST /e2e/inbox-items", func(w http.ResponseWriter, r *http.Request) {
-		item, err := store.New(server.DB).AddInboxItem(r.Context(), store.AddInboxItemParams{
+		query := r.URL.Query()
+		params := store.AddInboxItemParams{
 			Kind:         "Lead failed",
 			Organization: "owner",
 			Repository:   "owner/shop",
@@ -296,7 +298,18 @@ func TestServer(t *testing.T) {
 			Issue:        40,
 			Reason:       "The Lead did not get your message",
 			Time:         "2026-09-28T09:30:00Z",
-		})
+		}
+		if kind := query.Get("kind"); kind != "" {
+			params.Kind = kind
+			params.Organization, _, _ = strings.Cut(query.Get("repository"), "/")
+			params.Repository = query.Get("repository")
+			params.Workstream, _ = strconv.ParseInt(query.Get("workstream"), 10, 64)
+			params.Issue, _ = strconv.ParseInt(query.Get("issue"), 10, 64)
+			params.Title = query.Get("title")
+			params.Reason = query.Get("reason")
+			params.Link = fmt.Sprintf("https://github.com/%s/issues/%d", params.Repository, params.Issue)
+		}
+		item, err := store.New(server.DB).AddInboxItem(r.Context(), params)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

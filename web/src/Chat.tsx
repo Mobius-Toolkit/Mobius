@@ -1,138 +1,34 @@
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { completeWorkstream, resumeIssue, setAutopilot, type NeedsHuman } from "@/api/api.gen";
-import { ErrorBadge, List, Row } from "@/components/page";
+import { completeWorkstream, setAutopilot, type InboxItem, type Workstream } from "@/api/api.gen";
+import { ErrorBadge, List } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
 import type { Workstreams } from "@/lib/workstreams";
 import { AgentPanel } from "./AgentPanel";
 import { Conversation } from "./Conversation";
-import { link } from "./Inbox";
-import { Markdown } from "./Markdown";
+import { InboxRow } from "./Inbox";
 import { TopBar } from "./TopBar";
 
-function NeedsHumanRow({
-  issue,
-  pending,
-  onResume,
+function WorkstreamInbox({
+  items,
+  workstreams,
 }: {
-  issue: NeedsHuman;
-  pending: boolean;
-  onResume: () => void;
-}) {
-  const [clipped, setClipped] = useState(false);
-  const measure = (element: HTMLDivElement) => {
-    const observer = new ResizeObserver(() =>
-      setClipped(element.scrollHeight > element.clientHeight),
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  };
-  return (
-    <Row className="flex-wrap gap-y-2 py-2">
-      <div className="flex min-w-0 grow basis-full flex-wrap items-center gap-x-2 gap-y-2 sm:flex-nowrap">
-        <span className="flex min-w-0 grow basis-full flex-wrap items-baseline gap-x-2 sm:basis-0 sm:flex-nowrap">
-          <a href={issue.url} target="_blank" rel="noreferrer" className={cn("shrink-0", link)}>
-            #{issue.number}
-          </a>
-          {issue.pullRequestUrl && (
-            <a
-              href={issue.pullRequestUrl}
-              target="_blank"
-              rel="noreferrer"
-              className={cn("shrink-0", link)}
-            >
-              PR #{issue.pullRequest}
-            </a>
-          )}
-          <span className="grow basis-0 truncate sm:grow-0 sm:basis-auto">{issue.title}</span>
-          {issue.reason && (
-            <div
-              ref={measure}
-              className="line-clamp-2 min-w-0 basis-full text-sm text-muted-foreground sm:line-clamp-1 sm:grow sm:basis-0 [&>div]:block"
-            >
-              <Markdown text={issue.reason} />
-            </div>
-          )}
-        </span>
-        <div className="flex basis-full items-center gap-2 empty:hidden sm:basis-auto sm:shrink-0">
-          {issue.question && (
-            <Button size="sm" asChild>
-              <a href={issue.url} target="_blank" rel="noreferrer">
-                Answer
-              </a>
-            </Button>
-          )}
-          {issue.stopped && !issue.question && (
-            <Button size="sm" pending={pending} onClick={onResume}>
-              Resume
-            </Button>
-          )}
-          {clipped && (
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="link" size="sm">
-                  Details
-                </Button>
-              </DialogTrigger>
-              <DialogContent
-                aria-describedby={undefined}
-                className="grid max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] sm:max-w-lg"
-              >
-                <DialogTitle className="pr-8">
-                  #{issue.number} {issue.title}
-                </DialogTitle>
-                <div className="overflow-y-auto">
-                  <Markdown text={issue.reason} />
-                </div>
-              </DialogContent>
-            </Dialog>
-          )}
-        </div>
-      </div>
-    </Row>
-  );
-}
-
-function NeedsHumanList({
-  issues,
-  onChange,
-}: {
-  issues: NeedsHuman[];
-  onChange: () => Promise<unknown>;
+  items: InboxItem[];
+  workstreams?: Workstream[];
 }) {
   const [error, setError] = useState("");
-  const [pending, setPending] = useState<number[]>([]);
-  if (issues.length === 0) {
+  if (items.length === 0) {
     return null;
   }
-  const resume = (issue: NeedsHuman) => {
-    const [owner, name] = issue.repository.split("/");
-    setPending((numbers) => [...numbers, issue.number]);
-    resumeIssue(owner, name, issue.number)
-      .then((res) => setError(res.status === 204 ? "" : res.data.error))
-      .catch((err: unknown) => setError(String(err)))
-      .finally(() =>
-        onChange().then(() =>
-          setPending((numbers) => numbers.filter((number) => number !== issue.number)),
-        ),
-      );
-  };
   return (
     <div className="grid grid-cols-1 gap-1 border-t py-2 md:px-4">
       {error && <ErrorBadge>{error}</ErrorBadge>}
       <List>
-        {issues.map((issue) => (
-          <NeedsHumanRow
-            key={issue.number}
-            issue={issue}
-            pending={pending.includes(issue.number)}
-            onResume={() => resume(issue)}
-          />
+        {items.map((item) => (
+          <InboxRow key={item.id} item={item} workstreams={workstreams} setError={setError} />
         ))}
       </List>
     </div>
@@ -144,6 +40,7 @@ export function Chat({
   name,
   number,
   workstreams,
+  inbox,
   unread,
   source,
 }: {
@@ -151,6 +48,7 @@ export function Chat({
   name: string;
   number: number;
   workstreams: Workstreams;
+  inbox: InboxItem[];
   unread?: number;
   source?: EventSource;
 }) {
@@ -269,11 +167,11 @@ export function Chat({
           </>
         }
         footer={
-          <NeedsHumanList
-            issues={workstreams.needsHuman.filter(
-              (issue) => issue.repository === repository && issue.workstream === number,
-            )}
-            onChange={workstreams.load}
+          <WorkstreamInbox
+            items={inbox
+              .filter((item) => item.repository === repository && item.workstream === number)
+              .toSorted((a, b) => a.id - b.id)}
+            workstreams={workstreams.list}
           />
         }
       />
