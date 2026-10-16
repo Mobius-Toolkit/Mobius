@@ -365,6 +365,19 @@ func TestAFailedCIAfterTheFixRoundRunsTheFailedJobsAgainOneTimeAndThePassedSecon
 	}
 }
 
+func TestTheTaskWaitsWhileTheFailedCheckRunOfTheFirstAttemptStaysAndTheJobsRunOnlyOneTime(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
+	workflow, _ := failedFirstAttempt(t, server, fake)
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+
+	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(workflow); state != "checks" || attempt != 2 || hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("state = %s, attempt = %d", state, attempt)
+	}
+}
+
 func TestAFailedSecondAttemptHandsTheTaskToAHumanAndTheJobsRunNoThirdTime(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
