@@ -40,7 +40,7 @@ const items = [
     issue: 42,
     kind: "stopped",
     title: "Let customers change plans",
-    reason: "The session hung three times",
+    reason: "The implementer session hung",
     text: "Mobius stopped the session at 2026-09-28 09:30 UTC.",
     link: `${link}/issues/42`,
   },
@@ -119,12 +119,19 @@ test("the reason is on the line of the title on a desktop and below it on a phon
   await page.goto("/inbox");
   const row = page.getByRole("main").getByRole("listitem").nth(1);
   const title = row.getByText("Let customers change plans");
-  const reason = row.getByText("The session hung three times");
+  const reason = row.getByText("The implementer session hung");
   const buttons = row.getByRole("button", { name: "Resume" });
 
   await page.setViewportSize({ width: 1280, height: 800 });
   const desktop = { title: await title.boundingBox(), reason: await reason.boundingBox() };
   expect(desktop.reason!.y).toBeLessThan(desktop.title!.y + desktop.title!.height);
+  // scrollWidth rounds, so a cut of less than one pixel needs the width of the text itself.
+  const cut = await title.evaluate((e) => {
+    const range = document.createRange();
+    range.selectNodeContents(e);
+    return range.getBoundingClientRect().width - e.getBoundingClientRect().width;
+  });
+  expect(cut).toBeLessThanOrEqual(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   const phone = {

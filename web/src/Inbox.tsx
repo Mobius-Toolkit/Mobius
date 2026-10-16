@@ -109,9 +109,13 @@ function InboxRow({
           ) : (
             <span className="shrink-0">{reference}</span>
           )}
-          <span className="grow basis-0 truncate sm:grow-0 sm:basis-auto">{item.title}</span>
-          <span className="basis-full truncate text-sm text-muted-foreground sm:basis-auto sm:shrink-4">
-            {item.reason}
+          <span className="contents sm:flex sm:min-w-0 sm:items-baseline sm:gap-x-2">
+            <span className="grow basis-0 truncate sm:max-w-full sm:shrink-0 sm:grow-0 sm:basis-auto">
+              {item.title}
+            </span>
+            <span className="basis-full truncate text-sm text-muted-foreground sm:basis-auto">
+              {item.reason}
+            </span>
           </span>
         </span>
         <div className="flex basis-full items-center gap-2 sm:basis-auto sm:shrink-0 sm:gap-4">
