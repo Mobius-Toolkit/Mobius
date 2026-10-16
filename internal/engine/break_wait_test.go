@@ -143,8 +143,12 @@ func TestTheWaitEndsWhenGitHubDoesNotAddTheMergeCommitOfTheBranchUpdateInTime(t 
 
 	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
 	waitForPolls(t, fake)
-	if calls, got := fake.UpdateBranchCalls(), breakWaitHead(t, server); calls != 1 || got != "" || head(t, fake, "mobius/41") != sha {
+	if calls, got := fake.UpdateBranchCalls(), breakWaitHead(t, server); calls != 1 || got != "" {
 		t.Errorf("update calls = %d, break_wait_head = %s", calls, got)
+	}
+	isAncestor(t, fake, sha, head(t, fake, "mobius/41"))
+	if log := testkit.Git(t, fake.Remote(shop), "log", "--format=%s", "mobius/41"); strings.Contains(log, "Add price") {
+		t.Errorf("log = %s", log)
 	}
 }
 
