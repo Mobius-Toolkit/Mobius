@@ -153,9 +153,12 @@ type FakeGitHub struct {
 	pullRequestsUnlisted bool
 	// mergeRefusals holds the reason that the merge of a pull request gets, for each pull request that refuses a merge.
 	mergeRefusals map[issueKey]string
-	// mergeCalls and checkRunReads are the numbers of requests to merge a pull request and to list the check runs of a
-	// commit.
-	mergeCalls, checkRunReads int
+	// mergeCalls, updateBranchCalls and checkRunReads are the numbers of requests to merge a pull request, to update
+	// its branch and to list the check runs of a commit.
+	mergeCalls, updateBranchCalls, checkRunReads int
+	// holdBranchUpdates tells that an update of a branch gives status 202 and waits in heldBranchUpdates for the merge.
+	holdBranchUpdates bool
+	heldBranchUpdates []issueKey
 	// afterCheckRunRead runs once at the end of the first request for the check runs of a commit after a GraphQL answer
 	// gave a review of a pull request. reviewRead tells if such an answer was given.
 	afterCheckRunRead func()
@@ -297,6 +300,7 @@ func (g *FakeGitHub) routes() *http.ServeMux {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.getPullRequest))
 	mux.HandleFunc("PATCH /repos/{owner}/{repo}/pulls/{number}", g.withToken(g.closeIssue))
 	mux.HandleFunc("PUT /repos/{owner}/{repo}/pulls/{number}/merge", g.withToken(g.mergePullRequest))
+	mux.HandleFunc("PUT /repos/{owner}/{repo}/pulls/{number}/update-branch", g.withToken(g.updatePullRequestBranch))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}/reviews", g.withToken(g.reviews))
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls/{number}/reviews", g.withToken(g.submitReview))
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/comments", g.withToken(g.repositoryReviewComments))
