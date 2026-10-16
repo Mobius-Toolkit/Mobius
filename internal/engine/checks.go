@@ -142,8 +142,9 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 // onChecks moves the task in checks to approval when the CI of the head of its pull request passed and the pull request
 // has no merge conflict, and gives the Lead the event ready_for_approval one time for the head. A task that is not in
 // checks, for example after a decline, stays as it is. A pull request whose mergeability GitHub still calculates waits.
-// A head whose CI failed after its fix round has its failed jobs run again one time, and then goes to a human. The
-// task waits while a run of that head does not complete, or while a failed run is still in its first attempt, because
+// A head whose CI failed after its fix round waits until each run of the head completes. Then its failed jobs run
+// again one time, and then the task goes to a human. After the re-run, the task waits while a run of that head does
+// not complete, or while a failed run is still in its first attempt, because
 // GitHub can list the first attempt and its failed check runs for some time after the re-run. A head whose workflow run failed with no failed check run to fix goes to a human.
 func (e *Engine) onChecks(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
 	if pullRequest.Mergeable == nil {
@@ -161,6 +162,9 @@ func (e *Engine) onChecks(ctx context.Context, repository github.Repository, tas
 		return nil
 	case state.failedCheck || state.failedWorkflow:
 		if task.CheckHead.String == head && task.RerunHead.String != head {
+			if state.running {
+				return e.onLongCIWait(ctx, repository, task, pullRequest, state.incomplete)
+			}
 			rerun, err := e.rerunFailedJobs(ctx, repository, task, head)
 			if err != nil || rerun {
 				return err

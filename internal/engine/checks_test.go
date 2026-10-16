@@ -397,6 +397,40 @@ func TestTheTaskWaitsWhileTheWorkflowRunsStillShowTheFailedFirstAttemptAndTheJob
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
 }
 
+func TestTheJobsRunAgainOnlyAfterEachRunOfTheHeadCompletedAndEachFailedRunRunsOneTime(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixesNothing, longGrace)
+	sha := checksHead(t, server, fake)
+	slow := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "e2e", HeadSHA: sha, WorkflowID: 6, Status: "in_progress"})
+	fast := fake.AddWorkflowRun(shop, testkit.WorkflowRun{Name: "ci", HeadSHA: sha, WorkflowID: 5, Status: "completed", Conclusion: "failure"})
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+	endedImplementers(t, server, 2)
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+
+	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(fast); state != "checks" || attempt != 1 || rerunHead(t, server) != "" || hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("state = %s, attempt = %d, rerun_head = %s", state, attempt, rerunHead(t, server))
+	}
+
+	fake.SetWorkflowRunStatus(slow, "completed", "failure")
+
+	testkit.WaitFor(t, func() bool { return rerunHead(t, server) == sha })
+	if state, first, second := taskState(t, server), fake.WorkflowRunAttempt(fast), fake.WorkflowRunAttempt(slow); state != "checks" || first != 2 || second != 2 || hasLabel(fake, "mobius:needs-human") {
+		t.Errorf("state = %s, attempts = %d and %d", state, first, second)
+	}
+
+	fake.SetWorkflowRunStatus(fast, "completed", "failure")
+	fake.SetWorkflowRunStatus(slow, "completed", "failure")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	waitForPolls(t, fake)
+	if first, second := fake.WorkflowRunAttempt(fast), fake.WorkflowRunAttempt(slow); first != 2 || second != 2 {
+		t.Errorf("attempts = %d and %d", first, second)
+	}
+}
+
 func TestAFailedSecondAttemptHandsTheTaskToAHumanAndTheJobsRunNoThirdTime(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
