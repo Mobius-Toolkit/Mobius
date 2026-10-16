@@ -42,7 +42,7 @@ export function ChatPage() {
   const { owner, name, number } = useParams({
     from: "/workstreams/$owner/$name/$number",
   });
-  const { workstreams, unread, source } = useShell();
+  const { workstreams, inbox, unread, source } = useShell();
   return (
     <Chat
       key={`${owner}/${name}#${number}`}
@@ -50,6 +50,7 @@ export function ChatPage() {
       name={name}
       number={Number(number)}
       workstreams={workstreams}
+      inbox={inbox}
       unread={
         unread &&
         unreadCount(unread, {

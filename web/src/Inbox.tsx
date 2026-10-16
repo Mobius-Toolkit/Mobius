@@ -47,7 +47,7 @@ export function Inbox({
 
 export const link = "text-primary underline-offset-4 hover:underline";
 
-function InboxRow({
+export function InboxRow({
   item,
   workstreams,
   setError,

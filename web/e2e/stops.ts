@@ -7,45 +7,111 @@ export const longReason = [
   "Answer in the issue, then press **Resume**.",
 ].join("\n\n");
 
-export const needsHumanRoute = "**/api/needs-human";
-
-// Gives the stopped issue #41 the long reason, and the stopped issue #42 a short reason.
-export function routeReasons(page: Page) {
-  return page.route(needsHumanRoute, async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as { data: { number: number; reason: string }[] };
-    for (const issue of body.data) {
-      if (issue.number === 41) {
-        issue.reason = longReason;
-      }
-      if (issue.number === 42) {
-        issue.reason = "The agent did not push.";
-      }
-    }
-    await route.fulfill({ response, json: body });
-  });
-}
-
 export const longTitle =
   "Replace the old plan table with a new table for the seat limit and the price of a plan";
 
-// Adds the stopped issue #409 with a long title, a question and a pull request to the Workstream owner/shop#12.
-export function routeLongTitle(page: Page) {
-  return page.route(needsHumanRoute, async (route) => {
+const link = "https://github.com/owner/shop";
+
+const base = {
+  dismissedAt: null,
+  organization: "owner",
+  repository: "owner/shop",
+  workstream: 12,
+  time: "2026-09-28T09:30:00Z",
+  title: "",
+  reason: "",
+  link: "",
+  pullRequest: 0,
+  pullRequestUrl: "",
+  reportUrl: "",
+};
+
+// The stopped issue #41 has the long text, and the stopped issue #42 a short text.
+export const stoppedItems = [
+  {
+    ...base,
+    id: 201,
+    issue: 41,
+    kind: "stopped",
+    title: "Add plan model",
+    reason: "The agent asked a question",
+    text: longReason,
+    link: `${link}/issues/41`,
+  },
+  {
+    ...base,
+    id: 202,
+    issue: 42,
+    kind: "stopped",
+    title: "Let customers change plans",
+    reason: "The agent did not push.",
+    text: "The agent did not push.",
+    link: `${link}/issues/42`,
+  },
+];
+
+// A question with a long title, and a text that has Markdown.
+export const longTitleItem = {
+  ...base,
+  id: 203,
+  issue: 409,
+  kind: "question",
+  title: longTitle,
+  reason: "The Lead asks a question",
+  text: longReason,
+  link: `${link}/issues/409`,
+};
+
+// An item of each other kind for the Workstream owner/shop#12.
+export const otherItems = [
+  {
+    ...base,
+    id: 204,
+    issue: 36,
+    kind: "lost",
+    title: "Rename the plan table",
+    reason: "Mobius lost the task",
+    text: "Mobius lost the task.",
+    link: `${link}/issues/36`,
+  },
+  {
+    ...base,
+    id: 205,
+    issue: 30,
+    kind: "ready for review",
+    title: "Name the plan tiers",
+    reason: "PR #44 is ready to merge",
+    text: "The pull request waits.",
+    link: `${link}/issues/30`,
+    pullRequest: 44,
+    pullRequestUrl: `${link}/pull/44`,
+  },
+  {
+    ...base,
+    id: 206,
+    issue: 12,
+    kind: "Lead failed",
+    reason: "The Lead did not get your message",
+    text: "Start the work on the plan tiers.",
+  },
+  {
+    ...base,
+    id: 207,
+    issue: 46,
+    kind: "full disk",
+    reason: "The local check waits for free disk",
+    text: "The disk is full.",
+  },
+];
+
+export const inboxRoute = "**/api/inbox";
+
+// Adds the items to the Inbox that the server gives.
+export function routeInboxItems(page: Page, items: object[]) {
+  return page.route(inboxRoute, async (route) => {
     const response = await route.fetch();
     const body = (await response.json()) as { data: object[] };
-    body.data.push({
-      number: 409,
-      pullRequest: 624,
-      pullRequestUrl: "https://github.com/owner/shop/pull/624",
-      question: true,
-      reason: longReason,
-      repository: "owner/shop",
-      stopped: true,
-      title: longTitle,
-      url: "https://github.com/owner/shop/issues/409",
-      workstream: 12,
-    });
+    body.data.push(...items);
     await route.fulfill({ response, json: body });
   });
 }
