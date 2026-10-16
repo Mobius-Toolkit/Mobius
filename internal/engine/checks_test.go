@@ -281,8 +281,8 @@ func TestAFailedCheckRunWaitsForARunningCheckRunOfTheHeadAndThenOneFixRoundGetsB
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
 	sha := checksHead(t, server, fake)
-	fake.AddCheckRun(shop, checkRun("e2e", sha, "completed", "failure"))
 	running := fake.AddCheckRun(shop, checkRun("check", sha, "in_progress", ""))
+	fake.AddCheckRun(shop, checkRun("e2e", sha, "completed", "failure"))
 	waitForPolls(t, fake)
 
 	if state := taskState(t, server); state != "checks" {
@@ -317,8 +317,8 @@ func TestAFailedCheckRunWaitsForARunningWorkflowRunOfTheHead(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
 	sha := checksHead(t, server, fake)
-	fake.AddCheckRun(shop, checkRun("e2e", sha, "completed", "failure"))
 	workflow := fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "in_progress"})
+	fake.AddCheckRun(shop, checkRun("e2e", sha, "completed", "failure"))
 	waitForPolls(t, fake)
 
 	if count := implementers(t, server); count != 1 {

@@ -88,8 +88,8 @@ func TestAFailedCheckRunWhileAnotherRunOfTheHeadRunsGivesTheLeadOneLongCIEvent(t
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
 	sha := checksHead(t, server, fake)
-	fake.AddCheckRun(shop, checkRun("e2e", sha, "completed", "failure"))
 	fake.AddCheckRun(shop, checkRun("check", sha, "in_progress", ""))
+	fake.AddCheckRun(shop, checkRun("e2e", sha, "completed", "failure"))
 	start := time.Now()
 
 	server.Engine.SetClock(func() time.Time { return start.Add(2*time.Hour + time.Minute) })
