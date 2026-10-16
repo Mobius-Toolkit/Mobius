@@ -119,11 +119,33 @@ test("the status line shows each CI stop with its task issue, and drops it when 
 });
 
 test("a tap on Dismiss disables the button of the row", async ({ page }) => {
+  await page.route("**/api/inbox", (route) =>
+    route.fulfill({
+      json: {
+        data: [
+          {
+            id: 5,
+            kind: "Lead failed",
+            dismissedAt: null,
+            organization: "owner",
+            repository: "owner/shop",
+            workstream: 12,
+            issue: 12,
+            time: "2026-09-28T09:30:00Z",
+            title: "",
+            reason: "The Lead did not get your message",
+            text: "Start the work.",
+            link: "",
+            pullRequest: 0,
+            pullRequestUrl: "",
+            reportUrl: "",
+          },
+        ],
+      },
+    }),
+  );
   await page.goto("/inbox");
-  const dismiss = page
-    .getByRole("listitem")
-    .filter({ hasText: "Integrate loyalty plans" })
-    .getByRole("button", { name: "Dismiss" });
+  const dismiss = page.getByRole("main").getByRole("button", { name: "Dismiss" });
   const held = await hold(page, "**/api/inbox/*/dismiss", "POST");
 
   await dismiss.click();

@@ -148,14 +148,17 @@ const question = "What is the state of the plans? The full report is at " +
 //
 // The chat tests use the issues owner/shop#7 and #8 with no Workstream, the Workstreams plants/garden#14 to #17 with
 // unread Lead messages, the empty chats of plants/garden#18 and #19, the events in the chat of plants/garden#25, the
-// Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, and
+// Workstreams plants/garden#20 and #30 with tasks that need a human, the user code "user-code" of the second App, the
+// user code "shop-code" of the first App, and
 // the Workstreams plants/garden#50 and #55 with one closed task and one open task. GitHub does not close #55. The
 // Workstream plants/garden#19 has an open task, an open task that the first blocks, and a task that needs a human.
 // The Workstream owner/shop#12 has two closed tasks and a task with a question of the Lead. It also has four Implementer sessions with the queue reasons of a
 // check that runs, a check that waits for a slot, a pause, and a full Role.
 // The Workstream plants/garden#60 has a Lead chat of 50 messages, and the Owner saw the first 15. POST
 // /e2e/seed-notes/{count} adds count Lead messages to that chat, with no event.
-// POST and DELETE /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
+// POST /e2e/inbox-items adds an Inbox item for owner/shop#40 and gives its id, and DELETE /e2e/inbox-items/{id}
+// removes it. An answer to that item adds a comment to the issue and changes nothing else. POST and DELETE
+// /e2e/repositories/{owner}/{name} add and remove a repository of the fake GitHub. PUT
 // /e2e/agents/{issue}/queue-reason sets the queue reason of the live agent of an issue, with no event. DELETE
 // /e2e/dispatches/{owner}/{name}/{issue} waits for the dispatch of an issue, removes its task, its feed events and
 // its Lead events, and takes mobius:working off the issue. The query label, if present, is added to the issue.
@@ -231,6 +234,7 @@ func TestServer(t *testing.T) {
 		github.AddLabel("plants/garden", number, "mobius:needs-human", "owner")
 	}
 	github.AddUserCode(testkit.SecondAppID, "user-code", "owner")
+	github.AddUserCode(testkit.AppID, "shop-code", "owner")
 	github.AddSubIssueOf("plants/garden", 50, 51, "Buy daisy seeds")
 	github.CloseIssue("plants/garden", 51)
 	github.AddSubIssueOf("plants/garden", 50, 52, "Sow the daisies")
@@ -281,6 +285,27 @@ func TestServer(t *testing.T) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+		}
+	})
+	server.Mux.HandleFunc("POST /e2e/inbox-items", func(w http.ResponseWriter, r *http.Request) {
+		item, err := store.New(server.DB).AddInboxItem(r.Context(), store.AddInboxItemParams{
+			Kind:         "Lead failed",
+			Organization: "owner",
+			Repository:   "owner/shop",
+			Workstream:   12,
+			Issue:        40,
+			Reason:       "The Lead did not get your message",
+			Time:         "2026-09-28T09:30:00Z",
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_, _ = fmt.Fprint(w, item.ID)
+	})
+	server.Mux.HandleFunc("DELETE /e2e/inbox-items/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := server.DB.Exec("DELETE FROM inbox_items WHERE id = ?", r.PathValue("id")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
 	server.Mux.HandleFunc("PUT /e2e/agents/{issue}/queue-reason", func(w http.ResponseWriter, r *http.Request) {
