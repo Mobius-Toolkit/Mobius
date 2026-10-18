@@ -321,11 +321,11 @@ func (e *Engine) runJudge(ctx context.Context, j judgeJob) {
 // handBackToHuman returns the task of a Judge that started from needs_human to needs_human, and gives the Lead a stop
 // event. The earlier stop already gave the Owner a comment and an open stopped Inbox item, so the Owner gets no second one.
 func (e *Engine) handBackToHuman(ctx context.Context, j judgeJob, reason string) error {
-	handed, err := e.handToHuman(ctx, j.task)
+	handed, err := e.handToHuman(ctx, j.task, j.title, stopText(j.task.Issue, j.title, reason), "", stopNotice{})
 	if err != nil || !handed {
 		return err
 	}
-	return e.addLeadEvent(ctx, j.task.Repository, j.task.Workstream, sql.NullInt64{Int64: j.task.Issue, Valid: true}, "stop", stopText(j.task.Issue, j.title, reason))
+	return e.sendStopNotices(ctx, j.task.Repository, j.task.ID)
 }
 
 // markJudged makes the newest item of the job the last item of the Judge.

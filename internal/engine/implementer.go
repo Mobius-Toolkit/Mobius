@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -62,6 +64,7 @@ const (
 	checkFailed   outcome = "check_failed"
 	notMerged     outcome = "not_merged"
 	pushRejected  outcome = "push_rejected"
+	noCommits     outcome = "no_commits"
 	mergeConflict outcome = "merge_conflict"
 )
 
@@ -442,7 +445,8 @@ func (e *Engine) cannotDo(ctx context.Context, c caller, repository github.Repos
 	return "Mobius ends this turn.", c.agent.cancel(ctx)
 }
 
-// holdReply keeps the reply of the Implementer of a fix round until the push of its commits.
+// holdReply posts the reply of the Implementer of a fix round at once when the worktree has nothing to push. Else it
+// keeps the reply until the push of the commits.
 func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repository, input threadInput) (string, error) {
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
@@ -458,8 +462,25 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 	if !found {
 		return "", refuse("%d is not a review thread or a comment of pull request #%d.", input.Thread, pullRequest)
 	}
+	task, err := e.workstreamTask(ctx, repository, c.workstream, c.agent.spec.Issue.Int64)
+	if err != nil {
+		return "", err
+	}
+	unpushed, err := runner.HasUnpushedWork(ctx, e.config.DataDir, c.agent.spec.Dir, task.Branch.String, repository.DefaultBranch)
+	if err != nil {
+		return "", err
+	}
+	if !unpushed && target.reply(ctx, repository, pullRequest, input.Text) == nil {
+		if target.resolve(ctx, repository) != nil {
+			c.agent.mu.Lock()
+			c.agent.replies = append(c.agent.replies, heldReply{target: target, posted: true})
+			c.agent.mu.Unlock()
+			return "Mobius posted the reply, but it could not resolve the thread. Mobius resolves the thread later. Do not reply again.", nil
+		}
+		return "Mobius posted the reply.", nil
+	}
 	c.agent.mu.Lock()
-	c.agent.replies = append(c.agent.replies, heldReply{target, input.Text})
+	c.agent.replies = append(c.agent.replies, heldReply{target: target, text: input.Text})
 	c.agent.mu.Unlock()
 	return "Mobius posts the reply after it pushes your commits.", nil
 }
@@ -504,7 +525,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 			return err
 		}
 		if added == 0 {
-			return e.stopAtLimit(ctx, repository, r, "fix")
+			return e.stopAtLimit(ctx, r, "fix")
 		}
 		current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: r.task.Repository, Issue: r.task.Issue})
 		if err != nil {
@@ -832,6 +853,13 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 			text:   "The conflict round did not merge the base branch. Mobius pushed the work.",
 			next:   fmt.Sprintf("Merge the base branch into the branch of PR #%d and resolve the conflicts. Then Resume.", j.pullRequest.GetNumber()),
 		})
+	case noCommits:
+		return e.handOver(ended, task, j.title, fmt.Sprintf("the branch has no commit, so GitHub opened no pull request. Mobius added mobius:needs-human. GitHub gave this error: %s. The work of the Implementer is in %s.", r.text, a.spec.Dir), stopNotice{
+			reason: "No commit",
+			text:   "The branch has no commit, so GitHub opened no pull request.",
+			output: fmt.Sprintf("GitHub gave this error: %s\nThe worktree is %s.", r.text, a.spec.Dir),
+			next:   "Read the Transcript of the Implementer. Commit the work in the worktree, or tell the Lead the next step. Then Resume.",
+		})
 	case mergeConflict:
 		return e.handOver(ended, task, j.title, fmt.Sprintf("the local branch diverged from origin/%s, and the merge had conflicts. Mobius pushed nothing and added mobius:needs-human. Git gave this error: %s. Resume gives the same conflict. First, in %s, merge origin/%s into the local branch and resolve the conflicts, or reset the local branch to origin/%s.", j.branch, r.text, a.spec.Dir, j.branch, j.branch), stopNotice{
 			reason: "Local branch diverged",
@@ -850,27 +878,22 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 
 // stopAtLimit hands the task of the round to a human, because the pull request has open items after max_fix_rounds
 // rounds of limit, for example "fix". The head of the pull request gets a failed Mobius check.
-func (e *Engine) stopAtLimit(ctx context.Context, repository github.Repository, r round, limit string) error {
-	handed, err := e.handToHuman(ctx, r.task)
+func (e *Engine) stopAtLimit(ctx context.Context, r round, limit string) error {
+	rounds := e.config.MaxFixRounds
+	summary := fmt.Sprintf("The pull request has open items after %d %s rounds.", rounds, limit)
+	reason := fmt.Sprintf("the pull request has open items after %d %s rounds. Mobius set the Mobius check to failure and added mobius:needs-human.", rounds, limit)
+	handed, err := e.handToHuman(ctx, r.task, r.title, stopText(r.task.Issue, r.title, reason), "", stopNotice{
+		reason:       "Round limit",
+		text:         summary,
+		next:         fmt.Sprintf("Read the open items of PR #%d. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.", r.pullRequest.GetNumber()),
+		checkTitle:   "Round limit",
+		checkSummary: summary,
+		createCheck:  true,
+	})
 	if err != nil || !handed {
 		return err
 	}
-	rounds := e.config.MaxFixRounds
-	summary := fmt.Sprintf("The pull request has open items after %d %s rounds.", rounds, limit)
-	pullRequest, err := repository.PullRequest(ctx, int64(r.pullRequest.GetNumber()))
-	if err != nil {
-		return err
-	}
-	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", "Round limit", summary); err != nil {
-		return err
-	}
-	reason := fmt.Sprintf("the pull request has open items after %d %s rounds. Mobius set the Mobius check to failure and added mobius:needs-human.", rounds, limit)
-	noticeErr := e.tellStop(ctx, r.task, r.title, stopNotice{
-		reason: "Round limit",
-		text:   summary,
-		next:   fmt.Sprintf("Read the open items of PR #%d. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.", pullRequest.GetNumber()),
-	})
-	return errors.Join(noticeErr, e.addLeadEvent(ctx, r.task.Repository, r.task.Workstream, sql.NullInt64{Int64: r.task.Issue, Valid: true}, "stop", stopText(r.task.Issue, r.title, reason)))
+	return e.sendStopNotices(ctx, r.task.Repository, r.task.ID)
 }
 
 // handOver hands the task to a human, and gives the Lead a stop event with reason, and the Owner a comment and an Inbox
@@ -880,20 +903,16 @@ func (e *Engine) handOver(ctx context.Context, task store.Task, title, reason st
 }
 
 // handOverFailed does handOver, and completes the Mobius check of the pull request of the task as failure with
-// checkTitle and checkSummary. An empty checkTitle leaves the check as it is. The Lead gets the stop event also when
-// the check fails.
+// checkTitle and checkSummary. An empty checkTitle leaves the check as it is. The Lead and the Owner get the stop event
+// and the Inbox item also when the check fails. The comment waits for the check.
 func (e *Engine) handOverFailed(ctx context.Context, task store.Task, title, reason, checkTitle, checkSummary string, notice stopNotice) error {
-	handed, err := e.handToHuman(ctx, task)
+	notice.checkTitle = checkTitle
+	notice.checkSummary = checkSummary
+	handed, err := e.handToHuman(ctx, task, title, stopText(task.Issue, title, reason), "", notice)
 	if err != nil || !handed {
 		return err
 	}
-	var checkErr error
-	if checkTitle != "" {
-		checkErr = e.failCheckRun(ctx, task, checkTitle, checkSummary)
-	}
-	noticeErr := e.tellStop(ctx, task, title, notice)
-	eventErr := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", stopText(task.Issue, title, reason))
-	return errors.Join(checkErr, noticeErr, eventErr)
+	return e.sendStopNotices(ctx, task.Repository, task.ID)
 }
 
 // failCheckRun completes the open Mobius check of the head of the pull request of the task as failure. It reads the task
@@ -1047,6 +1066,17 @@ func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result,
 			}
 			if err != nil {
 				return nil, "", err
+			}
+		}
+		if !timedOut && attempts < e.config.MaxCheckAttempts {
+			uncommitted, err := runner.HasUncommittedChanges(ctx, e.config.DataDir, a.spec.Dir)
+			if err != nil {
+				return nil, "", err
+			}
+			if uncommitted {
+				attempts++
+				prompt = "Your worktree has changes with no commit. Mobius pushes only commits. Wait for each command that you started, commit all work, and end the turn."
+				continue
 			}
 		}
 		var output string
@@ -1248,6 +1278,16 @@ func (e *Engine) deliver(ctx context.Context, a *Agent, j *job, failedLog string
 	}
 }
 
+// hasNoCommits tells if err is the answer of GitHub for a pull request whose head has no commit that the base does not
+// have.
+func hasNoCommits(err error) bool {
+	var response *gh.ErrorResponse
+	if !errors.As(err, &response) || response.Response.StatusCode != http.StatusUnprocessableEntity {
+		return false
+	}
+	return slices.ContainsFunc(response.Errors, func(detail gh.Error) bool { return strings.HasPrefix(detail.Message, "No commits between") })
+}
+
 // push merges the commits that others pushed to the branch (Mobius-rust#229), runs the local check again when the merge
 // brought new commits, pushes, opens the draft pull request of a new ticket, posts the held replies, and adds the
 // Mobius check run of the head. Each try uses the installation token of the last poll (Mobius-rust#398).
@@ -1315,6 +1355,9 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	}
 	if j.pullRequest == nil {
 		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, fmt.Sprintf("Workstream:\n- #%d\n\nIssue:\n- #%d\n\nCloses #%d", j.task.Workstream, j.task.Issue, j.task.Issue))
+		if hasNoCommits(err) {
+			return result{outcome: noCommits, text: err.Error()}, nil
+		}
 		if err != nil {
 			return result{}, err
 		}
@@ -1365,13 +1408,20 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	return pushedHead, e.setReviewStep(ctx, repository, head, task, j.conflictRound)
 }
 
-// postReplies posts the held replies of the Implementer on the pull request. A posted reply leaves the list, so a later
-// try posts only the others.
+// postReplies posts the held replies of the Implementer on the pull request and resolves their threads. A finished reply
+// leaves the list, and a posted reply is never posted again, so a later try does only the missing work.
 func (a *Agent) postReplies(ctx context.Context, repository github.Repository, pullRequest int64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for len(a.replies) > 0 {
-		if err := a.replies[0].target.post(ctx, repository, pullRequest, a.replies[0].text); err != nil {
+		held := &a.replies[0]
+		if !held.posted {
+			if err := held.target.reply(ctx, repository, pullRequest, held.text); err != nil {
+				return err
+			}
+			held.posted = true
+		}
+		if err := held.target.resolve(ctx, repository); err != nil {
 			return err
 		}
 		a.replies = a.replies[1:]

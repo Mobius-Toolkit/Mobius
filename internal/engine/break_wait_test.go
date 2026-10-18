@@ -161,6 +161,20 @@ func TestATaskWhoseCIFailsWhileTheDefaultBranchBreaksWaitsAndTheEndOfTheBreakUpd
 	}
 }
 
+func TestAFailedCheckRunThatShowsAfterTheFirstReadOfTheHeadInAPollGetsNoFixRoundWhileTheDefaultBranchBreaks(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixes, longGrace)
+	logStateOnFailure(t, server, fake)
+	sha := checksHead(t, server, fake)
+	hardBreak(t, server, fake)
+
+	fake.AddCheckRunAfterNextRead(shop, checkRun("build", sha, "completed", "failure"))
+
+	testkit.WaitFor(t, func() bool { return breakWaitHead(t, server) == sha })
+	wantWaiting(t, server, fake)
+}
+
 func TestTheWaitGoesOnWithNoConflictRoundUntilGitHubAddsTheMergeCommitOfTheBranchUpdate(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

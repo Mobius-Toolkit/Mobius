@@ -27,7 +27,9 @@ func TestAPollGivesATaskInNeedsHumanTheLabelsAfterAFailedHandToHuman(t *testing.
 	if hasLabel(fake, "mobius:needs-human") {
 		t.Fatalf("labels = %v", fake.Labels(shop, 41))
 	}
-	comments, items := len(fake.Comments(shop, 41)), len(inbox(t, server))
+	if comments, items := fake.Comments(shop, 41), inbox(t, server); len(comments) != 0 || len(items) != 0 {
+		t.Errorf("comments = %+v, inbox = %+v", comments, items)
+	}
 
 	fake.FailAddLabels(shop, 41, false)
 
@@ -35,8 +37,10 @@ func TestAPollGivesATaskInNeedsHumanTheLabelsAfterAFailedHandToHuman(t *testing.
 	if labels := fake.Labels(shop, 41); slices.Contains(labels, "mobius:working") || slices.Contains(labels, "mobius:review") {
 		t.Errorf("labels = %v", labels)
 	}
-	if len(fake.Comments(shop, 41)) != comments || len(inbox(t, server)) != items {
-		t.Errorf("comments = %+v, inbox = %+v", fake.Comments(shop, 41), inbox(t, server))
+	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 41)) == 1 && len(inbox(t, server)) == 1 })
+	waitForPolls(t, fake)
+	if comments, items := fake.Comments(shop, 41), inbox(t, server); len(comments) != 1 || len(items) != 1 {
+		t.Errorf("comments = %+v, inbox = %+v", comments, items)
 	}
 }
 

@@ -611,6 +611,41 @@ func (q *Queries) AddStepTime(ctx context.Context, arg AddStepTimeParams) error 
 	return err
 }
 
+const addStopNotice = `-- name: AddStopNotice :exec
+INSERT INTO stop_notices (task, title, reason, text, output, next, lead_text, check_title, check_summary, check_create, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type AddStopNoticeParams struct {
+	Task         int64
+	Title        string
+	Reason       string
+	Text         string
+	Output       string
+	Next         string
+	LeadText     string
+	CheckTitle   string
+	CheckSummary string
+	CheckCreate  bool
+	CreatedAt    string
+}
+
+func (q *Queries) AddStopNotice(ctx context.Context, arg AddStopNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, addStopNotice,
+		arg.Task,
+		arg.Title,
+		arg.Reason,
+		arg.Text,
+		arg.Output,
+		arg.Next,
+		arg.LeadText,
+		arg.CheckTitle,
+		arg.CheckSummary,
+		arg.CheckCreate,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const addTask = `-- name: AddTask :one
 INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at)
 VALUES (?, ?, ?, 'dispatched', ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
@@ -1108,6 +1143,15 @@ DELETE FROM device_logins WHERE password_fingerprint != ?
 
 func (q *Queries) DeleteOtherPasswordLogins(ctx context.Context, passwordFingerprint []byte) error {
 	_, err := q.db.ExecContext(ctx, deleteOtherPasswordLogins, passwordFingerprint)
+	return err
+}
+
+const deleteStopNotice = `-- name: DeleteStopNotice :exec
+DELETE FROM stop_notices WHERE id = ?
+`
+
+func (q *Queries) DeleteStopNotice(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteStopNotice, id)
 	return err
 }
 
@@ -4047,6 +4091,130 @@ func (q *Queries) ListStepTimesBetween(ctx context.Context, arg ListStepTimesBet
 			&i.EndedAt,
 			&i.Attempt,
 			&i.Result,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStopEvents = `-- name: ListStopEvents :many
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events WHERE repository = ? AND issue = ? AND kind = 'stop' AND payload = ?
+`
+
+type ListStopEventsParams struct {
+	Repository string
+	Issue      sql.NullInt64
+	Payload    string
+}
+
+func (q *Queries) ListStopEvents(ctx context.Context, arg ListStopEventsParams) ([]LeadEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listStopEvents, arg.Repository, arg.Issue, arg.Payload)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LeadEvent
+	for rows.Next() {
+		var i LeadEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Kind,
+			&i.Payload,
+			&i.Time,
+			&i.DeliveredAt,
+			&i.ChatMessage,
+			&i.Issue,
+			&i.Held,
+			&i.Comment,
+			&i.Review,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStopNotices = `-- name: ListStopNotices :many
+SELECT stop_notices.id, stop_notices.task, stop_notices.title, stop_notices.reason, stop_notices.text, stop_notices.output, stop_notices.next, stop_notices.lead_text, stop_notices.check_title, stop_notices.check_summary, stop_notices.check_create, stop_notices.created_at, tasks.id, tasks.repository, tasks.issue, tasks.workstream, tasks.state, tasks.dispatched_at, tasks.branch, tasks.queued_at, tasks.fix_rounds, tasks.pull_request, tasks.judged_at, tasks.worker_restarts, tasks.worker, tasks.worker_input, tasks.review_rounds, tasks.review_comment, tasks.check_head, tasks.approved_review, tasks.refused_review, tasks.needs_human_at, tasks.conflict_head, tasks.ci_failed_head, tasks.state_at, tasks.long_wait_at, tasks.check_errors, tasks.lead_findings, tasks.recoveries, tasks.break_wait_head, tasks.rerun_head, tasks.rerun_runs FROM stop_notices
+JOIN tasks ON tasks.id = stop_notices.task
+WHERE tasks.repository = ?
+ORDER BY stop_notices.id
+`
+
+type ListStopNoticesRow struct {
+	StopNotice StopNotice
+	Task       Task
+}
+
+func (q *Queries) ListStopNotices(ctx context.Context, repository string) ([]ListStopNoticesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listStopNotices, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListStopNoticesRow
+	for rows.Next() {
+		var i ListStopNoticesRow
+		if err := rows.Scan(
+			&i.StopNotice.ID,
+			&i.StopNotice.Task,
+			&i.StopNotice.Title,
+			&i.StopNotice.Reason,
+			&i.StopNotice.Text,
+			&i.StopNotice.Output,
+			&i.StopNotice.Next,
+			&i.StopNotice.LeadText,
+			&i.StopNotice.CheckTitle,
+			&i.StopNotice.CheckSummary,
+			&i.StopNotice.CheckCreate,
+			&i.StopNotice.CreatedAt,
+			&i.Task.ID,
+			&i.Task.Repository,
+			&i.Task.Issue,
+			&i.Task.Workstream,
+			&i.Task.State,
+			&i.Task.DispatchedAt,
+			&i.Task.Branch,
+			&i.Task.QueuedAt,
+			&i.Task.FixRounds,
+			&i.Task.PullRequest,
+			&i.Task.JudgedAt,
+			&i.Task.WorkerRestarts,
+			&i.Task.Worker,
+			&i.Task.WorkerInput,
+			&i.Task.ReviewRounds,
+			&i.Task.ReviewComment,
+			&i.Task.CheckHead,
+			&i.Task.ApprovedReview,
+			&i.Task.RefusedReview,
+			&i.Task.NeedsHumanAt,
+			&i.Task.ConflictHead,
+			&i.Task.CiFailedHead,
+			&i.Task.StateAt,
+			&i.Task.LongWaitAt,
+			&i.Task.CheckErrors,
+			&i.Task.LeadFindings,
+			&i.Task.Recoveries,
+			&i.Task.BreakWaitHead,
+			&i.Task.RerunHead,
+			&i.Task.RerunRuns,
 		); err != nil {
 			return nil, err
 		}

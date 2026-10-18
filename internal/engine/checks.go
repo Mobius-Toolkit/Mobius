@@ -99,15 +99,12 @@ func ciItems(ctx context.Context, repository github.Repository, head string) (st
 
 // onFailure starts a fix round when check runs of other Apps failed on the head of the pull request of the task in
 // ready_for_review, checks or approval, and each check run and workflow run of the head completed. A head gets one
-// round. It gives true when a round started, or when the task left its state.
-func (e *Engine) onFailure(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
+// round. It decides from state, the CI of the head that the caller read. It gives true when a round started, or when
+// the task left its state.
+func (e *Engine) onFailure(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, state ci) (bool, error) {
 	head := pullRequest.GetHead().GetSHA()
-	if task.CheckHead.String == head {
+	if task.CheckHead.String == head || state.running || !state.failedCheck && !state.failedWorkflow {
 		return false, nil
-	}
-	state, err := ciOf(ctx, repository, head)
-	if err != nil || state.running {
-		return false, err
 	}
 	items, err := ciItems(ctx, repository, head)
 	if err != nil {
@@ -152,15 +149,11 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 // not complete, or while a run that Mobius ran again is still in its first attempt, because
 // GitHub can list the first attempt and its failed check runs for some time after the re-run. A failed run that Mobius
 // did not run again goes to a human. A head whose workflow run failed with no failed check run to fix goes to a human.
-func (e *Engine) onChecks(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
+func (e *Engine) onChecks(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, state ci) error {
 	if pullRequest.Mergeable == nil {
 		return nil
 	}
 	head := pullRequest.GetHead().GetSHA()
-	state, err := ciOf(ctx, repository, head)
-	if err != nil {
-		return err
-	}
 	switch {
 	case task.RerunHead.String == head && (state.running || len(rerunWaiting(task, state)) > 0):
 		return e.onLongCIWait(ctx, repository, task, pullRequest, append(state.incomplete, rerunWaiting(task, state)...))
@@ -314,32 +307,27 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
-	handed, err := e.handToHuman(ctx, task)
+	issue, err := existingIssue(ctx, repository, task.Issue)
+	if err != nil {
+		return err
+	}
+	reason := "the CI of the head commit failed, and a fix round cannot change it. Mobius set the Mobius check to failure and added mobius:needs-human."
+	handed, err := e.handToHuman(ctx, task, issue.GetTitle(), stopText(task.Issue, issue.GetTitle(), reason), pullRequest.GetHead().GetSHA(), stopNotice{
+		reason: "CI failed",
+		text:   "The CI of the head commit failed, and a fix round cannot change it.",
+		next: fmt.Sprintf("Read the failed jobs of PR #%d. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.",
+			pullRequest.GetNumber()),
+		checkTitle:   "CI failed",
+		checkSummary: "The CI of the head commit failed, and a fix round cannot change it.",
+		createCheck:  true,
+	})
 	if err != nil || !handed {
 		return err
 	}
 	if found {
 		e.addCIStep(ctx, task, implementer, "failure")
 	}
-	head := sql.NullString{String: pullRequest.GetHead().GetSHA(), Valid: true}
-	if err := e.queries.SetTaskCiFailedHead(ctx, store.SetTaskCiFailedHeadParams{CiFailedHead: head, ID: task.ID}); err != nil {
-		return err
-	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
-	if err != nil {
-		return err
-	}
-	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", "CI failed", "The CI of the head commit failed, and a fix round cannot change it."); err != nil {
-		return err
-	}
-	reason := "the CI of the head commit failed, and a fix round cannot change it. Mobius set the Mobius check to failure and added mobius:needs-human."
-	noticeErr := e.tellStop(ctx, task, issue.GetTitle(), stopNotice{
-		reason: "CI failed",
-		text:   "The CI of the head commit failed, and a fix round cannot change it.",
-		next: fmt.Sprintf("Read the failed jobs of PR #%d. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.",
-			pullRequest.GetNumber()),
-	})
-	return errors.Join(noticeErr, e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", stopText(task.Issue, issue.GetTitle(), reason)))
+	return e.sendStopNotices(ctx, task.Repository, task.ID)
 }
 
 // ci is what the check runs of other Apps and the workflow runs of GitHub Actions on a head show.

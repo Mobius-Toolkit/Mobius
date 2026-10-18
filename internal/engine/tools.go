@@ -209,7 +209,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.cannotDo),
 			tool(e, c, "reply_thread",
-				"Reply in a review thread of the pull request in a fix round. Mobius posts the reply after it pushes your commits, so the SHA of a fix commit in the text links to a pushed commit. Mobius resolves the thread after the reply.",
+				"Reply in a review thread or to a conversation comment of the pull request in a fix round. Commit the fix before you reply about it. When your worktree has work that Mobius did not push, Mobius posts the reply after it pushes your commits, so the SHA of a fix commit in the text links to a pushed commit. Else Mobius posts the reply at once. Mobius resolves the thread after the reply.",
 				map[string]any{
 					"thread": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the thread or the comment in the prompt. Mobius cannot resolve a conversation comment."},
 					"text":   map[string]any{"type": "string", "minLength": 1, "description": "The SHA of the fix commit, an answer, a follow-up link, or a reason to reject. Do not write an acknowledgement."},
