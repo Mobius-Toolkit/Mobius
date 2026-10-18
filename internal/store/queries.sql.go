@@ -113,13 +113,14 @@ func (q *Queries) AddCheckTimeout(ctx context.Context, arg AddCheckTimeoutParams
 }
 
 const addCommentWrite = `-- name: AddCommentWrite :exec
-INSERT INTO comment_writes (repository, number, comment, body) VALUES (?, ?, ?, ?)
+INSERT INTO comment_writes (repository, number, comment, reply_to, body) VALUES (?, ?, ?, ?, ?)
 `
 
 type AddCommentWriteParams struct {
 	Repository string
 	Number     sql.NullInt64
 	Comment    sql.NullInt64
+	ReplyTo    sql.NullInt64
 	Body       string
 }
 
@@ -128,6 +129,7 @@ func (q *Queries) AddCommentWrite(ctx context.Context, arg AddCommentWriteParams
 		arg.Repository,
 		arg.Number,
 		arg.Comment,
+		arg.ReplyTo,
 		arg.Body,
 	)
 	return err
@@ -612,7 +614,7 @@ func (q *Queries) AddStepTime(ctx context.Context, arg AddStepTimeParams) error 
 }
 
 const addStopNotice = `-- name: AddStopNotice :exec
-INSERT INTO stop_notices (task, title, reason, text, output, next, lead_text, check_title, check_summary, check_create, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO stop_notices (task, title, reason, text, output, next, lead_kind, lead_text, check_title, check_summary, check_create, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type AddStopNoticeParams struct {
@@ -622,6 +624,7 @@ type AddStopNoticeParams struct {
 	Text         string
 	Output       string
 	Next         string
+	LeadKind     string
 	LeadText     string
 	CheckTitle   string
 	CheckSummary string
@@ -637,6 +640,7 @@ func (q *Queries) AddStopNotice(ctx context.Context, arg AddStopNoticeParams) er
 		arg.Text,
 		arg.Output,
 		arg.Next,
+		arg.LeadKind,
 		arg.LeadText,
 		arg.CheckTitle,
 		arg.CheckSummary,
@@ -2427,7 +2431,7 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 }
 
 const listCommentWrites = `-- name: ListCommentWrites :many
-SELECT id, repository, number, comment, body FROM comment_writes WHERE repository = ? ORDER BY id
+SELECT id, repository, number, comment, body, reply_to FROM comment_writes WHERE repository = ? ORDER BY id
 `
 
 func (q *Queries) ListCommentWrites(ctx context.Context, repository string) ([]CommentWrite, error) {
@@ -2445,6 +2449,7 @@ func (q *Queries) ListCommentWrites(ctx context.Context, repository string) ([]C
 			&i.Number,
 			&i.Comment,
 			&i.Body,
+			&i.ReplyTo,
 		); err != nil {
 			return nil, err
 		}
@@ -4106,17 +4111,23 @@ func (q *Queries) ListStepTimesBetween(ctx context.Context, arg ListStepTimesBet
 }
 
 const listStopEvents = `-- name: ListStopEvents :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events WHERE repository = ? AND issue = ? AND kind = 'stop' AND payload = ?
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events WHERE repository = ? AND issue = ? AND kind = ? AND payload = ?
 `
 
 type ListStopEventsParams struct {
 	Repository string
 	Issue      sql.NullInt64
+	Kind       string
 	Payload    string
 }
 
 func (q *Queries) ListStopEvents(ctx context.Context, arg ListStopEventsParams) ([]LeadEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listStopEvents, arg.Repository, arg.Issue, arg.Payload)
+	rows, err := q.db.QueryContext(ctx, listStopEvents,
+		arg.Repository,
+		arg.Issue,
+		arg.Kind,
+		arg.Payload,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -4152,7 +4163,7 @@ func (q *Queries) ListStopEvents(ctx context.Context, arg ListStopEventsParams) 
 }
 
 const listStopNotices = `-- name: ListStopNotices :many
-SELECT stop_notices.id, stop_notices.task, stop_notices.title, stop_notices.reason, stop_notices.text, stop_notices.output, stop_notices.next, stop_notices.lead_text, stop_notices.check_title, stop_notices.check_summary, stop_notices.check_create, stop_notices.created_at, tasks.id, tasks.repository, tasks.issue, tasks.workstream, tasks.state, tasks.dispatched_at, tasks.branch, tasks.queued_at, tasks.fix_rounds, tasks.pull_request, tasks.judged_at, tasks.worker_restarts, tasks.worker, tasks.worker_input, tasks.review_rounds, tasks.review_comment, tasks.check_head, tasks.approved_review, tasks.refused_review, tasks.needs_human_at, tasks.conflict_head, tasks.ci_failed_head, tasks.state_at, tasks.long_wait_at, tasks.check_errors, tasks.lead_findings, tasks.recoveries, tasks.break_wait_head, tasks.rerun_head, tasks.rerun_runs FROM stop_notices
+SELECT stop_notices.id, stop_notices.task, stop_notices.title, stop_notices.reason, stop_notices.text, stop_notices.output, stop_notices.next, stop_notices.lead_text, stop_notices.check_title, stop_notices.check_summary, stop_notices.check_create, stop_notices.created_at, stop_notices.lead_kind, tasks.id, tasks.repository, tasks.issue, tasks.workstream, tasks.state, tasks.dispatched_at, tasks.branch, tasks.queued_at, tasks.fix_rounds, tasks.pull_request, tasks.judged_at, tasks.worker_restarts, tasks.worker, tasks.worker_input, tasks.review_rounds, tasks.review_comment, tasks.check_head, tasks.approved_review, tasks.refused_review, tasks.needs_human_at, tasks.conflict_head, tasks.ci_failed_head, tasks.state_at, tasks.long_wait_at, tasks.check_errors, tasks.lead_findings, tasks.recoveries, tasks.break_wait_head, tasks.rerun_head, tasks.rerun_runs FROM stop_notices
 JOIN tasks ON tasks.id = stop_notices.task
 WHERE tasks.repository = ?
 ORDER BY stop_notices.id
@@ -4185,6 +4196,7 @@ func (q *Queries) ListStopNotices(ctx context.Context, repository string) ([]Lis
 			&i.StopNotice.CheckSummary,
 			&i.StopNotice.CheckCreate,
 			&i.StopNotice.CreatedAt,
+			&i.StopNotice.LeadKind,
 			&i.Task.ID,
 			&i.Task.Repository,
 			&i.Task.Issue,

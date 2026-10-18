@@ -120,6 +120,7 @@ type FakeGitHub struct {
 	failedParents                              map[issueKey]bool
 	failedSubIssueAdds                         map[issueKey]bool
 	failedComments                             map[issueKey]bool
+	refusedComments                            map[issueKey]int
 	failedCommentUpdates                       map[issueKey]bool
 	failedLabels                               map[issueKey]bool
 	labelWrites                                map[issueKey]int
@@ -141,7 +142,8 @@ type FakeGitHub struct {
 	hangs map[string]bool
 	// routeLimits holds the route patterns whose next request gets the rate-limit answer, with the reset time.
 	routeLimits map[string]time.Time
-	// routeHolds holds the route patterns whose next request waits for the close of the channel.
+	// routeHolds holds the route patterns whose next request waits for the close of the channel. A key of the form
+	// "<pattern> <path>" holds only a request to that path.
 	routeHolds   map[string]chan struct{}
 	pullRequests []pullRequest
 	// createdAt holds the creation time of each issue and pull request, in seconds after the Unix epoch.
@@ -186,6 +188,8 @@ type FakeGitHub struct {
 	jobLogRefusal int
 	// closeRefusal is the status that the close of an issue gives, or 0 when it works.
 	closeRefusal int
+	// replyRefusal is the status that a reply in a review thread gives, or 0 when it works.
+	replyRefusal int
 }
 
 // A grant is a user code or a refresh token: the login of the user and the App index.
@@ -238,6 +242,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedParents:           map[issueKey]bool{},
 		failedSubIssueAdds:      map[issueKey]bool{},
 		failedComments:          map[issueKey]bool{},
+		refusedComments:         map[issueKey]int{},
 		failedCommentUpdates:    map[issueKey]bool{},
 		failedLabels:            map[issueKey]bool{},
 		labelWrites:             map[issueKey]int{},
@@ -353,6 +358,12 @@ func (g *FakeGitHub) HoldNext(pattern string) (release func()) {
 	return func() { close(hold) }
 }
 
+// HoldNextOf makes the next request to the route pattern with the URL path path wait until the returned function is
+// called. A request to another path of the route passes.
+func (g *FakeGitHub) HoldNextOf(pattern, path string) (release func()) {
+	return g.HoldNext(pattern + " " + path)
+}
+
 // Request is a request that the fake GitHub got, with the status of its response.
 type Request struct {
 	Method string
@@ -404,8 +415,14 @@ func (g *FakeGitHub) hanging(mux *http.ServeMux) http.Handler {
 		limited := g.rateLimited
 		hang := g.hangs[pattern]
 		delete(g.hangs, pattern)
-		routeHold := g.routeHolds[pattern]
-		delete(g.routeHolds, pattern)
+		pathKey := pattern + " " + r.URL.Path
+		routeHold := g.routeHolds[pathKey]
+		if routeHold != nil {
+			delete(g.routeHolds, pathKey)
+		} else {
+			routeHold = g.routeHolds[pattern]
+			delete(g.routeHolds, pattern)
+		}
 		reset, routeLimited := g.routeLimits[pattern]
 		delete(g.routeLimits, pattern)
 		g.mu.Unlock()

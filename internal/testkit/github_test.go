@@ -813,6 +813,47 @@ func TestTheRequestLogShowsAnOKAnswerAndANotModifiedAnswerOfTheIssueList(t *test
 	}
 }
 
+func TestAHoldOfAPathKeepsTheHoldOfTheRouteForTheNextRequestOfAnotherPath(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("owner/shop", 12, "Integrate loyalty plans")
+	token := installationToken(t, github)
+	pattern := "GET /repos/{owner}/{repo}/issues/{number}/sub_issues"
+	releaseRoute := github.HoldNext(pattern)
+	releasePath := github.HoldNextOf(pattern, "/repos/owner/shop/issues/12/sub_issues")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		request, err := http.NewRequest(http.MethodGet, github.URL+"/repos/owner/shop/issues/12/sub_issues", nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		reply, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		_ = reply.Body.Close()
+	}()
+	WaitFor(t, func() bool {
+		github.mu.Lock()
+		defer github.mu.Unlock()
+		return github.routeHolds[pattern+" /repos/owner/shop/issues/12/sub_issues"] == nil
+	})
+	releasePath()
+	<-done
+
+	github.mu.Lock()
+	kept := github.routeHolds[pattern] != nil
+	github.mu.Unlock()
+	if !kept {
+		t.Error("the request of the path used the hold of the route")
+	}
+	releaseRoute()
+}
+
 // untimed checks that each request has a time, and gives the requests with no time.
 func untimed(t *testing.T, requests []Request) []Request {
 	t.Helper()

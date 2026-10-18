@@ -210,6 +210,13 @@ func (g *FakeGitHub) repositoryReviewComments(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, page(w, r, comments))
 }
 
+// RefuseReviewReplies makes each reply in a review thread give the status. The status 0 makes the reply work.
+func (g *FakeGitHub) RefuseReviewReplies(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.replyRefusal = status
+}
+
 // replyToReviewComment adds a reply of the token owner to the thread that starts with the comment in_reply_to.
 func (g *FakeGitHub) replyToReviewComment(w http.ResponseWriter, r *http.Request) {
 	var request struct {
@@ -224,6 +231,10 @@ func (g *FakeGitHub) replyToReviewComment(w http.ResponseWriter, r *http.Request
 	defer g.mu.Unlock()
 	key, ok := g.issue(w, r)
 	if !ok {
+		return
+	}
+	if g.replyRefusal != 0 {
+		message(w, g.replyRefusal, "Resource not accessible by integration")
 		return
 	}
 	for _, comment := range g.issues[key].reviewComments {

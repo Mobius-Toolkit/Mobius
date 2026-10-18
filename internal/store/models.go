@@ -55,6 +55,7 @@ type CommentWrite struct {
 	Number     sql.NullInt64
 	Comment    sql.NullInt64
 	Body       string
+	ReplyTo    sql.NullInt64
 }
 
 type Event struct {
@@ -174,6 +175,7 @@ type StopNotice struct {
 	CheckSummary string
 	CheckCreate  bool
 	CreatedAt    string
+	LeadKind     string
 }
 
 type Task struct {

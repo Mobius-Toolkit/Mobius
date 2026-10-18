@@ -233,6 +233,37 @@ func TestAStalePullRequestWithAMergeConflictGoesToAHuman(t *testing.T) {
 	}
 }
 
+func TestAStalePullRequestWhoseLabelCallFailsSendsTheStopNoticeAtALaterPoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := startReady(t, fake, "", commits)
+	fake.SetCreatedAt(shop, 42, 0)
+	fake.FailAddLabels(shop, 41, true)
+
+	fake.CommitFile(shop, "plan.txt", "dollars\n", "Use dollars")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	waitForPolls(t, fake)
+	if items := itemsOf(t, server, "stopped"); len(items) != 0 {
+		t.Errorf("stopped items = %+v", items)
+	}
+	fake.FailAddLabels(shop, 41, false)
+
+	wantStopNotice(t, server, fake, "PR #42 has a merge conflict", "Pull request #42 of #41 \"Add plan model\" has a merge conflict and is older than 7 days.",
+		"Close the pull request, or Resume for a conflict round.")
+	testkit.WaitFor(t, func() bool {
+		var events, notices int
+		err := server.DB.QueryRow("SELECT (SELECT count(*) FROM lead_events WHERE kind = 'stale_pull_request' AND issue = 41), (SELECT count(*) FROM stop_notices)").Scan(&events, &notices)
+		return err == nil && events == 1 && notices == 0
+	})
+	if runs := mobiusCheckRuns(fake); len(runs) != 1 || runs[0].Status != "completed" || runs[0].Conclusion != "failure" || runs[0].Output == nil || runs[0].Output.Title != "Stale pull request" {
+		t.Errorf("check runs = %+v", runs)
+	}
+	if !hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:working") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+}
+
 func TestARemovalOfNeedsHumanFromATaskWithAMergeConflictStartsAConflictRoundOnTheSamePullRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
