@@ -105,9 +105,46 @@ func TestAStopWhileAnAutonomousTurnRunsEndsTheWaitAndSendsNoPrompt(t *testing.T)
 	})
 	sendChat(t, server, leadChat, "Also add a plan price")
 	testkit.WaitFor(t, func() bool {
+		for _, message := range chatView(t, server, leadChat).Messages {
+			if message.Text == "Also add a plan price" {
+				return message.DeliveredAt.Valid
+			}
+		}
+		return false
+	})
+	testkit.WaitFor(t, func() bool {
 		stopChat(t, server, leadChat)
 		return !chatView(t, server, leadChat).Writing
 	})
+	if got := promptTexts(t, server, session.ID); len(got) != 1 {
+		t.Errorf("prompts = %q", got)
+	}
+}
+
+func TestAStopBeforeTheChatLoopTakesAMessageEndsTheWriting(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, "[[prompts]]\nreply = [\"First\"]\n", keepSessionOpen)
+	sendChat(t, server, leadChat, "Plan the loyalty API")
+	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(session store.Session) bool {
+		return lineID(t, server, session.ID, "update", "First") != 0
+	})
+	testkit.WaitFor(t, func() bool { return !chatView(t, server, leadChat).Writing })
+	if err := server.Engine.QueueOwnerMessageWithoutWake(t.Context(), leadChat, "Also add a plan price"); err != nil {
+		t.Fatal(err)
+	}
+
+	stopChat(t, server, leadChat)
+
+	testkit.WaitFor(t, func() bool { return !chatView(t, server, leadChat).Writing })
+	var owner []store.ChatMessage
+	for _, message := range chatView(t, server, leadChat).Messages {
+		if message.Author == "Owner" {
+			owner = append(owner, message)
+		}
+	}
+	if len(owner) != 2 || !owner[1].StoppedAt.Valid || owner[1].DeliveredAt.Valid {
+		t.Errorf("owner messages = %+v", owner)
+	}
 	if got := promptTexts(t, server, session.ID); len(got) != 1 {
 		t.Errorf("prompts = %q", got)
 	}
