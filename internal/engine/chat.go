@@ -455,10 +455,11 @@ func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 	return err
 }
 
-// dropQueuedOwnerMessages removes each message of the Owner from the queue of c and stops it. The caller holds
-// e.chatsMu.
+// dropQueuedOwnerMessages removes each message of the Owner from the queue of c and stops it. It wakes idle, because
+// the chat loop can wait there with a queue that is now empty. The caller holds e.chatsMu.
 func (e *Engine) dropQueuedOwnerMessages(ctx context.Context, c *chat) error {
 	var errs []error
+	c.notify()
 	c.queue = slices.DeleteFunc(c.queue, func(queued item) bool {
 		if !isOwnerMessage(queued) {
 			return false
@@ -872,14 +873,8 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 func (e *Engine) next(c *chat) (item, bool) {
 	e.chatsMu.Lock()
 	if len(c.queue) == 0 {
-		stopped := c.writing
-		c.writing = false
-		agent := c.agent
 		e.chatsMu.Unlock()
-		if stopped {
-			e.publish(Change{Chat: &ChatState{Key: c.key}})
-			e.publishSession(agent)
-		}
+		e.stopWriting(c)
 		return item{}, false
 	}
 	defer e.chatsMu.Unlock()
@@ -888,8 +883,22 @@ func (e *Engine) next(c *chat) (item, bool) {
 	return next, true
 }
 
+// stopWriting sets writing to false when no item waits.
+func (e *Engine) stopWriting(c *chat) {
+	e.chatsMu.Lock()
+	if len(c.queue) > 0 || !c.writing {
+		e.chatsMu.Unlock()
+		return
+	}
+	c.writing = false
+	agent := c.agent
+	e.chatsMu.Unlock()
+	e.publish(Change{Chat: &ChatState{Key: c.key}})
+	e.publishSession(agent)
+}
+
 // idle waits for a new item, and gives true when the chat must close: after lead_idle_timeout, or at once while
-// the drain is on.
+// the drain is on. A stop that drops the queued messages wakes idle, so idle sets writing to false.
 func (e *Engine) idle(c *chat) (bool, error) {
 	timeout := time.NewTimer(e.config.LeadIdleTimeout)
 	defer timeout.Stop()
@@ -897,6 +906,9 @@ func (e *Engine) idle(c *chat) (bool, error) {
 		e.chatsMu.Lock()
 		queued := len(c.queue) > 0
 		e.chatsMu.Unlock()
+		if !queued {
+			e.stopWriting(c)
+		}
 		switch {
 		case queued:
 			return false, nil
