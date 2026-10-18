@@ -254,14 +254,14 @@ test("screenshots", async ({ page }) => {
   const stoppedRow = main.getByRole("listitem").filter({ hasText: "Add plan model" });
   await screenshot(page, "chat-stop-reason", "/workstreams/owner/shop/12", (device) => [
     ...chatReady(device),
-    stoppedRow.getByRole("button", { name: "Details" }),
+    stoppedRow.getByRole("button", { name: "Answer" }),
   ]);
   await screenshot(
     page,
     "chat-stop-details",
     "/workstreams/owner/shop/12",
     () => page.getByRole("dialog", { name: "Add plan model" }),
-    () => stoppedRow.getByRole("button", { name: "Details" }).click(),
+    () => stoppedRow.getByRole("button", { name: "Answer" }).click(),
     () => page.keyboard.press("Escape"),
   );
   const photos = [
@@ -509,7 +509,7 @@ test("screenshots", async ({ page }) => {
       page.getByRole("dialog").getByText("is ready for review."),
       page.getByRole("dialog").getByRole("link", { name: "Approval report" }),
     ],
-    openPanel("Details", 3),
+    openPanel("Details", 1),
   );
   await screenshot(
     page,
@@ -520,6 +520,16 @@ test("screenshots", async ({ page }) => {
       page.getByRole("dialog").getByRole("textbox", { name: "Your answer" }),
     ],
     openPanel("Answer", 0),
+  );
+  await screenshot(
+    page,
+    "inbox-answer-input",
+    "/inbox",
+    () => page.getByRole("dialog").getByRole("textbox", { name: "Your answer" }),
+    async (device) => {
+      await openPanel("Answer", 0)(device);
+      await page.getByRole("dialog").getByRole("textbox", { name: "Your answer" }).click();
+    },
   );
   await page.unroute("/api/inbox");
   await page.route("**/api/ci-stops", (route) =>

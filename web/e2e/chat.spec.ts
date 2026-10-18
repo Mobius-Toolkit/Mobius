@@ -996,7 +996,7 @@ test("Resume takes the issue off the list, and the hint goes away", async ({ pag
   }
 });
 
-test("Details of a row in the chat opens a panel with the rendered text", async ({ page }) => {
+test("Answer of a row in the chat opens a panel with the rendered text", async ({ page }) => {
   await page.setViewportSize(phone);
   await routeInboxItems(page, stoppedItems);
   await page.goto(shop);
@@ -1010,7 +1010,7 @@ test("Details of a row in the chat opens a panel with the rendered text", async 
   expect(message.y + message.height).toBeLessThanOrEqual(input.y);
   expect(message.height).toBeGreaterThan(0);
 
-  await row.getByRole("button", { name: "Details" }).click();
+  await row.getByRole("button", { name: "Answer" }).click();
   const dialog = page.getByRole("dialog", { name: "Add plan model" });
   await expect(
     dialog.getByText("Each plan needs a limit of seats and a price in cents."),
@@ -1044,7 +1044,7 @@ test("a question shows the same row, with the same buttons, in the Inbox and in 
   const chat = await actionsOf(page, shop, longTitle);
 
   expect(chat).toEqual(inbox);
-  expect(chat.buttons).toEqual(["Answer", "Details"]);
+  expect(chat.buttons).toEqual(["Answer"]);
   expect(chat.links).toEqual([
     "#409:https://github.com/owner/shop/issues/409",
     "Open GitHub:https://github.com/owner/shop/issues/409",
@@ -1055,7 +1055,7 @@ test("a stopped task shows Resume, Answer and Open GitHub in the chat", async ({
   await routeInboxItems(page, stoppedItems);
   const chat = await actionsOf(page, shop, "Let customers change plans");
 
-  expect(chat.buttons).toEqual(["Resume", "Answer", "Details"]);
+  expect(chat.buttons).toEqual(["Resume", "Answer"]);
   expect(chat.links).toContain("Open GitHub:https://github.com/owner/shop/issues/42");
 });
 
@@ -1141,7 +1141,7 @@ test("a row in the chat shares the line with its link on a phone, and shows its 
   const title = row.getByText(longTitle);
   const reason = row.getByText("The Lead asks a question");
   const reference = row.getByRole("link", { name: "#409", exact: true });
-  const buttons = ["Answer", "Details"].map((name) => row.getByRole("button", { name }));
+  const answer = row.getByRole("button", { name: "Answer" });
   const noHorizontalScroll = () =>
     page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth");
 
@@ -1155,12 +1155,10 @@ test("a row in the chat shares the line with its link on a phone, and shows its 
   expect(phoneReference.y + phoneReference.height).toBeGreaterThan(phoneTitle.y);
   const phoneReason = await boxOf(reason);
   expect(phoneReason.y).toBeGreaterThanOrEqual(phoneTitle.y + phoneTitle.height);
-  for (const next of buttons) {
-    await expect(next).toBeVisible();
-    const box = await boxOf(next);
-    expect(box.y).toBeGreaterThanOrEqual(phoneReason.y + phoneReason.height);
-    expect(box.x + box.width).toBeLessThanOrEqual(phone.width);
-  }
+  await expect(answer).toBeVisible();
+  const phoneAnswer = await boxOf(answer);
+  expect(phoneAnswer.y).toBeGreaterThanOrEqual(phoneReason.y + phoneReason.height);
+  expect(phoneAnswer.x + phoneAnswer.width).toBeLessThanOrEqual(phone.width);
   expect(await noHorizontalScroll()).toBe(true);
 
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -1171,10 +1169,12 @@ test("a row in the chat shares the line with its link on a phone, and shows its 
   expect(desktopReference.y).toBeLessThan(desktopTitle.y + desktopTitle.height);
   expect(desktopReference.y + desktopReference.height).toBeGreaterThan(desktopTitle.y);
   await expect(title).toHaveJSProperty("scrollWidth", await title.evaluate((el) => el.clientWidth));
-  await expect(buttons[1]).toBeVisible();
+  await expect(answer).toBeVisible();
   const desktopRow = await boxOf(row);
-  const details = await boxOf(buttons[1]);
-  expect(details.x + details.width).toBeLessThanOrEqual(desktopRow.x + desktopRow.width);
+  const desktopAnswer = await boxOf(answer);
+  expect(desktopAnswer.x + desktopAnswer.width).toBeLessThanOrEqual(
+    desktopRow.x + desktopRow.width,
+  );
   expect(await noHorizontalScroll()).toBe(true);
 });
 
