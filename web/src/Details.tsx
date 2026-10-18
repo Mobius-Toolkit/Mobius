@@ -1,5 +1,4 @@
 import { use, useCallback, useEffect, useState } from "react";
-import { useRouter } from "@tanstack/react-router";
 import {
   closeWorkstream,
   getWorkstreamDetails,
@@ -27,7 +26,6 @@ type Workstream = { owner: string; name: string; number: number };
 
 function Confirmation({ owner, name, number }: Workstream) {
   const showLogin = use(LoginContext);
-  const router = useRouter();
   const [items, setItems] = useState<ClosureItem[]>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -49,14 +47,9 @@ function Confirmation({ owner, name, number }: Workstream) {
   const close = () => {
     setBusy(true);
     setError(undefined);
-    const pathname = router.state.location.pathname;
     closeWorkstream(owner, name, number)
       .then((res) => {
-        if (res.status === 204) {
-          if (router.state.location.pathname === pathname) {
-            void router.navigate({ to: "/workstreams" });
-          }
-        } else {
+        if (res.status !== 204) {
           setError(res.data.error);
           setBusy(false);
         }

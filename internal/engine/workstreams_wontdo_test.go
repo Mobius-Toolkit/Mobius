@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"slices"
@@ -206,4 +207,91 @@ func TestACloseAsWontDoClosesTheOpenPullRequestOfAClosedTaskIssue(t *testing.T) 
 	if slices.Contains(fake.Comments(shop, 45), closedComment) {
 		t.Errorf("comments of #45 = %v", fake.Comments(shop, 45))
 	}
+}
+
+const closeIssuePattern = "PATCH /repos/{owner}/{repo}/issues/{number}"
+
+// startClose sends the "won't do" close of #12 in a goroutine, and gives the channel of its status.
+func startClose(t *testing.T, server *testserver.Server) <-chan int {
+	t.Helper()
+	statuses := make(chan int, 1)
+	go func() {
+		status, _ := closeWontDo(t, server, 12)
+		statuses <- status
+	}()
+	return statuses
+}
+
+func waitForNoWorkstream(t *testing.T, server *testserver.Server) {
+	t.Helper()
+	testkit.WaitFor(t, func() bool { return len(workstreams(t, server)) == 0 })
+}
+
+func TestACloseAsWontDoHidesTheWorkstreamWhileTheCloseRuns(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+	release := fake.HoldNext(closeIssuePattern)
+
+	statuses := startClose(t, server)
+
+	waitForNoWorkstream(t, server)
+	release()
+	if status := <-statuses; status != http.StatusNoContent {
+		t.Fatalf("status = %d", status)
+	}
+	if list := workstreams(t, server); len(list) != 0 {
+		t.Errorf("workstreams = %+v", list)
+	}
+}
+
+func TestAFailedCloseAsWontDoShowsTheWorkstreamAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+	fake.FailClose(shop, 12)
+	release := fake.HoldNext(closeIssuePattern)
+
+	statuses := startClose(t, server)
+
+	waitForNoWorkstream(t, server)
+	release()
+	if status := <-statuses; status != http.StatusInternalServerError {
+		t.Errorf("status = %d", status)
+	}
+	if list := workstreams(t, server); len(list) != 1 {
+		t.Errorf("workstreams = %+v", list)
+	}
+}
+
+func TestACloseAsWontDoEndsWhenTheRequestIsCanceled(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addWorkstream(fake)
+	server := startCopied(t, fake)
+	release := fake.HoldNext(closeIssuePattern)
+	ctx, cancel := context.WithCancel(t.Context())
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/api/workstreams/owner/shop/12/close", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canceled := make(chan struct{})
+	go func() {
+		defer close(canceled)
+		if response, err := server.Client.Do(request); err == nil {
+			_ = response.Body.Close()
+		}
+	}()
+	waitForNoWorkstream(t, server)
+
+	cancel()
+	<-canceled
+	release()
+
+	testkit.WaitFor(t, func() bool {
+		state, _ := fake.State(shop, 12)
+		return state == "closed"
+	})
 }

@@ -39,6 +39,8 @@ func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, 
 	if len(tasks) == 0 || slices.ContainsFunc(tasks, func(task *gh.Issue) bool { return task.GetState() != "closed" }) {
 		return refuse("The Workstream has no task, or a task is open.")
 	}
+	ctx = context.WithoutCancel(ctx)
+	defer e.beginClose(repository.FullName, number)()
 	closed, err := repository.CloseIssue(ctx, number, "completed")
 	if err != nil {
 		return err
@@ -128,6 +130,8 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 	if err != nil {
 		return err
 	}
+	ctx = context.WithoutCancel(ctx)
+	defer e.beginClose(repository.FullName, number)()
 	if err := e.stopWorkstream(ctx, repository, number); err != nil {
 		return err
 	}
@@ -159,6 +163,31 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 	}
 	e.publish(Change{Workstreams: true})
 	return e.closeWorkstream(ctx, repository, number)
+}
+
+// beginClose hides the Workstream number of repository from the Workstream list. The returned function shows it
+// again, unless the close removed it from the copy.
+func (e *Engine) beginClose(repository string, number int64) (end func()) {
+	e.setClosing(pullKey{repository, number}, true)
+	return func() { e.setClosing(pullKey{repository, number}, false) }
+}
+
+func (e *Engine) setClosing(key pullKey, closing bool) {
+	e.closingMu.Lock()
+	if closing {
+		e.closing[key] = true
+	} else {
+		delete(e.closing, key)
+	}
+	e.closingMu.Unlock()
+	e.publish(Change{Workstreams: true})
+}
+
+// IsClosing tells if the close of the Workstream number of repository runs.
+func (e *Engine) IsClosing(repository string, number int64) bool {
+	e.closingMu.Lock()
+	defer e.closingMu.Unlock()
+	return e.closing[pullKey{repository, number}]
 }
 
 func (e *Engine) openWorkstream(ctx context.Context, repository github.Repository, number int64) (*gh.Issue, error) {
