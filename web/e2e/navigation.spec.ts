@@ -253,6 +253,24 @@ test("the upgrade dialog shows the newest release when it opens", async ({ page 
   ).toBeVisible();
 });
 
+test("a reconnect of the live events reads the release again", async ({ page, context }) => {
+  let version = "v0.2.0";
+  await page.route("**/api/release", (route) => route.fulfill({ json: { data: { version } } }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/settings");
+  await expect(page.getByRole("button", { name: "Upgrade v0.2.0" })).toBeVisible();
+  await expect(page.getByLabel("Upgrade available")).toBeVisible();
+
+  version = "";
+  await context.setOffline(true);
+  const reopened = page.waitForResponse("/api/events");
+  await context.setOffline(false);
+  await reopened;
+
+  await expect(page.getByRole("button", { name: /^Upgrade/ })).toHaveCount(0);
+  await expect(page.getByLabel("Upgrade available")).toHaveCount(0);
+});
+
 const scrollTop = (page: Page) => page.evaluate("document.getElementById('content').scrollTop");
 
 test("a new page starts at the top", async ({ page }) => {
