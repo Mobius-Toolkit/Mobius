@@ -621,7 +621,8 @@ func (e *Engine) commentIsEvent(ctx context.Context, repository github.Repositor
 
 // ask posts the question text on the issue of a live task of the Workstream or on the Workstream issue, adds
 // mobius:question, and adds an Inbox item that replaces the stopped item of the issue. The reply comes later as a
-// comment event. A dispatched task moves to asked and frees its Autopilot slot, and the reply dispatches it again.
+// comment event. A dispatched task moves to asked and frees its Autopilot slot, and the reply dispatches it again. The
+// task moves before mobius:working goes away, because setStateLabels adds mobius:working again to a dispatched task.
 func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository, input textInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
@@ -649,11 +650,6 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if err := repository.AddLabel(ctx, input.N, questionLabel); err != nil {
 		return "", err
 	}
-	if task.State == "dispatched" {
-		if err := repository.RemoveLabel(ctx, input.N, workingLabel); err != nil {
-			return "", err
-		}
-	}
 	if err := e.dismissIssueItems(ctx, repository.FullName, input.N, questionKind); err != nil {
 		return "", err
 	}
@@ -675,9 +671,14 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 		return "", err
 	}
 	if task.State == "dispatched" {
-		_, err = e.setTaskState(ctx, store.SetTaskStateParams{State: "asked", ID: task.ID, FromState: "dispatched"})
+		if _, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "asked", ID: task.ID, FromState: "dispatched"}); err != nil {
+			return "", err
+		}
+		if err := repository.RemoveLabel(ctx, input.N, workingLabel); err != nil {
+			return "", err
+		}
 	}
-	return fmt.Sprintf("Asked on #%d.", input.N), err
+	return fmt.Sprintf("Asked on #%d.", input.N), nil
 }
 
 // closeQuestion posts text on the issue as the Mobius App, continues a task in asked as after a reply on the issue,
