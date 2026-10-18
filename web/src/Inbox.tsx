@@ -166,9 +166,11 @@ export function InboxRow({
             )}
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setPanel("details")}>
-              Details
-            </Button>
+            {item.kind !== InboxItemKind.question && item.kind !== InboxItemKind.stopped && (
+              <Button variant="ghost" size="sm" onClick={() => setPanel("details")}>
+                Details
+              </Button>
+            )}
             {item.kind === InboxItemKind.Lead_failed && (
               <Button
                 variant="outline"
