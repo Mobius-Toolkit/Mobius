@@ -149,15 +149,11 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 // not complete, or while a run that Mobius ran again is still in its first attempt, because
 // GitHub can list the first attempt and its failed check runs for some time after the re-run. A failed run that Mobius
 // did not run again goes to a human. A head whose workflow run failed with no failed check run to fix goes to a human.
-func (e *Engine) onChecks(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
+func (e *Engine) onChecks(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, state ci) error {
 	if pullRequest.Mergeable == nil {
 		return nil
 	}
 	head := pullRequest.GetHead().GetSHA()
-	state, err := ciOf(ctx, repository, head)
-	if err != nil {
-		return err
-	}
 	switch {
 	case task.RerunHead.String == head && (state.running || len(rerunWaiting(task, state)) > 0):
 		return e.onLongCIWait(ctx, repository, task, pullRequest, append(state.incomplete, rerunWaiting(task, state)...))

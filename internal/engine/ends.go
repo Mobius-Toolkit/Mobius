@@ -226,7 +226,7 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 			return work, round, err
 		}
 		if task.State == "checks" {
-			if err := e.onChecks(ctx, repository, task, pullRequest); err != nil {
+			if err := e.onChecks(ctx, repository, task, pullRequest, state); err != nil {
 				return Work{}, false, err
 			}
 		}
