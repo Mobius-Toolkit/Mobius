@@ -127,3 +127,59 @@ reply = ["Seen"]
 		t.Errorf("labels = %v", labels)
 	}
 }
+
+func TestATreeCopyKeepsALocalLabelChangeAndStillWritesTheTree(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, `
+[[prompts]]
+when = "Dollars were chosen"
+call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+
+[[prompts]]
+reply = ["Seen"]
+`)
+	dispatchTask(fake, 41, "Add plan model")
+	fake.AddSubIssueOf(shop, 41, 50, "Store the price in cents")
+	testkit.WaitFor(t, func() bool { return slices.Contains(copiedLabels(t, server, 41), "mobius:question") })
+	waitForPolls(t, fake)
+	subIssueReads := func(number string) int {
+		reads := 0
+		for _, request := range fake.Requests() {
+			if strings.HasSuffix(request.Path, "/issues/"+number+"/sub_issues") {
+				reads++
+			}
+		}
+		return reads
+	}
+
+	// The check of the tree reads the sub-issues of #12 and holds. Then the tree copy reads them and holds, and then it
+	// reads the sub-issues of #41 and holds. The labels of #41 are from the read of the sub-issues of #12.
+	before := subIssueReads("12")
+	releaseCheck := fake.HoldNext("GET /repos/{owner}/{repo}/issues/{number}/sub_issues")
+	testkit.WaitFor(t, func() bool { return subIssueReads("12") > before })
+	releaseRoot := fake.HoldNext("GET /repos/{owner}/{repo}/issues/{number}/sub_issues")
+	fake.AddSubIssueOf(shop, 12, 60, "Plan the tiers")
+	releaseCheck()
+	testkit.WaitFor(t, func() bool { return subIssueReads("12") > before+1 })
+	before41 := subIssueReads("41")
+	releaseTask := fake.HoldNext("GET /repos/{owner}/{repo}/issues/{number}/sub_issues")
+	releaseRoot()
+	testkit.WaitFor(t, func() bool { return subIssueReads("41") > before41 })
+
+	sendChat(t, server, leadChat, "Dollars were chosen")
+	testkit.WaitFor(t, func() bool {
+		calls := leadCalls(t, server)
+		return len(calls) == 2 && calls[1]["result"] == "Closed the question on #41."
+	})
+	releaseTask()
+
+	testkit.WaitFor(t, func() bool { return slices.Equal(issueNumbers(t, server), []int64{41, 50, 60}) })
+	if labels := copiedLabels(t, server, 41); slices.Contains(labels, "mobius:question") {
+		t.Errorf("labels = %v", labels)
+	}
+}

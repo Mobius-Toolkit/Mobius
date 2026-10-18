@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"maps"
 	"slices"
 	"strings"
 
@@ -524,24 +525,46 @@ func (e *Engine) writeRead(ctx context.Context, repository string, changes int, 
 	return e.inTx(ctx, write)
 }
 
-// copyTree replaces the copied tree of the Workstream with the tree on GitHub. After a local label change during the
-// read, it keeps the copied tree, and the next poll copies the tree again.
+// copyTree replaces the copied tree of the Workstream with the tree on GitHub. An issue that changeCopiedLabels changed
+// during the read keeps its copied labels, because the read can have the old labels.
 func (e *Engine) copyTree(ctx context.Context, repository github.Repository, workstream int64) error {
-	changes := e.labelChangeCount(repository.FullName)
+	e.labelChangeMu.Lock()
+	before := maps.Clone(e.labelChangedAt)
+	e.labelChangeMu.Unlock()
 	tree, err := readTree(ctx, repository, workstream)
 	if err != nil {
 		return err
 	}
-	err = e.writeRead(ctx, repository.FullName, changes, func(q *store.Queries) error {
+	e.labelChangeMu.Lock()
+	defer e.labelChangeMu.Unlock()
+	return e.inTx(ctx, func(q *store.Queries) error {
+		for _, copied := range tree {
+			issue := copied.issue
+			ref := issueRef{blockerRepository(issue, repository.FullName), int64(issue.GetNumber())}
+			if e.labelChangedAt[ref] == before[ref] {
+				continue
+			}
+			rows, err := q.ListCopiedIssueRows(ctx, store.ListCopiedIssueRowsParams{Number: int64(issue.GetNumber()), RepositoryUrl: issue.GetRepositoryURL()})
+			if err != nil {
+				return err
+			}
+			if len(rows) == 0 {
+				continue
+			}
+			names, err := q.ListCopiedIssueLabels(ctx, store.ListCopiedIssueLabelsParams(rows[0]))
+			if err != nil {
+				return err
+			}
+			issue.Labels = nil
+			for _, name := range names {
+				issue.Labels = append(issue.Labels, &gh.Label{Name: name})
+			}
+		}
 		if err := removeTree(ctx, q, repository.FullName, workstream); err != nil {
 			return err
 		}
 		return addTree(ctx, q, repository.FullName, workstream, tree)
 	})
-	if errors.Is(err, errLabelsChanged) {
-		return nil
-	}
-	return err
 }
 
 func copyWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue, autopilot bool) (copiedWorkstream, error) {
