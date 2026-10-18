@@ -94,6 +94,14 @@ func (e *Engine) Poll(ctx context.Context) {
 	e.poll(ctx)
 }
 
+// Closing tells if the idle timeout started the close of the chat session.
+func (e *Engine) Closing(key ChatKey) bool {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	c, ok := e.chats[key]
+	return ok && c.closing
+}
+
 // QueueOwnerMessageWithoutWake adds a message of the Owner to the queue of the running chat key and sets writing, as
 // give does, but it does not wake the chat loop. Thus the chat loop does not take the message until another step wakes it.
 func (e *Engine) QueueOwnerMessageWithoutWake(ctx context.Context, key ChatKey, text string) error {

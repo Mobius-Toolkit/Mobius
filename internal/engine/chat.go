@@ -136,7 +136,10 @@ type chat struct {
 	held bool
 	// stoppable tells that the turn that runs answers a message of the Owner, so a stop cancels the turn.
 	stoppable bool
-	writing   bool
+	// closing tells that the idle timeout or the drain started the close of the session, so no turn for an Owner
+	// message runs until the close ends.
+	closing bool
+	writing bool
 }
 
 // state gives the state of the chat. The caller holds e.chatsMu.
@@ -446,11 +449,18 @@ func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 	default:
 		err = c.agent.stop(ctx)
 	}
+	stoppedWriting := c.writing && c.closing && len(c.queue) == 0
+	if stoppedWriting {
+		c.writing = false
+	}
 	state := c.state()
 	ended := e.chats[key] != c
 	e.chatsMu.Unlock()
 	if !ended {
 		e.publish(Change{Chat: &state})
+	}
+	if stoppedWriting {
+		e.publishSession(c.agent)
 	}
 	return err
 }
@@ -851,6 +861,9 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 		if !closing {
 			continue
 		}
+		e.chatsMu.Lock()
+		c.closing = true
+		e.chatsMu.Unlock()
 		if c.key.Workstream != 0 {
 			a.setAuthor("")
 			if err := e.turn(c, a, savePrompt, nil, false); err != nil {
@@ -862,6 +875,7 @@ func (e *Engine) chat(c *chat, a *Agent, first item) error {
 		if closed && e.chats[c.key] == c {
 			delete(e.chats, c.key)
 		}
+		c.closing = false
 		e.chatsMu.Unlock()
 		if closed {
 			return nil
