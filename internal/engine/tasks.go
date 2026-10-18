@@ -272,8 +272,8 @@ func (e *Engine) ResumeIssue(ctx context.Context, repositoryName string, number 
 	return e.dismissIssueItems(ctx, repository.FullName, number, stoppedKind, lostKind)
 }
 
-// StartIssue adds mobius:ready to the issue number of repositoryName. The label change uses the user token of the
-// Owner, because the dispatch trusts mobius:ready only from a trusted user.
+// StartIssue replaces mobius:triage with mobius:ready on the issue number of repositoryName. The label changes use the
+// user token of the Owner, because the dispatch trusts mobius:ready only from a trusted user.
 func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number int64) error {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
@@ -284,8 +284,11 @@ func (e *Engine) StartIssue(ctx context.Context, repositoryName string, number i
 		// The text tells the Owner how to authorize the Mobius App.
 		return refusal(err.Error())
 	}
+	if err := asOwner.RemoveLabel(ctx, number, triageLabel); err != nil {
+		return err
+	}
 	if err := asOwner.AddLabel(ctx, number, readyLabel); err != nil {
 		return err
 	}
-	return e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, nil)
+	return e.changeCopiedLabels(ctx, repository.FullName, number, []string{readyLabel}, []string{triageLabel})
 }

@@ -172,6 +172,25 @@ test("Start in the Tasks list shows the spinner in place of the icon", async ({ 
   await expect(start.locator("svg")).toHaveCount(1);
 });
 
+test("The Tasks list shows Start for a task with the state triage", async ({ page }) => {
+  await page.route("**/api/workstreams/*/*/*/tasks", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { data: { number: number; state: string }[] };
+    for (const line of body.data) {
+      if (line.number === 70) {
+        line.state = "triage";
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto("/api/github/user-callback?code=user-code");
+  await page.goto("/workstreams/plants/garden/19");
+  await page.getByRole("tab", { name: "Tasks" }).filter({ visible: true }).click();
+
+  await expect(page.getByText("triage", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start #70" })).toBeVisible();
+});
+
 test("Stop in the chat shows the spinner while the request runs", async ({ page }) => {
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();

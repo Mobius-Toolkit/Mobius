@@ -389,3 +389,30 @@ func TestStartAddsMobiusReadyAsTheOwner(t *testing.T) {
 		t.Errorf("actor of mobius:ready = %s", got)
 	}
 }
+
+func TestStartReplacesMobiusTriageWithMobiusReadyAsTheOwnerAndTheNextPollDispatchesTheIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddUserCode(testkit.AppID, "user-code", "owner")
+	server := connectSeen(t, fake)
+	fake.AddIssue(shop, 41, "Add plan model")
+	fake.AddSubIssue(shop, 12, 41)
+	fake.AddLabel(shop, 41, "mobius:triage", testkit.AppSlug+"[bot]")
+	waitForPoll(t, server, fake)
+	authorize(t, server)
+
+	if status, body := send(t, server, http.MethodPost, "/api/repositories/owner/shop/issues/41/start", ""); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+
+	if !fake.LabelRemovedBy(shop, 41, "mobius:triage", "owner") {
+		t.Error("the Owner did not remove mobius:triage")
+	}
+	if got := fake.LabelActor(shop, 41, "mobius:ready"); got != "owner" {
+		t.Errorf("actor of mobius:ready = %s", got)
+	}
+	if task := liveTaskOf(t, server, 41); task.Workstream != 12 {
+		t.Errorf("task = %+v", task)
+	}
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:triage") })
+}
