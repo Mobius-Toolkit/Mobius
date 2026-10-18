@@ -117,7 +117,7 @@ func TestACITaskTakesTheNextSlotBeforeAQueuedTask(t *testing.T) {
 	addMaintenanceWorkstream(fake, maintenance)
 	fake.RefuseRerun(http.StatusForbidden)
 	goFile := filepath.Join(t.TempDir(), "go")
-	server, _ := connectThree(t, fake, fmt.Sprintf("[[prompts]]\nshell = \"while [ ! -e '%s' ]; do sleep 0.05; done\"\n", goFile))
+	server, _ := connectThree(t, fake, fmt.Sprintf("[[prompts]]\nshell = '''while [ ! -e '%s' ]; do sleep 0.05; done; echo cents > plan.txt && git add plan.txt && git commit -q -m \"Add plan model $(basename $PWD)\"'''\n", goFile))
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForState(t, server, 41, "working")
 	fake.AddLabel(shop, 43, "mobius:ready", "owner")
