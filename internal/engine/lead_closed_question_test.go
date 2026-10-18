@@ -59,6 +59,61 @@ func TestAHoldThatFollowsAnAnswerOnGitHubStaysHeld(t *testing.T) {
 	}
 }
 
+func TestTheCloseOfASecondQuestionFreesItsHeldEventAfterTheAnswerOfTheFirstQuestion(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	script := `
+[[prompts]]
+call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+
+[[prompts]]
+` + holdEvent + `
+
+[[prompts]]
+call = { tool = "ask", arguments = { n = 42, text = "Which route?" } }
+
+[[prompts]]
+` + holdEvent + `
+
+[[prompts]]
+reply = ["Seen"]
+
+[[prompts]]
+reply = ["Seen"]
+
+[[prompts]]
+` + holdEvent + `
+
+[[prompts]]
+reply = ["Seen"]
+
+[[prompts]]
+reply = ["Seen"]
+`
+	server, _ := connectWith(t, fake, script, keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForItem(t, server, "question")
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
+	addIssueLeadEvent(t, server, 41, "follow_up", "Held follow-up.")
+	dispatchTask(fake, 42, "Add plan route")
+	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "question")) == 2 })
+	addIssueLeadEvent(t, server, 42, "follow_up", "Second follow-up.")
+	dispatchTask(fake, 43, "Add plan list")
+	testkit.WaitFor(t, func() bool { return len(onlySession(t, server)) == 5 && held(t, server, 2) })
+	fake.AddComment(shop, 41, "owner", "Cents.")
+	testkit.WaitFor(t, func() bool { return len(onlySession(t, server)) == 8 && held(t, server, 1) })
+
+	fake.RemoveLabel(shop, 42, "mobius:question", "owner")
+
+	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
+		prompts := onlySession(t, server)
+		return prompts, len(prompts) >= 9 && eventDelivered(t, server)
+	})
+	if len(prompts) != 9 || !strings.Contains(prompts[8], "Second follow-up.") {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
 func TestAStartWithAHeldEventWhoseQuestionIsClosedDeliversTheEventInTheFirstPoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
