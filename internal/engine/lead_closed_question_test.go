@@ -37,7 +37,7 @@ func TestAStartWithAHeldEventWhoseQuestionIsClosedDeliversTheEventInTheFirstPoll
 	})
 
 	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
-	if joined := strings.Join(onlySession(t, server), "\n"); strings.Index(joined, "Held follow-up.") < 0 || strings.Index(joined, "Held follow-up.") > strings.Index(joined, "Ready for approval.") {
+	if joined := strings.Join(onlySession(t, server), "\n"); !strings.Contains(joined, "Held follow-up.") || strings.Index(joined, "Held follow-up.") > strings.Index(joined, "Ready for approval.") {
 		t.Errorf("prompts = %q", joined)
 	}
 }
