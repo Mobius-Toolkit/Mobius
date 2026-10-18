@@ -99,15 +99,12 @@ func ciItems(ctx context.Context, repository github.Repository, head string) (st
 
 // onFailure starts a fix round when check runs of other Apps failed on the head of the pull request of the task in
 // ready_for_review, checks or approval, and each check run and workflow run of the head completed. A head gets one
-// round. It gives true when a round started, or when the task left its state.
-func (e *Engine) onFailure(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
+// round. It decides from state, the CI of the head that the caller read. It gives true when a round started, or when
+// the task left its state.
+func (e *Engine) onFailure(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, state ci) (bool, error) {
 	head := pullRequest.GetHead().GetSHA()
-	if task.CheckHead.String == head {
+	if task.CheckHead.String == head || state.running || !state.failedCheck && !state.failedWorkflow {
 		return false, nil
-	}
-	state, err := ciOf(ctx, repository, head)
-	if err != nil || state.running {
-		return false, err
 	}
 	items, err := ciItems(ctx, repository, head)
 	if err != nil {
@@ -152,15 +149,11 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 // not complete, or while a run that Mobius ran again is still in its first attempt, because
 // GitHub can list the first attempt and its failed check runs for some time after the re-run. A failed run that Mobius
 // did not run again goes to a human. A head whose workflow run failed with no failed check run to fix goes to a human.
-func (e *Engine) onChecks(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
+func (e *Engine) onChecks(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, state ci) error {
 	if pullRequest.Mergeable == nil {
 		return nil
 	}
 	head := pullRequest.GetHead().GetSHA()
-	state, err := ciOf(ctx, repository, head)
-	if err != nil {
-		return err
-	}
 	switch {
 	case task.RerunHead.String == head && (state.running || len(rerunWaiting(task, state)) > 0):
 		return e.onLongCIWait(ctx, repository, task, pullRequest, append(state.incomplete, rerunWaiting(task, state)...))
