@@ -113,13 +113,14 @@ func (q *Queries) AddCheckTimeout(ctx context.Context, arg AddCheckTimeoutParams
 }
 
 const addCommentWrite = `-- name: AddCommentWrite :exec
-INSERT INTO comment_writes (repository, number, comment, body) VALUES (?, ?, ?, ?)
+INSERT INTO comment_writes (repository, number, comment, reply_to, body) VALUES (?, ?, ?, ?, ?)
 `
 
 type AddCommentWriteParams struct {
 	Repository string
 	Number     sql.NullInt64
 	Comment    sql.NullInt64
+	ReplyTo    sql.NullInt64
 	Body       string
 }
 
@@ -128,6 +129,7 @@ func (q *Queries) AddCommentWrite(ctx context.Context, arg AddCommentWriteParams
 		arg.Repository,
 		arg.Number,
 		arg.Comment,
+		arg.ReplyTo,
 		arg.Body,
 	)
 	return err
@@ -2364,7 +2366,7 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 }
 
 const listCommentWrites = `-- name: ListCommentWrites :many
-SELECT id, repository, number, comment, body FROM comment_writes WHERE repository = ? ORDER BY id
+SELECT id, repository, number, comment, body, reply_to FROM comment_writes WHERE repository = ? ORDER BY id
 `
 
 func (q *Queries) ListCommentWrites(ctx context.Context, repository string) ([]CommentWrite, error) {
@@ -2382,6 +2384,7 @@ func (q *Queries) ListCommentWrites(ctx context.Context, repository string) ([]C
 			&i.Number,
 			&i.Comment,
 			&i.Body,
+			&i.ReplyTo,
 		); err != nil {
 			return nil, err
 		}

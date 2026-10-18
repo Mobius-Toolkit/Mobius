@@ -120,6 +120,7 @@ type FakeGitHub struct {
 	failedParents                              map[issueKey]bool
 	failedSubIssueAdds                         map[issueKey]bool
 	failedComments                             map[issueKey]bool
+	refusedComments                            map[issueKey]int
 	failedCommentUpdates                       map[issueKey]bool
 	failedLabels                               map[issueKey]bool
 	labelWrites                                map[issueKey]int
@@ -183,6 +184,8 @@ type FakeGitHub struct {
 	jobLogRefusal int
 	// closeRefusal is the status that the close of an issue gives, or 0 when it works.
 	closeRefusal int
+	// replyRefusal is the status that a reply in a review thread gives, or 0 when it works.
+	replyRefusal int
 }
 
 // A grant is a user code or a refresh token: the login of the user and the App index.
@@ -235,6 +238,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		failedParents:           map[issueKey]bool{},
 		failedSubIssueAdds:      map[issueKey]bool{},
 		failedComments:          map[issueKey]bool{},
+		refusedComments:         map[issueKey]int{},
 		failedCommentUpdates:    map[issueKey]bool{},
 		failedLabels:            map[issueKey]bool{},
 		labelWrites:             map[issueKey]int{},

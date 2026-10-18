@@ -37,12 +37,16 @@ func acknowledge(ctx context.Context, repository github.Repository, comments []*
 	return nil
 }
 
-// acknowledgeComment adds the reaction of an agent that gets the comment id. A comment that has the reaction of an agent
-// that started its work stays as it is, because a poll that runs again reads the comment again.
+// acknowledgeComment removes the reaction of a refusal from the comment id, and adds the reaction of an agent that gets
+// the comment. A comment that has the reaction of an agent that started its work keeps it, because a poll that runs again
+// reads the comment again.
 func acknowledgeComment(ctx context.Context, repository github.Repository, review bool, id int64) error {
-	react, reacted := repository.ReactToComment, repository.ReactedToComment
+	react, reacted, unreact := repository.ReactToComment, repository.ReactedToComment, repository.UnreactToComment
 	if review {
-		react, reacted = repository.ReactToReviewComment, repository.ReactedToReviewComment
+		react, reacted, unreact = repository.ReactToReviewComment, repository.ReactedToReviewComment, repository.UnreactToReviewComment
+	}
+	if err := unreact(ctx, id, declinedReaction); err != nil {
+		return err
 	}
 	started, err := reacted(ctx, id, launchedReaction)
 	if err != nil || started {
@@ -68,7 +72,8 @@ func (e *Engine) declineComments(ctx context.Context, repository github.Reposito
 		if answered {
 			continue
 		}
-		if _, err := repository.AddComment(ctx, number, reply); err != nil {
+		_, err = repository.AddComment(ctx, number, reply)
+		if err := e.keepRefusedReply(ctx, repository, number, 0, reply, err); err != nil {
 			return err
 		}
 		if err := e.markCommentAnswered(ctx, repository, false, comment.GetID()); err != nil {
@@ -95,7 +100,8 @@ func (e *Engine) declineReviewComment(ctx context.Context, repository github.Rep
 	if root == 0 {
 		root = comment.GetID()
 	}
-	if err := repository.ReplyToReviewComment(ctx, number, root, reply); err != nil {
+	err = repository.ReplyToReviewComment(ctx, number, root, reply)
+	if err := e.keepRefusedReply(ctx, repository, number, root, reply, err); err != nil {
 		return err
 	}
 	return e.markCommentAnswered(ctx, repository, true, comment.GetID())
