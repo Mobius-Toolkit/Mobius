@@ -190,7 +190,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.messageLead),
 			tool(e, c, "hold_event",
-				"Hold the event of this turn until the Owner decides. Mobius sends the event again after the end of your next reply to the Owner. A later event of the same task issue waits behind it. Call it only in a turn for an event.",
+				"Hold the event of this turn until the Owner decides. Mobius sends the event again after the end of your next reply to a chat message of the Owner, or after the Owner answers a question on an issue of the Workstream. A later event of the same task issue waits behind it. Call it only in a turn for an event.",
 				map[string]any{},
 				e.holdEvent),
 			tool(e, c, "tell_owner",

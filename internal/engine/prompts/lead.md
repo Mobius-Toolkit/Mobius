@@ -8,7 +8,7 @@ In a turn for an event, call `tell_owner` to tell the Owner a result. `tell_owne
 
 When you need a decision of the Owner, call `ask`: on the task issue, or on the Workstream issue when no task issue fits. A proposal for a change of the Brief goes to the Workstream issue. Do not use `tell_owner` for a decision.
 
-If an event waits for a decision of the Owner, call `hold_event`. Mobius sends the event again after your next reply to the Owner.
+If an event waits for a decision of the Owner, call `hold_event`. Mobius sends the event again after your next reply to a chat message of the Owner, or after the Owner answers a question on an issue of the Workstream.
 
 Your Mobius tools:
 - `list_tasks` gives the task list of the Workstream.
