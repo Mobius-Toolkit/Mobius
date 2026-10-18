@@ -19,6 +19,7 @@ type FakeModel struct {
 	mu        sync.Mutex
 	hold      chan struct{}
 	broken    bool
+	stalled   bool
 	downloads int
 }
 
@@ -57,6 +58,13 @@ func (m *FakeModel) SetBroken(broken bool) {
 	m.broken = broken
 }
 
+// SetStalled makes the server send a part of the file and then nothing, with the connection open.
+func (m *FakeModel) SetStalled(stalled bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.stalled = stalled
+}
+
 // Downloads gives the number of requests that the server got.
 func (m *FakeModel) Downloads() int {
 	m.mu.Lock()
@@ -67,7 +75,7 @@ func (m *FakeModel) Downloads() int {
 func (m *FakeModel) get(w http.ResponseWriter, r *http.Request) {
 	m.mu.Lock()
 	m.downloads++
-	hold, broken := m.hold, m.broken
+	hold, broken, stalled := m.hold, m.broken, m.stalled
 	m.mu.Unlock()
 	if hold != nil {
 		select {
@@ -81,6 +89,13 @@ func (m *FakeModel) get(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("partial"))
 		w.(http.Flusher).Flush()
 		panic(http.ErrAbortHandler)
+	}
+	if stalled {
+		w.Header().Set("Content-Length", "100")
+		_, _ = w.Write([]byte("partial"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+		return
 	}
 	_, _ = w.Write([]byte("model"))
 }

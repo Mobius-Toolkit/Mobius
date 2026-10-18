@@ -34,6 +34,9 @@ const (
 // healthTimeout is the time that whisper-server has to answer GET /health.
 const healthTimeout = 2 * time.Second
 
+// stallTimeout is the time without a byte after which the download of the model ends.
+const stallTimeout = time.Minute
+
 // Unavailable is the reason why the converter cannot convert now. Its text is for the user.
 type Unavailable string
 
@@ -56,6 +59,8 @@ type Whisper struct {
 	ModelURL string
 	// Address is the "host:port" where whisper-server listens.
 	Address string
+	// StallTimeout is the time without a byte after which the download of the model ends.
+	StallTimeout time.Duration
 
 	mu          sync.Mutex
 	downloading bool
@@ -65,7 +70,7 @@ type Whisper struct {
 
 // New gives a Whisper that keeps its model in the directory whisper of dataDir and looks for whisper-server in path.
 func New(dataDir, path string) *Whisper {
-	return &Whisper{Dir: filepath.Join(dataDir, "whisper"), Path: path, ModelURL: modelURL, Address: address}
+	return &Whisper{Dir: filepath.Join(dataDir, "whisper"), Path: path, ModelURL: modelURL, Address: address, StallTimeout: stallTimeout}
 }
 
 func (w *Whisper) model() string {
@@ -227,7 +232,11 @@ func (w *Whisper) fetch() error {
 	if err := os.MkdirAll(w.Dir, 0o750); err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, w.ModelURL, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stall := time.AfterFunc(w.StallTimeout, cancel)
+	defer stall.Stop()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, w.ModelURL, nil)
 	if err != nil {
 		return err
 	}
@@ -244,7 +253,7 @@ func (w *Whisper) fetch() error {
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(file, res.Body)
+	_, err = io.Copy(file, &stallReader{body: res.Body, timer: stall, timeout: w.StallTimeout})
 	if closeErr := file.Close(); err == nil {
 		err = closeErr
 	}
@@ -253,4 +262,17 @@ func (w *Whisper) fetch() error {
 		return err
 	}
 	return os.Rename(part, w.model())
+}
+
+// stallReader restarts the timer at each read, so the timer fires only when no bytes come for the timeout.
+type stallReader struct {
+	body    io.Reader
+	timer   *time.Timer
+	timeout time.Duration
+}
+
+func (r *stallReader) Read(p []byte) (int, error) {
+	n, err := r.body.Read(p)
+	r.timer.Reset(r.timeout)
+	return n, err
 }

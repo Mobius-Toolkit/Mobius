@@ -182,6 +182,26 @@ func TestAStoppedDownloadLeavesNoModelFile(t *testing.T) {
 	}
 }
 
+func TestADownloadThatGetsNoBytesEndsAndTheNextRequestStartsItAgain(t *testing.T) {
+	c := newConverter(t)
+	testkit.InstallFakeWhisper(t, c.bin)
+	c.StallTimeout = 100 * time.Millisecond
+	c.model.SetStalled(true)
+
+	_, err := c.transcribe("RIFF")
+	testkit.WaitFor(t, func() bool {
+		_, err = c.transcribe("RIFF")
+		return c.model.Downloads() >= 2
+	})
+
+	if !errors.Is(err, voice.Downloading) {
+		t.Errorf("err = %v", err)
+	}
+	if _, err := os.Stat(c.modelFile()); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("model file: %v", err)
+	}
+}
+
 func TestStopStopsTheProcessThatTheConverterStarted(t *testing.T) {
 	c := newConverter(t)
 	testkit.InstallFakeWhisper(t, c.bin)
