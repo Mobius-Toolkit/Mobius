@@ -718,7 +718,12 @@ export function Conversation({
             <span className="size-2 animate-pulse rounded-full bg-green-600" />
             {pausedUntil
               ? `The ${agent} waits for the usage limit until ${dayClock(pausedUntil)}.`
-              : `The ${agent} writes a reply.`}
+              : messages.some(
+                    (message) =>
+                      message.author === "Owner" && !message.deliveredAt && !message.stoppedAt,
+                  )
+                ? `The message waits for the ${agent}.`
+                : `The ${agent} writes a reply.`}
           </p>
         )}
         {failure && (
