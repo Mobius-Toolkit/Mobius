@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Run starts the server for the arguments args of whisper-server, and gives the error that ends it. program is the path
@@ -50,7 +51,7 @@ func Run(program string, args []string) error {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("POST /inference", inference)
-	server := &http.Server{Addr: net.JoinHostPort(host, port), Handler: mux}
+	server := &http.Server{Addr: net.JoinHostPort(host, port), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	return server.ListenAndServe()
 }
 

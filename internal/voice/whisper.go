@@ -152,7 +152,7 @@ func (w *Whisper) ensure(ctx context.Context) error {
 	}
 	if _, err := os.Stat(w.model()); errors.Is(err, fs.ErrNotExist) {
 		w.downloading = true
-		go w.download()
+		w.startDownload()
 		return Downloading
 	} else if err != nil {
 		return err
@@ -164,8 +164,7 @@ func (w *Whisper) ensure(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(file, "-m", w.model(), "--host", host, "--port", port, "-l", "auto", "-t", "4")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd := server(file, w.model(), host, port)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -179,6 +178,13 @@ func (w *Whisper) ensure(ctx context.Context) error {
 		}
 	}()
 	return Starting
+}
+
+func server(file, model, host, port string) *exec.Cmd {
+	cmd := exec.Command(file)
+	cmd.Args = append(cmd.Args, "-m", model, "--host", host, "--port", port, "-l", "auto", "-t", "4")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return cmd
 }
 
 // health gives the status of GET /health, and false when nothing answers.
@@ -195,6 +201,11 @@ func (w *Whisper) health(ctx context.Context) (int, bool) {
 	}
 	_ = res.Body.Close()
 	return res.StatusCode, true
+}
+
+// startDownload runs download in the background. The download outlives the request that starts it.
+func (w *Whisper) startDownload() {
+	go w.download()
 }
 
 // download gets the model, and then starts the process. A failed download ends, and the next ensure starts it again.

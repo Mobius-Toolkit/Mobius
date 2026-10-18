@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/voice"
@@ -93,7 +94,7 @@ func TestWhileTheModelDownloadsTheConverterTellsItAndThenItStartsTheProcess(t *t
 	if c.model.Downloads() != 1 {
 		t.Errorf("downloads = %d", c.model.Downloads())
 	}
-	starts, err := os.ReadFile(program + ".starts")
+	starts, err := os.ReadFile(filepath.Clean(program + ".starts"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func TestTheConverterUsesAProcessThatAnswersOnHealthAndStartsNoSecondProcess(t *
 	mux.HandleFunc("POST /inference", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"text":" from the old process"}`))
 	})
-	server := &http.Server{Handler: mux}
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { _ = server.Close() })
 
