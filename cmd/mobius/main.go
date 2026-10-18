@@ -171,9 +171,11 @@ func serve(configPath string) error {
 	whisper.Start()
 	defer whisper.Stop()
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
-	if !signal.Ignored(syscall.SIGHUP) {
-		signal.Notify(signals, syscall.SIGHUP)
+	signal.Notify(signals, syscall.SIGTERM)
+	for _, sig := range []os.Signal{os.Interrupt, syscall.SIGHUP} {
+		if !signal.Ignored(sig) {
+			signal.Notify(signals, sig)
+		}
 	}
 	go func() {
 		<-signals
