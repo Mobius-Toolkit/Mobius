@@ -442,7 +442,8 @@ func (e *Engine) cannotDo(ctx context.Context, c caller, repository github.Repos
 	return "Mobius ends this turn.", c.agent.cancel(ctx)
 }
 
-// holdReply keeps the reply of the Implementer of a fix round until the push of its commits.
+// holdReply posts the reply of the Implementer of a fix round at once when the worktree has nothing to push. Else it
+// keeps the reply until the push of the commits.
 func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repository, input threadInput) (string, error) {
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
@@ -457,6 +458,17 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 	}
 	if !found {
 		return "", refuse("%d is not a review thread or a comment of pull request #%d.", input.Thread, pullRequest)
+	}
+	task, err := e.workstreamTask(ctx, repository, c.workstream, c.agent.spec.Issue.Int64)
+	if err != nil {
+		return "", err
+	}
+	unpushed, err := runner.HasUnpushedWork(ctx, e.config.DataDir, c.agent.spec.Dir, task.Branch.String, repository.DefaultBranch)
+	if err != nil {
+		return "", err
+	}
+	if !unpushed && target.post(ctx, repository, pullRequest, input.Text) == nil {
+		return "Mobius posted the reply.", nil
 	}
 	c.agent.mu.Lock()
 	c.agent.replies = append(c.agent.replies, heldReply{target, input.Text})
