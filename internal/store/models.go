@@ -172,6 +172,7 @@ type StopNotice struct {
 	LeadText     string
 	CheckTitle   string
 	CheckSummary string
+	CheckCreate  bool
 	CreatedAt    string
 }
 

@@ -9,5 +9,6 @@ CREATE TABLE stop_notices (
     lead_text TEXT NOT NULL,
     check_title TEXT NOT NULL,
     check_summary TEXT NOT NULL,
+    check_create BOOLEAN NOT NULL,
     created_at TEXT NOT NULL
 );

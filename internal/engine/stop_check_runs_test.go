@@ -151,3 +151,27 @@ func TestTheWorkerRestartLimitKeepsTheCompleteMobiusCheckRun(t *testing.T) {
 	}
 	wantApprovedCheck(t, fake, sha)
 }
+
+func TestTheWorkerRestartLimitAddsNoMobiusCheckRunToAHeadThatHasNone(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	sha := approvalHead(t, server, fake)
+	remote := fake.Remote(shop)
+	newHead := testkit.Git(t, remote, "commit-tree", sha+"^{tree}", "-p", sha, "-m", "Add price")
+	testkit.Git(t, remote, "update-ref", "refs/heads/mobius/41", newHead)
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'working', worker = NULL, worker_restarts = 3 WHERE issue = 41"); err != nil {
+		t.Fatal(err)
+	}
+
+	restart, err := server.Engine.RestartWorker(t.Context(), liveTask(t, server, 41), "Add plan model", errors.New("the Worker died"))
+
+	if err != nil || restart {
+		t.Fatalf("restart = %v: %v", restart, err)
+	}
+	for _, run := range mobiusCheckRuns(fake) {
+		if run.HeadSHA == newHead {
+			t.Errorf("check run on the new head = %+v", run)
+		}
+	}
+}

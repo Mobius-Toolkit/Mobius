@@ -36,6 +36,8 @@ type stopNotice struct {
 	// checkTitle and checkSummary complete the open Mobius check of the head as failure. An empty checkTitle leaves the
 	// check as it is.
 	checkTitle, checkSummary string
+	// createCheck makes a failed Mobius check on a head that has no Mobius check. Else such a head stays as it is.
+	createCheck bool
 }
 
 // tellStop posts the reason text and the next action of notice on the issue of the task, and adds a stopped Inbox item
@@ -98,6 +100,7 @@ func storeStopNotice(task store.Task, title, leadText string, notice stopNotice)
 		LeadText:     leadText,
 		CheckTitle:   notice.checkTitle,
 		CheckSummary: notice.checkSummary,
+		CheckCreate:  notice.createCheck,
 		CreatedAt:    now(),
 	}
 }
@@ -164,7 +167,7 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 	}
 	notice := stopNotice{reason: record.Reason, text: record.Text, output: record.Output, next: record.Next}
 	if record.CheckTitle != "" {
-		if err := e.failStoppedCheck(ctx, repository, task, record.CheckTitle, record.CheckSummary); err != nil && !github.NotFound(err) {
+		if err := e.failStoppedCheck(ctx, repository, task, record.CheckTitle, record.CheckSummary, record.CheckCreate); err != nil && !github.NotFound(err) {
 			return err
 		}
 	}
@@ -190,8 +193,9 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 
 // failStoppedCheck completes the open Mobius check of the head as failure. The head is the failed head of a CI stop, or
 // else the head of the pull request of the task. A head whose Mobius checks are all complete keeps them, so that a retry
-// adds no second check. A head with no Mobius check gets a failed one. A task with no pull request has no check.
-func (e *Engine) failStoppedCheck(ctx context.Context, repository github.Repository, task store.Task, title, summary string) error {
+// adds no second check. A head with no Mobius check gets a failed one only when create is true. A task with no pull
+// request has no check.
+func (e *Engine) failStoppedCheck(ctx context.Context, repository github.Repository, task store.Task, title, summary string, create bool) error {
 	head := task.CiFailedHead.String
 	if !task.CiFailedHead.Valid {
 		if !task.PullRequest.Valid {
@@ -217,7 +221,7 @@ func (e *Engine) failStoppedCheck(ctx context.Context, repository github.Reposit
 		}
 		complete = true
 	}
-	if complete {
+	if complete || !create {
 		return nil
 	}
 	return repository.CreateCheckRun(ctx, checkRunName, head, "completed", "failure", title, summary)

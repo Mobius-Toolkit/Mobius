@@ -326,6 +326,7 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 			pullRequest.GetNumber()),
 		checkTitle:   "CI failed",
 		checkSummary: "The CI of the head commit failed, and a fix round cannot change it.",
+		createCheck:  true,
 	})
 	if err != nil || !handed {
 		return err

@@ -860,6 +860,7 @@ func (e *Engine) stopAtLimit(ctx context.Context, r round, limit string) error {
 		next:         fmt.Sprintf("Read the open items of PR #%d. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.", r.pullRequest.GetNumber()),
 		checkTitle:   "Round limit",
 		checkSummary: summary,
+		createCheck:  true,
 	})
 	if err != nil || !handed {
 		return err
