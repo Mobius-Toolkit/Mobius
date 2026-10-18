@@ -202,13 +202,12 @@ func TestMarkReadyContinuesATaskThatTheCIStoppedAndKeepsTheRoundCounters(t *test
 			if autopilot {
 				fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
 			}
-			if _, err := server.DB.Exec("UPDATE tasks SET fix_rounds = 2, check_head = ? WHERE id = 1", sha); err != nil {
-				t.Fatal(err)
-			}
-			fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+			fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "failure"})
 			testkit.WaitFor(t, func() bool {
 				return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") && pullRequestHasNeedsHuman(fake)
 			})
+			setFixRounds(t, server, 2)
+			fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 			waitForPolls(t, fake)
 
 			sendChat(t, server, leadChat, "Start #41.")
