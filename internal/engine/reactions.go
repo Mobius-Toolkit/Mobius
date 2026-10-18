@@ -161,14 +161,31 @@ func launched(ctx context.Context, repository github.Repository, review bool, id
 	}
 }
 
-// launchEventComment adds the reaction of a Lead turn that starts on the event to the comment of the event.
+// launchEventComment adds the reaction of a Lead turn that starts on the event to the comment of the event. A dispatch
+// event with a comment answers a question, so the reaction goes to each reply that dispatchAnswer put in the event.
 func (e *Engine) launchEventComment(ctx context.Context, event *store.LeadEvent) {
 	repository, err := e.repository(event.Repository)
 	if err != nil {
 		log.Printf("react to comment %d of %s: %v", event.Comment.Int64, event.Repository, err)
 		return
 	}
-	launched(ctx, repository, event.Review.Bool, event.Comment.Int64)
+	if event.Kind != "dispatch" {
+		launched(ctx, repository, event.Review.Bool, event.Comment.Int64)
+		return
+	}
+	comments, err := repository.Comments(ctx, event.Issue.Int64)
+	if err != nil {
+		log.Printf("read the comments of issue %d of %s: %v", event.Issue.Int64, event.Repository, err)
+		return
+	}
+	replies, _, err := e.answerReplies(ctx, repository, comments)
+	if err != nil {
+		log.Printf("read the replies on issue %d of %s: %v", event.Issue.Int64, event.Repository, err)
+		return
+	}
+	for _, reply := range replies {
+		launched(ctx, repository, false, reply.GetID())
+	}
 }
 
 // launchTriagerComments adds the reaction of a Triager run that starts to each comment of an event that the run reads.

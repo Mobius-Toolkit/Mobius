@@ -260,3 +260,51 @@ func TestACommentThatIsOlderThanAProposalOfTheTriagerGetsARocketWhenTheTriagerRe
 
 	waitForReactions(t, fake, id, reactions("rocket"))
 }
+
+// askQuestion starts a server whose Lead asks a question on task #41, and waits until the question shows.
+func askQuestion(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+	t.Helper()
+	server, _ := connect(t, fake, `
+[[prompts]]
+when = "answer of #41"
+reply = ["Seen"]
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+
+[[prompts]]
+reply = ["Seen"]
+`)
+	dispatchTask(fake, 41, "Add plan model")
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 41), "mobius:question") })
+	return server
+}
+
+func TestAReplyToAQuestionGetsARocketWhenTheLeadTurnOfTheDispatchStarts(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := askQuestion(t, fake)
+
+	reply := fake.AddComment(shop, 41, "owner", "Cents.")
+
+	waitForLeadPrompt(t, server, ` answer of #41 "Add plan model" by @owner:`)
+	waitForReactions(t, fake, reply, reactions("rocket"))
+}
+
+func TestEachReplyBeforeTheDispatchGetsARocketWhenTheLeadTurnOfTheDispatchStarts(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startAskedTask(t, fake)
+	first := fake.AddComment(shop, 41, "owner", "Cents.")
+	second := fake.AddComment(shop, 41, "owner", "Not dollars.")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "answered" })
+	waitForReactions(t, fake, first, reactions("eyes"))
+	waitForReactions(t, fake, second, reactions("eyes"))
+
+	fake.CloseIssue(shop, 42)
+
+	waitForLeadPrompt(t, server, ` answer of #41 "Add plan model" by @owner:`)
+	waitForReactions(t, fake, first, reactions("rocket"))
+	waitForReactions(t, fake, second, reactions("rocket"))
+}

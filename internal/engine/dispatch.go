@@ -301,33 +301,57 @@ func (e *Engine) answerAsked(ctx context.Context, repository github.Repository, 
 // chatAnswerPrefix starts the comment that closeQuestionTool posts. It is the answer of the Owner, not a question.
 const chatAnswerPrefix = "The Owner answered in the Lead chat:"
 
-// dispatchAnswer dispatches the task in asked or answered again. The dispatch event has the body of the issue and each
-// comment of a trusted user, and each answer comment of the Mobius App, after the last question comment of the
-// Mobius App.
-func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
-	comments, err := repository.Comments(ctx, task.Issue)
-	if err != nil {
-		return err
-	}
+// answerReplies returns the comments of a trusted user after the last question comment of the Mobius App, the
+// comments that dispatchAnswer puts in the dispatch event. It also returns the time of that question comment.
+func (e *Engine) answerReplies(ctx context.Context, repository github.Repository, comments []*gh.IssueComment) ([]*gh.IssueComment, time.Time, error) {
 	var askedAt time.Time
 	for _, comment := range comments {
 		if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && !strings.HasPrefix(comment.GetBody(), chatAnswerPrefix) && comment.GetCreatedAt().After(askedAt) {
 			askedAt = comment.GetCreatedAt().Time
 		}
 	}
-	var actor string
-	var replies strings.Builder
+	var replies []*gh.IssueComment
 	for _, comment := range comments {
 		if !comment.GetCreatedAt().After(askedAt) {
 			continue
 		}
 		isEvent, err := e.commentIsEvent(ctx, repository, comment)
 		if err != nil {
-			return err
+			return nil, time.Time{}, err
 		}
 		if isEvent {
+			replies = append(replies, comment)
+		}
+	}
+	return replies, askedAt, nil
+}
+
+// dispatchAnswer dispatches the task in asked or answered again. The dispatch event has the body of the issue and each
+// comment of a trusted user, and each answer comment of the Mobius App, after the last question comment of the
+// Mobius App. The event keeps the newest reply of a trusted user as its comment.
+func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task) error {
+	comments, err := repository.Comments(ctx, task.Issue)
+	if err != nil {
+		return err
+	}
+	trusted, askedAt, err := e.answerReplies(ctx, repository, comments)
+	if err != nil {
+		return err
+	}
+	var actor string
+	var newest commentRef
+	var newestAt time.Time
+	var replies strings.Builder
+	for _, comment := range comments {
+		if !comment.GetCreatedAt().After(askedAt) {
+			continue
+		}
+		if slices.Contains(trusted, comment) {
 			actor = comment.GetUser().GetLogin()
 			replies.WriteString("\n\n" + eventText(comment.GetCreatedAt().Time, "reply on", issue, actor, comment.GetBody()))
+			if !comment.GetCreatedAt().Before(newestAt) {
+				newest, newestAt = commentRef{id: comment.GetID()}, comment.GetCreatedAt().Time
+			}
 		} else if strings.EqualFold(comment.GetUser().GetLogin(), appLogin(repository.AppSlug)) && strings.HasPrefix(comment.GetBody(), chatAnswerPrefix) {
 			if actor == "" {
 				actor = comment.GetUser().GetLogin()
@@ -336,7 +360,7 @@ func (e *Engine) dispatchAnswer(ctx context.Context, repository github.Repositor
 		}
 	}
 	text := eventText(time.Now(), "answer of", issue, actor, issue.GetBody()) + replies.String()
-	_, err = e.redispatch(ctx, repository, issue, task, text)
+	_, err = e.redispatch(ctx, repository, issue, task, text, newest)
 	return err
 }
 
@@ -924,7 +948,7 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 		}
 		moved, err = e.continueTask(ctx, repository, issue.GetTitle(), task, pullRequest, task.State)
 	} else {
-		moved, err = e.redispatch(ctx, repository, issue, task, eventText(time.Now(), "resume of", issue, actor, issue.GetBody()))
+		moved, err = e.redispatch(ctx, repository, issue, task, eventText(time.Now(), "resume of", issue, actor, issue.GetBody()), commentRef{})
 	}
 	if err != nil || !moved {
 		return err
@@ -935,9 +959,9 @@ func (e *Engine) resume(ctx context.Context, repository github.Repository, issue
 	return e.addActivity(ctx, repository.FullName, task.Workstream, issue, actor, fmt.Sprintf("Continued \"%s\"", issue.GetTitle()))
 }
 
-// redispatch gives the task with no pull request back to the Lead with a dispatch event that has text. It tells if the
-// task moved.
-func (e *Engine) redispatch(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, text string) (bool, error) {
+// redispatch gives the task with no pull request back to the Lead with a dispatch event that has text and comment. It
+// tells if the task moved.
+func (e *Engine) redispatch(ctx context.Context, repository github.Repository, issue *gh.Issue, task store.Task, text string, comment commentRef) (bool, error) {
 	if err := e.unstop(ctx, repository, task); err != nil {
 		return false, err
 	}
@@ -945,7 +969,7 @@ func (e *Engine) redispatch(ctx context.Context, repository github.Repository, i
 	if err != nil || moved == 0 {
 		return false, err
 	}
-	err = e.addLeadEvent(ctx, repository.FullName, task.Workstream, sql.NullInt64{Int64: int64(issue.GetNumber()), Valid: true}, "dispatch", text)
+	err = e.addCommentLeadEvent(ctx, repository.FullName, task.Workstream, sql.NullInt64{Int64: int64(issue.GetNumber()), Valid: true}, "dispatch", text, comment)
 	if err != nil {
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: task.State, ID: task.ID, FromState: "dispatched"})
 		return false, errors.Join(err, stateErr)
