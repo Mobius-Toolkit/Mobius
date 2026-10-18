@@ -787,7 +787,7 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), append([]string{workstreamLabel}, input.Labels...)); err != nil {
 		return "", fmt.Errorf("GitHub created #%d, but the add of the Workstream labels failed. Do not create the Workstream again: %w", issue.GetNumber(), err)
 	}
-	if _, err := e.updateCopy(ctx, repository, issue, nil, false); err != nil {
+	if _, err := e.updateCopy(ctx, repository, issue, nil, false, e.labelChangeCount(repository.FullName)); err != nil {
 		log.Printf("copy the new Workstream %s#%d: %v", repository.FullName, issue.GetNumber(), err)
 	}
 	e.publish(Change{Workstreams: true})
