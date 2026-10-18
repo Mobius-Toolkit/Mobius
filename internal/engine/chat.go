@@ -1039,10 +1039,16 @@ func (c *chat) queueEvents(events []item) {
 }
 
 // releaseEvents frees the held events of the Workstream after the Owner answered a question on GitHub. A running Lead
-// chat gets them as endTurn gives them. Else a new Lead chat gets the ready events.
+// chat gets them as endTurn gives them. Else a new Lead chat gets the ready events. A hold of the turn that runs is
+// not stored yet, so the answer cancels it and endTurn delivers the event.
 func (e *Engine) releaseEvents(ctx context.Context, repository string, workstream int64) error {
 	e.chatOrder.Lock()
 	defer e.chatOrder.Unlock()
+	e.chatsMu.Lock()
+	if running, ok := e.chats[leadChat(repository, workstream)]; ok {
+		running.held = false
+	}
+	e.chatsMu.Unlock()
 	affected, err := e.freeEvents(ctx, repository, workstream)
 	if err != nil || len(affected) == 0 {
 		return err

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -102,5 +103,53 @@ func TestACommentOfTheLeadWithGhKeepsTheEventsHeld(t *testing.T) {
 
 	if got := onlySession(t, server); len(got) != 3 || !held(t, server, 2) || !slices.Contains(fake.Labels(shop, 41), "mobius:question") {
 		t.Errorf("prompts = %q, labels = %v", got, fake.Labels(shop, 41))
+	}
+}
+
+const lingeringHoldScript = `
+[[prompts]]
+when = "dispatch of #42"
+reply = ["Seen"]
+
+[[prompts]]
+call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+
+[[prompts]]
+` + holdEvent + `
+linger = "3s"
+
+[[prompts]]
+reply = ["Seen"]
+
+[[prompts]]
+reply = ["Seen"]
+`
+
+// Serial: the answer must come before the lingering turn of the hold ends.
+func TestAnAnswerDuringTheTurnOfTheHoldDeliversTheHeldEvent(t *testing.T) {
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, lingeringHoldScript, keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForItem(t, server, "question")
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
+	addLeadEvent(t, server, "follow_up", "Held follow-up.")
+	dispatchTask(fake, 42, "Add plan route")
+	testkit.WaitFor(t, func() bool {
+		for _, session := range chatSessions(t, server, leadChat, engine.LeadRole) {
+			for _, call := range rows(t, server, session.ID, "mcp_call") {
+				if call["tool"] == "hold_event" {
+					return true
+				}
+			}
+		}
+		return false
+	})
+
+	fake.AddComment(shop, 41, "owner", "Cents.")
+
+	testkit.WaitFor(t, func() bool { return !slices.Contains(fake.Labels(shop, 41), "mobius:question") })
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
+	if prompts := onlySession(t, server); !slices.ContainsFunc(prompts, func(prompt string) bool { return strings.Contains(prompt, "Held follow-up.") }) {
+		t.Errorf("prompts = %q", prompts)
 	}
 }
