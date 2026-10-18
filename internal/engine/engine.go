@@ -54,6 +54,10 @@ type Engine struct {
 	// pushed holds the pull requests that a Worker pushed to after the poll read them. The poll reads them from GitHub
 	// at the next read.
 	pushed map[pullKey]bool
+	// closingMu guards closing.
+	closingMu sync.Mutex
+	// closing holds the Workstreams whose close runs now. The Workstream list leaves them out.
+	closing map[pullKey]bool
 	// ciWait holds the head of each task in checks that has no CI, with the time of its first poll, by the id of the task.
 	// Only the poll uses it.
 	ciWait map[int64]ciWait
@@ -163,6 +167,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		quiet:        map[int64]quietItem{},
 		pulls:        map[pullKey]*pullState{},
 		pushed:       map[pullKey]bool{},
+		closing:      map[pullKey]bool{},
 		ciWait:       map[int64]ciWait{},
 		newest:       map[string]newestVersion{},
 		workers:      newWorkers(),

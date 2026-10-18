@@ -47,6 +47,9 @@ func (h *handlers) ListWorkstreams(ctx context.Context, _ ListWorkstreamsRequest
 	}
 	workstreams := make([]Workstream, 0, len(rows))
 	for _, row := range rows {
+		if h.engine.IsClosing(row.Repository, row.Number) {
+			continue
+		}
 		workstreams = append(workstreams, Workstream{
 			Repository:     row.Repository,
 			Number:         row.Number,
