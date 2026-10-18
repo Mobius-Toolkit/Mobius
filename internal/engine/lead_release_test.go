@@ -30,9 +30,9 @@ reply = ["Seen"]
 reply = ["Seen"]
 `
 
-func addLeadEvent(t *testing.T, server *testserver.Server, payload string) {
+func addLeadEvent(t *testing.T, server *testserver.Server, kind, payload string) {
 	t.Helper()
-	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, 'comment', ?, '2026-10-04T10:00:00Z')`, payload); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, ?, ?, '2026-10-04T10:00:00Z')`, kind, payload); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -45,10 +45,10 @@ func heldAfterQuestion(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Serv
 	dispatchTask(fake, 41, "Add plan model")
 	item := waitForItem(t, server, "question")
 	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
-	addLeadEvent(t, server, "Held follow-up.")
+	addLeadEvent(t, server, "follow_up", "Held follow-up.")
 	dispatchTask(fake, 42, "Add plan route")
 	testkit.WaitFor(t, func() bool { return held(t, server, 1) && len(onlySession(t, server)) == 3 })
-	addLeadEvent(t, server, "Ready for approval.")
+	addLeadEvent(t, server, "ready_for_approval", "Ready for approval.")
 	waitForPolls(t, fake)
 	if got := onlySession(t, server); len(got) != 3 || !held(t, server, 2) {
 		t.Fatalf("prompts = %q", got)
