@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
@@ -173,5 +174,26 @@ func TestTheWorkerRestartLimitAddsNoMobiusCheckRunToAHeadThatHasNone(t *testing.
 		if run.HeadSHA == newHead {
 			t.Errorf("check run on the new head = %+v", run)
 		}
+	}
+}
+
+func TestTheRoundLimitAddsAFailedMobiusCheckRunToAHeadWithAnApprovedOne(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixes, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
+	sha := approvalHead(t, server, fake)
+	completeMobiusCheck(t, fake)
+	if _, err := server.DB.Exec("UPDATE tasks SET fix_rounds = 1 WHERE issue = 41"); err != nil {
+		t.Fatal(err)
+	}
+
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+
+	runs := testkit.WaitForValue(t, func() ([]testkit.CheckRun, bool) {
+		runs := mobiusCheckRuns(fake)
+		return runs, len(runs) == 2
+	})
+	if runs[0].Conclusion != "success" || runs[1].Status != "completed" || runs[1].Conclusion != "failure" || runs[1].Output == nil || runs[1].Output.Title != "Round limit" {
+		t.Errorf("check runs = %+v", runs)
 	}
 }
