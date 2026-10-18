@@ -93,3 +93,11 @@ func (e *Engine) AcknowledgeComment(ctx context.Context, name string, review boo
 func (e *Engine) Poll(ctx context.Context) {
 	e.poll(ctx)
 }
+
+// Closing tells if the idle timeout started the close of the chat session.
+func (e *Engine) Closing(key ChatKey) bool {
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	c, ok := e.chats[key]
+	return ok && c.closing
+}
