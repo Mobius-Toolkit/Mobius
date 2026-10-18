@@ -10,9 +10,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"syscall"
 	"time"
 
 	gork "github.com/gork-labs/gork/pkg/api"
@@ -26,6 +28,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/setup"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/voice"
 	"github.com/Mobius-Toolkit/Mobius/web"
 )
 
@@ -49,7 +52,7 @@ func main() {
 		os.Exit(runner.GH(os.Args[1:], os.Getenv))
 	}
 	if os.Getenv("GORK_EXPORT") == "1" {
-		router := api.Routes(http.NewServeMux(), nil, nil, nil, nil)
+		router := api.Routes(http.NewServeMux(), nil, nil, nil, nil, nil)
 		spec := gork.GenerateOpenAPI(router.GetRegistry(), gork.WithTitle("Mobius"), gork.WithVersion("0.1.0"))
 		if err := json.NewEncoder(os.Stdout).Encode(spec); err != nil {
 			log.Fatal(err)
@@ -164,8 +167,18 @@ func serve(configPath string) error {
 	}
 	go e.Run(ctx)
 
+	whisper := voice.New(cfg.DataDir, runner.AgentPath(cfg.DataDir, path))
+	whisper.Start()
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-signals
+		whisper.Stop()
+		os.Exit(0)
+	}()
+
 	mux := http.NewServeMux()
-	api.Routes(mux, queries, a, gh, e)
+	api.Routes(mux, queries, a, gh, e, whisper)
 	mcpServer.Register(mux)
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
