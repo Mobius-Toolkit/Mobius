@@ -262,6 +262,78 @@ func TestACIStopSendsTheRefusedStopCommentAgainAndPostsItOnce(t *testing.T) {
 	assertCIStop(t, server, fake, sha)
 }
 
+func TestACIStopWhoseLabelCallFailsSendsTheStopNoticeAtALaterPoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.FailAddLabels(shop, 41, true)
+
+	run := fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "startup_failure"})
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	waitForPolls(t, fake)
+	if items := itemsOf(t, server, "stopped"); len(items) != 0 {
+		t.Errorf("stopped items = %+v", items)
+	}
+	if task := liveTask(t, server, 41); task.CiFailedHead.String != sha {
+		t.Errorf("ci_failed_head = %v", task.CiFailedHead)
+	}
+	fake.FailAddLabels(shop, 41, false)
+
+	wantStopNotice(t, server, fake, "CI failed", "The CI of the head commit failed, and a fix round cannot change it.",
+		"Read the failed jobs of PR #42. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.")
+	assertCIStop(t, server, fake, sha)
+	if runs := mobiusCheckRuns(fake); runs[0].Status != "completed" || runs[0].Output == nil || runs[0].Output.Title != "CI failed" {
+		t.Errorf("check runs = %+v", runs)
+	}
+	var notices int
+	if err := server.DB.QueryRow("SELECT count(*) FROM stop_notices").Scan(&notices); err != nil || notices != 0 {
+		t.Errorf("stop notices = %d, %v", notices, err)
+	}
+
+	fake.SetWorkflowRunStatus(run, "completed", "success")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) != "needs_human" })
+}
+
+func TestACIStopWhoseCheckCallFailsCompletesTheCheckOnceAtALaterPoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.FailUpdateCheckRuns(true)
+
+	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "startup_failure"})
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	waitForPolls(t, fake)
+	if items := itemsOf(t, server, "stopped"); len(items) != 0 {
+		t.Errorf("stopped items = %+v", items)
+	}
+	fake.FailUpdateCheckRuns(false)
+
+	assertCIStop(t, server, fake, sha)
+	if runs := mobiusCheckRuns(fake); runs[0].Output == nil || runs[0].Output.Title != "CI failed" {
+		t.Errorf("check runs = %+v", runs)
+	}
+}
+
+func TestARemovalOfNeedsHumanAfterAStopWhoseLabelCallFailedResumesTheTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.FailAddLabels(shop, 42, true)
+
+	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "startup_failure"})
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+}
+
 func TestAPullRequestWithAnUnknownMergeabilityStaysInChecks(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

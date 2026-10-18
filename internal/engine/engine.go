@@ -97,6 +97,8 @@ type Engine struct {
 	// gitMu makes the git commands of the bare clones run one after the other. Two git commands that write the refs of
 	// a clone at the same time can fail on a ref lock.
 	gitMu sync.Mutex
+	// stopNoticeMu makes the delivery of the stop notices run one after the other.
+	stopNoticeMu sync.Mutex
 	// checks holds one value for each local check that runs, at most max_checks.
 	checks chan struct{}
 	// checkStartMu guards checkStart.

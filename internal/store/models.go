@@ -162,6 +162,21 @@ type StepTime struct {
 	Result       sql.NullString
 }
 
+type StopNotice struct {
+	ID           int64
+	Task         int64
+	Title        string
+	Reason       string
+	Text         string
+	Output       string
+	Next         string
+	LeadText     string
+	CheckTitle   string
+	CheckSummary string
+	CheckCreate  bool
+	CreatedAt    string
+}
+
 type Task struct {
 	ID             int64
 	Repository     string

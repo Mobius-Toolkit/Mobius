@@ -455,6 +455,21 @@ SELECT * FROM comment_writes WHERE repository = ? ORDER BY id;
 -- name: DeleteCommentWrite :exec
 DELETE FROM comment_writes WHERE id = ?;
 
+-- name: AddStopNotice :exec
+INSERT INTO stop_notices (task, title, reason, text, output, next, lead_text, check_title, check_summary, check_create, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListStopNotices :many
+SELECT sqlc.embed(stop_notices), sqlc.embed(tasks) FROM stop_notices
+JOIN tasks ON tasks.id = stop_notices.task
+WHERE tasks.repository = ?
+ORDER BY stop_notices.id;
+
+-- name: DeleteStopNotice :exec
+DELETE FROM stop_notices WHERE id = ?;
+
+-- name: ListStopEvents :many
+SELECT * FROM lead_events WHERE repository = ? AND issue = ? AND kind = 'stop' AND payload = ?;
+
 -- name: SetJudgedAt :exec
 UPDATE tasks SET judged_at = ? WHERE id = ?;
 

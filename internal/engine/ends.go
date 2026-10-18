@@ -191,7 +191,13 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 	if updated, err := e.endBreakWait(ctx, repository, task, pullRequest); err != nil || updated {
 		return Work{}, false, err
 	}
-	breakWaits, err := e.waitsForBreak(ctx, repository, task, pullRequest)
+	var state ci
+	if afterReview(task.State) {
+		if state, err = ciOf(ctx, repository, pullRequest.GetHead().GetSHA()); err != nil {
+			return Work{}, false, err
+		}
+	}
+	breakWaits, err := e.waitsForBreak(ctx, repository, task, pullRequest, state)
 	if err != nil {
 		return Work{}, false, err
 	}
@@ -215,12 +221,12 @@ func (e *Engine) checkTask(ctx context.Context, repository github.Repository, ta
 		round, err := e.startKeptRound(ctx, repository, round{task: task, title: issue.GetTitle(), pullRequest: pullRequest})
 		return work, round, err
 	case afterReview(task.State) && !breakWaits:
-		round, err := e.onFailure(ctx, repository, task, pullRequest)
+		round, err := e.onFailure(ctx, repository, task, pullRequest, state)
 		if err != nil || round {
 			return work, round, err
 		}
 		if task.State == "checks" {
-			if err := e.onChecks(ctx, repository, task, pullRequest); err != nil {
+			if err := e.onChecks(ctx, repository, task, pullRequest, state); err != nil {
 				return Work{}, false, err
 			}
 		}

@@ -316,12 +316,18 @@ func HeadContains(ctx context.Context, dataDir, worktree, commit string) (bool, 
 	return succeeds(git(ctx, dataDir, worktree, "", "merge-base", "--is-ancestor", commit, "HEAD"))
 }
 
+// HasUncommittedChanges tells if the worktree has a change with no commit, also a new file.
+func HasUncommittedChanges(ctx context.Context, dataDir, worktree string) (bool, error) {
+	status, err := run(git(ctx, dataDir, worktree, "", "--no-optional-locks", "status", "--porcelain"))
+	return status != "", err
+}
+
 // HasUnpushedWork tells if the worktree has uncommitted changes, or commits that origin/branch does not have. Before
 // the first push, origin/branch does not exist, and the worktree is compared with origin/base.
 func HasUnpushedWork(ctx context.Context, dataDir, worktree, branch, base string) (bool, error) {
-	status, err := run(git(ctx, dataDir, worktree, "", "--no-optional-locks", "status", "--porcelain"))
-	if err != nil || status != "" {
-		return status != "", err
+	uncommitted, err := HasUncommittedChanges(ctx, dataDir, worktree)
+	if err != nil || uncommitted {
+		return uncommitted, err
 	}
 	remote := "origin/" + branch
 	found, err := hasRef(ctx, dataDir, worktree, "refs/remotes/"+remote)

@@ -33,6 +33,10 @@ const (
 `
 	// renames is an Implementer that renames the field for the fix of item 2 and replies in the thread 2.
 	renames = "[[prompts]]\nwhen = \"Action: fix: Rename the field.\"\nshell = \"echo 'price_cents' > plan.txt && git commit -q -am 'Rename the field' && git rev-parse HEAD\"\ncall = { tool = \"reply_thread\", arguments = { thread = 2, text = \"Fixed in {shell}.\" } }\n\n"
+	fix2    = `call = { tool = "submit_verdicts", arguments = { items = [
+    { item = 2, actions = [{ verdict = "fix", text = "Rename the field." }] },
+] } }
+`
 	// answers is an Implementer that answers the question of item 2 with no commit.
 	answers = "[[prompts]]\nwhen = \"Action: question: Explain why the plan stores cents.\"\ncall = { tool = \"reply_thread\", arguments = { thread = 2, text = \"Cents avoid rounding.\" } }\n\n"
 	// fixesEach is an Implementer that commits a change in each fix round.
@@ -212,6 +216,28 @@ func TestAnImplementerReplyWithAnAnswerAndNoCommitResolvesTheThread(t *testing.T
 	}
 }
 
+func TestAnImplementerReplyWithNoCommitAndAFailedResolveResolvesTheThreadLaterAndIsOnTheThreadOnlyOnce(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectJudge(t, fake, question2, answers, func(cfg *config.Config) { cfg.MaxWorkerRestarts = 20 })
+	fake.FailResolveThreads(true)
+
+	question := fake.AddReviewComment(shop, 42, 0, "owner", "Why cents?")
+
+	testkit.WaitFor(t, func() bool { return len(fake.ReviewThread(shop, 42, question).Comments) == 2 })
+	testkit.WaitFor(t, func() bool { return liveTask(t, server, 41).WorkerRestarts >= 1 })
+	if thread := fake.ReviewThread(shop, 42, question); thread.Resolved || len(thread.Comments) != 2 {
+		t.Errorf("thread = %+v", thread)
+	}
+
+	fake.FailResolveThreads(false)
+
+	testkit.WaitFor(t, func() bool { return fake.ReviewThread(shop, 42, question).Resolved })
+	if thread := fake.ReviewThread(shop, 42, question); len(thread.Comments) != 2 {
+		t.Errorf("thread = %+v", thread)
+	}
+}
+
 func TestAnImplementerReplyToAConversationCommentResolvesNothing(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -226,6 +252,50 @@ func TestAnImplementerReplyToAConversationCommentResolvesNothing(t *testing.T) {
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 42), answer) })
 	if fake.ReviewThread(shop, 42, question).Resolved {
 		t.Error("the comment is resolved")
+	}
+}
+
+// holdingCheck is an Implementer that commits a .mobius/check. When the file hold exists, the check creates the file
+// started and waits for the file release.
+func holdingCheck(hold, started, release string) string {
+	script := "'#!/bin/sh' 'if [ -e " + hold + " ]; then touch " + started + "; while [ ! -e " + release + " ]; do sleep 0.1; done; fi'"
+	return "[[prompts]]\nwhen = \"Store plans in cents.\"\nshell = '''mkdir -p .mobius && printf '%s\\n' " + script +
+		" > .mobius/check && chmod +x .mobius/check && echo cents > plan.txt && git add plan.txt .mobius/check && git commit -q -m \"Add plan model $(basename $PWD)\"'''\n\n"
+}
+
+func TestAnImplementerReplyWithNoCommitIsOnThePullRequestBeforeTheLocalCheckRuns(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dir := t.TempDir()
+	hold, started, release := dir+"/hold", dir+"/started", dir+"/release"
+	connectJudge(t, fake, question2, answers+holdingCheck(hold, started, release), noChange)
+	touch(t, hold)
+
+	fake.AddComment(shop, 42, "owner", "Why cents?")
+
+	answer := testkit.Comment{Author: app, Body: "> Why cents?\n\nCents avoid rounding."}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 42), answer) })
+	touch(t, release)
+}
+
+func TestAnImplementerReplyWithACommitIsOnThePullRequestAfterThePush(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dir := t.TempDir()
+	hold, started, release := dir+"/hold", dir+"/started", dir+"/release"
+	connectJudge(t, fake, fix2, renames+holdingCheck(hold, started, release), noChange)
+	touch(t, hold)
+
+	fix := fake.AddReviewComment(shop, 42, 0, "owner", "Use price_cents.")
+
+	testkit.WaitFor(t, func() bool { _, err := os.Stat(started); return err == nil })
+	if thread := fake.ReviewThread(shop, 42, fix); len(thread.Comments) != 1 || thread.Resolved {
+		t.Errorf("thread = %+v", thread)
+	}
+	touch(t, release)
+	fixed := resolved(t, fake, fix)
+	if want := (testkit.Comment{Author: app, Body: "Fixed in " + head(t, fake, "mobius/41") + "."}); fixed.Comments[1] != want {
+		t.Errorf("thread = %+v", fixed)
 	}
 }
 

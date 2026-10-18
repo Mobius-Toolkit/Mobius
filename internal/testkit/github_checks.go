@@ -170,6 +170,14 @@ func (g *FakeGitHub) AfterNextReviewedCheckRunRead(f func()) {
 	g.afterCheckRunRead = f
 }
 
+// AddCheckRunAfterNextRead adds the check run of another App to repository at the end of the next request for the check
+// runs of run.HeadSHA. The answer of that request does not have the check run.
+func (g *FakeGitHub) AddCheckRunAfterNextRead(repository string, run CheckRun) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lateCheckRun = &checkRun{repository, run}
+}
+
 // SetCreatedAt sets the creation time of the issue or the pull request to seconds after the Unix epoch.
 func (g *FakeGitHub) SetCreatedAt(repository string, number, seconds int64) {
 	g.mu.Lock()
@@ -355,6 +363,14 @@ func (g *FakeGitHub) createPullRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	commits, err := gitCommand(g.Remote(repository(r)), "rev-list", "--count", request.Base+".."+request.Head).Output()
+	if err == nil && strings.TrimSpace(string(commits)) == "0" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"message": "Validation Failed",
+			"errors":  []map[string]string{{"resource": "PullRequest", "code": "custom", "message": fmt.Sprintf("No commits between %s and %s", request.Base, request.Head)}},
+		})
+		return
+	}
 	number := g.insertPullRequest(repository(r), PullRequest{Title: request.Title, Body: request.Body, Head: request.Head, Base: request.Base, Draft: request.Draft})
 	body := g.pullRequestJSON(repository(r), number)
 	// GitHub computes mergeable after the creation.
@@ -597,6 +613,13 @@ func (g *FakeGitHub) checkRunOf(w http.ResponseWriter, r *http.Request) (int, bo
 	return id - 1, true
 }
 
+// FailUpdateCheckRuns makes each update of a check run fail, or work again when fail is false.
+func (g *FakeGitHub) FailUpdateCheckRuns(fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failCheckUpdates = fail
+}
+
 func (g *FakeGitHub) updateCheckRun(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Name       string          `json:"name"`
@@ -609,6 +632,10 @@ func (g *FakeGitHub) updateCheckRun(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.failCheckUpdates {
+		http.Error(w, "check run update refused", http.StatusInternalServerError)
+		return
+	}
 	index, ok := g.checkRunOf(w, r)
 	if !ok {
 		return
@@ -626,6 +653,10 @@ func (g *FakeGitHub) commitCheckRuns(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	g.checkRunReads++
 	defer func() {
+		if g.lateCheckRun != nil && g.lateCheckRun.repository == repository(r) && g.lateCheckRun.HeadSHA == r.PathValue("sha") {
+			g.checkRuns = append(g.checkRuns, *g.lateCheckRun)
+			g.lateCheckRun = nil
+		}
 		if g.afterCheckRunRead != nil && g.reviewRead {
 			g.afterCheckRunRead()
 			g.afterCheckRunRead = nil

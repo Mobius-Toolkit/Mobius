@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
@@ -150,4 +151,82 @@ func TestTheWorkerRestartLimitKeepsTheCompleteMobiusCheckRun(t *testing.T) {
 		t.Fatalf("restart = %v: %v", restart, err)
 	}
 	wantApprovedCheck(t, fake, sha)
+}
+
+func TestTheWorkerRestartLimitAddsNoMobiusCheckRunToAHeadThatHasNone(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	sha := approvalHead(t, server, fake)
+	remote := fake.Remote(shop)
+	newHead := testkit.Git(t, remote, "commit-tree", sha+"^{tree}", "-p", sha, "-m", "Add price")
+	testkit.Git(t, remote, "update-ref", "refs/heads/mobius/41", newHead)
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'working', worker = NULL, worker_restarts = 3 WHERE issue = 41"); err != nil {
+		t.Fatal(err)
+	}
+
+	restart, err := server.Engine.RestartWorker(t.Context(), liveTask(t, server, 41), "Add plan model", errors.New("the Worker died"))
+
+	if err != nil || restart {
+		t.Fatalf("restart = %v: %v", restart, err)
+	}
+	for _, run := range mobiusCheckRuns(fake) {
+		if run.HeadSHA == newHead {
+			t.Errorf("check run on the new head = %+v", run)
+		}
+	}
+}
+
+func TestTheRoundLimitAddsAFailedMobiusCheckRunToAHeadWithAnApprovedOne(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, fixes, func(cfg *config.Config) { cfg.MaxFixRounds = 1 })
+	sha := approvalHead(t, server, fake)
+	completeMobiusCheck(t, fake)
+	if _, err := server.DB.Exec("UPDATE tasks SET fix_rounds = 1 WHERE issue = 41"); err != nil {
+		t.Fatal(err)
+	}
+
+	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
+
+	runs := testkit.WaitForValue(t, func() ([]testkit.CheckRun, bool) {
+		runs := mobiusCheckRuns(fake)
+		return runs, len(runs) == 2
+	})
+	if runs[0].Conclusion != "success" || runs[1].Status != "completed" || runs[1].Conclusion != "failure" || runs[1].Output == nil || runs[1].Output.Title != "Round limit" {
+		t.Errorf("check runs = %+v", runs)
+	}
+}
+
+func TestAFailedCheckWriteOfTheWorkerRestartLimitStillGivesTheItemAndTheLeadEventAndHoldsTheComment(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, noChange)
+	sha := approvalHead(t, server, fake)
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'working', worker = NULL, worker_restarts = 3 WHERE issue = 41"); err != nil {
+		t.Fatal(err)
+	}
+	fake.FailUpdateCheckRuns(true)
+
+	if restart, err := server.Engine.RestartWorker(t.Context(), liveTask(t, server, 41), "Add plan model", errors.New("the Worker died")); err != nil || restart {
+		t.Fatalf("restart = %v: %v", restart, err)
+	}
+
+	testkit.WaitFor(t, func() bool {
+		var events int
+		err := server.DB.QueryRow("SELECT count(*) FROM lead_events WHERE kind = 'stop' AND issue = 41").Scan(&events)
+		return err == nil && events == 1 && len(itemsOf(t, server, "stopped")) == 1
+	})
+	waitForPolls(t, fake)
+	if comments := fake.Comments(shop, 41); len(comments) != 0 {
+		t.Errorf("comments = %q", comments)
+	}
+
+	fake.FailUpdateCheckRuns(false)
+
+	testkit.WaitFor(t, func() bool { return len(fake.Comments(shop, 41)) == 1 })
+	wantStopCheck(t, fake, sha, "Restart limit")
+	if items := itemsOf(t, server, "stopped"); len(items) != 1 {
+		t.Errorf("stopped items = %d", len(items))
+	}
 }
