@@ -504,7 +504,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 			return err
 		}
 		if added == 0 {
-			return e.stopAtLimit(ctx, repository, r, "fix")
+			return e.stopAtLimit(ctx, r, "fix")
 		}
 		current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: r.task.Repository, Issue: r.task.Issue})
 		if err != nil {
@@ -850,7 +850,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 
 // stopAtLimit hands the task of the round to a human, because the pull request has open items after max_fix_rounds
 // rounds of limit, for example "fix". The head of the pull request gets a failed Mobius check.
-func (e *Engine) stopAtLimit(ctx context.Context, repository github.Repository, r round, limit string) error {
+func (e *Engine) stopAtLimit(ctx context.Context, r round, limit string) error {
 	rounds := e.config.MaxFixRounds
 	summary := fmt.Sprintf("The pull request has open items after %d %s rounds.", rounds, limit)
 	reason := fmt.Sprintf("the pull request has open items after %d %s rounds. Mobius set the Mobius check to failure and added mobius:needs-human.", rounds, limit)
