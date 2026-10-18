@@ -948,7 +948,7 @@ func TestCannotDoIsRefusedWhenTheWorktreeHasWorkThatMobiusDidNotPush(t *testing.
 	} {
 		t.Run(name, func(t *testing.T) {
 			fake := testkit.NewFakeGitHub(t)
-			server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\n"+shell+cannotDoCall, noChange)
+			server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\n"+shell+cannotDoCall+"\n[[prompts]]\n"+commitCents, noChange)
 			fake.AddLabel(shop, 41, "mobius:ready", "owner")
 
 			ended := endedImplementers(t, server, 1)[0]
