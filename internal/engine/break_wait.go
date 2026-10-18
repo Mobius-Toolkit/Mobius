@@ -35,8 +35,8 @@ func (e *Engine) breakOpenFor(ctx context.Context, repository string, task store
 // end of a break of the CI of the default branch. The head waits when the repository has an open break and the CI of the
 // head failed. The head stays in break_wait_head, so the wait survives a restart. A waiting task gets no fix round and
 // no stop. When the CI of the waiting head shows no failure any more, for example after a run of its failed jobs again,
-// the wait ends and the usual flow reads the CI.
-func (e *Engine) waitsForBreak(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
+// the wait ends and the usual flow reads the CI. It decides from state, the CI of the head that the caller read.
+func (e *Engine) waitsForBreak(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, state ci) (bool, error) {
 	if !afterReview(task.State) {
 		return false, nil
 	}
@@ -45,10 +45,6 @@ func (e *Engine) waitsForBreak(ctx context.Context, repository github.Repository
 		return false, err
 	}
 	head := pullRequest.GetHead().GetSHA()
-	state, err := ciOf(ctx, repository, head)
-	if err != nil {
-		return false, err
-	}
 	waiting := task.BreakWaitHead.String == head
 	if state.failedCheck || state.failedWorkflow {
 		if waiting {

@@ -170,6 +170,14 @@ func (g *FakeGitHub) AfterNextReviewedCheckRunRead(f func()) {
 	g.afterCheckRunRead = f
 }
 
+// AddCheckRunAfterNextRead adds the check run of another App to repository at the end of the next request for the check
+// runs of run.HeadSHA. The answer of that request does not have the check run.
+func (g *FakeGitHub) AddCheckRunAfterNextRead(repository string, run CheckRun) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lateCheckRun = &checkRun{repository, run}
+}
+
 // SetCreatedAt sets the creation time of the issue or the pull request to seconds after the Unix epoch.
 func (g *FakeGitHub) SetCreatedAt(repository string, number, seconds int64) {
 	g.mu.Lock()
@@ -626,6 +634,10 @@ func (g *FakeGitHub) commitCheckRuns(w http.ResponseWriter, r *http.Request) {
 	defer g.mu.Unlock()
 	g.checkRunReads++
 	defer func() {
+		if g.lateCheckRun != nil && g.lateCheckRun.repository == repository(r) && g.lateCheckRun.HeadSHA == r.PathValue("sha") {
+			g.checkRuns = append(g.checkRuns, *g.lateCheckRun)
+			g.lateCheckRun = nil
+		}
 		if g.afterCheckRunRead != nil && g.reviewRead {
 			g.afterCheckRunRead()
 			g.afterCheckRunRead = nil
