@@ -354,6 +354,14 @@ func (g *FakeGitHub) FailAddComment(repository string, number int64, fail bool) 
 	g.failedComments[issueKey{repository, number}] = fail
 }
 
+// RefuseAddComment makes each new comment that Mobius writes on the issue give the status. The status 0 makes the
+// comment work.
+func (g *FakeGitHub) RefuseAddComment(repository string, number int64, status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refusedComments[issueKey{repository, number}] = status
+}
+
 // FailUpdateComment makes each update of a comment of the issue fail, or work again when fail is false.
 func (g *FakeGitHub) FailUpdateComment(repository string, number int64, fail bool) {
 	g.mu.Lock()
@@ -1050,6 +1058,10 @@ func (g *FakeGitHub) addComment(w http.ResponseWriter, r *http.Request) {
 	}
 	if g.failedComments[key] {
 		message(w, http.StatusInternalServerError, "Server Error")
+		return
+	}
+	if status := g.refusedComments[key]; status != 0 {
+		message(w, status, "Resource not accessible by integration")
 		return
 	}
 	if utf8.RuneCountInString(request.Body) > 65535 {

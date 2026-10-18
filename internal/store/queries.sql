@@ -447,7 +447,7 @@ SELECT review_comment FROM tasks WHERE id = ?;
 UPDATE tasks SET review_comment = ? WHERE id = ?;
 
 -- name: AddCommentWrite :exec
-INSERT INTO comment_writes (repository, number, comment, body) VALUES (?, ?, ?, ?);
+INSERT INTO comment_writes (repository, number, comment, reply_to, body) VALUES (?, ?, ?, ?, ?);
 
 -- name: ListCommentWrites :many
 SELECT * FROM comment_writes WHERE repository = ? ORDER BY id;
