@@ -338,7 +338,7 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", "CI failed", "The CI of the head commit failed, and a fix round cannot change it."); err != nil {
 		return err
 	}
-	return e.sendStopNotices(ctx, task.Repository)
+	return e.sendStopNotices(ctx, task.Repository, task.ID)
 }
 
 // ci is what the check runs of other Apps and the workflow runs of GitHub Actions on a head show.

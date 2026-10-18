@@ -325,7 +325,7 @@ func (e *Engine) handBackToHuman(ctx context.Context, j judgeJob, reason string)
 	if err != nil || !handed {
 		return err
 	}
-	return e.sendStopNotices(ctx, j.task.Repository)
+	return e.sendStopNotices(ctx, j.task.Repository, j.task.ID)
 }
 
 // markJudged makes the newest item of the job the last item of the Judge.

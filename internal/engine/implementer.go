@@ -869,7 +869,7 @@ func (e *Engine) stopAtLimit(ctx context.Context, repository github.Repository, 
 	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", "Round limit", summary); err != nil {
 		return err
 	}
-	return e.sendStopNotices(ctx, r.task.Repository)
+	return e.sendStopNotices(ctx, r.task.Repository, r.task.ID)
 }
 
 // handOver hands the task to a human, and gives the Lead a stop event with reason, and the Owner a comment and an Inbox
@@ -890,7 +890,7 @@ func (e *Engine) handOverFailed(ctx context.Context, task store.Task, title, rea
 	if checkTitle != "" {
 		checkErr = e.failCheckRun(ctx, task, checkTitle, checkSummary)
 	}
-	return errors.Join(checkErr, e.sendStopNotices(ctx, task.Repository))
+	return errors.Join(checkErr, e.sendStopNotices(ctx, task.Repository, task.ID))
 }
 
 // failCheckRun completes the open Mobius check of the head of the pull request of the task as failure. It reads the task

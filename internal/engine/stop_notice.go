@@ -97,10 +97,13 @@ func storeStopNotice(task store.Task, title, leadText string, notice stopNotice)
 	}
 }
 
-// sendStopNotices delivers each stop notice of the repository that an earlier step stored: the labels, the stopped
+// sendStopNotices delivers the stop notices of the repository that an earlier step stored: the labels, the stopped
 // Inbox item, the stop event of the Lead and the comment. A notice is deleted after all of them succeed, or when its
 // task left needs_human, or when GitHub answers 404 or 410. A write that fails stays for the next poll.
-func (e *Engine) sendStopNotices(ctx context.Context, name string) error {
+// The caller of handToHuman gives the id of its task. Then sendStopNotices sends only the notice of that task without
+// the labels, because handToHuman set them and the Owner can have removed them since. The poll gives 0, and
+// sendStopNotices sends each notice of the repository with its labels.
+func (e *Engine) sendStopNotices(ctx context.Context, name string, task int64) error {
 	e.stopNoticeMu.Lock()
 	defer e.stopNoticeMu.Unlock()
 	rows, err := e.queries.ListStopNotices(ctx, name)
@@ -108,8 +111,11 @@ func (e *Engine) sendStopNotices(ctx context.Context, name string) error {
 		return err
 	}
 	for _, row := range rows {
+		if task != 0 && row.Task.ID != task {
+			continue
+		}
 		if row.Task.State == "needs_human" {
-			if err := e.deliverStopNotice(ctx, row.StopNotice, row.Task); err != nil && !github.NotFound(err) {
+			if err := e.deliverStopNotice(ctx, row.StopNotice, row.Task, task == 0); err != nil && !github.NotFound(err) {
 				log.Printf("send the stop notice of %s#%d: %v", name, row.Task.Issue, err)
 				continue
 			}
@@ -121,15 +127,18 @@ func (e *Engine) sendStopNotices(ctx context.Context, name string) error {
 	return nil
 }
 
-// deliverStopNotice does each write of the stop notice once. The comment is the last write, so that a retry after a
-// failed write does not post it twice.
-func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice, task store.Task) error {
+// deliverStopNotice does each write of the stop notice once. The labels come before the Inbox item, because
+// closeInboxItems dismisses a stopped item of an issue with no mobius:needs-human. The comment is the last write, so
+// that a retry after a failed write does not post it twice.
+func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice, task store.Task, labels bool) error {
 	repository, err := e.repository(task.Repository)
 	if err != nil {
 		return err
 	}
-	if err := setStopLabels(ctx, repository, task); err != nil {
-		return err
+	if labels {
+		if err := setStopLabels(ctx, repository, task); err != nil {
+			return err
+		}
 	}
 	createdAt, err := time.Parse(time.RFC3339Nano, record.CreatedAt)
 	if err != nil {
