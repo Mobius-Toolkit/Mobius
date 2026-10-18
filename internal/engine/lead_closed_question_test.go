@@ -5,8 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 func TestAQuestionThatClosesWithNoCommentFreesTheHeldEventsInIdOrder(t *testing.T) {
@@ -29,15 +30,17 @@ func TestAQuestionThatClosesWithNoCommentFreesTheHeldEventsInIdOrder(t *testing.
 func TestAStartWithAHeldEventWhoseQuestionIsClosedDeliversTheEventInTheFirstPoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n\n[[prompts]]\nreply = [\"Seen\"]\n", func(cfg *config.Config) {
-		seed(t, cfg.DataDir,
-			`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, held) VALUES ('owner/shop', 12, 41, 'follow_up', 'Held follow-up.', '2026-10-04T10:00:00Z', 1)`,
-			`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, 'ready_for_approval', 'Ready for approval.', '2026-10-04T10:10:00Z')`,
-			`INSERT INTO inbox_items (kind, organization, repository, workstream, issue, text, link, time, dismissed_at) VALUES ('question', 'owner', 'owner/shop', 12, 41, 'Cents or dollars?', '', '2026-10-04T10:05:00Z', '2026-10-04T11:00:00Z')`)
-	})
+	first, _, dataDir := heldAfterQuestionIn(t, fake)
+	first.Stop()
+	fake.RemoveLabel(shop, 41, "mobius:question", "owner")
+	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nreply = [\"Seen\"]\n\n[[prompts]]\nreply = [\"Seen\"]\n")
+
+	server := testserver.Start(t, dataDir, fake.URL)
 
 	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
-	if joined := strings.Join(onlySession(t, server), "\n"); !strings.Contains(joined, "Held follow-up.") || strings.Index(joined, "Held follow-up.") > strings.Index(joined, "Ready for approval.") {
+	sessions := chatSessions(t, server, leadChat, engine.LeadRole)
+	joined := strings.Join(promptTexts(t, server, sessions[len(sessions)-1].ID), "\n")
+	if !strings.Contains(joined, "Held follow-up.") || strings.Index(joined, "Held follow-up.") > strings.Index(joined, "Ready for approval.") {
 		t.Errorf("prompts = %q", joined)
 	}
 }

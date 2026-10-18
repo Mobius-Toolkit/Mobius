@@ -40,6 +40,13 @@ type Server struct {
 	Engine *engine.Engine
 	// Mux has the API routes. The server serves it.
 	Mux *http.ServeMux
+
+	stop func()
+}
+
+// Stop stops the engine of the server and waits for its end. The database stays open.
+func (s *Server) Stop() {
+	s.stop()
 }
 
 // Config gives the config of a server under test with the data in dataDir: the access password Password, the
@@ -123,10 +130,11 @@ func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 		e.Run(ctx)
 		close(stopped)
 	}()
-	t.Cleanup(func() {
+	stop := func() {
 		cancel()
 		<-stopped
-	})
+	}
+	t.Cleanup(stop)
 	mux := http.NewServeMux()
 	api.Routes(mux, queries, a, gh, e)
 	// The session cookie is Secure, and a cookie jar sends a Secure cookie only over HTTPS.
@@ -145,7 +153,7 @@ func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("login: status %d", response.StatusCode)
 	}
-	return &Server{URL: server.URL, DB: db, Client: client, Engine: e, Mux: mux}
+	return &Server{URL: server.URL, DB: db, Client: client, Engine: e, Mux: mux, stop: stop}
 }
 
 // agentFreePath gives the PATH of the test with no directory that has a Harness command.

@@ -42,7 +42,14 @@ func addLeadEvent(t *testing.T, server *testserver.Server, kind, payload string)
 // event that the test adds to the database. One more event of #41 waits behind the held event.
 func heldAfterQuestion(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, inboxItem) {
 	t.Helper()
-	server, _ := connectWith(t, fake, releaseScript, keepSessionOpen)
+	server, item, _ := heldAfterQuestionIn(t, fake)
+	return server, item
+}
+
+// heldAfterQuestionIn is heldAfterQuestion that also gives the data directory of the server.
+func heldAfterQuestionIn(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, inboxItem, string) {
+	t.Helper()
+	server, dataDir := connectWith(t, fake, releaseScript, keepSessionOpen)
 	dispatchTask(fake, 41, "Add plan model")
 	item := waitForItem(t, server, "question")
 	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
@@ -54,7 +61,7 @@ func heldAfterQuestion(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Serv
 	if got := onlySession(t, server); len(got) != 3 || !held(t, server, 2) {
 		t.Fatalf("prompts = %q", got)
 	}
-	return server, item
+	return server, item, dataDir
 }
 
 func checkReleased(t *testing.T, server *testserver.Server) {
