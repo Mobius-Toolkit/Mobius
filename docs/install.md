@@ -13,6 +13,15 @@ Install these programs:
 - `tar`
 - `gh`, the GitHub CLI
 - Node 22 or later, for the Claude Code adapter
+- `whisper-server`, for voice input
+
+To install `whisper-server` on macOS, run this command:
+
+```sh
+brew install whisper-cpp
+```
+
+Mobius starts `whisper-server` and keeps it running. At its first start, Mobius downloads the speech model `ggml-large-v3-turbo.bin` (about 1.5 GB) to `whisper/` in the data directory. Until the download ends, voice input gives the message "The speech model is still downloading".
 
 ## 2. Install Mobius
 

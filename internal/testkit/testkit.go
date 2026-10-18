@@ -15,6 +15,7 @@ import (
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/fakeagent"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/fakedf"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/fakewhisper"
 )
 
 // FakeAgentVersion is the first line that a Harness command of InstallFakeHarness gives for --version.
@@ -22,7 +23,8 @@ const FakeAgentVersion = "fake-agent 1.0.0"
 
 // Main runs the tests of the package. When the test binary runs as a Harness command
 // of InstallFakeHarness, Main runs the fake agent in place of the tests, as the df of SetFreeSpace, it gives the
-// free space of SetFreeSpace, and as a program of InstallFakeProgram, it gives its output.
+// free space of SetFreeSpace, as a program of InstallFakeProgram, it gives its output, and as the whisper-server of
+// InstallFakeWhisper, it runs the fake whisper-server.
 func Main(m *testing.M) {
 	if output, err := fs.ReadFile(os.DirFS(filepath.Dir(os.Args[0])), filepath.Base(os.Args[0])+".output"); err == nil {
 		fmt.Print(string(output))
@@ -30,6 +32,13 @@ func Main(m *testing.M) {
 	}
 	if filepath.Base(os.Args[0]) == "df" {
 		if err := fakedf.Run(filepath.Clean(os.Args[0] + ".free")); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if filepath.Base(os.Args[0]) == "whisper-server" {
+		if err := fakewhisper.Run(os.Args[0], os.Args[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
