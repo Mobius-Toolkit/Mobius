@@ -38,6 +38,8 @@ type stopNotice struct {
 	checkTitle, checkSummary string
 	// createCheck makes a failed Mobius check on a head that has no Mobius check. Else such a head stays as it is.
 	createCheck bool
+	// leadKind is the kind of the Lead event. An empty leadKind means "stop".
+	leadKind string
 }
 
 // tellStop posts the reason text and the next action of notice on the issue of the task, and adds a stopped Inbox item
@@ -90,6 +92,10 @@ func stoppedItem(task store.Task, title string, notice stopNotice) store.AddInbo
 // storeStopNotice gives the record of a stop notice that is not delivered yet. leadText is the text of the stop event of
 // the Lead. A notice with no text gives the Lead an event only.
 func storeStopNotice(task store.Task, title, leadText string, notice stopNotice) store.AddStopNoticeParams {
+	leadKind := notice.leadKind
+	if leadKind == "" {
+		leadKind = "stop"
+	}
 	return store.AddStopNoticeParams{
 		Task:         task.ID,
 		Title:        title,
@@ -97,6 +103,7 @@ func storeStopNotice(task store.Task, title, leadText string, notice stopNotice)
 		Text:         notice.text,
 		Output:       notice.output,
 		Next:         notice.next,
+		LeadKind:     leadKind,
 		LeadText:     leadText,
 		CheckTitle:   notice.checkTitle,
 		CheckSummary: notice.checkSummary,
@@ -182,12 +189,12 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 			return err
 		}
 	}
-	stopped, err := e.queries.ListStopEvents(ctx, store.ListStopEventsParams{Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Payload: record.LeadText})
+	stopped, err := e.queries.ListStopEvents(ctx, store.ListStopEventsParams{Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Kind: record.LeadKind, Payload: record.LeadText})
 	if err != nil {
 		return err
 	}
 	if !slices.ContainsFunc(stopped, func(event store.LeadEvent) bool { return !timeBefore(event.Time, createdAt) }) {
-		if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", record.LeadText); err != nil {
+		if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, record.LeadKind, record.LeadText); err != nil {
 			return err
 		}
 	}

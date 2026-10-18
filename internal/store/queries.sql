@@ -456,7 +456,7 @@ SELECT * FROM comment_writes WHERE repository = ? ORDER BY id;
 DELETE FROM comment_writes WHERE id = ?;
 
 -- name: AddStopNotice :exec
-INSERT INTO stop_notices (task, title, reason, text, output, next, lead_text, check_title, check_summary, check_create, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO stop_notices (task, title, reason, text, output, next, lead_kind, lead_text, check_title, check_summary, check_create, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListStopNotices :many
 SELECT sqlc.embed(stop_notices), sqlc.embed(tasks) FROM stop_notices
@@ -468,7 +468,7 @@ ORDER BY stop_notices.id;
 DELETE FROM stop_notices WHERE id = ?;
 
 -- name: ListStopEvents :many
-SELECT * FROM lead_events WHERE repository = ? AND issue = ? AND kind = 'stop' AND payload = ?;
+SELECT * FROM lead_events WHERE repository = ? AND issue = ? AND kind = ? AND payload = ?;
 
 -- name: SetJudgedAt :exec
 UPDATE tasks SET judged_at = ? WHERE id = ?;
