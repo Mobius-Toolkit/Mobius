@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"log"
 	"slices"
 	"strings"
@@ -16,7 +15,7 @@ import (
 // nextStepMarker starts the next action in the comment of a stop notice.
 const nextStepMarker = "\n\nNext step: "
 
-// isStopComment tells if the body is a comment of tellStop or the lost comment of handLostTasks. Such a comment is no
+// isStopComment tells if the body is a stop comment of a notice or the lost comment of handLostTasks. Such a comment is no
 // question.
 func isStopComment(body string) bool {
 	return body == lostText || strings.Contains(body, nextStepMarker)
@@ -40,28 +39,6 @@ type stopNotice struct {
 	createCheck bool
 	// leadKind is the kind of the Lead event. An empty leadKind means "stop".
 	leadKind string
-}
-
-// tellStop posts the reason text and the next action of notice on the issue of the task, and adds a stopped Inbox item
-// with the same text. When the issue has an open question item, the stopped item is dismissed at once, so the issue has
-// one open item. A comment that GitHub refuses goes to comment_writes, and the next poll sends it again.
-// Call tellStop after the labels change, because closeInboxItems dismisses a stopped item of an issue with no
-// mobius:needs-human.
-func (e *Engine) tellStop(ctx context.Context, task store.Task, title string, notice stopNotice) error {
-	repository, err := e.repository(task.Repository)
-	if err != nil {
-		return err
-	}
-	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
-	if err != nil {
-		return err
-	}
-	commentErr := e.addOrKeepComment(ctx, repository, task.Issue, notice.comment())
-	itemErr := e.addInboxItem(ctx, stoppedItem(current, title, notice))
-	if itemErr == nil {
-		itemErr = e.dismissStoppedItemOfQuestion(ctx, task)
-	}
-	return errors.Join(commentErr, itemErr)
 }
 
 // comment gives the text of the stop comment.
