@@ -11,6 +11,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
+	"github.com/Mobius-Toolkit/Mobius/internal/voice"
 )
 
 // maxSendChatBody is the size of 4 images of 5 MB, and 1 MB for the text and the multipart headers.
@@ -18,8 +19,8 @@ const maxSendChatBody = 4*5*1024*1024 + 1024*1024
 
 // Routes registers the API routes below /api/ on mux.
 // Each route but POST /api/login needs the cookie of a device login.
-func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github.GitHub, e *engine.Engine) *stdlib.Router {
-	h := &handlers{queries: queries, auth: a, github: gh, engine: e}
+func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github.GitHub, e *engine.Engine, w *voice.Whisper) *stdlib.Router {
+	h := &handlers{queries: queries, auth: a, github: gh, engine: e, whisper: w}
 	routes := http.NewServeMux()
 	r := stdlib.NewRouter(routes)
 	r.Post("/api/login", h.Login, api.WithTags("devices"), api.WithErrorResponses(http.StatusUnauthorized))
@@ -74,18 +75,24 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Post("/api/checkup/fix", h.FixLabels, loggedIn("checkup")...)
 	r.Get("/api/usage", h.GetUsage, append(loggedIn("usage"), api.WithErrorResponses(http.StatusBadRequest))...)
 	r.Get("/api/usage/times", h.GetUsageTimes, append(loggedIn("usage"), api.WithErrorResponses(http.StatusBadRequest))...)
+	r.Post("/api/voice/transcriptions", h.Transcribe, append(loggedIn("voice"), api.WithRequestContentTypes("audio/wav"), api.WithErrorResponses(http.StatusBadGateway, http.StatusServiceUnavailable))...)
 	r.Get("/api/github/manifest-callback", h.ManifestCallback, redirect("github")...)
 	r.Get("/api/github/user-callback", h.UserCallback, redirect("github")...)
-	mux.Handle("/api/", h.guard(limitSendChat(routes)))
+	mux.Handle("/api/", h.guard(limitBodies(routes)))
 	return r
 }
 
-// limitSendChat makes a request to SendChat fail when its body is larger than maxSendChatBody, before Gork reads the
-// body into memory.
-func limitSendChat(next http.Handler) http.Handler {
+// limitBodies makes a request to SendChat or to Transcribe fail when its body is larger than maxSendChatBody or
+// maxTranscriptionBody, before Gork reads the body into memory.
+func limitBodies(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && r.URL.Path == "/api/chat/messages" {
-			r.Body = http.MaxBytesReader(w, r.Body, maxSendChatBody)
+		if r.Method == http.MethodPost {
+			switch r.URL.Path {
+			case "/api/chat/messages":
+				r.Body = http.MaxBytesReader(w, r.Body, maxSendChatBody)
+			case "/api/voice/transcriptions":
+				r.Body = http.MaxBytesReader(w, r.Body, maxTranscriptionBody)
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -107,4 +114,5 @@ type handlers struct {
 	auth    *auth.Auth
 	github  *github.GitHub
 	engine  *engine.Engine
+	whisper *voice.Whisper
 }

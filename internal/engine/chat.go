@@ -689,6 +689,7 @@ func (e *Engine) runChat(c *chat) {
 			return
 		}
 		if err != nil {
+			log.Printf("start the chat session of %s %d: %v", c.key.Repository, c.key.Workstream, err)
 			e.finishChat(c, err.Error())
 			return
 		}
@@ -1166,6 +1167,27 @@ func (e *Engine) freeClosedQuestionHolds(ctx context.Context, repository string)
 		err := e.freeAndSend(ctx, repository, workstream)
 		e.chatOrder.Unlock()
 		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// startIdleLeads gives the ready events of each Workstream of the repository that has no running Lead chat to a new
+// Lead chat. A Lead chat that ended with a failed start leaves its ready events undelivered.
+func (e *Engine) startIdleLeads(ctx context.Context, repository string) error {
+	workstreams, err := e.queries.ListWorkstreamsWithReadyLeadEvents(ctx, repository)
+	if err != nil {
+		return err
+	}
+	for _, workstream := range workstreams {
+		e.chatsMu.Lock()
+		_, running := e.chats[leadChat(repository, workstream)]
+		e.chatsMu.Unlock()
+		if running {
+			continue
+		}
+		if err := e.wakeEvents(ctx, repository, workstream); err != nil {
 			return err
 		}
 	}

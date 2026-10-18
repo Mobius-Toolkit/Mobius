@@ -2850,6 +2850,82 @@
         ]
       }
     },
+    "/api/voice/transcriptions": {
+      "post": {
+        "description": "Transcribe converts a voice recording to text. It answers 503 while the converter is not ready, and 502 when the converter returns an error.",
+        "operationId": "Transcribe",
+        "requestBody": {
+          "content": {
+            "audio/wav": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_Transcription"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "voice"
+        ]
+      }
+    },
     "/api/workstreams": {
       "get": {
         "description": "ListWorkstreams returns the open Workstreams from the local copy of GitHub, by repository and the newest first. The copy can be one poll interval old.",
@@ -4575,6 +4651,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_Transcription": {
+        "type": "object",
+        "title": "Envelope_Transcription",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Transcription",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Upgrade": {
         "type": "object",
         "title": "Envelope_Upgrade",
@@ -5782,6 +5872,20 @@
           "raw"
         ],
         "description": "TranscriptLine is a row of the Transcript of a session."
+      },
+      "Transcription": {
+        "type": "object",
+        "title": "Transcription",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Text is the text of the recording, with no leading or trailing spaces"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "description": "Transcription is the text of a voice recording."
       },
       "Unread": {
         "type": "object",

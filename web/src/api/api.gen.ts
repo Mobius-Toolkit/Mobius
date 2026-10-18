@@ -929,6 +929,22 @@ export interface EnvelopeRelease {
 }
 
 /**
+ * Transcription is the text of a voice recording.
+ */
+export interface Transcription {
+  /** Text is the text of the recording, with no leading or trailing spaces */
+  text: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeTranscription {
+  /** Data is the payload of the response */
+  data: Transcription;
+}
+
+/**
  * Upgrade is the state of the last upgrade.
  */
 export interface Upgrade {
@@ -4529,6 +4545,81 @@ export const getUsageTimes = async (params: GetUsageTimesParams, ): Promise<getU
 
   const data: getUsageTimesResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getUsageTimesResponse
+}
+
+
+
+export type transcribeResponse200 = {
+  data: EnvelopeTranscription
+  status: 200
+}
+
+export type transcribeResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type transcribeResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type transcribeResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type transcribeResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type transcribeResponse502 = {
+  data: ErrorResponse
+  status: 502
+}
+
+export type transcribeResponse503 = {
+  data: ErrorResponse
+  status: 503
+}
+
+export type transcribeResponseSuccess = (transcribeResponse200) & {
+  headers: Headers;
+};
+export type transcribeResponseError = (transcribeResponse400 | transcribeResponse401 | transcribeResponse422 | transcribeResponse500 | transcribeResponse502 | transcribeResponse503) & {
+  headers: Headers;
+};
+
+export type transcribeResponse = (transcribeResponseSuccess | transcribeResponseError)
+
+export const getTranscribeUrl = () => {
+
+
+
+
+  return `/api/voice/transcriptions`
+}
+
+/**
+ * Transcribe converts a voice recording to text. It answers 503 while the converter is not ready, and 502 when the converter returns an error.
+ */
+export const transcribe = async (transcribeBody: Blob, ): Promise<transcribeResponse> => {
+
+  const res = await fetch(getTranscribeUrl(),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'audio/wav' },
+    body: transcribeBody
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: transcribeResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as transcribeResponse
 }
 
 
