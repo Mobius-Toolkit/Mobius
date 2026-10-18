@@ -63,11 +63,12 @@ func (e *Engine) sendCommentWrites(ctx context.Context, repository github.Reposi
 		return err
 	}
 	for _, write := range writes {
-		if write.ReplyTo.Valid {
+		switch {
+		case write.ReplyTo.Valid:
 			err = repository.ReplyToReviewComment(ctx, write.Number.Int64, write.ReplyTo.Int64, write.Body)
-		} else if write.Number.Valid {
+		case write.Number.Valid:
 			_, err = repository.AddComment(ctx, write.Number.Int64, write.Body)
-		} else {
+		default:
 			err = repository.UpdateComment(ctx, write.Comment.Int64, write.Body)
 		}
 		if err != nil && !github.NotFound(err) {
