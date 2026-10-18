@@ -2,8 +2,6 @@ package engine
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
@@ -30,25 +28,6 @@ func (e *Engine) onConflict(ctx context.Context, repository github.Repository, t
 
 // stale hands the task of the stale pull request to a human, with an Inbox item and an event for the Lead.
 func (e *Engine) stale(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
-	moved, err := e.handTaskToHuman(ctx, task.ID, task.State)
-	if err != nil || moved == 0 {
-		return err
-	}
-	if err := e.queries.SetTaskCiFailedHead(ctx, store.SetTaskCiFailedHeadParams{ID: task.ID}); err != nil {
-		return err
-	}
-	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
-		return err
-	}
-	if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
-		return err
-	}
-	if err := addNeedsHuman(ctx, repository, task); err != nil {
-		return err
-	}
-	if err := failOpenCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "Stale pull request", "The pull request is old. It has a merge conflict or is behind its base branch. A human decides the next step."); err != nil {
-		return err
-	}
 	issue, err := existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return err
@@ -59,12 +38,18 @@ func (e *Engine) stale(ctx context.Context, repository github.Repository, task s
 	}
 	age := fmt.Sprintf("%g days", e.config.StalePRAge.Hours()/24)
 	number := pullRequest.GetNumber()
-	err = e.tellStop(ctx, task, issue.GetTitle(), stopNotice{
-		reason: fmt.Sprintf("PR #%d %s", number, reason),
-		text:   fmt.Sprintf("Pull request #%d of #%d \"%s\" %s and is older than %s.", number, task.Issue, issue.GetTitle(), reason, age),
-		next:   "Close the pull request, or Resume for a conflict round.",
-	})
 	text := fmt.Sprintf("%s stale pull request #%d of #%d \"%s\": it %s and is older than %s. %s",
 		time.Now().UTC().Format(timeFormat), number, task.Issue, issue.GetTitle(), reason, age, pullRequest.GetHTMLURL())
-	return errors.Join(err, e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stale_pull_request", text))
+	handed, err := e.handFromStates(ctx, []string{task.State}, task, issue.GetTitle(), text, "", stopNotice{
+		reason:       fmt.Sprintf("PR #%d %s", number, reason),
+		text:         fmt.Sprintf("Pull request #%d of #%d \"%s\" %s and is older than %s.", number, task.Issue, issue.GetTitle(), reason, age),
+		next:         "Close the pull request, or Resume for a conflict round.",
+		checkTitle:   "Stale pull request",
+		checkSummary: "The pull request is old. It has a merge conflict or is behind its base branch. A human decides the next step.",
+		leadKind:     "stale_pull_request",
+	})
+	if err != nil || !handed {
+		return err
+	}
+	return e.sendStopNotices(ctx, task.Repository, task.ID)
 }

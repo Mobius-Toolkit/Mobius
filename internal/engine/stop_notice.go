@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"log"
 	"slices"
 	"strings"
@@ -16,7 +15,7 @@ import (
 // nextStepMarker starts the next action in the comment of a stop notice.
 const nextStepMarker = "\n\nNext step: "
 
-// isStopComment tells if the body is a comment of tellStop or the lost comment of handLostTasks. Such a comment is no
+// isStopComment tells if the body is a stop comment of a notice or the lost comment of handLostTasks. Such a comment is no
 // question.
 func isStopComment(body string) bool {
 	return body == lostText || strings.Contains(body, nextStepMarker)
@@ -38,28 +37,8 @@ type stopNotice struct {
 	checkTitle, checkSummary string
 	// createCheck makes a failed Mobius check on a head that has no Mobius check. Else such a head stays as it is.
 	createCheck bool
-}
-
-// tellStop posts the reason text and the next action of notice on the issue of the task, and adds a stopped Inbox item
-// with the same text. When the issue has an open question item, the stopped item is dismissed at once, so the issue has
-// one open item. A comment that GitHub refuses goes to comment_writes, and the next poll sends it again.
-// Call tellStop after the labels change, because closeInboxItems dismisses a stopped item of an issue with no
-// mobius:needs-human.
-func (e *Engine) tellStop(ctx context.Context, task store.Task, title string, notice stopNotice) error {
-	repository, err := e.repository(task.Repository)
-	if err != nil {
-		return err
-	}
-	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
-	if err != nil {
-		return err
-	}
-	commentErr := e.addOrKeepComment(ctx, repository, task.Issue, notice.comment())
-	itemErr := e.addInboxItem(ctx, stoppedItem(current, title, notice))
-	if itemErr == nil {
-		itemErr = e.dismissStoppedItemOfQuestion(ctx, task)
-	}
-	return errors.Join(commentErr, itemErr)
+	// leadKind is the kind of the Lead event. An empty leadKind means "stop".
+	leadKind string
 }
 
 // comment gives the text of the stop comment.
@@ -90,6 +69,10 @@ func stoppedItem(task store.Task, title string, notice stopNotice) store.AddInbo
 // storeStopNotice gives the record of a stop notice that is not delivered yet. leadText is the text of the stop event of
 // the Lead. A notice with no text gives the Lead an event only.
 func storeStopNotice(task store.Task, title, leadText string, notice stopNotice) store.AddStopNoticeParams {
+	leadKind := notice.leadKind
+	if leadKind == "" {
+		leadKind = "stop"
+	}
 	return store.AddStopNoticeParams{
 		Task:         task.ID,
 		Title:        title,
@@ -97,6 +80,7 @@ func storeStopNotice(task store.Task, title, leadText string, notice stopNotice)
 		Text:         notice.text,
 		Output:       notice.output,
 		Next:         notice.next,
+		LeadKind:     leadKind,
 		LeadText:     leadText,
 		CheckTitle:   notice.checkTitle,
 		CheckSummary: notice.checkSummary,
@@ -182,12 +166,12 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 			return err
 		}
 	}
-	stopped, err := e.queries.ListStopEvents(ctx, store.ListStopEventsParams{Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Payload: record.LeadText})
+	stopped, err := e.queries.ListStopEvents(ctx, store.ListStopEventsParams{Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Kind: record.LeadKind, Payload: record.LeadText})
 	if err != nil {
 		return err
 	}
 	if !slices.ContainsFunc(stopped, func(event store.LeadEvent) bool { return !timeBefore(event.Time, createdAt) }) {
-		if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", record.LeadText); err != nil {
+		if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, record.LeadKind, record.LeadText); err != nil {
 			return err
 		}
 	}
