@@ -38,7 +38,6 @@ export function useUpgrade(source?: EventSource) {
   }, []);
 
   useEffect(() => {
-    check();
     const timer = setInterval(check, 60 * 60 * 1000);
     return () => clearInterval(timer);
   }, [check]);
@@ -54,7 +53,9 @@ export function useUpgrade(source?: EventSource) {
       }
     };
     // The server sends a drain event only at a change, so each connection reads the state.
+    // A release has no event, so each connection reads it too.
     const load = () => {
+      check();
       getDrain()
         .then((res) => {
           if (res.status === 200) {
@@ -81,7 +82,7 @@ export function useUpgrade(source?: EventSource) {
       removeDrain();
       removeUpgrade();
     };
-  }, [source]);
+  }, [source, check]);
 
   const showChanges = () => {
     check();
