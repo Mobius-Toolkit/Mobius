@@ -164,7 +164,7 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 	}
 	notice := stopNotice{reason: record.Reason, text: record.Text, output: record.Output, next: record.Next}
 	if record.CheckTitle != "" {
-		if err := e.failStoppedCheck(ctx, repository, task, record.CheckTitle, record.CheckSummary); err != nil {
+		if err := e.failStoppedCheck(ctx, repository, task, record.CheckTitle, record.CheckSummary); err != nil && !github.NotFound(err) {
 			return err
 		}
 	}
