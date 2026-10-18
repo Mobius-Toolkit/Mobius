@@ -411,11 +411,13 @@ func (g *FakeGitHub) hanging(mux *http.ServeMux) http.Handler {
 		limited := g.rateLimited
 		hang := g.hangs[pattern]
 		delete(g.hangs, pattern)
-		routeHold := g.routeHolds[pattern]
-		delete(g.routeHolds, pattern)
-		if pathHold := g.routeHolds[pattern+" "+r.URL.Path]; pathHold != nil {
-			routeHold = pathHold
-			delete(g.routeHolds, pattern+" "+r.URL.Path)
+		pathKey := pattern + " " + r.URL.Path
+		routeHold := g.routeHolds[pathKey]
+		if routeHold != nil {
+			delete(g.routeHolds, pathKey)
+		} else {
+			routeHold = g.routeHolds[pattern]
+			delete(g.routeHolds, pattern)
 		}
 		reset, routeLimited := g.routeLimits[pattern]
 		delete(g.routeLimits, pattern)
