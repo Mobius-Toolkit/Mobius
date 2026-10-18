@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"slices"
+	"time"
 
 	gh "github.com/google/go-github/v92/github"
 
@@ -178,7 +179,20 @@ func (e *Engine) launchEventComment(ctx context.Context, event *store.LeadEvent)
 		log.Printf("read the comments of issue %d of %s: %v", event.Issue.Int64, event.Repository, err)
 		return
 	}
-	replies, _, err := e.answerReplies(ctx, repository, comments)
+	// The event comment is the newest reply of the event. A later comment is not in the event.
+	var eventAt time.Time
+	for _, comment := range comments {
+		if comment.GetID() == event.Comment.Int64 {
+			eventAt = comment.GetCreatedAt().Time
+		}
+	}
+	var inEvent []*gh.IssueComment
+	for _, comment := range comments {
+		if !comment.GetCreatedAt().After(eventAt) {
+			inEvent = append(inEvent, comment)
+		}
+	}
+	replies, _, err := e.answerReplies(ctx, repository, inEvent)
 	if err != nil {
 		log.Printf("read the replies on issue %d of %s: %v", event.Issue.Int64, event.Repository, err)
 		return
