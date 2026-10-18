@@ -33,6 +33,9 @@ type stopNotice struct {
 	output string
 	// next is the next action of the Owner.
 	next string
+	// checkTitle and checkSummary complete the open Mobius check of the head as failure. An empty checkTitle leaves the
+	// check as it is.
+	checkTitle, checkSummary string
 }
 
 // tellStop posts the reason text and the next action of notice on the issue of the task, and adds a stopped Inbox item
@@ -86,14 +89,16 @@ func stoppedItem(task store.Task, title string, notice stopNotice) store.AddInbo
 // the Lead. A notice with no text gives the Lead an event only.
 func storeStopNotice(task store.Task, title, leadText string, notice stopNotice) store.AddStopNoticeParams {
 	return store.AddStopNoticeParams{
-		Task:      task.ID,
-		Title:     title,
-		Reason:    notice.reason,
-		Text:      notice.text,
-		Output:    notice.output,
-		Next:      notice.next,
-		LeadText:  leadText,
-		CreatedAt: now(),
+		Task:         task.ID,
+		Title:        title,
+		Reason:       notice.reason,
+		Text:         notice.text,
+		Output:       notice.output,
+		Next:         notice.next,
+		LeadText:     leadText,
+		CheckTitle:   notice.checkTitle,
+		CheckSummary: notice.checkSummary,
+		CreatedAt:    now(),
 	}
 }
 
@@ -158,6 +163,11 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 		return err
 	}
 	notice := stopNotice{reason: record.Reason, text: record.Text, output: record.Output, next: record.Next}
+	if record.CheckTitle != "" {
+		if err := e.failStoppedCheck(ctx, repository, task, record.CheckTitle, record.CheckSummary); err != nil {
+			return err
+		}
+	}
 	if record.Text != "" {
 		if err := e.addStoppedItemOnce(ctx, task, record.Title, notice, createdAt); err != nil {
 			return err
@@ -176,6 +186,41 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 		return nil
 	}
 	return e.addOrKeepComment(ctx, repository, task.Issue, notice.comment())
+}
+
+// failStoppedCheck completes the open Mobius check of the head as failure. The head is the failed head of a CI stop, or
+// else the head of the pull request of the task. A head whose Mobius checks are all complete keeps them, so that a retry
+// adds no second check. A head with no Mobius check gets a failed one. A task with no pull request has no check.
+func (e *Engine) failStoppedCheck(ctx context.Context, repository github.Repository, task store.Task, title, summary string) error {
+	head := task.CiFailedHead.String
+	if !task.CiFailedHead.Valid {
+		if !task.PullRequest.Valid {
+			return nil
+		}
+		pullRequest, err := repository.PullRequest(ctx, task.PullRequest.Int64)
+		if err != nil {
+			return err
+		}
+		head = pullRequest.GetHead().GetSHA()
+	}
+	runs, err := repository.CheckRuns(ctx, head)
+	if err != nil {
+		return err
+	}
+	var complete bool
+	for _, run := range runs {
+		if run.GetName() != checkRunName {
+			continue
+		}
+		if run.GetStatus() != "completed" {
+			return repository.UpdateCheckRun(ctx, run.GetID(), checkRunName, "completed", "failure", title, summary)
+		}
+		complete = true
+	}
+	if complete {
+		return nil
+	}
+	return repository.CreateCheckRun(ctx, checkRunName, head, "completed", "failure", title, summary)
 }
 
 // addStoppedItemOnce adds the stopped Inbox item of notice unless the issue has an item with the same text from createdAt

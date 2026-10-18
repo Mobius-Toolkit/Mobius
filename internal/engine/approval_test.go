@@ -269,6 +269,41 @@ func TestACIStopWhoseLabelCallFailsSendsTheStopNoticeAtALaterPoll(t *testing.T) 
 	sha := checksHead(t, server, fake)
 	fake.FailAddLabels(shop, 41, true)
 
+	run := fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "startup_failure"})
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
+	waitForPolls(t, fake)
+	if items := itemsOf(t, server, "stopped"); len(items) != 0 {
+		t.Errorf("stopped items = %+v", items)
+	}
+	if task := liveTask(t, server, 41); task.CiFailedHead.String != sha {
+		t.Errorf("ci_failed_head = %v", task.CiFailedHead)
+	}
+	fake.FailAddLabels(shop, 41, false)
+
+	wantStopNotice(t, server, fake, "CI failed", "The CI of the head commit failed, and a fix round cannot change it.",
+		"Read the failed jobs of PR #42. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.")
+	assertCIStop(t, server, fake, sha)
+	if runs := mobiusCheckRuns(fake); runs[0].Status != "completed" || runs[0].Output == nil || runs[0].Output.Title != "CI failed" {
+		t.Errorf("check runs = %+v", runs)
+	}
+	var notices int
+	if err := server.DB.QueryRow("SELECT count(*) FROM stop_notices").Scan(&notices); err != nil || notices != 0 {
+		t.Errorf("stop notices = %d, %v", notices, err)
+	}
+
+	fake.SetWorkflowRunStatus(run, "completed", "success")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) != "needs_human" })
+}
+
+func TestACIStopWhoseCheckCallFailsCompletesTheCheckOnceAtALaterPoll(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.FailUpdateCheckRuns(true)
+
 	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "startup_failure"})
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" })
@@ -276,26 +311,11 @@ func TestACIStopWhoseLabelCallFailsSendsTheStopNoticeAtALaterPoll(t *testing.T) 
 	if items := itemsOf(t, server, "stopped"); len(items) != 0 {
 		t.Errorf("stopped items = %+v", items)
 	}
-	fake.FailAddLabels(shop, 41, false)
+	fake.FailUpdateCheckRuns(false)
 
-	wantStopNotice(t, server, fake, "CI failed", "The CI of the head commit failed, and a fix round cannot change it.",
-		"Read the failed jobs of PR #42. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.")
-	testkit.WaitFor(t, func() bool {
-		return slices.ContainsFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Kind == "stop" })
-	})
-	waitForPolls(t, fake)
-	var stops int
-	for _, event := range leadEvents(t, server) {
-		if event.Kind == "stop" {
-			stops++
-		}
-	}
-	if stops != 1 {
-		t.Errorf("stop events = %d", stops)
-	}
-	var notices int
-	if err := server.DB.QueryRow("SELECT count(*) FROM stop_notices").Scan(&notices); err != nil || notices != 0 {
-		t.Errorf("stop notices = %d, %v", notices, err)
+	assertCIStop(t, server, fake, sha)
+	if runs := mobiusCheckRuns(fake); runs[0].Output == nil || runs[0].Output.Title != "CI failed" {
+		t.Errorf("check runs = %+v", runs)
 	}
 }
 

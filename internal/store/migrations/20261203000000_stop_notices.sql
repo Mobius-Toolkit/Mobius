@@ -7,5 +7,7 @@ CREATE TABLE stop_notices (
     output TEXT NOT NULL,
     next TEXT NOT NULL,
     lead_text TEXT NOT NULL,
+    check_title TEXT NOT NULL,
+    check_summary TEXT NOT NULL,
     created_at TEXT NOT NULL
 );

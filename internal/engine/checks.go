@@ -319,24 +319,19 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 		return err
 	}
 	reason := "the CI of the head commit failed, and a fix round cannot change it. Mobius set the Mobius check to failure and added mobius:needs-human."
-	handed, err := e.handToHuman(ctx, task, issue.GetTitle(), stopText(task.Issue, issue.GetTitle(), reason), stopNotice{
+	handed, err := e.handToHuman(ctx, task, issue.GetTitle(), stopText(task.Issue, issue.GetTitle(), reason), pullRequest.GetHead().GetSHA(), stopNotice{
 		reason: "CI failed",
 		text:   "The CI of the head commit failed, and a fix round cannot change it.",
 		next: fmt.Sprintf("Read the failed jobs of PR #%d. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.",
 			pullRequest.GetNumber()),
+		checkTitle:   "CI failed",
+		checkSummary: "The CI of the head commit failed, and a fix round cannot change it.",
 	})
 	if err != nil || !handed {
 		return err
 	}
 	if found {
 		e.addCIStep(ctx, task, implementer, "failure")
-	}
-	head := sql.NullString{String: pullRequest.GetHead().GetSHA(), Valid: true}
-	if err := e.queries.SetTaskCiFailedHead(ctx, store.SetTaskCiFailedHeadParams{CiFailedHead: head, ID: task.ID}); err != nil {
-		return err
-	}
-	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", "CI failed", "The CI of the head commit failed, and a fix round cannot change it."); err != nil {
-		return err
 	}
 	return e.sendStopNotices(ctx, task.Repository, task.ID)
 }

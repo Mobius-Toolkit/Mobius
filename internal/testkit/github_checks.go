@@ -597,6 +597,13 @@ func (g *FakeGitHub) checkRunOf(w http.ResponseWriter, r *http.Request) (int, bo
 	return id - 1, true
 }
 
+// FailUpdateCheckRuns makes each update of a check run fail, or work again when fail is false.
+func (g *FakeGitHub) FailUpdateCheckRuns(fail bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.failCheckUpdates = fail
+}
+
 func (g *FakeGitHub) updateCheckRun(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Name       string          `json:"name"`
@@ -609,6 +616,10 @@ func (g *FakeGitHub) updateCheckRun(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.failCheckUpdates {
+		http.Error(w, "check run update refused", http.StatusInternalServerError)
+		return
+	}
 	index, ok := g.checkRunOf(w, r)
 	if !ok {
 		return

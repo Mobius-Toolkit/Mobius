@@ -854,19 +854,14 @@ func (e *Engine) stopAtLimit(ctx context.Context, repository github.Repository, 
 	rounds := e.config.MaxFixRounds
 	summary := fmt.Sprintf("The pull request has open items after %d %s rounds.", rounds, limit)
 	reason := fmt.Sprintf("the pull request has open items after %d %s rounds. Mobius set the Mobius check to failure and added mobius:needs-human.", rounds, limit)
-	handed, err := e.handToHuman(ctx, r.task, r.title, stopText(r.task.Issue, r.title, reason), stopNotice{
-		reason: "Round limit",
-		text:   summary,
-		next:   fmt.Sprintf("Read the open items of PR #%d. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.", r.pullRequest.GetNumber()),
+	handed, err := e.handToHuman(ctx, r.task, r.title, stopText(r.task.Issue, r.title, reason), "", stopNotice{
+		reason:       "Round limit",
+		text:         summary,
+		next:         fmt.Sprintf("Read the open items of PR #%d. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.", r.pullRequest.GetNumber()),
+		checkTitle:   "Round limit",
+		checkSummary: summary,
 	})
 	if err != nil || !handed {
-		return err
-	}
-	pullRequest, err := repository.PullRequest(ctx, int64(r.pullRequest.GetNumber()))
-	if err != nil {
-		return err
-	}
-	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", "Round limit", summary); err != nil {
 		return err
 	}
 	return e.sendStopNotices(ctx, r.task.Repository, r.task.ID)
@@ -882,15 +877,13 @@ func (e *Engine) handOver(ctx context.Context, task store.Task, title, reason st
 // checkTitle and checkSummary. An empty checkTitle leaves the check as it is. The Lead gets the stop event also when
 // the check fails.
 func (e *Engine) handOverFailed(ctx context.Context, task store.Task, title, reason, checkTitle, checkSummary string, notice stopNotice) error {
-	handed, err := e.handToHuman(ctx, task, title, stopText(task.Issue, title, reason), notice)
+	notice.checkTitle = checkTitle
+	notice.checkSummary = checkSummary
+	handed, err := e.handToHuman(ctx, task, title, stopText(task.Issue, title, reason), "", notice)
 	if err != nil || !handed {
 		return err
 	}
-	var checkErr error
-	if checkTitle != "" {
-		checkErr = e.failCheckRun(ctx, task, checkTitle, checkSummary)
-	}
-	return errors.Join(checkErr, e.sendStopNotices(ctx, task.Repository, task.ID))
+	return e.sendStopNotices(ctx, task.Repository, task.ID)
 }
 
 // failCheckRun completes the open Mobius check of the head of the pull request of the task as failure. It reads the task

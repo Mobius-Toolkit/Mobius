@@ -139,7 +139,9 @@ func tail(text string, count int) string {
 // with the pull request of the task. A caller sends the notice with sendStopNotices after its other steps. When a GitHub
 // call fails, the poll sends the notice. leadText is the text of the stop event. It gives false when the task is not
 // working, queued or checks, for example after a decline. A notice with no text gives the Lead an event only.
-func (e *Engine) handToHuman(ctx context.Context, task store.Task, title, leadText string, notice stopNotice) (bool, error) {
+// failedHead is the head that the CI failed on, or empty for another stop. The move stores it in the same transaction,
+// so that continueNeedsHuman sees a CI stop also when a later call fails.
+func (e *Engine) handToHuman(ctx context.Context, task store.Task, title, leadText, failedHead string, notice stopNotice) (bool, error) {
 	from := ""
 	err := e.inTx(ctx, func(q *store.Queries) error {
 		for _, state := range []string{"working", "queued", "checks"} {
@@ -149,6 +151,9 @@ func (e *Engine) handToHuman(ctx context.Context, task store.Task, title, leadTe
 			}
 			if moved > 0 {
 				from = state
+				if err := q.SetTaskCiFailedHead(ctx, store.SetTaskCiFailedHeadParams{CiFailedHead: sql.NullString{String: failedHead, Valid: failedHead != ""}, ID: task.ID}); err != nil {
+					return err
+				}
 				return q.AddStopNotice(ctx, storeStopNotice(task, title, leadText, notice))
 			}
 		}
@@ -158,9 +163,6 @@ func (e *Engine) handToHuman(ctx context.Context, task store.Task, title, leadTe
 		return false, err
 	}
 	e.publishReadyForReview(from, "needs_human")
-	if err := e.queries.SetTaskCiFailedHead(ctx, store.SetTaskCiFailedHeadParams{ID: task.ID}); err != nil {
-		return false, err
-	}
 	repository, err := e.repository(task.Repository)
 	if err != nil {
 		return false, err
