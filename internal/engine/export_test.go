@@ -93,3 +93,18 @@ func (e *Engine) AcknowledgeComment(ctx context.Context, name string, review boo
 func (e *Engine) Poll(ctx context.Context) {
 	e.poll(ctx)
 }
+
+// QueueOwnerMessageWithoutWake adds a message of the Owner to the queue of the running chat key and sets writing, as
+// give does, but it does not wake the chat loop. Thus the chat loop does not take the message until another step wakes it.
+func (e *Engine) QueueOwnerMessageWithoutWake(ctx context.Context, key ChatKey, text string) error {
+	message, err := e.addChatMessage(ctx, key, ownerAuthor, text, "", "")
+	if err != nil {
+		return err
+	}
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	c := e.chats[key]
+	c.queue = append(c.queue, item{message: &message})
+	c.writing = true
+	return nil
+}
