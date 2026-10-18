@@ -299,6 +299,21 @@ func TestACIStopWhoseLabelCallFailsSendsTheStopNoticeAtALaterPoll(t *testing.T) 
 	}
 }
 
+func TestARemovalOfNeedsHumanAfterAStopWhoseLabelCallFailedResumesTheTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, commits, longGrace)
+	sha := checksHead(t, server, fake)
+	fake.FailAddLabels(shop, 42, true)
+
+	fake.AddWorkflowRun(shop, testkit.WorkflowRun{HeadSHA: sha, Status: "completed", Conclusion: "startup_failure"})
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+
+	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
+}
+
 func TestAPullRequestWithAnUnknownMergeabilityStaysInChecks(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
