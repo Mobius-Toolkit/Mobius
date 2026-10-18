@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -82,13 +83,25 @@ func (w *Whisper) Start() {
 	go func() { _ = w.ensure(context.Background()) }()
 }
 
-// Stop stops the process that Whisper started.
+func (w *Whisper) pidFile() string {
+	return filepath.Join(w.Dir, program+".pid")
+}
+
+// Stop stops the process that Whisper started, also when an earlier program of the same data directory started it
+// before an exec.
 func (w *Whisper) Stop() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.cmd != nil {
-		_ = w.cmd.Process.Kill()
+	content, err := os.ReadFile(w.pidFile())
+	if err != nil {
+		return
 	}
+	if pid, err := strconv.Atoi(strings.TrimSpace(string(content))); err == nil {
+		if process, err := os.FindProcess(pid); err == nil {
+			_ = process.Kill()
+		}
+	}
+	_ = os.Remove(w.pidFile())
 }
 
 // Transcribe gives the text of the WAV file wav. It gives an Unavailable error while the converter is not ready.
@@ -173,6 +186,11 @@ func (w *Whisper) ensure(ctx context.Context) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	if err := os.WriteFile(w.pidFile(), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return err
+	}
 	w.cmd = cmd
 	go func() {
 		_ = cmd.Wait()
@@ -180,6 +198,7 @@ func (w *Whisper) ensure(ctx context.Context) error {
 		defer w.mu.Unlock()
 		if w.cmd == cmd {
 			w.cmd = nil
+			_ = os.Remove(w.pidFile())
 		}
 	}()
 	return Starting

@@ -222,6 +222,31 @@ func TestStopStopsTheProcessThatTheConverterStarted(t *testing.T) {
 	})
 }
 
+func TestStopStopsAProcessThatAnEarlierConverterStarted(t *testing.T) {
+	c := newConverter(t)
+	testkit.InstallFakeWhisper(t, c.bin)
+	c.putModel(t)
+	testkit.WaitFor(t, func() bool {
+		_, err := c.transcribe("RIFF")
+		return err == nil
+	})
+	next := voice.New(filepath.Dir(c.Dir), c.bin)
+	next.Address = c.Address
+	if _, err := next.Transcribe(context.Background(), []byte("RIFF")); err != nil {
+		t.Fatal(err)
+	}
+
+	next.Stop()
+
+	testkit.WaitFor(t, func() bool {
+		response, err := http.Get("http://" + c.Address + "/health")
+		if err == nil {
+			_ = response.Body.Close()
+		}
+		return err != nil
+	})
+}
+
 func TestAnErrorOfWhisperServerIsNoUnavailableError(t *testing.T) {
 	c := newConverter(t)
 	testkit.InstallFakeWhisper(t, c.bin)

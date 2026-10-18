@@ -169,6 +169,7 @@ func serve(configPath string) error {
 
 	whisper := voice.New(cfg.DataDir, runner.AgentPath(cfg.DataDir, path))
 	whisper.Start()
+	defer whisper.Stop()
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func() {
