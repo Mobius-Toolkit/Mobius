@@ -28,17 +28,22 @@ const checkErrorPolls = 10
 // to work. A task that fails to check keeps its entry of the last poll. It first reads the pull requests of the
 // reviewed tasks with one call, because GitHub does not document that a resolve of a review thread changes the update
 // time of the pull request. It reads the pull requests of the tasks with an approval in the same call, because the
-// approval needs the open threads and the dismissals. When a task has a pull request, it reads the head of the default
-// branch one time, for checkTask.
+// approval needs the open threads and the dismissals. It reads the pull request of each open Inbox item in the merging
+// state in the same call, because the approval of the item is new. When a task has a pull request, it reads the head of
+// the default branch one time, for checkTask.
 func (e *Engine) checkTasks(ctx context.Context, repository github.Repository, work map[int64]Work) error {
 	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	merging, err := e.mergingPullRequests(ctx, repository)
 	if err != nil {
 		return err
 	}
 	var reviewed []int64
 	hasPullRequest := false
 	for _, task := range tasks {
-		if (task.State == "reviewed" || awaitsMerge(task)) && task.PullRequest.Valid {
+		if (task.State == "reviewed" || awaitsMerge(task) || slices.Contains(merging, task.PullRequest.Int64)) && task.PullRequest.Valid {
 			reviewed = append(reviewed, task.PullRequest.Int64)
 		}
 		hasPullRequest = hasPullRequest || task.PullRequest.Valid

@@ -108,6 +108,8 @@ type InboxItem struct {
 	PullRequest  int64
 	ReportLink   string
 	ChatMessage  sql.NullInt64
+	Merging      int64
+	MergeRefusal string
 }
 
 type LeadEvent struct {

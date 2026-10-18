@@ -53,8 +53,10 @@ func awaitsMerge(task store.Task) bool {
 // head commit passes these conditions: the pull request is not a draft and has no merge conflict, it has no open review
 // thread, and each check run of the head completed and passed, with the Mobius check among them. It reads the check
 // runs only when the other conditions are true, and it reads the review threads again before the merge. It gives true
-// when GitHub merged the pull request. When GitHub refuses the merge, the Lead gets an event, and the poll does not
-// try again until a new APPROVED review.
+// when GitHub merged the pull request. When GitHub refuses the merge, the open ready for review Inbox item of the issue
+// gets the reason and the Lead gets an event, and the poll does not try again until a new APPROVED review. A refusal
+// for a pull request that a person merged in the meantime is no refusal: the next read of the pull request goes to
+// GitHub, and the poll ends the task.
 func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	number := int64(pullRequest.GetNumber())
 	if !awaitsMerge(task) || task.State == "queued" || task.State == "working" || pullRequest.GetDraft() || !pullRequest.GetMergeable() || hasOpenThread(e.pull(repository, number)) {
@@ -77,6 +79,17 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 	merged, reason, err := repository.MergePullRequest(ctx, number, head)
 	if err != nil || merged || reason == "" {
 		return merged, err
+	}
+	current, err := repository.PullRequest(ctx, number)
+	if err != nil {
+		return false, err
+	}
+	if current.GetMerged() {
+		e.pull(repository, number).changed = true
+		return false, nil
+	}
+	if err := e.refuseMergeItem(ctx, task, reason); err != nil {
+		return false, err
 	}
 	if err := e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: task.ApprovedReview, ID: task.ID}); err != nil {
 		return false, err

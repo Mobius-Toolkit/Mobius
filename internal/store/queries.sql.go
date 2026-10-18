@@ -381,7 +381,7 @@ func (q *Queries) AddGitHubApp(ctx context.Context, arg AddGitHubAppParams) erro
 const addInboxItem = `-- name: AddInboxItem :one
 INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, time)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal
 `
 
 type AddInboxItemParams struct {
@@ -433,6 +433,8 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 		&i.PullRequest,
 		&i.ReportLink,
 		&i.ChatMessage,
+		&i.Merging,
+		&i.MergeRefusal,
 	)
 	return i, err
 }
@@ -1218,7 +1220,7 @@ func (q *Queries) DeliverLeadEvents(ctx context.Context, arg DeliverLeadEventsPa
 
 const dismissInboxItem = `-- name: DismissInboxItem :one
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal
 `
 
 type DismissInboxItemParams struct {
@@ -1245,6 +1247,8 @@ func (q *Queries) DismissInboxItem(ctx context.Context, arg DismissInboxItemPara
 		&i.PullRequest,
 		&i.ReportLink,
 		&i.ChatMessage,
+		&i.Merging,
+		&i.MergeRefusal,
 	)
 	return i, err
 }
@@ -1603,7 +1607,7 @@ func (q *Queries) GetHarnessPauseEnd(ctx context.Context, harness string) (strin
 }
 
 const getInboxItem = `-- name: GetInboxItem :one
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message FROM inbox_items WHERE id = ?
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal FROM inbox_items WHERE id = ?
 `
 
 func (q *Queries) GetInboxItem(ctx context.Context, id int64) (InboxItem, error) {
@@ -1625,6 +1629,8 @@ func (q *Queries) GetInboxItem(ctx context.Context, id int64) (InboxItem, error)
 		&i.PullRequest,
 		&i.ReportLink,
 		&i.ChatMessage,
+		&i.Merging,
+		&i.MergeRefusal,
 	)
 	return i, err
 }
@@ -1836,7 +1842,7 @@ func (q *Queries) GetMemoryVersionBefore(ctx context.Context, arg GetMemoryVersi
 }
 
 const getNewestInboxItem = `-- name: GetNewestInboxItem :one
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1
 `
 
 type GetNewestInboxItemParams struct {
@@ -1864,6 +1870,8 @@ func (q *Queries) GetNewestInboxItem(ctx context.Context, arg GetNewestInboxItem
 		&i.PullRequest,
 		&i.ReportLink,
 		&i.ChatMessage,
+		&i.Merging,
+		&i.MergeRefusal,
 	)
 	return i, err
 }
@@ -3118,7 +3126,7 @@ func (q *Queries) ListDeviceLogins(ctx context.Context) ([]ListDeviceLoginsRow, 
 }
 
 const listDismissedQuestionItems = `-- name: ListDismissedQuestionItems :many
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message FROM inbox_items WHERE repository = ? AND kind = 'question' AND dismissed_at IS NOT NULL ORDER BY id
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal FROM inbox_items WHERE repository = ? AND kind = 'question' AND dismissed_at IS NOT NULL ORDER BY id
 `
 
 func (q *Queries) ListDismissedQuestionItems(ctx context.Context, repository string) ([]InboxItem, error) {
@@ -3146,6 +3154,8 @@ func (q *Queries) ListDismissedQuestionItems(ctx context.Context, repository str
 			&i.PullRequest,
 			&i.ReportLink,
 			&i.ChatMessage,
+			&i.Merging,
+			&i.MergeRefusal,
 		); err != nil {
 			return nil, err
 		}
@@ -3424,7 +3434,7 @@ func (q *Queries) ListHungSessionsSince(ctx context.Context, arg ListHungSession
 }
 
 const listIssueInboxItems = `-- name: ListIssueInboxItems :many
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id
 `
 
 type ListIssueInboxItemsParams struct {
@@ -3458,6 +3468,8 @@ func (q *Queries) ListIssueInboxItems(ctx context.Context, arg ListIssueInboxIte
 			&i.PullRequest,
 			&i.ReportLink,
 			&i.ChatMessage,
+			&i.Merging,
+			&i.MergeRefusal,
 		); err != nil {
 			return nil, err
 		}
@@ -3718,7 +3730,7 @@ func (q *Queries) ListOpenHardCIBreaks(ctx context.Context, repository string) (
 }
 
 const listOpenInboxItems = `-- name: ListOpenInboxItems :many
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id
 `
 
 func (q *Queries) ListOpenInboxItems(ctx context.Context) ([]InboxItem, error) {
@@ -3746,6 +3758,8 @@ func (q *Queries) ListOpenInboxItems(ctx context.Context) ([]InboxItem, error) {
 			&i.PullRequest,
 			&i.ReportLink,
 			&i.ChatMessage,
+			&i.Merging,
+			&i.MergeRefusal,
 		); err != nil {
 			return nil, err
 		}
@@ -4845,7 +4859,7 @@ func (q *Queries) RecoverTask(ctx context.Context, arg RecoverTaskParams) (int64
 
 const reopenInboxItem = `-- name: ReopenInboxItem :one
 UPDATE inbox_items SET dismissed_at = NULL WHERE id = ?
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal
 `
 
 func (q *Queries) ReopenInboxItem(ctx context.Context, id int64) (InboxItem, error) {
@@ -4867,6 +4881,8 @@ func (q *Queries) ReopenInboxItem(ctx context.Context, id int64) (InboxItem, err
 		&i.PullRequest,
 		&i.ReportLink,
 		&i.ChatMessage,
+		&i.Merging,
+		&i.MergeRefusal,
 	)
 	return i, err
 }
@@ -5038,6 +5054,42 @@ type SetHarnessPauseEndParams struct {
 func (q *Queries) SetHarnessPauseEnd(ctx context.Context, arg SetHarnessPauseEndParams) error {
 	_, err := q.db.ExecContext(ctx, setHarnessPauseEnd, arg.Harness, arg.EndedAt)
 	return err
+}
+
+const setInboxItemMerge = `-- name: SetInboxItemMerge :one
+UPDATE inbox_items SET merging = ?, merge_refusal = ? WHERE id = ?
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal
+`
+
+type SetInboxItemMergeParams struct {
+	Merging      int64
+	MergeRefusal string
+	ID           int64
+}
+
+func (q *Queries) SetInboxItemMerge(ctx context.Context, arg SetInboxItemMergeParams) (InboxItem, error) {
+	row := q.db.QueryRowContext(ctx, setInboxItemMerge, arg.Merging, arg.MergeRefusal, arg.ID)
+	var i InboxItem
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Text,
+		&i.Link,
+		&i.Time,
+		&i.DismissedAt,
+		&i.Organization,
+		&i.Title,
+		&i.Reason,
+		&i.PullRequest,
+		&i.ReportLink,
+		&i.ChatMessage,
+		&i.Merging,
+		&i.MergeRefusal,
+	)
+	return i, err
 }
 
 const setJudgedAt = `-- name: SetJudgedAt :exec

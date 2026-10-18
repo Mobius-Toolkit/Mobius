@@ -140,6 +140,17 @@ func (g *FakeGitHub) RefuseMerge(repository string, number int64, reason string)
 	g.mergeRefusals[issueKey{repository, number}] = reason
 }
 
+// HoldMerge makes the next request to merge the pull request wait. A second call makes the request after it wait too.
+// The channel closes when the request arrives, and the function lets the request go on.
+func (g *FakeGitHub) HoldMerge(repository string, number int64) (<-chan struct{}, func()) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	h := &hold{reached: make(chan struct{}), release: make(chan struct{})}
+	key := issueKey{repository, number}
+	g.mergeHolds[key] = append(g.mergeHolds[key], h)
+	return h.reached, func() { close(h.release) }
+}
+
 // MergeCalls gives the number of requests to merge a pull request.
 func (g *FakeGitHub) MergeCalls() int {
 	g.mu.Lock()
@@ -447,6 +458,19 @@ func (g *FakeGitHub) mergePullRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	if !decode(w, r, &request) {
 		return
+	}
+	number, _ := strconv.ParseInt(r.PathValue("number"), 10, 64)
+	held := issueKey{repository(r), number}
+	g.mu.Lock()
+	var h *hold
+	if queue := g.mergeHolds[held]; len(queue) > 0 {
+		h = queue[0]
+		g.mergeHolds[held] = queue[1:]
+	}
+	g.mu.Unlock()
+	if h != nil {
+		close(h.reached)
+		<-h.release
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()

@@ -239,6 +239,101 @@ func (e *Engine) AnswerInboxItem(ctx context.Context, id int64, text string) (st
 	return comment.GetHTMLURL(), nil
 }
 
+// mergingPullRequests gives the numbers of the pull requests of the open ready for review Inbox items of repository in
+// the merging state.
+func (e *Engine) mergingPullRequests(ctx context.Context, repository github.Repository) ([]int64, error) {
+	items, err := e.Inbox(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var numbers []int64
+	for _, item := range items {
+		if item.Repository == repository.FullName && item.Kind == readyForReviewKind && item.Merging != 0 {
+			numbers = append(numbers, item.PullRequest)
+		}
+	}
+	return numbers, nil
+}
+
+// refuseMergeItem sets the reason of a refusal of GitHub on each open ready for review Inbox item of the issue of the
+// task, and ends its merging state.
+func (e *Engine) refuseMergeItem(ctx context.Context, task store.Task, reason string) error {
+	e.mergeMu.Lock()
+	defer e.mergeMu.Unlock()
+	items, err := e.queries.ListIssueInboxItems(ctx, store.ListIssueInboxItemsParams{Repository: task.Repository, Issue: task.Issue, Kind: readyForReviewKind})
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if item.DismissedAt.Valid {
+			continue
+		}
+		item, err := e.queries.SetInboxItemMerge(ctx, store.SetInboxItemMergeParams{Merging: 0, MergeRefusal: reason, ID: item.ID})
+		if err != nil {
+			return err
+		}
+		e.publish(Change{Inbox: &item})
+	}
+	return nil
+}
+
+// MergeInboxItem approves the pull request of the open ready for review Inbox item id with the user token of the Owner,
+// marks the item as merging, and starts a poll at once. The poll merges the pull request (mergeApproved). It gives the
+// changed item. It returns a refusal when the item is not open, when the task of its issue is not in ready_for_review
+// with the pull request of the item, when the pull request is not open, and when the Owner did not authorize the Mobius
+// App. Requests take turns, so two requests at the same time give one review.
+func (e *Engine) MergeInboxItem(ctx context.Context, id int64) (store.InboxItem, error) {
+	e.mergeMu.Lock()
+	defer e.mergeMu.Unlock()
+	item, err := e.queries.GetInboxItem(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.InboxItem{}, ErrNoInboxItem
+	}
+	if err != nil {
+		return store.InboxItem{}, err
+	}
+	if item.DismissedAt.Valid || item.Kind != readyForReviewKind || item.Merging != 0 {
+		return store.InboxItem{}, refuse("This item is not waiting for a merge.")
+	}
+	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: item.Repository, Issue: item.Issue})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return store.InboxItem{}, err
+	}
+	if err != nil || task.State != "ready_for_review" || task.PullRequest.Int64 != item.PullRequest {
+		return store.InboxItem{}, refuse("The task of #%d is not ready for review.", item.Issue)
+	}
+	repository, err := e.repository(item.Repository)
+	if err != nil {
+		return store.InboxItem{}, err
+	}
+	asOwner, err := e.github.AsOwner(ctx, repository)
+	if err != nil {
+		// The text tells the Owner how to authorize the Mobius App.
+		return store.InboxItem{}, refusal(err.Error())
+	}
+	pullRequest, err := repository.PullRequest(ctx, item.PullRequest)
+	if err != nil {
+		return store.InboxItem{}, err
+	}
+	if pullRequest.GetState() != "open" {
+		return store.InboxItem{}, refuse("Pull request #%d is already merged or closed.", item.PullRequest)
+	}
+	ctx = context.WithoutCancel(ctx)
+	if err := asOwner.Approve(ctx, item.PullRequest, pullRequest.GetHead().GetSHA()); err != nil {
+		return store.InboxItem{}, err
+	}
+	item, err = e.queries.SetInboxItemMerge(ctx, store.SetInboxItemMergeParams{Merging: 1, ID: id})
+	if err != nil {
+		return store.InboxItem{}, err
+	}
+	e.publish(Change{Inbox: &item})
+	select {
+	case e.pollWake <- struct{}{}:
+	default:
+	}
+	return item, nil
+}
+
 // Dismiss removes the Inbox item id from the Inbox.
 func (e *Engine) Dismiss(ctx context.Context, id int64) error {
 	item, err := e.queries.DismissInboxItem(ctx, store.DismissInboxItemParams{DismissedAt: sql.NullString{String: now(), Valid: true}, ID: id})

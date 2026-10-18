@@ -261,7 +261,11 @@ func (g *FakeGitHub) submitReview(w http.ResponseWriter, r *http.Request) {
 	}
 	found := g.issues[key]
 	g.lastReviewID++
-	found.reviews = append(found.reviews, reviewJSON{ID: g.lastReviewID, User: loginJSON{caller.login}, CommitID: review.CommitID, Body: review.Body, State: "COMMENTED", SubmittedAt: timestamp(g.tick())})
+	state := "COMMENTED"
+	if review.Event == "APPROVE" {
+		state = "APPROVED"
+	}
+	found.reviews = append(found.reviews, reviewJSON{ID: g.lastReviewID, User: loginJSON{caller.login}, CommitID: review.CommitID, Body: review.Body, State: state, SubmittedAt: timestamp(g.tick())})
 	for _, comment := range review.Comments {
 		g.reviewComment(key, 0, caller.login, comment)
 	}

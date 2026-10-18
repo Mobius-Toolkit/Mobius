@@ -61,6 +61,11 @@ type Engine struct {
 	// pushed holds the pull requests that a Worker pushed to after the poll read them. The poll reads them from GitHub
 	// at the next read.
 	pushed map[pullKey]bool
+	// mergeMu makes MergeInboxItem, and the write of a merge refusal on an Inbox item, take turns. Else a refusal that
+	// the poll writes between the approval and the mark of the item can leave the item in the merging state.
+	mergeMu sync.Mutex
+	// pollWake makes the poll start before the end of poll_interval. It holds at most one value.
+	pollWake chan struct{}
 	// closingMu guards closing.
 	closingMu sync.Mutex
 	// closing holds the Workstreams whose close runs now. The Workstream list leaves them out.
@@ -178,6 +183,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		quiet:          map[int64]quietItem{},
 		pulls:          map[pullKey]*pullState{},
 		pushed:         map[pullKey]bool{},
+		pollWake:       make(chan struct{}, 1),
 		closing:        map[pullKey]bool{},
 		ciWait:         map[int64]ciWait{},
 		newest:         map[string]newestVersion{},
@@ -334,8 +340,8 @@ func (e *Engine) Recover(ctx context.Context) error {
 // Worker, each chat and each Triager, and waits for their ends.
 func (e *Engine) Run(ctx context.Context) {
 	var wg sync.WaitGroup
-	wg.Go(func() { every(ctx, e.config.HousekeeperInterval, e.keepHouse) })
-	every(ctx, e.config.PollInterval, e.poll)
+	wg.Go(func() { every(ctx, e.config.HousekeeperInterval, nil, e.keepHouse) })
+	every(ctx, e.config.PollInterval, e.pollWake, e.poll)
 	wg.Wait()
 	e.stopWorkers()
 	e.stopAgents()
@@ -354,14 +360,15 @@ func (e *Engine) inTx(ctx context.Context, work func(*store.Queries) error) erro
 	return tx.Commit()
 }
 
-// every runs work now and then after each interval, until ctx ends.
-func every(ctx context.Context, interval time.Duration, work func(context.Context)) {
+// every runs work now and then after each interval or after a value on wake, until ctx ends. A nil wake never fires.
+func every(ctx context.Context, interval time.Duration, wake <-chan struct{}, work func(context.Context)) {
 	for {
 		work(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(interval):
+		case <-wake:
 		}
 	}
 }

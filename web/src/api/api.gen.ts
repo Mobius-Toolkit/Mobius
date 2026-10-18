@@ -535,6 +535,10 @@ export interface InboxItem {
   kind: InboxItemKind;
   /** Link is the GitHub URL of the issue, or empty */
   link: string;
+  /** MergeRefusal is the reason of the last refusal of GitHub to merge the pull request, or empty */
+  mergeRefusal: string;
+  /** Merging is true after the Owner sent the approval of the pull request, until GitHub refuses the merge */
+  merging: boolean;
   /** Organization is the owner of the repository */
   organization: string;
   /** PullRequest is the number of the pull request of the item, or 0 */
@@ -880,6 +884,14 @@ export interface Health {
 export interface EnvelopeHealth {
   /** Data is the payload of the response */
   data: Health;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeInboxItem {
+  /** Data is the payload of the response */
+  data: InboxItem;
 }
 
 /**
@@ -3180,6 +3192,81 @@ export const dismiss = async (id: number, ): Promise<dismissResponse> => {
 
   const data: dismissResponse['data'] = body ? JSON.parse(body) : undefined
   return { data, status: res.status, headers: res.headers } as dismissResponse
+}
+
+
+
+export type mergeInboxItemResponse200 = {
+  data: EnvelopeInboxItem
+  status: 200
+}
+
+export type mergeInboxItemResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type mergeInboxItemResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type mergeInboxItemResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type mergeInboxItemResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type mergeInboxItemResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type mergeInboxItemResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type mergeInboxItemResponseSuccess = (mergeInboxItemResponse200) & {
+  headers: Headers;
+};
+export type mergeInboxItemResponseError = (mergeInboxItemResponse400 | mergeInboxItemResponse401 | mergeInboxItemResponse404 | mergeInboxItemResponse409 | mergeInboxItemResponse422 | mergeInboxItemResponse500) & {
+  headers: Headers;
+};
+
+export type mergeInboxItemResponse = (mergeInboxItemResponseSuccess | mergeInboxItemResponseError)
+
+export const getMergeInboxItemUrl = (id: number,) => {
+
+
+
+
+  return `/api/inbox/${id}/merge`
+}
+
+/**
+ * MergeInboxItem approves the pull request of a ready for review Inbox item with the user token of the Owner, so the Owner must authorize the Mobius App first. Mobius then merges the pull request with the checks of an approval on GitHub. It returns the item in the merging state. It returns 404 for an unknown item, and 409 with the reason for an item that is not open, for a task that is not ready for review, for a pull request that is not open, and when the Owner did not authorize the App.
+ */
+export const mergeInboxItem = async (id: number, ): Promise<mergeInboxItemResponse> => {
+
+  const res = await fetch(getMergeInboxItemUrl(id),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: mergeInboxItemResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as mergeInboxItemResponse
 }
 
 

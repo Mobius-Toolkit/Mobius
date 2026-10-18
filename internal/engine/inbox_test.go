@@ -33,6 +33,8 @@ type inboxItem struct {
 	PullRequestURL string  `json:"pullRequestUrl"`
 	ReportURL      string  `json:"reportUrl"`
 	DismissedAt    *string `json:"dismissedAt"`
+	Merging        bool    `json:"merging"`
+	MergeRefusal   string  `json:"mergeRefusal"`
 }
 
 // inbox gives the Inbox through the API.

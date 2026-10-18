@@ -78,6 +78,15 @@ func (r Repository) SubmitReview(ctx context.Context, number int64, commit, body
 	return err
 }
 
+// Approve posts a review that approves the commit of the pull request number.
+func (r Repository) Approve(ctx context.Context, number int64, commit string) error {
+	_, _, err := r.Client.PullRequests.CreateReview(ctx, r.Owner(), r.Name(), int(number), &gh.PullRequestReviewRequest{
+		CommitID: &commit,
+		Event:    new("APPROVE"),
+	})
+	return err
+}
+
 // CreateCheckRun adds the check run name with status to the commit sha. A completed check run has the conclusion. A
 // check run with a title has the title and the summary.
 func (r Repository) CreateCheckRun(ctx context.Context, name, sha, status, conclusion, title, summary string) error {
