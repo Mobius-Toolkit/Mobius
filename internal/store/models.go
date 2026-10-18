@@ -123,6 +123,7 @@ type LeadEvent struct {
 	Held        int64
 	Comment     sql.NullInt64
 	Review      sql.NullBool
+	HeldAt      sql.NullString
 }
 
 type Session struct {
