@@ -155,7 +155,8 @@ func (e *Engine) hasNeedsHuman(ctx context.Context, task store.Task) (bool, erro
 }
 
 // deliverStopNotice does each write of the stop notice once. The comment is the last write, so that a retry after a
-// failed write does not post it twice.
+// failed write does not post it twice. A failed check write stops the comment, and it stops the item and the stop event
+// only when the notice creates the check, because the stop event of such a notice says that the check is failed.
 func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice, task store.Task) error {
 	repository, err := e.repository(task.Repository)
 	if err != nil {
@@ -166,9 +167,14 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 		return err
 	}
 	notice := stopNotice{reason: record.Reason, text: record.Text, output: record.Output, next: record.Next}
+	var checkErr error
 	if record.CheckTitle != "" {
-		if err := e.failStoppedCheck(ctx, repository, task, record.CheckTitle, record.CheckSummary, record.CheckCreate); err != nil && !github.NotFound(err) {
-			return err
+		checkErr = e.failStoppedCheck(ctx, repository, task, record.CheckTitle, record.CheckSummary, record.CheckCreate)
+		if github.NotFound(checkErr) {
+			checkErr = nil
+		}
+		if checkErr != nil && record.CheckCreate {
+			return checkErr
 		}
 	}
 	if record.Text != "" {
@@ -185,8 +191,8 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 			return err
 		}
 	}
-	if record.Text == "" {
-		return nil
+	if checkErr != nil || record.Text == "" {
+		return checkErr
 	}
 	return e.addOrKeepComment(ctx, repository, task.Issue, notice.comment())
 }

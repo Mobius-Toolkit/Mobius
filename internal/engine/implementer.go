@@ -875,8 +875,8 @@ func (e *Engine) handOver(ctx context.Context, task store.Task, title, reason st
 }
 
 // handOverFailed does handOver, and completes the Mobius check of the pull request of the task as failure with
-// checkTitle and checkSummary. An empty checkTitle leaves the check as it is. The Lead gets the stop event also when
-// the check fails.
+// checkTitle and checkSummary. An empty checkTitle leaves the check as it is. The Lead and the Owner get the stop event
+// and the Inbox item also when the check fails. The comment waits for the check.
 func (e *Engine) handOverFailed(ctx context.Context, task store.Task, title, reason, checkTitle, checkSummary string, notice stopNotice) error {
 	notice.checkTitle = checkTitle
 	notice.checkSummary = checkSummary
