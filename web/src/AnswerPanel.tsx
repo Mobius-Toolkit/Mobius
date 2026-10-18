@@ -1,4 +1,4 @@
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import { answerInboxItem, type InboxItem } from "@/api/api.gen";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { answerDraftKey } from "@/lib/draft";
@@ -45,6 +45,7 @@ export function AnswerPanel({
 }) {
   const showLogin = use(LoginContext);
   const [error, setError] = useState("");
+  const content = useRef<HTMLDivElement>(null);
   useKeyboardHeight();
 
   const answer = async (text: string) => {
@@ -68,7 +69,12 @@ export function AnswerPanel({
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
+        ref={content}
         aria-describedby={undefined}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          content.current?.focus();
+        }}
         className="grid max-h-[calc(100dvh-var(--keyboard,0px)-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 max-sm:top-auto max-sm:bottom-(--keyboard,0px) max-sm:left-0 max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none sm:max-h-[85dvh] sm:max-w-lg"
       >
         <DialogHeader className="gap-1 p-4 pr-10">
