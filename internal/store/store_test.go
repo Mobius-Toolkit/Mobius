@@ -490,6 +490,9 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("DROP TABLE owner_answers"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec("DROP TABLE stop_notices"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec("DROP TABLE check_timeouts"); err != nil {
 		t.Fatal(err)
 	}
@@ -575,6 +578,7 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"DROP TABLE ci_breaks",
 		"DROP TABLE owner_answers",
 		"DROP TABLE check_timeouts",
+		"DROP TABLE stop_notices",
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261029100000",
 		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time) VALUES
@@ -658,6 +662,7 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		"DROP TABLE ci_breaks",
 		"DROP TABLE owner_answers",
 		"DROP TABLE check_timeouts",
+		"DROP TABLE stop_notices",
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261105000000",
 		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, started_at) VALUES

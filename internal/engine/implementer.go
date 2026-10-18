@@ -851,12 +851,17 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 // stopAtLimit hands the task of the round to a human, because the pull request has open items after max_fix_rounds
 // rounds of limit, for example "fix". The head of the pull request gets a failed Mobius check.
 func (e *Engine) stopAtLimit(ctx context.Context, repository github.Repository, r round, limit string) error {
-	handed, err := e.handToHuman(ctx, r.task)
+	rounds := e.config.MaxFixRounds
+	summary := fmt.Sprintf("The pull request has open items after %d %s rounds.", rounds, limit)
+	reason := fmt.Sprintf("the pull request has open items after %d %s rounds. Mobius set the Mobius check to failure and added mobius:needs-human.", rounds, limit)
+	handed, err := e.handToHuman(ctx, r.task, r.title, stopText(r.task.Issue, r.title, reason), stopNotice{
+		reason: "Round limit",
+		text:   summary,
+		next:   fmt.Sprintf("Read the open items of PR #%d. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.", r.pullRequest.GetNumber()),
+	})
 	if err != nil || !handed {
 		return err
 	}
-	rounds := e.config.MaxFixRounds
-	summary := fmt.Sprintf("The pull request has open items after %d %s rounds.", rounds, limit)
 	pullRequest, err := repository.PullRequest(ctx, int64(r.pullRequest.GetNumber()))
 	if err != nil {
 		return err
@@ -864,13 +869,7 @@ func (e *Engine) stopAtLimit(ctx context.Context, repository github.Repository, 
 	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", "Round limit", summary); err != nil {
 		return err
 	}
-	reason := fmt.Sprintf("the pull request has open items after %d %s rounds. Mobius set the Mobius check to failure and added mobius:needs-human.", rounds, limit)
-	noticeErr := e.tellStop(ctx, r.task, r.title, stopNotice{
-		reason: "Round limit",
-		text:   summary,
-		next:   fmt.Sprintf("Read the open items of PR #%d. Resolve the items that need no change. Then Resume, or close the pull request. Resume resets the round count.", pullRequest.GetNumber()),
-	})
-	return errors.Join(noticeErr, e.addLeadEvent(ctx, r.task.Repository, r.task.Workstream, sql.NullInt64{Int64: r.task.Issue, Valid: true}, "stop", stopText(r.task.Issue, r.title, reason)))
+	return e.sendStopNotices(ctx, r.task.Repository)
 }
 
 // handOver hands the task to a human, and gives the Lead a stop event with reason, and the Owner a comment and an Inbox
@@ -883,7 +882,7 @@ func (e *Engine) handOver(ctx context.Context, task store.Task, title, reason st
 // checkTitle and checkSummary. An empty checkTitle leaves the check as it is. The Lead gets the stop event also when
 // the check fails.
 func (e *Engine) handOverFailed(ctx context.Context, task store.Task, title, reason, checkTitle, checkSummary string, notice stopNotice) error {
-	handed, err := e.handToHuman(ctx, task)
+	handed, err := e.handToHuman(ctx, task, title, stopText(task.Issue, title, reason), notice)
 	if err != nil || !handed {
 		return err
 	}
@@ -891,9 +890,7 @@ func (e *Engine) handOverFailed(ctx context.Context, task store.Task, title, rea
 	if checkTitle != "" {
 		checkErr = e.failCheckRun(ctx, task, checkTitle, checkSummary)
 	}
-	noticeErr := e.tellStop(ctx, task, title, notice)
-	eventErr := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", stopText(task.Issue, title, reason))
-	return errors.Join(checkErr, noticeErr, eventErr)
+	return errors.Join(checkErr, e.sendStopNotices(ctx, task.Repository))
 }
 
 // failCheckRun completes the open Mobius check of the head of the pull request of the task as failure. It reads the task

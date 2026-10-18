@@ -134,22 +134,30 @@ func tail(text string, count int) string {
 	return text
 }
 
-// handToHuman moves the task from working, queued or checks to needs_human, and the issue of the task from mobius:working
-// or mobius:review to mobius:needs-human, with the pull request of the task. It gives false when the task is not working,
-// queued or checks, for example after a decline. It reads the task again, because task can be older than its pull request.
-func (e *Engine) handToHuman(ctx context.Context, task store.Task) (bool, error) {
-	moved := int64(0)
-	for _, from := range []string{"working", "queued", "checks"} {
-		if moved == 0 {
-			var err error
-			if moved, err = e.handTaskToHuman(ctx, task.ID, from); err != nil {
-				return false, err
+// handToHuman moves the task from working, queued or checks to needs_human, and stores the stop notice of the move in
+// the same transaction. Then it moves the issue of the task from mobius:working or mobius:review to mobius:needs-human,
+// with the pull request of the task. A caller sends the notice with sendStopNotices after its other steps. When a GitHub
+// call fails, the poll sends the notice. leadText is the text of the stop event. It gives false when the task is not
+// working, queued or checks, for example after a decline. A notice with no text gives the Lead an event only.
+func (e *Engine) handToHuman(ctx context.Context, task store.Task, title, leadText string, notice stopNotice) (bool, error) {
+	from := ""
+	err := e.inTx(ctx, func(q *store.Queries) error {
+		for _, state := range []string{"working", "queued", "checks"} {
+			moved, err := q.HandTaskToHuman(ctx, store.HandTaskToHumanParams{ID: task.ID, FromState: state})
+			if err != nil {
+				return err
+			}
+			if moved > 0 {
+				from = state
+				return q.AddStopNotice(ctx, storeStopNotice(task, title, leadText, notice))
 			}
 		}
+		return nil
+	})
+	if err != nil || from == "" {
+		return false, err
 	}
-	if moved == 0 {
-		return false, nil
-	}
+	e.publishReadyForReview(from, "needs_human")
 	if err := e.queries.SetTaskCiFailedHead(ctx, store.SetTaskCiFailedHeadParams{ID: task.ID}); err != nil {
 		return false, err
 	}
@@ -157,17 +165,23 @@ func (e *Engine) handToHuman(ctx context.Context, task store.Task) (bool, error)
 	if err != nil {
 		return false, err
 	}
-	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
-		return false, err
-	}
-	if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
-		return false, err
-	}
 	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
 	if err != nil {
 		return false, err
 	}
-	return true, addNeedsHuman(ctx, repository, current)
+	return true, setStopLabels(ctx, repository, current)
+}
+
+// setStopLabels moves the issue of the task from mobius:working or mobius:review to mobius:needs-human, with the pull
+// request of the task.
+func setStopLabels(ctx context.Context, repository github.Repository, task store.Task) error {
+	if err := repository.RemoveLabel(ctx, task.Issue, workingLabel); err != nil {
+		return err
+	}
+	if err := repository.RemoveLabel(ctx, task.Issue, reviewLabel); err != nil {
+		return err
+	}
+	return addNeedsHuman(ctx, repository, task)
 }
 
 // addNeedsHuman adds mobius:needs-human to the issue of the task, and to its pull request when it has one.

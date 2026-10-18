@@ -2,9 +2,14 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"log"
+	"slices"
 	"strings"
+	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
@@ -44,14 +49,28 @@ func (e *Engine) tellStop(ctx context.Context, task store.Task, title string, no
 	if err != nil {
 		return err
 	}
-	text := notice.text + nextStepMarker + notice.next
-	commentErr := e.addOrKeepComment(ctx, repository, task.Issue, text)
+	commentErr := e.addOrKeepComment(ctx, repository, task.Issue, notice.comment())
+	itemErr := e.addInboxItem(ctx, stoppedItem(current, title, notice))
+	if itemErr == nil {
+		itemErr = e.dismissStoppedItemOfQuestion(ctx, task)
+	}
+	return errors.Join(commentErr, itemErr)
+}
+
+// comment gives the text of the stop comment.
+func (n stopNotice) comment() string {
+	return n.text + nextStepMarker + n.next
+}
+
+// stoppedItem gives the stopped Inbox item of notice for the issue of the task.
+func stoppedItem(task store.Task, title string, notice stopNotice) store.AddInboxItemParams {
+	text := notice.comment()
 	if notice.output != "" {
 		text += "\n\n" + notice.output
 	}
-	itemErr := e.addInboxItem(ctx, store.AddInboxItemParams{
+	return store.AddInboxItemParams{
 		Kind:         stoppedKind,
-		Organization: repository.Owner(),
+		Organization: owner(task.Repository),
 		Repository:   task.Repository,
 		Workstream:   task.Workstream,
 		Issue:        task.Issue,
@@ -59,12 +78,104 @@ func (e *Engine) tellStop(ctx context.Context, task store.Task, title string, no
 		Reason:       notice.reason,
 		Text:         text,
 		Link:         issueLink(task.Repository, task.Issue),
-		PullRequest:  current.PullRequest.Int64,
-	})
-	if itemErr == nil {
-		itemErr = e.dismissStoppedItemOfQuestion(ctx, task)
+		PullRequest:  task.PullRequest.Int64,
 	}
-	return errors.Join(commentErr, itemErr)
+}
+
+// storeStopNotice gives the record of a stop notice that is not delivered yet. leadText is the text of the stop event of
+// the Lead. A notice with no text gives the Lead an event only.
+func storeStopNotice(task store.Task, title, leadText string, notice stopNotice) store.AddStopNoticeParams {
+	return store.AddStopNoticeParams{
+		Task:      task.ID,
+		Title:     title,
+		Reason:    notice.reason,
+		Text:      notice.text,
+		Output:    notice.output,
+		Next:      notice.next,
+		LeadText:  leadText,
+		CreatedAt: now(),
+	}
+}
+
+// sendStopNotices delivers each stop notice of the repository that an earlier step stored: the labels, the stopped
+// Inbox item, the stop event of the Lead and the comment. A notice is deleted after all of them succeed, or when its
+// task left needs_human, or when GitHub answers 404 or 410. A write that fails stays for the next poll.
+func (e *Engine) sendStopNotices(ctx context.Context, name string) error {
+	e.stopNoticeMu.Lock()
+	defer e.stopNoticeMu.Unlock()
+	rows, err := e.queries.ListStopNotices(ctx, name)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.Task.State == "needs_human" {
+			if err := e.deliverStopNotice(ctx, row.StopNotice, row.Task); err != nil && !github.NotFound(err) {
+				log.Printf("send the stop notice of %s#%d: %v", name, row.Task.Issue, err)
+				continue
+			}
+		}
+		if err := e.queries.DeleteStopNotice(ctx, row.StopNotice.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// deliverStopNotice does each write of the stop notice once. The comment is the last write, so that a retry after a
+// failed write does not post it twice.
+func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice, task store.Task) error {
+	repository, err := e.repository(task.Repository)
+	if err != nil {
+		return err
+	}
+	if err := setStopLabels(ctx, repository, task); err != nil {
+		return err
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, record.CreatedAt)
+	if err != nil {
+		return err
+	}
+	notice := stopNotice{reason: record.Reason, text: record.Text, output: record.Output, next: record.Next}
+	if record.Text != "" {
+		if err := e.addStoppedItemOnce(ctx, task, record.Title, notice, createdAt); err != nil {
+			return err
+		}
+	}
+	stopped, err := e.queries.ListStopEvents(ctx, store.ListStopEventsParams{Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Payload: record.LeadText})
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(stopped, func(event store.LeadEvent) bool { return !timeBefore(event.Time, createdAt) }) {
+		if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", record.LeadText); err != nil {
+			return err
+		}
+	}
+	if record.Text == "" {
+		return nil
+	}
+	return e.addOrKeepComment(ctx, repository, task.Issue, notice.comment())
+}
+
+// addStoppedItemOnce adds the stopped Inbox item of notice unless the issue has an item with the same text from createdAt
+// or later. Then it dismisses the item when the issue has an open question item.
+func (e *Engine) addStoppedItemOnce(ctx context.Context, task store.Task, title string, notice stopNotice, createdAt time.Time) error {
+	params := stoppedItem(task, title, notice)
+	items, err := e.queries.ListIssueInboxItems(ctx, store.ListIssueInboxItemsParams{Repository: task.Repository, Issue: task.Issue, Kind: stoppedKind})
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(items, func(item store.InboxItem) bool { return item.Text == params.Text && !timeBefore(item.Time, createdAt) }) {
+		if err := e.addInboxItem(ctx, params); err != nil {
+			return err
+		}
+	}
+	return e.dismissStoppedItemOfQuestion(ctx, task)
+}
+
+// timeBefore tells if the RFC3339Nano text value is before limit. A text that is no time is before it.
+func timeBefore(value string, limit time.Time) bool {
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	return err != nil || parsed.Before(limit)
 }
 
 // dismissStoppedItemOfQuestion dismisses the stopped items of the issue of the task when the issue has an open question
