@@ -236,6 +236,7 @@ test("screenshots", async ({ page }) => {
   await screenshot(page, "chat-waiting", "/workstreams/owner/shop/12", (device) => [
     ...chatReady(device),
     main.getByText("Waits for the agent").first(),
+    main.getByText("The message waits for the Lead."),
     main.getByRole("button", { name: "Stop the reply" }),
   ]);
   await page.unroute("**/api/chat?*");

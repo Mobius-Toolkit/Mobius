@@ -2485,6 +2485,48 @@ test("the send button follows the text and the writing agent", async ({ page }) 
   await stopped;
 });
 
+test("the status line tells that a message of the Owner waits for the agent", async ({ page }) => {
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { writing: boolean; messages: { author: string; deliveredAt: string | null }[] };
+    };
+    body.data.writing = true;
+    for (const message of body.data.messages) {
+      if (message.author === "Owner") {
+        message.deliveredAt = null;
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await expect(main.getByText("The message waits for the Lead.")).toBeVisible();
+  await expect(main.getByText("The Lead writes a reply.")).toHaveCount(0);
+});
+
+test("the status line tells that the agent writes when the agent got each message", async ({
+  page,
+}) => {
+  await page.route("**/api/chat?*", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      data: { writing: boolean; messages: { author: string; deliveredAt: string | null }[] };
+    };
+    body.data.writing = true;
+    for (const message of body.data.messages) {
+      if (message.author === "Owner") {
+        message.deliveredAt = "2026-10-15T08:40:00Z";
+      }
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  await expect(main.getByText("The Lead writes a reply.")).toBeVisible();
+  await expect(main.getByText("The message waits for the Lead.")).toHaveCount(0);
+});
+
 test("the stop button shows only while a stop has an effect", async ({ page }) => {
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
