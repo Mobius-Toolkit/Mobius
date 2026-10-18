@@ -1003,7 +1003,10 @@ func (e *Engine) endTurn(c *chat, current item) error {
 	e.chatsMu.Unlock()
 	switch {
 	case current.event != nil && held:
-		return e.queries.HoldLeadEvent(ctx, current.event.ID)
+		if err := e.queries.HoldLeadEvent(ctx, current.event.ID); err != nil {
+			return err
+		}
+		return e.tellHold(ctx, c.key, *current.event)
 	case current.event != nil:
 		return e.queries.DeliverLeadEvent(ctx, store.DeliverLeadEventParams{DeliveredAt: sql.NullString{String: now(), Valid: true}, ID: current.event.ID})
 	case current.message.Author != ownerAuthor:
@@ -1017,6 +1020,41 @@ func (e *Engine) endTurn(c *chat, current item) error {
 	defer e.chatsMu.Unlock()
 	c.queueEvents(affected)
 	return nil
+}
+
+// tellHold tells on the task issue of a held event that the task waits for the Owner. The issue of an open question
+// gets no comment, because the question is already there and a newer comment of the Mobius App would hide the answer.
+func (e *Engine) tellHold(ctx context.Context, key ChatKey, event store.LeadEvent) error {
+	if !event.Issue.Valid {
+		return nil
+	}
+	if _, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: key.Repository, Issue: event.Issue.Int64}); errors.Is(err, sql.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	items, err := e.queries.ListOpenInboxItems(ctx)
+	if err != nil {
+		return err
+	}
+	var question *store.InboxItem
+	for _, item := range items {
+		if item.Kind == questionKind && item.Repository == key.Repository && item.Workstream == key.Workstream {
+			question = &item
+		}
+	}
+	body := "This task waits for a message of the Owner in the Lead chat. The Lead gets the later events of this task after that message."
+	if question != nil {
+		if question.Issue == event.Issue.Int64 {
+			return nil
+		}
+		body = fmt.Sprintf("This task waits for the answer of the Owner to the question on #%d: %s\n\nThe Lead gets the later events of this task after the answer.", question.Issue, question.Link)
+	}
+	repository, err := e.repository(key.Repository)
+	if err != nil {
+		return err
+	}
+	return e.addOrKeepComment(ctx, repository, event.Issue.Int64, body)
 }
 
 // freeEvents frees each held event of the Workstream. It returns the freed events and the ready events of their task

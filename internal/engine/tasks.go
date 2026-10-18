@@ -129,7 +129,11 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 						return nil, err
 					}
 					if line.State == "working" {
-						line.State = waitState(task.State, line.State)
+						heldEvent, err := e.queries.HasHeldLeadEvent(ctx, store.HasHeldLeadEventParams{Repository: repositoryName, Issue: sql.NullInt64{Int64: row.Number, Valid: true}})
+						if err != nil {
+							return nil, err
+						}
+						line.State = waitState(task.State, line.State, heldEvent)
 					} else if task.State == "needs_human" {
 						line.State = "ready"
 					}
@@ -147,14 +151,17 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 	return lines, nil
 }
 
-// waitState gives the line state of a task that waits for a slot, for CI, for the Lead or for start_implementer. Any other task keeps the Mobius label.
-func waitState(task, label string) string {
+// waitState gives the line state of a task that waits for a slot, for CI, for the Lead, for the Owner or for start_implementer. Any other task keeps the Mobius label.
+func waitState(task, label string, heldEvent bool) string {
 	switch task {
 	case "queued":
 		return "queued"
 	case "checks":
 		return "waits for CI"
 	case "approval":
+		if heldEvent {
+			return "waits for Owner"
+		}
 		return "waits for Lead"
 	case "dispatched":
 		return "waits for start_implementer"
