@@ -100,9 +100,9 @@ test("each item shows on one line with the action of its kind, oldest first", as
   await expect(rows.nth(5)).toContainText("#46");
 
   const action = (row: number, name: string) => rows.nth(row).getByRole("link", { name });
-  await expect(rows.nth(0).getByRole("button")).toHaveText(["Answer", "Details"]);
+  await expect(rows.nth(0).getByRole("button")).toHaveText(["Answer"]);
   await expect(action(0, "Open GitHub")).toHaveAttribute("href", `${link}/issues/45`);
-  await expect(rows.nth(1).getByRole("button")).toHaveText(["Resume", "Answer", "Details"]);
+  await expect(rows.nth(1).getByRole("button")).toHaveText(["Resume", "Answer"]);
   await expect(action(1, "Open GitHub")).toHaveAttribute("href", `${link}/issues/42`);
   await expect(rows.nth(2).getByRole("button")).toHaveText(["Start again", "Details"]);
   await expect(action(3, "Open PR")).toHaveAttribute("href", `${link}/pull/44`);
@@ -145,7 +145,7 @@ test("the reason is on the line of the title on a desktop and below it on a phon
   await expect(reason).toHaveJSProperty("scrollWidth", await reason.evaluate((e) => e.clientWidth));
 });
 
-test("Details sits at the right edge of each item, the action at the left edge on a phone", async ({
+test("Details sits at the right edge of an item that has it, the action at the left edge on a phone", async ({
   page,
 }) => {
   await routeInbox(page, items);
@@ -158,7 +158,7 @@ test("Details sits at the right edge of each item, the action at the left edge o
   ]) {
     await page.setViewportSize(size);
     await expect(rows.nth(0)).toBeVisible();
-    for (const row of [0, 1, 2, 3, 5]) {
+    for (const row of [2, 3, 5]) {
       const item = await rows.nth(row).boundingBox();
       const details = await rows.nth(row).getByRole("button", { name: "Details" }).boundingBox();
       expect(item!.x + item!.width - (details!.x + details!.width)).toBeLessThan(24);
@@ -256,6 +256,30 @@ test("each item keeps its own draft of the answer", async ({ page }) => {
   await page.keyboard.press("Escape");
   await rows.nth(0).getByRole("button", { name: "Answer" }).click();
   await expect(input).toHaveValue("Ten seats.");
+});
+
+test("the panel of a question opens on a phone with the full text and no focus on the input", async ({
+  page,
+}) => {
+  await routeInbox(page, items);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/inbox");
+  const rows = page.getByRole("main").getByRole("listitem");
+  const panel = page.getByRole("dialog");
+
+  await expect(rows.nth(0).getByRole("button", { name: "Details" })).toHaveCount(0);
+  await expect(rows.nth(1).getByRole("button", { name: "Details" })).toHaveCount(0);
+  await expect(rows.nth(2).getByRole("button", { name: "Details" })).toHaveCount(1);
+  await expect(rows.nth(3).getByRole("button", { name: "Details" })).toHaveCount(1);
+  await expect(rows.nth(4).getByRole("button", { name: "Details" })).toHaveCount(1);
+  await expect(rows.nth(5).getByRole("button", { name: "Details" })).toHaveCount(1);
+
+  await rows.nth(0).getByRole("button", { name: "Answer" }).click();
+  await expect(panel).toBeFocused();
+  await expect(panel.getByRole("textbox", { name: "Your answer" })).not.toBeFocused();
+  await expect(panel.getByRole("listitem").last()).toBeInViewport({ ratio: 1 });
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
 });
 
 test("the input of the panel stays visible on a phone while it has the focus", async ({ page }) => {

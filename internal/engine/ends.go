@@ -676,7 +676,7 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 	if err != nil {
 		return "", err
 	}
-	if _, err := e.updateCopy(ctx, repository, closed, nil, false); err != nil {
+	if _, err := e.updateCopy(ctx, repository, closed, nil, false, e.labelChangeCount(repository.FullName)); err != nil {
 		return "", err
 	}
 	e.publish(Change{Workstreams: true})
