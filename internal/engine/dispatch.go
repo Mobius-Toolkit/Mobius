@@ -624,6 +624,9 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 			return "", err
 		}
 	}
+	if err := e.dismissIssueItems(ctx, repository.FullName, input.N, questionKind); err != nil {
+		return "", err
+	}
 	err = e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         questionKind,
 		Organization: repository.Owner(),
