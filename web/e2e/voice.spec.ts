@@ -206,6 +206,22 @@ test("a hidden page stops the recording, sends the audio and shows the error", a
   await expect(start(page)).toBeVisible();
 });
 
+test("a page that hides while the microphone starts stops the recording", async ({ page }) => {
+  await answer(page, "red roses");
+  await page.goto("/chat");
+  await page.evaluate(
+    "void (window.microphoneGate = new Promise((resolve) => (window.openMicrophone = resolve)))",
+  );
+  await start(page).click();
+  await page.evaluate(
+    "Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); document.dispatchEvent(new Event('visibilitychange')); window.openMicrophone()",
+  );
+  await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("red roses");
+  await expect(page.getByText(background)).toBeVisible();
+  await expect(start(page)).toBeVisible();
+  expect(await trackState(page)).toEqual(["ended"]);
+});
+
 test("a recording of 10 minutes stops with no error", async ({ page }) => {
   await page.clock.install();
   await answer(page, "red roses");
@@ -396,7 +412,7 @@ wakeLockTest("a release of the lock during a recording requests it again", async
 });
 
 wakeLockTest("a release of the lock on a hidden page requests no lock", async (page) => {
-  await start(page).click();
+  await begin(page);
   await expect.poll(() => heldLocks(page)).toEqual(["screen"]);
   await page.evaluate(
     "Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); locks[0].release()",

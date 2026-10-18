@@ -1,7 +1,9 @@
 // The fake microphone gives a tone from an oscillator. It keeps each stream in microphones. A test sets
-// microphoneError to the name of the error that getUserMedia throws.
+// microphoneError to the name of the error that getUserMedia throws. A test sets microphoneGate to a promise to hold
+// the answer of getUserMedia.
 export const fakeMicrophone = `window.microphones = []
   navigator.mediaDevices.getUserMedia = async () => {
+    await window.microphoneGate
     if (window.microphoneError) throw new DOMException('', window.microphoneError)
     const context = new AudioContext()
     void context.resume()

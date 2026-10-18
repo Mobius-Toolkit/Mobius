@@ -178,12 +178,18 @@ const start = async () => {
     timer: setTimeout(() => void finish(""), maxRecording),
   };
   current = recording;
+  const track = stream.getAudioTracks()[0];
   for (const type of ["mute", "ended"]) {
-    stream.getAudioTracks()[0].addEventListener(type, () => {
+    track.addEventListener(type, () => {
       if (current === recording) {
         void finish(takenMessage);
       }
     });
+  }
+  if (document.visibilityState === "hidden") {
+    void finish(backgroundMessage);
+  } else if (track.muted || track.readyState === "ended") {
+    void finish(takenMessage);
   }
 };
 
