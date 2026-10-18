@@ -4761,6 +4761,40 @@ func (q *Queries) ListWaitingLeadWorkstreams(ctx context.Context) ([]ListWaiting
 	return items, nil
 }
 
+const listWorkstreamsWithReadyLeadEvents = `-- name: ListWorkstreamsWithReadyLeadEvents :many
+SELECT DISTINCT event.workstream FROM lead_events AS event
+WHERE event.repository = ? AND event.delivered_at IS NULL AND event.held = 0
+  AND NOT EXISTS (
+      SELECT 1 FROM lead_events AS earlier
+      WHERE earlier.repository = event.repository AND earlier.workstream = event.workstream AND earlier.issue = event.issue
+        AND earlier.id < event.id AND earlier.delivered_at IS NULL AND earlier.held = 1
+  )
+ORDER BY event.workstream
+`
+
+func (q *Queries) ListWorkstreamsWithReadyLeadEvents(ctx context.Context, repository string) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkstreamsWithReadyLeadEvents, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var workstream int64
+		if err := rows.Scan(&workstream); err != nil {
+			return nil, err
+		}
+		items = append(items, workstream)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markCommentAnswered = `-- name: MarkCommentAnswered :exec
 INSERT INTO answered_comments (repository, review, comment) VALUES (?, ?, ?)
 ON CONFLICT (repository, review, comment) DO NOTHING

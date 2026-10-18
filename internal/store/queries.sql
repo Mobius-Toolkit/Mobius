@@ -321,6 +321,16 @@ WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NU
   )
 ORDER BY event.id;
 
+-- name: ListWorkstreamsWithReadyLeadEvents :many
+SELECT DISTINCT event.workstream FROM lead_events AS event
+WHERE event.repository = ? AND event.delivered_at IS NULL AND event.held = 0
+  AND NOT EXISTS (
+      SELECT 1 FROM lead_events AS earlier
+      WHERE earlier.repository = event.repository AND earlier.workstream = event.workstream AND earlier.issue = event.issue
+        AND earlier.id < event.id AND earlier.delivered_at IS NULL AND earlier.held = 1
+  )
+ORDER BY event.workstream;
+
 -- A Workstream with an issue that has the question label, or with an open question item, has no row.
 -- name: ListHeldLeadEventsWithoutQuestion :many
 SELECT * FROM lead_events AS event
