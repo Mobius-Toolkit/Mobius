@@ -2492,6 +2492,7 @@ test("the stop button takes no tap in the first 500 ms after it shows", async ({
     stops++;
     return route.fulfill({ status: 204 });
   });
+  await page.route("**/api/chat/messages", () => {});
   await page.goto(shop);
   const main = page.getByRole("main");
   const input = main.getByLabel("Message to the Lead");
@@ -2499,8 +2500,7 @@ test("the stop button takes no tap in the first 500 ms after it shows", async ({
   await expect(stop).toBeEnabled();
 
   await input.fill("Add a plan");
-  await expect(stop).toHaveCount(0);
-  await input.fill("");
+  await main.getByRole("button", { name: "Send", exact: true }).click();
   await expect(stop).toBeVisible();
   await stop.click({ force: true });
   await expect(stop).toBeEnabled();
