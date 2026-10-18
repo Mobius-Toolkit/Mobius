@@ -210,10 +210,15 @@ test("screenshots", async ({ page }) => {
     body.data.stoppable = true;
     await route.fulfill({ response, json: body });
   });
-  await screenshot(page, "chat-writing", "/workstreams/owner/shop/12", (device) => [
-    ...chatReady(device),
-    main.getByRole("button", { name: "Stop the reply" }),
-  ]);
+  const stopEnabled = () =>
+    expect(main.getByRole("button", { name: "Stop the reply" })).toBeEnabled();
+  await screenshot(
+    page,
+    "chat-writing",
+    "/workstreams/owner/shop/12",
+    (device) => [...chatReady(device), main.getByRole("button", { name: "Stop the reply" })],
+    stopEnabled,
+  );
   await page.unroute("**/api/chat?*");
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
@@ -233,12 +238,18 @@ test("screenshots", async ({ page }) => {
     }
     await route.fulfill({ response, json: body });
   });
-  await screenshot(page, "chat-waiting", "/workstreams/owner/shop/12", (device) => [
-    ...chatReady(device),
-    main.getByText("Waits for the agent").first(),
-    main.getByText("The message waits for the Lead."),
-    main.getByRole("button", { name: "Stop the reply" }),
-  ]);
+  await screenshot(
+    page,
+    "chat-waiting",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...chatReady(device),
+      main.getByText("Waits for the agent").first(),
+      main.getByText("The message waits for the Lead."),
+      main.getByRole("button", { name: "Stop the reply" }),
+    ],
+    stopEnabled,
+  );
   await page.unroute("**/api/chat?*");
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
