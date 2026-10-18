@@ -213,7 +213,7 @@ reply = ["Seen"]
 		return reads
 	}
 	before := subIssueReads("70")
-	release := fake.HoldNext("GET /repos/{owner}/{repo}/issues/{number}/sub_issues")
+	release := fake.HoldNextOf("GET /repos/{owner}/{repo}/issues/{number}/sub_issues", "/repos/"+shop+"/issues/70/sub_issues")
 	fake.AddIssue(shop, 70, "Add the shop pages")
 	fake.AddSubIssueOf(shop, 70, 71, "Write the home page")
 	fake.AddLabel(shop, 70, "mobius:workstream", "owner")
