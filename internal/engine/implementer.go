@@ -469,12 +469,15 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 	}
 	if !unpushed && target.reply(ctx, repository, pullRequest, input.Text) == nil {
 		if target.resolve(ctx, repository) != nil {
-			return "Mobius posted the reply, but it could not resolve the thread. Do not reply again.", nil
+			c.agent.mu.Lock()
+			c.agent.replies = append(c.agent.replies, heldReply{target: target, posted: true})
+			c.agent.mu.Unlock()
+			return "Mobius posted the reply, but it could not resolve the thread. Mobius resolves the thread later. Do not reply again.", nil
 		}
 		return "Mobius posted the reply.", nil
 	}
 	c.agent.mu.Lock()
-	c.agent.replies = append(c.agent.replies, heldReply{target, input.Text})
+	c.agent.replies = append(c.agent.replies, heldReply{target: target, text: input.Text})
 	c.agent.mu.Unlock()
 	return "Mobius posts the reply after it pushes your commits.", nil
 }
@@ -1380,13 +1383,20 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	return pushedHead, e.setReviewStep(ctx, repository, head, task, j.conflictRound)
 }
 
-// postReplies posts the held replies of the Implementer on the pull request. A posted reply leaves the list, so a later
-// try posts only the others.
+// postReplies posts the held replies of the Implementer on the pull request and resolves their threads. A finished reply
+// leaves the list, and a posted reply is never posted again, so a later try does only the missing work.
 func (a *Agent) postReplies(ctx context.Context, repository github.Repository, pullRequest int64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for len(a.replies) > 0 {
-		if err := a.replies[0].target.post(ctx, repository, pullRequest, a.replies[0].text); err != nil {
+		held := &a.replies[0]
+		if !held.posted {
+			if err := held.target.reply(ctx, repository, pullRequest, held.text); err != nil {
+				return err
+			}
+			held.posted = true
+		}
+		if err := held.target.resolve(ctx, repository); err != nil {
 			return err
 		}
 		a.replies = a.replies[1:]

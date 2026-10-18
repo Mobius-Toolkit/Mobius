@@ -256,10 +256,12 @@ type replyTarget struct {
 	body string
 }
 
-// heldReply is a reply of the Implementer that waits for the push of its commits.
+// heldReply is a reply of the Implementer that waits for the push of its commits. When posted is true, the reply is on
+// the pull request and only the resolve of its thread waits.
 type heldReply struct {
 	target replyTarget
 	text   string
+	posted bool
 }
 
 // findTarget gives the review thread that starts with the comment id, or the conversation comment id, of the pull
