@@ -173,6 +173,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.checkTasks(ctx, repository, work); err != nil {
 		return err
 	}
+	if err := e.sendStopNotices(ctx, repository.FullName, 0); err != nil {
+		return err
+	}
 	return e.restartLost(ctx, repository, false)
 }
 

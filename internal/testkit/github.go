@@ -127,13 +127,14 @@ type FakeGitHub struct {
 	nextReactionID                             int64
 	failedReactions                            map[string]bool
 	// The ids of the first comments of the resolved review threads.
-	resolvedThreads map[int64]bool
-	failResolves    bool
-	latestRelease   *releaseJSON
-	comparedCommits []string
-	holds           map[issueKey]*hold
-	threadHolds     map[issueKey][]*hold
-	issueHolds      map[issueKey]*hold
+	resolvedThreads  map[int64]bool
+	failResolves     bool
+	failCheckUpdates bool
+	latestRelease    *releaseJSON
+	comparedCommits  []string
+	holds            map[issueKey]*hold
+	threadHolds      map[issueKey][]*hold
+	issueHolds       map[issueKey]*hold
 	// rateLimited tells if each request gets the rate-limit answer.
 	rateLimited bool
 	// hangs holds the route patterns whose next request gets no answer.

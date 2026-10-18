@@ -307,32 +307,27 @@ func (e *Engine) ciFailed(ctx context.Context, repository github.Repository, tas
 	if err != nil {
 		return err
 	}
-	handed, err := e.handToHuman(ctx, task)
+	issue, err := existingIssue(ctx, repository, task.Issue)
+	if err != nil {
+		return err
+	}
+	reason := "the CI of the head commit failed, and a fix round cannot change it. Mobius set the Mobius check to failure and added mobius:needs-human."
+	handed, err := e.handToHuman(ctx, task, issue.GetTitle(), stopText(task.Issue, issue.GetTitle(), reason), pullRequest.GetHead().GetSHA(), stopNotice{
+		reason: "CI failed",
+		text:   "The CI of the head commit failed, and a fix round cannot change it.",
+		next: fmt.Sprintf("Read the failed jobs of PR #%d. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.",
+			pullRequest.GetNumber()),
+		checkTitle:   "CI failed",
+		checkSummary: "The CI of the head commit failed, and a fix round cannot change it.",
+		createCheck:  true,
+	})
 	if err != nil || !handed {
 		return err
 	}
 	if found {
 		e.addCIStep(ctx, task, implementer, "failure")
 	}
-	head := sql.NullString{String: pullRequest.GetHead().GetSHA(), Valid: true}
-	if err := e.queries.SetTaskCiFailedHead(ctx, store.SetTaskCiFailedHeadParams{CiFailedHead: head, ID: task.ID}); err != nil {
-		return err
-	}
-	issue, err := existingIssue(ctx, repository, task.Issue)
-	if err != nil {
-		return err
-	}
-	if err := setCheckRun(ctx, repository, pullRequest.GetHead().GetSHA(), "completed", "failure", "CI failed", "The CI of the head commit failed, and a fix round cannot change it."); err != nil {
-		return err
-	}
-	reason := "the CI of the head commit failed, and a fix round cannot change it. Mobius set the Mobius check to failure and added mobius:needs-human."
-	noticeErr := e.tellStop(ctx, task, issue.GetTitle(), stopNotice{
-		reason: "CI failed",
-		text:   "The CI of the head commit failed, and a fix round cannot change it.",
-		next: fmt.Sprintf("Read the failed jobs of PR #%d. When the default branch fails the same jobs, Resume after the fix of the default branch. Else fix the cause or Resume for a fix round.",
-			pullRequest.GetNumber()),
-	})
-	return errors.Join(noticeErr, e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "stop", stopText(task.Issue, issue.GetTitle(), reason)))
+	return e.sendStopNotices(ctx, task.Repository, task.ID)
 }
 
 // ci is what the check runs of other Apps and the workflow runs of GitHub Actions on a head show.
