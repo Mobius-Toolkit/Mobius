@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -245,6 +249,34 @@ func TestStopStopsAProcessThatAnEarlierConverterStarted(t *testing.T) {
 		}
 		return err != nil
 	})
+}
+
+func TestStopKillsNoProcessThatOnlyHasThePIDOfAnEndedConverter(t *testing.T) {
+	c := newConverter(t)
+	other := exec.Command("sleep", "60")
+	if err := other.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = other.Process.Kill()
+		_ = other.Wait()
+	})
+	if err := os.MkdirAll(c.Dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	pidFile := filepath.Join(c.Dir, "whisper-server.pid")
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(other.Process.Pid)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c.Stop()
+
+	if err := other.Process.Signal(syscall.Signal(0)); err != nil {
+		t.Errorf("the process ended: %v", err)
+	}
+	if _, err := os.Stat(pidFile); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the PID file stays: %v", err)
+	}
 }
 
 func TestAnErrorOfWhisperServerIsNoUnavailableError(t *testing.T) {

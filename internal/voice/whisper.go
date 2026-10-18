@@ -87,13 +87,21 @@ func (w *Whisper) pidFile() string {
 	return filepath.Join(w.Dir, program+".pid")
 }
 
-// Stop stops the process that Whisper started, also when an earlier program of the same data directory started it
-// before an exec.
+// Stop stops the process that Whisper started. It also stops a process that an earlier program of the same data
+// directory started before an exec, when that process answers on the address.
 func (w *Whisper) Stop() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	defer func() { _ = os.Remove(w.pidFile()) }()
+	if w.cmd != nil {
+		_ = w.cmd.Process.Kill()
+		return
+	}
 	content, err := os.ReadFile(w.pidFile())
 	if err != nil {
+		return
+	}
+	if _, answered := w.health(context.Background()); !answered {
 		return
 	}
 	if pid, err := strconv.Atoi(strings.TrimSpace(string(content))); err == nil {
@@ -101,7 +109,6 @@ func (w *Whisper) Stop() {
 			_ = process.Kill()
 		}
 	}
-	_ = os.Remove(w.pidFile())
 }
 
 // Transcribe gives the text of the WAV file wav. It gives an Unavailable error while the converter is not ready.
@@ -160,6 +167,9 @@ func (w *Whisper) ensure(ctx context.Context) error {
 			return nil
 		}
 		return Starting
+	}
+	if w.cmd == nil {
+		_ = os.Remove(w.pidFile())
 	}
 	file := runner.Find(program, w.Path)
 	if file == "" {
