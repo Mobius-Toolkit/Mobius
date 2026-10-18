@@ -1377,8 +1377,8 @@ func (q *Queries) FindDeviceLogin(ctx context.Context, tokenHash []byte) (int64,
 }
 
 const freeLeadEvents = `-- name: FreeLeadEvents :many
-UPDATE lead_events SET held = 0 WHERE repository = ? AND workstream = ? AND held = 1
-RETURNING id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review
+UPDATE lead_events SET held = 0, held_at = NULL WHERE repository = ? AND workstream = ? AND held = 1
+RETURNING id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at
 `
 
 type FreeLeadEventsParams struct {
@@ -1408,6 +1408,7 @@ func (q *Queries) FreeLeadEvents(ctx context.Context, arg FreeLeadEventsParams) 
 			&i.Held,
 			&i.Comment,
 			&i.Review,
+			&i.HeldAt,
 		); err != nil {
 			return nil, err
 		}
@@ -2074,11 +2075,16 @@ func (q *Queries) HasTask(ctx context.Context, arg HasTaskParams) (bool, error) 
 }
 
 const holdLeadEvent = `-- name: HoldLeadEvent :exec
-UPDATE lead_events SET held = 1 WHERE id = ?
+UPDATE lead_events SET held = 1, held_at = ? WHERE id = ?
 `
 
-func (q *Queries) HoldLeadEvent(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, holdLeadEvent, id)
+type HoldLeadEventParams struct {
+	HeldAt sql.NullString
+	ID     int64
+}
+
+func (q *Queries) HoldLeadEvent(ctx context.Context, arg HoldLeadEventParams) error {
+	_, err := q.db.ExecContext(ctx, holdLeadEvent, arg.HeldAt, arg.ID)
 	return err
 }
 
@@ -3313,7 +3319,7 @@ func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error)
 }
 
 const listHeldLeadEventsWithoutQuestion = `-- name: ListHeldLeadEventsWithoutQuestion :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events AS event
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at FROM lead_events AS event
 WHERE event.repository = ?1 AND event.held = 1 AND event.delivered_at IS NULL
   AND NOT EXISTS (
       SELECT 1 FROM copied_issues AS i
@@ -3355,6 +3361,7 @@ func (q *Queries) ListHeldLeadEventsWithoutQuestion(ctx context.Context, arg Lis
 			&i.Held,
 			&i.Comment,
 			&i.Review,
+			&i.HeldAt,
 		); err != nil {
 			return nil, err
 		}
@@ -3929,7 +3936,7 @@ func (q *Queries) ListQueuedTasks(ctx context.Context) ([]ListQueuedTasksRow, er
 }
 
 const listReadyLeadEvents = `-- name: ListReadyLeadEvents :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events AS event
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at FROM lead_events AS event
 WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NULL AND event.held = 0
   AND NOT EXISTS (
       SELECT 1 FROM lead_events AS earlier
@@ -3967,6 +3974,7 @@ func (q *Queries) ListReadyLeadEvents(ctx context.Context, arg ListReadyLeadEven
 			&i.Held,
 			&i.Comment,
 			&i.Review,
+			&i.HeldAt,
 		); err != nil {
 			return nil, err
 		}
@@ -4211,7 +4219,7 @@ func (q *Queries) ListStepTimesBetween(ctx context.Context, arg ListStepTimesBet
 }
 
 const listStopEvents = `-- name: ListStopEvents :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events WHERE repository = ? AND issue = ? AND kind = ? AND payload = ?
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at FROM lead_events WHERE repository = ? AND issue = ? AND kind = ? AND payload = ?
 `
 
 type ListStopEventsParams struct {
@@ -4248,6 +4256,7 @@ func (q *Queries) ListStopEvents(ctx context.Context, arg ListStopEventsParams) 
 			&i.Held,
 			&i.Comment,
 			&i.Review,
+			&i.HeldAt,
 		); err != nil {
 			return nil, err
 		}
@@ -4583,7 +4592,7 @@ func (q *Queries) ListTurnUsageBetween(ctx context.Context, arg ListTurnUsageBet
 }
 
 const listUndeliveredLeadEvents = `-- name: ListUndeliveredLeadEvents :many
-SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review, held_at FROM lead_events WHERE repository = ? AND workstream = ? AND delivered_at IS NULL ORDER BY id
 `
 
 type ListUndeliveredLeadEventsParams struct {
@@ -4613,6 +4622,7 @@ func (q *Queries) ListUndeliveredLeadEvents(ctx context.Context, arg ListUndeliv
 			&i.Held,
 			&i.Comment,
 			&i.Review,
+			&i.HeldAt,
 		); err != nil {
 			return nil, err
 		}

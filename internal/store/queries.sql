@@ -337,7 +337,7 @@ WHERE event.repository = sqlc.arg(repository) AND event.held = 1 AND event.deliv
 ORDER BY event.id;
 
 -- name: HoldLeadEvent :exec
-UPDATE lead_events SET held = 1 WHERE id = ?;
+UPDATE lead_events SET held = 1, held_at = ? WHERE id = ?;
 
 -- name: HasHeldLeadEvent :one
 SELECT EXISTS (
@@ -346,7 +346,7 @@ SELECT EXISTS (
 );
 
 -- name: FreeLeadEvents :many
-UPDATE lead_events SET held = 0 WHERE repository = ? AND workstream = ? AND held = 1
+UPDATE lead_events SET held = 0, held_at = NULL WHERE repository = ? AND workstream = ? AND held = 1
 RETURNING *;
 
 -- A stop writes a stop event, a stale_pull_request event, or an Inbox item of the kind stopped or lost.

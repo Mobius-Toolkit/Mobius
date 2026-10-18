@@ -499,6 +499,9 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("ALTER TABLE copied_workstreams DROP COLUMN evergreen"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec("ALTER TABLE lead_events DROP COLUMN held_at"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec("DELETE FROM goose_db_version WHERE version_id >= 20261027000000"); err != nil {
 		t.Fatal(err)
 	}
@@ -580,6 +583,7 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"DROP TABLE check_timeouts",
 		"DROP TABLE stop_notices",
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
+		"ALTER TABLE lead_events DROP COLUMN held_at",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261029100000",
 		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time) VALUES
 			(1, 'usage limit', 'owner', '', 0, 0, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z'),
@@ -664,6 +668,7 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		"DROP TABLE check_timeouts",
 		"DROP TABLE stop_notices",
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
+		"ALTER TABLE lead_events DROP COLUMN held_at",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261105000000",
 		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, started_at) VALUES
 			(1, 'triager', 'claude-code', 'sonnet', 'owner', '', 0, '2026-10-04T10:00:00Z'),

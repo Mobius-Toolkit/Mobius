@@ -1017,10 +1017,7 @@ func (e *Engine) endTurn(c *chat, current item) error {
 	e.chatsMu.Unlock()
 	switch {
 	case current.event != nil && held:
-		if err := e.recordClosedAtHold(ctx, c.key, current.event.ID); err != nil {
-			return err
-		}
-		if err := e.queries.HoldLeadEvent(ctx, current.event.ID); err != nil {
+		if err := e.queries.HoldLeadEvent(ctx, store.HoldLeadEventParams{HeldAt: sql.NullString{String: now(), Valid: true}, ID: current.event.ID}); err != nil {
 			return err
 		}
 		return e.tellHold(ctx, c.key, *current.event)
@@ -1107,52 +1104,30 @@ func (c *chat) queueEvents(events []item) {
 
 // releaseEvents frees the held events of the Workstream after the Owner answered a question on GitHub. A running Lead
 // chat gets them as endTurn gives them. Else a new Lead chat gets the ready events. A hold of the turn that runs is
-// not stored yet, so the answer cancels it and endTurn delivers the event. The open question items of the answered issue
-// are accounted for, so their close frees no later hold.
-func (e *Engine) releaseEvents(ctx context.Context, repository string, workstream, issue int64) error {
-	e.chatOrder.Lock()
-	defer e.chatOrder.Unlock()
-	items, err := e.queries.ListOpenInboxItems(ctx)
+// not stored yet, so the answer cancels it and endTurn delivers the event. The close of the answered question comes
+// before the free, so a hold of the Lead after the free is later than that close.
+func (e *Engine) releaseEvents(ctx context.Context, repository string, workstream int64) error {
+	source, err := e.repository(repository)
 	if err != nil {
 		return err
 	}
+	if err := e.closeInboxItems(ctx, source); err != nil {
+		return err
+	}
+	e.chatOrder.Lock()
+	defer e.chatOrder.Unlock()
 	e.chatsMu.Lock()
 	if running, ok := e.chats[leadChat(repository, workstream)]; ok {
 		running.held = false
-	}
-	for _, item := range items {
-		if item.Kind == questionKind && item.Repository == repository && item.Issue == issue {
-			e.answeredQuestions[item.ID] = true
-		}
 	}
 	e.chatsMu.Unlock()
 	return e.freeAndSend(ctx, repository, workstream)
 }
 
-// recordClosedAtHold records the closed question items of the Lead chat for the event that the Lead holds. The hold
-// comes after their close, so their close is not a reason to free it. It runs before the store holds the event, so a
-// poll that sees the hold also sees the record.
-func (e *Engine) recordClosedAtHold(ctx context.Context, key ChatKey, event int64) error {
-	items, err := e.queries.ListDismissedQuestionItems(ctx, key.Repository)
-	if err != nil {
-		return err
-	}
-	closed := map[int64]bool{}
-	for _, item := range items {
-		if item.Workstream == key.Workstream {
-			closed[item.ID] = true
-		}
-	}
-	e.chatsMu.Lock()
-	defer e.chatsMu.Unlock()
-	e.closedAtHold[event] = closed
-	return nil
-}
-
 // freeClosedQuestionHolds frees the held events of each Workstream of the repository whose question closed after the
 // hold. The Workstream has no issue with mobius:question and no open question item, and a question item closed after
-// the time of a held event. A question item that was closed when the Lead held the event, or that the Owner answered on
-// GitHub, frees nothing: the event waits for a message of the Owner. The hold of a Lead turn that runs now stays, because it is not stored yet.
+// the hold of a held event. A hold that came after the close waits for a message of the Owner. The hold of a Lead turn
+// that runs now stays, because it is not stored yet.
 func (e *Engine) freeClosedQuestionHolds(ctx context.Context, repository string) error {
 	events, err := e.queries.ListHeldLeadEventsWithoutQuestion(ctx, store.ListHeldLeadEventsWithoutQuestionParams{Repository: repository, QuestionLabel: questionLabel})
 	if err != nil || len(events) == 0 {
@@ -1162,30 +1137,33 @@ func (e *Engine) freeClosedQuestionHolds(ctx context.Context, repository string)
 	if err != nil {
 		return err
 	}
+	freed := map[int64]bool{}
 	for _, event := range events {
-		held, err := time.Parse(time.RFC3339Nano, event.Time)
+		if freed[event.Workstream] {
+			continue
+		}
+		heldAt := event.Time
+		if event.HeldAt.Valid {
+			heldAt = event.HeldAt.String
+		}
+		held, err := time.Parse(time.RFC3339Nano, heldAt)
 		if err != nil {
 			return err
 		}
-		free := false
-		e.chatsMu.Lock()
 		for _, item := range items {
-			if item.Workstream != event.Workstream || e.answeredQuestions[item.ID] || e.closedAtHold[event.ID][item.ID] {
-				continue
-			}
 			closed, err := time.Parse(time.RFC3339Nano, item.DismissedAt.String)
 			if err != nil {
-				e.chatsMu.Unlock()
 				return err
 			}
-			free = free || closed.After(held)
+			if item.Workstream == event.Workstream && closed.After(held) {
+				freed[event.Workstream] = true
+				break
+			}
 		}
-		e.chatsMu.Unlock()
-		if !free {
-			continue
-		}
+	}
+	for workstream := range freed {
 		e.chatOrder.Lock()
-		err = e.freeAndSend(ctx, repository, event.Workstream)
+		err := e.freeAndSend(ctx, repository, workstream)
 		e.chatOrder.Unlock()
 		if err != nil {
 			return err
