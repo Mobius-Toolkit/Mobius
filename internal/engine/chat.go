@@ -997,13 +997,26 @@ func (e *Engine) endTurn(c *chat, current item) error {
 	case current.message.Author != ownerAuthor:
 		return nil
 	}
-	freed, err := e.queries.FreeLeadEvents(ctx, store.FreeLeadEventsParams{Repository: c.key.Repository, Workstream: c.key.Workstream})
-	if err != nil || len(freed) == 0 {
+	affected, err := e.freeEvents(ctx, c.key.Repository, c.key.Workstream)
+	if err != nil || len(affected) == 0 {
 		return err
 	}
-	ready, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: c.key.Repository, Workstream: c.key.Workstream})
+	e.chatsMu.Lock()
+	defer e.chatsMu.Unlock()
+	c.queueEvents(affected)
+	return nil
+}
+
+// freeEvents frees each held event of the Workstream. It returns the freed events and the ready events of their task
+// issues, in id order.
+func (e *Engine) freeEvents(ctx context.Context, repository string, workstream int64) ([]item, error) {
+	freed, err := e.queries.FreeLeadEvents(ctx, store.FreeLeadEventsParams{Repository: repository, Workstream: workstream})
+	if err != nil || len(freed) == 0 {
+		return nil, err
+	}
+	ready, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: repository, Workstream: workstream})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var affected []item
 	for _, event := range ready {
@@ -1013,16 +1026,52 @@ func (e *Engine) endTurn(c *chat, current item) error {
 			affected = append(affected, item{event: &event})
 		}
 	}
-	e.chatsMu.Lock()
-	defer e.chatsMu.Unlock()
+	return affected, nil
+}
+
+// queueEvents puts the events after the queued messages of the Owner and removes their queued copies. Each other
+// queued item keeps its place. The caller holds e.chatsMu.
+func (c *chat) queueEvents(events []item) {
 	c.queue = slices.DeleteFunc(c.queue, func(queued item) bool {
-		return queued.event != nil && slices.ContainsFunc(affected, func(other item) bool { return other.event.ID == queued.event.ID })
+		return queued.event != nil && slices.ContainsFunc(events, func(other item) bool { return other.event.ID == queued.event.ID })
 	})
-	c.queue = slices.Insert(c.queue, afterOwnerMessages(c.queue), affected...)
+	c.queue = slices.Insert(c.queue, afterOwnerMessages(c.queue), events...)
+}
+
+// releaseEvents frees the held events of the Workstream after the Owner answered a question on GitHub. A running Lead
+// chat gets them as endTurn gives them. Else a new Lead chat gets the ready events. A hold of the turn that runs is
+// not stored yet, so the answer cancels it and endTurn delivers the event.
+func (e *Engine) releaseEvents(ctx context.Context, repository string, workstream int64) error {
+	e.chatOrder.Lock()
+	defer e.chatOrder.Unlock()
+	e.chatsMu.Lock()
+	if running, ok := e.chats[leadChat(repository, workstream)]; ok {
+		running.held = false
+	}
+	e.chatsMu.Unlock()
+	affected, err := e.freeEvents(ctx, repository, workstream)
+	if err != nil || len(affected) == 0 {
+		return err
+	}
+	e.chatsMu.Lock()
+	c, running := e.chats[leadChat(repository, workstream)]
+	if !running {
+		e.chatsMu.Unlock()
+		return e.sendEvents(ctx, repository, workstream)
+	}
+	c.queueEvents(affected)
+	c.writing = true
+	c.notify()
+	state := c.state()
+	agent := c.agent
+	e.chatsMu.Unlock()
+	e.publish(Change{Chat: &state})
+	e.publishSession(agent)
 	return nil
 }
 
-// holdEvent holds the event of the turn of the Lead session of c until the end of the next turn for a message of the Owner.
+// holdEvent holds the event of the turn of the Lead session of c until the end of the next turn for a message of the
+// Owner, or until the Owner answers a question on an issue of the Workstream.
 func (e *Engine) holdEvent(_ context.Context, c caller, _ github.Repository, _ noInput) (string, error) {
 	e.chatsMu.Lock()
 	defer e.chatsMu.Unlock()
@@ -1031,7 +1080,7 @@ func (e *Engine) holdEvent(_ context.Context, c caller, _ github.Repository, _ n
 		return "", refuse("hold_event works only in a turn for an event.")
 	}
 	running.held = true
-	return "Mobius holds the event. It sends the event again after your next reply to the Owner.", nil
+	return "Mobius holds the event. It sends the event again after your next reply to a chat message of the Owner, or after the Owner answers a question on an issue of the Workstream.", nil
 }
 
 // tellOwner adds text to the Lead chat as a message of the Lead to the Owner. The reply text after the call, in the
