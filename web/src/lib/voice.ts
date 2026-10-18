@@ -1,313 +1,254 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { transcribe } from "@/api/api.gen";
+import workletUrl from "./recorder-worklet.ts?worker&url";
 
-// The DOM types have the events of the Web Speech API, but not the recognition. Chrome and Safari have only
-// webkitSpeechRecognition.
-type Recognition = {
-  lang: string;
-  continuous: boolean;
-  start(): void;
-  stop(): void;
-  abort(): void;
-  addEventListener(type: "result", listener: (event: SpeechRecognitionEvent) => void): void;
-  addEventListener(type: "error", listener: (event: SpeechRecognitionErrorEvent) => void): void;
-  addEventListener(type: "audiostart" | "end", listener: () => void): void;
+const sampleRate = 16000;
+const maxRecording = 10 * 60 * 1000;
+const takenMessage = "The recording stopped because another app took the microphone.";
+const backgroundMessage = "The recording stopped because the app went to the background.";
+
+type Phase = "idle" | "recording" | "converting";
+
+type Recording = {
+  stream: MediaStream;
+  context: AudioContext;
+  chunks: Int16Array<ArrayBuffer>[];
+  timer: ReturnType<typeof setTimeout>;
 };
 
-const speech = window as Window & {
-  SpeechRecognition?: new () => Recognition;
-  webkitSpeechRecognition?: new () => Recognition;
-};
-
-const Speech = speech.SpeechRecognition ?? speech.webkitSpeechRecognition;
-
-const errorMessages: Record<string, string> = {
-  "not-allowed": "The browser blocks the microphone. Allow the microphone in the browser settings.",
-  "service-not-allowed":
-    "The speech service of the browser or of the device is not available. Turn on Siri or Dictation, or use a different browser.",
-  "no-speech": "The microphone did not hear speech. Speak again.",
-  "audio-capture": "The browser cannot find a microphone. Connect a microphone and try again.",
-  network: "The speech service has no network connection. Check the connection and try again.",
-  "language-not-supported": "The speech service does not support this language.",
-};
-
-// The hook that receives the events of the run.
-export type Target = {
-  onText: (text: string, first: boolean) => void;
-  touched: () => boolean;
-  setListening: (listening: boolean) => void;
-  setError: (error: string) => void;
-};
-
-// WebKit allows one start() for each end event, and a recognition object that a new page part makes can fail
-// silently. Thus the page has one recognition object, and each start waits for the end event of the run before it.
-// The state of the object and of its run does not belong to one mount of useVoice. One hook owns the run at one
-// time: a start by a different hook stops the run of the owner.
-const state = {
-  recognition: undefined as Recognition | undefined,
-  // The hook that started the run. An abort clears it, so the events of the run go nowhere.
-  owner: undefined as Target | undefined,
-  wanted: false,
-  running: false,
-  // A run that never captured audio does not restart after its end event. This stops a loop of failed runs.
-  canRestart: false,
-  // The result list of a run has all final results of the run. The new run starts a new list.
-  added: 0,
-  // True after a new recording starts while the old run still runs. The results of the old run belong to the old
-  // recording.
-  stale: false,
-  // Chrome on Android adds a final result that repeats the text of the final result before it.
-  lastFinal: "",
-  // The voice text of one recording is the final texts of all its runs and the draft of the last run.
-  finals: [] as string[],
-  // The interim texts of the results that no final result has replaced. The text at index i belongs to the result
-  // at index added + i.
-  draft: [] as string[],
-  // The number of words of each result, by the index of the result, that the field shows in an older place. A touch
-  // of the field sets them.
-  skips: [] as number[],
-  // The number of words of each result of the draft at the last result event, by the index of the result.
-  shown: [] as number[],
-  // The voice text that the owner got last.
-  spoken: "",
-  // True until the owner gets the first voice text of the recording.
-  first: true,
-};
-
-// The lock that keeps the screen on while the voice input listens.
+// The run belongs to the page, not to a mount of useVoice. A switch of the Workstream remounts the input and does
+// not stop the run.
+let snapshot = { phase: "idle" as Phase, error: "" };
+const listeners = new Set<() => void>();
+let current: Recording | undefined;
+// Each start and each abort changes run. A step of an older run does nothing.
+let run = 0;
+// The input that gets the text of the answer.
+let insert: ((text: string) => void) | undefined;
 let screenLock: WakeLockSentinel | undefined;
+
+const publish = (phase: Phase, error: string) => {
+  snapshot = { phase, error };
+  listeners.forEach((listener) => listener());
+};
+
+const subscribe = (listener: () => void) => {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+};
 
 // WebKit grants the lock only after a recent tap while the permission state is prompt.
 // Thus the tap on the voice button requests the lock.
 const holdScreen = () => {
   navigator.wakeLock?.request("screen").then(
     (lock) => {
-      if (!state.wanted) {
+      if (snapshot.phase !== "recording") {
         void lock.release();
         return;
       }
-      void screenLock?.release();
+      const old = screenLock;
       screenLock = lock;
+      void old?.release();
+      lock.addEventListener("release", () => {
+        if (screenLock === lock && document.visibilityState === "visible") {
+          holdScreen();
+        }
+      });
     },
     () => {},
   );
 };
 
-const stopWanting = () => {
-  state.wanted = false;
-  void screenLock?.release();
+const releaseScreen = () => {
+  const lock = screenLock;
   screenLock = undefined;
+  void lock?.release();
 };
 
-// The browser releases the lock when the page is hidden.
+const stopMedia = (stream: MediaStream | undefined, context: AudioContext) => {
+  stream?.getTracks().forEach((track) => track.stop());
+  return context.close();
+};
+
+const startError = (err: unknown) => {
+  const name = err instanceof DOMException ? err.name : "";
+  if (name === "NotAllowedError") {
+    return "The browser blocks the microphone. Allow the microphone in the browser settings.";
+  }
+  if (name === "NotFoundError") {
+    return "The browser cannot find a microphone. Connect a microphone and try again.";
+  }
+  return "The voice input did not start.";
+};
+
+const wav = (chunks: Int16Array<ArrayBuffer>[]) => {
+  const size = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const header = new DataView(new ArrayBuffer(44));
+  const text = (offset: number, value: string) =>
+    [...value].forEach((letter, i) => header.setUint8(offset + i, letter.charCodeAt(0)));
+  text(0, "RIFF");
+  header.setUint32(4, 36 + size, true);
+  text(8, "WAVEfmt ");
+  header.setUint32(16, 16, true);
+  header.setUint16(20, 1, true);
+  header.setUint16(22, 1, true);
+  header.setUint32(24, sampleRate, true);
+  header.setUint32(28, sampleRate * 2, true);
+  header.setUint16(32, 2, true);
+  header.setUint16(34, 16, true);
+  text(36, "data");
+  header.setUint32(40, size, true);
+  return new Blob([header, ...chunks], { type: "audio/wav" });
+};
+
+const convert = async (chunks: Int16Array<ArrayBuffer>[]) => {
+  try {
+    const response = await transcribe(wav(chunks));
+    if (response.status === 200) {
+      return { text: response.data.data.text.trim(), error: "" };
+    }
+    if (response.status === 502 || response.status === 503) {
+      return { text: "", error: response.data.error };
+    }
+    return { text: "", error: "The server did not convert the recording." };
+  } catch {
+    return {
+      text: "",
+      error: "The recording did not reach the server. Check the connection and try again.",
+    };
+  }
+};
+
+const finish = async (message: string) => {
+  const recording = current;
+  if (!recording) {
+    return;
+  }
+  current = undefined;
+  const token = run;
+  publish("converting", message);
+  clearTimeout(recording.timer);
+  releaseScreen();
+  await stopMedia(recording.stream, recording.context);
+  const result = await convert(recording.chunks);
+  if (token !== run) {
+    return;
+  }
+  publish("idle", result.error || message);
+  if (result.text) {
+    insert?.(result.text);
+  }
+};
+
+const start = async () => {
+  const token = ++run;
+  const context = new AudioContext();
+  void context.resume();
+  publish("recording", "");
+  holdScreen();
+  let stream: MediaStream | undefined;
+  const chunks: Int16Array<ArrayBuffer>[] = [];
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    await context.audioWorklet.addModule(workletUrl);
+    const node = new AudioWorkletNode(context, "recorder");
+    node.port.addEventListener("message", (event: MessageEvent<Int16Array<ArrayBuffer>>) =>
+      chunks.push(event.data),
+    );
+    node.port.start();
+    context.createMediaStreamSource(stream).connect(node);
+  } catch (err) {
+    void stopMedia(stream, context);
+    if (token === run) {
+      releaseScreen();
+      publish("idle", startError(err));
+    }
+    return;
+  }
+  if (token !== run) {
+    void stopMedia(stream, context);
+    return;
+  }
+  const recording: Recording = {
+    stream,
+    context,
+    chunks,
+    timer: setTimeout(() => void finish(""), maxRecording),
+  };
+  current = recording;
+  for (const type of ["mute", "ended"]) {
+    stream.getAudioTracks()[0].addEventListener(type, () => {
+      if (current === recording) {
+        void finish(takenMessage);
+      }
+    });
+  }
+};
+
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && state.wanted) {
-    holdScreen();
+  if (document.visibilityState === "hidden") {
+    void finish(backgroundMessage);
   }
 });
 
-const visibleDraft = () =>
-  state.draft
-    .map((part, i) =>
-      part
-        .split(" ")
-        .slice(state.skips[state.added + i] ?? 0)
-        .join(" "),
-    )
-    .filter(Boolean)
-    .join(" ");
-
-const withoutLastFinal = (transcript: string) => {
-  if (transcript === state.lastFinal) {
-    return "";
-  }
-  return transcript.startsWith(`${state.lastFinal} `)
-    ? transcript.slice(state.lastFinal.length).trim()
-    : transcript;
-};
-
-const wordCount = (text: string) => (text ? text.split(" ").length : 0);
-
-const voiceText = () => [...state.finals, visibleDraft()].filter(Boolean).join(" ");
-
-const begin = (live: Recognition) => {
-  live.lang = navigator.language;
-  state.added = 0;
-  state.skips = [];
-  state.stale = false;
-  state.lastFinal = "";
-  state.canRestart = false;
-  try {
-    live.start();
-  } catch {
-    stopWanting();
-    state.owner?.setListening(false);
-    state.owner?.setError("The voice input did not start.");
-    return;
-  }
-  state.running = true;
-};
-
-// After the user touches the field, the voice text starts again at the touched place. The field already shows the
-// final texts and the words of the draft that the last result event gave, so the new voice text has only the words
-// after them.
-const detach = () => {
-  state.finals = [];
-  state.skips = state.shown;
-  state.spoken = "";
-  state.first = true;
-};
-
-const create = (Ctor: new () => Recognition) => {
-  const live = new Ctor();
-  live.continuous = true;
-  live.addEventListener("result", (event) => {
-    if (state.stale) {
-      return;
+// A tap on the converting button does nothing. A tap while the microphone starts cancels the start.
+const toggleVoice = () => {
+  if (snapshot.phase === "idle") {
+    void start();
+  } else if (snapshot.phase === "recording") {
+    if (current) {
+      void finish("");
+    } else {
+      abortVoice();
     }
-    if (!state.first && state.owner?.touched()) {
-      detach();
-    }
-    while (state.added < event.results.length && event.results[state.added].isFinal) {
-      const transcript = event.results[state.added][0].transcript.trim();
-      const fresh = withoutLastFinal(transcript)
-        .split(" ")
-        .slice(state.skips[state.added] ?? 0)
-        .join(" ");
-      if (fresh) {
-        state.finals.push(fresh);
-      }
-      state.lastFinal = transcript;
-      state.added++;
-    }
-    state.draft = Array.from(event.results)
-      .slice(state.added)
-      .map((part, i) =>
-        i === 0 ? withoutLastFinal(part[0].transcript.trim()) : part[0].transcript.trim(),
-      );
-    const text = voiceText();
-    if (text !== state.spoken) {
-      state.spoken = text;
-      state.owner?.onText(text, state.first);
-      state.first = false;
-    }
-    state.shown = [];
-    state.draft.forEach((part, i) => {
-      state.shown[state.added + i] = wordCount(part);
-    });
-  });
-  live.addEventListener("audiostart", () => {
-    state.canRestart = true;
-  });
-  live.addEventListener("error", (event) => {
-    if (!state.owner || !state.wanted || state.stale || event.error === "aborted") {
-      return;
-    }
-    stopWanting();
-    state.owner.setListening(false);
-    state.owner.setError(errorMessages[event.error] ?? `The voice input failed: ${event.error}`);
-  });
-  live.addEventListener("end", () => {
-    state.running = false;
-    const rest = visibleDraft();
-    if (rest) {
-      state.finals.push(rest);
-    }
-    state.draft = [];
-    state.shown = [];
-    if (state.wanted && state.canRestart) {
-      begin(live);
-      return;
-    }
-    stopWanting();
-    state.owner?.setListening(false);
-  });
-  return live;
-};
-
-const abortRun = () => {
-  stopWanting();
-  state.owner = undefined;
-  state.recognition?.abort();
-};
-
-// The calls of one hook stop, start or abort the run only when the hook owns it.
-export const toggleVoice = (target: Target) => {
-  if (state.wanted && state.owner === target) {
-    stopWanting();
-    target.setListening(false);
-    state.recognition?.stop();
-    return;
-  }
-  if (!Speech) {
-    return;
-  }
-  if (state.wanted) {
-    state.owner?.setListening(false);
-    state.recognition?.stop();
-  }
-  state.owner = target;
-  state.recognition ??= create(Speech);
-  state.finals = [];
-  state.draft = [];
-  state.shown = [];
-  state.skips = [];
-  state.spoken = "";
-  state.first = true;
-  state.wanted = true;
-  holdScreen();
-  target.setError("");
-  target.setListening(true);
-  if (state.running) {
-    state.stale = true;
-    state.canRestart = true;
-  } else {
-    begin(state.recognition);
   }
 };
 
-// abortVoice drops the voice text that the run still holds.
-export const abortVoice = (target: Target) => {
-  target.setListening(false);
-  target.setError("");
-  releaseVoice(target);
-};
-
-export const releaseVoice = (target: Target) => {
-  if (!state.owner || state.owner === target) {
-    abortRun();
+// abortVoice drops the recording or the answer that the run still holds.
+const abortVoice = () => {
+  run++;
+  if (current) {
+    clearTimeout(current.timer);
+    void stopMedia(current.stream, current.context);
+    current = undefined;
   }
+  releaseScreen();
+  publish("idle", "");
 };
 
-// useVoice gives the voice text of the recording to onText after each result. The voice text has the final texts and
-// the draft. first is true for the first voice text of a recording. When a run ends, its draft becomes a final text.
-// The voice input stays on until toggle stops it, abort runs or an error occurs. useVoice returns the error of the
-// voice input, or '' when the voice input starts or abort runs. The unmount stops the voice input. touched tells
-// whether the user has changed the field or the cursor since the last onText. After a touch, the next voice text has
-// only the words that the field does not show, and first is true.
-export function useVoice(onText: (text: string, first: boolean) => void, touched: () => boolean) {
-  const [listening, setListening] = useState(false);
-  const [error, setError] = useState("");
+export const voiceSupported =
+  Boolean(navigator.mediaDevices?.getUserMedia) && typeof AudioWorkletNode !== "undefined";
+
+// useVoice records the voice when toggle starts it. The second toggle stops the recording, and the server converts it
+// to text. The text goes to onText of the input that is mounted when the answer comes. The recording stays on until
+// toggle stops it, abort runs, the recording reaches 10 minutes, or the microphone stops. error is the failure of the
+// last run, or '' when a run starts or abort runs.
+export function useVoice(onText: (text: string) => void) {
+  const { phase, error } = useSyncExternalStore(subscribe, () => snapshot);
   const latestOnText = useRef(onText);
-  const latestTouched = useRef(touched);
-  const [target] = useState<Target>(() => ({
-    onText: (text, first) => latestOnText.current(text, first),
-    touched: () => latestTouched.current(),
-    setListening,
-    setError,
-  }));
 
   useEffect(() => {
     latestOnText.current = onText;
-    latestTouched.current = touched;
   });
 
-  useEffect(() => () => releaseVoice(target), [target]);
+  useEffect(() => {
+    const target = (text: string) => latestOnText.current(text);
+    insert = target;
+    return () => {
+      if (insert === target) {
+        insert = undefined;
+      }
+    };
+  }, []);
 
   return {
-    supported: Boolean(Speech),
-    listening,
+    supported: voiceSupported,
+    recording: phase === "recording",
+    converting: phase === "converting",
     error,
-    toggle: () => toggleVoice(target),
-    abort: () => abortVoice(target),
+    toggle: toggleVoice,
+    abort: abortVoice,
   };
 }
