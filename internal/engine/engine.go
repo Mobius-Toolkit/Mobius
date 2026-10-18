@@ -41,6 +41,11 @@ type Engine struct {
 	// creates a Workstream and adds it to the copy, take turns. Else syncCopy can replace the copy with a list that
 	// does not have the new Workstream.
 	copyWrite sync.Mutex
+	// labelChanges counts the local label changes of each repository (changeCopiedLabels). labelChangeMu makes a label
+	// change with its count, and the check of the count with the write of a tree that GitHub reads gave, take turns.
+	// Else a tree that GitHub gave before the label change can replace the change.
+	labelChangeMu sync.Mutex
+	labelChanges  map[string]int
 	// ownerAnswerMu makes AnswerInboxItem, which posts a comment and then stores its id, and the poll read of the new
 	// comments take turns. Else the poll can read the comment before its id is stored and ignore it.
 	ownerAnswerMu sync.Mutex
@@ -164,6 +169,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		recovered:    map[string]bool{},
 		handedChats:  map[ChatKey]bool{},
 		copied:       map[string]bool{},
+		labelChanges: map[string]int{},
 		quiet:        map[int64]quietItem{},
 		pulls:        map[pullKey]*pullState{},
 		pushed:       map[pullKey]bool{},
