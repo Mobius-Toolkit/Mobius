@@ -45,6 +45,13 @@ type Server struct {
 	// directory, and it downloads the model from Model.
 	Whisper *voice.Whisper
 	Model   *testkit.FakeModel
+
+	stop func()
+}
+
+// Stop stops the engine of the server and waits for its end. The database stays open.
+func (s *Server) Stop() {
+	s.stop()
 }
 
 // Config gives the config of a server under test with the data in dataDir: the access password Password, the
@@ -131,10 +138,11 @@ func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 		e.Run(ctx)
 		close(stopped)
 	}()
-	t.Cleanup(func() {
+	stop := func() {
 		cancel()
 		<-stopped
-	})
+	}
+	t.Cleanup(stop)
 	mux := http.NewServeMux()
 	model := testkit.NewFakeModel(t)
 	whisper := voice.New(dataDir, filepath.Join(dataDir, "harnesses"))
@@ -158,7 +166,7 @@ func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("login: status %d", response.StatusCode)
 	}
-	return &Server{URL: server.URL, DB: db, Client: client, Engine: e, Mux: mux, Whisper: whisper, Model: model}
+	return &Server{URL: server.URL, DB: db, Client: client, Engine: e, Mux: mux, Whisper: whisper, Model: model, stop: stop}
 }
 
 // agentFreePath gives the PATH of the test with no directory that has a Harness command.

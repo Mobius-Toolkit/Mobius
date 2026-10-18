@@ -47,7 +47,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	provider, err := goose.NewProvider(goose.DialectSQLite3, db, nil,
-		goose.WithGoMigrations(ms...), goose.WithDisableGlobalRegistry(true))
+		goose.WithGoMigrations(ms...), goose.WithDisableGlobalRegistry(true), goose.WithAllowOutofOrder(true))
 	if err != nil {
 		return err
 	}
