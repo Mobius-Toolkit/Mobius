@@ -241,6 +241,9 @@ func (e *Engine) commentEvents(ctx context.Context, repository github.Repository
 		if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
 			return err
 		}
+		if err := e.releaseEvents(ctx, repository.FullName, task.Workstream); err != nil {
+			return err
+		}
 	}
 	if task.State == "asked" || task.State == "answered" {
 		if err := acknowledge(ctx, repository, replies); err != nil {
@@ -375,6 +378,9 @@ func (e *Engine) workstreamCommentEvents(ctx context.Context, repository github.
 	}
 	if answered && workstream == number && hasLabel(issue, questionLabel) {
 		if err := repository.RemoveLabel(ctx, number, questionLabel); err != nil {
+			return err
+		}
+		if err := e.releaseEvents(ctx, repository.FullName, workstream); err != nil {
 			return err
 		}
 	}
