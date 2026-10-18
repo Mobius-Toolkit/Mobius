@@ -43,6 +43,22 @@ func TestAHoldThatFollowsTheFreeOfAClosedQuestionStaysHeld(t *testing.T) {
 	}
 }
 
+func TestAHoldThatFollowsAnAnswerOnGitHubStaysHeld(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	script := strings.Replace(releaseScript, "[[prompts]]\nreply = [\"Seen\"]\n", "[[prompts]]\n"+holdEvent+"\n", 1)
+	server, _, _ := heldAfterQuestionWith(t, fake, script)
+	fake.AddComment(shop, 41, "owner", "Cents.")
+	testkit.WaitFor(t, func() bool { return len(onlySession(t, server)) == 4 && held(t, server, 3) })
+
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+
+	if got := onlySession(t, server); len(got) != 4 || !held(t, server, 3) {
+		t.Errorf("prompts = %q", got)
+	}
+}
+
 func TestAStartWithAHeldEventWhoseQuestionIsClosedDeliversTheEventInTheFirstPoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

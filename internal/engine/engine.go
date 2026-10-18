@@ -37,9 +37,8 @@ type Engine struct {
 	handedChats map[ChatKey]bool
 	// copied holds the full names of the repositories whose copy is complete. Only the poll uses it.
 	copied map[string]bool
-	// closedQuestionFreed holds the id of the question item whose close freed the held events of each Lead chat. Only
-	// the poll uses it.
-	closedQuestionFreed map[ChatKey]int64
+	// accountedQuestions holds the ids of the question items whose close frees no hold. chatsMu guards it.
+	accountedQuestions map[int64]bool
 	// copyWrite makes syncCopy, which reads all Workstreams and then replaces the copy, and createWorkstream, which
 	// creates a Workstream and adds it to the copy, take turns. Else syncCopy can replace the copy with a list that
 	// does not have the new Workstream.
@@ -167,35 +166,35 @@ func (e *Engine) timeNow() time.Time {
 // New gives the Engine of the database db and of the GitHub Apps of gh with the settings of cfg.
 func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engine {
 	return &Engine{
-		db:                  db,
-		queries:             store.New(db),
-		github:              gh,
-		config:              cfg,
-		agents:              agents,
-		labelsFixed:         map[string]bool{},
-		closedQuestionFreed: map[ChatKey]int64{},
-		recovered:           map[string]bool{},
-		handedChats:         map[ChatKey]bool{},
-		copied:              map[string]bool{},
-		labelChanges:        map[string]int{},
-		labelChangedAt:      map[issueRef]int{},
-		quiet:               map[int64]quietItem{},
-		pulls:               map[pullKey]*pullState{},
-		pushed:              map[pullKey]bool{},
-		closing:             map[pullKey]bool{},
-		ciWait:              map[int64]ciWait{},
-		newest:              map[string]newestVersion{},
-		workers:             newWorkers(),
-		chats:               map[ChatKey]*chat{},
-		triages:             map[triageKey]triage{},
-		checks:              make(chan struct{}, cfg.MaxChecks),
-		stops:               map[any]stopper{},
-		live:                map[any]int{},
-		implementers:        map[int64]*Agent{},
-		loadWaits:           map[int64]chan struct{}{},
-		researchers:         map[int64]*Agent{},
-		curators:            map[string]bool{},
-		listeners:           map[chan Change]bool{},
+		db:                 db,
+		queries:            store.New(db),
+		github:             gh,
+		config:             cfg,
+		agents:             agents,
+		labelsFixed:        map[string]bool{},
+		accountedQuestions: map[int64]bool{},
+		recovered:          map[string]bool{},
+		handedChats:        map[ChatKey]bool{},
+		copied:             map[string]bool{},
+		labelChanges:       map[string]int{},
+		labelChangedAt:     map[issueRef]int{},
+		quiet:              map[int64]quietItem{},
+		pulls:              map[pullKey]*pullState{},
+		pushed:             map[pullKey]bool{},
+		closing:            map[pullKey]bool{},
+		ciWait:             map[int64]ciWait{},
+		newest:             map[string]newestVersion{},
+		workers:            newWorkers(),
+		chats:              map[ChatKey]*chat{},
+		triages:            map[triageKey]triage{},
+		checks:             make(chan struct{}, cfg.MaxChecks),
+		stops:              map[any]stopper{},
+		live:               map[any]int{},
+		implementers:       map[int64]*Agent{},
+		loadWaits:          map[int64]chan struct{}{},
+		researchers:        map[int64]*Agent{},
+		curators:           map[string]bool{},
+		listeners:          map[chan Change]bool{},
 	}
 }
 
