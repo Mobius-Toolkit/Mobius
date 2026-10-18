@@ -2309,9 +2309,9 @@ test("the Details tab closes the Workstream with its open issues", async ({ page
   await dialog.getByRole("button", { name: "Close as won't do" }).click();
   await expect(page).toHaveURL("/workstreams");
   await expect(main.getByText("Plant lilies")).not.toBeAttached();
-  expect(
-    await get<{ open: boolean }>(page, "/api/workstreams/plants/garden/30/details"),
-  ).toMatchObject({ open: false });
+  await expect
+    .poll(() => get<{ open: boolean }>(page, "/api/workstreams/plants/garden/30/details"))
+    .toMatchObject({ open: false });
 });
 
 test("an evergreen Workstream with all tasks closed shows no done badge and no Close Workstream button", async ({
