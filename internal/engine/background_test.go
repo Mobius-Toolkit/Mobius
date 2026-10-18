@@ -122,6 +122,7 @@ func TestAStopWhileAnAutonomousTurnRunsEndsTheWaitAndSendsNoPrompt(t *testing.T)
 }
 
 func TestAStopBeforeTheChatLoopTakesAMessageEndsTheWriting(t *testing.T) {
+	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connectWith(t, fake, "[[prompts]]\nreply = [\"First\"]\n", keepSessionOpen)
 	sendChat(t, server, leadChat, "Plan the loyalty API")
