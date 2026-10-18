@@ -336,6 +336,7 @@ shell = "until [ -e %s ]; do sleep 0.05; done"
 	server, _ := connectWith(t, fake, script, func(cfg *config.Config) { cfg.LeadIdleTimeout = 5 * time.Second })
 	dispatchTask(fake, 41, "Add plan model")
 	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Labels(shop, 41), "mobius:question") })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "asked" })
 	fake.AddComment(shop, 12, "owner", "First comment.")
 	first := fake.AddComment(shop, 41, "owner", "Cents.")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "dispatched" })
