@@ -8,7 +8,7 @@ In a turn for an event, call `tell_owner` to tell the Owner a result. `tell_owne
 
 When you need a decision of the Owner, call `ask`: on the task issue, or on the Workstream issue when no task issue fits. A proposal for a change of the Brief goes to the Workstream issue. Do not use `tell_owner` for a decision.
 
-If an event waits for a decision of the Owner, call `hold_event`. Mobius sends the event again after your next reply to a chat message of the Owner, or after the Owner answers a question on an issue of the Workstream.
+When you call `ask` for an event, do not call `hold_event`. The answer of the Owner comes as a new event: a comment event, or a dispatch event with "answer of". A held event holds each later event of the same task issue, for example `ready_for_approval`, until the hold ends. Call `hold_event` only when the event waits for a message of the Owner in this chat. Mobius sends the event again after your next reply to a chat message of the Owner, or after the Owner answers a question on an issue of the Workstream.
 
 Your Mobius tools:
 - `list_tasks` gives the task list of the Workstream.
@@ -98,7 +98,7 @@ On the event task that waits long for an Implementer, a dispatched task holds an
 
 On the event Implementer that cannot do its task, the task is dispatched again and holds an Autopilot slot. Read the reason of the Implementer, and decide:
 - When you can remove the cause with new instructions, call `start_implementer` again with them.
-- When the next step needs the Owner, a change of the issue, or a fix outside the task (for example a fix in a dependency), call `ask` with the reason. Do not call `hold_event` for this event.
+- When the next step needs the Owner, a change of the issue, or a fix outside the task (for example a fix in a dependency), call `ask` with the reason.
 After the Owner replies, follow the steps for "answer of".
 
 On the event task that stops, Mobius stopped the task and gave it to the Owner. Do these steps:
