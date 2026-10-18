@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
+	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
 
 const holdAfterWorkstreamQuestionScript = `
@@ -73,23 +74,36 @@ func TestAHeldEventAfterAQuestionOnTheTaskIssueAddsNoComment(t *testing.T) {
 	}
 }
 
-func TestATaskInApprovalWaitsForTheOwnerWhileItHasAHeldEvent(t *testing.T) {
+func TestATaskInApprovalWaitsForTheOwnerWhileItHasAHeldEventAndForTheLeadAfterTheAnswer(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := seedWaiting(t, fake, "approval")
-	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, held) VALUES ('owner/shop', 12, 41, 'follow_up', 'Held.', '2026-10-04T10:00:00Z', 1)`); err != nil {
+	server, _ := connectWith(t, fake, holdAfterWorkstreamQuestionScript, keepSessionOpen)
+	dispatchTask(fake, 41, "Add plan model")
+	waitForItem(t, server, "question")
+	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
+	addLeadEvent(t, server, "follow_up", "Held follow-up.")
+	dispatchTask(fake, 42, "Add plan route")
+	testkit.WaitFor(t, func() bool { return held(t, server, 1) })
+	fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
+	if _, err := server.DB.Exec(`UPDATE tasks SET state = 'approval', state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE issue = 41`); err != nil {
 		t.Fatal(err)
 	}
 
-	if lines := taskTab(t, server); len(lines) != 1 || lines[0].State != "waits for Owner" {
-		t.Errorf("lines = %+v", lines)
+	if state := stateOfTask(t, server, 41); state != "waits for Owner" {
+		t.Errorf("state = %s", state)
 	}
 
-	if _, err := server.DB.Exec(`UPDATE lead_events SET held = 0`); err != nil {
-		t.Fatal(err)
-	}
+	fake.AddComment(shop, 12, "owner", "Cents.")
 
-	if lines := taskTab(t, server); len(lines) != 1 || lines[0].State != "waits for Lead" {
-		t.Errorf("lines = %+v", lines)
+	testkit.WaitFor(t, func() bool { return stateOfTask(t, server, 41) == "waits for Lead" })
+}
+
+func stateOfTask(t *testing.T, server *testserver.Server, number int64) string {
+	t.Helper()
+	for _, line := range taskTab(t, server) {
+		if line.Number == number {
+			return line.State
+		}
 	}
+	return ""
 }
