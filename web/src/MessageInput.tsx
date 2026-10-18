@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { useVoice } from "@/lib/voice";
 import { FileImage } from "./FileImage";
 
+const stopDelay = 500;
 const tooManyImages = `A message has at most ${maxImages} images.`;
 
 function Thumbnail({
@@ -168,6 +169,18 @@ export function MessageInput({
   const empty = !text.trim() && images.length === 0;
   const showStop = empty && !!onStop;
   const buttonPending = showStop && stopping;
+  // A tap on Send can land on the Stop button that replaces it. Thus Stop takes no tap in its first moments.
+  const [stopReady, setStopReady] = useState(false);
+  useEffect(() => {
+    if (!showStop) {
+      return;
+    }
+    const timer = setTimeout(() => setStopReady(true), stopDelay);
+    return () => {
+      clearTimeout(timer);
+      setStopReady(false);
+    };
+  }, [showStop]);
 
   const send = () => {
     if (empty || justSent.current) {
@@ -303,9 +316,10 @@ export function MessageInput({
               aria-label={showStop ? "Stop the reply" : "Send"}
               title={showStop ? "Stop the reply" : "Send"}
               pending={buttonPending}
-              disabled={empty && !showStop}
+              disabled={showStop ? !stopReady : empty}
               className={cn(
                 "rounded-full max-md:size-11",
+                showStop && !stopReady && !buttonPending && "disabled:opacity-100",
                 empty &&
                   !showStop &&
                   "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",

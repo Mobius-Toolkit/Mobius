@@ -2485,6 +2485,31 @@ test("the send button follows the text and the writing agent", async ({ page }) 
   await stopped;
 });
 
+test("the stop button takes no tap in the first 500 ms after it shows", async ({ page }) => {
+  await writingNow(page);
+  let stops = 0;
+  await page.route("**/api/chat/stop", (route) => {
+    stops++;
+    return route.fulfill({ status: 204 });
+  });
+  await page.goto(shop);
+  const main = page.getByRole("main");
+  const input = main.getByLabel("Message to the Lead");
+  const stop = main.getByRole("button", { name: "Stop the reply", exact: true });
+  await expect(stop).toBeEnabled();
+
+  await input.fill("Add a plan");
+  await expect(stop).toHaveCount(0);
+  await input.fill("");
+  await expect(stop).toBeVisible();
+  await stop.click({ force: true });
+  await expect(stop).toBeEnabled();
+  expect(stops).toBe(0);
+
+  await stop.click();
+  await expect.poll(() => stops).toBe(1);
+});
+
 test("the status line tells that a message of the Owner waits for the agent", async ({ page }) => {
   await page.route("**/api/chat?*", async (route) => {
     const response = await route.fetch();
