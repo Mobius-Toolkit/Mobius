@@ -322,7 +322,10 @@ export function MessageInput({
               disabled={showStop ? !stopReady : empty}
               className={cn(
                 "rounded-full max-md:size-11",
-                showStop && !stopReady && !buttonPending && "disabled:opacity-100",
+                showStop &&
+                  !stopReady &&
+                  !buttonPending &&
+                  "disabled:pointer-events-auto disabled:opacity-100",
                 empty &&
                   !showStop &&
                   "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
