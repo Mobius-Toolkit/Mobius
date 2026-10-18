@@ -49,7 +49,12 @@ func heldAfterQuestion(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Serv
 // heldAfterQuestionIn is heldAfterQuestion that also gives the data directory of the server.
 func heldAfterQuestionIn(t *testing.T, fake *testkit.FakeGitHub) (*testserver.Server, inboxItem, string) {
 	t.Helper()
-	server, dataDir := connectWith(t, fake, releaseScript, keepSessionOpen)
+	return heldAfterQuestionWith(t, fake, releaseScript)
+}
+
+func heldAfterQuestionWith(t *testing.T, fake *testkit.FakeGitHub, script string) (*testserver.Server, inboxItem, string) {
+	t.Helper()
+	server, dataDir := connectWith(t, fake, script, keepSessionOpen)
 	dispatchTask(fake, 41, "Add plan model")
 	item := waitForItem(t, server, "question")
 	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })

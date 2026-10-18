@@ -1118,8 +1118,8 @@ func (e *Engine) releaseEvents(ctx context.Context, repository string, workstrea
 
 // freeClosedQuestionHolds frees the held events of each Workstream of the repository whose question closed after the
 // hold. The Workstream has no issue with mobius:question and no open question item, and a question item closed after
-// the time of a held event. The hold of a Lead turn that runs now stays, because it is not stored yet. A hold that
-// waits only for a message of the Owner in the Lead chat has no such question.
+// the time of a held event. One closed question item frees the holds of its Workstream one time, so a later hold that
+// waits for a message of the Owner stays. The hold of a Lead turn that runs now stays, because it is not stored yet.
 func (e *Engine) freeClosedQuestionHolds(ctx context.Context, repository string) error {
 	events, err := e.queries.ListHeldLeadEventsWithoutQuestion(ctx, store.ListHeldLeadEventsWithoutQuestionParams{Repository: repository, QuestionLabel: questionLabel})
 	if err != nil || len(events) == 0 {
@@ -1129,31 +1129,32 @@ func (e *Engine) freeClosedQuestionHolds(ctx context.Context, repository string)
 	if err != nil {
 		return err
 	}
-	freed := map[int64]bool{}
 	for _, event := range events {
-		if freed[event.Workstream] {
-			continue
-		}
+		key := leadChat(repository, event.Workstream)
 		held, err := time.Parse(time.RFC3339Nano, event.Time)
 		if err != nil {
 			return err
 		}
+		var newest store.InboxItem
+		var newestClosed time.Time
 		for _, item := range items {
 			closed, err := time.Parse(time.RFC3339Nano, item.DismissedAt.String)
 			if err != nil {
 				return err
 			}
-			if item.Workstream != event.Workstream || !closed.After(held) {
-				continue
+			if item.Workstream == event.Workstream && closed.After(newestClosed) {
+				newest, newestClosed = item, closed
 			}
-			freed[event.Workstream] = true
-			e.chatOrder.Lock()
-			err = e.freeAndSend(ctx, repository, event.Workstream)
-			e.chatOrder.Unlock()
-			if err != nil {
-				return err
-			}
-			break
+		}
+		if !newestClosed.After(held) || e.closedQuestionFreed[key] == newest.ID {
+			continue
+		}
+		e.closedQuestionFreed[key] = newest.ID
+		e.chatOrder.Lock()
+		err = e.freeAndSend(ctx, repository, event.Workstream)
+		e.chatOrder.Unlock()
+		if err != nil {
+			return err
 		}
 	}
 	return nil

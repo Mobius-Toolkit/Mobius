@@ -27,6 +27,22 @@ func TestAQuestionThatClosesWithNoCommentFreesTheHeldEventsInIdOrder(t *testing.
 	assertDismissed(t, server, item.ID)
 }
 
+func TestAHoldThatFollowsTheFreeOfAClosedQuestionStaysHeld(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	script := strings.Replace(releaseScript, "[[prompts]]\nreply = [\"Seen\"]\n", "[[prompts]]\n"+holdEvent+"\n", 1)
+	server, _, _ := heldAfterQuestionWith(t, fake, script)
+	fake.RemoveLabel(shop, 41, "mobius:question", "owner")
+	testkit.WaitFor(t, func() bool { return len(onlySession(t, server)) == 4 && held(t, server, 2) })
+
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+
+	if got := onlySession(t, server); len(got) != 4 || !held(t, server, 2) {
+		t.Errorf("prompts = %q", got)
+	}
+}
+
 func TestAStartWithAHeldEventWhoseQuestionIsClosedDeliversTheEventInTheFirstPoll(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
