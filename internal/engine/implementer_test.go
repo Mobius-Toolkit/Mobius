@@ -533,6 +533,90 @@ func TestAfterMaxCheckAttemptsMobiusPushesFailsTheCheckRunAndStopsTheTask(t *tes
 	}
 }
 
+const (
+	writeNoCommit = "shell = \"echo cents > plan.txt\"\n"
+	noCommitText  = "The branch has no commit, so GitHub opened no pull request."
+)
+
+func TestAnImplementerTurnWithChangesAndNoCommitGetsAPromptAndThenThePullRequest(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\n"+writeNoCommit+"\n[[prompts]]\n"+commitCents, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	runs := approvalCheckRuns(t, server, fake)
+	if len(runs) != 1 || runs[0].HeadSHA != head(t, fake, "mobius/41") {
+		t.Errorf("check runs = %+v", runs)
+	}
+	if plan := testkit.Git(t, fake.Remote(shop), "show", "mobius/41:plan.txt"); plan != "cents" {
+		t.Errorf("plan.txt = %s", plan)
+	}
+	session := endedImplementers(t, server, 1)[0]
+	if session.EndReason.String != "done" {
+		t.Errorf("end reason = %s", session.EndReason.String)
+	}
+	prompts := promptTexts(t, server, session.ID)
+	if len(prompts) != 2 || prompts[1] != "Your worktree has changes with no commit. Mobius pushes only commits. Wait for each command that you started, commit all work, and end the turn." {
+		t.Errorf("prompts = %q", prompts)
+	}
+}
+
+func TestAnImplementerThatNeverCommitsGetsMaxCheckAttemptsMinusOnePromptsAndThenStopsTheTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\n"+writeNoCommit, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the branch has no commit")
+	wantStopNotice(t, server, fake, "No commit", noCommitText,
+		"Read the Transcript of the Implementer. Commit the work in the worktree, or tell the Lead the next step. Then Resume.")
+	session := endedImplementers(t, server, 1)[0]
+	if session.EndReason.String != "no_commits" {
+		t.Errorf("end reason = %s", session.EndReason.String)
+	}
+	if prompts := promptTexts(t, server, session.ID); len(prompts) != 3 {
+		t.Errorf("prompts = %q", prompts)
+	}
+	if checks := rows(t, server, session.ID, "check"); len(checks) != 2 {
+		t.Errorf("checks = %+v", checks)
+	}
+	assertNoCommitStop(t, server, fake)
+}
+
+func TestAnImplementerTurnWithNoChangeAndNoCommitStopsTheTaskWithNoWorkerRestart(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadStarts, "[[prompts]]\nreply = [\"Done.\"]\n", noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+
+	waitForLeadPrompt(t, server, " stop of #41 \"Add plan model\": the branch has no commit")
+	wantStopNotice(t, server, fake, "No commit", noCommitText,
+		"Read the Transcript of the Implementer. Commit the work in the worktree, or tell the Lead the next step. Then Resume.")
+	session := endedImplementers(t, server, 1)[0]
+	if prompts := promptTexts(t, server, session.ID); len(prompts) != 1 {
+		t.Errorf("prompts = %q", prompts)
+	}
+	assertNoCommitStop(t, server, fake)
+}
+
+// assertNoCommitStop checks the task and the GitHub items after a stop for a branch with no commit.
+func assertNoCommitStop(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub) {
+	t.Helper()
+	task := liveTask(t, server, 41)
+	if task.State != "needs_human" || task.WorkerRestarts != 0 {
+		t.Errorf("task = %+v", task)
+	}
+	if len(fake.PullRequests(shop)) != 0 || len(fake.CheckRuns(shop)) != 0 {
+		t.Errorf("pull requests = %+v, check runs = %+v", fake.PullRequests(shop), fake.CheckRuns(shop))
+	}
+	if !hasLabel(fake, "mobius:needs-human") || hasLabel(fake, "mobius:working") {
+		t.Errorf("labels = %v", fake.Labels(shop, 41))
+	}
+}
+
 func TestACheckOnAFullDiskWaitsForFreeSpaceWithNoPromptAndNoAttemptAndThenPushes(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
