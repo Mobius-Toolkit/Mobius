@@ -217,6 +217,9 @@ SELECT * FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER 
 -- name: ListIssueInboxItems :many
 SELECT * FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id;
 
+-- name: ListDismissedQuestionItems :many
+SELECT * FROM inbox_items WHERE repository = ? AND kind = 'question' AND dismissed_at IS NOT NULL ORDER BY id;
+
 -- name: ListOpenInboxItems :many
 SELECT * FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id;
 
@@ -315,6 +318,21 @@ WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NU
       SELECT 1 FROM lead_events AS earlier
       WHERE earlier.repository = event.repository AND earlier.workstream = event.workstream AND earlier.issue = event.issue
         AND earlier.id < event.id AND earlier.delivered_at IS NULL AND earlier.held = 1
+  )
+ORDER BY event.id;
+
+-- A Workstream with an issue that has the question label, or with an open question item, has no row.
+-- name: ListHeldLeadEventsWithoutQuestion :many
+SELECT * FROM lead_events AS event
+WHERE event.repository = sqlc.arg(repository) AND event.held = 1 AND event.delivered_at IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM copied_issues AS i
+      JOIN copied_issue_labels AS l ON l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position
+      WHERE i.repository = event.repository AND i.workstream = event.workstream AND i.state = 'open' AND l.name = sqlc.arg(question_label)
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM inbox_items AS n
+      WHERE n.repository = event.repository AND n.workstream = event.workstream AND n.kind = 'question' AND n.dismissed_at IS NULL
   )
 ORDER BY event.id;
 

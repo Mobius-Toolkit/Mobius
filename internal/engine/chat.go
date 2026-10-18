@@ -1113,6 +1113,55 @@ func (e *Engine) releaseEvents(ctx context.Context, repository string, workstrea
 		running.held = false
 	}
 	e.chatsMu.Unlock()
+	return e.freeAndSend(ctx, repository, workstream)
+}
+
+// freeClosedQuestionHolds frees the held events of each Workstream of the repository whose question closed after the
+// hold. The Workstream has no issue with mobius:question and no open question item, and a question item closed after
+// the time of a held event. The hold of a Lead turn that runs now stays, because it is not stored yet. A hold that
+// waits only for a message of the Owner in the Lead chat has no such question.
+func (e *Engine) freeClosedQuestionHolds(ctx context.Context, repository string) error {
+	events, err := e.queries.ListHeldLeadEventsWithoutQuestion(ctx, store.ListHeldLeadEventsWithoutQuestionParams{Repository: repository, QuestionLabel: questionLabel})
+	if err != nil || len(events) == 0 {
+		return err
+	}
+	items, err := e.queries.ListDismissedQuestionItems(ctx, repository)
+	if err != nil {
+		return err
+	}
+	freed := map[int64]bool{}
+	for _, event := range events {
+		if freed[event.Workstream] {
+			continue
+		}
+		held, err := time.Parse(time.RFC3339Nano, event.Time)
+		if err != nil {
+			return err
+		}
+		for _, item := range items {
+			closed, err := time.Parse(time.RFC3339Nano, item.DismissedAt.String)
+			if err != nil {
+				return err
+			}
+			if item.Workstream != event.Workstream || !closed.After(held) {
+				continue
+			}
+			freed[event.Workstream] = true
+			e.chatOrder.Lock()
+			err = e.freeAndSend(ctx, repository, event.Workstream)
+			e.chatOrder.Unlock()
+			if err != nil {
+				return err
+			}
+			break
+		}
+	}
+	return nil
+}
+
+// freeAndSend frees the held events of the Workstream and gives them to its running Lead chat. Else a new Lead chat
+// gets the ready events. The caller holds e.chatOrder.
+func (e *Engine) freeAndSend(ctx context.Context, repository string, workstream int64) error {
 	affected, err := e.freeEvents(ctx, repository, workstream)
 	if err != nil || len(affected) == 0 {
 		return err

@@ -3111,6 +3111,49 @@ func (q *Queries) ListDeviceLogins(ctx context.Context) ([]ListDeviceLoginsRow, 
 	return items, nil
 }
 
+const listDismissedQuestionItems = `-- name: ListDismissedQuestionItems :many
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message FROM inbox_items WHERE repository = ? AND kind = 'question' AND dismissed_at IS NOT NULL ORDER BY id
+`
+
+func (q *Queries) ListDismissedQuestionItems(ctx context.Context, repository string) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, listDismissedQuestionItems, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InboxItem
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Repository,
+			&i.Workstream,
+			&i.Issue,
+			&i.Text,
+			&i.Link,
+			&i.Time,
+			&i.DismissedAt,
+			&i.Organization,
+			&i.Title,
+			&i.Reason,
+			&i.PullRequest,
+			&i.ReportLink,
+			&i.ChatMessage,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEndedTaskIssueLabels = `-- name: ListEndedTaskIssueLabels :many
 SELECT DISTINCT i.number, i.repository_url, l.name
 FROM copied_issues i
@@ -3256,6 +3299,63 @@ func (q *Queries) ListHarnessPauses(ctx context.Context) ([]HarnessPause, error)
 	for rows.Next() {
 		var i HarnessPause
 		if err := rows.Scan(&i.Harness, &i.PausedUntil); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listHeldLeadEventsWithoutQuestion = `-- name: ListHeldLeadEventsWithoutQuestion :many
+SELECT id, repository, workstream, kind, payload, time, delivered_at, chat_message, issue, held, comment, review FROM lead_events AS event
+WHERE event.repository = ?1 AND event.held = 1 AND event.delivered_at IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM copied_issues AS i
+      JOIN copied_issue_labels AS l ON l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position
+      WHERE i.repository = event.repository AND i.workstream = event.workstream AND i.state = 'open' AND l.name = ?2
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM inbox_items AS n
+      WHERE n.repository = event.repository AND n.workstream = event.workstream AND n.kind = 'question' AND n.dismissed_at IS NULL
+  )
+ORDER BY event.id
+`
+
+type ListHeldLeadEventsWithoutQuestionParams struct {
+	Repository    string
+	QuestionLabel string
+}
+
+// A Workstream with an issue that has the question label, or with an open question item, has no row.
+func (q *Queries) ListHeldLeadEventsWithoutQuestion(ctx context.Context, arg ListHeldLeadEventsWithoutQuestionParams) ([]LeadEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listHeldLeadEventsWithoutQuestion, arg.Repository, arg.QuestionLabel)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LeadEvent
+	for rows.Next() {
+		var i LeadEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Workstream,
+			&i.Kind,
+			&i.Payload,
+			&i.Time,
+			&i.DeliveredAt,
+			&i.ChatMessage,
+			&i.Issue,
+			&i.Held,
+			&i.Comment,
+			&i.Review,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
