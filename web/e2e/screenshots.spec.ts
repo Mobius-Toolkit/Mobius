@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
-import { fakeMicrophone } from "./microphone.js";
+import { countSamples, fakeMicrophone } from "./microphone.js";
 import { inboxRoute, longTitle, longTitleItem, routeInboxItems, stoppedItems } from "./stops.js";
 
 const viewports = {
@@ -59,6 +59,7 @@ test("screenshots", async ({ page }) => {
   // The day separator shows the year of a message that is not in the current year.
   await page.clock.setFixedTime("2026-10-15T12:00:00Z");
   await page.addInitScript(fakeMicrophone);
+  await page.addInitScript(countSamples);
 
   await screenshot(page, "login", "/github", () => page.getByLabel("Access password"));
   await page.getByLabel("Access password").fill("correct horse");
@@ -203,6 +204,7 @@ test("screenshots", async ({ page }) => {
     ],
     async () => {
       await main.getByRole("button", { name: "Start voice input" }).click();
+      await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
       await main.getByRole("button", { name: "Stop voice input" }).click();
     },
   );

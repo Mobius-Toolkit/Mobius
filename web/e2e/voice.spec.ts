@@ -8,6 +8,7 @@ const background = "The recording stopped because the app went to the background
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(fakeMicrophone);
+  await page.addInitScript(countSamples);
   await page.goto("/github");
   await page.getByLabel("Access password").fill("correct horse");
   await page.getByRole("button", { name: "Log in" }).click();
@@ -21,6 +22,12 @@ const start = (page: Page) =>
   page.getByRole("main").getByRole("button", { name: "Start voice input", exact: true });
 const stop = (page: Page) =>
   page.getByRole("main").getByRole("button", { name: "Stop voice input", exact: true });
+
+// The first sample shows that the recorder runs and that the stop events have listeners.
+const begin = async (page: Page) => {
+  await start(page).click();
+  await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
+};
 
 const track = (page: Page, event: string) =>
   page.evaluate(`microphones.at(-1).getAudioTracks()[0].dispatchEvent(new Event('${event}'))`);
@@ -39,7 +46,7 @@ test("a recording adds the text of the answer to the message", async ({ page }) 
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
   await input.fill("Plant");
-  await start(page).click();
+  await begin(page);
   await stop(page).click();
   await expect(input).toHaveValue("Plant red roses");
   await expect(start(page)).toBeVisible();
@@ -48,7 +55,6 @@ test("a recording adds the text of the answer to the message", async ({ page }) 
 });
 
 test("the request has a WAV file with 16 kHz mono 16-bit samples", async ({ page }) => {
-  await page.addInitScript(countSamples);
   let body: Buffer | null = null;
   let type: string | undefined;
   await page.route("**/api/voice/transcriptions", (route) => {
@@ -57,8 +63,7 @@ test("the request has a WAV file with 16 kHz mono 16-bit samples", async ({ page
     return route.fulfill({ json: { data: { text: "red roses" } } });
   });
   await page.goto(shop);
-  await start(page).click();
-  await expect.poll(() => page.evaluate("samples")).toBeGreaterThan(0);
+  await begin(page);
   await stop(page).click();
   await expect(page.getByLabel("Message to the Lead")).toHaveValue("red roses");
   expect(type).toBe("audio/wav");
@@ -81,7 +86,7 @@ test("the text goes in at the cursor when the field has the focus", async ({ pag
   await input.fill("Plant roses");
   await input.focus();
   await input.evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(5, 5));
-  await start(page).click();
+  await begin(page);
   await stop(page).click();
   await expect(input).toHaveValue("Plant red roses");
 });
@@ -93,7 +98,7 @@ test("the text goes in at the end when the field has no focus", async ({ page })
   await input.fill("Plant");
   await input.evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(0, 0));
   await page.getByRole("main").click({ position: { x: 1, y: 1 } });
-  await start(page).click();
+  await begin(page);
   await stop(page).click();
   await expect(input).toHaveValue("Plant red");
 });
@@ -102,7 +107,7 @@ test("the field scrolls to the last words of the voice text", async ({ page }) =
   await answer(page, "word ".repeat(300).trim());
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
-  await start(page).click();
+  await begin(page);
   await stop(page).click();
   await expect(input).toHaveValue(/word$/);
   expect(
@@ -115,7 +120,7 @@ test("an empty text inserts nothing", async ({ page }) => {
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
   await input.fill("Plant");
-  await start(page).click();
+  await begin(page);
   await stop(page).click();
   await expect(start(page)).toBeVisible();
   await expect(input).toHaveValue("Plant");
@@ -133,7 +138,7 @@ test("the converting state shows until the answer comes", async ({ page }) => {
   });
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
-  await start(page).click();
+  await begin(page);
   await stop(page).click();
   const converting = page.getByRole("button", { name: "Converting the voice input" });
   await expect(converting).toBeDisabled();
@@ -178,8 +183,7 @@ for (const event of ["ended", "mute"]) {
     });
     await page.goto("/chat");
     const input = page.getByLabel("Message to the Coordinator");
-    await start(page).click();
-    await expect(stop(page)).toBeVisible();
+    await begin(page);
     await track(page, event);
     await expect(input).toHaveValue("red roses");
     await expect(page.getByText(taken)).toBeVisible();
@@ -193,8 +197,7 @@ test("a hidden page stops the recording, sends the audio and shows the error", a
   await answer(page, "red roses");
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
-  await start(page).click();
-  await expect(stop(page)).toBeVisible();
+  await begin(page);
   await page.evaluate(
     "Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); document.dispatchEvent(new Event('visibilitychange'))",
   );
@@ -208,8 +211,7 @@ test("a recording of 10 minutes stops with no error", async ({ page }) => {
   await answer(page, "red roses");
   await page.goto("/chat");
   const input = page.getByLabel("Message to the Coordinator");
-  await start(page).click();
-  await expect(stop(page)).toBeVisible();
+  await begin(page);
   await page.clock.runFor(10 * 60 * 1000);
   await expect(input).toHaveValue("red roses");
   await expect(start(page)).toBeVisible();
@@ -225,7 +227,7 @@ for (const [status, message] of [
       route.fulfill({ status, json: { error: message } }),
     );
     await page.goto("/chat");
-    await start(page).click();
+    await begin(page);
     await stop(page).click();
     await expect(page.getByRole("alert")).toHaveText(message);
     await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("");
@@ -236,7 +238,7 @@ for (const [status, message] of [
 test("a failed request shows a network error", async ({ page }) => {
   await page.route("**/api/voice/transcriptions", (route) => route.abort());
   await page.goto("/chat");
-  await start(page).click();
+  await begin(page);
   await stop(page).click();
   await expect(page.getByRole("alert")).toHaveText(
     "The recording did not reach the server. Check the connection and try again.",
@@ -268,8 +270,7 @@ test("a new recording removes the error of the last run", async ({ page }) => {
   await start(page).click();
   await expect(page.getByRole("alert")).toBeVisible();
   await page.evaluate("window.microphoneError = ''");
-  await start(page).click();
-  await expect(stop(page)).toBeVisible();
+  await begin(page);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
@@ -282,7 +283,7 @@ test("Send drops the recording", async ({ page }) => {
   await page.route("**/api/chat/messages", () => {});
   await page.goto(shop);
   const input = page.getByLabel("Message to the Lead");
-  await start(page).click();
+  await begin(page);
   await input.fill("Add a plan");
   await page.getByRole("main").getByRole("button", { name: "Send", exact: true }).click();
   await expect(start(page)).toBeVisible();
@@ -297,8 +298,7 @@ test("a switch during a recording keeps it and the text goes to the new field", 
   await answer(page, "red roses");
   await page.goto(shop);
   const input = page.getByLabel("Message to the Lead");
-  await start(page).click();
-  await expect(stop(page)).toBeVisible();
+  await begin(page);
   await open(page, seasonal);
   await expect(stop(page)).toBeVisible();
   expect(await trackState(page)).toEqual(["live"]);
@@ -319,7 +319,7 @@ test("a switch during the conversion keeps it and the text goes to the new field
   });
   await page.goto(shop);
   const input = page.getByLabel("Message to the Lead");
-  await start(page).click();
+  await begin(page);
   await stop(page).click();
   await expect(page.getByRole("button", { name: "Converting the voice input" })).toBeVisible();
   await open(page, seasonal);
@@ -407,8 +407,7 @@ wakeLockTest("a release of the lock on a hidden page requests no lock", async (p
 
 wakeLockTest("a refused wake lock request shows no error", async (page) => {
   await page.evaluate("window.wakeLockError = 'NotAllowedError'");
-  await start(page).click();
-  await expect(stop(page)).toBeVisible();
+  await begin(page);
   await stop(page).click();
   await expect(page.getByLabel("Message to the Lead")).toHaveValue("red");
   await expect(page.getByRole("alert")).toHaveCount(0);
@@ -419,7 +418,7 @@ test("the recording works without navigator.wakeLock", async ({ page }) => {
   await answer(page, "red roses");
   await page.goto(shop);
   expect(await page.evaluate("navigator.wakeLock")).toBeUndefined();
-  await start(page).click();
+  await begin(page);
   await stop(page).click();
   await expect(page.getByLabel("Message to the Lead")).toHaveValue("red roses");
 });
