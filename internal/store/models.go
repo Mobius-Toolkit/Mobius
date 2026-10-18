@@ -175,6 +175,7 @@ type StopNotice struct {
 	CheckSummary string
 	CheckCreate  bool
 	CreatedAt    string
+	LeadKind     string
 }
 
 type Task struct {

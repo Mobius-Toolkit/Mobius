@@ -142,9 +142,14 @@ func tail(text string, count int) string {
 // failedHead is the head that the CI failed on, or empty for another stop. The move stores it in the same transaction,
 // so that continueNeedsHuman sees a CI stop also when a later call fails.
 func (e *Engine) handToHuman(ctx context.Context, task store.Task, title, leadText, failedHead string, notice stopNotice) (bool, error) {
+	return e.handFromStates(ctx, []string{"working", "queued", "checks"}, task, title, leadText, failedHead, notice)
+}
+
+// handFromStates does handToHuman for a task in one of the states.
+func (e *Engine) handFromStates(ctx context.Context, states []string, task store.Task, title, leadText, failedHead string, notice stopNotice) (bool, error) {
 	from := ""
 	err := e.inTx(ctx, func(q *store.Queries) error {
-		for _, state := range []string{"working", "queued", "checks"} {
+		for _, state := range states {
 			moved, err := q.HandTaskToHuman(ctx, store.HandTaskToHumanParams{ID: task.ID, FromState: state})
 			if err != nil {
 				return err
