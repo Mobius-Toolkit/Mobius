@@ -290,10 +290,7 @@ export function MessageInput({
               <PaperclipIcon />
             </Button>
           )}
-          <div
-            className="ml-auto flex items-center gap-1"
-            onMouseDown={(event) => event.preventDefault()}
-          >
+          <div className="ml-auto flex items-center gap-1">
             {voice.supported && (
               <Button
                 type="button"
