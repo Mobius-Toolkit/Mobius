@@ -1017,10 +1017,10 @@ func (e *Engine) endTurn(c *chat, current item) error {
 	e.chatsMu.Unlock()
 	switch {
 	case current.event != nil && held:
-		if err := e.queries.HoldLeadEvent(ctx, current.event.ID); err != nil {
+		if err := e.recordClosedAtHold(ctx, c.key, current.event.ID); err != nil {
 			return err
 		}
-		if err := e.recordClosedAtHold(ctx, c.key, current.event.ID); err != nil {
+		if err := e.queries.HoldLeadEvent(ctx, current.event.ID); err != nil {
 			return err
 		}
 		return e.tellHold(ctx, c.key, *current.event)
@@ -1129,8 +1129,9 @@ func (e *Engine) releaseEvents(ctx context.Context, repository string, workstrea
 	return e.freeAndSend(ctx, repository, workstream)
 }
 
-// recordClosedAtHold records the closed question items of the Lead chat for the held event. The hold came after their
-// close, so their close is not a reason to free it.
+// recordClosedAtHold records the closed question items of the Lead chat for the event that the Lead holds. The hold
+// comes after their close, so their close is not a reason to free it. It runs before the store holds the event, so a
+// poll that sees the hold also sees the record.
 func (e *Engine) recordClosedAtHold(ctx context.Context, key ChatKey, event int64) error {
 	items, err := e.queries.ListDismissedQuestionItems(ctx, key.Repository)
 	if err != nil {
