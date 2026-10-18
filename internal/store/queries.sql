@@ -214,6 +214,9 @@ RETURNING *;
 -- name: GetNewestInboxItem :one
 SELECT * FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1;
 
+-- name: ListIssueInboxItems :many
+SELECT * FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id;
+
 -- name: ListOpenInboxItems :many
 SELECT * FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id;
 

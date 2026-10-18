@@ -3248,6 +3248,55 @@ func (q *Queries) ListHungSessionsSince(ctx context.Context, arg ListHungSession
 	return items, nil
 }
 
+const listIssueInboxItems = `-- name: ListIssueInboxItems :many
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id
+`
+
+type ListIssueInboxItemsParams struct {
+	Repository string
+	Issue      int64
+	Kind       string
+}
+
+func (q *Queries) ListIssueInboxItems(ctx context.Context, arg ListIssueInboxItemsParams) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, listIssueInboxItems, arg.Repository, arg.Issue, arg.Kind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InboxItem
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Repository,
+			&i.Workstream,
+			&i.Issue,
+			&i.Text,
+			&i.Link,
+			&i.Time,
+			&i.DismissedAt,
+			&i.Organization,
+			&i.Title,
+			&i.Reason,
+			&i.PullRequest,
+			&i.ReportLink,
+			&i.ChatMessage,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLatestEvents = `-- name: ListLatestEvents :many
 SELECT id, time, repository, workstream, issue, actor, text, link, organization FROM events ORDER BY id DESC LIMIT ?
 `
