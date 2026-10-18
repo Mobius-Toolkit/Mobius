@@ -195,6 +195,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 			return err
 		}
 	}
+	labelChanges := e.labelChangeCount(repository.FullName)
 	page, changed, err := repository.IssuesSince(ctx, since, cursor.Etag.String)
 	if err != nil || !changed {
 		return err
@@ -280,7 +281,7 @@ func (e *Engine) changedIssues(ctx context.Context, repository github.Repository
 		}
 		// After a failed update, the next poll copies the repository again.
 		if e.copied[repository.FullName] {
-			copyChanged, err := e.updateCopy(ctx, repository, issue, events, !firstPoll)
+			copyChanged, err := e.updateCopy(ctx, repository, issue, events, !firstPoll, labelChanges)
 			if err != nil {
 				log.Printf("update the copy of %s: %v", repository.FullName, err)
 				delete(e.copied, repository.FullName)

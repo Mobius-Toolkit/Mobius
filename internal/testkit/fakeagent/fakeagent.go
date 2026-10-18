@@ -27,6 +27,7 @@
 //	error = { code = -32000, message = "Usage limit", data = "..." }  # the turn ends with this error
 //	hang = true             # the turn ends only at session/cancel
 //	busy = "300ms"          # before the reply, the agent sends a tool_call_update every 10 ms for this long
+//	linger = "1s"           # after the reply, the turn waits this long or until session/cancel
 //	later = { after = "100ms", updates = ['{"sessionUpdate": "plan", "entries": []}'] }
 //	                        # after the response, the agent waits for after and then sends the updates, as Claude Code
 //	                        # does for a turn that it starts alone
@@ -85,6 +86,7 @@ type prompt struct {
 	Updates   []string     `toml:"updates"`
 	Hang      bool         `toml:"hang"`
 	Busy      string       `toml:"busy"`
+	Linger    string       `toml:"linger"`
 	ListTools bool         `toml:"list_tools"`
 	Call      *call        `toml:"call"`
 	Shell     string       `toml:"shell"`
@@ -510,6 +512,19 @@ func (a *agent) play(ctx context.Context, sessionID string, turn prompt, mcpURL 
 	}
 	if turn.Error != nil {
 		return "", &acp.RequestError{Code: turn.Error.Code, Message: turn.Error.Message, Data: turn.Error.Data}
+	}
+	if turn.Linger != "" {
+		linger, err := time.ParseDuration(turn.Linger)
+		if err != nil {
+			return "", acp.NewInternalError(err.Error())
+		}
+		select {
+		case <-time.After(linger):
+		case <-cancel:
+			return acp.StopReasonCancelled, nil
+		case <-ctx.Done():
+			return "", acp.NewRequestCancelled(nil)
+		}
 	}
 	if turn.Hang {
 		select {

@@ -45,7 +45,7 @@ func (e *Engine) CompleteWorkstream(ctx context.Context, repositoryName string, 
 	if err != nil {
 		return err
 	}
-	if _, err := e.updateCopy(ctx, repository, closed, nil, false); err != nil {
+	if _, err := e.updateCopy(ctx, repository, closed, nil, false, e.labelChangeCount(repository.FullName)); err != nil {
 		return err
 	}
 	e.publish(Change{Workstreams: true})
@@ -158,7 +158,7 @@ func (e *Engine) CloseWorkstreamWontDo(ctx context.Context, repositoryName strin
 		}
 	}
 	// The Workstream issue is the last item.
-	if _, err := e.updateCopy(ctx, repository, closed, nil, false); err != nil {
+	if _, err := e.updateCopy(ctx, repository, closed, nil, false, e.labelChangeCount(repository.FullName)); err != nil {
 		return err
 	}
 	e.publish(Change{Workstreams: true})
