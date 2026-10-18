@@ -288,15 +288,29 @@ func findTarget(ctx context.Context, repository github.Repository, pullRequest, 
 
 // post replies with text to the target on the pull request. A reply to a review thread resolves the thread.
 func (t replyTarget) post(ctx context.Context, repository github.Repository, pullRequest int64, text string) error {
+	if err := t.reply(ctx, repository, pullRequest, text); err != nil {
+		return err
+	}
+	return t.resolve(ctx, repository)
+}
+
+// reply writes the reply to the target on the pull request.
+func (t replyTarget) reply(ctx context.Context, repository github.Repository, pullRequest int64, text string) error {
 	if t.thread != "" {
-		if _, _, err := repository.Client.PullRequests.CreateCommentInReplyTo(ctx, repository.Owner(), repository.Name(), int(pullRequest), text, t.id); err != nil {
-			return err
-		}
-		return repository.ResolveReviewThread(ctx, t.thread)
+		_, _, err := repository.Client.PullRequests.CreateCommentInReplyTo(ctx, repository.Owner(), repository.Name(), int(pullRequest), text, t.id)
+		return err
 	}
 	// A conversation comment has no thread, so the reply is a new comment that quotes it, and nobody can resolve it.
 	_, err := repository.AddComment(ctx, pullRequest, quote(t.body)+"\n\n"+text)
 	return err
+}
+
+// resolve resolves the review thread of the target. A conversation comment has no thread.
+func (t replyTarget) resolve(ctx context.Context, repository github.Repository) error {
+	if t.thread == "" {
+		return nil
+	}
+	return repository.ResolveReviewThread(ctx, t.thread)
 }
 
 // quote gives text with "> " before each line.

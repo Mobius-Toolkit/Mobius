@@ -467,8 +467,8 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 	if err != nil {
 		return "", err
 	}
-	if !unpushed && target.post(ctx, repository, pullRequest, input.Text) == nil {
-		return "Mobius posted the reply.", nil
+	if !unpushed && target.reply(ctx, repository, pullRequest, input.Text) == nil {
+		return "Mobius posted the reply.", target.resolve(ctx, repository)
 	}
 	c.agent.mu.Lock()
 	c.agent.replies = append(c.agent.replies, heldReply{target, input.Text})
