@@ -89,3 +89,41 @@ reply = ["Seen"]
 		t.Errorf("labels = %v", labels)
 	}
 }
+
+func TestALocalLabelChangeDuringAPollDoesNotKeepTheOldLabelsOfAnotherIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, `
+[[prompts]]
+when = "Dollars were chosen"
+call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+
+[[prompts]]
+when = "dispatch of #41"
+call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+
+[[prompts]]
+reply = ["Seen"]
+`)
+	dispatchTask(fake, 41, "Add plan model")
+	fake.AddSubIssueOf(shop, 12, 50, "Plan the tiers")
+	testkit.WaitFor(t, func() bool { return slices.Contains(copiedLabels(t, server, 41), "mobius:question") })
+	waitForPolls(t, fake)
+	reached, release := fake.HoldIssueEvents(shop, 12)
+	fake.SetTitle(shop, 12, "Plan the shop")
+	fake.AddLabel(shop, 50, "bug", "owner")
+	fake.SetTitle(shop, 41, "Add the plan model")
+	<-reached
+
+	sendChat(t, server, leadChat, "Dollars were chosen")
+	testkit.WaitFor(t, func() bool {
+		calls := leadCalls(t, server)
+		return len(calls) == 2 && calls[1]["result"] == "Closed the question on #41."
+	})
+	release()
+
+	testkit.WaitFor(t, func() bool { return slices.Contains(copiedLabels(t, server, 50), "bug") })
+	if labels := copiedLabels(t, server, 41); slices.Contains(labels, "mobius:question") {
+		t.Errorf("labels = %v", labels)
+	}
+}

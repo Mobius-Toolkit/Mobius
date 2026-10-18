@@ -408,7 +408,7 @@ func (e *Engine) updateCopiedWorkstream(ctx context.Context, repository string, 
 }
 
 // updateCopiedIssue changes each copied row of the issue in all repositories. It gives false when the copy has the same values.
-// It keeps the labels of the copy when changeCopiedLabels changed a label of repository after labelChangeCount gave changes,
+// It keeps the labels of the copy when changeCopiedLabels changed a label of this issue after labelChangeCount gave changes,
 // because the issue can have the old labels.
 func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue, repository string, changes int) (bool, error) {
 	changed := false
@@ -416,7 +416,7 @@ func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue, reposit
 	slices.Sort(labels)
 	e.labelChangeMu.Lock()
 	defer e.labelChangeMu.Unlock()
-	keepLabels := e.labelChanges[repository] != changes
+	keepLabels := e.labelChangedAt[issueRef{repository, int64(issue.GetNumber())}] > changes
 	return changed, e.inTx(ctx, func(q *store.Queries) error {
 		updated, err := q.UpdateCopiedIssue(ctx, store.UpdateCopiedIssueParams{
 			Title:         issue.GetTitle(),
@@ -489,6 +489,7 @@ func (e *Engine) changeCopiedLabels(ctx context.Context, repositoryName string, 
 		for repository := range changed {
 			e.labelChanges[repository]++
 		}
+		e.labelChangedAt[issueRef{repositoryName, number}] = e.labelChanges[repositoryName]
 	}
 	e.labelChangeMu.Unlock()
 	if err != nil {
@@ -496,6 +497,11 @@ func (e *Engine) changeCopiedLabels(ctx context.Context, repositoryName string, 
 	}
 	e.publish(Change{Workstreams: true})
 	return nil
+}
+
+type issueRef struct {
+	repository string
+	number     int64
 }
 
 var errLabelsChanged = errors.New("a local label change came while GitHub was read")
