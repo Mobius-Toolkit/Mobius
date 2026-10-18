@@ -449,7 +449,8 @@ func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 	default:
 		err = c.agent.stop(ctx)
 	}
-	if c.closing && len(c.queue) == 0 {
+	stoppedWriting := c.writing && c.closing && len(c.queue) == 0
+	if stoppedWriting {
 		c.writing = false
 	}
 	state := c.state()
@@ -457,6 +458,9 @@ func (e *Engine) StopChat(ctx context.Context, key ChatKey) error {
 	e.chatsMu.Unlock()
 	if !ended {
 		e.publish(Change{Chat: &state})
+	}
+	if stoppedWriting {
+		e.publishSession(c.agent)
 	}
 	return err
 }

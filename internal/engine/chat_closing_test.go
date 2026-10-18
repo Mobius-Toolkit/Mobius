@@ -18,12 +18,27 @@ func TestAStopThatDropsAMessageWhileTheSaveTurnWaitsForAnAutonomousTurnEndsTheWr
 	})
 	testkit.WaitFor(t, func() bool { return server.Engine.Closing(leadChat) })
 
+	changes, stopListening := server.Engine.Listen()
+	defer stopListening()
 	sendChat(t, server, leadChat, "Also add a plan price")
 	stopChat(t, server, leadChat)
 
 	if chatView(t, server, leadChat).Writing {
 		t.Error("the chat is still writing")
 	}
+	working := true
+	testkit.WaitFor(t, func() bool {
+		for {
+			select {
+			case change := <-changes:
+				if change.Node != nil && change.Node.Session.ID == session.ID {
+					working = change.Node.Working
+				}
+			default:
+				return !working
+			}
+		}
+	})
 	if got := promptTexts(t, server, session.ID); len(got) != 1 {
 		t.Errorf("prompts = %q", got)
 	}
