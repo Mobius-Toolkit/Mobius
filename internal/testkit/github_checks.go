@@ -363,6 +363,14 @@ func (g *FakeGitHub) createPullRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	commits, err := gitCommand(g.Remote(repository(r)), "rev-list", "--count", request.Base+".."+request.Head).Output()
+	if err == nil && strings.TrimSpace(string(commits)) == "0" {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"message": "Validation Failed",
+			"errors":  []map[string]string{{"resource": "PullRequest", "code": "custom", "message": fmt.Sprintf("No commits between %s and %s", request.Base, request.Head)}},
+		})
+		return
+	}
 	number := g.insertPullRequest(repository(r), PullRequest{Title: request.Title, Body: request.Body, Head: request.Head, Base: request.Base, Draft: request.Draft})
 	body := g.pullRequestJSON(repository(r), number)
 	// GitHub computes mergeable after the creation.

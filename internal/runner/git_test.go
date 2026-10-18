@@ -235,3 +235,34 @@ func TestPullAbortsAMergeWithConflicts(t *testing.T) {
 		t.Errorf("stat MERGE_HEAD = %v, want not exist", err)
 	}
 }
+
+func TestHasUncommittedChangesFindsAChangeAndANewFileAndIgnoresACommit(t *testing.T) {
+	dataDir := t.TempDir()
+	worktree := filepath.Join(dataDir, "worktree")
+	if err := os.Mkdir(worktree, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, worktree, "init", "--initial-branch=main")
+	has := func() bool {
+		t.Helper()
+		found, err := HasUncommittedChanges(context.Background(), dataDir, worktree)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return found
+	}
+	if has() {
+		t.Error("an empty worktree has changes")
+	}
+	if err := os.WriteFile(filepath.Join(worktree, "a.txt"), []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !has() {
+		t.Error("a new file is not a change")
+	}
+	gitIn(t, worktree, "add", ".")
+	gitIn(t, worktree, "commit", "-m", "first")
+	if has() {
+		t.Error("a commit is a change")
+	}
+}

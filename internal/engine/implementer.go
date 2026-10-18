@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -62,6 +64,7 @@ const (
 	checkFailed   outcome = "check_failed"
 	notMerged     outcome = "not_merged"
 	pushRejected  outcome = "push_rejected"
+	noCommits     outcome = "no_commits"
 	mergeConflict outcome = "merge_conflict"
 )
 
@@ -850,6 +853,13 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 			text:   "The conflict round did not merge the base branch. Mobius pushed the work.",
 			next:   fmt.Sprintf("Merge the base branch into the branch of PR #%d and resolve the conflicts. Then Resume.", j.pullRequest.GetNumber()),
 		})
+	case noCommits:
+		return e.handOver(ended, task, j.title, fmt.Sprintf("the branch has no commit, so GitHub opened no pull request. Mobius added mobius:needs-human. GitHub gave this error: %s. The work of the Implementer is in %s.", r.text, a.spec.Dir), stopNotice{
+			reason: "No commit",
+			text:   "The branch has no commit, so GitHub opened no pull request.",
+			output: fmt.Sprintf("GitHub gave this error: %s\nThe worktree is %s.", r.text, a.spec.Dir),
+			next:   "Read the Transcript of the Implementer. Commit the work in the worktree, or tell the Lead the next step. Then Resume.",
+		})
 	case mergeConflict:
 		return e.handOver(ended, task, j.title, fmt.Sprintf("the local branch diverged from origin/%s, and the merge had conflicts. Mobius pushed nothing and added mobius:needs-human. Git gave this error: %s. Resume gives the same conflict. First, in %s, merge origin/%s into the local branch and resolve the conflicts, or reset the local branch to origin/%s.", j.branch, r.text, a.spec.Dir, j.branch, j.branch), stopNotice{
 			reason: "Local branch diverged",
@@ -1067,6 +1077,17 @@ func (e *Engine) turnsAndChecks(ctx context.Context, a *Agent, j *job) (*result,
 				return nil, "", err
 			}
 		}
+		if !timedOut && attempts < e.config.MaxCheckAttempts {
+			uncommitted, err := runner.HasUncommittedChanges(ctx, e.config.DataDir, a.spec.Dir)
+			if err != nil {
+				return nil, "", err
+			}
+			if uncommitted {
+				attempts++
+				prompt = "Your worktree has changes with no commit. Mobius pushes only commits. Wait for each command that you started, commit all work, and end the turn."
+				continue
+			}
+		}
 		var output string
 		var passed bool
 		var err error
@@ -1266,6 +1287,16 @@ func (e *Engine) deliver(ctx context.Context, a *Agent, j *job, failedLog string
 	}
 }
 
+// hasNoCommits tells if err is the answer of GitHub for a pull request whose head has no commit that the base does not
+// have.
+func hasNoCommits(err error) bool {
+	var response *gh.ErrorResponse
+	if !errors.As(err, &response) || response.Response.StatusCode != http.StatusUnprocessableEntity {
+		return false
+	}
+	return slices.ContainsFunc(response.Errors, func(detail gh.Error) bool { return strings.HasPrefix(detail.Message, "No commits between") })
+}
+
 // push merges the commits that others pushed to the branch (Mobius-rust#229), runs the local check again when the merge
 // brought new commits, pushes, opens the draft pull request of a new ticket, posts the held replies, and adds the
 // Mobius check run of the head. Each try uses the installation token of the last poll (Mobius-rust#398).
@@ -1333,6 +1364,9 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	}
 	if j.pullRequest == nil {
 		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, fmt.Sprintf("Workstream:\n- #%d\n\nIssue:\n- #%d\n\nCloses #%d", j.task.Workstream, j.task.Issue, j.task.Issue))
+		if hasNoCommits(err) {
+			return result{outcome: noCommits, text: err.Error()}, nil
+		}
 		if err != nil {
 			return result{}, err
 		}
