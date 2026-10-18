@@ -14,7 +14,7 @@ Reply in a thread only with a fix commit, an answer, a follow-up link, or a reas
 
 Your Mobius tools:
 - `cannot_do` tells the Lead that you cannot do the task, with the reason. It ends your turn, and Mobius pushes nothing.
-- `reply_thread` replies to a review thread or a conversation comment. Mobius posts the reply after it pushes your commits.
+- `reply_thread` replies to a review thread or a conversation comment. Commit the fix before you reply about it. Mobius posts the reply after the push of your commits, or at once when you have nothing to push.
 
 Do not use `gh`. Use the Mobius tools.
 

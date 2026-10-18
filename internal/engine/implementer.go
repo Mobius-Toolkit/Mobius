@@ -442,7 +442,8 @@ func (e *Engine) cannotDo(ctx context.Context, c caller, repository github.Repos
 	return "Mobius ends this turn.", c.agent.cancel(ctx)
 }
 
-// holdReply keeps the reply of the Implementer of a fix round until the push of its commits.
+// holdReply posts the reply of the Implementer of a fix round at once when the worktree has nothing to push. Else it
+// keeps the reply until the push of the commits.
 func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repository, input threadInput) (string, error) {
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
@@ -458,8 +459,25 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 	if !found {
 		return "", refuse("%d is not a review thread or a comment of pull request #%d.", input.Thread, pullRequest)
 	}
+	task, err := e.workstreamTask(ctx, repository, c.workstream, c.agent.spec.Issue.Int64)
+	if err != nil {
+		return "", err
+	}
+	unpushed, err := runner.HasUnpushedWork(ctx, e.config.DataDir, c.agent.spec.Dir, task.Branch.String, repository.DefaultBranch)
+	if err != nil {
+		return "", err
+	}
+	if !unpushed && target.reply(ctx, repository, pullRequest, input.Text) == nil {
+		if target.resolve(ctx, repository) != nil {
+			c.agent.mu.Lock()
+			c.agent.replies = append(c.agent.replies, heldReply{target: target, posted: true})
+			c.agent.mu.Unlock()
+			return "Mobius posted the reply, but it could not resolve the thread. Mobius resolves the thread later. Do not reply again.", nil
+		}
+		return "Mobius posted the reply.", nil
+	}
 	c.agent.mu.Lock()
-	c.agent.replies = append(c.agent.replies, heldReply{target, input.Text})
+	c.agent.replies = append(c.agent.replies, heldReply{target: target, text: input.Text})
 	c.agent.mu.Unlock()
 	return "Mobius posts the reply after it pushes your commits.", nil
 }
@@ -1365,13 +1383,20 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 	return pushedHead, e.setReviewStep(ctx, repository, head, task, j.conflictRound)
 }
 
-// postReplies posts the held replies of the Implementer on the pull request. A posted reply leaves the list, so a later
-// try posts only the others.
+// postReplies posts the held replies of the Implementer on the pull request and resolves their threads. A finished reply
+// leaves the list, and a posted reply is never posted again, so a later try does only the missing work.
 func (a *Agent) postReplies(ctx context.Context, repository github.Repository, pullRequest int64) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for len(a.replies) > 0 {
-		if err := a.replies[0].target.post(ctx, repository, pullRequest, a.replies[0].text); err != nil {
+		held := &a.replies[0]
+		if !held.posted {
+			if err := held.target.reply(ctx, repository, pullRequest, held.text); err != nil {
+				return err
+			}
+			held.posted = true
+		}
+		if err := held.target.resolve(ctx, repository); err != nil {
 			return err
 		}
 		a.replies = a.replies[1:]
