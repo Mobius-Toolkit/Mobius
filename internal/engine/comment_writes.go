@@ -24,9 +24,10 @@ func (e *Engine) addOrKeepComment(ctx context.Context, repository github.Reposit
 	})
 }
 
-// keepRefusedReply sends the reply with send. When GitHub refuses the reply with a 4xx status, the reply goes to
-// comment_writes, with replyTo as the first comment of the review thread (0 for a reply on the conversation), and the next
-// poll sends it again. Another error returns, so the next poll runs the step again.
+// keepRefusedReply handles the error err of a reply on the issue or the pull request number. When GitHub refused the
+// reply with a 4xx status, the reply goes to comment_writes, with replyTo as the first comment of the review thread (0
+// for a reply on the conversation), and the next poll sends it again. Another error returns, so the next poll runs the
+// step again.
 func (e *Engine) keepRefusedReply(ctx context.Context, repository github.Repository, number, replyTo int64, body string, err error) error {
 	if !refusedByGitHub(err) {
 		return err
