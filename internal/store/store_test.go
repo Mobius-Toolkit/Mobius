@@ -50,6 +50,39 @@ func gooseVersions(t *testing.T, db *sql.DB) []int64 {
 	return versions
 }
 
+func TestOpenAppliesAMissingOlderMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobius.db")
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		"DROP TABLE check_timeouts",
+		"DELETE FROM goose_db_version WHERE version_id = 20261201000000",
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err = Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	got := gooseVersions(t, db)
+	if last := got[len(got)-1]; last != 20261201000000 {
+		t.Errorf("last applied version = %d, want 20261201000000", last)
+	}
+	if _, err := db.Exec("SELECT 1 FROM check_timeouts"); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestOpenNewDatabase(t *testing.T) {
 	db, err := Open(t.Context(), filepath.Join(t.TempDir(), "mobius.db"))
 	if err != nil {
