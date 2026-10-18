@@ -1991,6 +1991,25 @@ func (q *Queries) HasFollowUpEvent(ctx context.Context, arg HasFollowUpEventPara
 	return exists, err
 }
 
+const hasHeldLeadEvent = `-- name: HasHeldLeadEvent :one
+SELECT EXISTS (
+    SELECT 1 FROM lead_events
+    WHERE repository = ? AND issue = ? AND held = 1 AND delivered_at IS NULL
+)
+`
+
+type HasHeldLeadEventParams struct {
+	Repository string
+	Issue      sql.NullInt64
+}
+
+func (q *Queries) HasHeldLeadEvent(ctx context.Context, arg HasHeldLeadEventParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasHeldLeadEvent, arg.Repository, arg.Issue)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hasTask = `-- name: HasTask :one
 SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?)
 `

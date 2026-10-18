@@ -321,6 +321,12 @@ ORDER BY event.id;
 -- name: HoldLeadEvent :exec
 UPDATE lead_events SET held = 1 WHERE id = ?;
 
+-- name: HasHeldLeadEvent :one
+SELECT EXISTS (
+    SELECT 1 FROM lead_events
+    WHERE repository = ? AND issue = ? AND held = 1 AND delivered_at IS NULL
+);
+
 -- name: FreeLeadEvents :many
 UPDATE lead_events SET held = 0 WHERE repository = ? AND workstream = ? AND held = 1
 RETURNING *;

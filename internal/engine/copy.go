@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"maps"
 	"slices"
 	"strings"
 
@@ -44,6 +45,7 @@ type copiedBlocker struct {
 func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) error {
 	e.copyWrite.Lock()
 	defer e.copyWrite.Unlock()
+	before := e.labelChangesNow()
 	issues, err := repository.OpenIssuesWithLabel(ctx, workstreamLabel)
 	if err != nil {
 		return err
@@ -60,7 +62,14 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 		}
 		workstreams = append(workstreams, workstream)
 	}
-	if err := e.replaceCopy(ctx, repository.FullName, workstreams); err != nil {
+	var trees [][]copiedIssue
+	for _, workstream := range workstreams {
+		trees = append(trees, workstream.tree)
+	}
+	err = e.writeRead(ctx, repository.FullName, before, trees, func(q *store.Queries) error {
+		return replaceCopy(ctx, q, repository.FullName, workstreams)
+	})
+	if err != nil {
 		return err
 	}
 	e.publish(Change{Workstreams: true})
@@ -77,7 +86,8 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 		if slices.ContainsFunc(repositories, func(repository github.Repository) bool { return repository.FullName == name }) {
 			continue
 		}
-		if err := e.replaceCopy(ctx, name, nil); err != nil {
+		err := e.inTx(ctx, func(q *store.Queries) error { return replaceCopy(ctx, q, name, nil) })
+		if err != nil {
 			return err
 		}
 		e.publish(Change{Workstreams: true})
@@ -85,31 +95,30 @@ func (e *Engine) forgetCopies(ctx context.Context, repositories []github.Reposit
 	return nil
 }
 
-func (e *Engine) replaceCopy(ctx context.Context, repository string, workstreams []copiedWorkstream) error {
-	return e.inTx(ctx, func(q *store.Queries) error {
-		for _, remove := range []func(context.Context, string) error{
-			q.DeleteCopiedWorkstreamsOf, q.DeleteCopiedIssuesOf, q.DeleteCopiedIssueLabelsOf, q.DeleteCopiedBlockersOf,
-		} {
-			if err := remove(ctx, repository); err != nil {
-				return err
-			}
+func replaceCopy(ctx context.Context, q *store.Queries, repository string, workstreams []copiedWorkstream) error {
+	for _, remove := range []func(context.Context, string) error{
+		q.DeleteCopiedWorkstreamsOf, q.DeleteCopiedIssuesOf, q.DeleteCopiedIssueLabelsOf, q.DeleteCopiedBlockersOf,
+	} {
+		if err := remove(ctx, repository); err != nil {
+			return err
 		}
-		for _, workstream := range workstreams {
-			if err := addWorkstream(ctx, q, repository, workstream); err != nil {
-				return err
-			}
+	}
+	for _, workstream := range workstreams {
+		if err := addWorkstream(ctx, q, repository, workstream); err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 // updateCopy applies the change of one issue of repository to the copy, and tells if the copy changed. events are
 // all events of the issue. With findParent, updateCopy reads the parent of an issue that the copy does not have,
-// because its new link to a Workstream or a task changes the walk order of that Workstream.
+// because its new link to a Workstream or a task changes the walk order of that Workstream. changes is the
+// labelChangeCount of repository from before the read of issue.
 //
 // A task that gets or loses the Workstream label changes the walk order of its Workstream, and the Workstream of its
 // blockers in the other trees. A new Workstream changes the Workstream of the blockers in its tree, in the other trees.
-func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueEvent, findParent bool) (bool, error) {
+func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, issue *gh.Issue, events []*gh.IssueEvent, findParent bool, changes int) (bool, error) {
 	name := repository.FullName
 	number := int64(issue.GetNumber())
 	_, known, err := e.copiedWorkstreamOf(ctx, name, number, issue.GetRepositoryURL())
@@ -153,16 +162,17 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 		changed, err = e.updateCopiedWorkstream(ctx, name, issue, autopilot)
 	case wanted:
 		var workstream copiedWorkstream
+		before := e.labelChangesNow()
 		workstream, err = copyWorkstream(ctx, repository, issue, autopilot)
 		if err == nil {
 			changed, added = true, workstream.tree
-			err = e.inTx(ctx, func(q *store.Queries) error { return addWorkstream(ctx, q, name, workstream) })
+			err = e.writeRead(ctx, name, before, [][]copiedIssue{workstream.tree}, func(q *store.Queries) error { return addWorkstream(ctx, q, name, workstream) })
 		}
 	}
 	if err != nil {
 		return false, err
 	}
-	issueChanged, err := e.updateCopiedIssue(ctx, issue)
+	issueChanged, err := e.updateCopiedIssue(ctx, issue, name, changes)
 	if err != nil {
 		return false, err
 	}
@@ -404,10 +414,15 @@ func (e *Engine) updateCopiedWorkstream(ctx context.Context, repository string, 
 }
 
 // updateCopiedIssue changes each copied row of the issue in all repositories. It gives false when the copy has the same values.
-func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue) (bool, error) {
+// It keeps the labels of the copy when changeCopiedLabels changed a label of this issue after labelChangeCount gave changes,
+// because the issue can have the old labels.
+func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue, repository string, changes int) (bool, error) {
 	changed := false
 	labels := labelNames(issue)
 	slices.Sort(labels)
+	e.labelChangeMu.Lock()
+	defer e.labelChangeMu.Unlock()
+	keepLabels := e.labelChangedAt[issueRef{repository, int64(issue.GetNumber())}] > changes
 	return changed, e.inTx(ctx, func(q *store.Queries) error {
 		updated, err := q.UpdateCopiedIssue(ctx, store.UpdateCopiedIssueParams{
 			Title:         issue.GetTitle(),
@@ -421,6 +436,9 @@ func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue) (bool, 
 			return err
 		}
 		changed = updated > 0
+		if keepLabels {
+			return nil
+		}
 		rows, err := q.ListCopiedIssueRows(ctx, store.ListCopiedIssueRowsParams{Number: int64(issue.GetNumber()), RepositoryUrl: issue.GetRepositoryURL()})
 		if err != nil {
 			return err
@@ -446,7 +464,10 @@ func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue) (bool, 
 }
 
 // changeCopiedLabels adds and removes labels on each copied row of the issue number of repositoryName, and publishes the change.
+// A copy of another repository can hold the issue, so the change adds 1 to the counter of each repository that has a changed row.
 func (e *Engine) changeCopiedLabels(ctx context.Context, repositoryName string, number int64, add, remove []string) error {
+	changed := map[string]bool{repositoryName: true}
+	e.labelChangeMu.Lock()
 	err := e.inTx(ctx, func(q *store.Queries) error {
 		rows, err := q.ListCopiedIssueRowsByNumber(ctx, number)
 		if err != nil {
@@ -456,6 +477,7 @@ func (e *Engine) changeCopiedLabels(ctx context.Context, repositoryName string, 
 			if otherRepository(row.RepositoryUrl, repositoryName) {
 				continue
 			}
+			changed[row.Repository] = true
 			for _, name := range remove {
 				if err := q.DeleteCopiedIssueLabel(ctx, store.DeleteCopiedIssueLabelParams{Repository: row.Repository, Workstream: row.Workstream, Position: row.Position, Name: name}); err != nil {
 					return err
@@ -469,6 +491,13 @@ func (e *Engine) changeCopiedLabels(ctx context.Context, repositoryName string, 
 		}
 		return nil
 	})
+	if err == nil {
+		for repository := range changed {
+			e.labelChanges[repository]++
+		}
+		e.labelChangedAt[issueRef{repositoryName, number}] = e.labelChanges[repositoryName]
+	}
+	e.labelChangeMu.Unlock()
 	if err != nil {
 		return err
 	}
@@ -476,13 +505,67 @@ func (e *Engine) changeCopiedLabels(ctx context.Context, repositoryName string, 
 	return nil
 }
 
+type issueRef struct {
+	repository string
+	number     int64
+}
+
+func (e *Engine) labelChangeCount(repository string) int {
+	e.labelChangeMu.Lock()
+	defer e.labelChangeMu.Unlock()
+	return e.labelChanges[repository]
+}
+
+// labelChangesNow gives the labelChangedAt of all issues. A read of GitHub that starts after it gives the labels of
+// at least this state.
+func (e *Engine) labelChangesNow() map[issueRef]int {
+	e.labelChangeMu.Lock()
+	defer e.labelChangeMu.Unlock()
+	return maps.Clone(e.labelChangedAt)
+}
+
+// writeRead runs write in a transaction, to store the trees that GitHub gave. An issue that changeCopiedLabels changed
+// after labelChangesNow gave before keeps its copied labels, because the read can have the old labels.
+func (e *Engine) writeRead(ctx context.Context, repository string, before map[issueRef]int, trees [][]copiedIssue, write func(*store.Queries) error) error {
+	e.labelChangeMu.Lock()
+	defer e.labelChangeMu.Unlock()
+	return e.inTx(ctx, func(q *store.Queries) error {
+		for _, tree := range trees {
+			for _, copied := range tree {
+				issue := copied.issue
+				ref := issueRef{blockerRepository(issue, repository), int64(issue.GetNumber())}
+				if e.labelChangedAt[ref] == before[ref] {
+					continue
+				}
+				rows, err := q.ListCopiedIssueRows(ctx, store.ListCopiedIssueRowsParams{Number: int64(issue.GetNumber()), RepositoryUrl: issue.GetRepositoryURL()})
+				if err != nil {
+					return err
+				}
+				if len(rows) == 0 {
+					continue
+				}
+				names, err := q.ListCopiedIssueLabels(ctx, store.ListCopiedIssueLabelsParams(rows[0]))
+				if err != nil {
+					return err
+				}
+				issue.Labels = nil
+				for _, name := range names {
+					issue.Labels = append(issue.Labels, &gh.Label{Name: name})
+				}
+			}
+		}
+		return write(q)
+	})
+}
+
 // copyTree replaces the copied tree of the Workstream with the tree on GitHub.
 func (e *Engine) copyTree(ctx context.Context, repository github.Repository, workstream int64) error {
+	before := e.labelChangesNow()
 	tree, err := readTree(ctx, repository, workstream)
 	if err != nil {
 		return err
 	}
-	return e.inTx(ctx, func(q *store.Queries) error {
+	return e.writeRead(ctx, repository.FullName, before, [][]copiedIssue{tree}, func(q *store.Queries) error {
 		if err := removeTree(ctx, q, repository.FullName, workstream); err != nil {
 			return err
 		}
