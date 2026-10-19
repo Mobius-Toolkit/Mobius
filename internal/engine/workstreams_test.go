@@ -177,7 +177,7 @@ func TestANewWorkstreamAddsOneActivityThatGoesLive(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddIssue(shop, 13, "Price rounding")
-	server := startCopied(t, fake)
+	server := startCopiedWithLead(t, fake)
 	events := liveEvents(t, server, "activity")
 
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")

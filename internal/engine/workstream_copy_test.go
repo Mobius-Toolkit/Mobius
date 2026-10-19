@@ -138,6 +138,16 @@ func startCopied(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	return server
 }
 
+// startCopiedWithLead is startCopied with a Lead that answers each prompt, so no Lead start fails.
+func startCopiedWithLead(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+	t.Helper()
+	dataDir := t.TempDir()
+	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nreply = [\"Seen\"]\n")
+	server := startServerWith(t, fake, testserver.Config(t, dataDir), "")
+	server.WaitForFirstPoll(t, shop)
+	return server
+}
+
 // startWithTasks starts a server with the Workstream #12, its task #41, and the task #50 of #41.
 func startWithTasks(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
