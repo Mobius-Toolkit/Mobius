@@ -193,6 +193,39 @@ test("screenshots", async ({ page }) => {
     (device) => [...chatReady(device), main.getByRole("button", { name: "Stop voice input" })],
     () => main.getByRole("button", { name: "Start voice input" }).click(),
   );
+  await page.route("**/api/voice/recordings", (route) =>
+    route.fulfill({ json: { data: { id: "r1" } } }),
+  );
+  await page.route("**/api/voice/recordings/r1/chunks?*", (route) =>
+    route.fulfill({
+      json: {
+        data: { committed: "Show the prices of the roses first.", draft: "Then the tulips" },
+      },
+    }),
+  );
+  await page.route("**/api/voice/recordings/r1/finish", (route) =>
+    route.fulfill({ json: { data: { text: "Show the prices of the roses first." } } }),
+  );
+  await screenshot(
+    page,
+    "chat-live",
+    "/workstreams/owner/shop/12",
+    (device) => [...chatReady(device), main.getByRole("button", { name: "Stop voice input" })],
+    async () => {
+      await main.getByRole("button", { name: "Start voice input" }).click();
+      await expect(main.getByLabel("Message to the Lead")).toHaveValue(
+        "Show the prices of the roses first. Then the tulips",
+      );
+    },
+    async () => {
+      await main.getByRole("button", { name: "Stop voice input" }).click();
+      await expect(main.getByRole("button", { name: "Start voice input" })).toBeVisible();
+      await main.getByLabel("Message to the Lead").fill("");
+    },
+  );
+  await page.unroute("**/api/voice/recordings");
+  await page.unroute("**/api/voice/recordings/r1/chunks?*");
+  await page.unroute("**/api/voice/recordings/r1/finish");
   await page.route("**/api/voice/transcriptions", () => {});
   await screenshot(
     page,

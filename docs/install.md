@@ -21,7 +21,7 @@ To install `whisper-server` on macOS, run this command:
 brew install whisper-cpp
 ```
 
-Mobius starts `whisper-server` and keeps it running. At its first start, Mobius downloads the speech model `ggml-large-v3-turbo.bin` (about 1.5 GB) to `whisper/` in the data directory. Until the download ends, voice input gives the message "The speech model is still downloading".
+Mobius starts two `whisper-server` processes and keeps them running. At its first start, Mobius downloads the speech model `ggml-large-v3-turbo.bin` (about 1.5 GB) and the draft model `ggml-small.bin` (about 470 MB) to `whisper/` in the data directory. The draft model gives the live text while you speak. The large model gives the final text after you stop. Until the download ends, voice input gives the message "The speech model is still downloading".
 
 ## 2. Install Mobius
 

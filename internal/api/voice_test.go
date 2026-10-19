@@ -18,7 +18,7 @@ import (
 
 // fakeWhisperServer is a whisper-server that answers health with the status health and /inference with the status
 // inference and the text " hello ". It counts the requests to /inference.
-func fakeWhisperServer(t *testing.T, health, inference int) (*voice.Whisper, *atomic.Int64) {
+func fakeWhisperServer(t *testing.T, health, inference int) (*voice.Recordings, *atomic.Int64) {
 	t.Helper()
 	var inferences atomic.Int64
 	mux := http.NewServeMux()
@@ -32,7 +32,12 @@ func fakeWhisperServer(t *testing.T, health, inference int) (*voice.Whisper, *at
 	t.Cleanup(server.Close)
 	w := voice.New(t.TempDir(), "")
 	w.Address = strings.TrimPrefix(server.URL, "http://")
-	return w, &inferences
+	return withoutDraft(t, w), &inferences
+}
+
+func withoutDraft(t *testing.T, whisper *voice.Whisper) *voice.Recordings {
+	t.Helper()
+	return voice.NewRecordings(whisper, voice.NewDraft(t.TempDir(), ""))
 }
 
 func transcribe(t *testing.T, handler http.Handler, body []byte) (int, string) {
@@ -119,11 +124,11 @@ func TestTranscribeAnswers503WithTheReasonWhenTheConverterIsNotReady(t *testing.
 	})
 	tests := []struct {
 		name    string
-		whisper *voice.Whisper
+		whisper *voice.Recordings
 		message string
 	}{
-		{"no whisper-server", notInstalled, "Install whisper.cpp: brew install whisper-cpp"},
-		{"the model downloads", downloading, "The speech model is still downloading"},
+		{"no whisper-server", withoutDraft(t, notInstalled), "Install whisper.cpp: brew install whisper-cpp"},
+		{"the model downloads", withoutDraft(t, downloading), "The speech model is still downloading"},
 		{"the process is not ready", starting, "The speech model is still starting"},
 	}
 	for _, test := range tests {
@@ -147,5 +152,100 @@ func TestTranscribeAnswers502WhenWhisperServerReturnsAnError(t *testing.T) {
 
 	if status != http.StatusBadGateway || strings.TrimSpace(text) != `{"error":"whisper-server: 500 Internal Server Error"}` {
 		t.Errorf("status = %d, body = %s", status, text)
+	}
+}
+
+// liveRecordings gives recordings with a final converter that answers " hello " and a draft converter that answers
+// the one segment " draft " up to 1 second.
+func liveRecordings(t *testing.T) *voice.Recordings {
+	t.Helper()
+	serve := func(response string) *voice.Whisper {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /health", func(http.ResponseWriter, *http.Request) {})
+		mux.HandleFunc("POST /inference", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(response)) })
+		server := httptest.NewServer(mux)
+		t.Cleanup(server.Close)
+		w := voice.New(t.TempDir(), "")
+		w.Address = strings.TrimPrefix(server.URL, "http://")
+		return w
+	}
+	return voice.NewRecordings(serve(`{"text":" hello "}`), serve(`{"segments":[{"start":0,"end":1,"text":" draft "}]}`))
+}
+
+func post(handler http.Handler, path string, body []byte) (int, string) {
+	request := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/octet-stream")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	return recorder.Code, recorder.Body.String()
+}
+
+func createRecording(t *testing.T, handler http.Handler) string {
+	t.Helper()
+	status, body := post(handler, "/api/voice/recordings", nil)
+	var response Envelope[Recording]
+	if err := json.Unmarshal([]byte(body), &response); err != nil || status != http.StatusOK || response.Data.ID == "" {
+		t.Fatalf("status = %d, body = %s, err = %v", status, body, err)
+	}
+	return response.Data.ID
+}
+
+func TestAChunkGivesTheLiveTextAndFinishGivesTheTextOfTheRecording(t *testing.T) {
+	handler, _ := testMuxWith(t, liveRecordings(t))
+	id := createRecording(t, handler)
+
+	status, body := post(handler, "/api/voice/recordings/"+id+"/chunks?sequence=0", make([]byte, 64000))
+	finishStatus, finishBody := post(handler, "/api/voice/recordings/"+id+"/finish", nil)
+
+	if status != http.StatusOK || strings.TrimSpace(body) != `{"data":{"committed":"","draft":"draft"}}` {
+		t.Errorf("chunk: status = %d, body = %s", status, body)
+	}
+	if finishStatus != http.StatusOK || strings.TrimSpace(finishBody) != `{"data":{"text":"hello"}}` {
+		t.Errorf("finish: status = %d, body = %s", finishStatus, finishBody)
+	}
+	if status, _ := post(handler, "/api/voice/recordings/"+id+"/finish", nil); status != http.StatusNotFound {
+		t.Errorf("second finish: status = %d", status)
+	}
+}
+
+func TestAnUnknownRecordingGives404AndAWrongSequenceGives409(t *testing.T) {
+	handler, _ := testMuxWith(t, liveRecordings(t))
+	id := createRecording(t, handler)
+
+	unknownChunk, _ := post(handler, "/api/voice/recordings/unknown/chunks?sequence=0", []byte("aa"))
+	unknownFinish, _ := post(handler, "/api/voice/recordings/unknown/finish", nil)
+	wrong, body := post(handler, "/api/voice/recordings/"+id+"/chunks?sequence=1", []byte("aa"))
+
+	if unknownChunk != http.StatusNotFound || unknownFinish != http.StatusNotFound {
+		t.Errorf("unknown: chunk %d, finish %d", unknownChunk, unknownFinish)
+	}
+	if wrong != http.StatusConflict {
+		t.Errorf("wrong sequence: status = %d, body = %s", wrong, body)
+	}
+}
+
+func TestAChunkAnswers503WhenTheDraftConverterIsNotReady(t *testing.T) {
+	handler, _ := testMuxWith(t, withoutDraft(t, voice.New(t.TempDir(), "")))
+	id := createRecording(t, handler)
+
+	status, body := post(handler, "/api/voice/recordings/"+id+"/chunks?sequence=0", []byte("aa"))
+
+	if status != http.StatusServiceUnavailable || strings.TrimSpace(body) != `{"error":"Install whisper.cpp: brew install whisper-cpp"}` {
+		t.Errorf("status = %d, body = %s", status, body)
+	}
+}
+
+func TestAChunkRefusesABodyAbove1MBAndAcceptsABodyOf1MB(t *testing.T) {
+	handler, _ := testMuxWith(t, liveRecordings(t))
+	id := createRecording(t, handler)
+
+	tooLarge, text := post(handler, "/api/voice/recordings/"+id+"/chunks?sequence=0", make([]byte, 1024*1024+1))
+	accepted, _ := post(handler, "/api/voice/recordings/"+id+"/chunks?sequence=0", make([]byte, 1024*1024))
+
+	if tooLarge != http.StatusBadRequest || !strings.Contains(text, "request body too large") {
+		t.Errorf("status = %d, body = %s", tooLarge, text)
+	}
+	if accepted != http.StatusOK {
+		t.Errorf("status = %d", accepted)
 	}
 }

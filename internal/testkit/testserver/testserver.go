@@ -41,9 +41,10 @@ type Server struct {
 	Engine *engine.Engine
 	// Mux has the API routes. The server serves it.
 	Mux *http.ServeMux
-	// Whisper is the converter of the server. It looks for whisper-server only in the directory harnesses of the data
-	// directory, and it downloads the model from Model.
+	// Whisper and Draft are the converters of the server. They look for whisper-server only in the directory harnesses
+	// of the data directory, and they download their models from Model.
 	Whisper *voice.Whisper
+	Draft   *voice.Whisper
 	Model   *testkit.FakeModel
 
 	stop func()
@@ -93,7 +94,7 @@ func Start(t testing.TB, dataDir, githubURL string) *Server {
 // StartWith starts a Mobius server with cfg and the GitHub at githubURL (the API and the web pages), and logs in.
 // The server stops at the end of the test.
 //
-// The converter of voice recordings gets a fake model server and a free address, and it finds whisper-server only in
+// The converters of voice recordings get a fake model server and a free address, and they find whisper-server only in
 // the directory harnesses, so a test never downloads a real model or starts a real whisper-server.
 //
 // The agents run with the Harness commands in the directory harnesses of the data directory and then on the PATH
@@ -148,8 +149,12 @@ func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 	whisper := voice.New(dataDir, filepath.Join(dataDir, "harnesses"))
 	whisper.ModelURL = model.URL
 	whisper.Address = testkit.FreeAddress(t)
-	t.Cleanup(whisper.Stop)
-	api.Routes(mux, queries, a, gh, e, whisper)
+	draft := voice.NewDraft(dataDir, filepath.Join(dataDir, "harnesses"))
+	draft.ModelURL = model.URL
+	draft.Address = testkit.FreeAddress(t)
+	recordings := voice.NewRecordings(whisper, draft)
+	t.Cleanup(recordings.Stop)
+	api.Routes(mux, queries, a, gh, e, recordings)
 	// The session cookie is Secure, and a cookie jar sends a Secure cookie only over HTTPS.
 	server := httptest.NewTLSServer(mux)
 	t.Cleanup(server.Close)
@@ -166,7 +171,7 @@ func StartWith(t testing.TB, cfg *config.Config, githubURL string) *Server {
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("login: status %d", response.StatusCode)
 	}
-	return &Server{URL: server.URL, DB: db, Client: client, Engine: e, Mux: mux, Whisper: whisper, Model: model, stop: stop}
+	return &Server{URL: server.URL, DB: db, Client: client, Engine: e, Mux: mux, Whisper: whisper, Draft: draft, Model: model, stop: stop}
 }
 
 // agentFreePath gives the PATH of the test with no directory that has a Harness command.

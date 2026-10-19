@@ -3,6 +3,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gork-labs/gork/pkg/adapters/stdlib"
 	"github.com/gork-labs/gork/pkg/api"
@@ -19,8 +20,8 @@ const maxSendChatBody = 4*5*1024*1024 + 1024*1024
 
 // Routes registers the API routes below /api/ on mux.
 // Each route but POST /api/login needs the cookie of a device login.
-func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github.GitHub, e *engine.Engine, w *voice.Whisper) *stdlib.Router {
-	h := &handlers{queries: queries, auth: a, github: gh, engine: e, whisper: w}
+func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github.GitHub, e *engine.Engine, recordings *voice.Recordings) *stdlib.Router {
+	h := &handlers{queries: queries, auth: a, github: gh, engine: e, recordings: recordings}
 	routes := http.NewServeMux()
 	r := stdlib.NewRouter(routes)
 	r.Post("/api/login", h.Login, api.WithTags("devices"), api.WithErrorResponses(http.StatusUnauthorized))
@@ -76,22 +77,27 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Get("/api/usage", h.GetUsage, append(loggedIn("usage"), api.WithErrorResponses(http.StatusBadRequest))...)
 	r.Get("/api/usage/times", h.GetUsageTimes, append(loggedIn("usage"), api.WithErrorResponses(http.StatusBadRequest))...)
 	r.Post("/api/voice/transcriptions", h.Transcribe, append(loggedIn("voice"), api.WithRequestContentTypes("audio/wav"), api.WithErrorResponses(http.StatusBadGateway, http.StatusServiceUnavailable))...)
+	r.Post("/api/voice/recordings", h.CreateRecording, loggedIn("voice")...)
+	r.Post("/api/voice/recordings/{id}/chunks", h.SendChunk, append(loggedIn("voice"), api.WithRequestContentTypes("application/octet-stream"), api.WithErrorResponses(http.StatusNotFound, http.StatusConflict, http.StatusBadGateway, http.StatusServiceUnavailable))...)
+	r.Post("/api/voice/recordings/{id}/finish", h.FinishRecording, append(loggedIn("voice"), api.WithErrorResponses(http.StatusNotFound, http.StatusBadGateway, http.StatusServiceUnavailable))...)
 	r.Get("/api/github/manifest-callback", h.ManifestCallback, redirect("github")...)
 	r.Get("/api/github/user-callback", h.UserCallback, redirect("github")...)
 	mux.Handle("/api/", h.guard(limitBodies(routes)))
 	return r
 }
 
-// limitBodies makes a request to SendChat or to Transcribe fail when its body is larger than maxSendChatBody or
-// maxTranscriptionBody, before Gork reads the body into memory.
+// limitBodies makes a request to SendChat, to Transcribe or to SendChunk fail when its body is larger than
+// maxSendChatBody, maxTranscriptionBody or maxChunkBody, before Gork reads the body into memory.
 func limitBodies(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
-			switch r.URL.Path {
-			case "/api/chat/messages":
+			switch path := r.URL.Path; {
+			case path == "/api/chat/messages":
 				r.Body = http.MaxBytesReader(w, r.Body, maxSendChatBody)
-			case "/api/voice/transcriptions":
+			case path == "/api/voice/transcriptions":
 				r.Body = http.MaxBytesReader(w, r.Body, maxTranscriptionBody)
+			case strings.HasPrefix(path, "/api/voice/recordings/") && strings.HasSuffix(path, "/chunks"):
+				r.Body = http.MaxBytesReader(w, r.Body, maxChunkBody)
 			}
 		}
 		next.ServeHTTP(w, r)
@@ -110,9 +116,9 @@ func loggedIn(tag string) []api.Option {
 }
 
 type handlers struct {
-	queries *store.Queries
-	auth    *auth.Auth
-	github  *github.GitHub
-	engine  *engine.Engine
-	whisper *voice.Whisper
+	queries    *store.Queries
+	auth       *auth.Auth
+	github     *github.GitHub
+	engine     *engine.Engine
+	recordings *voice.Recordings
 }
