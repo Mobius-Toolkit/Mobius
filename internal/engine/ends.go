@@ -490,7 +490,7 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 	}
 	e.publish(Change{Workstreams: true})
 	from := task.State
-	if task.Worker.String == JudgeRole {
+	if task.State == "working" && task.Worker.String == JudgeRole {
 		from = task.WorkerInput.String
 	}
 	return errors.Join(e.dismissReadyForReview(ctx, task, from), e.finishStop(ctx, repository, task, issue, actor, summary, text))

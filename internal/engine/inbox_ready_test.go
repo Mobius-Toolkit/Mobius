@@ -169,3 +169,26 @@ func TestARemovalOfTheReviewLabelDismissesTheItemWhileAJudgeRunsFromReadyForRevi
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
 	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "ready for review")) == 0 })
 }
+
+func TestARemovalOfTheReviewLabelDismissesTheItemAfterAJudgeFromApprovalFoundNoWork(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectJudge(t, fake, `call = { tool = "submit_verdicts", arguments = { items = [
+    { item = 2, actions = [{ verdict = "reject", text = "The API needs this name." }] },
+] } }
+`, "", noChange)
+	if thread := fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier."); thread != 2 {
+		t.Fatalf("thread = %d", thread)
+	}
+	testkit.WaitFor(t, func() bool { return len(judgePrompts(t, server)) == 1 })
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })
+	waitForPolls(t, fake)
+	sendChat(t, server, leadChat, "Approve #41")
+	waitForItem(t, server, "ready for review")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+
+	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
+	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "ready for review")) == 0 })
+}
