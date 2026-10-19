@@ -514,6 +514,17 @@ test("screenshots", async ({ page }) => {
     ],
     showEnd,
   );
+  // A tall viewport shows the whole card, so the scroll box of the chat does not cut the Brief.
+  await page.setViewportSize({ width: 390, height: 4000 });
+  await page.goto("/chat");
+  await expect(card.getByText("Waits for the approval")).toBeVisible();
+  await expect(
+    card.getByText("A Playwright test buys a gift card and pays an order with its code."),
+  ).toBeVisible();
+  await card.screenshot({
+    path: "screenshots/action-pending-full-phone.png",
+    animations: "disabled",
+  });
   for (const button of ["Approve", "Reject"]) {
     await screenshot(
       page,
