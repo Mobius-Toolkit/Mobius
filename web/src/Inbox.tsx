@@ -60,15 +60,8 @@ export function InboxRow({
   const showLogin = use(LoginContext);
   const [running, setRunning] = useState<"action" | "dismiss" | "merge" | null>(null);
   const [refusal, setRefusal] = useState("");
-  const [wasMerging, setWasMerging] = useState(item.merging);
+  const [answered, setAnswered] = useState<{ item: InboxItem; merging: boolean } | null>(null);
   const [panel, setPanel] = useState<"answer" | "details" | null>(null);
-
-  if (wasMerging !== item.merging) {
-    setWasMerging(item.merging);
-    if (!item.merging) {
-      setRunning(null);
-    }
-  }
 
   const act = (
     name: "action" | "dismiss",
@@ -99,11 +92,10 @@ export function InboxRow({
     setRefusal("");
     mergeInboxItem(item.id)
       .then((res) => {
-        if (res.status === 200) {
-          return;
-        }
         if (res.status === 401) {
           showLogin();
+        } else if (res.status === 200) {
+          setAnswered({ item, merging: res.data.data.merging });
         } else {
           setRefusal(res.data.error);
         }
@@ -123,7 +115,8 @@ export function InboxRow({
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
   const reference = isPullRequest ? `PR #${item.pullRequest}` : `#${item.issue}`;
   const referenceLink = isPullRequest ? item.pullRequestUrl : item.link;
-  const refusalText = refusal || (item.merging ? "" : item.mergeRefusal);
+  const merging = answered?.item === item ? answered.merging : item.merging;
+  const refusalText = refusal || (merging ? "" : item.mergeRefusal);
 
   return (
     <Row className="flex-wrap gap-y-2 py-2">
@@ -190,8 +183,8 @@ export function InboxRow({
               </Button>
             )}
             {isPullRequest && (
-              <Button size="sm" pending={running === "merge" || item.merging} onClick={merge}>
-                {running === "merge" || item.merging ? "Merging" : "Merge"}
+              <Button size="sm" pending={running === "merge" || merging} onClick={merge}>
+                {running === "merge" || merging ? "Merging" : "Merge"}
               </Button>
             )}
             {isPullRequest && (
