@@ -1,4 +1,13 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import {
+  approvalItems,
+  chatRoute,
+  createWorkstream,
+  done,
+  failed,
+  rejected,
+  routeCards,
+} from "./actions.js";
 import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
 import { countSamples, fakeMicrophone } from "./microphone.js";
@@ -477,6 +486,70 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain),
     main.getByText("Sell gift cards in the shop."),
   ]);
+  // The routes add the sample cards of the approval. They change no row of the server. A later route answers first.
+  const card = main.locator(`[data-action="${createWorkstream.id}"]`);
+  const cardReady = (device: string) => [chatCount, ...frame(device, drain), card];
+  const openCard = (button: string) => async () => {
+    await expect(card.getByRole("button", { name: button })).toBeVisible();
+    await card.getByRole("button", { name: button }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("textbox", { name: "Your message" })
+      .fill(button === "Approve" ? "Go ahead." : rejected.message);
+  };
+  // The card is taller than the screen, so the open step shows its end, where the state and the buttons are.
+  const showEnd = async () => {
+    await expect(card).toBeVisible();
+    await card.evaluate((el) => el.scrollIntoView({ block: "end" }));
+  };
+  await routeCards(page, createWorkstream);
+  await screenshot(
+    page,
+    "action-pending",
+    "/chat",
+    (device) => [
+      ...cardReady(device),
+      card.getByText("Waits for the approval"),
+      card.getByText("A Playwright test buys a gift card and pays an order with its code."),
+    ],
+    showEnd,
+  );
+  for (const button of ["Approve", "Reject"]) {
+    await screenshot(
+      page,
+      `action-${button.toLowerCase()}`,
+      "/chat",
+      () => [
+        page.getByRole("dialog").getByText(`${button} create_workstream`),
+        page.getByRole("dialog").getByRole("textbox", { name: "Your message" }),
+      ],
+      openCard(button),
+    );
+  }
+  for (const [name, action, text] of [
+    ["done", done, "Created the Workstream #790."],
+    ["failed", failed, "403 API rate limit exceeded"],
+    ["rejected", rejected, rejected.message],
+  ] as const) {
+    await routeCards(page, action);
+    await screenshot(
+      page,
+      `action-${name}`,
+      "/chat",
+      (device) => [...cardReady(device), card.getByText(text)],
+      showEnd,
+    );
+  }
+  await page.unroute(chatRoute);
+  await routeInboxItems(page, approvalItems);
+  await screenshot(page, "action-inbox", "/inbox", (device) => [
+    chatCount,
+    ...frame(device, drain, { organizations: true }, "3"),
+    main.getByRole("tab", { name: "To do 3" }),
+    main.getByRole("listitem").filter({ hasText: "create_workstream" }),
+    main.getByRole("listitem").filter({ hasText: "message_lead" }),
+  ]);
+  await page.unroute(inboxRoute);
   // The Inbox of the server has one item. The route adds one item of each other kind.
   let mergeState = { merging: false, mergeRefusal: "" };
   await page.route("/api/inbox", async (route) => {

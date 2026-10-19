@@ -32,6 +32,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { type ActionMessage } from "@/lib/actions";
 import { chatDraftKey } from "@/lib/draft";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
@@ -47,6 +48,7 @@ import { atEnd } from "@/lib/scroll";
 import { clock, clockSeconds, dayClock, dayLabel, localTimes } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
+import { ActionCard } from "./ActionCard";
 import { FileImage } from "./FileImage";
 import { Markdown } from "./Markdown";
 import { MessageInput } from "./MessageInput";
@@ -57,7 +59,7 @@ const retryDelays = [2000, 5000, 10_000, 30_000];
 type Waiting = Queued & { sent?: boolean };
 type Failure = { id: string; error: string; retryAt: number };
 
-function upsert(list: ChatMessage[], message: ChatMessage) {
+function upsert(list: ActionMessage[], message: ActionMessage) {
   const known = list.find((other) => other.id === message.id);
   // The agent only adds text to a message, so the longer text is the newer text. A message never loses a time.
   if (
@@ -100,7 +102,10 @@ function OwnerState({ message }: { message: ChatMessage }) {
   );
 }
 
-const Message = memo(function Message({ message }: { message: ChatMessage }) {
+const Message = memo(function Message({ message }: { message: ActionMessage }) {
+  if (message.action) {
+    return <ActionCard message={message} action={message.action} />;
+  }
   const event = message.author === "Event";
   const [summary, ...rest] = message.text.split("\n");
   const body = rest.join("\n").trim();
@@ -272,7 +277,7 @@ export function Conversation({
   footer?: ReactNode;
 }) {
   const showLogin = use(LoginContext);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ActionMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
   // older is true when the chat has messages before the first loaded message.
   const [older, setOlder] = useState(false);
