@@ -489,6 +489,10 @@ func (e *Engine) stopTask(ctx context.Context, repository github.Repository, tas
 		return err
 	}
 	e.publish(Change{Workstreams: true})
+	return errors.Join(e.dismissReadyForReview(ctx, task, task.State), e.finishStop(ctx, repository, task, issue, actor, summary, text))
+}
+
+func (e *Engine) finishStop(ctx context.Context, repository github.Repository, task store.Task, issue *gh.Issue, actor, summary, text string) error {
 	if err := e.stopWorkersOf(ctx, task); err != nil {
 		return err
 	}

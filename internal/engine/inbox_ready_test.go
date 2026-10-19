@@ -112,6 +112,17 @@ func TestAStopOfATaskInReadyForReviewDismissesTheItem(t *testing.T) {
 	}
 }
 
+func TestARemovalOfTheReviewLabelDismissesTheItemOfATaskInReadyForReview(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := readyToMerge(t, fake, "")
+
+	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
+	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "ready for review")) == 0 })
+}
+
 func TestAJudgeThatRunsFromReadyForReviewAndStartsAFixRoundDismissesTheItem(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)

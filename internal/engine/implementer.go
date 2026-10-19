@@ -605,7 +605,7 @@ func makeDraft(ctx context.Context, repository github.Repository, pullRequest *g
 // the poll starts no automatic round of a task in needs_human on the same head again. A round that fails stores the
 // head that it pushed. The pull request is a draft during the round. The prompt has the issue body, and the round makes no change other than
 // the merge of the base branch (Mobius-rust#227).
-func (e *Engine) conflictRound(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
+func (e *Engine) conflictRound(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (err error) {
 	brief, err := brief(ctx, repository, task.Workstream)
 	if err != nil {
 		return err
@@ -641,9 +641,9 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 		return err
 	}
 	e.publishReadyForReview(task.State, "queued")
-	if err := e.dismissReadyForReview(ctx, task, task.State); err != nil {
-		return err
-	}
+	defer func() {
+		err = errors.Join(err, e.dismissReadyForReview(ctx, task, task.State))
+	}()
 	if err := resumeWork(ctx, repository, task); err != nil {
 		return err
 	}
