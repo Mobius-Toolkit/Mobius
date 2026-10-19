@@ -89,57 +89,29 @@ export function MessageInput({
   const imagesRef = useRef<File[]>([]);
   const input = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
-  // The place of the voice text in the field. value and cursor describe what the voice input wrote last.
-  const voiceInsert = useRef<{ lead: string; trail: string; value: string; cursor: number }>(
-    undefined,
-  );
-  const voice = useVoice(
-    (voiceText, first) => {
-      const field = input.current;
-      if (!field) {
-        return;
-      }
-      let insert = first ? undefined : voiceInsert.current;
-      if (!voiceText) {
-        return;
-      }
-      if (!insert) {
-        const focused = document.activeElement === field;
-        const start = focused ? field.selectionStart : field.value.length;
-        const end = focused ? field.selectionEnd : field.value.length;
-        const before = field.value.slice(0, start);
-        const after = field.value.slice(end);
-        insert = {
-          lead: before === "" || /\s$/.test(before) ? before : `${before} `,
-          trail: after === "" || /^\s/.test(after) ? after : ` ${after}`,
-          value: "",
-          cursor: 0,
-        };
-      }
-      const value = insert.lead + voiceText + insert.trail;
-      const cursor = insert.lead.length + voiceText.length;
-      voiceInsert.current = { ...insert, value, cursor };
-      flushSync(() => setText(value));
-      // The height of the text up to the end of the voice text gives the scroll position. setSelectionRange does not
-      // scroll a field without the focus, and WebKit on iOS does not scroll it reliably.
-      field.value = insert.lead + voiceText;
-      const top = field.scrollHeight - field.clientHeight;
-      field.value = value;
-      field.setSelectionRange(cursor, cursor);
-      field.scrollTop = top;
-    },
-    () => {
-      const field = input.current;
-      const insert = voiceInsert.current;
-      return (
-        !!field &&
-        !!insert &&
-        (field.value !== insert.value ||
-          field.selectionStart !== insert.cursor ||
-          field.selectionEnd !== insert.cursor)
-      );
-    },
-  );
+  const voice = useVoice((voiceText) => {
+    const field = input.current;
+    if (!field) {
+      return;
+    }
+    const focused = document.activeElement === field;
+    const start = focused ? field.selectionStart : field.value.length;
+    const end = focused ? field.selectionEnd : field.value.length;
+    const before = field.value.slice(0, start);
+    const after = field.value.slice(end);
+    const lead = before === "" || /\s$/.test(before) ? before : `${before} `;
+    const trail = after === "" || /^\s/.test(after) ? after : ` ${after}`;
+    const value = lead + voiceText + trail;
+    const cursor = lead.length + voiceText.length;
+    flushSync(() => setText(value));
+    // The height of the text up to the end of the voice text gives the scroll position. setSelectionRange does not
+    // scroll a field without the focus, and WebKit on iOS does not scroll it reliably.
+    field.value = lead + voiceText;
+    const top = field.scrollHeight - field.clientHeight;
+    field.value = value;
+    field.setSelectionRange(cursor, cursor);
+    field.scrollTop = top;
+  });
 
   // The ref has the images at once, so two calls that wait for fitImage count the images of each other.
   const changeImages = (change: (current: File[]) => File[]) => {
@@ -181,6 +153,12 @@ export function MessageInput({
       setStopReady(false);
     };
   }, [showStop]);
+
+  const voiceLabel = voice.converting
+    ? "Converting the voice input"
+    : voice.recording
+      ? "Stop voice input"
+      : "Start voice input";
 
   const send = () => {
     if (empty || justSent.current) {
@@ -296,18 +274,20 @@ export function MessageInput({
                 type="button"
                 variant="ghost"
                 size="icon"
-                aria-label={voice.listening ? "Stop voice input" : "Start voice input"}
-                title={voice.listening ? "Stop voice input" : "Start voice input"}
-                aria-pressed={voice.listening}
+                aria-label={voiceLabel}
+                title={voiceLabel}
+                aria-pressed={voice.recording}
+                pending={voice.converting}
                 className={cn(
                   "rounded-full text-muted-foreground max-md:size-11",
-                  voice.listening &&
+                  voice.recording &&
                     "bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive motion-safe:animate-pulse",
+                  voice.converting && "disabled:pointer-events-auto disabled:opacity-100",
                 )}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={voice.toggle}
               >
-                {voice.listening ? <SquareIcon /> : <MicIcon />}
+                {voice.converting ? null : voice.recording ? <SquareIcon /> : <MicIcon />}
               </Button>
             )}
             <Button
