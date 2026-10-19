@@ -1,7 +1,16 @@
 import type { ChatMessage, InboxItem } from "@/api/api.gen";
 
+export type Role = "coordinator" | "lead" | "triager";
+
+export const roleName: Record<Role, string> = {
+  coordinator: "Coordinator",
+  lead: "Lead",
+  triager: "Triager",
+};
+
 export type PendingAction = {
   id: number;
+  role: Role;
   tool: string;
   arguments: { name: string; value: string }[];
   state: "pending" | "done" | "rejected" | "replaced";
@@ -15,6 +24,8 @@ export type PendingAction = {
 
 export type ActionMessage = ChatMessage & { action?: PendingAction };
 export type ActionItem = InboxItem & { action?: PendingAction };
+
+export type Approval = InboxItem & { action: PendingAction };
 
 export type Decision = "approve" | "reject";
 

@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
-import type { Activity, GitHubApp, InboxItem, Unread } from "@/api/api.gen";
+import type { Activity, GitHubApp, Unread } from "@/api/api.gen";
+import type { ActionItem } from "./actions";
 import type { Workstreams } from "./workstreams";
 
 type Shell = {
@@ -10,7 +11,7 @@ type Shell = {
   source?: EventSource;
   workstreams: Workstreams;
   unread?: Unread[];
-  inbox: InboxItem[];
+  inbox: ActionItem[];
   leaveInbox: (id: number) => void;
   activities: Activity[];
 };

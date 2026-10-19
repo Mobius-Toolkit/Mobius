@@ -1,12 +1,13 @@
-import { use, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import { decideAction, type ActionMessage, type Decision, type PendingAction } from "@/lib/actions";
-import { LoginContext } from "@/lib/login";
+import type { ActionMessage, PendingAction } from "@/lib/actions";
 import { clock } from "@/lib/time";
+import { cn } from "@/lib/utils";
 import { Markdown } from "./Markdown";
+
+// The height of about six lines of text. A longer value shows only this part until the Owner opens it.
+const collapsedHeight = 144;
 
 function actionState(action: PendingAction) {
   if (action.state === "pending") {
@@ -15,83 +16,47 @@ function actionState(action: PendingAction) {
   return { done: "Done", rejected: "Rejected", replaced: "Replaced" }[action.state];
 }
 
-export function ActionDialog({
-  action,
-  decision,
-  onDecided,
-  onClose,
+function Argument({
+  name,
+  value,
+  open,
+  toggle,
 }: {
-  action: PendingAction;
-  decision: Decision;
-  onDecided: (action: PendingAction) => void;
-  onClose: () => void;
+  name: string;
+  value: string;
+  open: boolean;
+  toggle: () => void;
 }) {
-  const showLogin = use(LoginContext);
-  const [message, setMessage] = useState("");
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState("");
-  const label = decision === "approve" ? "Approve" : "Reject";
-
-  const send = async () => {
-    setRunning(true);
-    setError("");
-    try {
-      const res = await decideAction(action.id, decision, message);
-      if (res.status === 200) {
-        onDecided(res.action);
-        onClose();
-        return;
-      }
-      if (res.status === 401) {
-        showLogin();
-      } else {
-        setError(res.error);
-      }
-    } catch (err) {
-      setError(String(err));
+  const box = useRef<HTMLDivElement>(null);
+  const [long, setLong] = useState(false);
+  useLayoutEffect(() => {
+    const content = box.current?.firstElementChild;
+    if (!content) {
+      return;
     }
-    setRunning(false);
-  };
+    const observer = new ResizeObserver(() => setLong(content.clientHeight > collapsedHeight));
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent aria-describedby={undefined}>
-        <DialogHeader>
-          <DialogTitle>
-            {label} <span className="font-mono">{action.tool}</span>
-          </DialogTitle>
-        </DialogHeader>
-        <Textarea
-          aria-label="Your message"
-          placeholder="Write a message for the agent"
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-        />
-        {error && (
-          <p role="alert" className="text-sm text-destructive wrap-anywhere">
-            {error}
-          </p>
-        )}
-        <Button
-          variant={decision === "approve" ? "default" : "outline"}
-          pending={running}
-          onClick={() => void send()}
-        >
-          {label}
-        </Button>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function Argument({ name, value }: { name: string; value: string }) {
+  if (!value.includes("\n") && value.length <= 80) {
+    return (
+      <div className="grid min-w-0 gap-0.5">
+        <span className="text-xs text-muted-foreground">{name}</span>
+        <span className="wrap-anywhere">{value}</span>
+      </div>
+    );
+  }
   return (
     <div className="grid min-w-0 gap-0.5">
       <span className="text-xs text-muted-foreground">{name}</span>
-      {value.includes("\n") || value.length > 80 ? (
+      <div ref={box} className={cn("min-w-0", !open && "max-h-36 overflow-hidden")}>
         <Markdown text={value} />
-      ) : (
-        <span className="wrap-anywhere">{value}</span>
+      </div>
+      {long && (
+        <Button variant="ghost" size="sm" className="justify-self-start" onClick={toggle}>
+          {open ? "Show less" : "Show all"}
+        </Button>
       )}
     </div>
   );
@@ -106,51 +71,55 @@ function Outcome({ label, text }: { label: string; text: string }) {
   );
 }
 
-export function ActionCard({ message, action }: { message: ActionMessage; action: PendingAction }) {
-  const [decided, setDecided] = useState<{ from: PendingAction; action: PendingAction }>();
-  const [dialog, setDialog] = useState<Decision | null>(null);
-  const shown = decided?.from === action ? decided.action : action;
-  const failed = shown.state === "pending" && shown.error !== "";
+// The record of the action in the chat history. The Owner decides in the tray above the composer.
+export function ActionCard({
+  message,
+  action,
+  opened,
+}: {
+  message: ActionMessage;
+  action: PendingAction;
+  opened: boolean;
+}) {
+  const [open, setOpen] = useState<string[]>(
+    opened ? action.arguments.map((argument) => argument.name) : [],
+  );
+  const failed = action.state === "pending" && action.error !== "";
 
   return (
     <div
       data-message={message.id}
-      data-action={shown.id}
+      data-action={action.id}
       className="grid max-w-full grid-cols-[minmax(0,1fr)] gap-2 justify-self-stretch rounded-xl border bg-card px-3 py-2"
     >
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span>{message.author}</span>
         <span>{clock(message.time)}</span>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="outline" className="font-mono">
-          {shown.tool}
-        </Badge>
-        <Badge variant={failed ? "destructive" : "secondary"}>{actionState(shown)}</Badge>
-      </div>
-      {shown.arguments.map((argument) => (
-        <Argument key={argument.name} {...argument} />
-      ))}
-      {shown.state === "done" && <Outcome label="Result" text={shown.result} />}
-      {failed && <Outcome label="Error" text={shown.error} />}
-      {shown.message && <Outcome label="Your message" text={shown.message} />}
-      {shown.state === "pending" && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => setDialog("approve")}>
-            Approve
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setDialog("reject")}>
-            Reject
-          </Button>
-        </div>
-      )}
-      {dialog && (
-        <ActionDialog
-          action={shown}
-          decision={dialog}
-          onDecided={(next) => setDecided({ from: action, action: next })}
-          onClose={() => setDialog(null)}
+      <Badge variant="outline" className="justify-self-start font-mono">
+        {action.tool}
+      </Badge>
+      {action.arguments.map((argument) => (
+        <Argument
+          key={argument.name}
+          {...argument}
+          open={open.includes(argument.name)}
+          toggle={() =>
+            setOpen((names) =>
+              names.includes(argument.name)
+                ? names.filter((name) => name !== argument.name)
+                : [...names, argument.name],
+            )
+          }
         />
+      ))}
+      <Badge variant={failed ? "destructive" : "secondary"} className="justify-self-start">
+        {actionState(action)}
+      </Badge>
+      {action.state === "done" && <Outcome label="Result" text={action.result} />}
+      {failed && <Outcome label="Error" text={action.error} />}
+      {(action.state === "done" || action.state === "rejected") && action.message && (
+        <Outcome label="Your message" text={action.message} />
       )}
     </div>
   );

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { listInbox, type InboxItem, type LiveEvents } from "@/api/api.gen";
+import { listInbox, type LiveEvents } from "@/api/api.gen";
+import type { ActionItem } from "./actions";
 import { onEvent } from "./events";
 
 export function useInbox(source?: EventSource) {
-  const [items, setItems] = useState<InboxItem[]>([]);
+  const [items, setItems] = useState<ActionItem[]>([]);
 
   useEffect(() => {
     if (!source) {

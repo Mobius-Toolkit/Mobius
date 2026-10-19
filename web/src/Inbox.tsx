@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { use, useState } from "react";
 import {
   dismiss,
@@ -12,11 +13,10 @@ import {
 } from "@/api/api.gen";
 import { ErrorBadge, inset, List, Row } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { type ActionItem, type Decision } from "@/lib/actions";
+import { type ActionItem, decideAction } from "@/lib/actions";
 import { LoginContext } from "@/lib/login";
 import { useShell } from "@/lib/shell";
 import { cn } from "@/lib/utils";
-import { ActionDialog } from "./ActionCard";
 import { AnswerPanel } from "./AnswerPanel";
 
 export function Inbox({
@@ -50,6 +50,31 @@ export function Inbox({
 
 export const link = "text-primary underline-offset-4 hover:underline";
 
+function OpenChat({ item, open }: { item: ActionItem; open: () => void }) {
+  if (item.action?.role === "triager") {
+    return (
+      <Button variant="outline" size="sm" onClick={open}>
+        Open
+      </Button>
+    );
+  }
+  const [owner, name] = item.repository.split("/");
+  return (
+    <Button variant="outline" size="sm" asChild>
+      {item.action?.role === "lead" ? (
+        <Link
+          to="/workstreams/$owner/$name/$number"
+          params={{ owner, name, number: String(item.workstream) }}
+        >
+          Open
+        </Link>
+      ) : (
+        <Link to="/chat">Open</Link>
+      )}
+    </Button>
+  );
+}
+
 export function InboxRow({
   item,
   workstreams,
@@ -65,7 +90,6 @@ export function InboxRow({
   const [refusal, setRefusal] = useState("");
   const [answered, setAnswered] = useState<{ item: ActionItem; merging: boolean } | null>(null);
   const [panel, setPanel] = useState<"answer" | "details" | null>(null);
-  const [decision, setDecision] = useState<Decision | null>(null);
 
   const act = (
     name: "action" | "dismiss",
@@ -111,11 +135,34 @@ export function InboxRow({
       });
   };
 
+  const approve = (id: number) => {
+    setRunning("action");
+    setRefusal("");
+    decideAction(id, "approve", "")
+      .then((res) => {
+        if (res.status === 200 && res.action.state !== "pending") {
+          leaveInbox(item.id);
+          return;
+        }
+        if (res.status === 401) {
+          showLogin();
+        } else {
+          setRefusal(res.status === 200 ? res.action.error : res.error);
+        }
+        setRunning(null);
+      })
+      .catch((err: unknown) => {
+        setRefusal(String(err));
+        setRunning(null);
+      });
+  };
+
   const resume = () => {
     const [owner, name] = item.repository.split("/");
     act("action", () => resumeIssue(owner, name, item.issue));
   };
 
+  const action = item.action;
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
   const reference = item.action
     ? item.action.tool
@@ -153,14 +200,17 @@ export function InboxRow({
         </span>
         <div className="flex basis-full items-center gap-2 sm:basis-auto sm:shrink-0 sm:gap-4">
           <div className="flex flex-wrap items-center gap-2 empty:hidden">
-            {item.action && (
+            {action && (
               <>
-                <Button size="sm" onClick={() => setDecision("approve")}>
+                <Button
+                  size="sm"
+                  disabled={running !== null}
+                  pending={running === "action"}
+                  onClick={() => approve(action.id)}
+                >
                   Approve
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setDecision("reject")}>
-                  Reject
-                </Button>
+                <OpenChat item={item} open={() => setPanel("answer")} />
               </>
             )}
             {item.kind === InboxItemKind.question && (
@@ -214,11 +264,13 @@ export function InboxRow({
             )}
           </div>
           <div className="ml-auto flex items-center gap-2">
-            {item.kind !== InboxItemKind.question && item.kind !== InboxItemKind.stopped && (
-              <Button variant="ghost" size="sm" onClick={() => setPanel("details")}>
-                Details
-              </Button>
-            )}
+            {item.kind !== InboxItemKind.question &&
+              item.kind !== InboxItemKind.stopped &&
+              !item.action && (
+                <Button variant="ghost" size="sm" onClick={() => setPanel("details")}>
+                  Details
+                </Button>
+              )}
             {item.kind === InboxItemKind.Lead_failed && (
               <Button
                 variant="outline"
@@ -237,16 +289,6 @@ export function InboxRow({
         <p role="alert" className="basis-full text-sm text-destructive wrap-anywhere">
           {refusalText}
         </p>
-      )}
-      {item.action && decision && (
-        <ActionDialog
-          action={item.action}
-          decision={decision}
-          onDecided={(next) =>
-            next.state === "pending" ? setRefusal(next.error) : leaveInbox(item.id)
-          }
-          onClose={() => setDecision(null)}
-        />
       )}
       {panel && (
         <AnswerPanel

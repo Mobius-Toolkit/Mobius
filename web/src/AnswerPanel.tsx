@@ -1,11 +1,15 @@
 import { use, useEffect, useRef, useState } from "react";
-import { answerInboxItem, type InboxItem } from "@/api/api.gen";
+import { answerInboxItem } from "@/api/api.gen";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { type ActionItem, type Decision, type PendingAction } from "@/lib/actions";
 import { answerDraftKey } from "@/lib/draft";
 import { LoginContext } from "@/lib/login";
+import { useShell } from "@/lib/shell";
 import { dayClock } from "@/lib/time";
 import { link } from "./Inbox";
 import { Markdown } from "./Markdown";
+import { DecisionInput } from "./ActionTray";
+import { Button } from "@/components/ui/button";
 import { MessageInput } from "./MessageInput";
 
 // The keyboard of a phone covers the bottom of the layout viewport and does not resize it. --keyboard is the height
@@ -32,13 +36,65 @@ function useKeyboardHeight() {
   }, []);
 }
 
+function Decide({
+  itemId,
+  action,
+  title,
+  onClose,
+}: {
+  itemId: number;
+  action: PendingAction;
+  title: string;
+  onClose: () => void;
+}) {
+  const { leaveInbox } = useShell();
+  const [decision, setDecision] = useState<Decision>();
+  const [error, setError] = useState("");
+
+  return (
+    <div className="grid">
+      <div className="flex items-center gap-2 px-4 pb-2" role="group" aria-label="Decision">
+        {(["approve", "reject"] as const).map((choice) => (
+          <Button
+            key={choice}
+            size="sm"
+            variant={decision === choice ? "default" : "outline"}
+            aria-pressed={decision === choice}
+            onClick={() => setDecision(decision === choice ? undefined : choice)}
+          >
+            {choice === "approve" ? "Approve" : "Reject"}
+          </Button>
+        ))}
+      </div>
+      {decision && (
+        <DecisionInput
+          action={action}
+          title={title}
+          decision={decision}
+          error={error}
+          onError={setError}
+          clear={() => setDecision(undefined)}
+          decided={(next) => {
+            if (next.state === "pending") {
+              setError(next.error);
+            } else {
+              leaveInbox(itemId);
+              onClose();
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 export function AnswerPanel({
   item,
   input,
   workstream,
   onClose,
 }: {
-  item: InboxItem;
+  item: ActionItem;
   input: boolean;
   workstream: string;
   onClose: () => void;
@@ -92,7 +148,10 @@ export function AnswerPanel({
             </a>
           )}
         </div>
-        {input && (
+        {input && item.action && (
+          <Decide itemId={item.id} action={item.action} title={item.title} onClose={onClose} />
+        )}
+        {input && !item.action && (
           <MessageInput
             draftKey={answerDraftKey(item.id)}
             label="Your answer"

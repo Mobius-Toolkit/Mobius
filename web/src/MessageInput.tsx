@@ -1,5 +1,5 @@
 import { ArrowUpIcon, MicIcon, PaperclipIcon, SquareIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,11 +47,13 @@ function Thumbnail({
 // The text field with the voice button and the Send button. The field keeps its text under draftKey. When onStop is
 // set and the field is empty, the Send button stops the reply. error is the text of a failure that the parent shows
 // under the field. The input gives its own failures to onError. When onSend gives a promise, the field gets the text
-// back if the promise gives false.
+// back if the promise gives false. heading is a line above the field. With sendEmpty, an empty field can send.
 export function MessageInput({
   draftKey,
   label,
   placeholder,
+  heading,
+  sendEmpty,
   images: withImages,
   error,
   onError,
@@ -62,6 +64,8 @@ export function MessageInput({
   draftKey: string;
   label: string;
   placeholder: string;
+  heading?: ReactNode;
+  sendEmpty?: boolean;
   images: boolean;
   error: string;
   onError: (error: string) => void;
@@ -176,6 +180,7 @@ export function MessageInput({
   };
 
   const empty = !text.trim() && images.length === 0;
+  const blank = empty && !sendEmpty;
   const showStop = empty && !!onStop;
   const buttonPending = showStop && stopping;
   // A tap on Send can land on the Stop button that replaces it. Thus Stop takes no tap in its first moments.
@@ -198,7 +203,7 @@ export function MessageInput({
       : "Start voice input";
 
   const send = () => {
-    if (empty || justSent.current) {
+    if (blank || justSent.current) {
       return;
     }
     const sent = imagesRef.current;
@@ -239,6 +244,7 @@ export function MessageInput({
         />
       )}
       <div className="grid gap-1 rounded-2xl border border-input bg-background p-2 transition-colors has-[textarea:focus-visible]:border-ring dark:bg-input/30">
+        {heading}
         {images.length > 0 && (
           <div className="flex flex-wrap gap-2 pb-1">
             {images.map((image, index) => (
@@ -333,14 +339,14 @@ export function MessageInput({
               aria-label={showStop ? "Stop the reply" : "Send"}
               title={showStop ? "Stop the reply" : "Send"}
               pending={buttonPending}
-              disabled={showStop ? !stopReady : empty}
+              disabled={showStop ? !stopReady : blank}
               className={cn(
                 "rounded-full max-md:size-11",
                 showStop &&
                   !stopReady &&
                   !buttonPending &&
                   "disabled:pointer-events-auto disabled:opacity-100",
-                empty &&
+                blank &&
                   !showStop &&
                   "bg-muted text-muted-foreground hover:bg-muted disabled:opacity-100",
               )}

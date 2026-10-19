@@ -1,12 +1,15 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
+  approvalItem,
   approvalItems,
   chatRoute,
   createWorkstream,
   done,
   failed,
+  messageLead,
   rejected,
   routeCards,
+  triagerItem,
 } from "./actions.js";
 import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
@@ -486,80 +489,135 @@ test("screenshots", async ({ page }) => {
     ...frame(device, drain),
     main.getByText("Sell gift cards in the shop."),
   ]);
-  // The routes add the sample cards of the approval. They change no row of the server. A later route answers first.
+  // The routes add the sample cards and items of the approval. They change no row of the server.
   const card = main.locator(`[data-action="${createWorkstream.id}"]`);
-  const cardReady = (device: string) => [chatCount, ...frame(device, drain), card];
-  const openCard = (button: string) => async () => {
-    await expect(card.getByRole("button", { name: button })).toBeVisible();
-    await card.getByRole("button", { name: button }).click();
-    await page
-      .getByRole("dialog")
-      .getByRole("textbox", { name: "Your message" })
-      .fill(button === "Approve" ? "Go ahead." : rejected.message);
+  const tray = page.getByRole("heading", { name: /^Waits for you/ });
+  const row = (tool: string) => main.getByRole("listitem").filter({ hasText: tool });
+  const note = page.getByRole("textbox", { name: "Note for the Coordinator" });
+  const approvalReady = (device: string, count = "3") => [
+    chatCount,
+    ...frame(device, drain, {}, count),
+    tray,
+  ];
+  const choose = (tool: string, button: string, text: string) => async () => {
+    await row(tool).getByRole("button", { name: button }).click();
+    await note.fill(text);
   };
-  // The card is taller than the screen, so the open step shows its end, where the state and the buttons are.
+  const clearNote = async () => {
+    await note.fill("");
+  };
   const showEnd = async () => {
     await expect(card).toBeVisible();
     await card.evaluate((el) => el.scrollIntoView({ block: "end" }));
   };
-  await routeCards(page, createWorkstream);
+  const approvals =
+    (...actions: (typeof createWorkstream)[]) =>
+    async () => {
+      await page.unroute(chatRoute);
+      await page.unroute(inboxRoute);
+      await routeCards(page, ...actions, messageLead);
+      await routeInboxItems(page, [...actions, messageLead].map(approvalItem));
+    };
+
+  await approvals(createWorkstream)();
+  await screenshot(page, "action-tray", "/chat", (device) => [
+    ...approvalReady(device),
+    page.getByRole("heading", { name: "Waits for you (2)" }),
+    card.getByRole("button", { name: "Show all" }),
+    row("message_lead"),
+  ]);
   await screenshot(
     page,
-    "action-pending",
+    "action-approve",
     "/chat",
     (device) => [
-      ...cardReady(device),
-      card.getByText("Waits for the approval"),
+      ...approvalReady(device),
+      page.getByText("Approve create_workstream · Gift cards"),
+      note,
+    ],
+    choose("create_workstream", "Approve", "Go ahead."),
+    clearNote,
+  );
+  await screenshot(
+    page,
+    "action-reject",
+    "/chat",
+    (device) => [
+      ...approvalReady(device),
+      page.getByText("Reject message_lead · Plans in cents"),
+      note,
+    ],
+    choose("message_lead", "Reject", "Wait for the migration of #12."),
+    clearNote,
+  );
+  await screenshot(
+    page,
+    "action-show-all",
+    "/chat",
+    (device) => [
+      ...approvalReady(device),
+      card.getByRole("button", { name: "Show less" }),
       card.getByText("A Playwright test buys a gift card and pays an order with its code."),
     ],
-    showEnd,
+    async () => {
+      await card.getByRole("button", { name: "Show all" }).click();
+      await card.evaluate((el) => el.scrollIntoView({ block: "start" }));
+    },
   );
-  // A tall viewport shows the whole card, so the scroll box of the chat does not cut the Brief.
-  await page.setViewportSize({ width: 390, height: 4000 });
-  await page.goto("/chat");
-  await expect(card.getByText("Waits for the approval")).toBeVisible();
-  await expect(
-    card.getByText("A Playwright test buys a gift card and pays an order with its code."),
-  ).toBeVisible();
-  await card.screenshot({
-    path: "screenshots/action-pending-full-phone.png",
-    animations: "disabled",
-  });
-  for (const button of ["Approve", "Reject"]) {
-    await screenshot(
-      page,
-      `action-${button.toLowerCase()}`,
-      "/chat",
-      () => [
-        page.getByRole("dialog").getByText(`${button} create_workstream`),
-        page.getByRole("dialog").getByRole("textbox", { name: "Your message" }),
-      ],
-      openCard(button),
-    );
-  }
   for (const [name, action, text] of [
     ["done", done, "Created the Workstream #790."],
     ["failed", failed, "403 API rate limit exceeded"],
     ["rejected", rejected, rejected.message],
   ] as const) {
-    await routeCards(page, action);
+    await approvals(action)();
+    // A decided action has no Inbox item.
+    const decided = name !== "failed";
+    if (decided) {
+      await page.unroute(inboxRoute);
+      await routeInboxItems(page, [approvalItem(messageLead)]);
+    }
     await screenshot(
       page,
       `action-${name}`,
       "/chat",
-      (device) => [...cardReady(device), card.getByText(text)],
+      (device) => [...approvalReady(device, decided ? "2" : "3"), card.getByText(text)],
       showEnd,
     );
   }
   await page.unroute(chatRoute);
-  await routeInboxItems(page, approvalItems);
+  await page.unroute(inboxRoute);
+  await routeInboxItems(page, [...approvalItems, triagerItem]);
   await screenshot(page, "action-inbox", "/inbox", (device) => [
     chatCount,
-    ...frame(device, drain, { organizations: true }, "3"),
-    main.getByRole("tab", { name: "To do 3" }),
-    main.getByRole("listitem").filter({ hasText: "create_workstream" }),
-    main.getByRole("listitem").filter({ hasText: "message_lead" }),
+    ...frame(device, drain, { organizations: true }, "4"),
+    main.getByRole("tab", { name: "To do 4" }),
+    row("create_workstream").first(),
+    row("message_lead"),
   ]);
+  await screenshot(
+    page,
+    "action-triager",
+    "/inbox",
+    () => [
+      page.getByRole("dialog").getByRole("button", { name: "Reject", pressed: true }),
+      page.getByRole("dialog").getByRole("textbox", { name: "Note for the Triager" }),
+    ],
+    async () => {
+      await row("create_workstream").last().getByRole("button", { name: "Open" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Reject" }).click();
+      await page
+        .getByRole("dialog")
+        .getByRole("textbox", { name: "Note for the Triager" })
+        .fill("Ask the Coordinator first.");
+    },
+    async () => {
+      await page
+        .getByRole("dialog")
+        .getByRole("textbox", { name: "Note for the Triager" })
+        .fill("");
+      await page.keyboard.press("Escape");
+    },
+  );
   await page.unroute(inboxRoute);
   // The Inbox of the server has one item. The route adds one item of each other kind.
   let mergeState = { merging: false, mergeRefusal: "" };

@@ -15,6 +15,7 @@ const brief = [
 
 export const createWorkstream = {
   id: 31,
+  role: "coordinator",
   tool: "create_workstream",
   arguments: [
     { name: "title", value: "Gift cards" },
@@ -30,6 +31,7 @@ export const createWorkstream = {
 
 export const messageLead = {
   id: 32,
+  role: "coordinator",
   tool: "message_lead",
   arguments: [
     { name: "workstream", value: "12" },
@@ -47,6 +49,13 @@ export const messageLead = {
   result: "",
   message: "",
   time: "2026-10-15T11:55:00Z",
+};
+
+export const triagerCreate = {
+  ...createWorkstream,
+  id: 33,
+  role: "triager",
+  time: "2026-10-15T11:58:00Z",
 };
 
 export const done = {
@@ -97,17 +106,17 @@ export function routeCards(page: Page, ...actions: Action[]) {
   });
 }
 
-export const approvalItems = [createWorkstream, messageLead].map((action) => ({
+export const approvalItem = (action: Action) => ({
   dismissedAt: null,
   id: 300 + action.id,
   organization: "owner",
-  repository: action.tool === "message_lead" ? "owner/shop" : "",
+  repository: "owner/shop",
   workstream: action.tool === "message_lead" ? 12 : 0,
   issue: 0,
   kind: "approval",
   time: action.time,
   title: action.tool === "message_lead" ? "Plans in cents" : "Gift cards",
-  reason: "Waits for your approval",
+  reason: "Waits for the approval",
   text: action.arguments
     .map((argument) => `**${argument.name}**\n\n${argument.value}`)
     .join("\n\n"),
@@ -116,7 +125,11 @@ export const approvalItems = [createWorkstream, messageLead].map((action) => ({
   pullRequestUrl: "",
   reportUrl: "",
   action,
-}));
+});
+
+export const approvalItems = [createWorkstream, messageLead].map(approvalItem);
+
+export const triagerItem = approvalItem(triagerCreate);
 
 // Answers the decision of the action with the action after the decision.
 export function routeDecision(
