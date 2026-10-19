@@ -76,7 +76,9 @@ type recording struct {
 	pcm       []byte
 	window    []byte
 	committed string
-	// previous has the text of each segment that the newest draft run gave and that is not committed.
+	// previous has the text of each segment that the newest draft run gave and that is not committed. While it is empty,
+	// the window holds no words that wait for a commit, so a chunk cuts it to its last maxWindow bytes. A
+	// running draft run needs the start of the window, so no cut happens then.
 	previous []string
 	running  bool
 }
@@ -169,6 +171,9 @@ func (r *Recordings) Chunk(ctx context.Context, id string, sequence int, pcm []b
 	rec.sequence++
 	rec.pcm = append(rec.pcm, pcm...)
 	rec.window = append(rec.window, pcm...)
+	if !rec.running && len(rec.previous) == 0 && len(rec.window) > maxWindow {
+		rec.window = rec.window[len(rec.window)-maxWindow:]
+	}
 	if rec.running {
 		defer rec.mu.Unlock()
 		return rec.text(), nil

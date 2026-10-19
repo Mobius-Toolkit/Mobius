@@ -161,6 +161,22 @@ func TestAWindowLongerThan15SecondsCommitsTheFirstSegmentOfTheNewestRun(t *testi
 	}
 }
 
+func TestAWindowWithNoTextNeverGrowsAbove15Seconds(t *testing.T) {
+	d := newDraft(t, []voice.Segment{})
+	r := recordingsOf(t, d)
+	id := create(t, r)
+
+	for sequence := range 9 {
+		chunk(t, r, id, sequence, 2)
+	}
+
+	want := []int{44 + 2*second, 44 + 4*second, 44 + 6*second, 44 + 8*second, 44 + 10*second, 44 + 12*second,
+		44 + 14*second, 44 + 15*second, 44 + 15*second}
+	if got := d.runs(); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("sizes = %v, want %v", got, want)
+	}
+}
+
 func TestAChunkDuringARunningDraftRunStartsNoSecondRun(t *testing.T) {
 	d := newDraft(t, []voice.Segment{segment(1, "red")}, []voice.Segment{segment(1, "red"), segment(2, "roses")})
 	d.release = make(chan struct{})
