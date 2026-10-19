@@ -312,13 +312,21 @@ func (e *Engine) runJudge(ctx context.Context, j judgeJob) {
 		err = e.handBackToHuman(ended, j, reason)
 	} else {
 		err = e.handOver(ended, j.task, j.title, reason, notice)
-		if err == nil {
-			err = e.dismissReadyForReview(ended, j.task, j.from)
-		}
+		err = errors.Join(err, e.dismissStoppedJudgeItems(ended, j))
 	}
 	if err != nil {
 		log.Printf("stop of %s#%d: %v", j.task.Repository, j.task.Issue, err)
 	}
+}
+
+// dismissStoppedJudgeItems dismisses the ready for review items of the task of a Judge that started from ready_for_review,
+// when the stop moved the task to needs_human. A later failed write of the stop does not keep the items open.
+func (e *Engine) dismissStoppedJudgeItems(ctx context.Context, j judgeJob) error {
+	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: j.task.Repository, Issue: j.task.Issue})
+	if err != nil || current.State != "needs_human" {
+		return err
+	}
+	return e.dismissReadyForReview(ctx, j.task, j.from)
 }
 
 // handBackToHuman returns the task of a Judge that started from needs_human to needs_human, and gives the Lead a stop
