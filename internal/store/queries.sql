@@ -119,6 +119,9 @@ RETURNING *;
 -- name: ListTranscript :many
 SELECT * FROM transcript WHERE session = ? ORDER BY id;
 
+-- name: GetTask :one
+SELECT * FROM tasks WHERE id = ?;
+
 -- name: GetLiveTask :one
 SELECT * FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended';
 
@@ -193,8 +196,8 @@ INSERT INTO harness_pause_ends (harness, ended_at) VALUES (?, ?)
 ON CONFLICT (harness) DO UPDATE SET ended_at = excluded.ended_at;
 
 -- name: AddInboxItem :one
-INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, merging, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetInboxItem :one

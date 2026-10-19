@@ -168,6 +168,11 @@ func (e *Engine) handFromStates(ctx context.Context, states []string, task store
 		return false, err
 	}
 	e.publishReadyForReview(from, "needs_human")
+	if from == "ready_for_review" {
+		if err := e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind); err != nil {
+			return false, err
+		}
+	}
 	repository, err := e.repository(task.Repository)
 	if err != nil {
 		return false, err

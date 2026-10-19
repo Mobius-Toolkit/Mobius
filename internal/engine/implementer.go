@@ -408,6 +408,10 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		return err
 	}
 	title := issue.GetTitle()
+	var merging int64
+	if awaitsMerge(task) {
+		merging = 1
+	}
 	return e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         readyForReviewKind,
 		Organization: repository.Owner(),
@@ -420,6 +424,7 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		Link:         issueLink(task.Repository, task.Issue),
 		PullRequest:  int64(pullRequest.GetNumber()),
 		ReportLink:   comment.GetHTMLURL(),
+		Merging:      merging,
 	})
 }
 
@@ -636,6 +641,11 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 		return err
 	}
 	e.publishReadyForReview(task.State, "queued")
+	if task.State == "ready_for_review" {
+		if err := e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind); err != nil {
+			return err
+		}
+	}
 	if err := resumeWork(ctx, repository, task); err != nil {
 		return err
 	}

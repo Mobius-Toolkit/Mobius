@@ -379,8 +379,8 @@ func (q *Queries) AddGitHubApp(ctx context.Context, arg AddGitHubAppParams) erro
 }
 
 const addInboxItem = `-- name: AddInboxItem :one
-INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, merging, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal
 `
 
@@ -397,6 +397,7 @@ type AddInboxItemParams struct {
 	PullRequest  int64
 	ReportLink   string
 	ChatMessage  sql.NullInt64
+	Merging      int64
 	Time         string
 }
 
@@ -414,6 +415,7 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 		arg.PullRequest,
 		arg.ReportLink,
 		arg.ChatMessage,
+		arg.Merging,
 		arg.Time,
 	)
 	var i InboxItem
@@ -1987,6 +1989,48 @@ func (q *Queries) GetSyncCursor(ctx context.Context, arg GetSyncCursorParams) (G
 	row := q.db.QueryRowContext(ctx, getSyncCursor, arg.Repository, arg.Endpoint)
 	var i GetSyncCursorRow
 	err := row.Scan(&i.Since, &i.Etag)
+	return i, err
+}
+
+const getTask = `-- name: GetTask :one
+SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs FROM tasks WHERE id = ?
+`
+
+func (q *Queries) GetTask(ctx context.Context, id int64) (Task, error) {
+	row := q.db.QueryRowContext(ctx, getTask, id)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Issue,
+		&i.Workstream,
+		&i.State,
+		&i.DispatchedAt,
+		&i.Branch,
+		&i.QueuedAt,
+		&i.FixRounds,
+		&i.PullRequest,
+		&i.JudgedAt,
+		&i.WorkerRestarts,
+		&i.Worker,
+		&i.WorkerInput,
+		&i.ReviewRounds,
+		&i.ReviewComment,
+		&i.CheckHead,
+		&i.ApprovedReview,
+		&i.RefusedReview,
+		&i.NeedsHumanAt,
+		&i.ConflictHead,
+		&i.CiFailedHead,
+		&i.StateAt,
+		&i.LongWaitAt,
+		&i.CheckErrors,
+		&i.LeadFindings,
+		&i.Recoveries,
+		&i.BreakWaitHead,
+		&i.RerunHead,
+		&i.RerunRuns,
+	)
 	return i, err
 }
 
