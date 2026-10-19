@@ -325,6 +325,19 @@ WHERE event.repository = ? AND event.workstream = ? AND event.delivered_at IS NU
   )
 ORDER BY event.id;
 
+-- name: GetLastLeadEventDelivery :one
+SELECT delivered_at FROM lead_events
+WHERE repository = ? AND workstream = ? AND delivered_at IS NOT NULL
+ORDER BY julianday(delivered_at) DESC LIMIT 1;
+
+-- A failed start of a Lead session gets no first prompt. Compare the started_at texts with the bound only as a wide
+-- range, because the fractions of the times have no fixed length.
+-- name: ListFailedLeadStarts :many
+SELECT started_at FROM sessions AS session
+WHERE session.repository = sqlc.arg(repository) AND session.workstream = sqlc.arg(workstream) AND session.role = 'lead_chat'
+  AND session.end_reason = 'failed' AND session.started_at >= sqlc.arg(since)
+  AND NOT EXISTS (SELECT 1 FROM transcript WHERE transcript.session = session.id AND transcript.kind = 'prompt');
+
 -- name: ListWorkstreamsWithReadyLeadEvents :many
 SELECT DISTINCT event.workstream FROM lead_events AS event
 WHERE event.repository = ? AND event.delivered_at IS NULL AND event.held = 0
