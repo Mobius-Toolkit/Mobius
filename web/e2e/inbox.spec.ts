@@ -341,3 +341,59 @@ test("Send again sends the message of the Lead failed item again", async ({ page
 
   await expect.poll(() => sent).toEqual(["/api/inbox/5/send"]);
 });
+
+const readyItem = items[3];
+
+test("Merge is the primary button of a ready for review item and shows Merging after a press", async ({
+  page,
+}) => {
+  const merged: string[] = [];
+  await routeInbox(page, [{ ...readyItem, merging: false, mergeRefusal: "" }]);
+  await page.route("**/api/inbox/*/merge", (route) => {
+    merged.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ json: { data: { ...readyItem, merging: true, mergeRefusal: "" } } });
+  });
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+
+  await expect(row.getByRole("button")).toHaveText(["Merge", "Details"]);
+  await expect(row.getByRole("link", { name: "Open PR" })).toHaveAttribute(
+    "href",
+    `${link}/pull/44`,
+  );
+  await row.getByRole("button", { name: "Merge" }).click();
+
+  await expect(row.getByRole("button", { name: "Merging" })).toBeDisabled();
+  await expect.poll(() => merged).toEqual(["/api/inbox/4/merge"]);
+});
+
+test("an item that is merging shows Merging after a reload", async ({ page }) => {
+  await routeInbox(page, [{ ...readyItem, merging: true, mergeRefusal: "" }]);
+  await page.goto("/inbox");
+
+  await expect(page.getByRole("main").getByRole("button", { name: "Merging" })).toBeDisabled();
+});
+
+test("the row shows the refusal of GitHub, and Merge works again", async ({ page }) => {
+  const refusal = "Pull request #44 has an open review thread.";
+  await routeInbox(page, [{ ...readyItem, merging: false, mergeRefusal: refusal }]);
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+
+  await expect(row.getByText(refusal)).toBeVisible();
+  await expect(row.getByRole("button", { name: "Merge" })).toBeEnabled();
+});
+
+test("the row shows the refusal of the route, and Merge works again", async ({ page }) => {
+  await routeInbox(page, [{ ...readyItem, merging: false, mergeRefusal: "" }]);
+  await page.route("**/api/inbox/*/merge", (route) =>
+    route.fulfill({ status: 409, json: { error: "The task of #30 is not ready for review." } }),
+  );
+  await page.goto("/inbox");
+  const row = page.getByRole("main").getByRole("listitem");
+
+  await row.getByRole("button", { name: "Merge" }).click();
+
+  await expect(row.getByText("The task of #30 is not ready for review.")).toBeVisible();
+  await expect(row.getByRole("button", { name: "Merge" })).toBeEnabled();
+});

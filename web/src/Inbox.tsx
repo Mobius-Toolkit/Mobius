@@ -3,6 +3,7 @@ import {
   dismiss,
   type dismissResponse,
   InboxItemKind,
+  mergeInboxItem,
   resumeIssue,
   type resumeIssueResponse,
   sendAgain,
@@ -57,7 +58,9 @@ export function InboxRow({
   setError: (error: string) => void;
 }) {
   const showLogin = use(LoginContext);
-  const [running, setRunning] = useState<"action" | "dismiss" | null>(null);
+  const [running, setRunning] = useState<"action" | "dismiss" | "merge" | null>(null);
+  const [refusal, setRefusal] = useState("");
+  const [answered, setAnswered] = useState<{ item: InboxItem; merging: boolean } | null>(null);
   const [panel, setPanel] = useState<"answer" | "details" | null>(null);
 
   const act = (
@@ -84,6 +87,26 @@ export function InboxRow({
       });
   };
 
+  const merge = () => {
+    setRunning("merge");
+    setRefusal("");
+    mergeInboxItem(item.id)
+      .then((res) => {
+        if (res.status === 401) {
+          showLogin();
+        } else if (res.status === 200) {
+          setAnswered({ item, merging: res.data.data.merging });
+        } else {
+          setRefusal(res.data.error);
+        }
+        setRunning(null);
+      })
+      .catch((err: unknown) => {
+        setRefusal(String(err));
+        setRunning(null);
+      });
+  };
+
   const resume = () => {
     const [owner, name] = item.repository.split("/");
     act("action", () => resumeIssue(owner, name, item.issue));
@@ -92,6 +115,8 @@ export function InboxRow({
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
   const reference = isPullRequest ? `PR #${item.pullRequest}` : `#${item.issue}`;
   const referenceLink = isPullRequest ? item.pullRequestUrl : item.link;
+  const merging = answered?.item === item ? answered.merging : item.merging;
+  const refusalText = refusal || (merging ? "" : item.mergeRefusal);
 
   return (
     <Row className="flex-wrap gap-y-2 py-2">
@@ -158,7 +183,12 @@ export function InboxRow({
               </Button>
             )}
             {isPullRequest && (
-              <Button size="sm" asChild>
+              <Button size="sm" pending={running === "merge" || merging} onClick={merge}>
+                {running === "merge" || merging ? "Merging" : "Merge"}
+              </Button>
+            )}
+            {isPullRequest && (
+              <Button variant="outline" size="sm" asChild>
                 <a href={item.pullRequestUrl} target="_blank" rel="noreferrer">
                   Open PR
                 </a>
@@ -185,6 +215,11 @@ export function InboxRow({
           </div>
         </div>
       </div>
+      {refusalText && (
+        <p role="alert" className="basis-full text-sm text-destructive wrap-anywhere">
+          {refusalText}
+        </p>
+      )}
       {panel && (
         <AnswerPanel
           item={item}
