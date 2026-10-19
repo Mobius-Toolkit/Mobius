@@ -61,6 +61,30 @@ test("the Owner approves a row with a note", async ({ page }) => {
   expect(bodies).toEqual([{ message: "Go ahead." }]);
 });
 
+test("a decision goes out one time while the request runs", async ({ page }) => {
+  await openChat(page);
+  const bodies: unknown[] = [];
+  let answer: (() => void) | undefined;
+  const answered = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  await page.route(`**/api/actions/${createWorkstream.id}/approve`, async (route) => {
+    bodies.push(route.request().postDataJSON());
+    await answered;
+    await route.fulfill({ json: { data: done } });
+  });
+  await row(page, createTitle).getByRole("button", { name: "Approve" }).click();
+  const note = page.getByRole("textbox", { name: "Note for the Coordinator" });
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
+  await note.press("Enter");
+  answer?.();
+
+  await expect(row(page, createTitle)).toBeHidden();
+  expect(bodies).toEqual([{ message: "" }]);
+});
+
 test("a choice shows only its row and the close button shows the full tray again", async ({
   page,
 }) => {

@@ -47,7 +47,8 @@ function Thumbnail({
 // The text field with the voice button and the Send button. The field keeps its text under draftKey. When onStop is
 // set and the field is empty, the Send button stops the reply. error is the text of a failure that the parent shows
 // under the field. The input gives its own failures to onError. When onSend gives a promise, the field gets the text
-// back if the promise gives false. With sendEmpty, an empty field can send.
+// back if the promise gives false. With sendEmpty, an empty field can send, and the input does not send again
+// while the promise runs.
 export function MessageInput({
   draftKey,
   label,
@@ -85,6 +86,7 @@ export function MessageInput({
   // Two taps on Send in one turn of the page both come before the next render. Thus only the ref stops a second
   // message. The next render has the empty input and clears the ref.
   const justSent = useRef(false);
+  const [sending, setSending] = useState(false);
   useEffect(() => {
     justSent.current = false;
   });
@@ -178,7 +180,7 @@ export function MessageInput({
   };
 
   const empty = !text.trim() && images.length === 0;
-  const blank = empty && !sendEmpty;
+  const blank = (empty && !sendEmpty) || sending;
   const showStop = empty && !!onStop;
   const buttonPending = showStop && stopping;
   // A tap on Send can land on the Stop button that replaces it. Thus Stop takes no tap in its first moments.
@@ -212,7 +214,9 @@ export function MessageInput({
     onError("");
     const result = onSend(text, sent);
     if (result instanceof Promise) {
+      setSending(!!sendEmpty);
       void result.then((done) => {
+        setSending(false);
         if (!done) {
           setText(text);
         }
