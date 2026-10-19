@@ -1185,33 +1185,37 @@ func (e *Engine) startIdleLeads(ctx context.Context, repository string) error {
 		return err
 	}
 	for _, workstream := range workstreams {
-		e.chatsMu.Lock()
-		_, running := e.chats[leadChat(repository, workstream)]
-		e.chatsMu.Unlock()
-		if running {
-			continue
-		}
-		events, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: repository, Workstream: workstream})
-		if err != nil {
-			return err
-		}
-		if len(events) == 0 {
-			continue
-		}
-		failed, err := e.failedLeadStarts(ctx, repository, workstream, events)
-		if err != nil {
-			return err
-		}
-		if failed >= maxLeadStarts {
-			err = e.leadFailed(ctx, item{event: &events[0]})
-		} else {
-			err = e.wakeEvents(ctx, repository, workstream)
-		}
-		if err != nil {
+		if err := e.startIdleLead(ctx, repository, workstream); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// startIdleLead wakes the Lead of the Workstream, or calls leadFailed after maxLeadStarts failed starts. It holds
+// e.chatOrder from the read of the ready events to their delivery, so a new event cannot join the events that the
+// count used.
+func (e *Engine) startIdleLead(ctx context.Context, repository string, workstream int64) error {
+	e.chatOrder.Lock()
+	defer e.chatOrder.Unlock()
+	e.chatsMu.Lock()
+	_, running := e.chats[leadChat(repository, workstream)]
+	e.chatsMu.Unlock()
+	if running {
+		return nil
+	}
+	events, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: repository, Workstream: workstream})
+	if err != nil || len(events) == 0 {
+		return err
+	}
+	failed, err := e.failedLeadStarts(ctx, repository, workstream, events)
+	if err != nil {
+		return err
+	}
+	if failed >= maxLeadStarts {
+		return e.leadFailed(ctx, item{event: &events[0]})
+	}
+	return e.sendEvents(ctx, repository, workstream)
 }
 
 // failedLeadStarts counts the Lead sessions of the Workstream that failed before their first prompt and started after
