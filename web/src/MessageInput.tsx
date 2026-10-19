@@ -89,18 +89,14 @@ export function MessageInput({
   const imagesRef = useRef<File[]>([]);
   const input = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
-  const voice = useVoice((voiceText) => {
-    const field = input.current;
-    if (!field) {
-      return;
-    }
-    const focused = document.activeElement === field;
-    const start = focused ? field.selectionStart : field.value.length;
-    const end = focused ? field.selectionEnd : field.value.length;
-    const before = field.value.slice(0, start);
-    const after = field.value.slice(end);
-    const lead = before === "" || /\s$/.test(before) ? before : `${before} `;
-    const trail = after === "" || /^\s/.test(after) ? after : ` ${after}`;
+  // The text around the voice text of the run, and the value of the field after the last voice text.
+  const voiceRegion = useRef<{ lead: string; trail: string; value: string }>(undefined);
+  const placeVoice = (
+    field: HTMLTextAreaElement,
+    voiceText: string,
+    lead: string,
+    trail: string,
+  ) => {
     const value = lead + voiceText + trail;
     const cursor = lead.length + voiceText.length;
     flushSync(() => setText(value));
@@ -111,7 +107,48 @@ export function MessageInput({
     field.value = value;
     field.setSelectionRange(cursor, cursor);
     field.scrollTop = top;
-  });
+    voiceRegion.current = { lead, trail, value: field.value };
+  };
+  const placeAtCursor = (field: HTMLTextAreaElement, voiceText: string) => {
+    const focused = document.activeElement === field;
+    const start = focused ? field.selectionStart : field.value.length;
+    const end = focused ? field.selectionEnd : field.value.length;
+    const before = field.value.slice(0, start);
+    const after = field.value.slice(end);
+    const lead = before === "" || /\s$/.test(before) ? before : `${before} `;
+    const trail = after === "" || /^\s/.test(after) ? after : ` ${after}`;
+    placeVoice(field, voiceText, lead, trail);
+  };
+  const voice = useVoice(
+    (voiceText, live) => {
+      const field = input.current;
+      const region = voiceRegion.current;
+      if (!field) {
+        return;
+      }
+      if (live && region && field.value === region.value) {
+        placeVoice(field, voiceText, region.lead, region.trail);
+      } else if (voiceText) {
+        placeAtCursor(field, voiceText);
+      }
+    },
+    (voiceText, first) => {
+      const field = input.current;
+      const region = voiceRegion.current;
+      if (!field) {
+        return false;
+      }
+      if (first) {
+        placeAtCursor(field, voiceText);
+        return true;
+      }
+      if (!region || field.value !== region.value) {
+        return false;
+      }
+      placeVoice(field, voiceText, region.lead, region.trail);
+      return true;
+    },
+  );
 
   // The ref has the images at once, so two calls that wait for fitImage count the images of each other.
   const changeImages = (change: (current: File[]) => File[]) => {

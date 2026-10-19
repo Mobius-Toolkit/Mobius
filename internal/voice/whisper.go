@@ -26,10 +26,12 @@ import (
 )
 
 const (
-	program   = "whisper-server"
-	modelName = "ggml-large-v3-turbo.bin"
-	modelURL  = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/" + modelName
-	address   = "127.0.0.1:6365"
+	program      = "whisper-server"
+	modelName    = "ggml-large-v3-turbo.bin"
+	address      = "127.0.0.1:6365"
+	draftModel   = "ggml-small.bin"
+	draftAddress = "127.0.0.1:6366"
+	modelsURL    = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
 )
 
 // healthTimeout is the time that whisper-server has to answer GET /health.
@@ -63,6 +65,9 @@ type Whisper struct {
 	// StallTimeout is the time without a byte after which the download of the model ends.
 	StallTimeout time.Duration
 
+	modelName string
+	pidName   string
+
 	mu          sync.Mutex
 	downloading bool
 	// cmd is the process that Whisper started. It is nil after the process ends.
@@ -71,11 +76,22 @@ type Whisper struct {
 
 // New gives a Whisper that keeps its model in the directory whisper of dataDir and looks for whisper-server in path.
 func New(dataDir, path string) *Whisper {
-	return &Whisper{Dir: filepath.Join(dataDir, "whisper"), Path: path, ModelURL: modelURL, Address: address, StallTimeout: stallTimeout}
+	return &Whisper{
+		Dir: filepath.Join(dataDir, "whisper"), Path: path, ModelURL: modelsURL + modelName, Address: address,
+		StallTimeout: stallTimeout, modelName: modelName, pidName: program + ".pid",
+	}
+}
+
+// NewDraft gives a Whisper with the small model for the live draft. It has its own address and its own PID file.
+func NewDraft(dataDir, path string) *Whisper {
+	return &Whisper{
+		Dir: filepath.Join(dataDir, "whisper"), Path: path, ModelURL: modelsURL + draftModel, Address: draftAddress,
+		StallTimeout: stallTimeout, modelName: draftModel, pidName: program + "-draft.pid",
+	}
 }
 
 func (w *Whisper) model() string {
-	return filepath.Join(w.Dir, modelName)
+	return filepath.Join(w.Dir, w.modelName)
 }
 
 // Start downloads the model if it is missing and starts whisper-server, in the background.
@@ -84,7 +100,7 @@ func (w *Whisper) Start() {
 }
 
 func (w *Whisper) pidFile() string {
-	return filepath.Join(w.Dir, program+".pid")
+	return filepath.Join(w.Dir, w.pidName)
 }
 
 // Stop stops the process that Whisper started. It also stops a process that an earlier program of the same data
@@ -111,50 +127,77 @@ func (w *Whisper) Stop() {
 	}
 }
 
+// Segment is a part of the text of a WAV file with its times in seconds from the start of the file.
+type Segment struct {
+	Start float64 `json:"start"`
+	End   float64 `json:"end"`
+	Text  string  `json:"text"`
+}
+
+type answer struct {
+	Text     string    `json:"text"`
+	Segments []Segment `json:"segments"`
+	Error    string    `json:"error"`
+}
+
 // Transcribe gives the text of the WAV file wav. It gives an Unavailable error while the converter is not ready.
 func (w *Whisper) Transcribe(ctx context.Context, wav []byte) (string, error) {
-	if err := w.ensure(ctx); err != nil {
+	result, err := w.infer(ctx, wav, "json")
+	if err != nil {
 		return "", err
+	}
+	return strings.TrimSpace(result.Text), nil
+}
+
+// Segments gives the segments of the WAV file wav. It gives an Unavailable error while the converter is not ready.
+func (w *Whisper) Segments(ctx context.Context, wav []byte) ([]Segment, error) {
+	result, err := w.infer(ctx, wav, "verbose_json")
+	if err != nil {
+		return nil, err
+	}
+	return result.Segments, nil
+}
+
+func (w *Whisper) infer(ctx context.Context, wav []byte, format string) (answer, error) {
+	if err := w.ensure(ctx); err != nil {
+		return answer{}, err
 	}
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
 	file, err := form.CreateFormFile("file", "voice.wav")
 	if err != nil {
-		return "", err
+		return answer{}, err
 	}
 	if _, err := file.Write(wav); err != nil {
-		return "", err
+		return answer{}, err
 	}
-	if err := form.WriteField("response_format", "json"); err != nil {
-		return "", err
+	if err := form.WriteField("response_format", format); err != nil {
+		return answer{}, err
 	}
 	if err := form.Close(); err != nil {
-		return "", err
+		return answer{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+w.Address+"/inference", &body)
 	if err != nil {
-		return "", err
+		return answer{}, err
 	}
 	req.Header.Set("Content-Type", form.FormDataContentType())
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", program, err)
+		return answer{}, fmt.Errorf("%s: %w", program, err)
 	}
 	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("%s: %s", program, res.Status)
+		return answer{}, fmt.Errorf("%s: %s", program, res.Status)
 	}
-	var answer struct {
-		Text  string `json:"text"`
-		Error string `json:"error"`
+	var result answer
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		return answer{}, fmt.Errorf("%s: %w", program, err)
 	}
-	if err := json.NewDecoder(res.Body).Decode(&answer); err != nil {
-		return "", fmt.Errorf("%s: %w", program, err)
+	if result.Error != "" {
+		return answer{}, fmt.Errorf("%s: %s", program, result.Error)
 	}
-	if answer.Error != "" {
-		return "", fmt.Errorf("%s: %s", program, answer.Error)
-	}
-	return strings.TrimSpace(answer.Text), nil
+	return result, nil
 }
 
 // ensure gives nil when whisper-server answers GET /health with 200. Else it gives the reason, and it starts the

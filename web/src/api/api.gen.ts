@@ -895,6 +895,24 @@ export interface EnvelopeInboxItem {
 }
 
 /**
+ * LiveText is the text of a recording so far.
+ */
+export interface LiveText {
+  /** Committed is the text of the full recording that does not change any more, with no leading or trailing spaces */
+  committed: string;
+  /** Draft is the newest guess for the words after Committed, with no leading or trailing spaces */
+  draft: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeLiveText {
+  /** Data is the payload of the response */
+  data: LiveText;
+}
+
+/**
  * ManifestForm is the form that the browser posts to GitHub to create a Mobius App.
  */
 export interface ManifestForm {
@@ -910,6 +928,22 @@ export interface ManifestForm {
 export interface EnvelopeManifestForm {
   /** Data is the payload of the response */
   data: ManifestForm;
+}
+
+/**
+ * Recording is a voice recording that the server keeps while it runs.
+ */
+export interface Recording {
+  /** ID is the id of the recording */
+  id: string;
+}
+
+/**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopeRecording {
+  /** Data is the payload of the response */
+  data: Recording;
 }
 
 /**
@@ -1495,6 +1529,13 @@ export const GetUsageTimesGroup = {
   role: 'role',
   repository: 'repository',
 } as const;
+
+export type SendChunkParams = {
+/**
+ * Sequence is the number of the chunk. The first chunk is 0, and each chunk has the next number
+ */
+sequence?: number;
+};
 
 export type listActiveAgentsResponse200 = {
   data: EnvelopeActiveAgents
@@ -4545,6 +4586,246 @@ export const getUsageTimes = async (params: GetUsageTimesParams, ): Promise<getU
 
   const data: getUsageTimesResponse['data'] = body ? JSON.parse(body) : {}
   return { data, status: res.status, headers: res.headers } as getUsageTimesResponse
+}
+
+
+
+export type createRecordingResponse200 = {
+  data: EnvelopeRecording
+  status: 200
+}
+
+export type createRecordingResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type createRecordingResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type createRecordingResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type createRecordingResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type createRecordingResponseSuccess = (createRecordingResponse200) & {
+  headers: Headers;
+};
+export type createRecordingResponseError = (createRecordingResponse400 | createRecordingResponse401 | createRecordingResponse422 | createRecordingResponse500) & {
+  headers: Headers;
+};
+
+export type createRecordingResponse = (createRecordingResponseSuccess | createRecordingResponseError)
+
+export const getCreateRecordingUrl = () => {
+
+
+
+
+  return `/api/voice/recordings`
+}
+
+/**
+ * CreateRecording starts a voice recording on the server. The server removes the recording after 10 minutes with no chunk.
+ */
+export const createRecording = async ( ): Promise<createRecordingResponse> => {
+
+  const res = await fetch(getCreateRecordingUrl(),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: createRecordingResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as createRecordingResponse
+}
+
+
+
+export type sendChunkResponse200 = {
+  data: EnvelopeLiveText
+  status: 200
+}
+
+export type sendChunkResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type sendChunkResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type sendChunkResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type sendChunkResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type sendChunkResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type sendChunkResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type sendChunkResponse502 = {
+  data: ErrorResponse
+  status: 502
+}
+
+export type sendChunkResponse503 = {
+  data: ErrorResponse
+  status: 503
+}
+
+export type sendChunkResponseSuccess = (sendChunkResponse200) & {
+  headers: Headers;
+};
+export type sendChunkResponseError = (sendChunkResponse400 | sendChunkResponse401 | sendChunkResponse404 | sendChunkResponse409 | sendChunkResponse422 | sendChunkResponse500 | sendChunkResponse502 | sendChunkResponse503) & {
+  headers: Headers;
+};
+
+export type sendChunkResponse = (sendChunkResponseSuccess | sendChunkResponseError)
+
+export const getSendChunkUrl = (id: string,
+    params?: SendChunkParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/voice/recordings/${id}/chunks?${stringifiedParams}` : `/api/voice/recordings/${id}/chunks`
+}
+
+/**
+ * SendChunk adds samples to a recording and gives its live text. It answers 404 for an unknown recording, 409 when the sequence is not the next one, 503 while the draft converter is not ready, and 502 when it returns an error.
+ */
+export const sendChunk = async (id: string,
+    sendChunkBody: Blob,
+    params?: SendChunkParams, ): Promise<sendChunkResponse> => {
+
+  const res = await fetch(getSendChunkUrl(id,params),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: sendChunkBody
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: sendChunkResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as sendChunkResponse
+}
+
+
+
+export type finishRecordingResponse200 = {
+  data: EnvelopeTranscription
+  status: 200
+}
+
+export type finishRecordingResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type finishRecordingResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type finishRecordingResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type finishRecordingResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type finishRecordingResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type finishRecordingResponse502 = {
+  data: ErrorResponse
+  status: 502
+}
+
+export type finishRecordingResponse503 = {
+  data: ErrorResponse
+  status: 503
+}
+
+export type finishRecordingResponseSuccess = (finishRecordingResponse200) & {
+  headers: Headers;
+};
+export type finishRecordingResponseError = (finishRecordingResponse400 | finishRecordingResponse401 | finishRecordingResponse404 | finishRecordingResponse422 | finishRecordingResponse500 | finishRecordingResponse502 | finishRecordingResponse503) & {
+  headers: Headers;
+};
+
+export type finishRecordingResponse = (finishRecordingResponseSuccess | finishRecordingResponseError)
+
+export const getFinishRecordingUrl = (id: string,) => {
+
+
+
+
+  return `/api/voice/recordings/${id}/finish`
+}
+
+/**
+ * FinishRecording converts the full audio of a recording to text and removes the recording. It answers 404 for an unknown recording, 503 while the converter is not ready, and 502 when the converter returns an error.
+ */
+export const finishRecording = async (id: string, ): Promise<finishRecordingResponse> => {
+
+  const res = await fetch(getFinishRecordingUrl(id),
+  {
+
+    method: 'POST'
+
+
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: finishRecordingResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as finishRecordingResponse
 }
 
 

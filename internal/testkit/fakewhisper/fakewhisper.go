@@ -2,7 +2,9 @@
 //
 // The program writes one line with its arguments to the file program+".starts" at each start.
 // While the file program+".loading" exists, /health answers 503. /inference answers the number of bytes of the WAV
-// file as the text "<n> bytes", and answers 400 for a file that does not start with "RIFF".
+// file as the text "<n> bytes", and answers 400 for a file that does not start with "RIFF". With the form field
+// response_format=verbose_json, it also gives one segment with this text, from 0 to the length of the audio in seconds
+// (16 kHz, mono, 16-bit samples after a header of 44 bytes).
 package fakewhisper
 
 import (
@@ -73,5 +75,11 @@ func inference(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to read audio data"})
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]string{"text": fmt.Sprintf(" %d bytes\n", len(wav))})
+	text := fmt.Sprintf(" %d bytes\n", len(wav))
+	if r.FormValue("response_format") != "verbose_json" {
+		_ = json.NewEncoder(w).Encode(map[string]string{"text": text})
+		return
+	}
+	segment := map[string]any{"start": 0.0, "end": float64(len(wav)-44) / 32000, "text": text}
+	_ = json.NewEncoder(w).Encode(map[string]any{"text": text, "segments": []any{segment}})
 }

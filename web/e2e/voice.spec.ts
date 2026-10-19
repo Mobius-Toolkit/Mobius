@@ -172,6 +172,194 @@ test("the button shows an icon, a name and its state", async ({ page }) => {
   await expect(recording).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 });
 
+type Live = { committed: string; draft: string };
+
+// The server keeps the recording r1. Each chunk gets the next answer of answers, and the last answer repeats. A number
+// is the status of an error answer. finish is the answer of the end of the recording.
+const liveServer = async (
+  page: Page,
+  answers: (Live | number)[],
+  finish: { status?: number; text?: string } = {},
+) => {
+  const seen = { sequences: [] as string[], sizes: [] as number[], finishes: 0 };
+  await page.route("**/api/voice/recordings", (route) =>
+    route.fulfill({ json: { data: { id: "r1" } } }),
+  );
+  await page.route("**/api/voice/recordings/r1/chunks?*", (route) => {
+    const request = route.request();
+    seen.sequences.push(new URL(request.url()).searchParams.get("sequence") ?? "");
+    seen.sizes.push(request.postDataBuffer()?.length ?? 0);
+    const reply = answers[Math.min(seen.sequences.length, answers.length) - 1];
+    return typeof reply === "number"
+      ? route.fulfill({ status: reply, json: { error: "The draft failed" } })
+      : route.fulfill({ json: { data: reply } });
+  });
+  await page.route("**/api/voice/recordings/r1/finish", (route) => {
+    seen.finishes++;
+    return route.fulfill(
+      finish.status
+        ? { status: finish.status, json: { error: finish.text } }
+        : { json: { data: { text: finish.text } } },
+    );
+  });
+  return seen;
+};
+
+// The clock stands still, so a tick of the live text comes only after tick.
+const tick = (page: Page) => page.clock.runFor(2000);
+
+test("the live text shows during the recording and the final text replaces it", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const seen = await liveServer(
+    page,
+    [
+      { committed: "", draft: "red" },
+      { committed: "red", draft: "roses" },
+    ],
+    { text: "Red roses, please." },
+  );
+  await page.goto("/chat");
+  const input = page.getByLabel("Message to the Coordinator");
+  await input.fill("Please");
+  await begin(page);
+  await tick(page);
+  await expect(input).toHaveValue("Please red");
+  await tick(page);
+  await expect(input).toHaveValue("Please red roses");
+  await stop(page).click();
+  await expect(input).toHaveValue("Please Red roses, please.");
+  await expect(start(page)).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(seen.sequences.map(Number)).toEqual(seen.sequences.map((_, i) => i));
+  expect(seen.sequences.length).toBeGreaterThanOrEqual(2);
+  expect(seen.sizes.every((size) => size > 0 && size % 2 === 0)).toBe(true);
+  expect(seen.finishes).toBe(1);
+});
+
+test("text after the voice text stays when the live text changes", async ({ page }) => {
+  await page.clock.install();
+  await liveServer(
+    page,
+    [
+      { committed: "", draft: "red" },
+      { committed: "red", draft: "roses" },
+    ],
+    { text: "Red roses" },
+  );
+  await page.goto("/chat");
+  const input = page.getByLabel("Message to the Coordinator");
+  await input.fill("Plant now");
+  await input.focus();
+  await input.evaluate((field: HTMLTextAreaElement) => field.setSelectionRange(5, 5));
+  await begin(page);
+  await tick(page);
+  await expect(input).toHaveValue("Plant red now");
+  await tick(page);
+  await expect(input).toHaveValue("Plant red roses now");
+  await stop(page).click();
+  await expect(input).toHaveValue("Plant Red roses now");
+});
+
+test("a change of the field during the recording stops the live text", async ({ page }) => {
+  await page.clock.install();
+  const seen = await liveServer(
+    page,
+    [
+      { committed: "", draft: "red" },
+      { committed: "red", draft: "roses" },
+    ],
+    { text: "Red roses" },
+  );
+  await page.goto("/chat");
+  const input = page.getByLabel("Message to the Coordinator");
+  await begin(page);
+  await tick(page);
+  await expect(input).toHaveValue("red");
+  await input.fill("red!");
+  await tick(page);
+  await expect.poll(() => seen.sequences.length).toBe(2);
+  await expect(input).toHaveValue("red!");
+  await stop(page).click();
+  await expect(input).toHaveValue("red! Red roses");
+  await expect(start(page)).toBeVisible();
+});
+
+test("a failed chunk keeps the recording and the stop sends the file for the text", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const seen = await liveServer(page, [{ committed: "", draft: "red" }, 500]);
+  let files = 0;
+  await page.route("**/api/voice/transcriptions", (route) => {
+    files++;
+    return route.fulfill({ json: { data: { text: "red roses" } } });
+  });
+  await page.goto("/chat");
+  const input = page.getByLabel("Message to the Coordinator");
+  await begin(page);
+  await tick(page);
+  await expect(input).toHaveValue("red");
+  await tick(page);
+  await expect.poll(() => seen.sequences.length).toBe(2);
+  await tick(page);
+  await expect(stop(page)).toBeVisible();
+  expect(seen.sequences.length).toBe(2);
+  await stop(page).click();
+  await expect(input).toHaveValue("red roses");
+  await expect(start(page)).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(files).toBe(1);
+  expect(seen.finishes).toBe(0);
+});
+
+test("a recording that the server does not start still gets its text at the stop", async ({
+  page,
+}) => {
+  await page.clock.install();
+  let chunks = 0;
+  await page.route("**/api/voice/recordings", (route) =>
+    route.fulfill({ status: 500, json: { error: "failed" } }),
+  );
+  await page.route("**/api/voice/recordings/*/chunks?*", (route) => {
+    chunks++;
+    return route.abort();
+  });
+  await answer(page, "red roses");
+  await page.goto("/chat");
+  await begin(page);
+  await tick(page);
+  await stop(page).click();
+  await expect(page.getByLabel("Message to the Coordinator")).toHaveValue("red roses");
+  expect(chunks).toBe(0);
+});
+
+for (const [status, message] of [
+  [503, "The speech model is still downloading"],
+  [502, "The converter returned an error"],
+] as const) {
+  test(`an answer ${status} of the end of the recording shows its message`, async ({ page }) => {
+    await page.clock.install();
+    let files = 0;
+    await liveServer(page, [{ committed: "", draft: "red" }], { status, text: message });
+    await page.route("**/api/voice/transcriptions", (route) => {
+      files++;
+      return route.fulfill({ json: { data: { text: "red roses" } } });
+    });
+    await page.goto("/chat");
+    const input = page.getByLabel("Message to the Coordinator");
+    await begin(page);
+    await tick(page);
+    await expect(input).toHaveValue("red");
+    await stop(page).click();
+    await expect(page.getByRole("alert")).toHaveText(message);
+    await expect(input).toHaveValue("red");
+    await expect(start(page)).toBeVisible();
+    expect(files).toBe(0);
+  });
+}
+
 for (const event of ["ended", "mute"]) {
   test(`a track ${event} stops the recording, sends the audio and shows the error`, async ({
     page,
@@ -207,7 +395,7 @@ test("a hidden page stops the recording, sends the audio and shows the error", a
 });
 
 test("a page that hides while the microphone starts stops the recording", async ({ page }) => {
-  await answer(page, "red roses");
+  await liveServer(page, [], { text: "red roses" });
   await page.goto("/chat");
   await page.evaluate(
     "void (window.microphoneGate = new Promise((resolve) => (window.openMicrophone = resolve)))",

@@ -167,9 +167,10 @@ func serve(configPath string) error {
 	}
 	go e.Run(ctx)
 
-	whisper := voice.New(cfg.DataDir, runner.AgentPath(cfg.DataDir, path))
-	whisper.Start()
-	defer whisper.Stop()
+	voicePath := runner.AgentPath(cfg.DataDir, path)
+	recordings := voice.NewRecordings(voice.New(cfg.DataDir, voicePath), voice.NewDraft(cfg.DataDir, voicePath))
+	recordings.Start()
+	defer recordings.Stop()
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM)
 	for _, sig := range []os.Signal{os.Interrupt, syscall.SIGHUP} {
@@ -179,12 +180,12 @@ func serve(configPath string) error {
 	}
 	go func() {
 		<-signals
-		whisper.Stop()
+		recordings.Stop()
 		os.Exit(0)
 	}()
 
 	mux := http.NewServeMux()
-	api.Routes(mux, queries, a, gh, e, whisper)
+	api.Routes(mux, queries, a, gh, e, recordings)
 	mcpServer.Register(mux)
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
