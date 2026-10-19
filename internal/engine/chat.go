@@ -36,6 +36,9 @@ const (
 	// maxCrashes is the number of new sessions that a chat starts after crashes. After that, the item of the crash
 	// goes to the Inbox.
 	maxCrashes = 3
+	// maxLeadStarts is the number of failed starts of a Lead session after which the poll gives the ready events of
+	// the Workstream to the Owner and starts no new Lead session for them.
+	maxLeadStarts = 3
 	// memoryLines is the number of lines of MEMORY.md that a first prompt of the Lead shows.
 	memoryLines = 200
 	// leadFailedKind is the kind of the Inbox item of an item that the Lead did not take.
@@ -1174,24 +1177,92 @@ func (e *Engine) freeClosedQuestionHolds(ctx context.Context, repository string)
 }
 
 // startIdleLeads gives the ready events of each Workstream of the repository that has no running Lead chat to a new
-// Lead chat. A Lead chat that ended with a failed start leaves its ready events undelivered.
+// Lead chat. A Lead chat that ended with a failed start leaves its ready events undelivered. After maxLeadStarts
+// failed starts since the oldest ready event, leadFailed takes the events instead.
 func (e *Engine) startIdleLeads(ctx context.Context, repository string) error {
 	workstreams, err := e.queries.ListWorkstreamsWithReadyLeadEvents(ctx, repository)
 	if err != nil {
 		return err
 	}
 	for _, workstream := range workstreams {
-		e.chatsMu.Lock()
-		_, running := e.chats[leadChat(repository, workstream)]
-		e.chatsMu.Unlock()
-		if running {
-			continue
-		}
-		if err := e.wakeEvents(ctx, repository, workstream); err != nil {
+		if err := e.startIdleLead(ctx, repository, workstream); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// startIdleLead wakes the Lead of the Workstream, or calls leadFailed after maxLeadStarts failed starts. It holds
+// e.chatOrder from the read of the ready events to their delivery, so a new event cannot join the events that the
+// count used.
+func (e *Engine) startIdleLead(ctx context.Context, repository string, workstream int64) error {
+	e.chatOrder.Lock()
+	defer e.chatOrder.Unlock()
+	e.chatsMu.Lock()
+	_, running := e.chats[leadChat(repository, workstream)]
+	e.chatsMu.Unlock()
+	if running {
+		return nil
+	}
+	events, err := e.queries.ListReadyLeadEvents(ctx, store.ListReadyLeadEventsParams{Repository: repository, Workstream: workstream})
+	if err != nil || len(events) == 0 {
+		return err
+	}
+	failed, err := e.failedLeadStarts(ctx, repository, workstream, events)
+	if err != nil {
+		return err
+	}
+	if failed >= maxLeadStarts {
+		return e.leadFailed(ctx, item{event: &events[0]})
+	}
+	return e.sendEvents(ctx, repository, workstream)
+}
+
+// failedLeadStarts counts the Lead sessions of the Workstream that failed before their first prompt and started after
+// the oldest of events and after the last delivery of a Lead event of the Workstream.
+func (e *Engine) failedLeadStarts(ctx context.Context, repository string, workstream int64, events []store.LeadEvent) (int, error) {
+	since := time.Time{}
+	for _, event := range events {
+		eventTime, err := time.Parse(time.RFC3339Nano, event.Time)
+		if err != nil {
+			return 0, err
+		}
+		if since.IsZero() || eventTime.Before(since) {
+			since = eventTime
+		}
+	}
+	delivery, err := e.queries.GetLastLeadEventDelivery(ctx, store.GetLastLeadEventDeliveryParams{Repository: repository, Workstream: workstream})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
+	if delivery.Valid {
+		deliveredAt, err := time.Parse(time.RFC3339Nano, delivery.String)
+		if err != nil {
+			return 0, err
+		}
+		if deliveredAt.After(since) {
+			since = deliveredAt
+		}
+	}
+	starts, err := e.queries.ListFailedLeadStarts(ctx, store.ListFailedLeadStartsParams{
+		Repository: repository,
+		Workstream: workstream,
+		Since:      since.UTC().Format("2006-01-02T15:04:05"),
+	})
+	if err != nil {
+		return 0, err
+	}
+	failed := 0
+	for _, start := range starts {
+		startedAt, err := time.Parse(time.RFC3339Nano, start)
+		if err != nil {
+			return 0, err
+		}
+		if !startedAt.Before(since) {
+			failed++
+		}
+	}
+	return failed, nil
 }
 
 // freeAndSend frees the held events of the Workstream and gives them to its running Lead chat. Else a new Lead chat

@@ -1684,6 +1684,24 @@ func (q *Queries) GetLastDoneCuratorStart(ctx context.Context, repository string
 	return started_at, err
 }
 
+const getLastLeadEventDelivery = `-- name: GetLastLeadEventDelivery :one
+SELECT delivered_at FROM lead_events
+WHERE repository = ? AND workstream = ? AND delivered_at IS NOT NULL
+ORDER BY julianday(delivered_at) DESC LIMIT 1
+`
+
+type GetLastLeadEventDeliveryParams struct {
+	Repository string
+	Workstream int64
+}
+
+func (q *Queries) GetLastLeadEventDelivery(ctx context.Context, arg GetLastLeadEventDeliveryParams) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, getLastLeadEventDelivery, arg.Repository, arg.Workstream)
+	var delivered_at sql.NullString
+	err := row.Scan(&delivered_at)
+	return delivered_at, err
+}
+
 const getLastTaskState = `-- name: GetLastTaskState :one
 SELECT state FROM task_states WHERE task = ? ORDER BY id DESC LIMIT 1
 `
@@ -3255,6 +3273,44 @@ func (q *Queries) ListEventsAfter(ctx context.Context, id int64) ([]Event, error
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFailedLeadStarts = `-- name: ListFailedLeadStarts :many
+SELECT started_at FROM sessions AS session
+WHERE session.repository = ?1 AND session.workstream = ?2 AND session.role = 'lead_chat'
+  AND session.end_reason = 'failed' AND session.started_at >= ?3
+  AND NOT EXISTS (SELECT 1 FROM transcript WHERE transcript.session = session.id AND transcript.kind = 'prompt')
+`
+
+type ListFailedLeadStartsParams struct {
+	Repository string
+	Workstream int64
+	Since      string
+}
+
+// A failed start of a Lead session gets no first prompt. Compare the started_at texts with the bound only as a wide
+// range, because the fractions of the times have no fixed length.
+func (q *Queries) ListFailedLeadStarts(ctx context.Context, arg ListFailedLeadStartsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listFailedLeadStarts, arg.Repository, arg.Workstream, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var started_at string
+		if err := rows.Scan(&started_at); err != nil {
+			return nil, err
+		}
+		items = append(items, started_at)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
