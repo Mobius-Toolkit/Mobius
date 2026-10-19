@@ -39,12 +39,10 @@ function useKeyboardHeight() {
 function Decide({
   itemId,
   action,
-  title,
   onClose,
 }: {
   itemId: number;
   action: PendingAction;
-  title: string;
   onClose: () => void;
 }) {
   const { leaveInbox } = useShell();
@@ -69,11 +67,9 @@ function Decide({
       {decision && (
         <DecisionInput
           action={action}
-          title={title}
           decision={decision}
           error={error}
           onError={setError}
-          clear={() => setDecision(undefined)}
           decided={(next) => {
             if (next.state === "pending") {
               setError(next.error);
@@ -148,9 +144,7 @@ export function AnswerPanel({
             </a>
           )}
         </div>
-        {input && item.action && (
-          <Decide itemId={item.id} action={item.action} title={item.title} onClose={onClose} />
-        )}
+        {input && item.action && <Decide itemId={item.id} action={item.action} onClose={onClose} />}
         {input && !item.action && (
           <MessageInput
             draftKey={answerDraftKey(item.id)}

@@ -106,6 +106,9 @@ export function routeCards(page: Page, ...actions: Action[]) {
   });
 }
 
+export const createTitle = 'Create the Workstream "Gift cards"';
+export const messageTitle = "Message to the Lead of #12";
+
 export const approvalItem = (action: Action) => ({
   dismissedAt: null,
   id: 300 + action.id,
@@ -115,7 +118,7 @@ export const approvalItem = (action: Action) => ({
   issue: 0,
   kind: "approval",
   time: action.time,
-  title: action.tool === "message_lead" ? "Plans in cents" : "Gift cards",
+  title: action.tool === "message_lead" ? messageTitle : createTitle,
   reason: "Waits for the approval",
   text: action.arguments
     .map((argument) => `**${argument.name}**\n\n${argument.value}`)

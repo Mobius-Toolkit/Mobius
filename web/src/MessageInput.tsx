@@ -1,5 +1,5 @@
 import { ArrowUpIcon, MicIcon, PaperclipIcon, SquareIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,12 +47,11 @@ function Thumbnail({
 // The text field with the voice button and the Send button. The field keeps its text under draftKey. When onStop is
 // set and the field is empty, the Send button stops the reply. error is the text of a failure that the parent shows
 // under the field. The input gives its own failures to onError. When onSend gives a promise, the field gets the text
-// back if the promise gives false. heading is a line above the field. With sendEmpty, an empty field can send.
+// back if the promise gives false. With sendEmpty, an empty field can send.
 export function MessageInput({
   draftKey,
   label,
   placeholder,
-  heading,
   sendEmpty,
   images: withImages,
   error,
@@ -64,7 +63,6 @@ export function MessageInput({
   draftKey: string;
   label: string;
   placeholder: string;
-  heading?: ReactNode;
   sendEmpty?: boolean;
   images: boolean;
   error: string;
@@ -244,7 +242,6 @@ export function MessageInput({
         />
       )}
       <div className="grid gap-1 rounded-2xl border border-input bg-background p-2 transition-colors has-[textarea:focus-visible]:border-ring dark:bg-input/30">
-        {heading}
         {images.length > 0 && (
           <div className="flex flex-wrap gap-2 pb-1">
             {images.map((image, index) => (

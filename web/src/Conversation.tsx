@@ -799,16 +799,20 @@ export function Conversation({
           </Badge>
         )}
       </div>
-      {footer}
-      <ActionTray rows={rows} choice={choice} choose={choose} show={showAction} />
+      {!selected && footer}
+      <ActionTray
+        rows={rows}
+        choice={choice}
+        choose={choose}
+        clear={() => setChoice(undefined)}
+        show={showAction}
+      />
       {choice && selected ? (
         <DecisionInput
           action={selected.action}
-          title={selected.title}
           decision={choice.decision}
           error={sendError}
           onError={setSendError}
-          clear={() => setChoice(undefined)}
           decided={(action) => decided(selected, action)}
         />
       ) : (

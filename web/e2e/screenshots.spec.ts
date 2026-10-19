@@ -3,10 +3,12 @@ import {
   approvalItem,
   approvalItems,
   chatRoute,
+  createTitle,
   createWorkstream,
   done,
   failed,
   messageLead,
+  messageTitle,
   rejected,
   routeCards,
   triagerItem,
@@ -492,15 +494,14 @@ test("screenshots", async ({ page }) => {
   // The routes add the sample cards and items of the approval. They change no row of the server.
   const card = main.locator(`[data-action="${createWorkstream.id}"]`);
   const tray = page.getByRole("heading", { name: /^Waits for you/ });
-  const row = (tool: string) => main.getByRole("listitem").filter({ hasText: tool });
+  const row = (title: string) => main.getByRole("listitem").filter({ hasText: title });
   const note = page.getByRole("textbox", { name: "Note for the Coordinator" });
   const approvalReady = (device: string, count = "3") => [
     chatCount,
     ...frame(device, drain, {}, count),
-    tray,
   ];
-  const choose = (tool: string, button: string, text: string) => async () => {
-    await row(tool).getByRole("button", { name: button }).click();
+  const choose = (title: string, button: string, text: string) => async () => {
+    await row(title).getByRole("button", { name: button }).click();
     await note.fill(text);
   };
   const clearNote = async () => {
@@ -524,7 +525,7 @@ test("screenshots", async ({ page }) => {
     ...approvalReady(device),
     page.getByRole("heading", { name: "Waits for you (2)" }),
     card.getByRole("button", { name: "Show all" }),
-    row("message_lead"),
+    row(messageTitle),
   ]);
   await screenshot(
     page,
@@ -532,10 +533,10 @@ test("screenshots", async ({ page }) => {
     "/chat",
     (device) => [
       ...approvalReady(device),
-      page.getByText("Approve create_workstream · Gift cards"),
+      page.getByRole("heading", { name: `Approve: ${createTitle}` }),
       note,
     ],
-    choose("create_workstream", "Approve", "Go ahead."),
+    choose(createTitle, "Approve", "Go ahead."),
     clearNote,
   );
   await screenshot(
@@ -544,10 +545,10 @@ test("screenshots", async ({ page }) => {
     "/chat",
     (device) => [
       ...approvalReady(device),
-      page.getByText("Reject message_lead · Plans in cents"),
+      page.getByRole("heading", { name: `Reject: ${messageTitle}` }),
       note,
     ],
-    choose("message_lead", "Reject", "Wait for the migration of #12."),
+    choose(messageTitle, "Reject", "Wait for the migration of #12."),
     clearNote,
   );
   await screenshot(
@@ -556,6 +557,7 @@ test("screenshots", async ({ page }) => {
     "/chat",
     (device) => [
       ...approvalReady(device),
+      tray,
       card.getByRole("button", { name: "Show less" }),
       card.getByText("A Playwright test buys a gift card and pays an order with its code."),
     ],
@@ -580,7 +582,7 @@ test("screenshots", async ({ page }) => {
       page,
       `action-${name}`,
       "/chat",
-      (device) => [...approvalReady(device, decided ? "2" : "3"), card.getByText(text)],
+      (device) => [...approvalReady(device, decided ? "2" : "3"), tray, card.getByText(text)],
       showEnd,
     );
   }
@@ -591,8 +593,8 @@ test("screenshots", async ({ page }) => {
     chatCount,
     ...frame(device, drain, { organizations: true }, "4"),
     main.getByRole("tab", { name: "To do 4" }),
-    row("create_workstream").first(),
-    row("message_lead"),
+    row(createTitle).first(),
+    row(messageTitle),
   ]);
   await screenshot(
     page,
@@ -603,7 +605,7 @@ test("screenshots", async ({ page }) => {
       page.getByRole("dialog").getByRole("textbox", { name: "Note for the Triager" }),
     ],
     async () => {
-      await row("create_workstream").last().getByRole("button", { name: "Open" }).click();
+      await row(createTitle).last().getByRole("button", { name: "Open" }).click();
       await page.getByRole("dialog").getByRole("button", { name: "Reject" }).click();
       await page
         .getByRole("dialog")
