@@ -83,6 +83,24 @@ test("the Inbox shows the cards and an item leaves after the decision", async ({
   expect(bodies).toEqual([{ message: "" }]);
 });
 
+test("the Inbox keeps an item and shows the error when the action fails", async ({ page }) => {
+  await routeInboxItems(page, approvalItems);
+  routeDecision(page, messageLead, "approve", {
+    ...messageLead,
+    error: "403 API rate limit exceeded",
+  });
+
+  await page.goto("/inbox");
+  const main = page.getByRole("main");
+  const row = main.getByRole("listitem").filter({ hasText: "message_lead" });
+  await row.getByRole("button", { name: "Approve" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Approve" }).click();
+
+  await expect(row.getByRole("alert")).toHaveText("403 API rate limit exceeded");
+  await expect(row.getByRole("button", { name: "Approve" })).toBeVisible();
+  await expect(main.getByRole("tab", { name: "To do 3" })).toBeVisible();
+});
+
 test("the phone shows the full Brief with no horizontal scroll", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await routeCards(page, createWorkstream);

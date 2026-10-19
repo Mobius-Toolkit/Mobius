@@ -242,7 +242,9 @@ export function InboxRow({
         <ActionDialog
           action={item.action}
           decision={decision}
-          onDecided={() => leaveInbox(item.id)}
+          onDecided={(next) =>
+            next.state === "pending" ? setRefusal(next.error) : leaveInbox(item.id)
+          }
           onClose={() => setDecision(null)}
         />
       )}
