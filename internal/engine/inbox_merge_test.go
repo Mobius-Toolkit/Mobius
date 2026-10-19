@@ -115,6 +115,7 @@ func TestTheMergeRouteRefusesATaskThatLeftReadyForReviewAndSendsNoReview(t *test
 	server, item := readyToMerge(t, fake, leadFindings)
 	sendChat(t, server, leadChat, "Send the findings to #41")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) != "ready_for_review" })
+	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "ready for review")) == 0 })
 
 	status, body := merge(t, server, item.ID)
 

@@ -312,6 +312,9 @@ func (e *Engine) runJudge(ctx context.Context, j judgeJob) {
 		err = e.handBackToHuman(ended, j, reason)
 	} else {
 		err = e.handOver(ended, j.task, j.title, reason, notice)
+		if err == nil {
+			err = e.dismissReadyForReview(ended, j.task, j.from)
+		}
 	}
 	if err != nil {
 		log.Printf("stop of %s#%d: %v", j.task.Repository, j.task.Issue, err)
@@ -526,7 +529,10 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 	if err != nil {
 		return err
 	}
-	return e.fixRound(ctx, repository, round{task: j.task, title: j.title, pullRequest: j.pullRequest, counts: counts, items: roundText(j.items, routes.round), parent: parent, cause: judgeCause})
+	if err := e.fixRound(ctx, repository, round{task: j.task, title: j.title, pullRequest: j.pullRequest, counts: counts, items: roundText(j.items, routes.round), parent: parent, cause: judgeCause}); err != nil {
+		return err
+	}
+	return e.dismissReadyForReview(ctx, j.task, j.from)
 }
 
 // roundText gives the prompt text of the items of the round with their actions.

@@ -1992,48 +1992,6 @@ func (q *Queries) GetSyncCursor(ctx context.Context, arg GetSyncCursorParams) (G
 	return i, err
 }
 
-const getTask = `-- name: GetTask :one
-SELECT id, repository, issue, workstream, state, dispatched_at, branch, queued_at, fix_rounds, pull_request, judged_at, worker_restarts, worker, worker_input, review_rounds, review_comment, check_head, approved_review, refused_review, needs_human_at, conflict_head, ci_failed_head, state_at, long_wait_at, check_errors, lead_findings, recoveries, break_wait_head, rerun_head, rerun_runs FROM tasks WHERE id = ?
-`
-
-func (q *Queries) GetTask(ctx context.Context, id int64) (Task, error) {
-	row := q.db.QueryRowContext(ctx, getTask, id)
-	var i Task
-	err := row.Scan(
-		&i.ID,
-		&i.Repository,
-		&i.Issue,
-		&i.Workstream,
-		&i.State,
-		&i.DispatchedAt,
-		&i.Branch,
-		&i.QueuedAt,
-		&i.FixRounds,
-		&i.PullRequest,
-		&i.JudgedAt,
-		&i.WorkerRestarts,
-		&i.Worker,
-		&i.WorkerInput,
-		&i.ReviewRounds,
-		&i.ReviewComment,
-		&i.CheckHead,
-		&i.ApprovedReview,
-		&i.RefusedReview,
-		&i.NeedsHumanAt,
-		&i.ConflictHead,
-		&i.CiFailedHead,
-		&i.StateAt,
-		&i.LongWaitAt,
-		&i.CheckErrors,
-		&i.LeadFindings,
-		&i.Recoveries,
-		&i.BreakWaitHead,
-		&i.RerunHead,
-		&i.RerunRuns,
-	)
-	return i, err
-}
-
 const handTaskToHuman = `-- name: HandTaskToHuman :execrows
 UPDATE tasks SET state = 'needs_human', needs_human_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = ?1 AND state = ?2

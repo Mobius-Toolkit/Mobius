@@ -111,3 +111,29 @@ func TestAStopOfATaskInReadyForReviewDismissesTheItem(t *testing.T) {
 		t.Errorf("items = %+v", items)
 	}
 }
+
+func TestAJudgeThatRunsFromReadyForReviewAndStartsAFixRoundDismissesTheItem(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectJudge(t, fake, `call = { tool = "submit_verdicts", arguments = { items = [
+    { item = 3, actions = [{ verdict = "fix", text = "Rename the field." }] },
+] } }
+`, fixesEach, noChange)
+	sendChat(t, server, leadChat, "Approve #41")
+	item := waitForItem(t, server, "ready for review")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "ready_for_review" })
+
+	fake.AddReviewComment(shop, 42, 0, bot, "Rename plan to tier.")
+
+	testkit.WaitFor(t, func() bool {
+		for _, open := range itemsOf(t, server, "ready for review") {
+			if open.ID == item.ID {
+				return false
+			}
+		}
+		return true
+	})
+	if len(judgePrompts(t, server)) != 1 {
+		t.Errorf("Judge prompts = %q", judgePrompts(t, server))
+	}
+}

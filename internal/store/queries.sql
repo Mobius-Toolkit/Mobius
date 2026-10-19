@@ -119,9 +119,6 @@ RETURNING *;
 -- name: ListTranscript :many
 SELECT * FROM transcript WHERE session = ? ORDER BY id;
 
--- name: GetTask :one
-SELECT * FROM tasks WHERE id = ?;
-
 -- name: GetLiveTask :one
 SELECT * FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended';
 

@@ -235,7 +235,7 @@ func (e *Engine) startRound(ctx context.Context, repository github.Repository, r
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: r.task.State, ID: r.task.ID, FromState: "working"})
 		return false, errors.Join(err, stateErr)
 	}
-	return true, nil
+	return true, e.dismissReadyForReview(ctx, r.task, r.task.State)
 }
 
 // startKeptRound starts a fix round with the findings that the Lead kept on the task of the round, when it has some. The
@@ -641,10 +641,8 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 		return err
 	}
 	e.publishReadyForReview(task.State, "queued")
-	if task.State == "ready_for_review" {
-		if err := e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind); err != nil {
-			return err
-		}
+	if err := e.dismissReadyForReview(ctx, task, task.State); err != nil {
+		return err
 	}
 	if err := resumeWork(ctx, repository, task); err != nil {
 		return err

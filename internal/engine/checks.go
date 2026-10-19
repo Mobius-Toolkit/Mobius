@@ -138,6 +138,9 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	if found {
 		e.addCIStep(ctx, task, implementer, "failure")
 	}
+	if err := e.dismissReadyForReview(ctx, task, task.State); err != nil {
+		return true, err
+	}
 	return true, e.queries.SetTaskCheckHead(ctx, store.SetTaskCheckHeadParams{CheckHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
 }
 
