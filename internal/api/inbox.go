@@ -49,6 +49,10 @@ type InboxItem struct {
 	Time time.Time `gork:"time"`
 	// DismissedAt is the time when the Owner dismissed the item, or null
 	DismissedAt *time.Time `gork:"dismissedAt"`
+	// Merging is true after the Owner sent the approval of the pull request, until GitHub refuses the merge
+	Merging bool `gork:"merging"`
+	// MergeRefusal is the reason of the last refusal of GitHub to merge the pull request, or empty
+	MergeRefusal string `gork:"mergeRefusal"`
 }
 
 // ListInboxRequest is the request of ListInbox.
@@ -155,6 +159,42 @@ func (h *handlers) AnswerInboxItem(ctx context.Context, req AnswerInboxItemReque
 	return &AnswerInboxItemResponse{Body: Envelope[AnsweredComment]{Data: AnsweredComment{URL: url}}}, nil
 }
 
+// MergeInboxItemRequest is the request of MergeInboxItem.
+type MergeInboxItemRequest struct {
+	Path struct {
+		// ID is the id of the Inbox item
+		ID int64 `gork:"id"`
+	}
+}
+
+// MergeInboxItemResponse is the response of MergeInboxItem.
+type MergeInboxItemResponse struct {
+	Body Envelope[InboxItem]
+}
+
+// MergeInboxItem approves the pull request of a ready for review Inbox item with the user token of the Owner, so the
+// Owner must authorize the Mobius App first. Mobius then merges the pull request with the checks of an approval on
+// GitHub. It returns the item in the merging state. It returns 404 for an unknown item, and 409 with the reason for an
+// item that is not open, for a task that is not ready for review, for a pull request that is not open, and when the
+// Owner did not authorize the App.
+func (h *handlers) MergeInboxItem(ctx context.Context, req MergeInboxItemRequest) (*MergeInboxItemResponse, error) {
+	item, err := h.engine.MergeInboxItem(ctx, req.Path.ID)
+	if errors.Is(err, engine.ErrNoInboxItem) {
+		return nil, api.NewHTTPError(http.StatusNotFound, "The Inbox has no such item.")
+	}
+	if engine.Refused(err) {
+		return nil, api.NewHTTPError(http.StatusConflict, err.Error())
+	}
+	if err != nil {
+		return nil, err
+	}
+	found, err := h.inboxItemOf(item)
+	if err != nil {
+		return nil, err
+	}
+	return &MergeInboxItemResponse{Body: Envelope[InboxItem]{Data: found}}, nil
+}
+
 func (h *handlers) inboxItemOf(item store.InboxItem) (InboxItem, error) {
 	t, err := time.Parse(time.RFC3339Nano, item.Time)
 	if err != nil {
@@ -174,6 +214,8 @@ func (h *handlers) inboxItemOf(item store.InboxItem) (InboxItem, error) {
 		PullRequest:  item.PullRequest,
 		ReportURL:    item.ReportLink,
 		Time:         t,
+		Merging:      item.Merging != 0,
+		MergeRefusal: item.MergeRefusal,
 	}
 	if item.PullRequest != 0 {
 		// The web URL of a pull request differs from the web URL of its issue only in the path.

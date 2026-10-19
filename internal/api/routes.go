@@ -55,6 +55,7 @@ func Routes(mux *http.ServeMux, queries *store.Queries, a *auth.Auth, gh *github
 	r.Get("/api/inbox", h.ListInbox, loggedIn("inbox")...)
 	r.Post("/api/inbox/{id}/dismiss", h.Dismiss, loggedIn("inbox")...)
 	r.Post("/api/inbox/{id}/send", h.SendAgain, loggedIn("inbox")...)
+	r.Post("/api/inbox/{id}/merge", h.MergeInboxItem, append(loggedIn("inbox"), api.WithErrorResponses(http.StatusNotFound, http.StatusConflict))...)
 	r.Post("/api/inbox/{id}/answer", h.AnswerInboxItem, append(loggedIn("inbox"), api.WithErrorResponses(http.StatusBadRequest, http.StatusNotFound, http.StatusConflict))...)
 	r.Get("/api/pauses", h.ListPauses, loggedIn("pauses")...)
 	r.Post("/api/pauses/{harness}/resume", h.Resume, loggedIn("pauses")...)

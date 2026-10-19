@@ -135,6 +135,7 @@ type FakeGitHub struct {
 	comparedCommits  []string
 	holds            map[issueKey]*hold
 	threadHolds      map[issueKey][]*hold
+	mergeHolds       map[issueKey][]*hold
 	issueHolds       map[issueKey]*hold
 	// rateLimited tells if each request gets the rate-limit answer.
 	rateLimited bool
@@ -248,6 +249,7 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		labelWrites:             map[issueKey]int{},
 		holds:                   map[issueKey]*hold{},
 		threadHolds:             map[issueKey][]*hold{},
+		mergeHolds:              map[issueKey][]*hold{},
 		issueHolds:              map[issueKey]*hold{},
 		hangs:                   map[string]bool{},
 		routeHolds:              map[string]chan struct{}{},

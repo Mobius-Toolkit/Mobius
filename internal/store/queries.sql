@@ -211,6 +211,10 @@ RETURNING *;
 UPDATE inbox_items SET dismissed_at = NULL WHERE id = ?
 RETURNING *;
 
+-- name: SetInboxItemMerge :one
+UPDATE inbox_items SET merging = ?, merge_refusal = ? WHERE id = ?
+RETURNING *;
+
 -- name: GetNewestInboxItem :one
 SELECT * FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1;
 

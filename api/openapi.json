@@ -1488,6 +1488,82 @@
         ]
       }
     },
+    "/api/inbox/{id}/merge": {
+      "post": {
+        "description": "MergeInboxItem approves the pull request of a ready for review Inbox item with the user token of the Owner, so the Owner must authorize the Mobius App first. Mobius then merges the pull request with the checks of an approval on GitHub. It returns the item in the merging state. It returns 404 for an unknown item, and 409 with the reason for an item that is not open, for a task that is not ready for review, for a pull request that is not open, and when the Owner did not authorize the App.",
+        "operationId": "MergeInboxItem",
+        "parameters": [
+          {
+            "description": "ID is the id of the Inbox item",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_InboxItem"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "inbox"
+        ]
+      }
+    },
     "/api/inbox/{id}/send": {
       "post": {
         "description": "SendAgain adds the Owner message of an open Lead failed item to its chat again, with the same text and images, and removes the item from the Inbox. It returns 409 for an item that is not an open Lead failed item with a message, and while Mobius restarts for an upgrade.",
@@ -4533,6 +4609,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_InboxItem": {
+        "type": "object",
+        "title": "Envelope_InboxItem",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/InboxItem",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_ManifestForm": {
         "type": "object",
         "title": "Envelope_ManifestForm",
@@ -4747,6 +4837,14 @@
             "type": "string",
             "description": "Link is the GitHub URL of the issue, or empty"
           },
+          "mergeRefusal": {
+            "type": "string",
+            "description": "MergeRefusal is the reason of the last refusal of GitHub to merge the pull request, or empty"
+          },
+          "merging": {
+            "type": "boolean",
+            "description": "Merging is true after the Owner sent the approval of the pull request, until GitHub refuses the merge"
+          },
           "organization": {
             "type": "string",
             "description": "Organization is the owner of the repository"
@@ -4804,7 +4902,9 @@
           "pullRequestUrl",
           "reportUrl",
           "time",
-          "dismissedAt"
+          "dismissedAt",
+          "merging",
+          "mergeRefusal"
         ],
         "description": "InboxItem is an item of the Inbox of the Owner."
       },

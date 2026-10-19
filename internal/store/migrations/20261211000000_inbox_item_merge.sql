@@ -1,0 +1,2 @@
+ALTER TABLE inbox_items ADD COLUMN merging INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE inbox_items ADD COLUMN merge_refusal TEXT NOT NULL DEFAULT '';
