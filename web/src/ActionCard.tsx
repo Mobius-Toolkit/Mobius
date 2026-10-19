@@ -16,6 +16,17 @@ function actionState(action: PendingAction) {
   return { done: "Done", rejected: "Rejected", replaced: "Replaced" }[action.state];
 }
 
+const isShort = (value: string) => !value.includes("\n") && value.length <= 80;
+
+export function FullArgument({ name, value }: { name: string; value: string }) {
+  return (
+    <div className="grid min-w-0 gap-0.5">
+      <span className="text-xs text-muted-foreground">{name}</span>
+      {isShort(value) ? <span className="wrap-anywhere">{value}</span> : <Markdown text={value} />}
+    </div>
+  );
+}
+
 function Argument({
   name,
   value,
@@ -39,13 +50,8 @@ function Argument({
     return () => observer.disconnect();
   }, []);
 
-  if (!value.includes("\n") && value.length <= 80) {
-    return (
-      <div className="grid min-w-0 gap-0.5">
-        <span className="text-xs text-muted-foreground">{name}</span>
-        <span className="wrap-anywhere">{value}</span>
-      </div>
-    );
+  if (isShort(value)) {
+    return <FullArgument name={name} value={value} />;
   }
   return (
     <div className="grid min-w-0 gap-0.5">
@@ -71,19 +77,9 @@ function Outcome({ label, text }: { label: string; text: string }) {
   );
 }
 
-// The record of the action in the chat history. The Owner decides in the tray above the composer.
-export function ActionCard({
-  message,
-  action,
-  opened,
-}: {
-  message: ActionMessage;
-  action: PendingAction;
-  opened: boolean;
-}) {
-  const [open, setOpen] = useState<string[]>(
-    opened ? action.arguments.map((argument) => argument.name) : [],
-  );
+// The record of the action in the chat history. The Owner decides in the panel that the tray opens.
+export function ActionCard({ message, action }: { message: ActionMessage; action: PendingAction }) {
+  const [open, setOpen] = useState<string[]>([]);
   const failed = action.state === "pending" && action.error !== "";
 
   return (

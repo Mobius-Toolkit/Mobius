@@ -19,7 +19,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { flushSync } from "react-dom";
 import {
   getChat,
   getGetChatImageUrl,
@@ -33,12 +32,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import {
-  type ActionMessage,
-  type Approval,
-  type Decision,
-  type PendingAction,
-} from "@/lib/actions";
+import type { ActionMessage, Approval, PendingAction } from "@/lib/actions";
 import { chatDraftKey } from "@/lib/draft";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
@@ -52,11 +46,10 @@ import {
 } from "@/lib/outbox";
 import { atEnd } from "@/lib/scroll";
 import { clock, clockSeconds, dayClock, dayLabel, localTimes } from "@/lib/time";
-import { useShell } from "@/lib/shell";
 import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
 import { ActionCard } from "./ActionCard";
-import { ActionTray, DecisionInput, type Choice } from "./ActionTray";
+import { ActionTray } from "./ActionTray";
 import { AnswerPanel } from "./AnswerPanel";
 import { FileImage } from "./FileImage";
 import { Markdown } from "./Markdown";
@@ -111,15 +104,9 @@ function OwnerState({ message }: { message: ChatMessage }) {
   );
 }
 
-const Message = memo(function Message({
-  message,
-  opened,
-}: {
-  message: ActionMessage;
-  opened: boolean;
-}) {
+const Message = memo(function Message({ message }: { message: ActionMessage }) {
   if (message.action) {
-    return <ActionCard message={message} action={message.action} opened={opened} />;
+    return <ActionCard message={message} action={message.action} />;
   }
   const event = message.author === "Event";
   const [summary, ...rest] = message.text.split("\n");
@@ -294,7 +281,6 @@ export function Conversation({
   approvals?: Approval[];
 }) {
   const showLogin = use(LoginContext);
-  const { leaveInbox } = useShell();
   const [messages, setMessages] = useState<ActionMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
   // older is true when the chat has messages before the first loaded message.
@@ -315,12 +301,9 @@ export function Conversation({
   // Ends the wait before the next try of the first message.
   const skipWait = useRef<() => void>(undefined);
   const [briefOpen, setBriefOpen] = useState<boolean>();
-  const [choice, setChoice] = useState<Choice>();
   // The actions after a decision of the Owner, by action id. They show at once, before the list gets the new state.
   const [outcomes, setOutcomes] = useState<Record<number, PendingAction>>({});
-  // How many times the Owner pressed Show on a card. A card with a new count opens its values.
-  const [reveals, setReveals] = useState<Record<number, number>>({});
-  const [shownItem, setShownItem] = useState<Approval>();
+  const [answering, setAnswering] = useState<Approval>();
   const listRef = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   // The scrollTop of the last scroll to the end. A scroll event can come after an image has made the list longer.
@@ -644,31 +627,6 @@ export function Conversation({
     .map((item) => ({ ...item, action: outcomes[item.action.id] ?? item.action }))
     .filter((item) => item.action.state === "pending")
     .toSorted((a, b) => a.id - b.id);
-  const selected = choice && rows.find((item) => item.id === choice.id);
-
-  const choose = (id: number, decision: Decision) => {
-    setSendError("");
-    setChoice(choice?.id === id && choice.decision === decision ? undefined : { id, decision });
-  };
-
-  const showAction = (item: Approval) => {
-    const id = item.action.id;
-    const list = listRef.current;
-    if (!list || !messages.some((message) => message.action?.id === id)) {
-      setShownItem(item);
-      return;
-    }
-    flushSync(() => setReveals((current) => ({ ...current, [id]: (current[id] ?? 0) + 1 })));
-    list.querySelector(`[data-action="${id}"]`)?.scrollIntoView({ block: "start" });
-  };
-
-  const decided = (item: Approval, action: PendingAction) => {
-    setOutcomes((current) => ({ ...current, [action.id]: action }));
-    if (action.state !== "pending") {
-      setChoice(undefined);
-      leaveInbox(item.id);
-    }
-  };
 
   const discard = (item: Waiting) => {
     removeQueued(item.id)
@@ -753,13 +711,11 @@ export function Conversation({
                 <DaySeparator label={label} />
               )}
               <Message
-                key={`${message.id}:${message.action ? (reveals[message.action.id] ?? 0) : 0}`}
                 message={
                   message.action && outcomes[message.action.id]
                     ? { ...message, action: outcomes[message.action.id] }
                     : message
                 }
-                opened={message.action ? (reveals[message.action.id] ?? 0) > 0 : false}
               />
             </Fragment>
           );
@@ -799,41 +755,26 @@ export function Conversation({
           </Badge>
         )}
       </div>
-      {!selected && footer}
-      <ActionTray
-        rows={rows}
-        choice={choice}
-        choose={choose}
-        clear={() => setChoice(undefined)}
-        show={showAction}
+      {footer}
+      <ActionTray rows={rows} answer={setAnswering} />
+      <MessageInput
+        draftKey={chatDraftKey(organization, repository, workstream)}
+        label={`Message to the ${agent}`}
+        placeholder={`Write to the ${agent}`}
+        images
+        error={sendError}
+        onError={setSendError}
+        stopping={stopping}
+        onStop={stoppable ? stop : undefined}
+        onSend={send}
       />
-      {choice && selected ? (
-        <DecisionInput
-          action={selected.action}
-          decision={choice.decision}
-          error={sendError}
-          onError={setSendError}
-          decided={(action) => decided(selected, action)}
-        />
-      ) : (
-        <MessageInput
-          draftKey={chatDraftKey(organization, repository, workstream)}
-          label={`Message to the ${agent}`}
-          placeholder={`Write to the ${agent}`}
-          images
-          error={sendError}
-          onError={setSendError}
-          stopping={stopping}
-          onStop={stoppable ? stop : undefined}
-          onSend={send}
-        />
-      )}
-      {shownItem && (
+      {answering && (
         <AnswerPanel
-          item={shownItem}
-          input={false}
-          workstream={brief?.title ?? agent}
-          onClose={() => setShownItem(undefined)}
+          item={answering}
+          input
+          workstream={agent}
+          onClose={() => setAnswering(undefined)}
+          onDecided={(action) => setOutcomes((current) => ({ ...current, [action.id]: action }))}
         />
       )}
     </section>

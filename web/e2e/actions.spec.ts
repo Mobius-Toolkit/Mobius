@@ -10,6 +10,7 @@ import {
   routeCards,
   routeDecision,
 } from "./actions.js";
+import { fakeMicrophone } from "./microphone.js";
 import { routeInboxItems } from "./stops.js";
 
 test.beforeEach(async ({ page }) => {
@@ -20,10 +21,14 @@ test.beforeEach(async ({ page }) => {
   await page.route("/api/chat/seen", (route) => route.fulfill({ status: 204 }));
 });
 
-const card = (page: Page, id: number) => page.getByRole("main").locator(`[data-action="${id}"]`);
-const tray = (page: Page) => page.getByRole("list", { name: "Pending actions" });
+// An open panel hides the main element from the role queries, so the card has no role query.
+const card = (page: Page, id: number) => page.locator(`[data-action="${id}"]`);
 const row = (page: Page, title: string) =>
   page.getByRole("main").getByRole("listitem").filter({ hasText: title });
+const panel = (page: Page) => page.getByRole("dialog");
+const note = (page: Page) => panel(page).getByRole("textbox", { name: "Note for the Coordinator" });
+const approve = (page: Page) => panel(page).getByRole("button", { name: "Approve" });
+const reject = (page: Page) => panel(page).getByRole("button", { name: "Reject" });
 
 async function openChat(page: Page) {
   await routeCards(page, createWorkstream, messageLead);
@@ -32,95 +37,47 @@ async function openChat(page: Page) {
   await expect(page.getByRole("heading", { name: "Waits for you (2)" })).toBeVisible();
 }
 
-test("the Owner approves a row with a note", async ({ page }) => {
+async function answer(page: Page, title: string) {
+  await row(page, title).getByRole("button", { name: "Answer" }).click();
+  await expect(panel(page)).toBeVisible();
+}
+
+test("the Owner approves an action with a note", async ({ page }) => {
   await openChat(page);
   const bodies = routeDecision(page, createWorkstream, "approve", done);
-  const approve = row(page, createTitle).getByRole("button", { name: "Approve" });
+  const main = page.getByRole("main");
 
   await expect(card(page, createWorkstream.id).getByText("Waits for the approval")).toBeVisible();
-  await expect(card(page, createWorkstream.id).getByRole("button")).toHaveCount(1);
-  await expect(
-    card(page, createWorkstream.id).getByRole("button", { name: "Show all" }),
-  ).toBeVisible();
-  await approve.click();
+  await expect(card(page, messageLead.id).getByText("Waits for the approval")).toBeVisible();
+  await expect(row(page, createTitle).getByRole("button")).toHaveText("Answer");
+  await expect(row(page, messageTitle).getByRole("button")).toHaveText("Answer");
+  await expect(main.getByRole("button", { name: "Approve" })).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "Reject" })).toHaveCount(0);
 
-  await expect(page.getByRole("heading", { name: `Approve: ${createTitle}` })).toBeVisible();
-  await expect(page.getByPlaceholder("Add a note for the Coordinator (optional)")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Attach images" })).toBeHidden();
-  await page.getByRole("textbox", { name: "Note for the Coordinator" }).fill("Go ahead.");
-  await page.getByRole("button", { name: "Send" }).click();
+  await answer(page, createTitle);
+  await expect(panel(page).getByText("A Playwright test buys a gift card")).toBeVisible();
+  await expect(panel(page).getByText("Let customers buy a gift card")).toBeVisible();
+  await note(page).fill("Go ahead.");
+  await approve(page).click();
 
-  await expect(row(page, createTitle)).toBeHidden();
+  await expect(panel(page)).toBeHidden();
   await expect(page.getByRole("heading", { name: "Waits for you (1)" })).toBeVisible();
+  await expect(row(page, createTitle)).toBeHidden();
   const created = card(page, createWorkstream.id);
   await expect(created.locator('[data-slot="badge"]', { hasText: "Done" })).toBeVisible();
   await expect(created.getByText("Created the Workstream #790.")).toBeVisible();
-  await expect(created.getByText("Go ahead.")).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Message to the Coordinator" })).toHaveValue("");
-  await expect(page.getByRole("button", { name: "Attach images" })).toBeVisible();
   expect(bodies).toEqual([{ message: "Go ahead." }]);
 });
 
-test("a decision goes out one time while the request runs", async ({ page }) => {
-  await openChat(page);
-  const bodies: unknown[] = [];
-  let answer: (() => void) | undefined;
-  const answered = new Promise<void>((resolve) => {
-    answer = resolve;
-  });
-  await page.route(`**/api/actions/${createWorkstream.id}/approve`, async (route) => {
-    bodies.push(route.request().postDataJSON());
-    await answered;
-    await route.fulfill({ json: { data: done } });
-  });
-  await row(page, createTitle).getByRole("button", { name: "Approve" }).click();
-  const note = page.getByRole("textbox", { name: "Note for the Coordinator" });
-  await page.getByRole("button", { name: "Send" }).click();
-
-  await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
-  await note.press("Enter");
-  answer?.();
-
-  await expect(row(page, createTitle)).toBeHidden();
-  expect(bodies).toEqual([{ message: "" }]);
-});
-
-test("a choice shows only its row and the close button shows the full tray again", async ({
-  page,
-}) => {
-  await openChat(page);
-  const heading = page.getByRole("heading", { name: `Approve: ${createTitle}` });
-
-  await row(page, createTitle).getByRole("button", { name: "Approve" }).click();
-
-  await expect(heading).toBeVisible();
-  await expect(tray(page).getByRole("listitem")).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "Approve" })).toBeHidden();
-  await expect(page.getByRole("button", { name: "Reject" })).toBeHidden();
-  await expect(page.getByRole("button", { name: "Show", exact: true })).toBeVisible();
-  await expect(page.getByPlaceholder("Add a note for the Coordinator (optional)")).toBeVisible();
-  await page.getByRole("textbox", { name: "Note for the Coordinator" }).fill("Go ahead.");
-
-  await page.getByRole("button", { name: "Close" }).click();
-
-  await expect(page.getByRole("heading", { name: "Waits for you (2)" })).toBeVisible();
-  await expect(row(page, createTitle)).toBeVisible();
-  await expect(row(page, messageTitle)).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Message to the Coordinator" })).toBeVisible();
-  await row(page, createTitle).getByRole("button", { name: "Approve" }).click();
-  await expect(page.getByRole("textbox", { name: "Note for the Coordinator" })).toHaveValue(
-    "Go ahead.",
-  );
-});
-
-test("the Owner rejects a row with a note", async ({ page }) => {
+test("the Owner rejects an action with a note", async ({ page }) => {
   await openChat(page);
   const bodies = routeDecision(page, createWorkstream, "reject", rejected);
 
-  await row(page, createTitle).getByRole("button", { name: "Reject" }).click();
-  await page.getByRole("textbox", { name: "Note for the Coordinator" }).fill(rejected.message);
-  await page.getByRole("button", { name: "Send" }).click();
+  await answer(page, createTitle);
+  await note(page).fill(rejected.message);
+  await reject(page).click();
 
+  await expect(panel(page)).toBeHidden();
   const created = card(page, createWorkstream.id);
   await expect(created.getByText("Rejected", { exact: true })).toBeVisible();
   await expect(created.getByText(rejected.message)).toBeVisible();
@@ -128,22 +85,71 @@ test("the Owner rejects a row with a note", async ({ page }) => {
   expect(bodies).toEqual([{ message: rejected.message }]);
 });
 
-test("a failed action keeps its row and its choice", async ({ page }) => {
+test("a decision with an empty note goes out one time while the request runs", async ({ page }) => {
   await openChat(page);
-  routeDecision(page, createWorkstream, "approve", {
-    ...createWorkstream,
-    error: "403 API rate limit exceeded",
+  const bodies: unknown[] = [];
+  const gate: { open?: () => void } = {};
+  const held = new Promise<void>((resolve) => {
+    gate.open = resolve;
+  });
+  await page.route(`**/api/actions/${createWorkstream.id}/approve`, async (route) => {
+    bodies.push(route.request().postDataJSON());
+    await held;
+    await route.fulfill({ json: { data: done } });
   });
 
-  await row(page, createTitle).getByRole("button", { name: "Approve" }).click();
-  await page.getByRole("button", { name: "Send" }).click();
+  await answer(page, createTitle);
+  await approve(page).click();
+  await expect(approve(page)).toBeDisabled();
+  await expect(reject(page)).toBeDisabled();
+  await approve(page).click({ force: true });
+  await note(page).press("Enter");
+  gate.open?.();
 
-  await expect(tray(page).getByRole("alert")).toHaveText("403 API rate limit exceeded");
-  await expect(card(page, createWorkstream.id).getByText("Failed")).toBeVisible();
-  await expect(page.getByRole("heading", { name: `Approve: ${createTitle}` })).toBeVisible();
+  await expect(panel(page)).toBeHidden();
+  expect(bodies).toEqual([{ message: "" }]);
 });
 
-test("a chat message goes out as a message while no choice is selected", async ({ page }) => {
+test("a failed action keeps the panel with its error and its note, and a second approve sends again", async ({
+  page,
+}) => {
+  await openChat(page);
+  const bodies: unknown[] = [];
+  await page.route(`**/api/actions/${createWorkstream.id}/approve`, async (route) => {
+    bodies.push(route.request().postDataJSON());
+    const data =
+      bodies.length === 1 ? { ...createWorkstream, error: "403 API rate limit exceeded" } : done;
+    await route.fulfill({ json: { data } });
+  });
+
+  await answer(page, createTitle);
+  await note(page).fill("Go ahead.");
+  await approve(page).click();
+
+  await expect(panel(page).getByRole("alert")).toHaveText("403 API rate limit exceeded");
+  await expect(note(page)).toHaveValue("Go ahead.");
+  await expect(card(page, createWorkstream.id).getByText("Failed")).toBeVisible();
+  await expect(approve(page)).toBeEnabled();
+
+  await approve(page).click();
+
+  await expect(panel(page)).toBeHidden();
+  await expect(card(page, createWorkstream.id).getByText("Done")).toBeVisible();
+  expect(bodies).toEqual([{ message: "Go ahead." }, { message: "Go ahead." }]);
+});
+
+test("the panel has the microphone button and no attach button", async ({ page }) => {
+  await page.addInitScript(fakeMicrophone);
+  await openChat(page);
+
+  await answer(page, createTitle);
+
+  await expect(panel(page).getByRole("button", { name: "Start voice input" })).toBeVisible();
+  await expect(panel(page).getByRole("button", { name: "Attach images" })).toHaveCount(0);
+  await expect(panel(page).getByRole("button", { name: "Send" })).toHaveCount(0);
+});
+
+test("a chat message goes out as a message while the tray has rows", async ({ page }) => {
   await openChat(page);
   const decisions: string[] = [];
   page.on("request", (request) => {
@@ -162,16 +168,7 @@ test("a chat message goes out as a message while no choice is selected", async (
   expect(decisions).toEqual([]);
 });
 
-test("Show opens the full card", async ({ page }) => {
-  await openChat(page);
-  const created = card(page, createWorkstream.id);
-
-  await row(page, createTitle).getByRole("button", { name: "Show" }).click();
-  await expect(created.getByRole("button", { name: "Show less" })).toBeVisible();
-  await expect(created.getByText("Let customers buy a gift card")).toBeInViewport();
-});
-
-test("the Inbox approves an item with one tap", async ({ page }) => {
+test("the Inbox approves an item in the panel", async ({ page }) => {
   await routeInboxItems(page, approvalItems);
   const bodies = routeDecision(page, messageLead, "approve", {
     ...messageLead,
@@ -182,61 +179,46 @@ test("the Inbox approves an item with one tap", async ({ page }) => {
   await page.goto("/inbox");
   const main = page.getByRole("main");
   await expect(row(page, createTitle)).toBeVisible();
-  await expect(row(page, messageTitle)).toBeVisible();
+  await expect(row(page, messageTitle).getByRole("button")).toHaveText("Answer");
 
-  await row(page, messageTitle).getByRole("button", { name: "Approve" }).click();
+  await row(page, messageTitle).getByRole("button", { name: "Answer" }).click();
+  await approve(page).click();
 
+  await expect(panel(page)).toBeHidden();
   await expect(row(page, messageTitle)).toBeHidden();
   await expect(row(page, createTitle)).toBeVisible();
   await expect(main.getByRole("tab", { name: "To do 2" })).toBeVisible();
   expect(bodies).toEqual([{ message: "" }]);
 });
 
-test("the Inbox keeps an item and shows the error when the action fails", async ({ page }) => {
-  await routeInboxItems(page, approvalItems);
-  routeDecision(page, messageLead, "approve", {
-    ...messageLead,
-    error: "403 API rate limit exceeded",
-  });
-
-  await page.goto("/inbox");
-  const item = row(page, messageTitle);
-  await item.getByRole("button", { name: "Approve" }).click();
-
-  await expect(item.getByRole("alert")).toHaveText("403 API rate limit exceeded");
-  await expect(item.getByRole("button", { name: "Approve" })).toBeVisible();
-  await expect(page.getByRole("main").getByRole("tab", { name: "To do 3" })).toBeVisible();
-});
-
-test("Open goes to the chat of the agent", async ({ page }) => {
-  await routeInboxItems(page, approvalItems);
-  await page.goto("/inbox");
-
-  await row(page, messageTitle).getByRole("link", { name: "Open" }).click();
-
-  await expect(page).toHaveURL("/chat");
-});
-
-test("the phone shows the cards, the tray and the composer with no horizontal scroll", async ({
+test("the phone shows the cards, the tray and the panel with no horizontal scroll", async ({
   page,
 }) => {
+  await page.addInitScript(fakeMicrophone);
   await page.setViewportSize({ width: 390, height: 844 });
   await openChat(page);
-  await row(page, createTitle).getByRole("button", { name: "Approve" }).click();
-  await page.getByRole("textbox", { name: "Note for the Coordinator" }).fill("Go ahead.");
-  await tray(page).getByRole("button", { name: "Show" }).click();
-
-  await expect(
-    card(page, createWorkstream.id).getByText("A Playwright test buys a gift card"),
-  ).toBeVisible();
   const fits = (selector: string) =>
     page
       .locator(selector)
       .first()
       .evaluate((el) => el.scrollWidth <= el.clientWidth);
+
   expect(await fits("html")).toBe(true);
   expect(await fits(`[data-action="${createWorkstream.id}"]`)).toBe(true);
   expect(await fits("main div.overflow-y-auto")).toBe(true);
   expect(await fits("main ul")).toBe(true);
-  expect(await fits("main form")).toBe(true);
+
+  await answer(page, createTitle);
+  await note(page).fill("Go ahead.");
+
+  expect(await fits("html")).toBe(true);
+  expect(await fits('[role="dialog"]')).toBe(true);
+  const microphone = await panel(page)
+    .getByRole("button", { name: "Start voice input" })
+    .boundingBox();
+  const rejectBox = await reject(page).boundingBox();
+  const approveBox = await approve(page).boundingBox();
+  expect(Math.abs((microphone?.y ?? 0) - (rejectBox?.y ?? 99))).toBeLessThan(4);
+  expect(Math.abs((approveBox?.y ?? 0) - (rejectBox?.y ?? 99))).toBeLessThan(4);
+  expect((approveBox?.x ?? 999) + (approveBox?.width ?? 0)).toBeLessThanOrEqual(390);
 });

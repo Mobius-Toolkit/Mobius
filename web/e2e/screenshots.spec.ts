@@ -11,7 +11,6 @@ import {
   messageTitle,
   rejected,
   routeCards,
-  triagerItem,
 } from "./actions.js";
 import { waitForEvergreen } from "./evergreen.js";
 import { png } from "./images.js";
@@ -492,20 +491,23 @@ test("screenshots", async ({ page }) => {
     main.getByText("Sell gift cards in the shop."),
   ]);
   // The routes add the sample cards and items of the approval. They change no row of the server.
-  const card = main.locator(`[data-action="${createWorkstream.id}"]`);
+  // An open panel hides main from the role queries, so the card has no role query.
+  const card = page.locator(`[data-action="${createWorkstream.id}"]`);
   const tray = page.getByRole("heading", { name: /^Waits for you/ });
   const row = (title: string) => main.getByRole("listitem").filter({ hasText: title });
-  const note = page.getByRole("textbox", { name: "Note for the Coordinator" });
+  const panel = page.getByRole("dialog");
+  const note = panel.getByRole("textbox", { name: "Note for the Coordinator" });
   const approvalReady = (device: string, count = "3") => [
     chatCount,
     ...frame(device, drain, {}, count),
   ];
-  const choose = (title: string, button: string, text: string) => async () => {
-    await row(title).getByRole("button", { name: button }).click();
+  const answer = (title: string, text: string) => async () => {
+    await row(title).getByRole("button", { name: "Answer" }).click();
     await note.fill(text);
   };
-  const clearNote = async () => {
+  const closePanel = async () => {
     await note.fill("");
+    await page.keyboard.press("Escape");
   };
   const showEnd = async () => {
     await expect(card).toBeVisible();
@@ -525,7 +527,7 @@ test("screenshots", async ({ page }) => {
     ...approvalReady(device),
     page.getByRole("heading", { name: "Waits for you (2)" }),
     card.getByRole("button", { name: "Show all" }),
-    row(messageTitle),
+    row(messageTitle).getByRole("button", { name: "Answer" }),
   ]);
   await screenshot(
     page,
@@ -533,11 +535,12 @@ test("screenshots", async ({ page }) => {
     "/chat",
     (device) => [
       ...approvalReady(device),
-      page.getByRole("heading", { name: `Approve: ${createTitle}` }),
+      panel.getByText("A Playwright test buys a gift card"),
       note,
+      panel.getByRole("button", { name: "Approve" }),
     ],
-    choose(createTitle, "Approve", "Go ahead."),
-    clearNote,
+    answer(createTitle, "Go ahead. Start with the table."),
+    closePanel,
   );
   await screenshot(
     page,
@@ -545,11 +548,12 @@ test("screenshots", async ({ page }) => {
     "/chat",
     (device) => [
       ...approvalReady(device),
-      page.getByRole("heading", { name: `Reject: ${messageTitle}` }),
+      panel.getByText("Tell the Owner when the pull request is ready."),
       note,
+      panel.getByRole("button", { name: "Reject" }),
     ],
-    choose(messageTitle, "Reject", "Wait for the migration of #12."),
-    clearNote,
+    answer(messageTitle, "Wait for the migration of #12."),
+    closePanel,
   );
   await screenshot(
     page,
@@ -566,60 +570,53 @@ test("screenshots", async ({ page }) => {
       await card.evaluate((el) => el.scrollIntoView({ block: "start" }));
     },
   );
+  await screenshot(
+    page,
+    "action-failed",
+    "/chat",
+    (device) => [
+      ...approvalReady(device),
+      panel.getByRole("alert").getByText(failed.error),
+      card.getByText("Failed", { exact: true }),
+    ],
+    async () => {
+      await page.route(`**/api/actions/${createWorkstream.id}/approve`, (route) =>
+        route.fulfill({ json: { data: failed } }),
+      );
+      await answer(createTitle, "Go ahead.")();
+      await panel.getByRole("button", { name: "Approve" }).click();
+    },
+    async () => {
+      await closePanel();
+      await page.unroute(`**/api/actions/${createWorkstream.id}/approve`);
+    },
+  );
   for (const [name, action, text] of [
     ["done", done, "Created the Workstream #790."],
-    ["failed", failed, "403 API rate limit exceeded"],
     ["rejected", rejected, rejected.message],
   ] as const) {
     await approvals(action)();
     // A decided action has no Inbox item.
-    const decided = name !== "failed";
-    if (decided) {
-      await page.unroute(inboxRoute);
-      await routeInboxItems(page, [approvalItem(messageLead)]);
-    }
+    await page.unroute(inboxRoute);
+    await routeInboxItems(page, [approvalItem(messageLead)]);
     await screenshot(
       page,
       `action-${name}`,
       "/chat",
-      (device) => [...approvalReady(device, decided ? "2" : "3"), tray, card.getByText(text)],
+      (device) => [...approvalReady(device, "2"), tray, card.getByText(text)],
       showEnd,
     );
   }
   await page.unroute(chatRoute);
   await page.unroute(inboxRoute);
-  await routeInboxItems(page, [...approvalItems, triagerItem]);
+  await routeInboxItems(page, approvalItems);
   await screenshot(page, "action-inbox", "/inbox", (device) => [
     chatCount,
-    ...frame(device, drain, { organizations: true }, "4"),
-    main.getByRole("tab", { name: "To do 4" }),
-    row(createTitle).first(),
+    ...frame(device, drain, { organizations: true }, "3"),
+    main.getByRole("tab", { name: "To do 3" }),
+    row(createTitle),
     row(messageTitle),
   ]);
-  await screenshot(
-    page,
-    "action-triager",
-    "/inbox",
-    () => [
-      page.getByRole("dialog").getByRole("button", { name: "Reject", pressed: true }),
-      page.getByRole("dialog").getByRole("textbox", { name: "Note for the Triager" }),
-    ],
-    async () => {
-      await row(createTitle).last().getByRole("button", { name: "Open" }).click();
-      await page.getByRole("dialog").getByRole("button", { name: "Reject" }).click();
-      await page
-        .getByRole("dialog")
-        .getByRole("textbox", { name: "Note for the Triager" })
-        .fill("Ask the Coordinator first.");
-    },
-    async () => {
-      await page
-        .getByRole("dialog")
-        .getByRole("textbox", { name: "Note for the Triager" })
-        .fill("");
-      await page.keyboard.press("Escape");
-    },
-  );
   await page.unroute(inboxRoute);
   // The Inbox of the server has one item. The route adds one item of each other kind.
   let mergeState = { merging: false, mergeRefusal: "" };

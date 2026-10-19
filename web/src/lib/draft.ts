@@ -6,10 +6,6 @@ export function answerDraftKey(id: number) {
   return `answerDraft:${id}`;
 }
 
-export function actionDraftKey(id: number) {
-  return `actionDraft:${id}`;
-}
-
 export function loadDraft(key: string) {
   try {
     return localStorage.getItem(key) ?? "";

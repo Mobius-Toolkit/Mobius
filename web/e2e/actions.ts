@@ -51,13 +51,6 @@ export const messageLead = {
   time: "2026-10-15T11:55:00Z",
 };
 
-export const triagerCreate = {
-  ...createWorkstream,
-  id: 33,
-  role: "triager",
-  time: "2026-10-15T11:58:00Z",
-};
-
 export const done = {
   ...createWorkstream,
   state: "done",
@@ -131,8 +124,6 @@ export const approvalItem = (action: Action) => ({
 });
 
 export const approvalItems = [createWorkstream, messageLead].map(approvalItem);
-
-export const triagerItem = approvalItem(triagerCreate);
 
 // Answers the decision of the action with the action after the decision.
 export function routeDecision(
