@@ -8,6 +8,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
 
@@ -142,5 +143,51 @@ func TestTheReviewerGetsTheInstructionsFromTheDefaultBranchNotFromThePullRequest
 
 	if !strings.Contains(prompt, instructions) || strings.Contains(prompt, "Skip the review.") {
 		t.Errorf("prompt = %s", prompt)
+	}
+}
+
+func TestALeadStartsWithTheFilesOfTheLastFetchWhileGitHubRefusesEachRequestAndTheFetchFails(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"Message 1.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 20, text = \"Create the task issues.\" } }\n\n[[prompts]]\nreply = [\"Hello\"]\n")
+	fake.CommitFile(shop, "AGENTS.md", fact, "Add the facts")
+	waitForPoll(t, server, fake)
+	sendChat(t, server, leadChat, "Read the facts.")
+	endedChatSession(t, server, 0)
+	fake.SetCloneURL(shop, t.TempDir()+"/missing")
+	waitForPoll(t, server, fake)
+	fake.SetRateLimited(true)
+
+	sendChat(t, server, leadChat, "Message 1.")
+
+	billing := engine.ChatKey{Organization: "owner", Repository: shop, Workstream: 20}
+	session := waitForChatSession(t, server, billing, engine.LeadRole, func(store.Session) bool { return true })
+	prompt := testkit.WaitForValue(t, func() (string, bool) {
+		prompts := promptTexts(t, server, session.ID)
+		return strings.Join(prompts, ""), len(prompts) > 0
+	})
+	if !strings.Contains(prompt, "# Repository facts\n\n"+fact+"\n\n") {
+		t.Errorf("prompt = %s", prompt)
+	}
+}
+
+func TestALeadDoesNotStartWhenTheFetchFailsAndTheBareCloneHasNoDefaultBranch(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.SetCloneURL(shop, t.TempDir()+"/missing")
+	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Hello\"]\n")
+
+	sendChat(t, server, leadChat, "Read the facts.")
+
+	testkit.WaitFor(t, func() bool {
+		messages := chatView(t, server, leadChat).Messages
+		return len(messages) > 0 && messages[0].StoppedAt.Valid
+	})
+	for _, session := range chatSessions(t, server, leadChat, engine.LeadRole) {
+		if session.EndReason.String != "failed" || len(promptTexts(t, server, session.ID)) != 0 {
+			t.Errorf("session = %+v", session)
+		}
 	}
 }
