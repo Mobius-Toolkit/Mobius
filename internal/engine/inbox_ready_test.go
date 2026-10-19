@@ -3,7 +3,9 @@ package engine_test
 import (
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -147,4 +149,23 @@ func TestAJudgeThatRunsFromReadyForReviewAndStartsAFixRoundDismissesTheItem(t *t
 	if len(judgePrompts(t, server)) != 1 {
 		t.Errorf("Judge prompts = %q", judgePrompts(t, server))
 	}
+}
+
+func TestARemovalOfTheReviewLabelDismissesTheItemWhileAJudgeRunsFromReadyForReview(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, "[[prompts]]\nwhen = \"You are the Judge\"\nhang = true\n\n"+noFinding+leadApproves+leadStarts, commits, func(cfg *config.Config) {
+		cfg.ReviewQuietPeriod = 200 * time.Millisecond
+	})
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
+	sendChat(t, server, leadChat, "Approve #41")
+	waitForItem(t, server, "ready for review")
+	fake.AddComment(shop, 42, "owner", "Why cents?")
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "working" })
+
+	fake.RemoveLabel(shop, 41, "mobius:review", "mallory")
+
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "stopped" })
+	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "ready for review")) == 0 })
 }
