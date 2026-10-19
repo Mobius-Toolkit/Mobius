@@ -33,5 +33,7 @@ export function useInbox(source?: EventSource) {
     };
   }, [source]);
 
-  return items;
+  const leave = (id: number) => setItems((list) => list.filter((item) => item.id !== id));
+
+  return { items, leave };
 }

@@ -14,6 +14,7 @@ import { ErrorBadge, inset, List, Row } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { type ActionItem, type Decision } from "@/lib/actions";
 import { LoginContext } from "@/lib/login";
+import { useShell } from "@/lib/shell";
 import { cn } from "@/lib/utils";
 import { ActionDialog } from "./ActionCard";
 import { AnswerPanel } from "./AnswerPanel";
@@ -59,12 +60,12 @@ export function InboxRow({
   setError: (error: string) => void;
 }) {
   const showLogin = use(LoginContext);
+  const { leaveInbox } = useShell();
   const [running, setRunning] = useState<"action" | "dismiss" | "merge" | null>(null);
   const [refusal, setRefusal] = useState("");
   const [answered, setAnswered] = useState<{ item: ActionItem; merging: boolean } | null>(null);
   const [panel, setPanel] = useState<"answer" | "details" | null>(null);
   const [decision, setDecision] = useState<Decision | null>(null);
-  const [decided, setDecided] = useState(false);
 
   const act = (
     name: "action" | "dismiss",
@@ -114,10 +115,6 @@ export function InboxRow({
     const [owner, name] = item.repository.split("/");
     act("action", () => resumeIssue(owner, name, item.issue));
   };
-
-  if (decided) {
-    return null;
-  }
 
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
   const reference = item.action
@@ -245,7 +242,7 @@ export function InboxRow({
         <ActionDialog
           action={item.action}
           decision={decision}
-          onDecided={() => setDecided(true)}
+          onDecided={() => leaveInbox(item.id)}
           onClose={() => setDecision(null)}
         />
       )}

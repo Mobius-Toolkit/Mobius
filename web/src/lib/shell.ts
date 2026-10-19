@@ -11,6 +11,7 @@ type Shell = {
   workstreams: Workstreams;
   unread?: Unread[];
   inbox: InboxItem[];
+  leaveInbox: (id: number) => void;
   activities: Activity[];
 };
 

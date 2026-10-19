@@ -79,6 +79,7 @@ test("the Inbox shows the cards and an item leaves after the decision", async ({
 
   await expect(row).toBeHidden();
   await expect(rows.filter({ hasText: "create_workstream" })).toBeVisible();
+  await expect(main.getByRole("tab", { name: "To do 2" })).toBeVisible();
   expect(bodies).toEqual([{ message: "" }]);
 });
 
@@ -88,7 +89,12 @@ test("the phone shows the full Brief with no horizontal scroll", async ({ page }
 
   await page.goto("/chat");
   await expect(card(page).getByText("A Playwright test buys a gift card")).toBeVisible();
-  expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
-    true,
-  );
+  const fits = (selector: string) =>
+    page
+      .locator(selector)
+      .first()
+      .evaluate((el) => el.scrollWidth <= el.clientWidth);
+  expect(await fits("html")).toBe(true);
+  expect(await fits(`[data-action="${createWorkstream.id}"]`)).toBe(true);
+  expect(await fits("main div.overflow-y-auto")).toBe(true);
 });
