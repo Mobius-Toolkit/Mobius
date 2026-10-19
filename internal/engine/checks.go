@@ -138,7 +138,8 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	if found {
 		e.addCIStep(ctx, task, implementer, "failure")
 	}
-	return true, e.queries.SetTaskCheckHead(ctx, store.SetTaskCheckHeadParams{CheckHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
+	checkErr := e.queries.SetTaskCheckHead(ctx, store.SetTaskCheckHeadParams{CheckHead: sql.NullString{String: head, Valid: true}, ID: task.ID})
+	return true, errors.Join(checkErr, e.dismissReadyForReview(ctx, task, task.State))
 }
 
 // onChecks moves the task in checks to approval when the CI of the head of its pull request passed and the pull request

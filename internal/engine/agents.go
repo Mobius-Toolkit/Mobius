@@ -869,6 +869,16 @@ func (e *Engine) setTaskState(ctx context.Context, params store.SetTaskStatePara
 	return moved, err
 }
 
+// dismissReadyForReview dismisses the ready for review Inbox items of the issue of the task, when from is
+// ready_for_review. A caller calls it after the task left ready_for_review for good, so that a task that goes back
+// keeps its item.
+func (e *Engine) dismissReadyForReview(ctx context.Context, task store.Task, from string) error {
+	if from != "ready_for_review" {
+		return nil
+	}
+	return e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind)
+}
+
 func (e *Engine) publishReadyForReview(from, to string) {
 	if from == "ready_for_review" || to == "ready_for_review" {
 		e.publish(Change{Workstreams: true})

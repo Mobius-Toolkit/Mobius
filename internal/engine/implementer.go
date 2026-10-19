@@ -235,7 +235,7 @@ func (e *Engine) startRound(ctx context.Context, repository github.Repository, r
 		_, stateErr := e.setTaskState(ctx, store.SetTaskStateParams{State: r.task.State, ID: r.task.ID, FromState: "working"})
 		return false, errors.Join(err, stateErr)
 	}
-	return true, nil
+	return true, e.dismissReadyForReview(ctx, r.task, r.task.State)
 }
 
 // startKeptRound starts a fix round with the findings that the Lead kept on the task of the round, when it has some. The
@@ -408,6 +408,10 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		return err
 	}
 	title := issue.GetTitle()
+	var merging int64
+	if awaitsMerge(task) {
+		merging = 1
+	}
 	return e.addInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         readyForReviewKind,
 		Organization: repository.Owner(),
@@ -420,6 +424,7 @@ func (e *Engine) approve(ctx context.Context, repository github.Repository, task
 		Link:         issueLink(task.Repository, task.Issue),
 		PullRequest:  int64(pullRequest.GetNumber()),
 		ReportLink:   comment.GetHTMLURL(),
+		Merging:      merging,
 	})
 }
 
@@ -600,7 +605,7 @@ func makeDraft(ctx context.Context, repository github.Repository, pullRequest *g
 // the poll starts no automatic round of a task in needs_human on the same head again. A round that fails stores the
 // head that it pushed. The pull request is a draft during the round. The prompt has the issue body, and the round makes no change other than
 // the merge of the base branch (Mobius-rust#227).
-func (e *Engine) conflictRound(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) error {
+func (e *Engine) conflictRound(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (err error) {
 	brief, err := brief(ctx, repository, task.Workstream)
 	if err != nil {
 		return err
@@ -636,6 +641,9 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 		return err
 	}
 	e.publishReadyForReview(task.State, "queued")
+	defer func() {
+		err = errors.Join(err, e.dismissReadyForReview(ctx, task, task.State))
+	}()
 	if err := resumeWork(ctx, repository, task); err != nil {
 		return err
 	}

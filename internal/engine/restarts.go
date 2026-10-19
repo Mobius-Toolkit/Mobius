@@ -168,15 +168,16 @@ func (e *Engine) handFromStates(ctx context.Context, states []string, task store
 		return false, err
 	}
 	e.publishReadyForReview(from, "needs_human")
+	dismissErr := e.dismissReadyForReview(ctx, task, from)
 	repository, err := e.repository(task.Repository)
 	if err != nil {
-		return false, err
+		return false, errors.Join(err, dismissErr)
 	}
 	current, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: task.Repository, Issue: task.Issue})
 	if err != nil {
-		return false, err
+		return false, errors.Join(err, dismissErr)
 	}
-	return true, setStopLabels(ctx, repository, current)
+	return true, errors.Join(setStopLabels(ctx, repository, current), dismissErr)
 }
 
 // setStopLabels moves the issue of the task from mobius:working or mobius:review to mobius:needs-human, with the pull

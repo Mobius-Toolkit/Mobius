@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
 )
@@ -14,8 +15,14 @@ import (
 // open ready for review item of #41, when the task is in ready_for_review.
 func readyToMerge(t *testing.T, fake *testkit.FakeGitHub, lead string) (*testserver.Server, inboxItem) {
 	t.Helper()
+	return readyToMergeWith(t, fake, lead, commits, noChange)
+}
+
+// readyToMergeWith is readyToMerge with the Implementer implementer and the config change adjust.
+func readyToMergeWith(t *testing.T, fake *testkit.FakeGitHub, lead, implementer string, adjust func(*config.Config)) (*testserver.Server, inboxItem) {
+	t.Helper()
 	fake.AddUserCode(testkit.AppID, "user-code", "owner")
-	server, _ := connectTask(t, fake, leadApproves+lead+leadStarts, commits, noChange)
+	server, _ := connectTask(t, fake, leadApproves+lead+leadStarts, implementer, adjust)
 	authorize(t, server)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForReadyEvents(t, server, 1)
@@ -108,10 +115,11 @@ func TestTheMergeRouteRefusesATaskThatLeftReadyForReviewAndSendsNoReview(t *test
 	server, item := readyToMerge(t, fake, leadFindings)
 	sendChat(t, server, leadChat, "Send the findings to #41")
 	testkit.WaitFor(t, func() bool { return taskState(t, server) != "ready_for_review" })
+	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "ready for review")) == 0 })
 
 	status, body := merge(t, server, item.ID)
 
-	if status != http.StatusConflict || !strings.Contains(body, "The task of #41 is not ready for review.") {
+	if status != http.StatusConflict || !strings.Contains(body, "This item is not waiting for a merge.") {
 		t.Errorf("status = %d: %s", status, body)
 	}
 	if count := approvals(fake); count != 0 {

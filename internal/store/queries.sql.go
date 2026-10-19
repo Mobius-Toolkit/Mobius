@@ -379,8 +379,8 @@ func (q *Queries) AddGitHubApp(ctx context.Context, arg AddGitHubAppParams) erro
 }
 
 const addInboxItem = `-- name: AddInboxItem :one
-INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, merging, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal
 `
 
@@ -397,6 +397,7 @@ type AddInboxItemParams struct {
 	PullRequest  int64
 	ReportLink   string
 	ChatMessage  sql.NullInt64
+	Merging      int64
 	Time         string
 }
 
@@ -414,6 +415,7 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 		arg.PullRequest,
 		arg.ReportLink,
 		arg.ChatMessage,
+		arg.Merging,
 		arg.Time,
 	)
 	var i InboxItem
