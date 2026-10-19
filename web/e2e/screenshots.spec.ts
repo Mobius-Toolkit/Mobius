@@ -445,6 +445,7 @@ test("screenshots", async ({ page }) => {
     main.getByText("Sell gift cards in the shop."),
   ]);
   // The Inbox of the server has one item. The route adds one item of each other kind.
+  let mergeState = { merging: false, mergeRefusal: "" };
   await page.route("/api/inbox", async (route) => {
     const response = await route.fetch();
     const { data } = (await response.json()) as { data: object[] };
@@ -498,6 +499,7 @@ test("screenshots", async ({ page }) => {
             pullRequest: 44,
             pullRequestUrl: `${link}/pull/44`,
             reportUrl: `${link}/pull/44#issuecomment-1`,
+            ...mergeState,
           },
           {
             ...item,
@@ -557,6 +559,36 @@ test("screenshots", async ({ page }) => {
       await page.getByRole("dialog").getByRole("textbox", { name: "Your answer" }).click();
     },
   );
+  const readyRow = main.getByRole("listitem").filter({ hasText: "Name the plan tiers" });
+  await screenshot(page, "inbox-merge", "/inbox", (device) => [
+    ...inboxReady(device),
+    readyRow.getByRole("button", { name: "Merge" }),
+  ]);
+  await page.route("**/api/inbox/103/merge", (route) =>
+    route.fulfill({ json: { data: { merging: true } } }),
+  );
+  await screenshot(
+    page,
+    "inbox-merging",
+    "/inbox",
+    () => readyRow.getByRole("button", { name: "Merging" }),
+    async (device) => {
+      for (const locator of inboxReady(device)) {
+        await expect(locator).toBeVisible();
+      }
+      await readyRow.getByRole("button", { name: "Merge" }).click();
+    },
+  );
+  await page.unroute("**/api/inbox/103/merge");
+  mergeState = {
+    merging: false,
+    mergeRefusal: "Pull request #44 is not mergeable: the check run Build failed.",
+  };
+  await screenshot(page, "inbox-merge-refusal", "/inbox", (device) => [
+    ...inboxReady(device),
+    readyRow.getByText(mergeState.mergeRefusal),
+    readyRow.getByRole("button", { name: "Merge" }),
+  ]);
   await page.unroute("/api/inbox");
   await page.route("**/api/ci-stops", (route) =>
     route.fulfill({
