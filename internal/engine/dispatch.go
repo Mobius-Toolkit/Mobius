@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -627,12 +628,29 @@ func (e *Engine) commentIsEvent(ctx context.Context, repository github.Repositor
 // mobius:question, and adds an Inbox item that replaces the stopped item of the issue. The reply comes later as a
 // comment event. A dispatched task moves to asked and frees its Autopilot slot, and the reply dispatches it again. The
 // task moves before mobius:working goes away, because setStateLabels adds mobius:working again to a dispatched task.
-func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository, input textInput) (string, error) {
+func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository, input askInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
 	}
 	if empty(input.Text) {
 		return "", refuse("text must not be empty.")
+	}
+	for _, question := range input.Questions {
+		if empty(question.Text) {
+			return "", refuse("The text of a question must not be empty.")
+		}
+		if len(question.Options) < 2 {
+			return "", refuse("A question needs 2 options or more.")
+		}
+		for _, option := range question.Options {
+			if empty(option.Title) {
+				return "", refuse("The title of an option must not be empty.")
+			}
+		}
+	}
+	comment, questions, err := questionsComment(input)
+	if err != nil {
+		return "", err
 	}
 	var task store.Task
 	if input.N != c.workstream {
@@ -648,7 +666,7 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if issue == nil {
 		return "", refuse("#%d does not exist.", input.N)
 	}
-	if _, err := repository.AddComment(ctx, input.N, input.Text); err != nil {
+	if _, err := repository.AddComment(ctx, input.N, comment); err != nil {
 		return "", err
 	}
 	if err := repository.AddLabel(ctx, input.N, questionLabel); err != nil {
@@ -666,6 +684,7 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 		Title:        issue.GetTitle(),
 		Reason:       "The Lead asks a question",
 		Text:         input.Text,
+		Questions:    questions,
 		Link:         issue.GetHTMLURL(),
 	})
 	if err != nil {
@@ -683,6 +702,35 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 		}
 	}
 	return fmt.Sprintf("Asked on #%d.", input.N), nil
+}
+
+// questionsComment gives the comment of ask and the JSON of the questions for the Inbox item. The JSON is empty for a
+// call with no questions.
+func questionsComment(input askInput) (string, string, error) {
+	if len(input.Questions) == 0 {
+		return input.Text, "", nil
+	}
+	stored, err := json.Marshal(input.Questions)
+	if err != nil {
+		return "", "", err
+	}
+	var comment strings.Builder
+	comment.WriteString(input.Text)
+	for i, question := range input.Questions {
+		selection := "Select one."
+		if question.Multiple {
+			selection = "Select one or more."
+		}
+		fmt.Fprintf(&comment, "\n\n**%d. %s** %s\n", i+1, question.Text, selection)
+		for j, option := range question.Options {
+			if option.Details == "" {
+				fmt.Fprintf(&comment, "\n%d. **%s**", j+1, option.Title)
+			} else {
+				fmt.Fprintf(&comment, "\n%d. **%s**: %s", j+1, option.Title, option.Details)
+			}
+		}
+	}
+	return comment.String(), string(stored), nil
 }
 
 // closeQuestion posts text on the issue as the Mobius App, continues a task in asked as after a reply on the issue,

@@ -140,10 +140,10 @@ func (q *Queries) AddCIFailurePlace(ctx context.Context, arg AddCIFailurePlacePa
 }
 
 const addChatMessage = `-- name: AddChatMessage :one
-INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id, inbox_items)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items
 `
 
 type AddChatMessageParams struct {
@@ -154,6 +154,7 @@ type AddChatMessageParams struct {
 	Time         string
 	Text         string
 	BrowserID    sql.NullString
+	InboxItems   string
 }
 
 func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) (ChatMessage, error) {
@@ -165,6 +166,7 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		arg.Time,
 		arg.Text,
 		arg.BrowserID,
+		arg.InboxItems,
 	)
 	var i ChatMessage
 	err := row.Scan(
@@ -178,6 +180,7 @@ func (q *Queries) AddChatMessage(ctx context.Context, arg AddChatMessageParams) 
 		&i.BrowserID,
 		&i.DeliveredAt,
 		&i.StoppedAt,
+		&i.InboxItems,
 	)
 	return i, err
 }
@@ -476,9 +479,9 @@ func (q *Queries) AddGitHubApp(ctx context.Context, arg AddGitHubAppParams) erro
 }
 
 const addInboxItem = `-- name: AddInboxItem :one
-INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, merging, time)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal
+INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, pull_request, report_link, chat_message, merging, questions, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions
 `
 
 type AddInboxItemParams struct {
@@ -495,6 +498,7 @@ type AddInboxItemParams struct {
 	ReportLink   string
 	ChatMessage  sql.NullInt64
 	Merging      int64
+	Questions    string
 	Time         string
 }
 
@@ -513,6 +517,7 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 		arg.ReportLink,
 		arg.ChatMessage,
 		arg.Merging,
+		arg.Questions,
 		arg.Time,
 	)
 	var i InboxItem
@@ -534,6 +539,7 @@ func (q *Queries) AddInboxItem(ctx context.Context, arg AddInboxItemParams) (Inb
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+		&i.Questions,
 	)
 	return i, err
 }
@@ -977,7 +983,7 @@ func (q *Queries) AddWorkerRestart(ctx context.Context, arg AddWorkerRestartPara
 
 const appendChatMessage = `-- name: AppendChatMessage :one
 UPDATE chat_messages SET text = text || ?1 WHERE id = ?2
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items
 `
 
 type AppendChatMessageParams struct {
@@ -999,6 +1005,7 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 		&i.BrowserID,
 		&i.DeliveredAt,
 		&i.StoppedAt,
+		&i.InboxItems,
 	)
 	return i, err
 }
@@ -1348,7 +1355,7 @@ func (q *Queries) DeleteStopNotice(ctx context.Context, id int64) error {
 
 const deliverChatMessage = `-- name: DeliverChatMessage :one
 UPDATE chat_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items
 `
 
 type DeliverChatMessageParams struct {
@@ -1370,6 +1377,7 @@ func (q *Queries) DeliverChatMessage(ctx context.Context, arg DeliverChatMessage
 		&i.BrowserID,
 		&i.DeliveredAt,
 		&i.StoppedAt,
+		&i.InboxItems,
 	)
 	return i, err
 }
@@ -1405,7 +1413,7 @@ func (q *Queries) DeliverLeadEvents(ctx context.Context, arg DeliverLeadEventsPa
 
 const dismissInboxItem = `-- name: DismissInboxItem :one
 UPDATE inbox_items SET dismissed_at = ? WHERE id = ?
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions
 `
 
 type DismissInboxItemParams struct {
@@ -1434,6 +1442,7 @@ func (q *Queries) DismissInboxItem(ctx context.Context, arg DismissInboxItemPara
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+		&i.Questions,
 	)
 	return i, err
 }
@@ -1801,7 +1810,7 @@ func (q *Queries) GetCIDiagnosisBySession(ctx context.Context, session sql.NullI
 }
 
 const getChatMessage = `-- name: GetChatMessage :one
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages WHERE id = ?
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items FROM chat_messages WHERE id = ?
 `
 
 func (q *Queries) GetChatMessage(ctx context.Context, id int64) (ChatMessage, error) {
@@ -1818,6 +1827,7 @@ func (q *Queries) GetChatMessage(ctx context.Context, id int64) (ChatMessage, er
 		&i.BrowserID,
 		&i.DeliveredAt,
 		&i.StoppedAt,
+		&i.InboxItems,
 	)
 	return i, err
 }
@@ -1981,7 +1991,7 @@ func (q *Queries) GetHarnessPauseEnd(ctx context.Context, harness string) (strin
 }
 
 const getInboxItem = `-- name: GetInboxItem :one
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal FROM inbox_items WHERE id = ?
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions FROM inbox_items WHERE id = ?
 `
 
 func (q *Queries) GetInboxItem(ctx context.Context, id int64) (InboxItem, error) {
@@ -2005,12 +2015,13 @@ func (q *Queries) GetInboxItem(ctx context.Context, id int64) (InboxItem, error)
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+		&i.Questions,
 	)
 	return i, err
 }
 
 const getLastChatMessageOf = `-- name: GetLastChatMessageOf :one
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author = ?
 ORDER BY id DESC LIMIT 1
 `
@@ -2041,6 +2052,7 @@ func (q *Queries) GetLastChatMessageOf(ctx context.Context, arg GetLastChatMessa
 		&i.BrowserID,
 		&i.DeliveredAt,
 		&i.StoppedAt,
+		&i.InboxItems,
 	)
 	return i, err
 }
@@ -2236,7 +2248,7 @@ func (q *Queries) GetMemoryVersionBefore(ctx context.Context, arg GetMemoryVersi
 }
 
 const getNewestInboxItem = `-- name: GetNewestInboxItem :one
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id DESC LIMIT 1
 `
 
 type GetNewestInboxItemParams struct {
@@ -2266,6 +2278,7 @@ func (q *Queries) GetNewestInboxItem(ctx context.Context, arg GetNewestInboxItem
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+		&i.Questions,
 	)
 	return i, err
 }
@@ -3150,7 +3163,7 @@ func (q *Queries) ListCIFailuresWithoutIssue(ctx context.Context, repository str
 }
 
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
 ORDER BY id DESC LIMIT ?
 `
@@ -3189,6 +3202,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 			&i.BrowserID,
 			&i.DeliveredAt,
 			&i.StoppedAt,
+			&i.InboxItems,
 		); err != nil {
 			return nil, err
 		}
@@ -3204,7 +3218,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 }
 
 const listChatMessagesPage = `-- name: ListChatMessagesPage :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator', 'Approval') AND id < ?
 ORDER BY id DESC LIMIT ?
 `
@@ -3244,6 +3258,7 @@ func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessages
 			&i.BrowserID,
 			&i.DeliveredAt,
 			&i.StoppedAt,
+			&i.InboxItems,
 		); err != nil {
 			return nil, err
 		}
@@ -3940,7 +3955,7 @@ func (q *Queries) ListDeviceLogins(ctx context.Context) ([]ListDeviceLoginsRow, 
 }
 
 const listDismissedQuestionItems = `-- name: ListDismissedQuestionItems :many
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal FROM inbox_items WHERE repository = ? AND kind = 'question' AND dismissed_at IS NOT NULL ORDER BY id
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions FROM inbox_items WHERE repository = ? AND kind = 'question' AND dismissed_at IS NOT NULL ORDER BY id
 `
 
 func (q *Queries) ListDismissedQuestionItems(ctx context.Context, repository string) ([]InboxItem, error) {
@@ -3970,6 +3985,7 @@ func (q *Queries) ListDismissedQuestionItems(ctx context.Context, repository str
 			&i.ChatMessage,
 			&i.Merging,
 			&i.MergeRefusal,
+			&i.Questions,
 		); err != nil {
 			return nil, err
 		}
@@ -4286,7 +4302,7 @@ func (q *Queries) ListHungSessionsSince(ctx context.Context, arg ListHungSession
 }
 
 const listIssueInboxItems = `-- name: ListIssueInboxItems :many
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions FROM inbox_items WHERE repository = ? AND issue = ? AND kind = ? ORDER BY id
 `
 
 type ListIssueInboxItemsParams struct {
@@ -4322,6 +4338,7 @@ func (q *Queries) ListIssueInboxItems(ctx context.Context, arg ListIssueInboxIte
 			&i.ChatMessage,
 			&i.Merging,
 			&i.MergeRefusal,
+			&i.Questions,
 		); err != nil {
 			return nil, err
 		}
@@ -4628,7 +4645,7 @@ func (q *Queries) ListOpenHardCIBreaks(ctx context.Context, repository string) (
 }
 
 const listOpenInboxItems = `-- name: ListOpenInboxItems :many
-SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id
 `
 
 func (q *Queries) ListOpenInboxItems(ctx context.Context) ([]InboxItem, error) {
@@ -4658,6 +4675,7 @@ func (q *Queries) ListOpenInboxItems(ctx context.Context) ([]InboxItem, error) {
 			&i.ChatMessage,
 			&i.Merging,
 			&i.MergeRefusal,
+			&i.Questions,
 		); err != nil {
 			return nil, err
 		}
@@ -5624,7 +5642,7 @@ func (q *Queries) ListUndeliveredLeadEvents(ctx context.Context, arg ListUndeliv
 }
 
 const listUndeliveredOwnerMessages = `-- name: ListUndeliveredOwnerMessages :many
-SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
+SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items FROM chat_messages
 WHERE organization = ? AND repository = ? AND id <= ?
   AND (author = 'Owner' AND browser_id IS NOT NULL OR author = 'Approval')
   AND delivered_at IS NULL AND stopped_at IS NULL
@@ -5657,6 +5675,7 @@ func (q *Queries) ListUndeliveredOwnerMessages(ctx context.Context, arg ListUnde
 			&i.BrowserID,
 			&i.DeliveredAt,
 			&i.StoppedAt,
+			&i.InboxItems,
 		); err != nil {
 			return nil, err
 		}
@@ -5989,7 +6008,7 @@ func (q *Queries) RejectPendingAction(ctx context.Context, arg RejectPendingActi
 
 const reopenInboxItem = `-- name: ReopenInboxItem :one
 UPDATE inbox_items SET dismissed_at = NULL WHERE id = ?
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions
 `
 
 func (q *Queries) ReopenInboxItem(ctx context.Context, id int64) (InboxItem, error) {
@@ -6013,6 +6032,7 @@ func (q *Queries) ReopenInboxItem(ctx context.Context, id int64) (InboxItem, err
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+		&i.Questions,
 	)
 	return i, err
 }
@@ -6268,7 +6288,7 @@ func (q *Queries) SetHarnessPauseEnd(ctx context.Context, arg SetHarnessPauseEnd
 
 const setInboxItemMerge = `-- name: SetInboxItemMerge :one
 UPDATE inbox_items SET merging = ?, merge_refusal = ? WHERE id = ?
-RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal
+RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, questions
 `
 
 type SetInboxItemMergeParams struct {
@@ -6298,6 +6318,7 @@ func (q *Queries) SetInboxItemMerge(ctx context.Context, arg SetInboxItemMergePa
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+		&i.Questions,
 	)
 	return i, err
 }
@@ -6702,7 +6723,7 @@ func (q *Queries) StartTaskWorker(ctx context.Context, arg StartTaskWorkerParams
 
 const stopChatMessage = `-- name: StopChatMessage :one
 UPDATE chat_messages SET stopped_at = ? WHERE id = ? AND delivered_at IS NULL AND stopped_at IS NULL
-RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at
+RETURNING id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at, inbox_items
 `
 
 type StopChatMessageParams struct {
@@ -6724,6 +6745,7 @@ func (q *Queries) StopChatMessage(ctx context.Context, arg StopChatMessageParams
 		&i.BrowserID,
 		&i.DeliveredAt,
 		&i.StoppedAt,
+		&i.InboxItems,
 	)
 	return i, err
 }

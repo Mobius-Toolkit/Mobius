@@ -483,6 +483,11 @@
         "requestBody": {
           "content": {
             "multipart/form-data": {
+              "encoding": {
+                "inboxItems": {
+                  "contentType": "application/json"
+                }
+              },
               "schema": {
                 "$ref": "#/components/schemas/SendChatBody"
               }
@@ -4382,6 +4387,35 @@
         ],
         "description": "Chat is a page of the messages of a Lead chat or of the Coordinator chat."
       },
+      "ChatInboxItem": {
+        "type": "object",
+        "title": "ChatInboxItem",
+        "properties": {
+          "link": {
+            "type": "string",
+            "description": "Link is the GitHub URL of the issue or the pull request, or empty"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Reason is the reason of the Inbox item"
+          },
+          "reference": {
+            "type": "string",
+            "description": "Reference is #N or PR #N, or empty for an item with no issue"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title is the title of the Inbox item"
+          }
+        },
+        "required": [
+          "reference",
+          "title",
+          "reason",
+          "link"
+        ],
+        "description": "ChatInboxItem is an Inbox item that the Owner sends with a chat message."
+      },
       "ChatMessage": {
         "type": "object",
         "title": "ChatMessage",
@@ -4430,6 +4464,14 @@
             "type": "integer",
             "description": "Images is the number of images of the message. GetChatImage gives each image by its position, from 0"
           },
+          "inboxItems": {
+            "type": "array",
+            "title": "[]ChatInboxItem",
+            "description": "InboxItems are the Inbox items that the Owner sent with the message, in the order of the request",
+            "items": {
+              "$ref": "#/components/schemas/ChatInboxItem"
+            }
+          },
           "organization": {
             "type": "string",
             "description": "Organization is the owner of the repository, or the organization of the Coordinator chat"
@@ -4469,6 +4511,7 @@
           "time",
           "text",
           "images",
+          "inboxItems",
           "browserId",
           "deliveredAt",
           "stoppedAt",
@@ -5372,6 +5415,14 @@
             "type": "string",
             "description": "PullRequestURL is the GitHub URL of the pull request, or empty"
           },
+          "questions": {
+            "type": "array",
+            "title": "[]Question",
+            "description": "Questions are the questions with options of a question item, or an empty list",
+            "items": {
+              "$ref": "#/components/schemas/Question"
+            }
+          },
           "reason": {
             "type": "string",
             "description": "Reason is the short reason of the item"
@@ -5420,6 +5471,7 @@
           "dismissedAt",
           "merging",
           "mergeRefusal",
+          "questions",
           "action"
         ],
         "description": "InboxItem is an item of the Inbox of the Owner."
@@ -6117,6 +6169,53 @@
         ],
         "description": "PermissionCheck is the status of a permission that the Mobius App needs."
       },
+      "Question": {
+        "type": "object",
+        "title": "Question",
+        "properties": {
+          "multiple": {
+            "type": "boolean",
+            "description": "Multiple is true when the Owner can select more than one option"
+          },
+          "options": {
+            "type": "array",
+            "title": "[]QuestionOption",
+            "description": "Options are the options of the question",
+            "items": {
+              "$ref": "#/components/schemas/QuestionOption"
+            }
+          },
+          "text": {
+            "type": "string",
+            "description": "Text is the question"
+          }
+        },
+        "required": [
+          "text",
+          "multiple",
+          "options"
+        ],
+        "description": "Question is a question of the Lead with its options."
+      },
+      "QuestionOption": {
+        "type": "object",
+        "title": "QuestionOption",
+        "properties": {
+          "details": {
+            "type": "string",
+            "description": "Details is the explanation of the option, or empty"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title is the short answer"
+          }
+        },
+        "required": [
+          "title",
+          "details"
+        ],
+        "description": "QuestionOption is an option of a Question."
+      },
       "Recording": {
         "type": "object",
         "title": "Recording",
@@ -6235,6 +6334,14 @@
               "contentMediaType": "application/octet-stream"
             }
           },
+          "inboxItems": {
+            "type": "array",
+            "title": "[]ChatInboxItem",
+            "description": "InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order, and each part is one JSON object",
+            "items": {
+              "$ref": "#/components/schemas/ChatInboxItem"
+            }
+          },
           "organization": {
             "type": "string",
             "description": "Organization is the owner of the repository, or the organization of the Coordinator chat"
@@ -6245,7 +6352,7 @@
           },
           "text": {
             "type": "string",
-            "description": "Text is the message of the Owner. It is required when the message has no image"
+            "description": "Text is the message of the Owner. It is required when the message has no image and no Inbox item"
           },
           "workstream": {
             "type": "integer",

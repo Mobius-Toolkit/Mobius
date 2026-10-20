@@ -202,25 +202,24 @@ func TestTheTaskStateMigrationKeepsTheRowsAndRefusesAnUnknownState(t *testing.T)
 		t.Fatalf("got %d tasks, want 2", len(tasks))
 	}
 	want := Task{
-		ID:                   tasks[1].ID,
-		Repository:           "o/r",
-		Issue:                5,
-		Workstream:           4,
-		WorkstreamRepository: "o/r",
-		State:                "reviewed",
-		DispatchedAt:         "2026-10-01T11:00:00Z",
-		Branch:               sql.NullString{String: "mobius/5", Valid: true},
-		QueuedAt:             sql.NullString{String: "2026-10-01T11:01:00Z", Valid: true},
-		FixRounds:            2,
-		PullRequest:          sql.NullInt64{Int64: 9, Valid: true},
-		JudgedAt:             sql.NullString{String: "2026-10-01T11:02:00Z", Valid: true},
-		WorkerRestarts:       1,
-		Worker:               sql.NullString{String: "judge", Valid: true},
-		WorkerInput:          sql.NullString{String: "needs_human", Valid: true},
-		ReviewRounds:         3,
-		ReviewComment:        sql.NullInt64{Int64: 77, Valid: true},
-		CheckHead:            sql.NullString{String: "abc", Valid: true},
-		StateAt:              tasks[1].StateAt,
+		ID:             tasks[1].ID,
+		Repository:     "o/r",
+		Issue:          5,
+		Workstream:     4,
+		State:          "reviewed",
+		DispatchedAt:   "2026-10-01T11:00:00Z",
+		Branch:         sql.NullString{String: "mobius/5", Valid: true},
+		QueuedAt:       sql.NullString{String: "2026-10-01T11:01:00Z", Valid: true},
+		FixRounds:      2,
+		PullRequest:    sql.NullInt64{Int64: 9, Valid: true},
+		JudgedAt:       sql.NullString{String: "2026-10-01T11:02:00Z", Valid: true},
+		WorkerRestarts: 1,
+		Worker:         sql.NullString{String: "judge", Valid: true},
+		WorkerInput:    sql.NullString{String: "needs_human", Valid: true},
+		ReviewRounds:   3,
+		ReviewComment:  sql.NullInt64{Int64: 77, Valid: true},
+		CheckHead:      sql.NullString{String: "abc", Valid: true},
+		StateAt:        tasks[1].StateAt,
 	}
 	if tasks[1] != want {
 		t.Errorf("task = %+v, want %+v", tasks[1], want)
@@ -547,10 +546,13 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN workstream_repository"); err != nil {
 		t.Fatal(err)
 	}
-	for _, column := range []string{"merging", "merge_refusal"} {
+	for _, column := range []string{"merging", "merge_refusal", "questions"} {
 		if _, err := db.Exec("ALTER TABLE inbox_items DROP COLUMN " + column); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err := db.Exec("ALTER TABLE chat_messages DROP COLUMN inbox_items"); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := db.Exec("DELETE FROM goose_db_version WHERE version_id >= 20261027000000"); err != nil {
 		t.Fatal(err)
@@ -641,6 +643,8 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"ALTER TABLE tasks DROP COLUMN workstream_repository",
 		"ALTER TABLE inbox_items DROP COLUMN merging",
 		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
+		"ALTER TABLE inbox_items DROP COLUMN questions",
+		"ALTER TABLE chat_messages DROP COLUMN inbox_items",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261029100000",
 		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time) VALUES
 			(1, 'usage limit', 'owner', '', 0, 0, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z'),
@@ -733,6 +737,8 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		"ALTER TABLE tasks DROP COLUMN workstream_repository",
 		"ALTER TABLE inbox_items DROP COLUMN merging",
 		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
+		"ALTER TABLE inbox_items DROP COLUMN questions",
+		"ALTER TABLE chat_messages DROP COLUMN inbox_items",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261105000000",
 		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, started_at) VALUES
 			(1, 'triager', 'claude-code', 'sonnet', 'owner', '', 0, '2026-10-04T10:00:00Z'),

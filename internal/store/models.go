@@ -19,6 +19,7 @@ type ChatMessage struct {
 	BrowserID    sql.NullString
 	DeliveredAt  sql.NullString
 	StoppedAt    sql.NullString
+	InboxItems   string
 }
 
 type CheckTimeout struct {
@@ -133,6 +134,7 @@ type InboxItem struct {
 	ChatMessage  sql.NullInt64
 	Merging      int64
 	MergeRefusal string
+	Questions    string
 }
 
 type LeadEvent struct {
