@@ -161,7 +161,8 @@ type AnsweredComment struct {
 
 // AnswerInboxItem posts the text as a comment of the Owner on the issue of an Inbox item. Mobius treats the comment as
 // a comment of a trusted user. Mobius posts it with the user token of the Owner, so the Owner must authorize the Mobius
-// App first. It returns 404 for an unknown item, 400 for an item with no issue and for an empty text, and 409 with the
+// App first. For a question of the Coordinator, it instead adds the text to the Coordinator chat as a message of the
+// Owner, and the URL is empty. It returns 404 for an unknown item, 400 for an item with no issue and for an empty text, and 409 with the
 // steps when the Owner did not authorize the App.
 func (h *handlers) AnswerInboxItem(ctx context.Context, req AnswerInboxItemRequest) (*AnswerInboxItemResponse, error) {
 	if strings.TrimSpace(req.Body.Text) == "" {

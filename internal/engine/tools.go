@@ -119,32 +119,9 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 			tool(e, c, "ask",
 				"Ask the people on a task issue, or on the Workstream issue, a question. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius posts the text and the questions as a comment, adds mobius:question, and adds an Inbox item for the Owner. The reply arrives later as an event. On a dispatched task, the task frees its Autopilot slot until the Owner replies. Then you get a dispatch event again.",
 				map[string]any{
-					"n":    map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
-					"text": map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue. With questions, the context of the questions."},
-					"questions": map[string]any{
-						"type":        "array",
-						"description": "Optional. Questions with options for the Owner to select.",
-						"items": map[string]any{
-							"type":     "object",
-							"required": []string{"text", "options"},
-							"properties": map[string]any{
-								"text":     map[string]any{"type": "string", "minLength": 1, "description": "The question."},
-								"multiple": map[string]any{"type": "boolean", "description": "True lets the Owner select more than one option. The default is false."},
-								"options": map[string]any{
-									"type":     "array",
-									"minItems": 2,
-									"items": map[string]any{
-										"type":     "object",
-										"required": []string{"title"},
-										"properties": map[string]any{
-											"title":   map[string]any{"type": "string", "minLength": 1, "description": "The short answer."},
-											"details": map[string]any{"type": "string", "description": "The explanation of the option."},
-										},
-									},
-								},
-							},
-						},
-					},
+					"n":         map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue, or of the Workstream issue."},
+					"text":      map[string]any{"type": "string", "minLength": 1, "description": "The question for the people on the issue. With questions, the context of the questions."},
+					"questions": questionsProperty,
 				},
 				e.ask),
 			tool(e, c, "close_question",
@@ -350,9 +327,41 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				},
 				e.startResearcher),
 			e.tellCuratorTool(c),
+			toolOf(e, c, noRepository, "ask",
+				"Ask the Owner a question. Use it when you need a decision of the Owner. For a choice between alternatives, give the questions with their options in questions, and the context in text. Mobius adds an Inbox item for the Owner. The tool returns at once. The answer arrives later as a chat message of the Owner.",
+				map[string]any{
+					"text":      map[string]any{"type": "string", "minLength": 1, "description": "The question for the Owner. With questions, the context of the questions."},
+					"questions": questionsProperty,
+				},
+				e.coordinatorAsk),
 		}
 	}
 	return nil
+}
+
+var questionsProperty = map[string]any{
+	"type":        "array",
+	"description": "Optional. Questions with options for the Owner to select.",
+	"items": map[string]any{
+		"type":     "object",
+		"required": []string{"text", "options"},
+		"properties": map[string]any{
+			"text":     map[string]any{"type": "string", "minLength": 1, "description": "The question."},
+			"multiple": map[string]any{"type": "boolean", "description": "True lets the Owner select more than one option. The default is false."},
+			"options": map[string]any{
+				"type":     "array",
+				"minItems": 2,
+				"items": map[string]any{
+					"type":     "object",
+					"required": []string{"title"},
+					"properties": map[string]any{
+						"title":   map[string]any{"type": "string", "minLength": 1, "description": "The short answer."},
+						"details": map[string]any{"type": "string", "description": "The explanation of the option."},
+					},
+				},
+			},
+		},
+	},
 }
 
 var workstreamProperties = map[string]any{

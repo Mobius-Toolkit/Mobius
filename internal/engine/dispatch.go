@@ -628,21 +628,8 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
 	}
-	if empty(input.Text) {
-		return "", refuse("text must not be empty.")
-	}
-	for _, question := range input.Questions {
-		if empty(question.Text) {
-			return "", refuse("The text of a question must not be empty.")
-		}
-		if len(question.Options) < 2 {
-			return "", refuse("A question needs 2 options or more.")
-		}
-		for _, option := range question.Options {
-			if empty(option.Title) {
-				return "", refuse("The title of an option must not be empty.")
-			}
-		}
+	if err := refuseQuestions(input.Text, input.Questions); err != nil {
+		return "", err
 	}
 	comment, questions, err := questionsComment(input)
 	if err != nil {
@@ -700,15 +687,34 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 	return fmt.Sprintf("Asked on #%d.", input.N), nil
 }
 
+// refuseQuestions refuses an empty text, a question with no text, a question with fewer than 2 options, and an option
+// with no title.
+func refuseQuestions(text string, questions []Question) error {
+	if empty(text) {
+		return refuse("text must not be empty.")
+	}
+	for _, question := range questions {
+		if empty(question.Text) {
+			return refuse("The text of a question must not be empty.")
+		}
+		if len(question.Options) < 2 {
+			return refuse("A question needs 2 options or more.")
+		}
+		for _, option := range question.Options {
+			if empty(option.Title) {
+				return refuse("The title of an option must not be empty.")
+			}
+		}
+	}
+	return nil
+}
+
 // questionsComment gives the comment of ask and the JSON of the questions for the Inbox item. The JSON is empty for a
 // call with no questions.
 func questionsComment(input askInput) (string, string, error) {
-	if len(input.Questions) == 0 {
-		return input.Text, "", nil
-	}
-	stored, err := json.Marshal(input.Questions)
-	if err != nil {
-		return "", "", err
+	stored, err := questionsJSON(input.Questions)
+	if err != nil || stored == "" {
+		return input.Text, "", err
 	}
 	var comment strings.Builder
 	comment.WriteString(input.Text)
@@ -726,7 +732,16 @@ func questionsComment(input askInput) (string, string, error) {
 			}
 		}
 	}
-	return comment.String(), string(stored), nil
+	return comment.String(), stored, nil
+}
+
+// questionsJSON gives the JSON of the questions for the Inbox item, or an empty text for no questions.
+func questionsJSON(questions []Question) (string, error) {
+	if len(questions) == 0 {
+		return "", nil
+	}
+	stored, err := json.Marshal(questions)
+	return string(stored), err
 }
 
 // closeQuestion posts text on the issue as the Mobius App, continues a task in asked as after a reply on the issue,
