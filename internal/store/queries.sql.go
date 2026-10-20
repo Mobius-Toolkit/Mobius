@@ -5802,7 +5802,7 @@ func (q *Queries) SetCIBreakResult(ctx context.Context, arg SetCIBreakResultPara
 }
 
 const setCIDiagnosisSession = `-- name: SetCIDiagnosisSession :exec
-UPDATE ci_diagnoses SET session = ? WHERE id = ?
+UPDATE ci_diagnoses SET session = ?, reasons = '' WHERE id = ?
 `
 
 type SetCIDiagnosisSessionParams struct {

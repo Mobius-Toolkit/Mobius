@@ -932,7 +932,7 @@ SELECT * FROM ci_diagnoses WHERE session = ?;
 SELECT * FROM ci_diagnoses WHERE repository = ? AND ended_at = '' ORDER BY id LIMIT 1;
 
 -- name: SetCIDiagnosisSession :exec
-UPDATE ci_diagnoses SET session = ? WHERE id = ?;
+UPDATE ci_diagnoses SET session = ?, reasons = '' WHERE id = ?;
 
 -- name: AddCIDiagnosisReason :exec
 UPDATE ci_diagnoses SET reasons = reasons || ? WHERE id = ?;
