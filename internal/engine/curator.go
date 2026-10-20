@@ -246,7 +246,7 @@ func (e *Engine) deliverCuratorResult(ctx context.Context, a *Agent, requests []
 	if reply := strings.TrimSpace(a.replyText()); reply != "" {
 		fmt.Fprintf(&text, "\nReply of the Curator:\n\n%s", reply)
 	}
-	return e.postChat(ctx, ChatKey{Organization: a.spec.Organization}, curatorAuthor, "", text.String(), nil)
+	return e.postChat(ctx, ChatKey{Organization: a.spec.Organization}, curatorAuthor, "", text.String(), nil, nil)
 }
 
 // curateTurn makes the worktree of the Curator a and runs its turn.

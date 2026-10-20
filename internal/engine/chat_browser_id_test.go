@@ -14,7 +14,7 @@ import (
 
 func sendChatID(t *testing.T, server *testserver.Server, id, text string, images ...engine.Image) {
 	t.Helper()
-	if err := server.Engine.SendChat(t.Context(), leadChat, id, text, images); err != nil {
+	if err := server.Engine.SendChat(t.Context(), leadChat, id, text, images, nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -110,7 +110,7 @@ func TestTwoMessagesWithTheSameBrowserIDAtTheSameTimeMakeOneMessage(t *testing.T
 
 	for range 5 {
 		sent.Go(func() {
-			if err := server.Engine.SendChat(t.Context(), leadChat, "one", "First", []engine.Image{pngImage}); err != nil {
+			if err := server.Engine.SendChat(t.Context(), leadChat, "one", "First", []engine.Image{pngImage}, nil); err != nil {
 				t.Error(err)
 			}
 		})

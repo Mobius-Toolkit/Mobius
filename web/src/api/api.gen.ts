@@ -260,6 +260,20 @@ export const ChatMessageAuthor = {
 } as const;
 
 /**
+ * ChatInboxItem is an Inbox item that the Owner sends with a chat message.
+ */
+export interface ChatInboxItem {
+  /** Link is the GitHub URL of the issue or the pull request, or empty */
+  link: string;
+  /** Reason is the reason of the Inbox item */
+  reason: string;
+  /** Reference is #N or PR #N, or empty for an item with no issue */
+  reference: string;
+  /** Title is the title of the Inbox item */
+  title: string;
+}
+
+/**
  * ChatMessage is a message of a Lead chat or of the Coordinator chat.
  */
 export interface ChatMessage {
@@ -278,6 +292,8 @@ export interface ChatMessage {
   id: number;
   /** Images is the number of images of the message. GetChatImage gives each image by its position, from 0 */
   images: number;
+  /** InboxItems are the Inbox items that the Owner sent with the message, in the order of the request */
+  inboxItems: ChatInboxItem[];
   /** Organization is the owner of the repository, or the organization of the Coordinator chat */
   organization: string;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
@@ -1405,11 +1421,13 @@ export interface SendChatBody {
   id: string;
   /** Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB */
   images?: (Blob | File)[];
+  /** InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order, and each part is one JSON object */
+  inboxItems?: ChatInboxItem[];
   /** Organization is the owner of the repository, or the organization of the Coordinator chat */
   organization?: string;
   /** Repository is the repository of the Workstream as "owner/name". It is empty for the Coordinator chat */
   repository?: string;
-  /** Text is the message of the Owner. It is required when the message has no image */
+  /** Text is the message of the Owner. It is required when the message has no image and no Inbox item */
   text: string;
   /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream?: number;
@@ -2108,6 +2126,9 @@ export const sendChat = async (sendChatBody: SendChatBody, ): Promise<sendChatRe
 formData.append(`id`, sendChatBody.id);
 if(sendChatBody.images !== undefined) {
  sendChatBody.images.forEach(value => formData.append(`images`, value));
+ }
+if(sendChatBody.inboxItems !== undefined) {
+ sendChatBody.inboxItems.forEach(value => formData.append(`inboxItems`, JSON.stringify(value)));
  }
 if(sendChatBody.organization !== undefined) {
  formData.append(`organization`, sendChatBody.organization);

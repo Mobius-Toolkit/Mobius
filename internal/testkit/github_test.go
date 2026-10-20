@@ -317,7 +317,7 @@ func TestTheIssueListFiltersByLabelAndTimeAndGivesNotModifiedForTheSameETag(t *t
 	if numbers := issueNumbers(issues); !reflect.DeepEqual(numbers, []int64{13, 12}) {
 		t.Errorf("all = %v", numbers)
 	}
-	if issues[1].ID != 100_012 || issues[1].User.Login != "owner" || !reflect.DeepEqual(issues[1].Labels, []nameJSON{{"mobius:workstream"}}) {
+	if issues[1].ID != issueID(github, "owner/shop", 12) || issues[1].User.Login != "owner" || !reflect.DeepEqual(issues[1].Labels, []nameJSON{{"mobius:workstream"}}) {
 		t.Errorf("issue = %+v", issues[1])
 	}
 	send(t, http.MethodGet, github.URL+"/repos/owner/shop/issues?labels=mobius:workstream", token, "", &issues)
@@ -383,6 +383,88 @@ func TestALabelWriteRecordsAnEventWithTheTokenOwner(t *testing.T) {
 	want := []string{"labeled mobius:working by mobius-test[bot]", "unlabeled mobius:working by owner"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("events = %q", got)
+	}
+}
+
+func issueID(github *FakeGitHub, repository string, number int64) int64 {
+	github.mu.Lock()
+	defer github.mu.Unlock()
+	return github.issues[issueKey{repository, number}].id
+}
+
+func TestTwoIssuesWithTheSameNumberInTwoRepositoriesHaveDifferentIds(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("o/a", 5, "Issue")
+	github.AddIssue("o/b", 5, "Issue")
+	token := installationToken(t, github)
+	var first, second issueJSON
+
+	send(t, http.MethodGet, github.URL+"/repos/o/a/issues/5", token, "", &first)
+	send(t, http.MethodGet, github.URL+"/repos/o/b/issues/5", token, "", &second)
+
+	if first.ID == second.ID {
+		t.Errorf("both issues have the id %d", first.ID)
+	}
+}
+
+func TestASubIssueAndABlockerCanBeInAnotherRepositoryOfTheOwner(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("o/a", 5, "Workstream")
+	github.AddIssue("o/b", 5, "Task")
+	github.AddIssue("other/c", 5, "Foreign task")
+	token := installationToken(t, github)
+	task := issueID(github, "o/b", 5)
+	var parent issueJSON
+	var children, blockers []issueJSON
+
+	added := send(t, http.MethodPost, github.URL+"/repos/o/a/issues/5/sub_issues", token, fmt.Sprintf(`{"sub_issue_id": %d}`, task), nil)
+	blocked := send(t, http.MethodPost, github.URL+"/repos/o/a/issues/5/dependencies/blocked_by", token, fmt.Sprintf(`{"issue_id": %d}`, task), nil)
+	send(t, http.MethodGet, github.URL+"/repos/o/b/issues/5/parent", token, "", &parent)
+	send(t, http.MethodGet, github.URL+"/repos/o/a/issues/5/sub_issues", token, "", &children)
+	send(t, http.MethodGet, github.URL+"/repos/o/a/issues/5/dependencies/blocked_by", token, "", &blockers)
+
+	if added.StatusCode != http.StatusCreated || blocked.StatusCode != http.StatusCreated {
+		t.Errorf("status = %d, %d", added.StatusCode, blocked.StatusCode)
+	}
+	if parent.Title != "Workstream" || parent.RepositoryURL != "https://api.github.com/repos/o/a" || parent.HTMLURL != "https://github.com/o/a/issues/5" {
+		t.Errorf("parent = %+v", parent)
+	}
+	if len(children) != 1 || children[0].RepositoryURL != "https://api.github.com/repos/o/b" {
+		t.Errorf("sub-issues = %+v", children)
+	}
+	if len(blockers) != 1 || blockers[0].RepositoryURL != "https://api.github.com/repos/o/b" {
+		t.Errorf("blockers = %+v", blockers)
+	}
+	foreign := fmt.Sprintf(`{"sub_issue_id": %d}`, issueID(github, "other/c", 5))
+	if response := send(t, http.MethodPost, github.URL+"/repos/o/a/issues/5/sub_issues", token, foreign, nil); response.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("status of a child of another owner = %d", response.StatusCode)
+	}
+}
+
+func TestASubIssueWithAParentInAnotherRepositoryMovesToANewParentWithReplaceParent(t *testing.T) {
+	github := NewFakeGitHub(t)
+	github.AddIssue("o/a", 1, "Old parent")
+	github.AddIssue("o/a", 2, "New parent")
+	github.AddIssue("o/b", 1, "Task")
+	github.AddForeignSubIssue("o/a", 1, "o/b", 1)
+	token := installationToken(t, github)
+	request := fmt.Sprintf(`{"sub_issue_id": %d}`, issueID(github, "o/b", 1))
+	replacing := fmt.Sprintf(`{"sub_issue_id": %d, "replace_parent": true}`, issueID(github, "o/b", 1))
+
+	refused := send(t, http.MethodPost, github.URL+"/repos/o/a/issues/2/sub_issues", token, request, nil)
+	moved := send(t, http.MethodPost, github.URL+"/repos/o/a/issues/2/sub_issues", token, replacing, nil)
+
+	var parent issueJSON
+	send(t, http.MethodGet, github.URL+"/repos/o/b/issues/1/parent", token, "", &parent)
+	if refused.StatusCode != http.StatusUnprocessableEntity || moved.StatusCode != http.StatusCreated {
+		t.Errorf("status = %d, %d", refused.StatusCode, moved.StatusCode)
+	}
+	if parent.Number != 2 || len(github.SubIssueNumbers("o/a", 1)) != 0 || !reflect.DeepEqual(github.SubIssueNumbers("o/a", 2), []int64{1}) {
+		t.Errorf("parent = #%d", parent.Number)
+	}
+	github.RemoveForeignSubIssue("o/a", 2, "o/b", 1)
+	if len(github.SubIssueNumbers("o/a", 2)) != 0 {
+		t.Errorf("sub-issues = %v", github.SubIssueNumbers("o/a", 2))
 	}
 }
 
@@ -553,8 +635,8 @@ func TestASubIssueMovesToItsNewParentAndTheSummaryCountsTheOpenBlockers(t *testi
 	token := installationToken(t, github)
 	issue := github.URL + "/repos/owner/shop/issues/"
 
-	added := send(t, http.MethodPost, issue+"2/sub_issues", token, `{"sub_issue_id": 100003, "replace_parent": true}`, nil)
-	send(t, http.MethodPost, issue+"3/dependencies/blocked_by", token, `{"issue_id": 100001}`, nil)
+	added := send(t, http.MethodPost, issue+"2/sub_issues", token, fmt.Sprintf(`{"sub_issue_id": %d, "replace_parent": true}`, issueID(github, "owner/shop", 3)), nil)
+	send(t, http.MethodPost, issue+"3/dependencies/blocked_by", token, fmt.Sprintf(`{"issue_id": %d}`, issueID(github, "owner/shop", 1)), nil)
 
 	var parent, child issueJSON
 	send(t, http.MethodGet, issue+"3/parent", token, "", &parent)

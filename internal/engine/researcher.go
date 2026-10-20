@@ -116,7 +116,7 @@ func (e *Engine) stopResearcher(ctx context.Context, c caller, _ github.Reposito
 	e.stop(researcherKey(input.ID))
 	e.detailsMu.Unlock()
 	text := fmt.Sprintf("The Researcher %d stopped. No report arrives.", input.ID)
-	if err := e.postChat(ctx, leadChat(c.repository, c.workstream), researcherAuthor, "", text, nil); err != nil {
+	if err := e.postChat(ctx, leadChat(c.repository, c.workstream), researcherAuthor, "", text, nil, nil); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("Stopped the Researcher %d.", input.ID), nil
@@ -227,7 +227,7 @@ func (e *Engine) deliverReport(ctx context.Context, c caller, repository github.
 		text = header + tail(report, commentLimit-utf8.RuneCountInString(header))
 		return e.commentToTriager(ctx, repository, c.agent.spec.Issue.Int64, text)
 	}
-	return e.postChat(ctx, ChatKey{c.organization, c.repository, c.workstream}, researcherAuthor, "", text, nil)
+	return e.postChat(ctx, ChatKey{c.organization, c.repository, c.workstream}, researcherAuthor, "", text, nil, nil)
 }
 
 // commentToTriager adds the text as a comment on the issue number of the Triager, and starts the next turn of the
