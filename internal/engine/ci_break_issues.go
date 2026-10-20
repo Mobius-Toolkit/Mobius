@@ -86,7 +86,7 @@ func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repos
 		labels = []string{readyLabel}
 	}
 	title := fmt.Sprintf("Fix the failed workflow \"%s\" on %s", ciBreak.WorkflowName, repository.DefaultBranch)
-	number, err := addIssue(ctx, repository, issueInput{Title: title, Body: body, Parent: workstream}, labels)
+	number, err := e.addIssue(ctx, repository, workstream, issueInput{Title: title, Body: body, Parent: workstream}, labels)
 	if number != 0 {
 		stored := int64(number)
 		if err != nil {

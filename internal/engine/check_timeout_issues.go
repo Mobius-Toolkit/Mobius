@@ -100,7 +100,7 @@ func (e *Engine) createCheckTimeoutIssue(ctx context.Context, repository github.
 
 func (e *Engine) createCheckTimeoutIssueBelow(ctx context.Context, repository github.Repository, workstream int64, timeout store.CheckTimeout) (bool, error) {
 	title := fmt.Sprintf("Examine the time of the local check of %s", repository.FullName)
-	number, err := addIssue(ctx, repository, issueInput{Title: title, Body: checkTimeoutBody(timeout), Parent: workstream}, []string{readyLabel})
+	number, err := e.addIssue(ctx, repository, workstream, issueInput{Title: title, Body: checkTimeoutBody(timeout), Parent: workstream}, []string{readyLabel})
 	if number != 0 {
 		stored := int64(number)
 		if err != nil {

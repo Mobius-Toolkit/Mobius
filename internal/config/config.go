@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,6 +40,7 @@ type Config struct {
 	TrustedUsers        []string      `toml:"trusted_users"`
 	TrustedBots         []string      `toml:"trusted_bots"`
 	DataDir             string        `toml:"data_dir"`
+	UIURL               string        `toml:"ui_url"`
 	MaxChecks           int           `toml:"max_checks"`
 	MaxFixRounds        int           `toml:"max_fix_rounds"`
 	MaxCheckAttempts    int           `toml:"max_check_attempts"`
@@ -134,6 +136,7 @@ func Parse(text []byte) (*Config, error) {
 		return nil, describe(err)
 	}
 	config := f.Config
+	config.UIURL = strings.TrimSuffix(config.UIURL, "/")
 	durations := []struct {
 		key   string
 		text  string
@@ -202,6 +205,12 @@ func check(config *Config) error {
 	}
 	if len(config.TrustedUsers) == 0 {
 		return errors.New("trusted_users: must not be empty")
+	}
+	if config.UIURL != "" {
+		u, err := url.Parse(config.UIURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return errors.New("ui_url: must be an absolute http or https URL")
+		}
 	}
 	for _, b := range config.Roles.Bindings() {
 		key := "roles." + b.Role
