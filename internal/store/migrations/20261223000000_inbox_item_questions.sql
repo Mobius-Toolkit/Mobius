@@ -1,0 +1,1 @@
+ALTER TABLE inbox_items ADD COLUMN questions TEXT NOT NULL DEFAULT '';

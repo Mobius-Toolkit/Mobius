@@ -592,6 +592,28 @@ export const InboxItemKind = {
 } as const;
 
 /**
+ * QuestionOption is an option of a Question.
+ */
+export interface QuestionOption {
+  /** Details is the explanation of the option, or empty */
+  details: string;
+  /** Title is the short answer */
+  title: string;
+}
+
+/**
+ * Question is a question of the Lead with its options.
+ */
+export interface Question {
+  /** Multiple is true when the Owner can select more than one option */
+  multiple: boolean;
+  /** Options are the options of the question */
+  options: QuestionOption[];
+  /** Text is the question */
+  text: string;
+}
+
+/**
  * InboxItem is an item of the Inbox of the Owner.
  */
 export interface InboxItem {
@@ -620,6 +642,8 @@ export interface InboxItem {
   pullRequest: number;
   /** PullRequestURL is the GitHub URL of the pull request, or empty */
   pullRequestUrl: string;
+  /** Questions are the questions with options of a question item, or an empty list */
+  questions: Question[];
   /** Reason is the short reason of the item */
   reason: string;
   /** ReportURL is the GitHub URL of the approval report, or empty */

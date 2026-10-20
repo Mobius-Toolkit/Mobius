@@ -133,6 +133,7 @@ type InboxItem struct {
 	ChatMessage  sql.NullInt64
 	Merging      int64
 	MergeRefusal string
+	Questions    string
 }
 
 type LeadEvent struct {
