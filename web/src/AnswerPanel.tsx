@@ -8,7 +8,7 @@ import {
 } from "@/api/api.gen";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { roleName, type Decision } from "@/lib/actions";
-import { answerDraftKey } from "@/lib/draft";
+import { answerDraftKey, saveDraft } from "@/lib/draft";
 import { LoginContext } from "@/lib/login";
 import { useShell } from "@/lib/shell";
 import { clock, dayClock } from "@/lib/time";
@@ -55,12 +55,21 @@ export function AnswerPanel({
   onDecided?: (action: PendingAction) => void;
 }) {
   const showLogin = use(LoginContext);
-  const { leaveInbox, updateAction } = useShell();
-  const [error, setError] = useState("");
+  const { leaveInbox, updateAction, hideInbox, failInbox, inboxFailure, clearInboxFailure } =
+    useShell();
+  const [error, setError] = useState(inboxFailure?.id === item.id ? inboxFailure.error : "");
   const content = useRef<HTMLDivElement>(null);
   useKeyboardHeight();
 
+  useEffect(() => {
+    if (inboxFailure?.id === item.id) {
+      clearInboxFailure();
+    }
+  }, [inboxFailure, item.id, clearInboxFailure]);
+
   const answer = async (text: string) => {
+    hideInbox(item);
+    let failure = "";
     try {
       const res = await answerInboxItem(item.id, { text });
       if (res.status === 200) {
@@ -70,37 +79,40 @@ export function AnswerPanel({
       if (res.status === 401) {
         showLogin();
       } else {
-        setError(res.data.error);
+        failure = res.data.error;
       }
     } catch (err) {
-      setError(String(err));
+      failure = String(err);
     }
+    saveDraft(answerDraftKey(item.id), text);
+    failInbox(item.id, failure);
     return false;
   };
 
   const decide = async (id: number, decision: Decision, message: string) => {
+    hideInbox(item);
+    let failure = "";
     try {
       const res = await (decision === "approve" ? approveAction : rejectAction)(id, { message });
       if (res.status === 200) {
         const decided = res.data.data;
         updateAction(decided);
         onDecided?.(decided);
-        if (decided.state === "pending") {
-          setError(decided.error);
-          return false;
+        if (decided.state !== "pending") {
+          leaveInbox(item.id);
+          onClose();
+          return true;
         }
-        leaveInbox(item.id);
-        onClose();
-        return true;
-      }
-      if (res.status === 401) {
+        failure = decided.error;
+      } else if (res.status === 401) {
         showLogin();
       } else {
-        setError(res.data.error);
+        failure = res.data.error;
       }
     } catch (err) {
-      setError(String(err));
+      failure = String(err);
     }
+    failInbox(item.id, failure);
     return false;
   };
 

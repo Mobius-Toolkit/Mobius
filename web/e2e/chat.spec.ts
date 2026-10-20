@@ -1143,7 +1143,7 @@ test("a sent answer closes the panel, and the chat stays open", async ({ page })
     await expect(panel).toHaveCount(0);
     await expect(page).toHaveURL(shop);
     await expect(main.getByLabel("Message to the Lead")).toBeVisible();
-    await expect(main.getByRole("listitem").filter({ hasText: longTitle })).toBeVisible();
+    await expect(main.getByRole("listitem").filter({ hasText: longTitle })).toHaveCount(0);
   } finally {
     await page.request.delete(`/e2e/inbox-items/${id}`);
   }

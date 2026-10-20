@@ -192,7 +192,7 @@ test("Details opens a panel with the text and no input, and the panel closes", a
   await expect(row).toBeVisible();
 });
 
-test("Answer opens a panel with the rendered text, and a sent answer closes the panel", async ({
+test("Answer opens a panel with the rendered text, and a sent answer closes the panel and the row", async ({
   page,
 }) => {
   await page.goto("/api/github/user-callback?code=shop-code");
@@ -214,11 +214,7 @@ test("Answer opens a panel with the rendered text, and a sent answer closes the 
     const answered = (await (await response).json()) as { data: { url: string } };
     expect(answered.data.url).toContain("/issues/40#issuecomment-");
     await expect(panel).toHaveCount(0);
-    await expect(main.getByRole("listitem")).toHaveCount(1);
-    await expect(main.getByRole("button", { name: "Answer" })).toBeVisible();
-
-    await main.getByRole("button", { name: "Answer" }).click();
-    await expect(panel.getByRole("textbox", { name: "Your answer" })).toHaveValue("");
+    await expect(main.getByRole("listitem")).toHaveCount(0);
   } finally {
     await page.request.delete(`/e2e/inbox-items/${id}`);
   }
