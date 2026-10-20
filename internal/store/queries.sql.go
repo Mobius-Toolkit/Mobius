@@ -2347,6 +2347,32 @@ func (q *Queries) HasHeldLeadEvent(ctx context.Context, arg HasHeldLeadEventPara
 	return exists, err
 }
 
+const hasLeadEvent = `-- name: HasLeadEvent :one
+SELECT EXISTS (
+    SELECT 1 FROM lead_events
+    WHERE repository = ? AND workstream = ? AND kind = ? AND payload = ?
+)
+`
+
+type HasLeadEventParams struct {
+	Repository string
+	Workstream int64
+	Kind       string
+	Payload    string
+}
+
+func (q *Queries) HasLeadEvent(ctx context.Context, arg HasLeadEventParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasLeadEvent,
+		arg.Repository,
+		arg.Workstream,
+		arg.Kind,
+		arg.Payload,
+	)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hasTask = `-- name: HasTask :one
 SELECT EXISTS (SELECT 1 FROM tasks WHERE repository = ? AND issue = ?)
 `

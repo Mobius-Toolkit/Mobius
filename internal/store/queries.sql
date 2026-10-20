@@ -298,6 +298,12 @@ WHERE m.organization = sqlc.arg(organization) AND m.repository = sqlc.arg(reposi
 INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, chat_message, comment, review)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
+-- name: HasLeadEvent :one
+SELECT EXISTS (
+    SELECT 1 FROM lead_events
+    WHERE repository = ? AND workstream = ? AND kind = ? AND payload = ?
+);
+
 -- A follow-up event of a Reviewer names its review comment as ", item <id>, ".
 -- name: HasFollowUpEvent :one
 SELECT EXISTS (
