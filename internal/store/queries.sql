@@ -961,3 +961,21 @@ RETURNING id;
 INSERT INTO ci_failure_places (failure, pull_request, ci_break, head, job_urls, lines, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (failure, pull_request, ci_break) DO NOTHING;
+
+-- name: ListCIFailuresWithoutIssue :many
+SELECT ci_failures.* FROM ci_failures
+WHERE repository = ? AND issue = 0 AND ended_at = ''
+  AND (SELECT COUNT(*) FROM ci_failure_places WHERE failure = ci_failures.id) >= 2
+ORDER BY id;
+
+-- name: ListCIFailuresNotBelowWorkstream :many
+SELECT * FROM ci_failures WHERE repository = ? AND issue < 0 AND ended_at = '' ORDER BY id;
+
+-- name: SetCIFailureIssue :exec
+UPDATE ci_failures SET issue = ? WHERE id = ?;
+
+-- name: ListCIFailurePlaces :many
+SELECT ci_failure_places.*, COALESCE(ci_breaks.run_url, '') AS run_url
+FROM ci_failure_places LEFT JOIN ci_breaks ON ci_breaks.id = ci_failure_places.ci_break
+WHERE ci_failure_places.failure = ?
+ORDER BY ci_failure_places.id;

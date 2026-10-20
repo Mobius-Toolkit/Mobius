@@ -2890,6 +2890,135 @@ func (q *Queries) ListCIBreaksWithoutIssue(ctx context.Context, repository strin
 	return items, nil
 }
 
+const listCIFailurePlaces = `-- name: ListCIFailurePlaces :many
+SELECT ci_failure_places.id, ci_failure_places.failure, ci_failure_places.pull_request, ci_failure_places.ci_break, ci_failure_places.head, ci_failure_places.job_urls, ci_failure_places.lines, ci_failure_places.created_at, ci_failure_places.branch_updated_at, COALESCE(ci_breaks.run_url, '') AS run_url
+FROM ci_failure_places LEFT JOIN ci_breaks ON ci_breaks.id = ci_failure_places.ci_break
+WHERE ci_failure_places.failure = ?
+ORDER BY ci_failure_places.id
+`
+
+type ListCIFailurePlacesRow struct {
+	ID              int64
+	Failure         int64
+	PullRequest     int64
+	CiBreak         int64
+	Head            string
+	JobUrls         string
+	Lines           string
+	CreatedAt       string
+	BranchUpdatedAt string
+	RunUrl          string
+}
+
+func (q *Queries) ListCIFailurePlaces(ctx context.Context, failure int64) ([]ListCIFailurePlacesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCIFailurePlaces, failure)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCIFailurePlacesRow
+	for rows.Next() {
+		var i ListCIFailurePlacesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Failure,
+			&i.PullRequest,
+			&i.CiBreak,
+			&i.Head,
+			&i.JobUrls,
+			&i.Lines,
+			&i.CreatedAt,
+			&i.BranchUpdatedAt,
+			&i.RunUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCIFailuresNotBelowWorkstream = `-- name: ListCIFailuresNotBelowWorkstream :many
+SELECT id, repository, reason, test, location, issue, created_at, ended_at FROM ci_failures WHERE repository = ? AND issue < 0 AND ended_at = '' ORDER BY id
+`
+
+func (q *Queries) ListCIFailuresNotBelowWorkstream(ctx context.Context, repository string) ([]CiFailure, error) {
+	rows, err := q.db.QueryContext(ctx, listCIFailuresNotBelowWorkstream, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CiFailure
+	for rows.Next() {
+		var i CiFailure
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Reason,
+			&i.Test,
+			&i.Location,
+			&i.Issue,
+			&i.CreatedAt,
+			&i.EndedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCIFailuresWithoutIssue = `-- name: ListCIFailuresWithoutIssue :many
+SELECT ci_failures.id, ci_failures.repository, ci_failures.reason, ci_failures.test, ci_failures.location, ci_failures.issue, ci_failures.created_at, ci_failures.ended_at FROM ci_failures
+WHERE repository = ? AND issue = 0 AND ended_at = ''
+  AND (SELECT COUNT(*) FROM ci_failure_places WHERE failure = ci_failures.id) >= 2
+ORDER BY id
+`
+
+func (q *Queries) ListCIFailuresWithoutIssue(ctx context.Context, repository string) ([]CiFailure, error) {
+	rows, err := q.db.QueryContext(ctx, listCIFailuresWithoutIssue, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CiFailure
+	for rows.Next() {
+		var i CiFailure
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Reason,
+			&i.Test,
+			&i.Location,
+			&i.Issue,
+			&i.CreatedAt,
+			&i.EndedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChatMessagesBefore = `-- name: ListChatMessagesBefore :many
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
 WHERE organization = ? AND repository = ? AND workstream = ? AND id < ?
@@ -5812,6 +5941,20 @@ type SetCIDiagnosisSessionParams struct {
 
 func (q *Queries) SetCIDiagnosisSession(ctx context.Context, arg SetCIDiagnosisSessionParams) error {
 	_, err := q.db.ExecContext(ctx, setCIDiagnosisSession, arg.Session, arg.ID)
+	return err
+}
+
+const setCIFailureIssue = `-- name: SetCIFailureIssue :exec
+UPDATE ci_failures SET issue = ? WHERE id = ?
+`
+
+type SetCIFailureIssueParams struct {
+	Issue int64
+	ID    int64
+}
+
+func (q *Queries) SetCIFailureIssue(ctx context.Context, arg SetCIFailureIssueParams) error {
+	_, err := q.db.ExecContext(ctx, setCIFailureIssue, arg.Issue, arg.ID)
 	return err
 }
 
