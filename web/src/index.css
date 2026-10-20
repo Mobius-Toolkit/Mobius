@@ -117,7 +117,28 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+@utility chat-text {
+  font-size: calc(1rem * env(preferred-text-scale, 1));
+  text-size-adjust: none;
+  @media (width >= 48rem) {
+    font-size: calc(0.875rem * env(preferred-text-scale, 1));
+  }
+  @supports (font: -apple-system-body) and (-webkit-touch-callout: none) {
+    font-size: calc(16em / 17);
+    &:is(textarea) {
+      font-size: max(16px, calc(16em / 17));
+    }
+  }
+}
+
 @layer base {
+  @supports (font: -apple-system-body) and (-webkit-touch-callout: none) {
+    :has(> .chat-text, > .chat-text\!) {
+      font: -apple-system-body;
+      font-family: var(--font-sans);
+      line-height: calc(1.25 / 0.875);
+    }
+  }
   * {
     @apply border-border outline-ring/50;
   }

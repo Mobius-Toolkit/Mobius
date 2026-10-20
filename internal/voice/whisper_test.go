@@ -30,12 +30,21 @@ type converter struct {
 	bin   string
 }
 
-// newConverter gives a converter with a fake model server and a free address. It finds whisper-server only in bin.
+// newConverter gives a converter with a fake model server and a free address. It finds whisper-server only in bin. A
+// download can still write in the data directory when the test ends, so the cleanup removes the directory until it
+// succeeds.
 func newConverter(t *testing.T) converter {
 	t.Helper()
 	bin := t.TempDir()
 	model := testkit.NewFakeModel(t)
-	w := voice.New(t.TempDir(), bin)
+	data, err := os.MkdirTemp("", "whisper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		testkit.WaitFor(t, func() bool { return os.RemoveAll(data) == nil })
+	})
+	w := voice.New(data, bin)
 	w.ModelURL = model.URL
 	w.Address = testkit.FreeAddress(t)
 	t.Cleanup(w.Stop)
