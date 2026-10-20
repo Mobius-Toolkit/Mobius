@@ -1,5 +1,6 @@
+import type { InboxItem } from "@/api/api.gen";
 import { PageHeader } from "@/components/page";
-import type { Approval, ActionItem } from "@/lib/actions";
+import type { Approval } from "@/lib/actions";
 import { Conversation } from "./Conversation";
 import { TopBar } from "./TopBar";
 
@@ -12,7 +13,7 @@ export function CoordinatorChat({
 }: {
   organizations: string[];
   organization: string;
-  inbox: ActionItem[];
+  inbox: InboxItem[];
   unread?: number;
   source?: EventSource;
 }) {

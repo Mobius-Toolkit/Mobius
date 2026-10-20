@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import type { ChatMessage, PendingAction } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { ActionMessage, PendingAction } from "@/lib/actions";
 import { clock } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Markdown } from "./Markdown";
@@ -78,7 +78,7 @@ function Outcome({ label, text }: { label: string; text: string }) {
 }
 
 // The record of the action in the chat history. The Owner decides in the panel that the tray opens.
-export function ActionCard({ message, action }: { message: ActionMessage; action: PendingAction }) {
+export function ActionCard({ message, action }: { message: ChatMessage; action: PendingAction }) {
   const [open, setOpen] = useState<string[]>([]);
   const failed = action.state === "pending" && action.error !== "";
 

@@ -1,150 +1,133 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
-const brief = [
-  "## Goal",
-  "Let customers buy a gift card in the shop and pay with it at the checkout. A gift card has a code, a balance and an end date.",
-  "## Today",
-  "- The shop has only the payment by card.\n- The checkout has no field for a code.\n- The balance of a customer is not stored.",
-  "## Scope",
-  "- Add the table `gift_cards` with the code, the balance in cents and the end date.\n- Add the page where a customer buys a gift card and gets the code by e-mail.\n- Add the field for a code at the checkout. The balance pays the order before the card does.",
-  "## Limits",
-  "- Do not change the payment by card.\n- Do not add a refund of a gift card.\n- Follow AGENTS.md: write the migration as a new file.",
-  "## Done",
-  "- A Go test: a customer buys a gift card and the table has the balance.\n- A Go test: an order that is larger than the balance charges the card for the rest.\n- A Playwright test buys a gift card and pays an order with its code.",
-].join("\n\n");
+// The Owner messages that the fake Coordinator of TestServer answers with a tool call.
+export const draftWorkstream = "Draft the Workstream for gift cards.";
+export const keepPrices = "Tell the Lead of #14 to keep the prices in cents.";
+export const dropColumn = "Tell the Lead of #14 to drop the old price column.";
+export const addHistory = "Tell the Lead of #14 to add a price history.";
+export const addHistoryTable = "Tell the Lead of #14 to add a price history table.";
+export const stopUnknown = "Tell the Lead of #9999 to stop.";
 
-export const createWorkstream = {
-  id: 31,
-  role: "coordinator",
-  tool: "create_workstream",
-  arguments: [
-    { name: "title", value: "Gift cards" },
-    { name: "brief", value: brief },
-    { name: "labels", value: '["mobius:autopilot"]' },
-  ],
-  state: "pending",
-  error: "",
-  result: "",
-  message: "",
-  time: "2026-10-15T11:50:00Z",
-};
+// A text of the arguments of each call, to find its card.
+export const draftText = "Let customers buy a gift card";
+export const keepText = "The Owner decided that the prices stay in cents.";
+export const dropText = "Drop the old price column of the plan table";
+export const historyText = "Add a history of the plan prices.";
+export const historyTableText = "Add a table with the history of the plan prices.";
+export const unknownText = "Stop the work.";
 
-export const messageLead = {
-  id: 32,
-  role: "coordinator",
+export const createTitle = 'Create the Workstream "Gift cards"';
+export const leadTitle = "Message to the Lead of #14";
+export const unknownTitle = "Message to the Lead of #9999";
+
+export async function ask(page: Page, text: string) {
+  await page.getByRole("textbox", { name: "Message to the Coordinator" }).fill(text);
+  await page.getByRole("button", { name: "Send" }).click();
+}
+
+// An action that the tool call of the fake Coordinator made, as the card and the tray row show it.
+export const cardOf = (page: Page, text: string) =>
+  page.locator("[data-action]").filter({ hasText: text }).last();
+
+// The tests have no DOM types, so the call is a script. The device login of the page is a cookie that page.request does
+// not have.
+async function api<T>(page: Page, method: string, path: string, body?: object) {
+  const init = JSON.stringify({
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body && JSON.stringify(body),
+  });
+  return (await page.evaluate(
+    `fetch(${JSON.stringify(path)}, ${init}).then(async (response) => ({ status: response.status, data: response.status === 204 ? null : (await response.json()).data }))`,
+  )) as { status: number; data: T };
+}
+
+const coordinatorChat = "/api/chat?organization=owner&repository=&workstream=0";
+
+// Sends the text to the Coordinator chat without the composer.
+export async function sendToCoordinator(page: Page, text: string) {
+  await page.evaluate(`(() => {
+    const form = new FormData()
+    form.append('organization', 'owner')
+    form.append('repository', '')
+    form.append('workstream', '0')
+    form.append('id', crypto.randomUUID())
+    form.append('text', ${JSON.stringify(text)})
+    return fetch('/api/chat/messages', { method: 'POST', body: form })
+  })()`);
+}
+
+// Waits until the Coordinator has answered each message, and gives the last message.
+export async function idle(page: Page) {
+  const read = async () =>
+    (await api<{ writing: boolean; messages: { id: number }[] }>(page, "GET", coordinatorChat))
+      .data;
+  await expect.poll(async () => (await read()).writing).toBe(false);
+  return (await read()).messages.at(-1);
+}
+
+// Marks each message of the Coordinator chat as seen, after the Coordinator has answered each message.
+export async function seen(page: Page) {
+  const last = await idle(page);
+  if (last) {
+    const res = await api(page, "POST", "/api/chat/seen", {
+      organization: "owner",
+      repository: "",
+      workstream: 0,
+      message: last.id,
+    });
+    expect(res.status).toBe(204);
+  }
+}
+
+// Rejects each pending action, so that a test leaves no action and no unread message.
+export async function settle(page: Page) {
+  const inbox = await api<{ action: { id: number; state: string } | null }[]>(
+    page,
+    "GET",
+    "/api/inbox",
+  );
+  for (const item of inbox.data) {
+    if (item.action?.state === "pending") {
+      const res = await api(page, "POST", `/api/actions/${item.action.id}/reject`, { message: "" });
+      expect(res.status).toBe(200);
+    }
+  }
+  await seen(page);
+}
+
+// The sample Inbox item of the Triager. The test server has no Triager session.
+const triagerAction = {
+  id: 33,
+  role: "triager",
   tool: "message_lead",
   arguments: [
     { name: "workstream", value: "12" },
-    {
-      name: "message",
-      value: [
-        "The Owner decided that the prices stay in cents.",
-        "Change the price column of the plan table to an integer. Write the migration as a new file, and keep the old column until the next release.",
-        "Tell the Owner when the pull request is ready.",
-      ].join("\n\n"),
-    },
+    { name: "text", value: "Change the price column of the plan table to an integer." },
   ],
   state: "pending",
   error: "",
   result: "",
   message: "",
   time: "2026-10-15T11:55:00Z",
+  decidedAt: null,
 };
 
-export const done = {
-  ...createWorkstream,
-  state: "done",
-  result: "Created the Workstream #790.",
-  message: "Go ahead.",
-  decidedAt: "2026-10-15T11:52:00Z",
-};
-
-export const failed = { ...createWorkstream, error: "403 API rate limit exceeded" };
-
-export const rejected = {
-  ...createWorkstream,
-  state: "rejected",
-  message: "Split the Brief in two Workstreams: one for the table, one for the checkout.",
-  decidedAt: "2026-10-15T11:52:00Z",
-};
-
-type Action = typeof createWorkstream;
-
-export function cardMessage(action: Action) {
-  return {
-    id: 9000 + action.id,
-    author: "Coordinator",
-    browserId: "",
-    deliveredAt: null,
-    images: 0,
-    organization: "owner",
-    repository: "",
-    stoppedAt: null,
-    text: "",
-    time: action.time,
-    workstream: 0,
-    action,
-  };
-}
-
-export const chatRoute = /\/api\/chat\?(?!.*before=)/;
-
-// Adds the cards to the newest page of the Coordinator chat that the server gives.
-export function routeCards(page: Page, ...actions: Action[]) {
-  return page.route(chatRoute, async (route) => {
-    const response = await route.fetch();
-    const body = (await response.json()) as { data: { messages: object[] } };
-    body.data.messages.push(...actions.map(cardMessage));
-    await route.fulfill({ response, json: body });
-  });
-}
-
-export const createTitle = 'Create the Workstream "Gift cards"';
-export const messageTitle = "Message to the Lead of #12";
-
-export const approvalItem = (action: Action) => ({
+export const triagerItem = {
   dismissedAt: null,
-  id: 300 + action.id,
+  id: 333,
   organization: "owner",
   repository: "owner/shop",
-  workstream: action.tool === "message_lead" ? 12 : 0,
-  issue: 0,
+  workstream: 12,
+  issue: 61,
   kind: "approval",
-  time: action.time,
-  title: action.tool === "message_lead" ? messageTitle : createTitle,
-  reason: "Waits for the approval",
-  text: action.arguments
-    .map((argument) => `**${argument.name}**\n\n${argument.value}`)
-    .join("\n\n"),
-  link: "",
+  time: triagerAction.time,
+  title: "Message to the Lead of #12",
+  reason: "Waits for your approval",
+  text: "workstream: 12",
+  link: "https://github.com/owner/shop/issues/61",
   pullRequest: 0,
   pullRequestUrl: "",
   reportUrl: "",
-  action,
-});
-
-export const approvalItems = [createWorkstream, messageLead].map(approvalItem);
-
-// Answers the decision of the action with the action after the decision.
-export function routeDecision(
-  page: Page,
-  action: Action,
-  decision: "approve" | "reject",
-  after: object,
-) {
-  const bodies: unknown[] = [];
-  void page.route(`**/api/actions/${action.id}/${decision}`, async (route) => {
-    bodies.push(route.request().postDataJSON());
-    await route.fulfill({ json: { data: after } });
-  });
-  return bodies;
-}
-
-export const triagerMessageLead = { ...messageLead, id: 33, role: "triager" };
-
-export const triagerItem = {
-  ...approvalItem(triagerMessageLead),
-  id: 333,
-  issue: 61,
-  link: "https://github.com/owner/shop/issues/61",
+  action: triagerAction,
 };

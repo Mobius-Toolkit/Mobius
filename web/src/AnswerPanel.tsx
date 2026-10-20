@@ -1,13 +1,13 @@
 import { use, useEffect, useRef, useState } from "react";
-import { answerInboxItem } from "@/api/api.gen";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  decideAction,
-  roleName,
-  type ActionItem,
-  type Decision,
+  answerInboxItem,
+  approveAction,
+  rejectAction,
+  type InboxItem,
   type PendingAction,
-} from "@/lib/actions";
+} from "@/api/api.gen";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { roleName, type Decision } from "@/lib/actions";
 import { answerDraftKey } from "@/lib/draft";
 import { LoginContext } from "@/lib/login";
 import { useShell } from "@/lib/shell";
@@ -48,14 +48,14 @@ export function AnswerPanel({
   onClose,
   onDecided,
 }: {
-  item: ActionItem;
+  item: InboxItem;
   input: boolean;
   workstream: string;
   onClose: () => void;
   onDecided?: (action: PendingAction) => void;
 }) {
   const showLogin = use(LoginContext);
-  const { leaveInbox } = useShell();
+  const { leaveInbox, updateAction } = useShell();
   const [error, setError] = useState("");
   const content = useRef<HTMLDivElement>(null);
   useKeyboardHeight();
@@ -80,11 +80,13 @@ export function AnswerPanel({
 
   const decide = async (id: number, decision: Decision, message: string) => {
     try {
-      const res = await decideAction(id, decision, message);
+      const res = await (decision === "approve" ? approveAction : rejectAction)(id, { message });
       if (res.status === 200) {
-        onDecided?.(res.action);
-        if (res.action.state === "pending") {
-          setError(res.action.error);
+        const decided = res.data.data;
+        updateAction(decided);
+        onDecided?.(decided);
+        if (decided.state === "pending") {
+          setError(decided.error);
           return false;
         }
         leaveInbox(item.id);
@@ -94,7 +96,7 @@ export function AnswerPanel({
       if (res.status === 401) {
         showLogin();
       } else {
-        setError(res.error);
+        setError(res.data.error);
       }
     } catch (err) {
       setError(String(err));
@@ -103,6 +105,9 @@ export function AnswerPanel({
   };
 
   const action = item.action;
+  if (action && action.state !== "pending") {
+    return null;
+  }
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>

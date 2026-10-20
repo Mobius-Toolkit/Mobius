@@ -29,12 +29,16 @@ export default defineConfig({
     { name: "checkup", testMatch: "checkup.spec.ts", dependencies: ["agents"] },
     // The Inbox tests give their own data with page.route, and they need the Apps of the screenshots test.
     { name: "inbox", testMatch: "inbox.spec.ts", dependencies: ["agents"] },
-    // The action tests give their own data with page.route, and they need the Apps of the screenshots test.
-    { name: "actions", testMatch: "actions.spec.ts", dependencies: ["agents"] },
+    // The action tests add actions and Inbox items, and each test decides its actions. They run after the tests that show the Inbox.
+    {
+      name: "actions",
+      testMatch: "actions.spec.ts",
+      dependencies: ["agents", "checkup", "inbox", "memory"],
+    },
     // The voice tests change no data, but they need the Apps of the screenshots test.
     { name: "voice", testMatch: "voice.spec.ts", dependencies: ["screenshots"] },
     // The live tests change no data, but they need the Apps of the screenshots test.
-    { name: "live", testMatch: "live.spec.ts", dependencies: ["checkup"] },
+    { name: "live", testMatch: "live.spec.ts", dependencies: ["checkup", "actions"] },
   ],
   use: {
     baseURL: `http://${addr}`,

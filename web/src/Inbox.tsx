@@ -2,6 +2,7 @@ import { use, useState } from "react";
 import {
   dismiss,
   type dismissResponse,
+  type InboxItem,
   InboxItemKind,
   mergeInboxItem,
   resumeIssue,
@@ -12,7 +13,6 @@ import {
 } from "@/api/api.gen";
 import { ErrorBadge, inset, List, Row } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import type { ActionItem } from "@/lib/actions";
 import { LoginContext } from "@/lib/login";
 import { cn } from "@/lib/utils";
 import { AnswerPanel } from "./AnswerPanel";
@@ -23,7 +23,7 @@ export function Inbox({
   workstreams,
 }: {
   organization: string;
-  items: ActionItem[];
+  items: InboxItem[];
   workstreams?: Workstream[];
 }) {
   const [error, setError] = useState("");
@@ -53,14 +53,14 @@ export function InboxRow({
   workstreams,
   setError,
 }: {
-  item: ActionItem;
+  item: InboxItem;
   workstreams?: Workstream[];
   setError: (error: string) => void;
 }) {
   const showLogin = use(LoginContext);
   const [running, setRunning] = useState<"action" | "dismiss" | "merge" | null>(null);
   const [refusal, setRefusal] = useState("");
-  const [answered, setAnswered] = useState<{ item: ActionItem; merging: boolean } | null>(null);
+  const [answered, setAnswered] = useState<{ item: InboxItem; merging: boolean } | null>(null);
   const [panel, setPanel] = useState<"answer" | "details" | null>(null);
 
   const act = (

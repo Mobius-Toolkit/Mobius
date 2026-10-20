@@ -34,12 +34,13 @@ func TestMain(m *testing.M) {
 	testkit.Main(m)
 }
 
-// script is the fake agent of each Harness. The options have the models and the efforts of the Role bindings of
+// script is the fake agent of each Harness. It has the parts scriptHead, scriptBody and scriptTail, and the rules of
+// ownerCalls between them. The options have the models and the efforts of the Role bindings of
 // testserver.Config. The first rule whose text is in the prompt answers the prompt, so a rule of a chat message comes
 // before the rule of each earlier event or message that the first prompt of a new session also holds. The Implementer
 // of #41 works until the server stops. The Lead turn of each move_task does not end, so its session runs until the
 // close of its Workstream.
-const script = `
+const scriptHead = `
 [options]
 model = ["sonnet", "opus", "haiku", "swe-1.5", "gemini-3-pro"]
 thought_level = ["low", "medium", "high"]
@@ -47,9 +48,14 @@ mode = ["default", "bypassPermissions", "yolo"]
 
 [[prompts]]
 when = "# Approval message"
-reply = ["The Workstream exists."]
 
 [[prompts]]
+when = "Message of the Coordinator, approved by the Owner"
+reply = ["The Lead has the message."]
+
+`
+
+const scriptBody = `[[prompts]]
 when = "Which lilies sell best?"
 reply = ["Pink lilies sell best."]
 busy = "3s"
@@ -115,11 +121,36 @@ later = { after = "100ms", call = { tool = "ask", arguments = { n = 12, text = "
 [[prompts]]
 when = "Save in the Workstream memory"
 
-[[prompts]]
+`
+
+const scriptTail = `[[prompts]]
 updates = ['{"sessionUpdate": "tool_call", "toolCallId": "read", "title": "Read internal/plans/plan.go", "kind": "read", "status": "completed"}']
 reply = ["The plan prices are in cents now."]
 hang = true
 `
+
+// ownerCalls are the Owner messages that the fake Coordinator answers with a tool call. The first prompt of a session
+// has the chat history, which holds the earlier messages, and then the heading of the Owner message and the text. A
+// later prompt of the session is only the text. Thus the rules with the heading come first, and the rules with the
+// text only come after the other rules of the chat messages.
+var ownerCalls = []struct{ message, tool, arguments string }{
+	{"Draft the Workstream for gift cards.", "create_workstream", `{ title = "Gift cards", brief = "## Goal\n\nLet customers buy a gift card in the shop and pay with it at the checkout. A gift card has a code, a balance and an end date.\n\n## Today\n\n- The shop has only the payment by card.\n- The checkout has no field for a code.\n- The balance of a customer is not stored.\n\n## Scope\n\n- Add the table gift_cards with the code, the balance in cents and the end date.\n- Add the page where a customer buys a gift card and gets the code by e-mail.\n- Add the field for a code at the checkout. The balance pays the order before the card does.\n\n## Limits\n\n- Do not change the payment by card.\n- Do not add a refund of a gift card.\n- Follow AGENTS.md: write the migration as a new file.\n\n## Done\n\n- A Go test: a customer buys a gift card and the table has the balance.\n- A Go test: an order that is larger than the balance charges the card for the rest.\n- A Playwright test buys a gift card and pays an order with its code." }`},
+	{"Tell the Lead of #14 to keep the prices in cents.", "message_lead", `{ workstream = 14, text = "The Owner decided that the prices stay in cents.\n\nChange the price column of the plan table to an integer. Write the migration as a new file, and keep the old column until the next release.\n\nTell the Owner when the pull request is ready." }`},
+	{"Tell the Lead of #14 to drop the old price column.", "message_lead", `{ workstream = 14, text = "Drop the old price column of the plan table after the migration of #12.\n\nWait until that migration is in the main branch." }`},
+	{"Tell the Lead of #14 to add a price history.", "message_lead", `{ workstream = 14, text = "Add a history of the plan prices." }`},
+	{"Tell the Lead of #14 to add a price history table.", "message_lead", `{ workstream = 14, text = "Add a table with the history of the plan prices." }`},
+	{"Tell the Lead of #9999 to stop.", "message_lead", `{ workstream = 9999, text = "Stop the work." }`},
+}
+
+func ownerCallRules(heading string) string {
+	var rules strings.Builder
+	for _, call := range ownerCalls {
+		fmt.Fprintf(&rules, "[[prompts]]\nwhen = %q\ncall = { tool = %q, arguments = %s }\n\n", heading+call.message, call.tool, call.arguments)
+	}
+	return rules.String()
+}
+
+var script = scriptHead + ownerCallRules("# Owner message\n\n") + scriptBody + ownerCallRules("") + scriptTail
 
 // question is the first Owner message of the Lead chat of owner/shop#12. The wide code block and the wide table
 // scroll inside the message.
@@ -160,6 +191,7 @@ const question = "What is the state of the plans? The full report is at " +
 // check that runs, a check that waits for a slot, a pause, and a full Role.
 // The Workstream plants/garden#60 has a Lead chat of 50 messages, and the Owner saw the first 15. POST
 // /e2e/seed-notes/{count} adds count Lead messages to that chat, with no event.
+// POST /e2e/approvals/times/fix gives the fixed time to each chat message, Inbox item and action that has a real time.
 // POST /e2e/inbox-items adds an Inbox item for owner/shop#40 and gives its id. With the query kind, repository,
 // workstream, issue, title and reason, it adds that item instead. DELETE /e2e/inbox-items/{id}
 // removes it. An answer to that item adds a comment to the issue and changes nothing else. POST and DELETE
@@ -287,6 +319,18 @@ func TestServer(t *testing.T) {
 			"UPDATE task_states SET started_at = ?1, ended_at = ?1 WHERE id > ?2": lastTaskState.Load(),
 		} {
 			if _, err := server.DB.Exec(query, "2026-09-28T09:30:00Z", last); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+	})
+	server.Mux.HandleFunc("POST /e2e/approvals/times/fix", func(w http.ResponseWriter, _ *http.Request) {
+		for _, query := range []string{
+			"UPDATE chat_messages SET time = ?1, delivered_at = iif(delivered_at IS NULL, NULL, ?1), stopped_at = iif(stopped_at IS NULL, NULL, ?1) WHERE time > ?1",
+			"UPDATE inbox_items SET time = ?1 WHERE time > ?1",
+			"UPDATE pending_actions SET time = ?1, decided_at = iif(decided_at IS NULL, NULL, ?1) WHERE time > ?1",
+		} {
+			if _, err := server.DB.Exec(query, "2026-09-28T09:30:00Z"); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}

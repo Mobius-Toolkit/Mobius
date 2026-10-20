@@ -27,12 +27,13 @@ import {
   type Chat,
   type ChatMessage,
   type LiveEvents,
+  type PendingAction,
   type Workstream,
 } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import type { ActionMessage, Approval, PendingAction } from "@/lib/actions";
+import type { Approval } from "@/lib/actions";
 import { chatDraftKey } from "@/lib/draft";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
@@ -61,7 +62,7 @@ const retryDelays = [2000, 5000, 10_000, 30_000];
 type Waiting = Queued & { sent?: boolean };
 type Failure = { id: string; error: string; retryAt: number };
 
-function upsert(list: ActionMessage[], message: ActionMessage) {
+function upsert(list: ChatMessage[], message: ChatMessage) {
   const known = list.find((other) => other.id === message.id);
   // The agent only adds text to a message, so the longer text is the newer text. A message never loses a time.
   if (
@@ -104,7 +105,7 @@ function OwnerState({ message }: { message: ChatMessage }) {
   );
 }
 
-const Message = memo(function Message({ message }: { message: ActionMessage }) {
+const Message = memo(function Message({ message }: { message: ChatMessage }) {
   if (message.action) {
     return <ActionCard message={message} action={message.action} />;
   }
@@ -287,7 +288,7 @@ export function Conversation({
   approvals?: Approval[];
 }) {
   const showLogin = use(LoginContext);
-  const [messages, setMessages] = useState<ActionMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
   // older is true when the chat has messages before the first loaded message.
   const [older, setOlder] = useState(false);
@@ -307,11 +308,16 @@ export function Conversation({
   // Ends the wait before the next try of the first message.
   const skipWait = useRef<() => void>(undefined);
   const [briefOpen, setBriefOpen] = useState<boolean>();
-  // The actions after a decision of the Owner, by action id. They show at once, while the list action is pending.
-  const [outcomes, setOutcomes] = useState<Record<number, PendingAction>>({});
-  const decided = (action: PendingAction) =>
-    action.state === "pending" ? (outcomes[action.id] ?? action) : action;
-  const [answering, setAnswering] = useState<Approval>();
+  const [answering, setAnswering] = useState<number>();
+  const updateAction = useCallback(
+    (action: PendingAction) =>
+      setMessages((list) =>
+        list.map((message) =>
+          message.action?.id === action.id ? { ...message, action } : message,
+        ),
+      ),
+    [],
+  );
   const listRef = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   // The scrollTop of the last scroll to the end. A scroll event can come after an image has made the list longer.
@@ -435,12 +441,14 @@ export function Conversation({
         setFailure(state.error);
       }
     });
+    const removeAction = onEvent<LiveEvents, "action">(source, "action", updateAction);
     return () => {
       source.removeEventListener("open", reload);
       removeMessage();
       removeState();
+      removeAction();
     };
-  }, [source, load, organization, repository, workstream]);
+  }, [source, load, updateAction, organization, repository, workstream]);
 
   const storedIds = useMemo(
     () => new Set(messages.map((message) => message.browserId)),
@@ -632,9 +640,9 @@ export function Conversation({
   };
 
   const rows = approvals
-    .map((item) => ({ ...item, action: decided(item.action) }))
     .filter((item) => item.action.state === "pending")
     .toSorted((a, b) => a.id - b.id);
+  const panelItem = rows.find((item) => item.id === answering);
 
   const discard = (item: Waiting) => {
     removeQueued(item.id)
@@ -718,9 +726,7 @@ export function Conversation({
               {(index === 0 || dayLabel(messages[index - 1].time) !== label) && (
                 <DaySeparator label={label} />
               )}
-              <Message
-                message={message.action ? { ...message, action: decided(message.action) } : message}
-              />
+              <Message message={message} />
             </Fragment>
           );
         })}
@@ -760,7 +766,7 @@ export function Conversation({
         )}
       </div>
       {footer}
-      <ActionTray rows={rows} answer={setAnswering} />
+      <ActionTray rows={rows} answer={(item) => setAnswering(item.id)} />
       <MessageInput
         draftKey={chatDraftKey(organization, repository, workstream)}
         label={`Message to the ${agent}`}
@@ -772,13 +778,13 @@ export function Conversation({
         onStop={stoppable ? stop : undefined}
         onSend={send}
       />
-      {answering && (
+      {panelItem && (
         <AnswerPanel
-          item={answering}
+          item={panelItem}
           input
           workstream={agent}
           onClose={() => setAnswering(undefined)}
-          onDecided={(action) => setOutcomes((current) => ({ ...current, [action.id]: action }))}
+          onDecided={updateAction}
         />
       )}
     </section>
