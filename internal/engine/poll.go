@@ -158,6 +158,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.createCIFailureIssues(ctx, repository); err != nil {
 		return err
 	}
+	if err := e.endCIFailures(ctx, repository); err != nil {
+		return err
+	}
 	if err := e.dispatchReady(ctx, repository); err != nil {
 		return err
 	}

@@ -26,9 +26,15 @@ const (
 // connectDiagnoser is connectTask with a Diagnoser that plays diagnoser on Antigravity.
 func connectDiagnoser(t *testing.T, fake *testkit.FakeGitHub, lead, diagnoser string) *testserver.Server {
 	t.Helper()
+	return connectDiagnoserFixing(t, fake, lead, fixes, diagnoser)
+}
+
+// connectDiagnoserFixing is connectDiagnoser with the Implementer script implementer.
+func connectDiagnoserFixing(t *testing.T, fake *testkit.FakeGitHub, lead, implementer, diagnoser string) *testserver.Server {
+	t.Helper()
 	dataDir := t.TempDir()
 	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+diagnoser)
-	server, _ := connectTaskIn(t, fake, dataDir, lead, fixes, func(cfg *config.Config) {
+	server, _ := connectTaskIn(t, fake, dataDir, lead, implementer, func(cfg *config.Config) {
 		cfg.Roles.Diagnoser = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 2}
 	})
 	return server
