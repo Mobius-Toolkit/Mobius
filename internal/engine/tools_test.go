@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -80,7 +81,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"approve_pull_request", "ask", "close_question", "close_task", "comment_pull_request", "create_issue", "create_workstream", "decline", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "read_issue", "reply_thread", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner"}
+	want := []string{"approve_pull_request", "ask", "close_question", "close_task", "comment_pull_request", "create_issue", "create_workstream", "decline", "edit_brief", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "read_issue", "reply_thread", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}
@@ -520,17 +521,17 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 	server, _ := connect(t, fake, approvalSeen+call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
 
 	leadSession := run(t, server, leadSpec(t), "Create it.")
+	leadDone := approveNext(t, server, 1)
 	chat := run(t, server, coordinatorSpec(t), "Create it.")
-	done := approveNext(t, server, 1)
+	done := approveNext(t, server, 2)
 
-	if got := reply(t, server, leadSession); got != "Created the Workstream #13." {
-		t.Errorf("reply = %q", got)
+	for _, session := range []int64{leadSession, chat} {
+		if got := reply(t, server, session); got != actionWaits {
+			t.Errorf("reply = %q", got)
+		}
 	}
-	if got := reply(t, server, chat); got != actionWaits {
-		t.Errorf("reply = %q", got)
-	}
-	if done.State != "done" || done.Result != "Created the Workstream #14." {
-		t.Errorf("action = %+v", done)
+	if leadDone.State != "done" || leadDone.Result != "Created the Workstream #13." || done.State != "done" || done.Result != "Created the Workstream #14." {
+		t.Errorf("actions = %+v, %+v", leadDone, done)
 	}
 	for _, number := range []int64{13, 14} {
 		title, body := fake.Issue(shop, number)
@@ -543,13 +544,14 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 func TestCreateWorkstreamGivesTheNumberOfTheIssueWhenTheLabelAddFails(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
+	server, _ := connect(t, fake, approvalSeen+call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
 	fake.FailAddLabels(shop, 13, true)
 
-	session := run(t, server, leadSpec(t), "Create it.")
+	run(t, server, leadSpec(t), "Create it.")
+	action := approveNext(t, server, 1)
 
-	if got := reply(t, server, session); !strings.HasPrefix(got, "error: GitHub created #13, but the add of the Workstream labels failed. Do not create the Workstream again: ") {
-		t.Errorf("reply = %q", got)
+	if !strings.HasPrefix(action.Error, "GitHub created #13, but the add of the Workstream labels failed. Do not create the Workstream again: ") {
+		t.Errorf("error = %q", action.Error)
 	}
 }
 
@@ -600,21 +602,28 @@ func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	// Only these prompts play a call, so a Lead that the engine starts for an event does not repeat the messages.
-	messages := "[[prompts]]\nwhen = \"Message 1.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 20, text = \"Create the task issues.\" } }\n\n" +
+	messages := approvalSeen + "[[prompts]]\nwhen = \"Message 1.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 20, text = \"Create the task issues.\" } }\n\n" +
 		"[[prompts]]\nwhen = \"Message 2.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 12, text = \"Create the task issues.\" } }\n\n" +
-		"[[prompts]]\nwhen = \"Message 3.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 21, text = \"Create the task issues.\" } }\n"
+		"[[prompts]]\nwhen = \"Message 3.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 21, text = \"Create the task issues.\" } }\n\n" + seenScript
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 21, "Not a Workstream")
 	server, _ := connect(t, fake, messages)
 
-	session := run(t, server, leadSpec(t), "Message 1.", "Message 2.", "Message 3.")
+	session := run(t, server, leadSpec(t), "Message 1.", "Message 2.")
+	sent := approveNext(t, server, 1)
+	refused := run(t, server, leadSpec(t), "Message 3.")
+	closed := approveNext(t, server, 2)
 
-	want := "Sent the message to the Lead of #20." +
-		"error: A Lead cannot send a message to its own Workstream." +
-		"error: #21 is not an open Workstream."
+	want := actionWaits + "error: A Lead cannot send a message to its own Workstream."
 	if got := reply(t, server, session); got != want {
 		t.Errorf("reply = %q", got)
+	}
+	if got := reply(t, server, refused); got != actionWaits {
+		t.Errorf("reply = %q", got)
+	}
+	if sent.Result != "Sent the message to the Lead of #20." || closed.State != "pending" || closed.Error != "#21 is not an open Workstream." {
+		t.Errorf("actions = %+v, %+v", sent, closed)
 	}
 	toLead20 := func() []leadEvent {
 		return slices.DeleteFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Workstream != 20 || event.Kind != "lead" })
@@ -657,13 +666,17 @@ func TestMessageLeadSendsTheMessageOfTheLeadWhileGitHubRefusesEachRequest(t *tes
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
-	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"Message 1.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 20, text = \"Create the task issues.\" } }\n")
+	server, _ := connect(t, fake, approvalSeen+callMessageLead("Message 1.", 20, "Create the task issues.")+seenScript)
 	fake.SetRateLimited(true)
 
 	session := run(t, server, leadSpec(t), "Message 1.")
+	done := approveNext(t, server, 1)
 
-	if got, want := reply(t, server, session), "Sent the message to the Lead of #20."; got != want {
-		t.Errorf("reply = %q, want %q", got, want)
+	if got := reply(t, server, session); got != actionWaits {
+		t.Errorf("reply = %q", got)
+	}
+	if want := "Sent the message to the Lead of #20."; done.Result != want {
+		t.Errorf("result = %q, want %q", done.Result, want)
 	}
 	text := "Message of the Lead of #12, approved by the Owner:\n\nCreate the task issues."
 	if events := leadEvents(t, server); len(events) == 0 || events[0].Workstream != 20 || events[0].Kind != "lead" || events[0].Payload != text {
@@ -721,13 +734,14 @@ func TestAnApprovedMessageLeadRefusesAWorkstreamThatTheCopyDoesNotHave(t *testin
 	}
 }
 
+func callMoveTask(when string, n, workstream int) string {
+	return fmt.Sprintf("[[prompts]]\nwhen = %q\ncall = { tool = \"move_task\", arguments = { n = %d, workstream = %d } }\n\n", when, n, workstream)
+}
+
 func TestMoveTaskMovesAnIssueOfTheWorkstreamWithNoLiveTask(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("move_task", "{ n = 41, workstream = 20 }")+
-		call("move_task", "{ n = 42, workstream = 20 }")+
-		call("move_task", "{ n = 43, workstream = 21 }")+
-		call("move_task", "{ n = 43, workstream = 12 }"))
+	server, _ := connect(t, fake, approvalSeen+callMoveTask("1. ", 41, 20)+callMoveTask("2. ", 42, 20)+callMoveTask("3. ", 43, 21)+callMoveTask("4. ", 43, 12)+seenScript)
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 21, "Not a Workstream")
@@ -737,13 +751,19 @@ func TestMoveTaskMovesAnIssueOfTheWorkstreamWithNoLiveTask(t *testing.T) {
 	}
 	addTask(t, server, fake, 42, 12, 0)
 
-	session := run(t, server, leadSpec(t), "1. ", "2. ", "3. ", "4. ")
+	var results []string
+	for i, prompt := range []string{"1. ", "2. ", "3. "} {
+		run(t, server, leadSpec(t), prompt)
+		action := approveNext(t, server, i+1)
+		results = append(results, action.Result+action.Error)
+	}
+	session := run(t, server, leadSpec(t), "4. ")
 
-	want := "Moved #41 to the Workstream #20." +
-		"error: #42 has a live task. Stop the task first." +
-		"error: #21 is not an open Workstream." +
-		"error: #12 is this Workstream."
-	if got := reply(t, server, session); got != want {
+	want := []string{"Moved #41 to the Workstream #20.", "#42 has a live task. Stop the task first.", "#21 is not an open Workstream."}
+	if !slices.Equal(results, want) {
+		t.Errorf("results = %q", results)
+	}
+	if got := reply(t, server, session); got != "error: #12 is this Workstream." {
 		t.Errorf("reply = %q", got)
 	}
 	if got := fake.SubIssueNumbers(shop, 20); !reflect.DeepEqual(got, []int64{41}) {

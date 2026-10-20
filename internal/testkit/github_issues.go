@@ -227,7 +227,10 @@ func (g *FakeGitHub) SetAuthor(repository string, number int64, author string) {
 func (g *FakeGitHub) SetBody(repository string, number int64, body string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	key := issueKey{repository, number}
+	g.setBody(issueKey{repository, number}, body)
+}
+
+func (g *FakeGitHub) setBody(key issueKey, body string) {
 	found := g.issues[key]
 	if len(found.bodyEdits) == 0 {
 		found.bodyEdits = append(found.bodyEdits, bodyEdit{g.createdAt[key], found.body})
@@ -778,8 +781,9 @@ func (g *FakeGitHub) createIssue(w http.ResponseWriter, r *http.Request) {
 // It takes no other change.
 func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		State       string `json:"state"`
-		StateReason string `json:"state_reason"`
+		State       string  `json:"state"`
+		StateReason string  `json:"state_reason"`
+		Body        *string `json:"body"`
 	}
 	if !decode(w, r, &request) {
 		return
@@ -791,8 +795,15 @@ func (g *FakeGitHub) closeIssue(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if request.Body != nil {
+		g.setBody(key, *request.Body)
+		if request.State == "" {
+			writeJSON(w, http.StatusOK, g.issueJSON(key))
+			return
+		}
+	}
 	if request.State != "closed" {
-		message(w, http.StatusUnprocessableEntity, "The fake GitHub only closes.")
+		message(w, http.StatusUnprocessableEntity, "The fake GitHub only closes and sets the body.")
 		return
 	}
 	if g.closeRefusal != 0 {

@@ -86,16 +86,27 @@ func actionCaller(action store.PendingAction) caller {
 
 // approvedToolOf gives the tool name of the role of c, if its call waits for the approval of the Owner. It builds no other tool.
 func (e *Engine) approvedToolOf(c caller, name string) (mcp.Tool, bool) {
-	if c.role != CoordinatorRole {
-		return mcp.Tool{}, false
-	}
 	switch name {
 	case "message_lead":
-		return e.messageLeadTool(c), true
+		if c.role == CoordinatorRole || c.role == LeadRole {
+			return e.messageLeadTool(c), true
+		}
 	case "create_workstream":
-		return e.createWorkstreamTool(c), true
+		if c.role == CoordinatorRole || c.role == LeadRole {
+			return e.createWorkstreamTool(c), true
+		}
 	case "tell_curator":
-		return e.tellCuratorTool(c), true
+		if c.role == CoordinatorRole {
+			return e.tellCuratorTool(c), true
+		}
+	case "move_task":
+		if c.role == LeadRole {
+			return e.moveTaskTool(c), true
+		}
+	case "edit_brief":
+		if c.role == LeadRole {
+			return e.editBriefTool(c), true
+		}
 	}
 	return mcp.Tool{}, false
 }
@@ -115,14 +126,47 @@ func (e *Engine) messageLeadTool(c caller) mcp.Tool {
 }
 
 func (e *Engine) createWorkstreamTool(c caller) mcp.Tool {
-	return approvedTool(e, c, e.callerRepository, "create_workstream",
-		"Create a Workstream: an issue with mobius:workstream. Call it at once with the exact title and Brief. The tool returns at once, and Mobius creates the Workstream only after the Owner approves it. The result arrives later as an Approval message. Add mobius:evergreen or mobius:maintenance in labels only when the Owner asks for that label.",
-		coordinatorWorkstreamProperties,
+	description := "Create a Workstream: an issue with mobius:workstream. Call it at once with the exact title and Brief. The tool returns at once, and Mobius creates the Workstream only after the Owner approves it. The result arrives later as an Approval message."
+	properties := workstreamProperties
+	if c.role == CoordinatorRole {
+		description += " Add mobius:evergreen or mobius:maintenance in labels only when the Owner asks for that label."
+		properties = coordinatorWorkstreamProperties
+	}
+	return approvedTool(e, c, e.callerRepository, "create_workstream", description,
+		properties,
 		func(input workstreamInput) string {
 			return `Create the Workstream "` + input.Title + `"`
 		},
 		checkWorkstream,
 		e.createWorkstream)
+}
+
+func (e *Engine) moveTaskTool(c caller) mcp.Tool {
+	return approvedTool(e, c, e.callerRepository, "move_task",
+		"Make a task of this Workstream a sub-issue of a different open Workstream in this repository. Call it at once. The tool returns at once, and Mobius moves the task only after the Owner approves it. The result arrives later as an Approval message. The task must not be in progress when the Owner approves.",
+		map[string]any{
+			"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
+			"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue."},
+		},
+		func(input moveInput) string {
+			return fmt.Sprintf("Move #%d to the Workstream #%d", input.N, input.Workstream)
+		},
+		checkMoveTask,
+		e.moveTask)
+}
+
+func (e *Engine) editBriefTool(c caller) mcp.Tool {
+	return approvedTool(e, c, e.callerRepository, "edit_brief",
+		"Change the Brief of this Workstream: set the body of the Workstream issue. Call it at once with the full new Brief and the reason. The tool returns at once, and Mobius changes the Brief only after the Owner approves it. The result arrives later as an Approval message.",
+		map[string]any{
+			"brief":  map[string]any{"type": "string", "minLength": 1, "description": "The full new Brief."},
+			"reason": map[string]any{"type": "string", "minLength": 1, "description": "Why the Brief must change."},
+		},
+		func(editBriefInput) string {
+			return fmt.Sprintf("Change the Brief of #%d", c.workstream)
+		},
+		checkEditBrief,
+		e.editBrief)
 }
 
 func (e *Engine) tellCuratorTool(c caller) mcp.Tool {
@@ -204,6 +248,8 @@ func (e *Engine) holdAction(ctx context.Context, c caller, tool, title string, a
 	item, err := e.queries.AddInboxItem(ctx, store.AddInboxItemParams{
 		Kind:         approvalKind,
 		Organization: action.Organization,
+		Repository:   action.Repository,
+		Workstream:   action.Workstream,
 		Title:        title,
 		Reason:       "Waits for your approval",
 		Text:         strings.TrimSuffix(text.String(), "\n"),

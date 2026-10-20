@@ -493,10 +493,11 @@ func TestACompletionOfAnIssueWithoutTheWorkstreamLabelClosesNothing(t *testing.T
 func TestCreateWorkstreamAddsTheWorkstreamToTheListAtOnce(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
+	server, _ := connect(t, fake, approvalSeen+call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
 	changes := listen(t, server)
 
 	run(t, server, leadSpec(t), "Create it.")
+	approveNext(t, server, 1)
 
 	want := workstream{Repository: shop, Number: 13, Title: "Billing", Brief: "Bill the plans."}
 	if list := workstreams(t, server); len(list) != 2 || list[0] != want {
@@ -511,13 +512,14 @@ func TestMoveTaskMovesTheTaskInTheCopyAtOnce(t *testing.T) {
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 41, "Add plan model")
-	server, _ := connect(t, fake, call("move_task", "{ n = 41, workstream = 20 }"))
+	server, _ := connect(t, fake, approvalSeen+call("move_task", "{ n = 41, workstream = 20 }"))
 	fake.AddSubIssue(shop, 12, 41)
 	fake.SetTitle(shop, 41, "Add the plan model")
 	testkit.WaitFor(t, func() bool { return len(copiedIssues(t, server)) == 1 })
 	changes := listen(t, server)
 
 	run(t, server, leadSpec(t), "Move it.")
+	approveNext(t, server, 1)
 
 	if got := copiedIssues(t, server); !reflect.DeepEqual(got, []copiedIssue{{20, 41, 20, "open", "owner"}}) {
 		t.Errorf("issues = %+v", got)

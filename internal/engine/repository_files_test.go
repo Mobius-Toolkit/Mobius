@@ -161,6 +161,7 @@ func TestALeadStartsWithTheFilesOfTheLastFetchWhileGitHubRefusesEachRequestAndTh
 	fake.SetRateLimited(true)
 
 	sendChat(t, server, leadChat, "Message 1.")
+	approveNext(t, server, 1)
 
 	billing := engine.ChatKey{Organization: "owner", Repository: shop, Workstream: 20}
 	session := waitForChatSession(t, server, billing, engine.LeadRole, func(store.Session) bool { return true })

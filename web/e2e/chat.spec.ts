@@ -1309,6 +1309,13 @@ test("the note closes the Workstream when all tasks are closed", async ({ page }
     // The Lead moves the last open task to another Workstream, and its session still runs.
     await page.getByLabel("Message to the Lead").fill(`Move #${task} to the Workstream #20.`);
     await page.getByRole("button", { name: "Send" }).click();
+    await page
+      .getByRole("main")
+      .getByRole("listitem")
+      .filter({ hasText: `Move #${task} to the Workstream #20` })
+      .getByRole("button", { name: "Answer" })
+      .click();
+    await page.getByRole("dialog").getByRole("button", { name: "Approve" }).click();
     await expect(note).toBeVisible();
     await expect(done).toBeAttached();
     expect(
