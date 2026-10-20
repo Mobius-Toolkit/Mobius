@@ -5415,6 +5415,14 @@
             "type": "string",
             "description": "PullRequestURL is the GitHub URL of the pull request, or empty"
           },
+          "questions": {
+            "type": "array",
+            "title": "[]Question",
+            "description": "Questions are the questions with options of a question item, or an empty list",
+            "items": {
+              "$ref": "#/components/schemas/Question"
+            }
+          },
           "reason": {
             "type": "string",
             "description": "Reason is the short reason of the item"
@@ -5463,6 +5471,7 @@
           "dismissedAt",
           "merging",
           "mergeRefusal",
+          "questions",
           "action"
         ],
         "description": "InboxItem is an item of the Inbox of the Owner."
@@ -6159,6 +6168,53 @@
           "url"
         ],
         "description": "PermissionCheck is the status of a permission that the Mobius App needs."
+      },
+      "Question": {
+        "type": "object",
+        "title": "Question",
+        "properties": {
+          "multiple": {
+            "type": "boolean",
+            "description": "Multiple is true when the Owner can select more than one option"
+          },
+          "options": {
+            "type": "array",
+            "title": "[]QuestionOption",
+            "description": "Options are the options of the question",
+            "items": {
+              "$ref": "#/components/schemas/QuestionOption"
+            }
+          },
+          "text": {
+            "type": "string",
+            "description": "Text is the question"
+          }
+        },
+        "required": [
+          "text",
+          "multiple",
+          "options"
+        ],
+        "description": "Question is a question of the Lead with its options."
+      },
+      "QuestionOption": {
+        "type": "object",
+        "title": "QuestionOption",
+        "properties": {
+          "details": {
+            "type": "string",
+            "description": "Details is the explanation of the option, or empty"
+          },
+          "title": {
+            "type": "string",
+            "description": "Title is the short answer"
+          }
+        },
+        "required": [
+          "title",
+          "details"
+        ],
+        "description": "QuestionOption is an option of a Question."
       },
       "Recording": {
         "type": "object",
