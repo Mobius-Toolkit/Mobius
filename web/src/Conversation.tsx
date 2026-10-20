@@ -301,8 +301,10 @@ export function Conversation({
   // Ends the wait before the next try of the first message.
   const skipWait = useRef<() => void>(undefined);
   const [briefOpen, setBriefOpen] = useState<boolean>();
-  // The actions after a decision of the Owner, by action id. They show at once, before the list gets the new state.
+  // The actions after a decision of the Owner, by action id. They show at once, while the list action is pending.
   const [outcomes, setOutcomes] = useState<Record<number, PendingAction>>({});
+  const decided = (action: PendingAction) =>
+    action.state === "pending" ? (outcomes[action.id] ?? action) : action;
   const [answering, setAnswering] = useState<Approval>();
   const listRef = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
@@ -624,7 +626,7 @@ export function Conversation({
   };
 
   const rows = approvals
-    .map((item) => ({ ...item, action: outcomes[item.action.id] ?? item.action }))
+    .map((item) => ({ ...item, action: decided(item.action) }))
     .filter((item) => item.action.state === "pending")
     .toSorted((a, b) => a.id - b.id);
 
@@ -711,11 +713,7 @@ export function Conversation({
                 <DaySeparator label={label} />
               )}
               <Message
-                message={
-                  message.action && outcomes[message.action.id]
-                    ? { ...message, action: outcomes[message.action.id] }
-                    : message
-                }
+                message={message.action ? { ...message, action: decided(message.action) } : message}
               />
             </Fragment>
           );
