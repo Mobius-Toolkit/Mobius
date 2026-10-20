@@ -142,9 +142,9 @@ async function mockLog(page: Page) {
   });
   return (id: number) =>
     page.evaluate(
-      `window.sources.forEach((source) => source.dispatchEvent(new MessageEvent('transcript', { data: ${JSON.stringify(
+      `window.sources.at(-1).dispatchEvent(new MessageEvent('transcript', { data: ${JSON.stringify(
         JSON.stringify({ ...entry(id), session }),
-      )} })))`,
+      )} }))`,
     );
 }
 
@@ -291,6 +291,54 @@ for (const { name: place, path, open } of places) {
     });
   });
 }
+
+const retryDelay = 3000;
+
+for (const { name: place, path, open } of places) {
+  test(`the agent log in ${place} opens its stream again after the server refuses it`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const send = await mockLog(page);
+    const times: number[] = [];
+    await page.route("**/api/agents/*/transcript/events", (route) => {
+      times.push(Date.now());
+      return times.length === 1 ? route.fulfill({ status: 503 }) : route.continue();
+    });
+    await page.goto(path);
+    await open(page);
+    const badge = page.getByText("Connecting…").filter({ visible: true });
+    await expect(badge).toBeVisible();
+    await expect(page.getByText("Entry 29 ")).toBeVisible();
+    await expect(badge).toBeHidden();
+    expect(times).toHaveLength(2);
+    expect(times[1] - times[0]).toBeGreaterThanOrEqual(retryDelay - 500);
+    await send(30);
+    await expect(page.getByText("Entry 30 ")).toBeVisible();
+  });
+}
+
+test("the agent log sends no request of its stream after it closes while a retry waits", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await mockLog(page);
+  let requests = 0;
+  await page.route("**/api/agents/*/transcript/events", (route) => {
+    requests++;
+    return route.fulfill({ status: 503 });
+  });
+  await page.goto("/agents");
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: /Ticket #41 Add plan model/ })
+    .click();
+  await expect.poll(() => requests).toBe(1);
+  await page.getByRole("button", { name: "Agents", exact: true }).filter({ visible: true }).click();
+  await expect(page.getByText("Read only. The Owner talks only to the Lead.")).toBeHidden();
+  await page.waitForTimeout(retryDelay + 1000);
+  expect(requests).toBe(1);
+});
 
 test("the Transcript of a session that waits for a low load has a button that starts the check", async ({
   page,

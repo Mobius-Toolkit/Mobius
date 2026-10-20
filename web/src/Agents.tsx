@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { lowLoadReason, queueState, queueText } from "@/lib/agents";
-import { onEvent } from "@/lib/events";
+import { onEvent, retryDelay } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
 import { atEnd } from "@/lib/scroll";
 import { clock, dayClock, localTimes } from "@/lib/time";
@@ -205,16 +205,35 @@ function TranscriptLog({
       load();
       return;
     }
-    const stream = new EventSource(`/api/agents/${agent.id}/transcript/events`);
-    stream.addEventListener("open", () => {
-      setOpened(source);
-      load();
-    });
-    stream.addEventListener("error", () => setOpened(undefined));
-    onEvent<TranscriptEvents, "transcript">(stream, "transcript", (line) =>
-      setLines((list) => upsert(list ?? [], line)),
-    );
-    return () => stream.close();
+    let stream: EventSource;
+    let timer: ReturnType<typeof setTimeout>;
+    // The browser connects again by itself only while the stream is CONNECTING. A stream that is CLOSED has an
+    // answer that is not an event stream, so the log connects again after a delay.
+    const connect = () => {
+      const next = new EventSource(`/api/agents/${agent.id}/transcript/events`);
+      next.addEventListener("open", () => {
+        setOpened(source);
+        load();
+      });
+      next.addEventListener("error", () => {
+        setOpened(undefined);
+        if (next.readyState === EventSource.CLOSED) {
+          timer = setTimeout(() => {
+            load();
+            stream = connect();
+          }, retryDelay);
+        }
+      });
+      onEvent<TranscriptEvents, "transcript">(next, "transcript", (line) =>
+        setLines((list) => upsert(list ?? [], line)),
+      );
+      return next;
+    };
+    stream = connect();
+    return () => {
+      clearTimeout(timer);
+      stream.close();
+    };
   }, [source, load, agent.id]);
 
   // New data scrolls the log to the end while the Owner is at the end. Else the log stays, and the button shows.

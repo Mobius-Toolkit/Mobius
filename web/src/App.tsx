@@ -9,7 +9,7 @@ import {
 } from "@/api/api.gen";
 import { Badge } from "@/components/ui/badge";
 import { useCIStops } from "@/lib/ciStops";
-import { onEvent } from "@/lib/events";
+import { onEvent, retryDelay } from "@/lib/events";
 import { useInbox } from "@/lib/inbox";
 import { LoginContext } from "@/lib/login";
 import { usePauses } from "@/lib/pauses";
@@ -20,7 +20,6 @@ import { Frame } from "./Frame";
 import { GitHub } from "./GitHub";
 import { Login } from "./Login";
 
-const retryDelay = 3000;
 const silenceLimit = 35_000;
 const startLimit = 3000;
 
