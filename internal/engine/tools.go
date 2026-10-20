@@ -26,7 +26,9 @@ type caller struct {
 	// repository is empty for the Coordinator chat.
 	repository string
 	workstream int64
-	agent      *Agent
+	// issue is the issue of the session, or 0.
+	issue int64
+	agent *Agent
 }
 
 // refusal is a refused request, for example a tool call. Its text goes back to the agent or the Owner as a sentence.
@@ -328,13 +330,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				coordinatorWorkstreamProperties,
 				e.createWorkstream),
 			moveIssueTool(e, c),
-			tool(e, c, "message_lead",
-				"Send a message to the Lead of an open Workstream. Call it only after the Owner selects the Workstream and approves the exact message.",
-				map[string]any{
-					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue that the Owner selects."},
-					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
-				},
-				e.messageLead),
+			e.messageLeadTool(c),
 			tool(e, c, "start_researcher",
 				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the question. The tool returns at once, and the report arrives later.",
 				map[string]any{
@@ -412,13 +408,21 @@ func call[In any](ctx context.Context, c caller, resolve func(caller) (github.Re
 	if err != nil {
 		return "", err
 	}
+	input, err := decode[In](name, arguments)
+	if err != nil {
+		return "", err
+	}
+	return run(ctx, c, repository, input)
+}
+
+func decode[In any](name string, arguments json.RawMessage) (In, error) {
 	var input In
 	decoder := json.NewDecoder(bytes.NewReader(arguments))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
-		return "", refuse("Invalid arguments for %s: %v.", name, err)
+		return input, refuse("Invalid arguments for %s: %v.", name, err)
 	}
-	return run(ctx, c, repository, input)
+	return input, nil
 }
 
 func (e *Engine) recordCall(ctx context.Context, session int64, name string, arguments json.RawMessage, text string, err error) error {
@@ -807,7 +811,7 @@ const triageEndText = "The triage ends."
 
 // endTriage comments on the issue of the Triager c with the link to the Workstream and closes the issue as completed.
 func (e *Engine) endTriage(ctx context.Context, c caller, repository github.Repository, workstream int64) error {
-	number := c.agent.spec.Issue.Int64
+	number := c.issue
 	text := fmt.Sprintf("%s The Workstream is %s", triageEndText, issueLink(repository.FullName, workstream))
 	if err := e.addOrKeepComment(ctx, repository, number, text); err != nil {
 		return err
@@ -936,7 +940,7 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 	}
 	text := fmt.Sprintf("Message of %s, approved by the Owner:\n\n%s", sender, input.Text)
 	if c.role == TriagerRole {
-		text += "\n\n" + issueLink(repository.FullName, c.agent.spec.Issue.Int64)
+		text += "\n\n" + issueLink(repository.FullName, c.issue)
 	}
 	if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, kind, text); err != nil {
 		return "", err

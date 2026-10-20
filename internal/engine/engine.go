@@ -35,6 +35,9 @@ type Engine struct {
 	// handedChats holds the chats whose undelivered messages of the earlier run the poll or postChat gave to the
 	// agent. The holder of chatOrder uses it.
 	handedChats map[ChatKey]bool
+	// sealedApprovals holds the Approval messages that storeChat stored while Mobius was sealed. abortDrain gives
+	// them to the agents, because no restart follows. The holder of chatOrder uses it.
+	sealedApprovals map[ChatKey][]item
 	// copied holds the full names of the repositories whose copy is complete. Only the poll uses it.
 	copied map[string]bool
 	// copyWrite makes syncCopy, which reads all Workstreams and then replaces the copy, and createWorkstream, which
@@ -169,35 +172,36 @@ func (e *Engine) timeNow() time.Time {
 // New gives the Engine of the database db and of the GitHub Apps of gh with the settings of cfg.
 func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engine {
 	return &Engine{
-		db:             db,
-		queries:        store.New(db),
-		github:         gh,
-		config:         cfg,
-		agents:         agents,
-		labelsFixed:    map[string]bool{},
-		recovered:      map[string]bool{},
-		handedChats:    map[ChatKey]bool{},
-		copied:         map[string]bool{},
-		labelChanges:   map[string]int{},
-		labelChangedAt: map[issueRef]int{},
-		quiet:          map[int64]quietItem{},
-		pulls:          map[pullKey]*pullState{},
-		pushed:         map[pullKey]bool{},
-		pollWake:       make(chan struct{}, 1),
-		closing:        map[pullKey]bool{},
-		ciWait:         map[int64]ciWait{},
-		newest:         map[string]newestVersion{},
-		workers:        newWorkers(),
-		chats:          map[ChatKey]*chat{},
-		triages:        map[triageKey]triage{},
-		checks:         make(chan struct{}, cfg.MaxChecks),
-		stops:          map[any]stopper{},
-		live:           map[any]int{},
-		implementers:   map[int64]*Agent{},
-		loadWaits:      map[int64]chan struct{}{},
-		researchers:    map[int64]*Agent{},
-		curators:       map[string]bool{},
-		listeners:      map[chan Change]bool{},
+		db:              db,
+		queries:         store.New(db),
+		github:          gh,
+		config:          cfg,
+		agents:          agents,
+		labelsFixed:     map[string]bool{},
+		recovered:       map[string]bool{},
+		handedChats:     map[ChatKey]bool{},
+		sealedApprovals: map[ChatKey][]item{},
+		copied:          map[string]bool{},
+		labelChanges:    map[string]int{},
+		labelChangedAt:  map[issueRef]int{},
+		quiet:           map[int64]quietItem{},
+		pulls:           map[pullKey]*pullState{},
+		pushed:          map[pullKey]bool{},
+		pollWake:        make(chan struct{}, 1),
+		closing:         map[pullKey]bool{},
+		ciWait:          map[int64]ciWait{},
+		newest:          map[string]newestVersion{},
+		workers:         newWorkers(),
+		chats:           map[ChatKey]*chat{},
+		triages:         map[triageKey]triage{},
+		checks:          make(chan struct{}, cfg.MaxChecks),
+		stops:           map[any]stopper{},
+		live:            map[any]int{},
+		implementers:    map[int64]*Agent{},
+		loadWaits:       map[int64]chan struct{}{},
+		researchers:     map[int64]*Agent{},
+		curators:        map[string]bool{},
+		listeners:       map[chan Change]bool{},
 	}
 }
 
@@ -308,8 +312,8 @@ func (e *Engine) stopWorkers() {
 	e.running.Wait()
 }
 
-// Recover ends the sessions of the earlier run of the server, notes its last chat message, and starts the timer of
-// each pause.
+// Recover ends the sessions of the earlier run of the server, notes its last chat message, frees the pending actions
+// that the earlier run started, and starts the timer of each pause.
 // The sessions of the earlier run have no Harness process. Call Recover before Run and before the first session.
 func (e *Engine) Recover(ctx context.Context) error {
 	ids, err := e.queries.ListOpenSessionIDs(ctx)
@@ -322,6 +326,9 @@ func (e *Engine) Recover(ctx context.Context) error {
 		}
 	}
 	if e.earlierMessage, err = e.queries.MaxChatMessageID(ctx); err != nil {
+		return err
+	}
+	if err := e.queries.FailRunningPendingActions(ctx, interruptedActionError); err != nil {
 		return err
 	}
 	pauses, err := e.queries.ListHarnessPauses(ctx)

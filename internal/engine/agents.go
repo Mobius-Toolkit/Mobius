@@ -170,6 +170,7 @@ type Change struct {
 	Unread       *Unread
 	Chat         *ChatState
 	Inbox        *store.InboxItem
+	Action       *store.PendingAction
 	Pauses       bool
 	CIStops      bool
 	Created      *Created
@@ -346,6 +347,7 @@ func (a *Agent) startHarness(ctx context.Context) error {
 	}
 	mcpCaller := mcp.Caller{Tools: e.tools(caller{
 		session:      a.id,
+		issue:        spec.Issue.Int64,
 		role:         spec.Role,
 		organization: spec.Organization,
 		repository:   spec.Repository,

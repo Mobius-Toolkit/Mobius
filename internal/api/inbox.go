@@ -21,8 +21,9 @@ type InboxItem struct {
 	// Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message
 	// that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must
 	// continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost,
-	// and full disk for a local check that waits for free disk space
-	Kind string `gork:"kind" validate:"oneof=question 'Lead failed' 'ready for review' stopped lost 'full disk'"`
+	// and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits
+	// for the approval of the Owner
+	Kind string `gork:"kind" validate:"oneof=question 'Lead failed' 'ready for review' stopped lost 'full disk' approval"`
 	// Organization is the owner of the repository
 	Organization string `gork:"organization"`
 	// Repository is the repository as "owner/name"
@@ -53,6 +54,8 @@ type InboxItem struct {
 	Merging bool `gork:"merging"`
 	// MergeRefusal is the reason of the last refusal of GitHub to merge the pull request, or empty
 	MergeRefusal string `gork:"mergeRefusal"`
+	// Action is the action of an approval item, or null for another item
+	Action *PendingAction `gork:"action"`
 }
 
 // ListInboxRequest is the request of ListInbox.
@@ -71,7 +74,7 @@ func (h *handlers) ListInbox(ctx context.Context, _ ListInboxRequest) (*ListInbo
 	}
 	inbox := make([]InboxItem, 0, len(items))
 	for _, item := range items {
-		found, err := h.inboxItemOf(item)
+		found, err := h.inboxItemOf(ctx, item)
 		if err != nil {
 			return nil, err
 		}
@@ -188,14 +191,14 @@ func (h *handlers) MergeInboxItem(ctx context.Context, req MergeInboxItemRequest
 	if err != nil {
 		return nil, err
 	}
-	found, err := h.inboxItemOf(item)
+	found, err := h.inboxItemOf(ctx, item)
 	if err != nil {
 		return nil, err
 	}
 	return &MergeInboxItemResponse{Body: Envelope[InboxItem]{Data: found}}, nil
 }
 
-func (h *handlers) inboxItemOf(item store.InboxItem) (InboxItem, error) {
+func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (InboxItem, error) {
 	t, err := time.Parse(time.RFC3339Nano, item.Time)
 	if err != nil {
 		return InboxItem{}, err
@@ -227,6 +230,11 @@ func (h *handlers) inboxItemOf(item store.InboxItem) (InboxItem, error) {
 			return InboxItem{}, err
 		}
 		found.DismissedAt = &dismissedAt
+	}
+	if item.Kind == "approval" {
+		if found.Action, err = h.actionOfItem(ctx, item); err != nil {
+			return InboxItem{}, err
+		}
 	}
 	return found, nil
 }

@@ -5,6 +5,16 @@
  * OpenAPI spec version: 0.1.0
  */
 /**
+ * ActionArgument is an argument of a pending action.
+ */
+export interface ActionArgument {
+  /** Name is the name of the argument */
+  name: string;
+  /** Value is the value of the argument */
+  value: string;
+}
+
+/**
  * Agent is the session of an agent.
  */
 export interface Agent {
@@ -138,6 +148,11 @@ export interface AnsweredComment {
   url: string;
 }
 
+export interface ApproveActionBody {
+  /** Message is the message of the Owner for the agent. It can be empty */
+  message?: string;
+}
+
 /**
  * Blocker is an open blocker of a task.
  */
@@ -175,7 +190,61 @@ export interface CIStop {
 }
 
 /**
- * Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry
+ * Role is the Role of the agent that called the tool
+ */
+export type PendingActionRole = typeof PendingActionRole[keyof typeof PendingActionRole];
+
+
+export const PendingActionRole = {
+  coordinator: 'coordinator',
+  lead: 'lead',
+  triager: 'triager',
+} as const;
+
+/**
+ * State is pending for an action that waits for the approval, done for an action that ran, rejected for an action that the Owner rejected, and replaced for an action that a later call of the same tool replaced
+ */
+export type PendingActionState = typeof PendingActionState[keyof typeof PendingActionState];
+
+
+export const PendingActionState = {
+  pending: 'pending',
+  done: 'done',
+  rejected: 'rejected',
+  replaced: 'replaced',
+} as const;
+
+/**
+ * PendingAction is a tool call of an agent that waits for the approval of the Owner.
+ */
+export interface PendingAction {
+  /** Arguments are the arguments of the call in the order of the tool input. A value that is not a string is its JSON text */
+  arguments: ActionArgument[];
+  /**
+     * DecidedAt is the time when the action was done, rejected or replaced, or null
+     * @nullable
+     */
+  decidedAt: string | null;
+  /** Error is the error of the last failed run, or empty. A pending action with an error is a failed action */
+  error: string;
+  /** ID increases with each new action */
+  id: number;
+  /** Message is the message of the Owner with the decision, or empty */
+  message: string;
+  /** Result is the result text of the tool after the run, or empty */
+  result: string;
+  /** Role is the Role of the agent that called the tool */
+  role: PendingActionRole;
+  /** State is pending for an action that waits for the approval, done for an action that ran, rejected for an action that the Owner rejected, and replaced for an action that a later call of the same tool replaced */
+  state: PendingActionState;
+  /** Time is the time of the call */
+  time: string;
+  /** Tool is the name of the tool */
+  tool: string;
+}
+
+/**
+ * Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, or Action for the card of a pending action
  */
 export type ChatMessageAuthor = typeof ChatMessageAuthor[keyof typeof ChatMessageAuthor];
 
@@ -187,13 +256,16 @@ export const ChatMessageAuthor = {
   Coordinator: 'Coordinator',
   Mobius: 'Mobius',
   Event: 'Event',
+  Action: 'Action',
 } as const;
 
 /**
  * ChatMessage is a message of a Lead chat or of the Coordinator chat.
  */
 export interface ChatMessage {
-  /** Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry */
+  /** Action is the action of a card, or null for another message */
+  action: PendingAction | null;
+  /** Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, or Action for the card of a pending action */
   author: ChatMessageAuthor;
   /** BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message */
   browserId: string;
@@ -504,7 +576,7 @@ export interface EnvelopeArrayGitHubApp {
 }
 
 /**
- * Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space
+ * Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner
  */
 export type InboxItemKind = typeof InboxItemKind[keyof typeof InboxItemKind];
 
@@ -516,12 +588,15 @@ export const InboxItemKind = {
   stopped: 'stopped',
   lost: 'lost',
   full_disk: 'full disk',
+  approval: 'approval',
 } as const;
 
 /**
  * InboxItem is an item of the Inbox of the Owner.
  */
 export interface InboxItem {
+  /** Action is the action of an approval item, or null for another item */
+  action: PendingAction | null;
   /**
      * DismissedAt is the time when the Owner dismissed the item, or null
      * @nullable
@@ -531,7 +606,7 @@ export interface InboxItem {
   id: number;
   /** Issue is the number of the issue of the item */
   issue: number;
-  /** Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space */
+  /** Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner */
   kind: InboxItemKind;
   /** Link is the GitHub URL of the issue, or empty */
   link: string;
@@ -931,6 +1006,14 @@ export interface EnvelopeManifestForm {
 }
 
 /**
+ * Envelope is the body of each success response.
+ */
+export interface EnvelopePendingAction {
+  /** Data is the payload of the response */
+  data: PendingAction;
+}
+
+/**
  * Recording is a voice recording that the server keeps while it runs.
  */
 export interface Recording {
@@ -1266,6 +1349,10 @@ export type LiveEvents = {
   event: 'inbox';
   id?: string;
 } | {
+  data: PendingAction;
+  event: 'action';
+  id?: string;
+} | {
   /** Array of Pause */
   data: Pause[];
   event: 'pauses';
@@ -1288,6 +1375,11 @@ export type LiveEvents = {
 export interface LoginBody {
   /** Password is the access password */
   password: string;
+}
+
+export interface RejectActionBody {
+  /** Message is the message of the Owner for the agent. It can be empty */
+  message?: string;
 }
 
 export interface SaveMemoryBody {
@@ -1536,6 +1628,158 @@ export type SendChunkParams = {
  */
 sequence?: number;
 };
+
+export type approveActionResponse200 = {
+  data: EnvelopePendingAction
+  status: 200
+}
+
+export type approveActionResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type approveActionResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type approveActionResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type approveActionResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type approveActionResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type approveActionResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type approveActionResponseSuccess = (approveActionResponse200) & {
+  headers: Headers;
+};
+export type approveActionResponseError = (approveActionResponse400 | approveActionResponse401 | approveActionResponse404 | approveActionResponse409 | approveActionResponse422 | approveActionResponse500) & {
+  headers: Headers;
+};
+
+export type approveActionResponse = (approveActionResponseSuccess | approveActionResponseError)
+
+export const getApproveActionUrl = (id: number,) => {
+
+
+
+
+  return `/api/actions/${id}/approve`
+}
+
+/**
+ * ApproveAction runs a pending action with its stored arguments. When the run succeeds, the action is done. When the run fails, the action stays pending with the error, and the Owner can approve it again. The agent gets the result in a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.
+ */
+export const approveAction = async (id: number,
+    approveActionBody: ApproveActionBody, ): Promise<approveActionResponse> => {
+
+  const res = await fetch(getApproveActionUrl(id),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(approveActionBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: approveActionResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as approveActionResponse
+}
+
+
+
+export type rejectActionResponse200 = {
+  data: EnvelopePendingAction
+  status: 200
+}
+
+export type rejectActionResponse400 = {
+  data: BadRequestResponse
+  status: 400
+}
+
+export type rejectActionResponse401 = {
+  data: ErrorResponse
+  status: 401
+}
+
+export type rejectActionResponse404 = {
+  data: ErrorResponse
+  status: 404
+}
+
+export type rejectActionResponse409 = {
+  data: ErrorResponse
+  status: 409
+}
+
+export type rejectActionResponse422 = {
+  data: UnprocessableEntityResponse
+  status: 422
+}
+
+export type rejectActionResponse500 = {
+  data: InternalServerErrorResponse
+  status: 500
+}
+
+export type rejectActionResponseSuccess = (rejectActionResponse200) & {
+  headers: Headers;
+};
+export type rejectActionResponseError = (rejectActionResponse400 | rejectActionResponse401 | rejectActionResponse404 | rejectActionResponse409 | rejectActionResponse422 | rejectActionResponse500) & {
+  headers: Headers;
+};
+
+export type rejectActionResponse = (rejectActionResponseSuccess | rejectActionResponseError)
+
+export const getRejectActionUrl = (id: number,) => {
+
+
+
+
+  return `/api/actions/${id}/reject`
+}
+
+/**
+ * RejectAction rejects a pending action. No action runs, and the agent gets the message of the Owner in a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.
+ */
+export const rejectAction = async (id: number,
+    rejectActionBody: RejectActionBody, ): Promise<rejectActionResponse> => {
+
+  const res = await fetch(getRejectActionUrl(id),
+  {
+
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(rejectActionBody)
+  }
+)
+
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+
+  const data: rejectActionResponse['data'] = body ? JSON.parse(body) : {}
+  return { data, status: res.status, headers: res.headers } as rejectActionResponse
+}
+
+
 
 export type listActiveAgentsResponse200 = {
   data: EnvelopeActiveAgents

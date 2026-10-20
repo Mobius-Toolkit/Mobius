@@ -27,8 +27,8 @@ type ChatMessage struct {
 	// Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
 	Workstream int64 `gork:"workstream"`
 	// Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of
-	// Mobius, or Event for a Lead event, which the chat shows as a muted entry
-	Author string `gork:"author" validate:"oneof=Owner Lead tell_owner Coordinator Mobius Event"`
+	// Mobius, Event for a Lead event, which the chat shows as a muted entry, or Action for the card of a pending action
+	Author string `gork:"author" validate:"oneof=Owner Lead tell_owner Coordinator Mobius Event Action"`
 	// Time is the time of the message
 	Time time.Time `gork:"time"`
 	// Text is the text of the message
@@ -43,6 +43,8 @@ type ChatMessage struct {
 	// StoppedAt is the time when a stop of the Owner dropped the message of the Owner before the turn of the agent
 	// started, or null for a message that no stop dropped and for another message
 	StoppedAt *time.Time `gork:"stoppedAt"`
+	// Action is the action of a card, or null for another message
+	Action *PendingAction `gork:"action"`
 }
 
 // Chat is a page of the messages of a Lead chat or of the Coordinator chat.
@@ -90,7 +92,7 @@ func (h *handlers) GetChat(ctx context.Context, req GetChatRequest) (*GetChatRes
 	}
 	chat := Chat{Messages: make([]ChatMessage, 0, len(view.Messages)), Older: view.Older, Writing: view.Writing, Stoppable: view.Stoppable, PausedUntil: view.PausedUntil, Harness: string(view.Harness)}
 	for _, message := range view.Messages {
-		found, err := h.chatMessageOf(message)
+		found, err := h.chatMessageOf(ctx, message)
 		if err != nil {
 			return nil, err
 		}
@@ -250,7 +252,7 @@ func unreadOf(unread engine.Unread) Unread {
 	return Unread{Organization: unread.Key.Organization, Repository: unread.Key.Repository, Workstream: unread.Key.Workstream, Count: unread.Count}
 }
 
-func (h *handlers) chatMessageOf(message store.ChatMessage) (ChatMessage, error) {
+func (h *handlers) chatMessageOf(ctx context.Context, message store.ChatMessage) (ChatMessage, error) {
 	t, err := time.Parse(time.RFC3339Nano, message.Time)
 	if err != nil {
 		return ChatMessage{}, err
@@ -280,6 +282,11 @@ func (h *handlers) chatMessageOf(message store.ChatMessage) (ChatMessage, error)
 			return ChatMessage{}, err
 		}
 		found.StoppedAt = &stoppedAt
+	}
+	if message.Author == "Action" {
+		if found.Action, err = h.actionOfMessage(ctx, message); err != nil {
+			return ChatMessage{}, err
+		}
 	}
 	return found, err
 }

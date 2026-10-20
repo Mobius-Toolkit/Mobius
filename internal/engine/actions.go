@@ -1,0 +1,320 @@
+package engine
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/github"
+	"github.com/Mobius-Toolkit/Mobius/internal/mcp"
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
+)
+
+// approvedRun marks the context of the run of an action that the Owner approved.
+type approvedRun struct{}
+
+const (
+	interruptedActionError = "Mobius stopped while the action ran. The action can have run. Check the result before you approve again"
+	unsavedActionError     = "The action ran, but Mobius could not save the result. Check the result before you approve again"
+)
+
+// ErrNoAction is the error of a pending action that does not exist.
+var ErrNoAction = errors.New("there is no such action")
+
+// ActionArgument is one argument of a pending action.
+type ActionArgument struct {
+	Name string
+	// Value is the text of a string argument, or the JSON text of another argument.
+	Value string
+}
+
+// approvedTool is tool for a tool whose call waits for the approval of the Owner. A call checks its arguments, stores a
+// pending action with the title of its subject, and returns at once. The run of the tool starts when the Owner approves.
+func approvedTool[In any](e *Engine, c caller, name, description string, properties map[string]any, title func(In) string, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
+	return mcp.Tool{
+		Name:        name,
+		Description: description,
+		Properties:  properties,
+		Run: func(ctx context.Context, arguments json.RawMessage) (string, error) {
+			if ctx.Value(approvedRun{}) != nil {
+				return call(ctx, c, e.callerRepository, name, arguments, run)
+			}
+			c.agent.touch()
+			var text string
+			_, err := e.callerRepository(c)
+			if err == nil {
+				var input In
+				input, err = decode[In](name, arguments)
+				if err == nil {
+					text, err = e.holdAction(ctx, c, name, title(input), arguments)
+				}
+			}
+			if recordErr := e.recordCall(ctx, c.session, name, arguments, text, err); recordErr != nil {
+				return "", recordErr
+			}
+			return text, err
+		},
+	}
+}
+
+func actionRole(role string) string {
+	switch role {
+	case LeadRole:
+		return "lead"
+	case TriagerRole:
+		return "triager"
+	}
+	return "coordinator"
+}
+
+func actionCaller(action store.PendingAction) caller {
+	role := CoordinatorRole
+	switch action.Role {
+	case "lead":
+		role = LeadRole
+	case "triager":
+		role = TriagerRole
+	}
+	return caller{role: role, organization: action.Organization, repository: action.Repository, workstream: action.Workstream, issue: action.Issue}
+}
+
+// approvedToolOf gives the tool name of the role of c, if its call waits for the approval of the Owner. It builds no other tool.
+func (e *Engine) approvedToolOf(c caller, name string) (mcp.Tool, bool) {
+	if c.role == CoordinatorRole && name == "message_lead" {
+		return e.messageLeadTool(c), true
+	}
+	return mcp.Tool{}, false
+}
+
+func (e *Engine) messageLeadTool(c caller) mcp.Tool {
+	return approvedTool(e, c, "message_lead",
+		"Send a message to the Lead of an open Workstream. Call it at once with the exact message. The tool returns at once, and Mobius sends the message only after the Owner approves it. The result arrives later as an Approval message.",
+		map[string]any{
+			"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue that the Owner selects."},
+			"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
+		},
+		func(input messageLeadInput) string {
+			return fmt.Sprintf("Message to the Lead of #%d", input.Workstream)
+		},
+		e.messageLead)
+}
+
+func actionChat(action store.PendingAction) ChatKey {
+	return ChatKey{Organization: action.Organization, Repository: action.Repository, Workstream: action.Workstream}
+}
+
+// ActionArguments gives the arguments of the JSON object arguments in their order.
+func ActionArguments(arguments string) ([]ActionArgument, error) {
+	decoder := json.NewDecoder(strings.NewReader(arguments))
+	if _, err := decoder.Token(); err != nil {
+		return nil, err
+	}
+	var found []ActionArgument
+	for decoder.More() {
+		name, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return nil, err
+		}
+		text := string(value)
+		if strings.HasPrefix(text, `"`) {
+			if err := json.Unmarshal(value, &text); err != nil {
+				return nil, err
+			}
+		}
+		found = append(found, ActionArgument{Name: name.(string), Value: text})
+	}
+	return found, nil
+}
+
+// holdAction stores the call of the tool of c as a pending action, and gives the Owner its card in the chat and its
+// Inbox item. The new action replaces each earlier pending action of the same chat, role, tool and issue.
+func (e *Engine) holdAction(ctx context.Context, c caller, tool, title string, arguments json.RawMessage) (string, error) {
+	listed, err := ActionArguments(string(arguments))
+	if err != nil {
+		return "", err
+	}
+	action, err := e.queries.AddPendingAction(ctx, store.AddPendingActionParams{
+		Organization: c.organization,
+		Repository:   c.repository,
+		Workstream:   c.workstream,
+		Issue:        c.issue,
+		Role:         actionRole(c.role),
+		Tool:         tool,
+		Arguments:    string(arguments),
+		Time:         now(),
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := e.replaceActions(ctx, action); err != nil {
+		return "", err
+	}
+	message, err := e.addChatMessage(ctx, actionChat(action), actionAuthor, title, "", "")
+	if err != nil {
+		return "", err
+	}
+	var text strings.Builder
+	for _, argument := range listed {
+		fmt.Fprintf(&text, "%s: %s\n", argument.Name, argument.Value)
+	}
+	item, err := e.queries.AddInboxItem(ctx, store.AddInboxItemParams{
+		Kind:         approvalKind,
+		Organization: action.Organization,
+		Title:        title,
+		Reason:       "Waits for your approval",
+		Text:         strings.TrimSuffix(text.String(), "\n"),
+		Time:         now(),
+	})
+	if err != nil {
+		return "", err
+	}
+	action, err = e.queries.LinkPendingAction(ctx, store.LinkPendingActionParams{
+		ChatMessage: sql.NullInt64{Int64: message.ID, Valid: true},
+		InboxItem:   sql.NullInt64{Int64: item.ID, Valid: true},
+		ID:          action.ID,
+	})
+	if err != nil {
+		return "", err
+	}
+	e.publish(Change{Message: &message})
+	e.publish(Change{Inbox: &item})
+	e.publish(Change{Action: &action})
+	if err := e.publishUnread(ctx, actionChat(action)); err != nil {
+		return "", err
+	}
+	return "The action waits for the approval of the Owner.", nil
+}
+
+// replaceActions marks each pending action that action replaces as replaced, and dismisses its Inbox item.
+func (e *Engine) replaceActions(ctx context.Context, action store.PendingAction) error {
+	old, err := e.queries.ListReplaceablePendingActions(ctx, store.ListReplaceablePendingActionsParams{
+		Organization: action.Organization,
+		Repository:   action.Repository,
+		Workstream:   action.Workstream,
+		Issue:        action.Issue,
+		Role:         action.Role,
+		Tool:         action.Tool,
+		ID:           action.ID,
+	})
+	if err != nil {
+		return err
+	}
+	for _, found := range old {
+		replaced, err := e.queries.ReplacePendingAction(ctx, store.ReplacePendingActionParams{DecidedAt: sql.NullString{String: now(), Valid: true}, ID: found.ID})
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := e.dismissAction(ctx, replaced); err != nil {
+			return err
+		}
+		e.publish(Change{Action: &replaced})
+	}
+	return nil
+}
+
+func (e *Engine) dismissAction(ctx context.Context, action store.PendingAction) error {
+	if !action.InboxItem.Valid {
+		return nil
+	}
+	return e.Dismiss(ctx, action.InboxItem.Int64)
+}
+
+// ApproveAction runs the pending action id with its stored arguments. When the run succeeds, the action is done, and the
+// agent gets the result. When the run fails, the action stays pending with the error, and the agent gets the error.
+// Of two requests at the same time, only one runs the action. It returns ErrNoAction for an action that does not
+// exist, and a refusal for an action that does not wait for the approval.
+func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (store.PendingAction, error) {
+	if e.sealed() {
+		return store.PendingAction{}, refuse("Mobius restarts for an upgrade. Decide after the restart.")
+	}
+	if _, err := e.queries.GetPendingAction(ctx, id); errors.Is(err, sql.ErrNoRows) {
+		return store.PendingAction{}, ErrNoAction
+	} else if err != nil {
+		return store.PendingAction{}, err
+	}
+	action, err := e.queries.ClaimPendingAction(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.PendingAction{}, refuse("This action does not wait for your approval.")
+	}
+	if err != nil {
+		return store.PendingAction{}, err
+	}
+	ctx = context.WithoutCancel(ctx)
+	result, err := e.runAction(ctx, action)
+	if err != nil {
+		action, failErr := e.queries.FailPendingAction(ctx, store.FailPendingActionParams{Error: err.Error(), ID: id})
+		if failErr != nil {
+			return store.PendingAction{}, failErr
+		}
+		e.publish(Change{Action: &action})
+		text := fmt.Sprintf("The Owner approved `%s`, and it failed: %s. The action still waits for the approval of the Owner.", action.Tool, strings.TrimSuffix(action.Error, "."))
+		return action, e.postApproval(ctx, actionChat(action), text)
+	}
+	action, err = e.queries.FinishPendingAction(ctx, store.FinishPendingActionParams{
+		Result:    result,
+		Message:   message,
+		DecidedAt: sql.NullString{String: now(), Valid: true},
+		ID:        id,
+	})
+	if err != nil {
+		_, failErr := e.queries.FailPendingAction(ctx, store.FailPendingActionParams{Error: unsavedActionError, ID: id})
+		return store.PendingAction{}, errors.Join(err, failErr)
+	}
+	e.publish(Change{Action: &action})
+	text := fmt.Sprintf("The Owner approved `%s`. The result: %s", action.Tool, action.Result)
+	return action, errors.Join(e.dismissAction(ctx, action), e.postApproval(ctx, actionChat(action), withMessage(text, message)))
+}
+
+// RejectAction rejects the pending action id. No action runs, and the agent gets the message of the Owner. It returns
+// ErrNoAction for an action that does not exist, and a refusal for an action that does not wait for the approval or
+// that runs now.
+func (e *Engine) RejectAction(ctx context.Context, id int64, message string) (store.PendingAction, error) {
+	if e.sealed() {
+		return store.PendingAction{}, refuse("Mobius restarts for an upgrade. Decide after the restart.")
+	}
+	if _, err := e.queries.GetPendingAction(ctx, id); errors.Is(err, sql.ErrNoRows) {
+		return store.PendingAction{}, ErrNoAction
+	} else if err != nil {
+		return store.PendingAction{}, err
+	}
+	action, err := e.queries.RejectPendingAction(ctx, store.RejectPendingActionParams{
+		Message:   message,
+		DecidedAt: sql.NullString{String: now(), Valid: true},
+		ID:        id,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.PendingAction{}, refuse("This action does not wait for your approval.")
+	}
+	if err != nil {
+		return store.PendingAction{}, err
+	}
+	e.publish(Change{Action: &action})
+	text := fmt.Sprintf("The Owner rejected `%s`.", action.Tool)
+	return action, errors.Join(e.dismissAction(ctx, action), e.postApproval(ctx, actionChat(action), withMessage(text, message)))
+}
+
+// runAction runs the tool of action with the caller of its chat.
+func (e *Engine) runAction(ctx context.Context, action store.PendingAction) (string, error) {
+	tool, ok := e.approvedToolOf(actionCaller(action), action.Tool)
+	if !ok {
+		return "", fmt.Errorf("the role %s has no approved tool %s", action.Role, action.Tool)
+	}
+	return tool.Run(context.WithValue(ctx, approvedRun{}, true), json.RawMessage(action.Arguments))
+}
+
+func withMessage(text, message string) string {
+	if strings.TrimSpace(message) == "" {
+		return text
+	}
+	return text + "\n\nThe message of the Owner: " + message
+}

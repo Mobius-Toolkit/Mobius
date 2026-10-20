@@ -246,7 +246,8 @@ SELECT CAST(COALESCE(MAX(id), 0) AS INTEGER) FROM chat_messages;
 
 -- name: ListUndeliveredOwnerMessages :many
 SELECT * FROM chat_messages
-WHERE organization = ? AND repository = ? AND id <= ? AND author = 'Owner' AND browser_id IS NOT NULL
+WHERE organization = ? AND repository = ? AND id <= ?
+  AND (author = 'Owner' AND browser_id IS NOT NULL OR author = 'Approval')
   AND delivered_at IS NULL AND stopped_at IS NULL
 ORDER BY id;
 
@@ -262,10 +263,10 @@ DELETE FROM chat_messages WHERE id = ?;
 UPDATE chat_messages SET text = text || sqlc.arg(text) WHERE id = sqlc.arg(id)
 RETURNING *;
 
--- The chat shows no Researcher message and no Curator message.
+-- The chat shows no Researcher message, no Curator message and no Approval message.
 -- name: ListChatMessagesPage :many
 SELECT * FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator') AND id < ?
+WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator', 'Approval') AND id < ?
 ORDER BY id DESC LIMIT ?;
 
 -- name: ListChatMessagesBefore :many
@@ -277,19 +278,19 @@ ORDER BY id DESC LIMIT ?;
 INSERT INTO chat_seen (organization, repository, workstream, message) VALUES (?, ?, ?, ?)
 ON CONFLICT (organization, repository, workstream) DO UPDATE SET message = max(message, excluded.message);
 
--- The messages of the Owner, of a Researcher, of a Curator and of an event are never unread.
+-- The messages of the Owner, of a Researcher, of a Curator, of an approval and of an event are never unread.
 -- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
 LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
-WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Event') AND m.id > coalesce(s.message, 0)
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event') AND m.id > coalesce(s.message, 0)
 GROUP BY m.organization, m.repository, m.workstream
 ORDER BY m.organization, m.repository, m.workstream;
 
 -- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = sqlc.arg(organization) AND m.repository = sqlc.arg(repository) AND m.workstream = sqlc.arg(workstream)
-  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Event')
+  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event')
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0);
 
@@ -856,3 +857,53 @@ UPDATE tasks SET break_wait_head = ? WHERE id = ?;
 
 -- name: SetTaskRerunHead :exec
 UPDATE tasks SET rerun_head = ?, rerun_runs = ? WHERE id = ?;
+
+-- name: AddPendingAction :one
+INSERT INTO pending_actions (organization, repository, workstream, issue, role, tool, arguments, state, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+RETURNING *;
+
+-- name: GetPendingAction :one
+SELECT * FROM pending_actions WHERE id = ?;
+
+-- name: GetPendingActionByChatMessage :one
+SELECT * FROM pending_actions WHERE chat_message = ?;
+
+-- name: GetPendingActionByInboxItem :one
+SELECT * FROM pending_actions WHERE inbox_item = ?;
+
+-- name: LinkPendingAction :one
+UPDATE pending_actions SET chat_message = ?, inbox_item = ? WHERE id = ?
+RETURNING *;
+
+-- name: ListReplaceablePendingActions :many
+SELECT * FROM pending_actions
+WHERE organization = ? AND repository = ? AND workstream = ? AND issue = ? AND role = ? AND tool = ?
+  AND state = 'pending' AND running = 0 AND id <> ?
+ORDER BY id;
+
+-- name: ReplacePendingAction :one
+UPDATE pending_actions SET state = 'replaced', decided_at = ?
+WHERE id = ? AND state = 'pending' AND running = 0
+RETURNING *;
+
+-- name: ClaimPendingAction :one
+UPDATE pending_actions SET running = 1 WHERE id = ? AND state = 'pending' AND running = 0
+RETURNING *;
+
+-- name: FinishPendingAction :one
+UPDATE pending_actions SET state = 'done', running = 0, error = '', result = ?, message = ?, decided_at = ?
+WHERE id = ?
+RETURNING *;
+
+-- name: FailPendingAction :one
+UPDATE pending_actions SET running = 0, error = ? WHERE id = ?
+RETURNING *;
+
+-- name: RejectPendingAction :one
+UPDATE pending_actions SET state = 'rejected', message = ?, decided_at = ?
+WHERE id = ? AND state = 'pending' AND running = 0
+RETURNING *;
+
+-- name: FailRunningPendingActions :exec
+UPDATE pending_actions SET running = 0, error = ? WHERE running = 1;

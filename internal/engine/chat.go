@@ -55,6 +55,8 @@ const (
 	coordinatorAuthor = "Coordinator"
 	mobiusAuthor      = "Mobius"
 	eventAuthor       = "Event"
+	actionAuthor      = "Action"
+	approvalAuthor    = "Approval"
 )
 
 // ChatKey names a chat: the Lead chat of a Workstream, or the Coordinator chat of an organization. The Coordinator chat has
@@ -159,8 +161,9 @@ func (c *chat) notify() {
 	}
 }
 
-// addChatMessage adds a chat message and sends it to the listeners. A message of the Researcher stays hidden. A
-// message that is not of the Owner, of a Researcher or of an event also changes the unread count of the chat. When
+// addChatMessage adds a chat message and sends it to the listeners. A message of the Researcher, of the Curator and
+// of an approval stays hidden. The card of an action goes to the listeners with its action (holdAction). A message
+// that is not of the Owner, of a Researcher or of an event also changes the unread count of the chat. When
 // images is not empty, it is the directory of saveImages. The message gets the images before the listeners see it, and
 // Mobius does not add it when the move fails. When browserID is not empty and a message has it, Mobius adds nothing and
 // the error is sql.ErrNoRows.
@@ -182,7 +185,7 @@ func (e *Engine) addChatMessage(ctx context.Context, key ChatKey, author, text, 
 			return message, errors.Join(err, e.queries.DeleteChatMessage(ctx, message.ID))
 		}
 	}
-	if author == researcherAuthor || author == curatorAuthor {
+	if author == researcherAuthor || author == curatorAuthor || author == approvalAuthor || author == actionAuthor {
 		return message, nil
 	}
 	e.publish(Change{Message: &message})
@@ -221,6 +224,16 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 	if e.sealed() {
 		return refuse("Mobius restarts for an upgrade. Send the message after the restart.")
 	}
+	return e.storeChat(ctx, key, author, browserID, text, images)
+}
+
+// postApproval adds the message text of the Approval author to the chat. While Mobius is sealed, it only stores the
+// message, and the restart gives it to the agent.
+func (e *Engine) postApproval(ctx context.Context, key ChatKey, text string) error {
+	return e.storeChat(ctx, key, approvalAuthor, "", text, nil)
+}
+
+func (e *Engine) storeChat(ctx context.Context, key ChatKey, author, browserID, text string, images []Image) error {
 	var saved string
 	if len(images) > 0 {
 		var err error
@@ -243,6 +256,10 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 			return nil
 		}
 		return err
+	}
+	if author == approvalAuthor && e.sealed() {
+		e.sealedApprovals[key] = append(e.sealedApprovals[key], item{message: &message})
+		return nil
 	}
 	e.handedChats[key] = true
 	e.give(key, false, append(earlier[key], item{message: &message})...)
@@ -967,7 +984,7 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images
 	if current.event != nil && current.event.Comment.Valid {
 		e.launchEventComment(c.ctx, current.event)
 	}
-	if current.message != nil && current.message.Author == ownerAuthor {
+	if current.message != nil && (current.message.Author == ownerAuthor || current.message.Author == approvalAuthor) {
 		if err := e.deliverMessage(c.ctx, current.message.ID); err != nil {
 			return err
 		}
@@ -978,8 +995,8 @@ func (e *Engine) itemTurn(c *chat, a *Agent, current item, prompt string, images
 	return e.endTurn(c, current)
 }
 
-// deliverMessage sets the delivery time of a message of the Owner and sends the message to the listeners. A message
-// that has a delivery time keeps it.
+// deliverMessage sets the delivery time of a message of the Owner or of an approval and sends the message to the
+// listeners, unless it is hidden. A message that has a delivery time keeps it.
 func (e *Engine) deliverMessage(ctx context.Context, id int64) error {
 	message, err := e.queries.DeliverChatMessage(ctx, store.DeliverChatMessageParams{DeliveredAt: sql.NullString{String: now(), Valid: true}, ID: id})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -988,7 +1005,9 @@ func (e *Engine) deliverMessage(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	e.publish(Change{Message: &message})
+	if message.Author != approvalAuthor {
+		e.publish(Change{Message: &message})
+	}
 	return nil
 }
 

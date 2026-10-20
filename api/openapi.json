@@ -5,6 +5,178 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/actions/{id}/approve": {
+      "post": {
+        "description": "ApproveAction runs a pending action with its stored arguments. When the run succeeds, the action is done. When the run fails, the action stays pending with the error, and the Owner can approve it again. The agent gets the result in a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.",
+        "operationId": "ApproveAction",
+        "parameters": [
+          {
+            "description": "ID is the id of the action",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveActionBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_PendingAction"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "actions"
+        ]
+      }
+    },
+    "/api/actions/{id}/reject": {
+      "post": {
+        "description": "RejectAction rejects a pending action. No action runs, and the agent gets the message of the Owner in a chat message. It returns 404 for an unknown action, and 409 for an action that is not pending.",
+        "operationId": "RejectAction",
+        "parameters": [
+          {
+            "description": "ID is the id of the action",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectActionBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Envelope_PendingAction"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "mobius_session": []
+          }
+        ],
+        "tags": [
+          "actions"
+        ]
+      }
+    },
     "/api/agents": {
       "get": {
         "description": "ListActiveAgents returns the open sessions of all organizations in one group for each Role, with the slot counts and the limits of the config.",
@@ -966,7 +1138,7 @@
     },
     "/api/events": {
       "get": {
-        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, each change of the pauses, each change of the CI stops, and each Workstream that the Coordinator chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
+        "description": "StreamEvents sends the latest activities, and then each new activity, each change of a session, each change of the drain, each start and failure of an upgrade, each change of the Workstream list, each new or longer chat message, each new unread count, each change of the state of a chat, each new or dismissed Inbox item, each new or changed pending action, each change of the pauses, each change of the CI stops, and each Workstream that the Coordinator chat created. It also sends a ping at a fixed interval. When the request has Last-Event-ID, it sends the activities after that id in place of the latest activities. When the client does not read the session changes fast enough, the stream ends.",
         "operationId": "StreamEvents",
         "parameters": [
           {
@@ -3788,6 +3960,25 @@
   },
   "components": {
     "schemas": {
+      "ActionArgument": {
+        "type": "object",
+        "title": "ActionArgument",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name is the name of the argument"
+          },
+          "value": {
+            "type": "string",
+            "description": "Value is the value of the argument"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "description": "ActionArgument is an argument of a pending action."
+      },
       "ActiveAgent": {
         "type": "object",
         "title": "ActiveAgent",
@@ -4065,6 +4256,16 @@
         ],
         "description": "AnsweredComment is the comment that AnswerInboxItem posted."
       },
+      "ApproveActionBody": {
+        "type": "object",
+        "title": "ApproveActionBody",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Message is the message of the Owner for the agent. It can be empty"
+          }
+        }
+      },
       "Blocker": {
         "type": "object",
         "title": "Blocker",
@@ -4185,16 +4386,28 @@
         "type": "object",
         "title": "ChatMessage",
         "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PendingAction"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Action is the action of a card, or null for another message"
+          },
           "author": {
             "type": "string",
-            "description": "Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, or Event for a Lead event, which the chat shows as a muted entry",
+            "description": "Author is Owner, Lead, Coordinator, tell_owner for a message of the Lead to the Owner, Mobius for a message of Mobius, Event for a Lead event, which the chat shows as a muted entry, or Action for the card of a pending action",
             "enum": [
               "Owner",
               "Lead",
               "tell_owner",
               "Coordinator",
               "Mobius",
-              "Event"
+              "Event",
+              "Action"
             ]
           },
           "browserId": {
@@ -4258,7 +4471,8 @@
           "images",
           "browserId",
           "deliveredAt",
-          "stoppedAt"
+          "stoppedAt",
+          "action"
         ],
         "description": "ChatMessage is a message of a Lead chat or of the Coordinator chat."
       },
@@ -4898,6 +5112,20 @@
         ],
         "description": "Envelope is the body of each success response."
       },
+      "Envelope_PendingAction": {
+        "type": "object",
+        "title": "Envelope_PendingAction",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PendingAction",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
       "Envelope_Recording": {
         "type": "object",
         "title": "Envelope_Recording",
@@ -5080,6 +5308,17 @@
         "type": "object",
         "title": "InboxItem",
         "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PendingAction"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Action is the action of an approval item, or null for another item"
+          },
           "dismissedAt": {
             "type": [
               "string",
@@ -5098,14 +5337,15 @@
           },
           "kind": {
             "type": "string",
-            "description": "Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space",
+            "description": "Kind tells what the item is about: question for a question of the Lead on an issue, Lead failed for a message that the Lead did not take, ready for review for a pull request of a task, stopped for a task that a person must continue (a stale pull request or a session that Mobius stopped after its hangs), lost for a task that Mobius lost, and full disk for a local check that waits for free disk space, and approval for a tool call of an agent that waits for the approval of the Owner",
             "enum": [
               "question",
               "Lead failed",
               "ready for review",
               "stopped",
               "lost",
-              "full disk"
+              "full disk",
+              "approval"
             ]
           },
           "link": {
@@ -5179,7 +5419,8 @@
           "time",
           "dismissedAt",
           "merging",
-          "mergeRefusal"
+          "mergeRefusal",
+          "action"
         ],
         "description": "InboxItem is an item of the Inbox of the Owner."
       },
@@ -5441,6 +5682,29 @@
               "event": {
                 "type": "string",
                 "const": "inbox"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "data"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data": {
+                "type": "string",
+                "contentMediaType": "application/json",
+                "contentSchema": {
+                  "$ref": "#/components/schemas/PendingAction"
+                }
+              },
+              "event": {
+                "type": "string",
+                "const": "action"
               },
               "id": {
                 "type": "string"
@@ -5740,6 +6004,85 @@
         ],
         "description": "Pause is the usage-limit pause of a Harness."
       },
+      "PendingAction": {
+        "type": "object",
+        "title": "PendingAction",
+        "properties": {
+          "arguments": {
+            "type": "array",
+            "title": "[]ActionArgument",
+            "description": "Arguments are the arguments of the call in the order of the tool input. A value that is not a string is its JSON text",
+            "items": {
+              "$ref": "#/components/schemas/ActionArgument"
+            }
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "DecidedAt is the time when the action was done, rejected or replaced, or null",
+            "format": "date-time"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error is the error of the last failed run, or empty. A pending action with an error is a failed action"
+          },
+          "id": {
+            "type": "integer",
+            "description": "ID increases with each new action"
+          },
+          "message": {
+            "type": "string",
+            "description": "Message is the message of the Owner with the decision, or empty"
+          },
+          "result": {
+            "type": "string",
+            "description": "Result is the result text of the tool after the run, or empty"
+          },
+          "role": {
+            "type": "string",
+            "description": "Role is the Role of the agent that called the tool",
+            "enum": [
+              "coordinator",
+              "lead",
+              "triager"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "description": "State is pending for an action that waits for the approval, done for an action that ran, rejected for an action that the Owner rejected, and replaced for an action that a later call of the same tool replaced",
+            "enum": [
+              "pending",
+              "done",
+              "rejected",
+              "replaced"
+            ]
+          },
+          "time": {
+            "type": "string",
+            "description": "Time is the time of the call",
+            "format": "date-time"
+          },
+          "tool": {
+            "type": "string",
+            "description": "Tool is the name of the tool"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "tool",
+          "arguments",
+          "state",
+          "error",
+          "result",
+          "message",
+          "time",
+          "decidedAt"
+        ],
+        "description": "PendingAction is a tool call of an agent that waits for the approval of the Owner."
+      },
       "PermissionCheck": {
         "type": "object",
         "title": "PermissionCheck",
@@ -5787,6 +6130,16 @@
           "id"
         ],
         "description": "Recording is a voice recording that the server keeps while it runs."
+      },
+      "RejectActionBody": {
+        "type": "object",
+        "title": "RejectActionBody",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Message is the message of the Owner for the agent. It can be empty"
+          }
+        }
       },
       "Release": {
         "type": "object",

@@ -592,30 +592,6 @@ func TestCreateWorkstreamRefusesLabelsFromTheLead(t *testing.T) {
 	}
 }
 
-func TestMessageLeadSendsTheMessageToTheLeadOfAnOpenWorkstream(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	fake.AddIssue(shop, 21, "Not a Workstream")
-	server, _ := connect(t, fake, call("message_lead", `{ workstream = 12, text = "Create the task issues." }`)+
-		call("message_lead", `{ workstream = 21, text = "Create the task issues." }`))
-	coordinatorChat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
-
-	chat := run(t, server, coordinatorChat, "1. ", "2. ")
-
-	want := "Sent the message to the Lead of #12.error: #21 is not an open Workstream."
-	if got := reply(t, server, chat); got != want {
-		t.Errorf("reply of the Coordinator chat = %q", got)
-	}
-	testkit.WaitFor(t, func() bool { return eventDelivered(t, server) })
-	text := "Message of the Coordinator, approved by the Owner:\n\nCreate the task issues."
-	if events := leadEvents(t, server); !reflect.DeepEqual(events, []leadEvent{{Workstream: 12, Kind: "coordinator", Payload: text, Delivered: true}}) {
-		t.Errorf("events = %v", events)
-	}
-	if prompts := leadPrompts(t, server); len(prompts) == 0 || !strings.HasSuffix(prompts[0], "# Event\n\n"+text) {
-		t.Errorf("prompts = %q", prompts)
-	}
-}
-
 func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
@@ -656,14 +632,15 @@ func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *
 func TestMessageLeadSendsTheMessageOfTheCoordinatorWhileGitHubRefusesEachRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("message_lead", `{ workstream = 12, text = "Create the task issues." }`))
+	server, _ := connect(t, fake, approvalSeen+callMessageLead("1. ", 12, "Create the task issues.")+seenScript)
 	fake.SetRateLimited(true)
-	coordinatorChat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 
-	chat := run(t, server, coordinatorChat, "1. ")
+	chat := run(t, server, coordinatorSpec(t), "1. ")
+	action := waitForActions(t, server, 1)[0]
+	decided(t, server, action.ID, "approve", "")
 
-	if got, want := reply(t, server, chat), "Sent the message to the Lead of #12."; got != want {
-		t.Errorf("reply = %q, want %q", got, want)
+	if got := reply(t, server, chat); got != actionWaits {
+		t.Errorf("reply = %q", got)
 	}
 	text := "Message of the Coordinator, approved by the Owner:\n\nCreate the task issues."
 	if events := leadEvents(t, server); len(events) == 0 || events[0].Workstream != 12 || events[0].Kind != "coordinator" || events[0].Payload != text {
@@ -693,16 +670,16 @@ func TestMessageLeadSendsTheMessageOfTheLeadWhileGitHubRefusesEachRequest(t *tes
 func TestAMessageToALeadWithNoSessionStartsTheSessionWhileGitHubRefusesEachRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"Send the message.\"\ncall = { tool = \"message_lead\", arguments = { workstream = 12, text = \"Create the task issues.\" } }\n")
+	server, _ := connect(t, fake, approvalSeen+callMessageLead("Send the message.", 12, "Create the task issues.")+seenScript)
 	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	waitForPoll(t, server, fake)
 	waitForTasks(t, server, []taskLine{line(41, "Add plan model", "open", 0)})
 	fake.SetRateLimited(true)
-	coordinatorChat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 
-	run(t, server, coordinatorChat, "Send the message.")
+	run(t, server, coordinatorSpec(t), "Send the message.")
+	decided(t, server, waitForActions(t, server, 1)[0].ID, "approve", "")
 
 	session := waitForChatSession(t, server, leadChat, engine.LeadRole, func(store.Session) bool { return true })
 	prompt := testkit.WaitForValue(t, func() (string, bool) {
@@ -716,23 +693,24 @@ func TestAMessageToALeadWithNoSessionStartsTheSessionWhileGitHubRefusesEachReque
 	)
 }
 
-func TestMessageLeadRefusesAWorkstreamThatTheCopyDoesNotHave(t *testing.T) {
+func TestAnApprovedMessageLeadRefusesAWorkstreamThatTheCopyDoesNotHave(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddIssue(shop, 20, "Billing")
 	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
 	fake.CloseIssue(shop, 20)
 	fake.AddIssue(shop, 21, "Not a Workstream")
-	server, _ := connect(t, fake, call("message_lead", `{ workstream = 20, text = "Create the task issues." }`)+
-		call("message_lead", `{ workstream = 21, text = "Create the task issues." }`)+
-		call("message_lead", `{ workstream = 99, text = "Create the task issues." }`))
-	coordinatorChat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
+	server, _ := connect(t, fake, approvalSeen+callMessageLead("1. ", 20, "Create the task issues.")+callMessageLead("2. ", 21, "Create the task issues.")+callMessageLead("3. ", 99, "Create the task issues.")+seenScript)
 
-	chat := run(t, server, coordinatorChat, "1. ", "2. ", "3. ")
-
-	want := "error: #20 is not an open Workstream.error: #21 is not an open Workstream.error: #99 is not an open Workstream."
-	if got := reply(t, server, chat); got != want {
-		t.Errorf("reply = %q, want %q", got, want)
+	var errors []string
+	for i, prompt := range []string{"1. ", "2. ", "3. "} {
+		run(t, server, coordinatorSpec(t), prompt)
+		action := waitForActions(t, server, i+1)[i]
+		errors = append(errors, decided(t, server, action.ID, "approve", "").Error)
+	}
+	want := []string{"#20 is not an open Workstream.", "#21 is not an open Workstream.", "#99 is not an open Workstream."}
+	if !slices.Equal(errors, want) {
+		t.Errorf("errors = %q", errors)
 	}
 	if events := leadEvents(t, server); len(events) != 0 {
 		t.Errorf("events = %v", events)
