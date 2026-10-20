@@ -814,6 +814,13 @@ SELECT * FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id;
 -- name: ListOpenHardCIBreaks :many
 SELECT * FROM ci_breaks WHERE repository = ? AND ended_at = '' AND result = 'hard' ORDER BY id;
 
+-- name: HasDiagnosingHardCIBreak :one
+SELECT EXISTS (
+  SELECT 1 FROM ci_breaks JOIN ci_diagnoses ON ci_diagnoses.ci_break = ci_breaks.id
+  WHERE ci_breaks.repository = ? AND ci_breaks.issue = 0 AND ci_breaks.result = 'hard' AND ci_breaks.ended_at = ''
+    AND ci_diagnoses.ended_at = ''
+);
+
 -- name: ListAllOpenHardCIBreaks :many
 SELECT * FROM ci_breaks WHERE ended_at = '' AND result = 'hard' AND issue != 0 ORDER BY repository, id;
 
@@ -830,7 +837,19 @@ UPDATE ci_breaks SET result = ?, ended_run_id = ?, ended_at = ? WHERE id = ?;
 SELECT CAST(COALESCE(MAX(run_id), 0) AS INTEGER) FROM ci_breaks WHERE repository = ? AND workflow_id = ?;
 
 -- name: ListCIBreaksWithoutIssue :many
-SELECT * FROM ci_breaks WHERE repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '') ORDER BY id;
+SELECT * FROM ci_breaks
+WHERE ci_breaks.repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
+  AND NOT EXISTS (SELECT 1 FROM ci_diagnoses WHERE ci_diagnoses.ci_break = ci_breaks.id AND ci_diagnoses.ended_at = '')
+ORDER BY id;
+
+-- name: ListCIBreaksToDiagnose :many
+SELECT * FROM ci_breaks
+WHERE ci_breaks.repository = ? AND issue = 0 AND (result = 'flaky' OR result = 'hard' AND ended_at = '')
+  AND NOT EXISTS (SELECT 1 FROM ci_diagnoses WHERE ci_diagnoses.ci_break = ci_breaks.id)
+ORDER BY id;
+
+-- name: GetCIBreak :one
+SELECT * FROM ci_breaks WHERE id = ?;
 
 -- name: ListCIBreaksNotBelowWorkstream :many
 SELECT * FROM ci_breaks WHERE repository = ? AND issue < 0 ORDER BY id;
@@ -964,8 +983,13 @@ ON CONFLICT (failure, pull_request, ci_break) DO UPDATE SET head = excluded.head
 
 -- name: ListCIFailuresWithoutIssue :many
 SELECT ci_failures.* FROM ci_failures
-WHERE repository = ? AND issue = 0 AND ended_at = ''
+WHERE ci_failures.repository = ? AND issue = 0 AND ended_at = ''
   AND (SELECT COUNT(*) FROM ci_failure_places WHERE failure = ci_failures.id) >= 2
+  AND NOT EXISTS (
+    SELECT 1 FROM ci_failure_places JOIN ci_breaks ON ci_breaks.id = ci_failure_places.ci_break
+    WHERE ci_failure_places.failure = ci_failures.id AND ci_breaks.issue = 0
+      AND (ci_breaks.result = 'flaky' OR ci_breaks.result = 'hard' AND ci_breaks.ended_at = '')
+  )
 ORDER BY id;
 
 -- name: ListCIFailuresNotBelowWorkstream :many
@@ -994,6 +1018,21 @@ ORDER BY ci_failure_places.id;
 
 -- name: GetNewestTaskPullRequest :one
 SELECT pull_request FROM tasks WHERE repository = ? AND issue = ? ORDER BY id DESC LIMIT 1;
+
+-- name: GetCIBreakFailureIssue :one
+SELECT ci_failures.issue FROM ci_failures JOIN ci_failure_places ON ci_failure_places.failure = ci_failures.id
+WHERE ci_failure_places.ci_break = ? AND ci_failures.issue != 0 AND ci_failures.ended_at = ''
+ORDER BY ci_failures.id LIMIT 1;
+
+-- name: SetCIBreakFailuresIssue :exec
+UPDATE ci_failures SET issue = ?
+WHERE issue = 0 AND ended_at = '' AND id IN (SELECT failure FROM ci_failure_places WHERE ci_break = ?);
+
+-- name: HasOpenPullRequestFailureWithIssue :one
+SELECT EXISTS (
+  SELECT 1 FROM ci_failures JOIN ci_failure_places ON ci_failure_places.failure = ci_failures.id
+  WHERE ci_failures.repository = ? AND ci_failures.ended_at = '' AND ABS(ci_failures.issue) = ? AND ci_failure_places.pull_request != 0
+);
 
 -- name: ListCIFailurePlaces :many
 SELECT ci_failure_places.*, COALESCE(ci_breaks.run_url, '') AS run_url

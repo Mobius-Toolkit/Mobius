@@ -799,7 +799,10 @@ func (g *FakeGitHub) listWorkflowJobsAttempt(w http.ResponseWriter, r *http.Requ
 		for _, step := range job.Steps {
 			steps = append(steps, map[string]any{"name": step.Name, "conclusion": step.Conclusion})
 		}
-		jobs = append(jobs, map[string]any{"id": job.ID, "name": job.Name, "conclusion": job.Conclusion, "steps": steps})
+		jobs = append(jobs, map[string]any{
+			"id": job.ID, "name": job.Name, "conclusion": job.Conclusion, "steps": steps,
+			"html_url": fmt.Sprintf("%s/%s/actions/runs/%d/job/%d", g.URL, job.repository, id, job.ID),
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(jobs), "jobs": page(w, r, jobs)})
 }
