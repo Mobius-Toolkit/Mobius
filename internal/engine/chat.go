@@ -224,6 +224,16 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 	if e.sealed() {
 		return refuse("Mobius restarts for an upgrade. Send the message after the restart.")
 	}
+	return e.storeChat(ctx, key, author, browserID, text, images)
+}
+
+// postApproval adds the message text of the Approval author to the chat. While Mobius is sealed, it only stores the
+// message, and the restart gives it to the agent.
+func (e *Engine) postApproval(ctx context.Context, key ChatKey, text string) error {
+	return e.storeChat(ctx, key, approvalAuthor, "", text, nil)
+}
+
+func (e *Engine) storeChat(ctx context.Context, key ChatKey, author, browserID, text string, images []Image) error {
 	var saved string
 	if len(images) > 0 {
 		var err error
@@ -246,6 +256,9 @@ func (e *Engine) postChat(ctx context.Context, key ChatKey, author, browserID, t
 			return nil
 		}
 		return err
+	}
+	if author == approvalAuthor && e.sealed() {
+		return nil
 	}
 	e.handedChats[key] = true
 	e.give(key, false, append(earlier[key], item{message: &message})...)

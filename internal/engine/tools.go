@@ -26,7 +26,7 @@ type caller struct {
 	// repository is empty for the Coordinator chat.
 	repository string
 	workstream int64
-	// issue is the issue of the Triager, and 0 for the other roles.
+	// issue is the issue of the session, or 0.
 	issue int64
 	agent *Agent
 }

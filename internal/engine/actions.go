@@ -254,7 +254,7 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 		}
 		e.publish(Change{Action: &action})
 		text := fmt.Sprintf("The Owner approved `%s`, and it failed: %s. The action still waits for the approval of the Owner.", action.Tool, strings.TrimSuffix(action.Error, "."))
-		return action, e.postChat(ctx, actionChat(action), approvalAuthor, "", text, nil)
+		return action, e.postApproval(ctx, actionChat(action), text)
 	}
 	action, err = e.queries.FinishPendingAction(ctx, store.FinishPendingActionParams{
 		Result:    result,
@@ -268,7 +268,7 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 	}
 	e.publish(Change{Action: &action})
 	text := fmt.Sprintf("The Owner approved `%s`. The result: %s", action.Tool, action.Result)
-	return action, errors.Join(e.dismissAction(ctx, action), e.postChat(ctx, actionChat(action), approvalAuthor, "", withMessage(text, message), nil))
+	return action, errors.Join(e.dismissAction(ctx, action), e.postApproval(ctx, actionChat(action), withMessage(text, message)))
 }
 
 // RejectAction rejects the pending action id. No action runs, and the agent gets the message of the Owner. It returns
@@ -296,7 +296,7 @@ func (e *Engine) RejectAction(ctx context.Context, id int64, message string) (st
 	}
 	e.publish(Change{Action: &action})
 	text := fmt.Sprintf("The Owner rejected `%s`.", action.Tool)
-	return action, errors.Join(e.dismissAction(ctx, action), e.postChat(ctx, actionChat(action), approvalAuthor, "", withMessage(text, message), nil))
+	return action, errors.Join(e.dismissAction(ctx, action), e.postApproval(ctx, actionChat(action), withMessage(text, message)))
 }
 
 // runAction runs the tool of action with the caller of its chat.
