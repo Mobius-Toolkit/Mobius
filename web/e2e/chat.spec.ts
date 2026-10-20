@@ -233,14 +233,33 @@ test("Enter sends, and Shift+Enter adds a line on a desktop", async ({ page }) =
 const fontSize = (selector: string) =>
   `parseFloat(getComputedStyle(document.querySelector('${selector}')).fontSize)`;
 
-test("the chat text is 14px, and the chat input is at least 16px on a phone", async ({ page }) => {
-  await page.goto(shop);
-  await expect(page.locator("[data-message]").first()).toBeVisible();
-  expect(await page.evaluate(fontSize("[data-message] p"))).toBe(14);
-  expect(await page.evaluate(fontSize("textarea"))).toBe(14);
-  await page.setViewportSize(phone);
-  expect(await page.evaluate(fontSize("[data-message] p"))).toBe(14);
-  expect(await page.evaluate(fontSize("textarea"))).toBeGreaterThanOrEqual(16);
+const sizes = async (page: Page) => ({
+  text: await page.evaluate(fontSize("[data-message] p")),
+  input: await page.evaluate(fontSize("textarea")),
+});
+
+test.describe("the size of the chat text", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto(shop);
+    await expect(page.locator("[data-message] p").first()).toBeVisible();
+  });
+
+  test("is 16px on a phone and 14px on a desktop, and the other text keeps its size", async ({
+    page,
+  }) => {
+    expect(await sizes(page)).toEqual({ text: 14, input: 14 });
+    await page.setViewportSize(phone);
+    expect(await sizes(page)).toEqual({ text: 16, input: 16 });
+    expect(await page.evaluate(fontSize("main h2"))).toBe(16);
+    expect(await page.evaluate(fontSize("[data-message] .text-xs"))).toBe(12);
+  });
+
+  test("follows the font size of the root element", async ({ page }) => {
+    await page.addStyleTag({ content: "html { font-size: 20px; }" });
+    expect(await sizes(page)).toEqual({ text: 17.5, input: 17.5 });
+    await page.setViewportSize(phone);
+    expect(await sizes(page)).toEqual({ text: 20, input: 20 });
+  });
 });
 
 test.describe("images", () => {
