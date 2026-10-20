@@ -967,8 +967,17 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 	if c.role == TriagerRole {
 		text += "\n\n" + issueLink(repository.FullName, c.issue)
 	}
-	if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, kind, text); err != nil {
-		return "", err
+	sent := false
+	if c.role == TriagerRole {
+		sent, err = e.queries.HasLeadEvent(ctx, store.HasLeadEventParams{Repository: repository.FullName, Workstream: input.Workstream, Kind: kind, Payload: text})
+		if err != nil {
+			return "", err
+		}
+	}
+	if !sent {
+		if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, kind, text); err != nil {
+			return "", err
+		}
 	}
 	if c.role == TriagerRole {
 		if err := e.endTriage(ctx, c, repository, input.Workstream); err != nil {

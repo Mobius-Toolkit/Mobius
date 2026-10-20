@@ -85,6 +85,10 @@ when = "# Issue\n\nowner/shop#71 "
 reply = ["Proposal: a message to the Lead of #12."]
 
 [[prompts]]
+when = "# Issue\n\nowner/shop#72 "
+reply = ["Proposal: a message to the Lead of #12."]
+
+[[prompts]]
 when = "# Issue\n\nowner/shop#63 "
 call = { tool = "start_researcher", arguments = { question = "Where do refunds live?" } }
 
@@ -806,6 +810,48 @@ func TestTheOwnerApprovesAMessageOfTheTriagerAfterItsSessionEndedAndTheLeadGetsT
 	}
 	if sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole); len(sessions) != 2 {
 		t.Errorf("sessions = %d", len(sessions))
+	}
+}
+
+func TestAnApprovedMessageOfTheTriagerThatFailsAtTheCloseOfTheIssueSendsTheLeadOneEventWhenItRunsAgain(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTriager(t, fake)
+	fake.CreateIssue(shop, 72, "Add refunds", "Refund each order.", "owner")
+	proposal := testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Proposal: a message to the Lead of #12."}
+	testkit.WaitFor(t, func() bool { return slices.Contains(fake.Comments(shop, 72), proposal) })
+	fake.AddComment(shop, 72, "owner", "Send it to the Lead.")
+	action := waitForActions(t, server, 1)[0]
+	fake.FailClose(shop, 72)
+
+	failed := decided(t, server, action.ID, "approve", "")
+
+	if failed.State != "pending" || !strings.Contains(failed.Error, "the Lead of #12 got the message") {
+		t.Errorf("action = %+v", failed)
+	}
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(fake.Comments(shop, 72), func(comment testkit.Comment) bool {
+			return strings.HasPrefix(comment.Body, "The Owner approved `message_lead`, and it failed")
+		})
+	})
+	testkit.WaitFor(t, func() bool {
+		sessions := chatSessions(t, server, issueTriagers, engine.TriagerRole)
+		return len(sessions) == 3 && sessions[2].EndedAt.Valid
+	})
+	fake.AllowClose(shop, 72)
+
+	done := decided(t, server, action.ID, "approve", "")
+
+	if done.State != "done" {
+		t.Errorf("action = %+v", done)
+	}
+	testkit.WaitFor(t, func() bool { state, _ := fake.State(shop, 72); return state == "closed" })
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadEvents(t, server), func(event leadEvent) bool { return event.Kind == "triager" && event.Delivered })
+	})
+	waitForPolls(t, fake)
+	if events := leadEvents(t, server); len(events) != 1 {
+		t.Errorf("events = %v", events)
 	}
 }
 

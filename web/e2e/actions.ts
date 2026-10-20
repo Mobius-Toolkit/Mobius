@@ -139,3 +139,12 @@ export function routeDecision(
   });
   return bodies;
 }
+
+export const triagerMessageLead = { ...messageLead, id: 33, role: "triager" };
+
+export const triagerItem = {
+  ...approvalItem(triagerMessageLead),
+  id: 333,
+  issue: 61,
+  link: "https://github.com/owner/shop/issues/61",
+};

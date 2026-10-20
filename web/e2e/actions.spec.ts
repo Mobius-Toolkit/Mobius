@@ -9,6 +9,7 @@ import {
   rejected,
   routeCards,
   routeDecision,
+  triagerItem,
 } from "./actions.js";
 import { fakeMicrophone } from "./microphone.js";
 import { routeInboxItems } from "./stops.js";
@@ -192,6 +193,17 @@ test("the Inbox approves an item in the panel", async ({ page }) => {
   await expect(row(page, createTitle)).toBeVisible();
   await expect(main.getByRole("tab", { name: "To do 2" })).toBeVisible();
   expect(bodies).toEqual([{ message: "" }]);
+});
+
+test("the Inbox item of the Triager links to its issue", async ({ page }) => {
+  await routeInboxItems(page, [triagerItem]);
+
+  await page.goto("/inbox");
+
+  await expect(row(page, messageTitle).getByRole("link", { name: "#61" })).toHaveAttribute(
+    "href",
+    "https://github.com/owner/shop/issues/61",
+  );
 });
 
 test("the phone shows the cards, the tray and the panel with no horizontal scroll", async ({
