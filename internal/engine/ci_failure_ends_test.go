@@ -17,6 +17,9 @@ const leadStartsFix = "[[prompts]]\nwhen = \"dispatch of #46\"\ncall = { tool = 
 // leadStartsThird is a Lead that starts an Implementer for the dispatch of #50, #41 and #43.
 const leadStartsThird = "[[prompts]]\nwhen = \"dispatch of #50\"\ncall = { tool = \"start_implementer\", arguments = { n = 50, instructions = \"Round prices down.\" } }\n\n" + leadStartsTwo
 
+// fixesOnce is an Implementer that commits fix.txt in the first fix round and makes no commit in a later one.
+const fixesOnce = "[[prompts]]\nwhen = \"Action: fix\"\nshell = \"test -f fix.txt || { echo fix > fix.txt && git add fix.txt && git commit -q -m 'Fix the check'; }\"\n\n" + commits
+
 // stoppedByTheSameFailure fails TestPlan in the CI of #41 and #43 and waits until the CI stops both tasks and the record
 // has its issue. It gives the heads.
 func stoppedByTheSameFailure(t *testing.T, fake *testkit.FakeGitHub, lead string) (*testserver.Server, string, string) {
@@ -168,5 +171,42 @@ func TestACloseOfTheIssueOfARecordWithNoMergedPullRequestUpdatesNoBranchAndALate
 	testkit.WaitFor(t, func() bool { return rowCount(t, server, "SELECT count(*) FROM ci_failures") == 2 })
 	if places := rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failure_places WHERE head = '%s'", third)); places != 1 {
 		t.Errorf("places of the third head = %d", places)
+	}
+}
+
+func TestAPullRequestThatFailsTheSameTestOnANewerHeadGetsTheUpdateOfItsNewestHead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoserFixing(t, fake, leadStartsFix, fixesOnce, reportsPlan)
+	addMaintenanceWorkstream(fake, maintenance)
+	fake.AddSubIssueOf(shop, 12, 43, "Task 43")
+	first := approvalHeadOf(t, server, fake, 41)
+	second := approvalHeadOf(t, server, fake, 43)
+	failActions(fake, first)
+	testkit.WaitFor(t, func() bool { return head(t, fake, "mobius/41") != first })
+	newer := head(t, fake, "mobius/41")
+	failActions(fake, second)
+	if number := ciBreakIssue(t, fake); number != recordIssue {
+		t.Fatalf("issue = %d", number)
+	}
+
+	failActions(fake, newer)
+
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failure_places WHERE head = '%s'", newer)) == 1 &&
+			liveTaskState(t, server, 41) == "needs_human"
+	})
+	if places := rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failure_places WHERE head = '%s'", first)); places != 0 {
+		t.Fatalf("places of the first head = %d", places)
+	}
+
+	mergedFix(t, server, fake)
+
+	testkit.WaitFor(t, func() bool { return head(t, fake, "mobius/41") != newer })
+	isAncestor(t, fake, "main", "mobius/41")
+	testkit.WaitFor(t, func() bool { return endedRecords(t, server) == 1 })
+	waitForPolls(t, fake)
+	if calls := fake.UpdateBranchCalls(); calls != 1 {
+		t.Errorf("update calls = %d", calls)
 	}
 }

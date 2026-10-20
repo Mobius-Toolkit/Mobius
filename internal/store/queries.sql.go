@@ -113,7 +113,7 @@ func (q *Queries) AddCIFailure(ctx context.Context, arg AddCIFailureParams) (int
 const addCIFailurePlace = `-- name: AddCIFailurePlace :exec
 INSERT INTO ci_failure_places (failure, pull_request, ci_break, head, job_urls, lines, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (failure, pull_request, ci_break) DO NOTHING
+ON CONFLICT (failure, pull_request, ci_break) DO UPDATE SET head = excluded.head, job_urls = excluded.job_urls, lines = excluded.lines
 `
 
 type AddCIFailurePlaceParams struct {
