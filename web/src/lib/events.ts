@@ -1,3 +1,5 @@
+export const retryDelay = 3000;
+
 type ServerEvent = { event: string; data: unknown };
 
 export function onEvent<E extends ServerEvent, K extends E["event"]>(
