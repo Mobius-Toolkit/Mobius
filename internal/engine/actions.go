@@ -86,34 +86,30 @@ func actionCaller(action store.PendingAction) caller {
 
 // approvedToolOf gives the tool name of the role of c, if its call waits for the approval of the Owner. It builds no other tool.
 func (e *Engine) approvedToolOf(c caller, name string) (mcp.Tool, bool) {
-	switch name {
-	case "message_lead":
-		if c.role == CoordinatorRole || c.role == LeadRole {
-			return e.messageLeadTool(c), true
-		}
-	case "create_workstream":
-		if c.role == CoordinatorRole || c.role == LeadRole {
-			return e.createWorkstreamTool(c), true
-		}
-	case "tell_curator":
-		if c.role == CoordinatorRole {
-			return e.tellCuratorTool(c), true
-		}
-	case "move_task":
-		if c.role == LeadRole {
-			return e.moveTaskTool(c), true
-		}
-	case "edit_brief":
-		if c.role == LeadRole {
-			return e.editBriefTool(c), true
-		}
+	coordinator := c.role == CoordinatorRole
+	lead := c.role == LeadRole
+	switch {
+	case name == "message_lead":
+		return e.messageLeadTool(c), true
+	case name == "create_workstream":
+		return e.createWorkstreamTool(c), true
+	case name == "tell_curator" && coordinator:
+		return e.tellCuratorTool(c), true
+	case name == "move_task" && lead:
+		return e.moveTaskTool(c), true
+	case name == "edit_brief" && lead:
+		return e.editBriefTool(c), true
 	}
 	return mcp.Tool{}, false
 }
 
 func (e *Engine) messageLeadTool(c caller) mcp.Tool {
+	description := "Send a message to the Lead of an open Workstream. Call it at once with the exact message. The tool returns at once, and Mobius sends the message only after the Owner approves it. The result arrives later as an Approval message."
+	if c.role == TriagerRole {
+		description = "Send a message to the Lead of an open Workstream. Mobius adds the link to the issue to the message. Call it at once with the target Workstream and the exact message. The tool returns at once, and Mobius sends the message only after the Owner approves it in the Inbox of Mobius. Then Mobius closes the issue with a link to the Workstream. A failed action or a rejection arrives as a comment of Mobius on the issue."
+	}
 	return approvedTool(e, c, e.callerRepository, "message_lead",
-		"Send a message to the Lead of an open Workstream. Call it at once with the exact message. The tool returns at once, and Mobius sends the message only after the Owner approves it. The result arrives later as an Approval message.",
+		description,
 		map[string]any{
 			"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue that the Owner selects."},
 			"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
@@ -128,9 +124,12 @@ func (e *Engine) messageLeadTool(c caller) mcp.Tool {
 func (e *Engine) createWorkstreamTool(c caller) mcp.Tool {
 	description := "Create a Workstream: an issue with mobius:workstream. Call it at once with the exact title and Brief. The tool returns at once, and Mobius creates the Workstream only after the Owner approves it. The result arrives later as an Approval message."
 	properties := workstreamProperties
-	if c.role == CoordinatorRole {
+	switch c.role {
+	case CoordinatorRole:
 		description += " Add mobius:evergreen or mobius:maintenance in labels only when the Owner asks for that label."
 		properties = coordinatorWorkstreamProperties
+	case TriagerRole:
+		description = "Create a Workstream in this repository: an issue with mobius:workstream. Call it at once with the exact title and Brief. The tool returns at once, and Mobius creates the Workstream only after the Owner approves it in the Inbox of Mobius. Then Mobius closes the issue with a link to the Workstream. A failed action or a rejection arrives as a comment of Mobius on the issue."
 	}
 	return approvedTool(e, c, e.callerRepository, "create_workstream", description,
 		properties,
@@ -237,15 +236,17 @@ func (e *Engine) holdAction(ctx context.Context, c caller, tool, title string, a
 	if err := e.replaceActions(ctx, action); err != nil {
 		return "", err
 	}
-	message, err := e.addChatMessage(ctx, actionChat(action), actionAuthor, title, "", "")
-	if err != nil {
-		return "", err
+	var message store.ChatMessage
+	if c.role != TriagerRole {
+		if message, err = e.addChatMessage(ctx, actionChat(action), actionAuthor, title, "", ""); err != nil {
+			return "", err
+		}
 	}
 	var text strings.Builder
 	for _, argument := range listed {
 		fmt.Fprintf(&text, "%s: %s\n", argument.Name, argument.Value)
 	}
-	item, err := e.queries.AddInboxItem(ctx, store.AddInboxItemParams{
+	itemParams := store.AddInboxItemParams{
 		Kind:         approvalKind,
 		Organization: action.Organization,
 		Repository:   action.Repository,
@@ -254,23 +255,31 @@ func (e *Engine) holdAction(ctx context.Context, c caller, tool, title string, a
 		Reason:       "Waits for your approval",
 		Text:         strings.TrimSuffix(text.String(), "\n"),
 		Time:         now(),
-	})
+	}
+	if c.role == TriagerRole {
+		itemParams.Repository = action.Repository
+		itemParams.Issue = action.Issue
+		itemParams.Link = issueLink(action.Repository, action.Issue)
+	}
+	item, err := e.queries.AddInboxItem(ctx, itemParams)
 	if err != nil {
 		return "", err
 	}
 	action, err = e.queries.LinkPendingAction(ctx, store.LinkPendingActionParams{
-		ChatMessage: sql.NullInt64{Int64: message.ID, Valid: true},
+		ChatMessage: sql.NullInt64{Int64: message.ID, Valid: message.ID != 0},
 		InboxItem:   sql.NullInt64{Int64: item.ID, Valid: true},
 		ID:          action.ID,
 	})
 	if err != nil {
 		return "", err
 	}
-	e.publish(Change{Message: &message})
 	e.publish(Change{Inbox: &item})
 	e.publish(Change{Action: &action})
-	if err := e.publishUnread(ctx, actionChat(action)); err != nil {
-		return "", err
+	if c.role != TriagerRole {
+		e.publish(Change{Message: &message})
+		if err := e.publishUnread(ctx, actionChat(action)); err != nil {
+			return "", err
+		}
 	}
 	return "The action waits for the approval of the Owner.", nil
 }
@@ -341,7 +350,7 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 		}
 		e.publish(Change{Action: &action})
 		text := fmt.Sprintf("The Owner approved `%s`, and it failed: %s. The action still waits for the approval of the Owner.", action.Tool, strings.TrimSuffix(action.Error, "."))
-		return action, e.postApproval(ctx, actionChat(action), text)
+		return action, e.postResult(ctx, action, text)
 	}
 	action, err = e.queries.FinishPendingAction(ctx, store.FinishPendingActionParams{
 		Result:    result,
@@ -355,7 +364,7 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 	}
 	e.publish(Change{Action: &action})
 	text := fmt.Sprintf("The Owner approved `%s`. The result: %s", action.Tool, action.Result)
-	return action, errors.Join(e.dismissAction(ctx, action), e.postApproval(ctx, actionChat(action), withMessage(text, message)))
+	return action, errors.Join(e.dismissAction(ctx, action), e.postResult(ctx, action, withMessage(text, message)))
 }
 
 // RejectAction rejects the pending action id. No action runs, and the agent gets the message of the Owner. It returns
@@ -383,7 +392,23 @@ func (e *Engine) RejectAction(ctx context.Context, id int64, message string) (st
 	}
 	e.publish(Change{Action: &action})
 	text := fmt.Sprintf("The Owner rejected `%s`.", action.Tool)
-	return action, errors.Join(e.dismissAction(ctx, action), e.postApproval(ctx, actionChat(action), withMessage(text, message)))
+	return action, errors.Join(e.dismissAction(ctx, action), e.postResult(ctx, action, withMessage(text, message)))
+}
+
+// postResult gives the text of the decision on action to its agent. The Triager has no chat: a failed action or a
+// rejection is a comment on its issue that starts a Triager turn, and a done action has ended the triage.
+func (e *Engine) postResult(ctx context.Context, action store.PendingAction, text string) error {
+	if action.Role != actionRole(TriagerRole) {
+		return e.postApproval(ctx, actionChat(action), text)
+	}
+	if action.State == "done" {
+		return nil
+	}
+	repository, err := e.repository(action.Repository)
+	if err != nil {
+		return err
+	}
+	return e.commentToTriager(ctx, repository, action.Issue, text)
 }
 
 // runAction runs the tool of action with the caller of its chat.

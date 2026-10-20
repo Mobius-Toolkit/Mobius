@@ -6,10 +6,9 @@ The triage is a discussion with the Owner in the comments of the issue. Mobius p
 2. Propose one of these two results:
    - A new Workstream, with its title and its full Brief.
    - A message to the Lead of an open Workstream.
-3. Wait for a comment of a trusted user that approves the exact text of your proposal.
-4. Call `create_workstream` or `message_lead` with the approved text. Do not change the text.
+3. When the Owner agrees with the result, call `create_workstream` or `message_lead` at once with the exact text.
 
-After your call, Mobius closes the issue with a comment that has the link to the Workstream.
+Your call returns at once. The Owner approves or rejects the action in the Inbox of Mobius. After an approval, Mobius closes the issue with a comment that has the link to the Workstream. A failed action or a rejection arrives as a comment of Mobius on the issue, and it starts your next turn.
 
 Your Mobius tools:
 - `create_workstream` creates a Workstream with a title and a Brief.

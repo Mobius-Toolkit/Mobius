@@ -291,17 +291,8 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				e.createMaintenanceIssue))
 	case TriagerRole:
 		return []mcp.Tool{
-			tool(e, c, "create_workstream",
-				"Create a Workstream in this repository: an issue with mobius:workstream. Call it only after a trusted user approves the exact title and Brief in a comment on the issue. Mobius then closes the issue with a link to the Workstream.",
-				workstreamProperties,
-				e.createWorkstream),
-			tool(e, c, "message_lead",
-				"Send a message to the Lead of an open Workstream. Call it only after a trusted user approves the target Workstream and the exact message in a comment on the issue. Mobius adds the link to the issue to the message, and then closes the issue with a link to the Workstream.",
-				map[string]any{
-					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue."},
-					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
-				},
-				e.messageLead),
+			e.createWorkstreamTool(c),
+			e.messageLeadTool(c),
 			tool(e, c, "start_researcher",
 				"Start a Researcher that answers a question about the code of the default branch. The Researcher sees only the question. The tool returns at once, and the report arrives later as a comment on the issue.",
 				map[string]any{
@@ -1000,8 +991,17 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 	if c.role == TriagerRole {
 		text += "\n\n" + issueLink(repository.FullName, c.issue)
 	}
-	if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, kind, text); err != nil {
-		return "", err
+	sent := false
+	if c.role == TriagerRole {
+		sent, err = e.queries.HasLeadEvent(ctx, store.HasLeadEventParams{Repository: repository.FullName, Workstream: input.Workstream, Kind: kind, Payload: text})
+		if err != nil {
+			return "", err
+		}
+	}
+	if !sent {
+		if err := e.addLeadEvent(ctx, repository.FullName, input.Workstream, sql.NullInt64{}, kind, text); err != nil {
+			return "", err
+		}
 	}
 	if c.role == TriagerRole {
 		if err := e.endTriage(ctx, c, repository, input.Workstream); err != nil {

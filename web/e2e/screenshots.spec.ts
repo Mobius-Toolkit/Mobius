@@ -62,6 +62,14 @@ const queueReasons = [
   "no free Implementer slot (2/2)",
 ];
 
+// A log that waits for its stream shows Connecting…, and the stream is open when the log has its first entries.
+const logConnected = async (page: Page) => {
+  await expect(
+    page.getByText("The plan prices are in cents now.").filter({ visible: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Connecting…").filter({ visible: true })).toBeHidden();
+};
+
 // The tests have no DOM types, so the check is a script.
 const wide = (selector: string) =>
   `(document.querySelector('${selector}')?.scrollWidth ?? 0) > (document.querySelector('${selector}')?.clientWidth ?? 0)`;
@@ -834,6 +842,7 @@ test("screenshots", async ({ page }) => {
         .getByRole("button", { name: /^implementer devin · swe-1.5 · Sep \d+, \d\d:\d\d [AP]M$/ })
         .filter({ visible: true })
         .click();
+      await logConnected(page);
     },
   );
   await setQueueReason(page, "waits for a low load");
@@ -848,7 +857,10 @@ test("screenshots", async ({ page }) => {
     "transcript",
     "/agents",
     (device) => [...frame(device, drain), main.getByText("The plan prices are in cents now.")],
-    () => main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click(),
+    async () => {
+      await main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click();
+      await logConnected(page);
+    },
   );
 
   await setQueueReason(page, "waits for a low load");
@@ -860,9 +872,22 @@ test("screenshots", async ({ page }) => {
       ...frame(device, drain),
       main.getByRole("button", { name: "Start the check now" }),
     ],
-    () => main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click(),
+    async () => {
+      await main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click();
+      await logConnected(page);
+    },
   );
   await setQueueReason(page, "");
+
+  await page.route("**/api/agents/*/transcript/events", () => {});
+  await screenshot(
+    page,
+    "transcript-connecting",
+    "/agents",
+    (device) => [...frame(device, drain), main.getByText("Connecting…")],
+    () => main.getByRole("button", { name: /Ticket #41 Add plan model/ }).click(),
+  );
+  await page.unroute("**/api/agents/*/transcript/events");
 
   await page.setViewportSize(viewports.desktop);
   await shown("Cancel upgrade").click();

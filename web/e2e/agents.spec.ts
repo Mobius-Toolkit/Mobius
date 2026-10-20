@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -259,6 +259,37 @@ for (const { name: place, path, open } of places) {
       });
     });
   }
+}
+
+for (const { name: place, path, open } of places) {
+  test(`the agent log in ${place} shows Connecting… until its stream opens`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await mockLog(page);
+    let stream: Route | undefined;
+    await page.route("**/api/agents/*/transcript/events", (route) => {
+      stream = route;
+    });
+    await page.goto(path);
+    await open(page);
+    const badge = page.getByText("Connecting…").filter({ visible: true });
+    await expect(badge).toBeVisible();
+    const list = page
+      .getByText("Read only. The Owner talks only to the Lead.")
+      .filter({ visible: true })
+      .locator("xpath=preceding-sibling::div/ul");
+    const placeOfList = await list.boundingBox();
+
+    await page.unroute("**/api/agents/*/transcript/events");
+    await stream!.continue();
+    await expect(page.getByText("Entry 29 ")).toBeVisible();
+    await expect(badge).toBeHidden();
+    // The list is empty while the stream is down, so only its top and its width stay.
+    expect(await list.boundingBox()).toMatchObject({
+      x: placeOfList!.x,
+      y: placeOfList!.y,
+      width: placeOfList!.width,
+    });
+  });
 }
 
 test("the Transcript of a session that waits for a low load has a button that starts the check", async ({

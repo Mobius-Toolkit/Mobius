@@ -113,7 +113,8 @@ export function InboxRow({
   };
 
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
-  const reference = item.action ? "" : isPullRequest ? `PR #${item.pullRequest}` : `#${item.issue}`;
+  const reference =
+    item.action && !item.issue ? "" : isPullRequest ? `PR #${item.pullRequest}` : `#${item.issue}`;
   const referenceLink = isPullRequest ? item.pullRequestUrl : item.link;
   const merging = answered?.item === item ? answered.merging : item.merging;
   const refusalText = refusal || (merging ? "" : item.mergeRefusal);
