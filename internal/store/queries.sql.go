@@ -42,6 +42,103 @@ func (q *Queries) AddCIBreak(ctx context.Context, arg AddCIBreakParams) error {
 	return err
 }
 
+const addCIDiagnosis = `-- name: AddCIDiagnosis :execrows
+INSERT INTO ci_diagnoses (repository, pull_request, ci_break, head, created_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (repository, pull_request, ci_break, head) DO NOTHING
+`
+
+type AddCIDiagnosisParams struct {
+	Repository  string
+	PullRequest int64
+	CiBreak     int64
+	Head        string
+	CreatedAt   string
+}
+
+func (q *Queries) AddCIDiagnosis(ctx context.Context, arg AddCIDiagnosisParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, addCIDiagnosis,
+		arg.Repository,
+		arg.PullRequest,
+		arg.CiBreak,
+		arg.Head,
+		arg.CreatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const addCIDiagnosisReason = `-- name: AddCIDiagnosisReason :exec
+UPDATE ci_diagnoses SET reasons = reasons || ? WHERE id = ?
+`
+
+type AddCIDiagnosisReasonParams struct {
+	Reasons string
+	ID      int64
+}
+
+func (q *Queries) AddCIDiagnosisReason(ctx context.Context, arg AddCIDiagnosisReasonParams) error {
+	_, err := q.db.ExecContext(ctx, addCIDiagnosisReason, arg.Reasons, arg.ID)
+	return err
+}
+
+const addCIFailure = `-- name: AddCIFailure :one
+INSERT INTO ci_failures (repository, reason, test, location, created_at) VALUES (?, ?, ?, ?, ?)
+RETURNING id
+`
+
+type AddCIFailureParams struct {
+	Repository string
+	Reason     string
+	Test       string
+	Location   string
+	CreatedAt  string
+}
+
+func (q *Queries) AddCIFailure(ctx context.Context, arg AddCIFailureParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, addCIFailure,
+		arg.Repository,
+		arg.Reason,
+		arg.Test,
+		arg.Location,
+		arg.CreatedAt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const addCIFailurePlace = `-- name: AddCIFailurePlace :exec
+INSERT INTO ci_failure_places (failure, pull_request, ci_break, head, job_urls, lines, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (failure, pull_request, ci_break) DO NOTHING
+`
+
+type AddCIFailurePlaceParams struct {
+	Failure     int64
+	PullRequest int64
+	CiBreak     int64
+	Head        string
+	JobUrls     string
+	Lines       string
+	CreatedAt   string
+}
+
+func (q *Queries) AddCIFailurePlace(ctx context.Context, arg AddCIFailurePlaceParams) error {
+	_, err := q.db.ExecContext(ctx, addCIFailurePlace,
+		arg.Failure,
+		arg.PullRequest,
+		arg.CiBreak,
+		arg.Head,
+		arg.JobUrls,
+		arg.Lines,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const addChatMessage = `-- name: AddChatMessage :one
 INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id)
 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -1374,6 +1471,20 @@ func (q *Queries) EndCIBreak(ctx context.Context, arg EndCIBreakParams) error {
 	return err
 }
 
+const endCIDiagnosis = `-- name: EndCIDiagnosis :exec
+UPDATE ci_diagnoses SET ended_at = ? WHERE id = ?
+`
+
+type EndCIDiagnosisParams struct {
+	EndedAt string
+	ID      int64
+}
+
+func (q *Queries) EndCIDiagnosis(ctx context.Context, arg EndCIDiagnosisParams) error {
+	_, err := q.db.ExecContext(ctx, endCIDiagnosis, arg.EndedAt, arg.ID)
+	return err
+}
+
 const endCheckTimeout = `-- name: EndCheckTimeout :exec
 UPDATE check_timeouts SET ended_at = ? WHERE id = ?
 `
@@ -1510,6 +1621,32 @@ func (q *Queries) FindDeviceLogin(ctx context.Context, tokenHash []byte) (int64,
 	return id, err
 }
 
+const findOpenCIFailure = `-- name: FindOpenCIFailure :one
+SELECT id, repository, reason, test, location, issue, created_at, ended_at FROM ci_failures WHERE repository = ? AND ended_at = '' AND test = ? AND location = ? ORDER BY id LIMIT 1
+`
+
+type FindOpenCIFailureParams struct {
+	Repository string
+	Test       string
+	Location   string
+}
+
+func (q *Queries) FindOpenCIFailure(ctx context.Context, arg FindOpenCIFailureParams) (CiFailure, error) {
+	row := q.db.QueryRowContext(ctx, findOpenCIFailure, arg.Repository, arg.Test, arg.Location)
+	var i CiFailure
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Reason,
+		&i.Test,
+		&i.Location,
+		&i.Issue,
+		&i.CreatedAt,
+		&i.EndedAt,
+	)
+	return i, err
+}
+
 const finishPendingAction = `-- name: FinishPendingAction :one
 UPDATE pending_actions SET state = 'done', running = 0, error = '', result = ?, message = ?, decided_at = ?
 WHERE id = ?
@@ -1599,6 +1736,27 @@ func (q *Queries) FreeLeadEvents(ctx context.Context, arg FreeLeadEventsParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const getCIDiagnosisBySession = `-- name: GetCIDiagnosisBySession :one
+SELECT id, repository, pull_request, ci_break, head, reasons, session, created_at, ended_at FROM ci_diagnoses WHERE session = ?
+`
+
+func (q *Queries) GetCIDiagnosisBySession(ctx context.Context, session sql.NullInt64) (CiDiagnosis, error) {
+	row := q.db.QueryRowContext(ctx, getCIDiagnosisBySession, session)
+	var i CiDiagnosis
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.PullRequest,
+		&i.CiBreak,
+		&i.Head,
+		&i.Reasons,
+		&i.Session,
+		&i.CreatedAt,
+		&i.EndedAt,
+	)
+	return i, err
 }
 
 const getChatMessage = `-- name: GetChatMessage :one
@@ -2102,6 +2260,31 @@ func (q *Queries) GetNewestStopText(ctx context.Context, arg GetNewestStopTextPa
 	return text, err
 }
 
+const getOpenCIFailure = `-- name: GetOpenCIFailure :one
+SELECT id, repository, reason, test, location, issue, created_at, ended_at FROM ci_failures WHERE id = ? AND repository = ? AND ended_at = ''
+`
+
+type GetOpenCIFailureParams struct {
+	ID         int64
+	Repository string
+}
+
+func (q *Queries) GetOpenCIFailure(ctx context.Context, arg GetOpenCIFailureParams) (CiFailure, error) {
+	row := q.db.QueryRowContext(ctx, getOpenCIFailure, arg.ID, arg.Repository)
+	var i CiFailure
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Reason,
+		&i.Test,
+		&i.Location,
+		&i.Issue,
+		&i.CreatedAt,
+		&i.EndedAt,
+	)
+	return i, err
+}
+
 const getOpenCheckTimeout = `-- name: GetOpenCheckTimeout :one
 SELECT id, repository, task_issue, session, timeout, output, issue, created_at, ended_at FROM check_timeouts WHERE repository = ? AND ended_at = ''
 `
@@ -2209,6 +2392,33 @@ func (q *Queries) GetPendingActionByInboxItem(ctx context.Context, inboxItem sql
 		&i.ChatMessage,
 		&i.InboxItem,
 		&i.CreatedIssue,
+	)
+	return i, err
+}
+
+const getPullRequestCIDiagnosis = `-- name: GetPullRequestCIDiagnosis :one
+SELECT id, repository, pull_request, ci_break, head, reasons, session, created_at, ended_at FROM ci_diagnoses WHERE repository = ? AND pull_request = ? AND ci_break = 0 AND head = ?
+`
+
+type GetPullRequestCIDiagnosisParams struct {
+	Repository  string
+	PullRequest int64
+	Head        string
+}
+
+func (q *Queries) GetPullRequestCIDiagnosis(ctx context.Context, arg GetPullRequestCIDiagnosisParams) (CiDiagnosis, error) {
+	row := q.db.QueryRowContext(ctx, getPullRequestCIDiagnosis, arg.Repository, arg.PullRequest, arg.Head)
+	var i CiDiagnosis
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.PullRequest,
+		&i.CiBreak,
+		&i.Head,
+		&i.Reasons,
+		&i.Session,
+		&i.CreatedAt,
+		&i.EndedAt,
 	)
 	return i, err
 }
@@ -4071,6 +4281,51 @@ func (q *Queries) ListOpenCIBreaks(ctx context.Context, repository string) ([]Ci
 	return items, nil
 }
 
+const listOpenCIFailures = `-- name: ListOpenCIFailures :many
+SELECT ci_failures.id, ci_failures.reason, ci_failures.test, ci_failures.location, COUNT(ci_failure_places.id) AS places
+FROM ci_failures LEFT JOIN ci_failure_places ON ci_failure_places.failure = ci_failures.id
+WHERE ci_failures.repository = ? AND ci_failures.ended_at = ''
+GROUP BY ci_failures.id
+ORDER BY ci_failures.id
+`
+
+type ListOpenCIFailuresRow struct {
+	ID       int64
+	Reason   string
+	Test     string
+	Location string
+	Places   int64
+}
+
+func (q *Queries) ListOpenCIFailures(ctx context.Context, repository string) ([]ListOpenCIFailuresRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenCIFailures, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOpenCIFailuresRow
+	for rows.Next() {
+		var i ListOpenCIFailuresRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Reason,
+			&i.Test,
+			&i.Location,
+			&i.Places,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenHardCIBreaks = `-- name: ListOpenHardCIBreaks :many
 SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE repository = ? AND ended_at = '' AND result = 'hard' ORDER BY id
 `
@@ -5303,6 +5558,27 @@ func (q *Queries) NewestCIBreakRun(ctx context.Context, arg NewestCIBreakRunPara
 	return column_1, err
 }
 
+const nextCIDiagnosis = `-- name: NextCIDiagnosis :one
+SELECT id, repository, pull_request, ci_break, head, reasons, session, created_at, ended_at FROM ci_diagnoses WHERE repository = ? AND ended_at = '' ORDER BY id LIMIT 1
+`
+
+func (q *Queries) NextCIDiagnosis(ctx context.Context, repository string) (CiDiagnosis, error) {
+	row := q.db.QueryRowContext(ctx, nextCIDiagnosis, repository)
+	var i CiDiagnosis
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.PullRequest,
+		&i.CiBreak,
+		&i.Head,
+		&i.Reasons,
+		&i.Session,
+		&i.CreatedAt,
+		&i.EndedAt,
+	)
+	return i, err
+}
+
 const queueTask = `-- name: QueueTask :execrows
 UPDATE tasks SET state = 'queued', queued_at = ?1, state_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), long_wait_at = NULL
 WHERE id = ?2 AND state = ?3
@@ -5522,6 +5798,20 @@ type SetCIBreakResultParams struct {
 
 func (q *Queries) SetCIBreakResult(ctx context.Context, arg SetCIBreakResultParams) error {
 	_, err := q.db.ExecContext(ctx, setCIBreakResult, arg.Result, arg.ID)
+	return err
+}
+
+const setCIDiagnosisSession = `-- name: SetCIDiagnosisSession :exec
+UPDATE ci_diagnoses SET session = ?, reasons = '' WHERE id = ?
+`
+
+type SetCIDiagnosisSessionParams struct {
+	Session sql.NullInt64
+	ID      int64
+}
+
+func (q *Queries) SetCIDiagnosisSession(ctx context.Context, arg SetCIDiagnosisSessionParams) error {
+	_, err := q.db.ExecContext(ctx, setCIDiagnosisSession, arg.Session, arg.ID)
 	return err
 }
 

@@ -560,6 +560,7 @@ func TestARerunThatGitHubAnswersWithA5xxStatusIsTriedAgainAtTheNextPoll(t *testi
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	testkit.WaitFor(t, func() bool { return implementers(t, server) == 2 })
 	endedImplementers(t, server, 2)
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
 	waitForPolls(t, fake)
 
 	if state, attempt := taskState(t, server), fake.WorkflowRunAttempt(workflow); state != "checks" || attempt != 1 {

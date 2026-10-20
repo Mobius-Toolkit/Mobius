@@ -146,6 +146,10 @@ type Engine struct {
 	curatorsMu sync.Mutex
 	// curators holds each repository with a Curator that runs. The value tells that one more Curator waits.
 	curators map[string]bool
+	// diagnosersMu guards diagnosers.
+	diagnosersMu sync.Mutex
+	// diagnosers holds each repository with a Diagnoser worker that runs.
+	diagnosers map[string]bool
 
 	mu        sync.Mutex
 	listeners map[chan Change]bool
@@ -201,6 +205,7 @@ func New(db *sql.DB, gh *github.GitHub, cfg *config.Config, agents Agents) *Engi
 		loadWaits:       map[int64]chan struct{}{},
 		researchers:     map[int64]*Agent{},
 		curators:        map[string]bool{},
+		diagnosers:      map[string]bool{},
 		listeners:       map[chan Change]bool{},
 	}
 }

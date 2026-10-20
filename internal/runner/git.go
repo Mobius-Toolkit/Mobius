@@ -144,6 +144,11 @@ func CuratorDir(dataDir, repository string, id int64) string {
 	return filepath.Join(dataDir, "worktrees", repository, "curator-"+strconv.FormatInt(id, 10))
 }
 
+// DiagnoserDir gives the worktree of the Diagnoser session id of repository below dataDir.
+func DiagnoserDir(dataDir, repository string, id int64) string {
+	return filepath.Join(dataDir, "worktrees", repository, "diagnoser-"+strconv.FormatInt(id, 10))
+}
+
 // ReviewDir gives the worktree of the Reviewer session id of repository below dataDir.
 func ReviewDir(dataDir, repository string, id int64) string {
 	return filepath.Join(dataDir, "worktrees", repository, "review-"+strconv.FormatInt(id, 10))

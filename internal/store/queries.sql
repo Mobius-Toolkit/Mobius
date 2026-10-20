@@ -916,3 +916,48 @@ UPDATE pending_actions SET created_issue = ? WHERE id = ?;
 
 -- name: FailRunningPendingActions :exec
 UPDATE pending_actions SET running = 0, error = ? WHERE running = 1;
+
+-- name: AddCIDiagnosis :execrows
+INSERT INTO ci_diagnoses (repository, pull_request, ci_break, head, created_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (repository, pull_request, ci_break, head) DO NOTHING;
+
+-- name: GetPullRequestCIDiagnosis :one
+SELECT * FROM ci_diagnoses WHERE repository = ? AND pull_request = ? AND ci_break = 0 AND head = ?;
+
+-- name: GetCIDiagnosisBySession :one
+SELECT * FROM ci_diagnoses WHERE session = ?;
+
+-- name: NextCIDiagnosis :one
+SELECT * FROM ci_diagnoses WHERE repository = ? AND ended_at = '' ORDER BY id LIMIT 1;
+
+-- name: SetCIDiagnosisSession :exec
+UPDATE ci_diagnoses SET session = ?, reasons = '' WHERE id = ?;
+
+-- name: AddCIDiagnosisReason :exec
+UPDATE ci_diagnoses SET reasons = reasons || ? WHERE id = ?;
+
+-- name: EndCIDiagnosis :exec
+UPDATE ci_diagnoses SET ended_at = ? WHERE id = ?;
+
+-- name: ListOpenCIFailures :many
+SELECT ci_failures.id, ci_failures.reason, ci_failures.test, ci_failures.location, COUNT(ci_failure_places.id) AS places
+FROM ci_failures LEFT JOIN ci_failure_places ON ci_failure_places.failure = ci_failures.id
+WHERE ci_failures.repository = ? AND ci_failures.ended_at = ''
+GROUP BY ci_failures.id
+ORDER BY ci_failures.id;
+
+-- name: GetOpenCIFailure :one
+SELECT * FROM ci_failures WHERE id = ? AND repository = ? AND ended_at = '';
+
+-- name: FindOpenCIFailure :one
+SELECT * FROM ci_failures WHERE repository = ? AND ended_at = '' AND test = ? AND location = ? ORDER BY id LIMIT 1;
+
+-- name: AddCIFailure :one
+INSERT INTO ci_failures (repository, reason, test, location, created_at) VALUES (?, ?, ?, ?, ?)
+RETURNING id;
+
+-- name: AddCIFailurePlace :exec
+INSERT INTO ci_failure_places (failure, pull_request, ci_break, head, job_urls, lines, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (failure, pull_request, ci_break) DO NOTHING;

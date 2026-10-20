@@ -133,7 +133,7 @@ type AgentGroup struct {
 
 // ActiveAgents are the open sessions of all organizations.
 type ActiveAgents struct {
-	// Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator
+	// Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator, Diagnoser
 	Groups []AgentGroup `gork:"groups"`
 }
 

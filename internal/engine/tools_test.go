@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/config"
 	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
@@ -93,7 +94,9 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\nlist_tools = true\n")
+	server, _ := connectWith(t, fake, "[[prompts]]\nlist_tools = true\n", func(cfg *config.Config) {
+		cfg.Roles.Diagnoser = cfg.Roles.Curator
+	})
 	coordinator := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 	triager := engine.Spec{Role: engine.TriagerRole, Organization: "owner", Repository: shop, Dir: t.TempDir()}
 	reviewer := leadSpec(t)
@@ -106,6 +109,8 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 	judge.Role = engine.JudgeRole
 	curator := leadSpec(t)
 	curator.Role = engine.CuratorRole
+	diagnoser := leadSpec(t)
+	diagnoser.Role = engine.DiagnoserRole
 
 	for _, c := range []struct {
 		spec engine.Spec
@@ -118,6 +123,7 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		{researcher, []string{}},
 		{judge, []string{"submit_verdicts"}},
 		{curator, []string{"edit_memory"}},
+		{diagnoser, []string{"report_failure"}},
 	} {
 		session := run(t, server, c.spec, "List the tools")
 		if got := toolNames(t, reply(t, server, session)); !reflect.DeepEqual(got, c.want) {

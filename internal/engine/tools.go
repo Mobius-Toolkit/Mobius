@@ -289,6 +289,20 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"blocked_by": map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}, "description": "The issues that block this issue."},
 				},
 				e.createMaintenanceIssue))
+	case DiagnoserRole:
+		return []mcp.Tool{
+			tool(e, c, "report_failure",
+				"Report one failure that you found in the failed jobs. Call it one time for each different failure. Mobius gives the reason to the fix round of the pull request. When the pull request did not cause the failure, Mobius also saves it in a failure record and compares it with the same failure in other pull requests.",
+				map[string]any{
+					"reason":                 map[string]any{"type": "string", "minLength": 1, "description": "The cause of the failure."},
+					"test":                   map[string]any{"type": "string", "description": "The full name of the failed test. Empty for a failure with no test, for example a lint step or a build step."},
+					"location":               map[string]any{"type": "string", "description": "The file:line of the failure. Empty when the log does not show it."},
+					"lines":                  map[string]any{"type": "string", "minLength": 1, "description": "The log lines that show the failure. Mobius keeps the last 100 lines."},
+					"caused_by_pull_request": map[string]any{"type": "boolean", "description": "True when the change of the pull request caused the failure."},
+					"same_record":            map[string]any{"type": "integer", "minimum": 0, "description": "The id of the open failure record that has the same failure. 0 when no record has it."},
+				},
+				e.reportFailure),
+		}
 	case TriagerRole:
 		return []mcp.Tool{
 			e.createWorkstreamTool(c),

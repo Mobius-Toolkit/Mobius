@@ -136,6 +136,8 @@ type Agent struct {
 	replies []heldReply
 	// head is the head commit that the Reviewer reviews.
 	head string
+	// jobURLs are the links of the failed jobs of the Diagnoser, one for each line.
+	jobURLs string
 	// items are the items of the batch of the Judge.
 	items []judgeItem
 	// verdicts are the verdicts of the last valid submit_verdicts call of the Judge, or nil.

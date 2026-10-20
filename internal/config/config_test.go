@@ -22,6 +22,7 @@ researcher  = { harness = "antigravity", model = "gemini-3-pro" }
 reviewer    = { harness = "claude-code", model = "opus",    effort = "high" }
 judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
 curator     = { harness = "claude-code", model = "sonnet",  effort = "medium" }
+diagnoser   = { harness = "claude-code", model = "sonnet",  effort = "low" }
 `
 
 func parse(t *testing.T, text string) *Config {
@@ -167,6 +168,33 @@ func TestParseReadsTheCuratorRole(t *testing.T) {
 	}
 }
 
+func TestParseReadsTheDiagnoserRole(t *testing.T) {
+	config := parse(t, strings.Replace(valid,
+		`diagnoser   = { harness = "claude-code", model = "sonnet",  effort = "low" }`,
+		`diagnoser   = { harness = "devin", model = "swe-1.5", effort = "high", max = 1 }`, 1))
+
+	want := RoleBinding{Harness: Devin, Model: "swe-1.5", Effort: "high", Max: 1}
+	if config.Roles.Diagnoser != want {
+		t.Errorf("roles.diagnoser = %+v, want %+v", config.Roles.Diagnoser, want)
+	}
+}
+
+func TestParseRefusesAConfigWithoutAFullDiagnoser(t *testing.T) {
+	checks := []struct{ text, want string }{
+		{strings.Replace(valid, "diagnoser ", "#diagnoser ", 1),
+			"roles.diagnoser.harness: must be claude-code, antigravity or devin"},
+		{strings.Replace(valid, `harness = "claude-code", model = "sonnet",  effort = "low"`, `model = "sonnet", effort = "low"`, 1),
+			"roles.diagnoser.harness: must be claude-code, antigravity or devin"},
+		{strings.Replace(valid, `model = "sonnet",  effort = "low"`, `effort = "low"`, 1),
+			"roles.diagnoser.model: must not be empty"},
+	}
+	for _, c := range checks {
+		if got := parseError(t, c.text); got != c.want {
+			t.Errorf("error = %q, want %q", got, c.want)
+		}
+	}
+}
+
 func TestParseRefusesAWrongValue(t *testing.T) {
 	got := parseError(t, "max_checks = \"one\"\n"+valid)
 	if !strings.HasPrefix(got, "line 1: toml: cannot decode TOML string into struct field") {
@@ -180,7 +208,7 @@ func TestParseRefusesAWrongValue(t *testing.T) {
 
 func TestParseRefusesASyntaxError(t *testing.T) {
 	got := parseError(t, valid+"\n[roles")
-	if want := "line 15: toml: expected ']' to close table name"; got != want {
+	if want := "line 16: toml: expected ']' to close table name"; got != want {
 		t.Errorf("error = %q, want %q", got, want)
 	}
 }
