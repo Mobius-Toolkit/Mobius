@@ -146,3 +146,34 @@ func TestALaterSessionInTheSameWorktreeGetsAFreshCopyOfTheSkills(t *testing.T) {
 		t.Errorf("uncommitted changes = %v, %v", found, err)
 	}
 }
+
+func TestALaterSessionKeepsASkillThatTheBranchTracksNow(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "probe/SKILL.md", "Probe the price in cents.", "Add probe")
+	implementer := "[[prompts]]\nwhen = \"Inspect the skills\"\nshell = \"cat .agents/skills/probe/SKILL.md\"\n\n" +
+		"[[prompts]]\nshell = \"echo cents > plan.txt && git add -A && git commit -q -m 'Add plan model'\"\n"
+	server, dataDir := connectTask(t, fake, leadStarts, implementer, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	endedImplementers(t, server, 1)
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
+	if err := os.WriteFile(filepath.Join(worktree, ".agents", "skills", "probe", "SKILL.md"), []byte("Probe the branch."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testkit.Git(t, worktree, "add", "-f", ".agents/skills/probe/SKILL.md")
+	testkit.Git(t, worktree, "commit", "-q", "-m", "Add the skill of the branch")
+	spec := engine.Spec{Role: engine.ImplementerRole, Organization: "owner", Repository: shop, Workstream: 12, Dir: worktree}
+
+	text := reply(t, server, run(t, server, spec, "Inspect the skills"))
+
+	if !strings.Contains(text, "Probe the branch.") || strings.Contains(text, "Probe the price in cents.") {
+		t.Errorf("reply = %q", text)
+	}
+	if got := testkit.Git(t, worktree, "show", "HEAD:.agents/skills/probe/SKILL.md"); got != "Probe the branch." {
+		t.Errorf("skill of the branch = %q", got)
+	}
+	if found, err := runner.HasUncommittedChanges(context.Background(), dataDir, worktree); err != nil || found {
+		t.Errorf("uncommitted changes = %v, %v", found, err)
+	}
+}

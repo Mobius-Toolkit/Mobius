@@ -202,6 +202,12 @@ func Excluded(ctx context.Context, dataDir, worktree string) ([]string, error) {
 	return patterns, nil
 }
 
+// Tracked tells if the worktree tracks a file in folder.
+func Tracked(ctx context.Context, dataDir, worktree, folder string) (bool, error) {
+	files, err := run(git(ctx, dataDir, worktree, "", "ls-files", "--", folder))
+	return files != "", err
+}
+
 func excludeFile(ctx context.Context, dataDir, worktree string) (string, error) {
 	gitDir, err := run(git(ctx, dataDir, worktree, "", "rev-parse", "--absolute-git-dir"))
 	if err != nil {

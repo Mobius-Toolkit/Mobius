@@ -26,7 +26,15 @@ func (a *Agent) copySkills(ctx context.Context) error {
 			return err
 		}
 		for _, pattern := range earlier {
-			if err := os.RemoveAll(filepath.Join(a.spec.Dir, strings.Trim(pattern, "/"))); err != nil {
+			earlierFolder := strings.Trim(pattern, "/")
+			tracked, err := runner.Tracked(ctx, e.config.DataDir, a.spec.Dir, earlierFolder)
+			if err != nil {
+				return err
+			}
+			if tracked {
+				continue
+			}
+			if err := os.RemoveAll(filepath.Join(a.spec.Dir, earlierFolder)); err != nil {
 				return err
 			}
 		}
