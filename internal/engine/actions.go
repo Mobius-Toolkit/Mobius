@@ -16,6 +16,11 @@ import (
 // approvedRun marks the context of the run of an action that the Owner approved.
 type approvedRun struct{}
 
+const (
+	interruptedActionError = "Mobius stopped while the action ran. The action can have run. Check the result before you approve again"
+	unsavedActionError     = "The action ran, but Mobius could not save the result. Check the result before you approve again"
+)
+
 // ErrNoAction is the error of a pending action that does not exist.
 var ErrNoAction = errors.New("there is no such action")
 
@@ -248,7 +253,7 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 			return store.PendingAction{}, failErr
 		}
 		e.publish(Change{Action: &action})
-		text := fmt.Sprintf("The Owner approved `%s`, and it failed: %s. The action still waits for the approval of the Owner.", action.Tool, action.Error)
+		text := fmt.Sprintf("The Owner approved `%s`, and it failed: %s. The action still waits for the approval of the Owner.", action.Tool, strings.TrimSuffix(action.Error, "."))
 		return action, e.postChat(ctx, actionChat(action), approvalAuthor, "", text, nil)
 	}
 	action, err = e.queries.FinishPendingAction(ctx, store.FinishPendingActionParams{
@@ -258,7 +263,8 @@ func (e *Engine) ApproveAction(ctx context.Context, id int64, message string) (s
 		ID:        id,
 	})
 	if err != nil {
-		return store.PendingAction{}, err
+		_, failErr := e.queries.FailPendingAction(ctx, store.FailPendingActionParams{Error: unsavedActionError, ID: id})
+		return store.PendingAction{}, errors.Join(err, failErr)
 	}
 	e.publish(Change{Action: &action})
 	text := fmt.Sprintf("The Owner approved `%s`. The result: %s", action.Tool, action.Result)

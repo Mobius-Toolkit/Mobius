@@ -324,7 +324,7 @@ func (e *Engine) Recover(ctx context.Context) error {
 	if e.earlierMessage, err = e.queries.MaxChatMessageID(ctx); err != nil {
 		return err
 	}
-	if err := e.queries.ReleasePendingActions(ctx); err != nil {
+	if err := e.queries.FailRunningPendingActions(ctx, interruptedActionError); err != nil {
 		return err
 	}
 	pauses, err := e.queries.ListHarnessPauses(ctx)

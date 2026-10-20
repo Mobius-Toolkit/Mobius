@@ -274,7 +274,7 @@ func TestAnApprovalThatFailsLeavesTheActionPendingAndASecondApprovalSendsTheMess
 		t.Errorf("items = %+v", items)
 	}
 	testkit.WaitFor(t, func() bool { return len(approvalPrompts(t, server)) == 1 })
-	want := "# Approval message\n\nThe Owner approved `message_lead`, and it failed: #20 is not an open Workstream.. The action still waits for the approval of the Owner."
+	want := "# Approval message\n\nThe Owner approved `message_lead`, and it failed: #20 is not an open Workstream. The action still waits for the approval of the Owner."
 	if got := approvalPrompts(t, server); !slices.Equal(got, []string{want}) {
 		t.Errorf("approval prompts = %q", got)
 	}

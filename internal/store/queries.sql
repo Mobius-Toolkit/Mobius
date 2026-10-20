@@ -905,5 +905,5 @@ UPDATE pending_actions SET state = 'rejected', message = ?, decided_at = ?
 WHERE id = ? AND state = 'pending' AND running = 0
 RETURNING *;
 
--- name: ReleasePendingActions :exec
-UPDATE pending_actions SET running = 0 WHERE running = 1;
+-- name: FailRunningPendingActions :exec
+UPDATE pending_actions SET running = 0, error = ? WHERE running = 1;

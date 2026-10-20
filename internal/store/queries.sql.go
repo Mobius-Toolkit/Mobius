@@ -1487,6 +1487,15 @@ func (q *Queries) FailPendingAction(ctx context.Context, arg FailPendingActionPa
 	return i, err
 }
 
+const failRunningPendingActions = `-- name: FailRunningPendingActions :exec
+UPDATE pending_actions SET running = 0, error = ? WHERE running = 1
+`
+
+func (q *Queries) FailRunningPendingActions(ctx context.Context, error string) error {
+	_, err := q.db.ExecContext(ctx, failRunningPendingActions, error)
+	return err
+}
+
 const findDeviceLogin = `-- name: FindDeviceLogin :one
 SELECT id FROM device_logins WHERE token_hash = ?
 `
@@ -5333,15 +5342,6 @@ func (q *Queries) RejectPendingAction(ctx context.Context, arg RejectPendingActi
 		&i.InboxItem,
 	)
 	return i, err
-}
-
-const releasePendingActions = `-- name: ReleasePendingActions :exec
-UPDATE pending_actions SET running = 0 WHERE running = 1
-`
-
-func (q *Queries) ReleasePendingActions(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, releasePendingActions)
-	return err
 }
 
 const reopenInboxItem = `-- name: ReopenInboxItem :one
