@@ -73,6 +73,7 @@ func TestATaskThatLeavesApprovalGetsNoReminder(t *testing.T) {
 	waitForReadyEvents(t, server, 1)
 	sendChat(t, server, leadChat, "Approve #41")
 	waitForChat(t, server, leadChat, "Lead", "Approved pull request #42 of #41. The Owner got it for review.")
+	waitForPolls(t, fake)
 	server.Engine.SetClock(func() time.Time { return time.Now().Add(3 * time.Hour) })
 
 	waitForPolls(t, fake)
