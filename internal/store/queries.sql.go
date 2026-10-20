@@ -510,6 +510,57 @@ func (q *Queries) AddOwnerAnswer(ctx context.Context, arg AddOwnerAnswerParams) 
 	return err
 }
 
+const addPendingAction = `-- name: AddPendingAction :one
+INSERT INTO pending_actions (organization, repository, workstream, issue, role, tool, arguments, state, time)
+VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item
+`
+
+type AddPendingActionParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+	Issue        int64
+	Role         string
+	Tool         string
+	Arguments    string
+	Time         string
+}
+
+func (q *Queries) AddPendingAction(ctx context.Context, arg AddPendingActionParams) (PendingAction, error) {
+	row := q.db.QueryRowContext(ctx, addPendingAction,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.Issue,
+		arg.Role,
+		arg.Tool,
+		arg.Arguments,
+		arg.Time,
+	)
+	var i PendingAction
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Role,
+		&i.Tool,
+		&i.Arguments,
+		&i.State,
+		&i.Running,
+		&i.Error,
+		&i.Result,
+		&i.Message,
+		&i.Time,
+		&i.DecidedAt,
+		&i.ChatMessage,
+		&i.InboxItem,
+	)
+	return i, err
+}
+
 const addReviewRound = `-- name: AddReviewRound :exec
 UPDATE tasks SET review_rounds = review_rounds + 1 WHERE id = ?
 `
@@ -851,6 +902,36 @@ func (q *Queries) AppendChatMessage(ctx context.Context, arg AppendChatMessagePa
 	return i, err
 }
 
+const claimPendingAction = `-- name: ClaimPendingAction :one
+UPDATE pending_actions SET running = 1 WHERE id = ? AND state = 'pending' AND running = 0
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item
+`
+
+func (q *Queries) ClaimPendingAction(ctx context.Context, id int64) (PendingAction, error) {
+	row := q.db.QueryRowContext(ctx, claimPendingAction, id)
+	var i PendingAction
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Role,
+		&i.Tool,
+		&i.Arguments,
+		&i.State,
+		&i.Running,
+		&i.Error,
+		&i.Result,
+		&i.Message,
+		&i.Time,
+		&i.DecidedAt,
+		&i.ChatMessage,
+		&i.InboxItem,
+	)
+	return i, err
+}
+
 const clearQueueReason = `-- name: ClearQueueReason :one
 UPDATE sessions SET queue_reason = NULL WHERE id = ?
 RETURNING id, role, harness, model, repository, workstream, acp_session_id, started_at, ended_at, end_reason, queue_reason, organization, issue, parent, effort
@@ -922,7 +1003,7 @@ func (q *Queries) CountSessionsEndedSinceCurator(ctx context.Context, repository
 const countUnread = `-- name: CountUnread :one
 SELECT count(*) FROM chat_messages m
 WHERE m.organization = ?1 AND m.repository = ?2 AND m.workstream = ?3
-  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Event')
+  AND m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event')
   AND m.id > coalesce((SELECT s.message FROM chat_seen s
                        WHERE s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream), 0)
 `
@@ -1371,6 +1452,41 @@ func (q *Queries) EndTriagerTurn(ctx context.Context, arg EndTriagerTurnParams) 
 	return err
 }
 
+const failPendingAction = `-- name: FailPendingAction :one
+UPDATE pending_actions SET running = 0, error = ? WHERE id = ?
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item
+`
+
+type FailPendingActionParams struct {
+	Error string
+	ID    int64
+}
+
+func (q *Queries) FailPendingAction(ctx context.Context, arg FailPendingActionParams) (PendingAction, error) {
+	row := q.db.QueryRowContext(ctx, failPendingAction, arg.Error, arg.ID)
+	var i PendingAction
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Role,
+		&i.Tool,
+		&i.Arguments,
+		&i.State,
+		&i.Running,
+		&i.Error,
+		&i.Result,
+		&i.Message,
+		&i.Time,
+		&i.DecidedAt,
+		&i.ChatMessage,
+		&i.InboxItem,
+	)
+	return i, err
+}
+
 const findDeviceLogin = `-- name: FindDeviceLogin :one
 SELECT id FROM device_logins WHERE token_hash = ?
 `
@@ -1380,6 +1496,49 @@ func (q *Queries) FindDeviceLogin(ctx context.Context, tokenHash []byte) (int64,
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const finishPendingAction = `-- name: FinishPendingAction :one
+UPDATE pending_actions SET state = 'done', running = 0, error = '', result = ?, message = ?, decided_at = ?
+WHERE id = ?
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item
+`
+
+type FinishPendingActionParams struct {
+	Result    string
+	Message   string
+	DecidedAt sql.NullString
+	ID        int64
+}
+
+func (q *Queries) FinishPendingAction(ctx context.Context, arg FinishPendingActionParams) (PendingAction, error) {
+	row := q.db.QueryRowContext(ctx, finishPendingAction,
+		arg.Result,
+		arg.Message,
+		arg.DecidedAt,
+		arg.ID,
+	)
+	var i PendingAction
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Role,
+		&i.Tool,
+		&i.Arguments,
+		&i.State,
+		&i.Running,
+		&i.Error,
+		&i.Result,
+		&i.Message,
+		&i.Time,
+		&i.DecidedAt,
+		&i.ChatMessage,
+		&i.InboxItem,
+	)
+	return i, err
 }
 
 const freeLeadEvents = `-- name: FreeLeadEvents :many
@@ -1951,6 +2110,93 @@ func (q *Queries) GetOpenCheckTimeout(ctx context.Context, repository string) (C
 	return i, err
 }
 
+const getPendingAction = `-- name: GetPendingAction :one
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item FROM pending_actions WHERE id = ?
+`
+
+func (q *Queries) GetPendingAction(ctx context.Context, id int64) (PendingAction, error) {
+	row := q.db.QueryRowContext(ctx, getPendingAction, id)
+	var i PendingAction
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Role,
+		&i.Tool,
+		&i.Arguments,
+		&i.State,
+		&i.Running,
+		&i.Error,
+		&i.Result,
+		&i.Message,
+		&i.Time,
+		&i.DecidedAt,
+		&i.ChatMessage,
+		&i.InboxItem,
+	)
+	return i, err
+}
+
+const getPendingActionByChatMessage = `-- name: GetPendingActionByChatMessage :one
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item FROM pending_actions WHERE chat_message = ?
+`
+
+func (q *Queries) GetPendingActionByChatMessage(ctx context.Context, chatMessage sql.NullInt64) (PendingAction, error) {
+	row := q.db.QueryRowContext(ctx, getPendingActionByChatMessage, chatMessage)
+	var i PendingAction
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Role,
+		&i.Tool,
+		&i.Arguments,
+		&i.State,
+		&i.Running,
+		&i.Error,
+		&i.Result,
+		&i.Message,
+		&i.Time,
+		&i.DecidedAt,
+		&i.ChatMessage,
+		&i.InboxItem,
+	)
+	return i, err
+}
+
+const getPendingActionByInboxItem = `-- name: GetPendingActionByInboxItem :one
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item FROM pending_actions WHERE inbox_item = ?
+`
+
+func (q *Queries) GetPendingActionByInboxItem(ctx context.Context, inboxItem sql.NullInt64) (PendingAction, error) {
+	row := q.db.QueryRowContext(ctx, getPendingActionByInboxItem, inboxItem)
+	var i PendingAction
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Role,
+		&i.Tool,
+		&i.Arguments,
+		&i.State,
+		&i.Running,
+		&i.Error,
+		&i.Result,
+		&i.Message,
+		&i.Time,
+		&i.DecidedAt,
+		&i.ChatMessage,
+		&i.InboxItem,
+	)
+	return i, err
+}
+
 const getReviewComment = `-- name: GetReviewComment :one
 SELECT review_comment FROM tasks WHERE id = ?
 `
@@ -2164,6 +2410,42 @@ func (q *Queries) KeepLeadFindings(ctx context.Context, arg KeepLeadFindingsPara
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const linkPendingAction = `-- name: LinkPendingAction :one
+UPDATE pending_actions SET chat_message = ?, inbox_item = ? WHERE id = ?
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item
+`
+
+type LinkPendingActionParams struct {
+	ChatMessage sql.NullInt64
+	InboxItem   sql.NullInt64
+	ID          int64
+}
+
+func (q *Queries) LinkPendingAction(ctx context.Context, arg LinkPendingActionParams) (PendingAction, error) {
+	row := q.db.QueryRowContext(ctx, linkPendingAction, arg.ChatMessage, arg.InboxItem, arg.ID)
+	var i PendingAction
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Role,
+		&i.Tool,
+		&i.Arguments,
+		&i.State,
+		&i.Running,
+		&i.Error,
+		&i.Result,
+		&i.Message,
+		&i.Time,
+		&i.DecidedAt,
+		&i.ChatMessage,
+		&i.InboxItem,
+	)
+	return i, err
 }
 
 const listActiveTasks = `-- name: ListActiveTasks :many
@@ -2411,7 +2693,7 @@ func (q *Queries) ListChatMessagesBefore(ctx context.Context, arg ListChatMessag
 
 const listChatMessagesPage = `-- name: ListChatMessagesPage :many
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
-WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator') AND id < ?
+WHERE organization = ? AND repository = ? AND workstream = ? AND author NOT IN ('Researcher', 'Curator', 'Approval') AND id < ?
 ORDER BY id DESC LIMIT ?
 `
 
@@ -2423,7 +2705,7 @@ type ListChatMessagesPageParams struct {
 	Limit        int64
 }
 
-// The chat shows no Researcher message and no Curator message.
+// The chat shows no Researcher message, no Curator message and no Approval message.
 func (q *Queries) ListChatMessagesPage(ctx context.Context, arg ListChatMessagesPageParams) ([]ChatMessage, error) {
 	rows, err := q.db.QueryContext(ctx, listChatMessagesPage,
 		arg.Organization,
@@ -4094,6 +4376,72 @@ func (q *Queries) ListRecentMemoryVersions(ctx context.Context, repository strin
 	return items, nil
 }
 
+const listReplaceablePendingActions = `-- name: ListReplaceablePendingActions :many
+SELECT id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item FROM pending_actions
+WHERE organization = ? AND repository = ? AND workstream = ? AND issue = ? AND role = ? AND tool = ?
+  AND state = 'pending' AND running = 0 AND id <> ?
+ORDER BY id
+`
+
+type ListReplaceablePendingActionsParams struct {
+	Organization string
+	Repository   string
+	Workstream   int64
+	Issue        int64
+	Role         string
+	Tool         string
+	ID           int64
+}
+
+func (q *Queries) ListReplaceablePendingActions(ctx context.Context, arg ListReplaceablePendingActionsParams) ([]PendingAction, error) {
+	rows, err := q.db.QueryContext(ctx, listReplaceablePendingActions,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+		arg.Issue,
+		arg.Role,
+		arg.Tool,
+		arg.ID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PendingAction
+	for rows.Next() {
+		var i PendingAction
+		if err := rows.Scan(
+			&i.ID,
+			&i.Organization,
+			&i.Repository,
+			&i.Workstream,
+			&i.Issue,
+			&i.Role,
+			&i.Tool,
+			&i.Arguments,
+			&i.State,
+			&i.Running,
+			&i.Error,
+			&i.Result,
+			&i.Message,
+			&i.Time,
+			&i.DecidedAt,
+			&i.ChatMessage,
+			&i.InboxItem,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReportedModelsBetween = `-- name: ListReportedModelsBetween :many
 SELECT session, reported_model FROM turn_usage
 WHERE id IN (
@@ -4711,7 +5059,8 @@ func (q *Queries) ListUndeliveredLeadEvents(ctx context.Context, arg ListUndeliv
 
 const listUndeliveredOwnerMessages = `-- name: ListUndeliveredOwnerMessages :many
 SELECT id, repository, workstream, author, time, text, organization, browser_id, delivered_at, stopped_at FROM chat_messages
-WHERE organization = ? AND repository = ? AND id <= ? AND author = 'Owner' AND browser_id IS NOT NULL
+WHERE organization = ? AND repository = ? AND id <= ?
+  AND (author = 'Owner' AND browser_id IS NOT NULL OR author = 'Approval')
   AND delivered_at IS NULL AND stopped_at IS NULL
 ORDER BY id
 `
@@ -4760,7 +5109,7 @@ const listUnread = `-- name: ListUnread :many
 SELECT m.organization, m.repository, m.workstream, count(*) AS count
 FROM chat_messages m
 LEFT JOIN chat_seen s ON s.organization = m.organization AND s.repository = m.repository AND s.workstream = m.workstream
-WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Event') AND m.id > coalesce(s.message, 0)
+WHERE m.author NOT IN ('Owner', 'Researcher', 'Curator', 'Approval', 'Event') AND m.id > coalesce(s.message, 0)
 GROUP BY m.organization, m.repository, m.workstream
 ORDER BY m.organization, m.repository, m.workstream
 `
@@ -4772,7 +5121,7 @@ type ListUnreadRow struct {
 	Count        int64
 }
 
-// The messages of the Owner, of a Researcher, of a Curator and of an event are never unread.
+// The messages of the Owner, of a Researcher, of a Curator, of an approval and of an event are never unread.
 func (q *Queries) ListUnread(ctx context.Context) ([]ListUnreadRow, error) {
 	rows, err := q.db.QueryContext(ctx, listUnread)
 	if err != nil {
@@ -4949,6 +5298,52 @@ func (q *Queries) RecoverTask(ctx context.Context, arg RecoverTaskParams) (int64
 	return result.RowsAffected()
 }
 
+const rejectPendingAction = `-- name: RejectPendingAction :one
+UPDATE pending_actions SET state = 'rejected', message = ?, decided_at = ?
+WHERE id = ? AND state = 'pending' AND running = 0
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item
+`
+
+type RejectPendingActionParams struct {
+	Message   string
+	DecidedAt sql.NullString
+	ID        int64
+}
+
+func (q *Queries) RejectPendingAction(ctx context.Context, arg RejectPendingActionParams) (PendingAction, error) {
+	row := q.db.QueryRowContext(ctx, rejectPendingAction, arg.Message, arg.DecidedAt, arg.ID)
+	var i PendingAction
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Role,
+		&i.Tool,
+		&i.Arguments,
+		&i.State,
+		&i.Running,
+		&i.Error,
+		&i.Result,
+		&i.Message,
+		&i.Time,
+		&i.DecidedAt,
+		&i.ChatMessage,
+		&i.InboxItem,
+	)
+	return i, err
+}
+
+const releasePendingActions = `-- name: ReleasePendingActions :exec
+UPDATE pending_actions SET running = 0 WHERE running = 1
+`
+
+func (q *Queries) ReleasePendingActions(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, releasePendingActions)
+	return err
+}
+
 const reopenInboxItem = `-- name: ReopenInboxItem :one
 UPDATE inbox_items SET dismissed_at = NULL WHERE id = ?
 RETURNING id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal
@@ -4975,6 +5370,42 @@ func (q *Queries) ReopenInboxItem(ctx context.Context, id int64) (InboxItem, err
 		&i.ChatMessage,
 		&i.Merging,
 		&i.MergeRefusal,
+	)
+	return i, err
+}
+
+const replacePendingAction = `-- name: ReplacePendingAction :one
+UPDATE pending_actions SET state = 'replaced', decided_at = ?
+WHERE id = ? AND state = 'pending' AND running = 0
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item
+`
+
+type ReplacePendingActionParams struct {
+	DecidedAt sql.NullString
+	ID        int64
+}
+
+func (q *Queries) ReplacePendingAction(ctx context.Context, arg ReplacePendingActionParams) (PendingAction, error) {
+	row := q.db.QueryRowContext(ctx, replacePendingAction, arg.DecidedAt, arg.ID)
+	var i PendingAction
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Role,
+		&i.Tool,
+		&i.Arguments,
+		&i.State,
+		&i.Running,
+		&i.Error,
+		&i.Result,
+		&i.Message,
+		&i.Time,
+		&i.DecidedAt,
+		&i.ChatMessage,
+		&i.InboxItem,
 	)
 	return i, err
 }

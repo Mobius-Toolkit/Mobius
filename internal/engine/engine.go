@@ -308,8 +308,8 @@ func (e *Engine) stopWorkers() {
 	e.running.Wait()
 }
 
-// Recover ends the sessions of the earlier run of the server, notes its last chat message, and starts the timer of
-// each pause.
+// Recover ends the sessions of the earlier run of the server, notes its last chat message, frees the pending actions
+// that the earlier run started, and starts the timer of each pause.
 // The sessions of the earlier run have no Harness process. Call Recover before Run and before the first session.
 func (e *Engine) Recover(ctx context.Context) error {
 	ids, err := e.queries.ListOpenSessionIDs(ctx)
@@ -322,6 +322,9 @@ func (e *Engine) Recover(ctx context.Context) error {
 		}
 	}
 	if e.earlierMessage, err = e.queries.MaxChatMessageID(ctx); err != nil {
+		return err
+	}
+	if err := e.queries.ReleasePendingActions(ctx); err != nil {
 		return err
 	}
 	pauses, err := e.queries.ListHarnessPauses(ctx)

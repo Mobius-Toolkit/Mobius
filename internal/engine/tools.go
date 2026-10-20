@@ -328,11 +328,14 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 				coordinatorWorkstreamProperties,
 				e.createWorkstream),
 			moveIssueTool(e, c),
-			tool(e, c, "message_lead",
-				"Send a message to the Lead of an open Workstream. Call it only after the Owner selects the Workstream and approves the exact message.",
+			approvedTool(e, c, "message_lead",
+				"Send a message to the Lead of an open Workstream. Call it at once with the exact message. The tool returns at once, and Mobius sends the message only after the Owner approves it. The result arrives later as an Approval message.",
 				map[string]any{
 					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue that the Owner selects."},
 					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
+				},
+				func(input messageLeadInput) string {
+					return fmt.Sprintf("Message to the Lead of #%d", input.Workstream)
 				},
 				e.messageLead),
 			tool(e, c, "start_researcher",
@@ -412,13 +415,21 @@ func call[In any](ctx context.Context, c caller, resolve func(caller) (github.Re
 	if err != nil {
 		return "", err
 	}
+	input, err := decode[In](name, arguments)
+	if err != nil {
+		return "", err
+	}
+	return run(ctx, c, repository, input)
+}
+
+func decode[In any](name string, arguments json.RawMessage) (In, error) {
 	var input In
 	decoder := json.NewDecoder(bytes.NewReader(arguments))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
-		return "", refuse("Invalid arguments for %s: %v.", name, err)
+		return input, refuse("Invalid arguments for %s: %v.", name, err)
 	}
-	return run(ctx, c, repository, input)
+	return input, nil
 }
 
 func (e *Engine) recordCall(ctx context.Context, session int64, name string, arguments json.RawMessage, text string, err error) error {

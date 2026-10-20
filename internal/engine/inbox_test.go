@@ -20,21 +20,22 @@ import (
 )
 
 type inboxItem struct {
-	ID             int64   `json:"id"`
-	Kind           string  `json:"kind"`
-	Repository     string  `json:"repository"`
-	Workstream     int64   `json:"workstream"`
-	Issue          int64   `json:"issue"`
-	Title          string  `json:"title"`
-	Reason         string  `json:"reason"`
-	Text           string  `json:"text"`
-	Link           string  `json:"link"`
-	PullRequest    int64   `json:"pullRequest"`
-	PullRequestURL string  `json:"pullRequestUrl"`
-	ReportURL      string  `json:"reportUrl"`
-	DismissedAt    *string `json:"dismissedAt"`
-	Merging        bool    `json:"merging"`
-	MergeRefusal   string  `json:"mergeRefusal"`
+	ID             int64       `json:"id"`
+	Kind           string      `json:"kind"`
+	Repository     string      `json:"repository"`
+	Workstream     int64       `json:"workstream"`
+	Issue          int64       `json:"issue"`
+	Title          string      `json:"title"`
+	Reason         string      `json:"reason"`
+	Text           string      `json:"text"`
+	Link           string      `json:"link"`
+	PullRequest    int64       `json:"pullRequest"`
+	PullRequestURL string      `json:"pullRequestUrl"`
+	ReportURL      string      `json:"reportUrl"`
+	DismissedAt    *string     `json:"dismissedAt"`
+	Merging        bool        `json:"merging"`
+	MergeRefusal   string      `json:"mergeRefusal"`
+	Action         *actionJSON `json:"action"`
 }
 
 // inbox gives the Inbox through the API.
