@@ -99,8 +99,8 @@ func ciItems(ctx context.Context, repository github.Repository, head string) (st
 
 // onFailure starts a fix round when check runs of other Apps failed on the head of the pull request of the task in
 // ready_for_review, checks or approval, and each check run and workflow run of the head completed. A head gets one
-// round. It decides from state, the CI of the head that the caller read. With a Diagnoser, the round waits until the
-// Diagnoser of the head ends, and gets its diagnosis. It gives true when a round started, or when the task left its state.
+// round. It decides from state, the CI of the head that the caller read. The round waits until the Diagnoser of the head
+// ends, and gets its diagnosis. It gives true when a round started, or when the task left its state.
 func (e *Engine) onFailure(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest, state ci) (bool, error) {
 	head := pullRequest.GetHead().GetSHA()
 	if task.CheckHead.String == head || state.running || !state.failedCheck && !state.failedWorkflow {
@@ -110,13 +110,9 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	if err != nil || len(runs) == 0 {
 		return false, err
 	}
-	diagnosis := ""
-	if e.config.Roles.HasDiagnoser() {
-		var waits bool
-		diagnosis, waits, err = e.pullRequestDiagnosis(ctx, repository, int64(pullRequest.GetNumber()), head)
-		if err != nil || waits {
-			return false, err
-		}
+	diagnosis, waits, err := e.pullRequestDiagnosis(ctx, repository, int64(pullRequest.GetNumber()), head)
+	if err != nil || waits {
+		return false, err
 	}
 	items, err := ciItems(ctx, repository, head)
 	if err != nil {

@@ -246,22 +246,3 @@ func TestReportFailureRefusesARecordThatIsNotOpenInTheRepository(t *testing.T) {
 		t.Errorf("records = %d", n)
 	}
 }
-
-func TestAFailedHeadGetsItsFixRoundWithNoDiagnoserSection(t *testing.T) {
-	t.Parallel()
-	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTask(t, fake, leadStarts, fixes, noChange)
-	sha := approvalHead(t, server, fake)
-
-	round := sentinelRound(t, server, fake, sha)
-
-	if strings.Contains(round, "Diagnosis of the failed jobs") {
-		t.Errorf("round = %s", round)
-	}
-	if sessions := diagnoserSessions(t, server); len(sessions) != 0 {
-		t.Errorf("Diagnosers = %d", len(sessions))
-	}
-	if n := rowCount(t, server, "SELECT count(*) FROM ci_diagnoses"); n != 0 {
-		t.Errorf("diagnoses = %d", n)
-	}
-}

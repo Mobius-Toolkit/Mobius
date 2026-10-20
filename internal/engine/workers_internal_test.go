@@ -24,6 +24,7 @@ researcher  = { harness = "antigravity", model = "gemini-3-pro" }
 reviewer    = { harness = "claude-code", model = "opus",    effort = "high" }
 judge       = { harness = "claude-code", model = "haiku",   effort = "low" }
 curator     = { harness = "claude-code", model = "sonnet",  effort = "medium" }
+diagnoser   = { harness = "claude-code", model = "sonnet",  effort = "low" }
 `))
 	if err != nil {
 		t.Fatal(err)

@@ -94,7 +94,7 @@ func runInit(t *testing.T, answers, configPath, path string) (string, error) {
 	return out.String(), err
 }
 
-// Lead, Coordinator, Triager, Implementer, Researcher, a refused Reviewer, the Reviewer, the Judge, and the Curator: each has a Harness, a model, and an effort.
+// Lead, Coordinator, Triager, Implementer, Researcher, a refused Reviewer, the Reviewer, the Judge, the Curator, and the Diagnoser: each has a Harness, a model, and an effort.
 const answers = `short
 short
 correct horse
@@ -124,6 +124,9 @@ owner teammate
 1
 1
 1
+
+
+
 
 
 
@@ -167,6 +170,7 @@ researcher = {harness = 'claude-code', model = 'sonnet', effort = 'low'}
 reviewer = {harness = 'claude-code', model = 'opus', effort = 'high'}
 judge = {harness = 'claude-code', model = 'sonnet', effort = 'low'}
 curator = {harness = 'claude-code', model = 'sonnet', effort = 'low'}
+diagnoser = {harness = 'claude-code', model = 'sonnet', effort = 'low'}
 `
 	if string(text) != want {
 		t.Errorf("config file:\n%s\nwant:\n%s", text, want)
@@ -193,7 +197,7 @@ func TestRunLogsInToAntigravityAndOffersIt(t *testing.T) {
 	})
 	configPath := filepath.Join(t.TempDir(), "config.toml")
 	// The Researcher uses Antigravity, and the Implementer uses Devin. The other Roles take the defaults.
-	answers := "correct horse\ncorrect horse\nowner\n\n\n\n\n\n\n\n\n\n3\n\n\n2\n\n\n\n\n\n\n\n\n\n\n"
+	answers := "correct horse\ncorrect horse\nowner\n\n\n\n\n\n\n\n\n\n3\n\n\n2\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
 
 	out, err := runInit(t, answers, configPath, path)
 	if err != nil {
@@ -220,7 +224,7 @@ func TestRunLogsInToAntigravityAndOffersIt(t *testing.T) {
 func TestRunSkipsAHarnessThatIsNotOnPath(t *testing.T) {
 	path := installFakeHarnesses(t, map[config.Harness]harnessScript{config.ClaudeCode: claude})
 	configPath := filepath.Join(t.TempDir(), "config.toml")
-	answers := "correct horse\ncorrect horse\nowner\n" + strings.Repeat("\n\n\n", 5) + "\n2\n\n\n\n\n\n\n\n"
+	answers := "correct horse\ncorrect horse\nowner\n" + strings.Repeat("\n\n\n", 5) + "\n2\n\n\n\n\n\n\n\n\n\n\n"
 
 	out, err := runInit(t, answers, configPath, path)
 	if err != nil {

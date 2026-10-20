@@ -149,7 +149,7 @@ The config file is a TOML file. Mobius reads it one time when it starts, so you 
 
 - `access_password`: the password of the web UI.
 - `trusted_users`: the GitHub logins of the users that the agents act for.
-- `roles`: the `harness`, the `model` and the `effort` of each Role (`lead`, `coordinator`, `triager`, `implementer`, `researcher`, `reviewer`, `judge` and `curator`). A Devin or Claude Code Role must have an effort. An Antigravity Role must not have an effort.
+- `roles`: the `harness`, the `model` and the `effort` of each Role (`lead`, `coordinator`, `triager`, `implementer`, `researcher`, `reviewer`, `judge`, `curator` and `diagnoser`). A Devin or Claude Code Role must have an effort. An Antigravity Role must not have an effort.
 
 You can add these keys:
 
@@ -170,7 +170,7 @@ You can add these keys:
 
 A duration is a text with a number and a unit for each part: `s`, `m` or `h`. For example, `"90s"`, `"1h30m"` or `"168h"`. Mobius does not accept a day unit or a space.
 
-The section `[roles.diagnoser]` is optional. The Diagnoser reads the full log of each failed CI job of a pull request before the fix round, and gives the reason of the failure to the fix round. It has the same keys as each other Role. When the section has no `harness` and no `model`, Mobius has no Diagnoser and starts the fix round with no diagnosis. When the section has a `harness` or a `model`, Mobius checks it as it checks each other Role.
+The Diagnoser reads the full log of each failed CI job of a pull request before the fix round. It gives the reason of the failure to the fix round. It has the same keys as each other Role.
 
 Each Role can also have these keys:
 

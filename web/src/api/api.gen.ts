@@ -107,7 +107,7 @@ export interface AgentGroup {
  * ActiveAgents are the open sessions of all organizations.
  */
 export interface ActiveAgents {
-  /** Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator, Diagnoser. The Diagnoser group is there only when the config has a Diagnoser */
+  /** Groups has one group for each Role, in the order Lead, Coordinator, Triager, Implementer, Researcher, Reviewer, Judge, Curator, Diagnoser */
   groups: AgentGroup[];
 }
 

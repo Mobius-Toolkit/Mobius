@@ -827,9 +827,6 @@ func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 	}
 	var active ActiveAgents
 	for _, g := range groups {
-		if g.role == DiagnoserRole && !e.config.Roles.HasDiagnoser() {
-			continue
-		}
 		binding, _ := roleBinding(e.config, g.role)
 		active.Groups = append(active.Groups, AgentGroup{Title: g.title, Count: running[g.role], Max: binding.Max, Agents: agents[g.role]})
 	}

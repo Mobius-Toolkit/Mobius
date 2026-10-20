@@ -62,8 +62,7 @@ type Roles struct {
 	Reviewer    RoleBinding `toml:"reviewer"`
 	Judge       RoleBinding `toml:"judge"`
 	Curator     RoleBinding `toml:"curator"`
-	// Diagnoser is optional. With no harness and no model, Mobius has no Diagnoser.
-	Diagnoser RoleBinding `toml:"diagnoser"`
+	Diagnoser   RoleBinding `toml:"diagnoser"`
 }
 
 // RoleBinding is the Harness, the model and the limits of a Role.
@@ -185,14 +184,9 @@ type NamedBinding struct {
 	Binding *RoleBinding
 }
 
-// HasDiagnoser tells if the config has a Diagnoser. Then check has checked its binding.
-func (r *Roles) HasDiagnoser() bool {
-	return r.Diagnoser.Harness != "" || r.Diagnoser.Model != ""
-}
-
-// Bindings gives each Role name with its binding. The Diagnoser is there only when the config has one.
+// Bindings gives each Role name with its binding.
 func (r *Roles) Bindings() []NamedBinding {
-	bindings := []NamedBinding{
+	return []NamedBinding{
 		{"lead", &r.Lead},
 		{"coordinator", &r.Coordinator},
 		{"triager", &r.Triager},
@@ -201,11 +195,8 @@ func (r *Roles) Bindings() []NamedBinding {
 		{"reviewer", &r.Reviewer},
 		{"judge", &r.Judge},
 		{"curator", &r.Curator},
+		{"diagnoser", &r.Diagnoser},
 	}
-	if r.HasDiagnoser() {
-		bindings = append(bindings, NamedBinding{"diagnoser", &r.Diagnoser})
-	}
-	return bindings
 }
 
 func check(config *Config) error {
