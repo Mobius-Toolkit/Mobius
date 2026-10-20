@@ -22,6 +22,7 @@ import { LoginContext } from "@/lib/login";
 import { atEnd } from "@/lib/scroll";
 import { clock, dayClock, localTimes } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { ConnectionBadge } from "./Frame";
 import { TopBar } from "./TopBar";
 
 function numbered(number: number, title?: string | null) {
@@ -179,6 +180,7 @@ function TranscriptLog({
   const [lines, setLines] = useState<TranscriptLine[]>();
   const [error, setError] = useState<string>();
   const [behind, setBehind] = useState(false);
+  const [opened, setOpened] = useState<EventSource>();
   const listRef = useRef<HTMLUListElement>(null);
   const pinned = useRef(true);
 
@@ -204,7 +206,11 @@ function TranscriptLog({
       return;
     }
     const stream = new EventSource(`/api/agents/${agent.id}/transcript/events`);
-    stream.addEventListener("open", load);
+    stream.addEventListener("open", () => {
+      setOpened(source);
+      load();
+    });
+    stream.addEventListener("error", () => setOpened(undefined));
     onEvent<TranscriptEvents, "transcript">(stream, "transcript", (line) =>
       setLines((list) => upsert(list ?? [], line)),
     );
@@ -227,7 +233,7 @@ function TranscriptLog({
   return (
     <div className={cn("flex min-h-0 grow flex-col gap-4", className)}>
       {error && <Badge variant="destructive">{error}</Badge>}
-      <div className="relative flex min-h-0 grow flex-col">
+      <div className="relative flex min-h-10 grow flex-col">
         <ul
           ref={listRef}
           onScroll={(event) => {
@@ -242,6 +248,11 @@ function TranscriptLog({
             <TranscriptEntry key={line.id} line={line} />
           ))}
         </ul>
+        {source && opened !== source && (
+          <div className="absolute inset-x-0 top-0">
+            <ConnectionBadge connection="connecting" />
+          </div>
+        )}
         {behind && (
           <Button
             variant="secondary"
