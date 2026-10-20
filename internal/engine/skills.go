@@ -20,30 +20,46 @@ func (a *Agent) copySkills(ctx context.Context) error {
 	folder := a.harness.SkillDirectory()
 	_, err := os.Stat(filepath.Join(a.spec.Dir, ".git"))
 	worktree := err == nil
-	if worktree {
-		earlier, err := runner.Excluded(ctx, e.config.DataDir, a.spec.Dir)
+	if !worktree {
+		if err := os.RemoveAll(filepath.Join(a.spec.Dir, folder)); err != nil {
+			return err
+		}
+		_, err := a.exportSkills(ctx, folder, false)
+		return err
+	}
+	earlier, err := runner.Excluded(ctx, e.config.DataDir, a.spec.Dir)
+	if err != nil {
+		return err
+	}
+	for _, pattern := range earlier {
+		earlierFolder := strings.Trim(pattern, "/")
+		tracked, err := runner.Tracked(ctx, e.config.DataDir, a.spec.Dir, earlierFolder)
 		if err != nil {
 			return err
 		}
-		for _, pattern := range earlier {
-			earlierFolder := strings.Trim(pattern, "/")
-			tracked, err := runner.Tracked(ctx, e.config.DataDir, a.spec.Dir, earlierFolder)
-			if err != nil {
-				return err
-			}
-			if tracked {
-				continue
-			}
-			if err := os.RemoveAll(filepath.Join(a.spec.Dir, earlierFolder)); err != nil {
-				return err
-			}
+		if tracked {
+			err = runner.CleanUntracked(ctx, e.config.DataDir, a.spec.Dir, earlierFolder)
+		} else {
+			err = os.RemoveAll(filepath.Join(a.spec.Dir, earlierFolder))
 		}
-	} else if err := os.RemoveAll(filepath.Join(a.spec.Dir, folder)); err != nil {
+		if err != nil {
+			return err
+		}
+	}
+	excluded, err := a.exportSkills(ctx, folder, true)
+	if err != nil {
 		return err
 	}
+	return runner.ExcludeFromStatus(ctx, e.config.DataDir, a.spec.Dir, excluded)
+}
+
+// exportSkills copies the skills into folder and gives the exclude pattern of each copied skill. In a worktree, it
+// skips a skill whose folder exists.
+func (a *Agent) exportSkills(ctx context.Context, folder string, worktree bool) ([]string, error) {
+	e := a.engine
 	repository, ok := e.github.SkillRepository(a.spec.Organization)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	if err := e.fetchRepository(ctx, repository); err != nil {
 		log.Printf("fetch of %s for the session %d failed, use the last fetch: %v", repository.FullName, a.id, err)
@@ -53,7 +69,7 @@ func (a *Agent) copySkills(ctx context.Context) error {
 	names, err := runner.SkillNames(ctx, e.config.DataDir, repository.FullName, repository.DefaultBranch)
 	if err != nil {
 		log.Printf("the skill repository %s has no skills for the session %d: %v", repository.FullName, a.id, err)
-		return nil
+		return nil, nil
 	}
 	var copied, excluded []string
 	for _, name := range names {
@@ -65,13 +81,8 @@ func (a *Agent) copySkills(ctx context.Context) error {
 		excluded = append(excluded, "/"+path.Join(folder, name)+"/")
 	}
 	if len(copied) == 0 {
-		return nil
+		return nil, nil
 	}
-	if err := runner.Export(ctx, e.config.DataDir, repository.FullName, repository.DefaultBranch, filepath.Join(a.spec.Dir, folder), copied...); err != nil {
-		return err
-	}
-	if !worktree {
-		return nil
-	}
-	return runner.ExcludeFromStatus(ctx, e.config.DataDir, a.spec.Dir, excluded)
+	err = runner.Export(ctx, e.config.DataDir, repository.FullName, repository.DefaultBranch, filepath.Join(a.spec.Dir, folder), copied...)
+	return excluded, err
 }

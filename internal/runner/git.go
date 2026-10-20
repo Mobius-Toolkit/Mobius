@@ -208,6 +208,12 @@ func Tracked(ctx context.Context, dataDir, worktree, folder string) (bool, error
 	return files != "", err
 }
 
+// CleanUntracked removes the untracked and the ignored files in folder of the worktree.
+func CleanUntracked(ctx context.Context, dataDir, worktree, folder string) error {
+	_, err := run(git(ctx, dataDir, worktree, "", "clean", "-fdx", "--", folder))
+	return err
+}
+
 func excludeFile(ctx context.Context, dataDir, worktree string) (string, error) {
 	gitDir, err := run(git(ctx, dataDir, worktree, "", "rev-parse", "--absolute-git-dir"))
 	if err != nil {

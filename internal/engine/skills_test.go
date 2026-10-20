@@ -152,6 +152,7 @@ func TestALaterSessionKeepsASkillThatTheBranchTracksNow(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddRepository(skills)
 	fake.CommitFile(skills, "probe/SKILL.md", "Probe the price in cents.", "Add probe")
+	fake.CommitFile(skills, "probe/scripts/find.sh", "echo find", "Add the script of probe")
 	implementer := "[[prompts]]\nwhen = \"Inspect the skills\"\nshell = \"cat .agents/skills/probe/SKILL.md\"\n\n" +
 		"[[prompts]]\nshell = \"echo cents > plan.txt && git add -A && git commit -q -m 'Add plan model'\"\n"
 	server, dataDir := connectTask(t, fake, leadStarts, implementer, noChange)
@@ -173,7 +174,34 @@ func TestALaterSessionKeepsASkillThatTheBranchTracksNow(t *testing.T) {
 	if got := testkit.Git(t, worktree, "show", "HEAD:.agents/skills/probe/SKILL.md"); got != "Probe the branch." {
 		t.Errorf("skill of the branch = %q", got)
 	}
+	if _, err := os.Stat(filepath.Join(worktree, ".agents", "skills", "probe", "scripts")); !os.IsNotExist(err) {
+		t.Errorf("script of the earlier copy: %v", err)
+	}
 	if found, err := runner.HasUncommittedChanges(context.Background(), dataDir, worktree); err != nil || found {
 		t.Errorf("uncommitted changes = %v, %v", found, err)
+	}
+}
+
+func TestALaterSessionWithNoSkillsDoesNotHideTheSkillFolderOfTheBranch(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "probe/SKILL.md", "Probe the price in cents.", "Add probe")
+	implementer := "[[prompts]]\nwhen = \"Write the skill\"\nshell = \"mkdir -p .agents/skills/mine && echo mine > .agents/skills/mine/SKILL.md\"\n\n" +
+		"[[prompts]]\nshell = \"echo cents > plan.txt && git add -A && git commit -q -m 'Add plan model'\"\n"
+	server, dataDir := connectTask(t, fake, leadStarts, implementer, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	endedImplementers(t, server, 1)
+	fake.RemoveRepository(skills)
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
+	spec := engine.Spec{Role: engine.ImplementerRole, Organization: "owner", Repository: shop, Workstream: 12, Dir: worktree}
+
+	reply(t, server, run(t, server, spec, "Write the skill"))
+
+	if _, err := os.Stat(filepath.Join(worktree, ".agents", "skills", "probe")); !os.IsNotExist(err) {
+		t.Errorf("earlier copy: %v", err)
+	}
+	if got := testkit.Git(t, worktree, "status", "--porcelain"); !strings.Contains(got, ".agents/") {
+		t.Errorf("status = %q", got)
 	}
 }
