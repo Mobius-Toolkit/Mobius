@@ -29,11 +29,11 @@ var (
 )
 
 // sendInboxMessage posts a message of the Owner to the Lead chat of the Workstream #12 with one part inboxItems for each item.
-func sendInboxMessage(t *testing.T, server *testserver.Server, id, text string, items ...string) (int, string) {
+func sendInboxMessage(t *testing.T, server *testserver.Server, text string, items ...string) (int, string) {
 	t.Helper()
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
-	fields := [][2]string{{"id", id}, {"organization", "owner"}, {"repository", shop}, {"workstream", "12"}}
+	fields := [][2]string{{"id", "browser-1"}, {"organization", "owner"}, {"repository", shop}, {"workstream", "12"}}
 	if text != "" {
 		fields = append(fields, [2]string{"text", text})
 	}
@@ -87,7 +87,7 @@ func TestAMessageWithInboxItemsKeepsThemInOrderAndGivesThemToTheAgentBeforeTheTe
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
-	if status, body := sendInboxMessage(t, server, "browser-1", "Look at these", pullRequestItem, noIssueItem); status != http.StatusNoContent {
+	if status, body := sendInboxMessage(t, server, "Look at these", pullRequestItem, noIssueItem); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -110,7 +110,7 @@ func TestAMessageWithOnlyAnInboxItemIsStoredAndTheAgentGetsOnlyTheBlock(t *testi
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
-	if status, body := sendInboxMessage(t, server, "browser-1", "", noIssueItem); status != http.StatusNoContent {
+	if status, body := sendInboxMessage(t, server, "", noIssueItem); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 
@@ -128,7 +128,7 @@ func TestTheHistoryOfANewSessionHasTheInboxItemsBeforeTheTextOfAnEarlierMessage(
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"First answer\"]\n")
-	if status, body := sendInboxMessage(t, server, "browser-1", "Look at these", pullRequestItem); status != http.StatusNoContent {
+	if status, body := sendInboxMessage(t, server, "Look at these", pullRequestItem); status != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", status, body)
 	}
 	endedChatSession(t, server, 0)
@@ -147,7 +147,7 @@ func TestAMessageWithNoTextNoImageAndNoInboxItemGets400(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, "[[prompts]]\nreply = [\"Seen\"]\n")
 
-	if status, body := sendInboxMessage(t, server, "browser-1", ""); status != http.StatusBadRequest {
+	if status, body := sendInboxMessage(t, server, ""); status != http.StatusBadRequest {
 		t.Errorf("status = %d: %s", status, body)
 	}
 }
