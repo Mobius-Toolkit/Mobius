@@ -714,18 +714,20 @@ call = { tool = "tell_curator", arguments = { repository = "other/shop", text = 
 	chat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 
 	var got []string
-	for i, prompt := range []string{"2. ", "3. ", "4. "} {
-		run(t, server, chat, prompt)
-		got = append(got, approveNext(t, server, i+1).Error)
+	for _, prompt := range []string{"2. ", "3. ", "4. "} {
+		got = append(got, reply(t, server, run(t, server, chat, prompt)))
 	}
 
 	want := []string{
-		"text must not be empty.",
-		"The Mobius App has no access to owner/other.",
-		"The Mobius App has no access to other/shop.",
+		"error: text must not be empty.",
+		"error: The Mobius App has no access to owner/other.",
+		"error: The Mobius App has no access to other/shop.",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("errors = %q, want %q", got, want)
+	}
+	if actions := actionRows(t, server); len(actions) != 0 {
+		t.Errorf("actions = %+v", actions)
 	}
 	if sessions := curatorSessions(t, server); len(sessions) != 0 {
 		t.Errorf("Curators = %+v", sessions)

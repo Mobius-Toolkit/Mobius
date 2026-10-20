@@ -561,14 +561,17 @@ func TestCreateWorkstreamAddsTheLabelsOfTheCoordinatorChat(t *testing.T) {
 		"[[prompts]]\nwhen = \"2. \"\ncall = { tool = \"create_workstream\", arguments = { title = \"Ops\", brief = \"Run the shop.\", labels = [\"mobius:evergreen\", \"mobius:ready\"] } }\n\n"+
 		"[[prompts]]\nwhen = \"3. \"\ncall = { tool = \"create_workstream\", arguments = { title = \"Plain\", brief = \"No extra label.\", labels = [] } }\n")
 
-	var got []actionJSON
-	for i, prompt := range []string{"1. ", "2. ", "3. "} {
-		run(t, server, coordinatorSpec(t), prompt)
-		got = append(got, approveNext(t, server, i+1))
-	}
+	run(t, server, coordinatorSpec(t), "1. ")
+	created := approveNext(t, server, 1)
+	refused := run(t, server, coordinatorSpec(t), "2. ")
+	run(t, server, coordinatorSpec(t), "3. ")
+	plain := approveNext(t, server, 2)
 
-	if got[0].Result != "Created the Workstream #13." || got[1].Error != `The label "mobius:ready" is not allowed. Use mobius:evergreen or mobius:maintenance.` || got[2].Result != "Created the Workstream #14." {
-		t.Errorf("actions = %+v", got)
+	if created.Result != "Created the Workstream #13." || plain.Result != "Created the Workstream #14." {
+		t.Errorf("actions = %+v, %+v", created, plain)
+	}
+	if got := reply(t, server, refused); got != `error: The label "mobius:ready" is not allowed. Use mobius:evergreen or mobius:maintenance.` {
+		t.Errorf("reply = %q", got)
 	}
 	if labels := fake.Labels(shop, 13); !slices.Contains(labels, "mobius:maintenance") || slices.Contains(labels, "mobius:ready") {
 		t.Errorf("labels of #13 = %v", labels)

@@ -32,8 +32,8 @@ type ActionArgument struct {
 }
 
 // approvedTool is tool for a tool whose call waits for the approval of the Owner. A call checks its arguments, stores a
-// pending action with the title of its subject, and returns at once. The run of the tool starts when the Owner approves.
-func approvedTool[In any](e *Engine, c caller, resolve func(caller) (github.Repository, error), name, description string, properties map[string]any, title func(In) string, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
+// pending action with the title of its subject, and returns at once. The check refuses the arguments that the run would refuse without a read of GitHub. The run of the tool starts when the Owner approves.
+func approvedTool[In any](e *Engine, c caller, resolve func(caller) (github.Repository, error), name, description string, properties map[string]any, title func(In) string, check func(caller, In) error, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
 	return mcp.Tool{
 		Name:        name,
 		Description: description,
@@ -48,6 +48,9 @@ func approvedTool[In any](e *Engine, c caller, resolve func(caller) (github.Repo
 			if err == nil {
 				var input In
 				input, err = decode[In](name, arguments)
+				if err == nil {
+					err = check(c, input)
+				}
 				if err == nil {
 					text, err = e.holdAction(ctx, c, name, title(input), arguments)
 				}
@@ -107,6 +110,7 @@ func (e *Engine) messageLeadTool(c caller) mcp.Tool {
 		func(input messageLeadInput) string {
 			return fmt.Sprintf("Message to the Lead of #%d", input.Workstream)
 		},
+		checkMessageLead,
 		e.messageLead)
 }
 
@@ -117,6 +121,7 @@ func (e *Engine) createWorkstreamTool(c caller) mcp.Tool {
 		func(input workstreamInput) string {
 			return "Create the Workstream: " + input.Title
 		},
+		checkWorkstream,
 		e.createWorkstream)
 }
 
@@ -130,6 +135,7 @@ func (e *Engine) tellCuratorTool(c caller) mcp.Tool {
 		func(input tellCuratorInput) string {
 			return "Request to the Curator of " + input.Repository
 		},
+		e.checkTellCurator,
 		e.tellCurator)
 }
 

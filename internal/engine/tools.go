@@ -760,17 +760,24 @@ func (e *Engine) commentPullRequest(ctx context.Context, c caller, repository gi
 	return fmt.Sprintf("Commented on #%d.", input.N), nil
 }
 
-func (e *Engine) createWorkstream(ctx context.Context, c caller, repository github.Repository, input workstreamInput) (string, error) {
+func checkWorkstream(c caller, input workstreamInput) error {
 	if empty(input.Title) || empty(input.Brief) {
-		return "", refuse("title and brief must not be empty.")
+		return refuse("title and brief must not be empty.")
 	}
 	if len(input.Labels) > 0 && c.role != CoordinatorRole {
-		return "", refuse("Only the Coordinator adds labels to a Workstream.")
+		return refuse("Only the Coordinator adds labels to a Workstream.")
 	}
 	for _, label := range input.Labels {
 		if label != evergreenLabel && label != maintenanceLabel {
-			return "", refuse("The label %q is not allowed. Use %s or %s.", label, evergreenLabel, maintenanceLabel)
+			return refuse("The label %q is not allowed. Use %s or %s.", label, evergreenLabel, maintenanceLabel)
 		}
+	}
+	return nil
+}
+
+func (e *Engine) createWorkstream(ctx context.Context, c caller, repository github.Repository, input workstreamInput) (string, error) {
+	if err := checkWorkstream(c, input); err != nil {
+		return "", err
 	}
 	e.copyWrite.Lock()
 	defer e.copyWrite.Unlock()
@@ -937,19 +944,26 @@ func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repo
 	return fmt.Sprintf("Moved #%d to the Workstream #%d.", input.N, input.Workstream), nil
 }
 
+func checkMessageLead(c caller, input messageLeadInput) error {
+	if c.role == LeadRole && input.Workstream == c.workstream {
+		return refuse("A Lead cannot send a message to its own Workstream.")
+	}
+	if empty(input.Text) {
+		return refuse("text must not be empty.")
+	}
+	return nil
+}
+
 func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Repository, input messageLeadInput) (string, error) {
+	if err := checkMessageLead(c, input); err != nil {
+		return "", err
+	}
 	kind, sender := "coordinator", "the Coordinator"
 	switch c.role {
 	case LeadRole:
 		kind, sender = "lead", fmt.Sprintf("the Lead of #%d", c.workstream)
-		if input.Workstream == c.workstream {
-			return "", refuse("A Lead cannot send a message to its own Workstream.")
-		}
 	case TriagerRole:
 		kind, sender = "triager", "the Triager"
-	}
-	if empty(input.Text) {
-		return "", refuse("text must not be empty.")
 	}
 	open, err := e.queries.HasCopiedWorkstream(ctx, store.HasCopiedWorkstreamParams{Repository: repository.FullName, Number: input.Workstream})
 	if err != nil {
