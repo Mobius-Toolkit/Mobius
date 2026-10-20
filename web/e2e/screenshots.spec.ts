@@ -312,7 +312,7 @@ test("screenshots", async ({ page }) => {
     "/workstreams/owner/shop/12",
     (device) => [
       ...chatReady(device),
-      main.getByText("Waits for the agent").first(),
+      main.getByRole("img", { name: "Stored, waits for the agent" }).first(),
       main.getByText("The message waits for the Lead."),
       main.getByRole("button", { name: "Stop the reply" }),
     ],
