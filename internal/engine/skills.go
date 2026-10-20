@@ -35,7 +35,8 @@ func (a *Agent) copySkills(ctx context.Context) error {
 	defer e.gitMu.Unlock()
 	names, err := runner.SkillNames(ctx, e.config.DataDir, repository.FullName, repository.DefaultBranch)
 	if err != nil {
-		return err
+		log.Printf("the skill repository %s has no skills for the session %d: %v", repository.FullName, a.id, err)
+		return nil
 	}
 	var copied, excluded []string
 	for _, name := range names {

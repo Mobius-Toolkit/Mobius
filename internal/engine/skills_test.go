@@ -92,3 +92,31 @@ func TestMobiusDoesNotCopyASkillThatTheWorktreeAlreadyHas(t *testing.T) {
 		t.Errorf("skill of the branch = %q", got)
 	}
 }
+
+func TestASessionStartsWhenTheSkillRepositoryHasNoDefaultBranch(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	testkit.Git(t, fake.Remote(skills), "update-ref", "-d", "refs/heads/main")
+	server, _ := connect(t, fake, "[[prompts]]\nshell = \"echo started\"\n")
+
+	_, text := leadReply(t, server)
+
+	if !strings.Contains(text, "started") {
+		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestASessionStartsWhenTheFirstFetchOfTheSkillRepositoryFails(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.SetCloneURL(skills, "file:///missing/mobius-skills.git")
+	server, _ := connect(t, fake, "[[prompts]]\nshell = \"echo started\"\n")
+
+	_, text := leadReply(t, server)
+
+	if !strings.Contains(text, "started") {
+		t.Errorf("reply = %q", text)
+	}
+}
