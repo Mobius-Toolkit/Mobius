@@ -170,24 +170,36 @@ func Export(ctx context.Context, dataDir, repository, branch, dir string, paths 
 // .gitignore file. It sets core.excludesFile of the worktree to a file in its git directory. That key replaces the
 // default user ignore file of git, so the file also has the lines of that file.
 func ExcludeFromStatus(ctx context.Context, dataDir, worktree string, patterns []string) error {
-	gitDir, err := absoluteGitDir(ctx, dataDir, worktree)
+	user, err := userIgnoreLines()
 	if err != nil {
 		return err
 	}
-	user, err := os.ReadFile(filepath.Clean(userIgnoreFile()))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
 	list := strings.Join(patterns, "\n") + "\n"
-	if err := os.WriteFile(filepath.Join(gitDir, "mobius-copies"), []byte(list), 0o600); err != nil {
+	copies, err := copiesFile(ctx, dataDir, worktree)
+	if err != nil {
 		return err
 	}
-	file := filepath.Join(gitDir, "mobius-exclude")
+	if err := os.WriteFile(copies, []byte(list), 0o600); err != nil {
+		return err
+	}
+	file, err := excludeFile(ctx, dataDir, worktree)
+	if err != nil {
+		return err
+	}
 	if err := os.WriteFile(file, append(bytes.TrimRight(user, "\n"), []byte("\n"+list)...), 0o600); err != nil {
 		return err
 	}
 	_, err = run(git(ctx, dataDir, worktree, "", "config", "--worktree", "core.excludesFile", file))
 	return err
+}
+
+// userIgnoreLines gives the content of the default user ignore file of git, or nothing when it does not exist.
+func userIgnoreLines() ([]byte, error) {
+	lines, err := os.ReadFile(filepath.Clean(userIgnoreFile()))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return lines, err
 }
 
 // userIgnoreFile gives the file that git reads for the ignored files of the user when core.excludesFile is not set.
@@ -200,11 +212,11 @@ func userIgnoreFile() string {
 
 // Excluded gives the patterns that ExcludeFromStatus got for the worktree, or none when it got nothing.
 func Excluded(ctx context.Context, dataDir, worktree string) ([]string, error) {
-	gitDir, err := absoluteGitDir(ctx, dataDir, worktree)
+	copies, err := copiesFile(ctx, dataDir, worktree)
 	if err != nil {
 		return nil, err
 	}
-	content, err := os.ReadFile(filepath.Join(gitDir, "mobius-copies"))
+	content, err := os.ReadFile(filepath.Clean(copies))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -232,8 +244,20 @@ func CleanUntracked(ctx context.Context, dataDir, worktree, folder string) error
 	return err
 }
 
-func absoluteGitDir(ctx context.Context, dataDir, worktree string) (string, error) {
-	return run(git(ctx, dataDir, worktree, "", "rev-parse", "--absolute-git-dir"))
+func excludeFile(ctx context.Context, dataDir, worktree string) (string, error) {
+	return gitDirFile(ctx, dataDir, worktree, "mobius-exclude")
+}
+
+func copiesFile(ctx context.Context, dataDir, worktree string) (string, error) {
+	return gitDirFile(ctx, dataDir, worktree, "mobius-copies")
+}
+
+func gitDirFile(ctx context.Context, dataDir, worktree, name string) (string, error) {
+	gitDir, err := run(git(ctx, dataDir, worktree, "", "rev-parse", "--absolute-git-dir"))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(gitDir, name), nil
 }
 
 // TaskDir gives the worktree of the task of the issue number of repository below dataDir.
