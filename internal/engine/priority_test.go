@@ -94,8 +94,9 @@ func waitForHeld(t *testing.T, reached <-chan struct{}) {
 
 // testARoundTakesTheFreeSlotBeforeANewTicket makes trigger give #41 a round while #43 holds the only slot and #45 waits
 // in the queue with an earlier queue time. The poll that starts the round waits at the issue #43, so no poll gives the
-// pull request its work before the slot frees.
-func testARoundTakesTheFreeSlotBeforeANewTicket(t *testing.T, trigger func(fake *testkit.FakeGitHub, sha string, pullRequest int64)) {
+// pull request its work before the slot frees. When diagnosed is true, trigger fails the CI of the head. The first poll
+// that sees the failure starts the Diagnoser, and the poll after the end of the Diagnoser starts the round.
+func testARoundTakesTheFreeSlotBeforeANewTicket(t *testing.T, diagnosed bool, trigger func(fake *testkit.FakeGitHub, sha string, pullRequest int64)) {
 	fake := testkit.NewFakeGitHub(t)
 	server, dataDir := connectThree(t, fake, fixesAndMerges)
 	sha, pullRequest := readyPullRequest(t, server, fake)
@@ -113,10 +114,23 @@ func testARoundTakesTheFreeSlotBeforeANewTicket(t *testing.T, trigger func(fake 
 	reached, release := fake.HoldIssue(shop, 43)
 	waitForHeld(t, reached)
 	trigger(fake, sha, pullRequest)
-	roundReached, releaseRound := fake.HoldIssue(shop, 43)
-	t.Cleanup(sync.OnceFunc(releaseRound))
+	roundReached, holdRelease := fake.HoldIssue(shop, 43)
+	releaseRound := sync.OnceFunc(holdRelease)
+	t.Cleanup(releaseRound)
 	release()
 	waitForHeld(t, roundReached)
+	if diagnosed {
+		testkit.WaitFor(t, func() bool {
+			return rowCount(t, server, "SELECT count(*) FROM ci_diagnoses") == 1 && rowCount(t, server, "SELECT count(*) FROM ci_diagnoses WHERE ended_at = ''") == 0
+		})
+		reached, release = fake.HoldIssue(shop, 43)
+		releaseRound()
+		waitForHeld(t, reached)
+		roundReached, holdRelease = fake.HoldIssue(shop, 43)
+		t.Cleanup(sync.OnceFunc(holdRelease))
+		release()
+		waitForHeld(t, roundReached)
+	}
 	waitForState(t, server, 41, "queued")
 
 	if err := os.WriteFile(goFile, nil, 0o600); err != nil {
@@ -130,14 +144,14 @@ func testARoundTakesTheFreeSlotBeforeANewTicket(t *testing.T, trigger func(fake 
 
 func TestAFixRoundTakesTheFreeSlotBeforeANewTicketWithNoPollBetween(t *testing.T) {
 	t.Parallel()
-	testARoundTakesTheFreeSlotBeforeANewTicket(t, func(fake *testkit.FakeGitHub, sha string, _ int64) {
+	testARoundTakesTheFreeSlotBeforeANewTicket(t, true, func(fake *testkit.FakeGitHub, sha string, _ int64) {
 		fake.AddCheckRun(shop, checkRun("build", sha, "completed", "failure"))
 	})
 }
 
 func TestAConflictRoundTakesTheFreeSlotBeforeANewTicketWithNoPollBetween(t *testing.T) {
 	t.Parallel()
-	testARoundTakesTheFreeSlotBeforeANewTicket(t, func(fake *testkit.FakeGitHub, _ string, pullRequest int64) {
+	testARoundTakesTheFreeSlotBeforeANewTicket(t, false, func(fake *testkit.FakeGitHub, _ string, pullRequest int64) {
 		fake.SetBehind(shop, pullRequest)
 		fake.CommitFile(shop, "price.txt", "dollars\n", "Add price")
 	})
