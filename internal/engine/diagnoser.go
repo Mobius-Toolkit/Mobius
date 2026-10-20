@@ -85,10 +85,10 @@ func (e *Engine) startDiagnoser(repository string) {
 	}
 	key := diagnoserKey(repository)
 	e.diagnosers[repository] = e.startWorker(key, func(ctx context.Context) {
-		defer e.stop(key)
 		e.diagnoseRows(ctx, repository)
 		e.diagnosersMu.Lock()
 		defer e.diagnosersMu.Unlock()
+		e.stop(key)
 		delete(e.diagnosers, repository)
 	})
 }
