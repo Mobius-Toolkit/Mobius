@@ -169,8 +169,8 @@ func (e *Engine) dismissIssueItems(ctx context.Context, repository string, numbe
 	return nil
 }
 
-// SendAgain adds a new Owner message to the chat of the open Lead failed item id, with the text and the images of the
-// message that the Lead did not take. The new message has a browser id, so a restart of Mobius gives it again. Then
+// SendAgain adds a new Owner message to the chat of the open Lead failed item id, with the text, the images and the
+// Inbox items of the message that the Lead did not take. The new message has a browser id, so a restart of Mobius gives it again. Then
 // it removes the item from the Inbox.
 func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 	item, err := e.queries.GetInboxItem(ctx, id)
@@ -191,8 +191,12 @@ func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
+	inboxItems, err := inboxItemsOf(message)
+	if err != nil {
+		return err
+	}
 	key := ChatKey{Organization: message.Organization, Repository: message.Repository, Workstream: message.Workstream}
-	if err := e.postChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images, nil); err != nil {
+	if err := e.postChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images, inboxItems); err != nil {
 		return err
 	}
 	return e.Dismiss(ctx, id)

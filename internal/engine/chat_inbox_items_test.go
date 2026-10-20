@@ -2,9 +2,12 @@ package engine_test
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -149,5 +152,42 @@ func TestAMessageWithNoTextNoImageAndNoInboxItemGets400(t *testing.T) {
 
 	if status, body := sendInboxMessage(t, server, ""); status != http.StatusBadRequest {
 		t.Errorf("status = %d: %s", status, body)
+	}
+}
+
+func TestSendAgainKeepsTheInboxItemsOfTheMessage(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	flag := filepath.Join(t.TempDir(), "taken")
+	server, _ := connect(t, fake, "[[prompts]]\nshell = \"if [ -e '"+flag+"' ]; then true; else kill -9 $PPID; sleep 5; fi\"\n")
+	if status, body := sendInboxMessage(t, server, "", noIssueItem); status != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	failed := testkit.WaitForValue(t, func() (inboxItem, bool) {
+		for _, item := range inbox(t, server) {
+			if item.Kind == "Lead failed" {
+				return item, true
+			}
+		}
+		return inboxItem{}, false
+	})
+	if err := os.WriteFile(flag, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if status, body := send(t, server, http.MethodPost, fmt.Sprintf("/api/inbox/%d/send", failed.ID), ""); status != http.StatusNoContent {
+		t.Fatalf("send: status %d: %s", status, body)
+	}
+
+	want := [][]apiInboxItem{
+		{{"", "Why is the queue full?", "The Coordinator asks a question.", ""}},
+		{{"", "Why is the queue full?", "The Coordinator asks a question.", ""}},
+	}
+	if got := chatInboxItems(t, server); !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("items = %+v", got)
+	}
+	prompts := leadPrompts(t, server)
+	if len(prompts) == 0 || !strings.HasSuffix(prompts[len(prompts)-1], noIssueBlock) {
+		t.Errorf("prompts = %q", prompts)
 	}
 }
