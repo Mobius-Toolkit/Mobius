@@ -239,3 +239,20 @@ func TestLoadNamesTheFileInAnError(t *testing.T) {
 		t.Errorf("error = %v, want %s", err, want)
 	}
 }
+
+func TestParseCutsTheSlashAtTheEndOfUIURL(t *testing.T) {
+	config := parse(t, "ui_url = \"https://mobius.example.com/\"\n"+valid)
+
+	if config.UIURL != "https://mobius.example.com" {
+		t.Errorf("ui_url = %q", config.UIURL)
+	}
+}
+
+func TestParseRefusesAUIURLThatIsNotAnHTTPURL(t *testing.T) {
+	for _, value := range []string{"mobius.example.com", "ftp://mobius.example.com", "https://", "/workstreams"} {
+		want := "ui_url: must be an absolute http or https URL"
+		if got := parseError(t, "ui_url = \""+value+"\"\n"+valid); got != want {
+			t.Errorf("%s: error = %q, want %q", value, got, want)
+		}
+	}
+}

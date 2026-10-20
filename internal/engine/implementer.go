@@ -1362,7 +1362,7 @@ func (e *Engine) push(ctx context.Context, a *Agent, j *job, failedLog string, m
 		e.markPushed(repository, int64(j.pullRequest.GetNumber()))
 	}
 	if j.pullRequest == nil {
-		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, fmt.Sprintf("Workstream:\n- #%d\n\nIssue:\n- #%d\n\nCloses #%d", j.task.Workstream, j.task.Issue, j.task.Issue))
+		pullRequest, err := repository.CreateDraftPullRequest(ctx, j.title, j.branch, repository.DefaultBranch, e.withChatLink(repository, j.task.Workstream, fmt.Sprintf("Workstream:\n- #%d\n\nIssue:\n- #%d\n\nCloses #%d", j.task.Workstream, j.task.Issue, j.task.Issue)))
 		if hasNoCommits(err) {
 			return result{outcome: noCommits, text: err.Error()}, nil
 		}

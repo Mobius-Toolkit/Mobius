@@ -567,7 +567,7 @@ func (e *Engine) createIssue(ctx context.Context, c caller, repository github.Re
 			return "", refuse("#%d is not in this Workstream.", input.Parent)
 		}
 	}
-	number, err := addIssue(ctx, repository, input, nil)
+	number, err := e.addIssue(ctx, repository, c.workstream, input, nil)
 	if err != nil {
 		return "", err
 	}
@@ -589,7 +589,7 @@ func (e *Engine) createMaintenanceIssue(ctx context.Context, c caller, repositor
 	if c.agent.issues == maintenanceIssues {
 		return "", refuse("You created %d issues in this session. This is the maximum.", maintenanceIssues)
 	}
-	number, err := addIssue(ctx, repository, issue, []string{triageLabel})
+	number, err := e.addIssue(ctx, repository, c.agent.maintenance, issue, []string{triageLabel})
 	if err != nil {
 		return "", err
 	}
@@ -607,9 +607,9 @@ func checkIssue(input issueInput) error {
 	return nil
 }
 
-// addIssue creates an issue with labels below the issue input.Parent, with the blockers input.BlockedBy, and gives its
-// number. When GitHub created the issue but a later call failed, it gives the number with the error.
-func addIssue(ctx context.Context, repository github.Repository, input issueInput, labels []string) (int, error) {
+// addIssue creates an issue with labels below the issue input.Parent, with the blockers input.BlockedBy, and the link to
+// the Lead chat of the Workstream, and gives its number. When GitHub created the issue but a later call failed, it gives the number with the error.
+func (e *Engine) addIssue(ctx context.Context, repository github.Repository, workstream int64, input issueInput, labels []string) (int, error) {
 	var blockerIDs []int64
 	for _, number := range input.BlockedBy {
 		blocker, err := repository.Issue(ctx, number)
@@ -625,7 +625,8 @@ func addIssue(ctx context.Context, repository github.Repository, input issueInpu
 		blockerIDs = append(blockerIDs, blocker.GetID())
 	}
 	owner, name := repository.Owner(), repository.Name()
-	issue, _, err := repository.Client.Issues.Create(ctx, owner, name, gh.CreateIssueRequest{Title: input.Title, Body: &input.Body, Labels: labels})
+	body := e.withChatLink(repository, workstream, input.Body)
+	issue, _, err := repository.Client.Issues.Create(ctx, owner, name, gh.CreateIssueRequest{Title: input.Title, Body: &body, Labels: labels})
 	if err != nil {
 		return 0, err
 	}
@@ -1009,4 +1010,13 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 		}
 	}
 	return fmt.Sprintf("Sent the message to the Lead of #%d.", input.Workstream), nil
+}
+
+// withChatLink gives body with the link to the Lead chat of the Workstream at the end. It gives body with no change
+// when the config has no ui_url.
+func (e *Engine) withChatLink(repository github.Repository, workstream int64, body string) string {
+	if e.config.UIURL == "" {
+		return body
+	}
+	return fmt.Sprintf("%s\n\n[Open the Lead chat in Mobius](%s/workstreams/%s/%s/%d)", body, e.config.UIURL, repository.Owner(), repository.Name(), workstream)
 }

@@ -157,6 +157,7 @@ You can add these keys:
 | --- | --- | --- |
 | `trusted_bots` | `[]` | The GitHub logins of bots that Mobius trusts, as it trusts the trusted users |
 | `data_dir` | `~/.mobius` | The directory of `mobius.db` and of the work directories of the agents |
+| `ui_url` | `""` | The public address of the web UI, for example `"https://mobius.example.com"`. Mobius adds a link to the Lead chat of the Workstream to each pull request and each task issue that it creates. With no `ui_url`, Mobius adds no link, so a public repository does not show the address |
 | `max_checks` | `1` | The maximum number of local checks that run at the same time |
 | `max_fix_rounds` | `10` | The maximum number of fix rounds of a task |
 | `max_check_attempts` | `3` | The maximum number of failed local checks in one Implementer round |
