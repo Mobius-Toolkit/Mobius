@@ -69,10 +69,34 @@ func (e *Engine) createCIBreakIssues(ctx context.Context, repository github.Repo
 	return nil
 }
 
-// createCIBreakIssue creates the issue of ciBreak and stores its number. It gives the number, or 0 when GitHub created
-// no issue. A 4xx answer of GitHub is no error. When GitHub refuses the list of jobs, it creates no issue. When
-// GitHub creates the issue but does not add it below the Workstream, the stored number is negative.
+// createCIBreakIssue creates the issue of ciBreak and stores its number in ciBreak and in each open failure record with
+// a place of ciBreak and no issue. When such a record already has an issue that is open, ciBreak takes that issue and
+// Mobius creates none. It gives the number, or 0 when GitHub created no issue. A 4xx answer of GitHub is no error. When GitHub refuses
+// the list of jobs, it creates no issue. When GitHub creates the issue but does not add it below the Workstream, the
+// stored number is negative.
 func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repository, workstream int64, ciBreak store.CiBreak) (int, error) {
+	shared, err := e.queries.GetCIBreakFailureIssue(ctx, ciBreak.ID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
+	if err == nil {
+		number := max(shared, -shared)
+		issue, err := repository.Issue(ctx, number)
+		if refusedByGitHub(err) {
+			log.Printf("read the issue #%d of %s: %v", number, repository.FullName, err)
+			return 0, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+		if issue != nil && issue.GetState() == "open" {
+			if err := e.queries.SetCIBreakIssue(ctx, store.SetCIBreakIssueParams{Issue: shared, ID: ciBreak.ID}); err != nil {
+				return 0, err
+			}
+			e.publishCIStops(ciBreak.Result)
+			return 0, nil
+		}
+	}
 	body, err := ciBreakBody(ctx, repository, ciBreak)
 	if refusedByGitHub(err) {
 		log.Printf("read the jobs of the run %d of %s: %v", ciBreak.RunID, repository.FullName, err)
@@ -93,6 +117,9 @@ func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repos
 			stored = -stored
 		}
 		if storeErr := e.queries.SetCIBreakIssue(ctx, store.SetCIBreakIssueParams{Issue: stored, ID: ciBreak.ID}); storeErr != nil {
+			return number, storeErr
+		}
+		if storeErr := e.queries.SetCIBreakFailuresIssue(ctx, store.SetCIBreakFailuresIssueParams{Issue: stored, CiBreak: ciBreak.ID}); storeErr != nil {
 			return number, storeErr
 		}
 		e.publishCIStops(ciBreak.Result)
@@ -236,7 +263,9 @@ func (e *Engine) ciBreakIssueClosed(ctx context.Context, repository github.Repos
 }
 
 // ciStop gives the task issue numbers of the open hard breaks of repository that have an issue, also an issue that is
-// not below the Workstream yet. While it has some, Mobius starts no task in repository except these issues.
+// not below the Workstream yet. While it has some, Mobius starts no task in repository except these issues. An open
+// hard break with no issue and an open diagnosis also starts the stop: the map then holds the number 0, which is no
+// issue.
 func (e *Engine) ciStop(ctx context.Context, repository string) (map[int64]bool, error) {
 	breaks, err := e.queries.ListOpenHardCIBreaks(ctx, repository)
 	if err != nil {
@@ -247,6 +276,13 @@ func (e *Engine) ciStop(ctx context.Context, repository string) (map[int64]bool,
 		if ciBreak.Issue != 0 {
 			stop[max(ciBreak.Issue, -ciBreak.Issue)] = true
 		}
+	}
+	diagnosing, err := e.queries.HasDiagnosingHardCIBreak(ctx, repository)
+	if err != nil {
+		return nil, err
+	}
+	if diagnosing {
+		stop[0] = true
 	}
 	return stop, nil
 }
@@ -272,7 +308,12 @@ func (e *Engine) ciStopRefusal(ctx context.Context, repository github.Repository
 	}
 	var links []string
 	for _, issue := range slices.Sorted(maps.Keys(stop)) {
-		links = append(links, issueLink(repository.FullName, issue))
+		if issue != 0 {
+			links = append(links, issueLink(repository.FullName, issue))
+		}
+	}
+	if len(links) == 0 {
+		return refuse("Mobius started no task: the CI of %s has a hard break. Mobius makes its task issue.", repository.DefaultBranch)
 	}
 	return refuse("Mobius started no task: the CI of %s has a hard break. Fix it first in %s.", repository.DefaultBranch, strings.Join(links, ", "))
 }

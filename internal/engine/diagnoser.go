@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 
+	gh "github.com/google/go-github/v92/github"
+
 	"github.com/Mobius-Toolkit/Mobius/internal/github"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
@@ -152,7 +154,14 @@ func (e *Engine) diagnoseTurn(ctx context.Context, a *Agent, row store.CiDiagnos
 	if err != nil {
 		return err
 	}
-	pullRequest, err := repository.PullRequest(ctx, row.PullRequest)
+	var ciBreak store.CiBreak
+	var place string
+	if row.CiBreak != 0 {
+		ciBreak, err = e.queries.GetCIBreak(ctx, row.CiBreak)
+		place = fmt.Sprintf("# Run on the default branch\n\nRun: %s\nAttempt: %d\nHead commit: %s\n", ciBreak.RunUrl, ciBreak.RunAttempt, row.Head)
+	} else {
+		place, err = pullRequestPlace(ctx, repository, row)
+	}
 	if err != nil {
 		return err
 	}
@@ -172,7 +181,12 @@ func (e *Engine) diagnoseTurn(ctx context.Context, a *Agent, row store.CiDiagnos
 	if err := os.MkdirAll(logs, 0o750); err != nil {
 		return err
 	}
-	jobs, urls, err := failedJobs(ctx, repository, row.Head, logs)
+	var jobs, urls string
+	if row.CiBreak != 0 {
+		jobs, urls, err = breakJobs(ctx, repository, ciBreak, logs)
+	} else {
+		jobs, urls, err = failedJobs(ctx, repository, row.Head, logs)
+	}
 	if err != nil {
 		return err
 	}
@@ -184,8 +198,69 @@ func (e *Engine) diagnoseTurn(ctx context.Context, a *Agent, row store.CiDiagnos
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	prompt := fmt.Sprintf("%s\n# Pull request\n\n#%d %s\nHead commit: %s\n\n# Failed jobs\n\n%s%s", diagnoserPrompt, pullRequest.GetNumber(), pullRequest.GetHTMLURL(), row.Head, jobs, failures)
+	prompt := fmt.Sprintf("%s\n%s\n# Failed jobs\n\n%s%s", diagnoserPrompt, place, jobs, failures)
 	return a.Prompt(ctx, prompt, nil)
+}
+
+func pullRequestPlace(ctx context.Context, repository github.Repository, row store.CiDiagnosis) (string, error) {
+	pullRequest, err := repository.PullRequest(ctx, row.PullRequest)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("# Pull request\n\n#%d %s\nHead commit: %s\n", pullRequest.GetNumber(), pullRequest.GetHTMLURL(), row.Head), nil
+}
+
+// breakJobs gives the failed jobs of the failed attempt of the run of ciBreak as a prompt text, and their links, one for
+// each line. It writes the logs as failedJobs does.
+func breakJobs(ctx context.Context, repository github.Repository, ciBreak store.CiBreak, logs string) (string, string, error) {
+	jobs, err := repository.RunAttemptJobs(ctx, ciBreak.RunID, ciBreak.RunAttempt)
+	if err != nil {
+		return "", "", err
+	}
+	var text strings.Builder
+	var urls []string
+	for _, job := range jobs {
+		if !failedRunConclusion(job.GetConclusion()) {
+			continue
+		}
+		fmt.Fprintf(&text, "- Job \"%s\"\n  Link: %s\n", job.GetName(), job.GetHTMLURL())
+		if step := failedStepName(job); step != "" {
+			fmt.Fprintf(&text, "  Failed step: %s\n", step)
+		}
+		if err := writeJobLog(ctx, repository, job.GetID(), logs, &text); err != nil {
+			return "", "", err
+		}
+		urls = append(urls, job.GetHTMLURL())
+	}
+	return text.String() + "\n", strings.Join(urls, "\n"), nil
+}
+
+// failedStepName gives the name of the first failed step of job, or "".
+func failedStepName(job *gh.WorkflowJob) string {
+	for _, step := range job.Steps {
+		if failedRunConclusion(step.GetConclusion()) {
+			return step.GetName()
+		}
+	}
+	return ""
+}
+
+// writeJobLog writes the log of the job id to the file job-<id>.log in logs and adds the path of the file to text. A job
+// log that GitHub refuses with a 4xx status gives no file.
+func writeJobLog(ctx context.Context, repository github.Repository, id int64, logs string, text *strings.Builder) error {
+	jobLog, err := repository.JobLog(ctx, id)
+	if refusedByGitHub(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(logs, fmt.Sprintf("job-%d.log", id))
+	if err := os.WriteFile(path, []byte(jobLog), 0o600); err != nil {
+		return err
+	}
+	fmt.Fprintf(text, "  Log file: %s\n", path)
+	return nil
 }
 
 // failedJobs gives the failed check runs of the head as a prompt text, and their links, one for each line. The full log
@@ -208,16 +283,8 @@ func failedJobs(ctx context.Context, repository github.Repository, head, logs st
 			fmt.Fprintf(&text, "  Failed step: %s\n", step)
 		}
 		if run.GetApp().GetSlug() == githubActions {
-			jobLog, err := repository.JobLog(ctx, run.GetID())
-			if err != nil && !refusedByGitHub(err) {
+			if err := writeJobLog(ctx, repository, run.GetID(), logs, &text); err != nil {
 				return "", "", err
-			}
-			if err == nil {
-				path := filepath.Join(logs, fmt.Sprintf("job-%d.log", run.GetID()))
-				if err := os.WriteFile(path, []byte(jobLog), 0o600); err != nil {
-					return "", "", err
-				}
-				fmt.Fprintf(&text, "  Log file: %s\n", path)
 			}
 		}
 		urls = append(urls, run.GetHTMLURL())
@@ -243,11 +310,8 @@ func failedSteps(ctx context.Context, repository github.Repository, head string)
 			return nil, err
 		}
 		for _, job := range jobs {
-			for _, step := range job.Steps {
-				if failedRunConclusion(step.GetConclusion()) {
-					steps[job.GetID()] = step.GetName()
-					break
-				}
+			if step := failedStepName(job); step != "" {
+				steps[job.GetID()] = step
 			}
 		}
 	}
