@@ -383,3 +383,30 @@ func TestACallWithNoSingleRepositoryInTheOrganizationStoresNoAction(t *testing.T
 		t.Errorf("items = %+v", items)
 	}
 }
+
+func TestAnApprovalMessageStoredWhileSealedGoesToTheAgentWhenTheSealIsAborted(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, approvalSeen+seenScript)
+	if got := <-startDrain(t, server); got != "drained" {
+		t.Fatalf("drain end = %s", got)
+	}
+	if got := server.Engine.Seal(); got != engine.Drained {
+		t.Fatalf("seal = %s", got)
+	}
+	text := "The Owner rejected `message_lead`."
+	if err := server.Engine.PostApproval(t.Context(), coordinatorChat, text); err != nil {
+		t.Fatal(err)
+	}
+	waitForPolls(t, fake)
+	if got := coordinatorPrompts(t, server); len(got) != 0 {
+		t.Fatalf("prompts = %q", got)
+	}
+
+	server.Engine.AbortDrain()
+
+	testkit.WaitFor(t, func() bool { return len(approvalPrompts(t, server)) == 1 })
+	if got := approvalPrompts(t, server); !slices.Equal(got, []string{"# Approval message\n\n" + text}) {
+		t.Errorf("approval prompts = %q", got)
+	}
+}

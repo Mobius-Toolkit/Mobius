@@ -222,12 +222,20 @@ func (e *Engine) closePaused() {
 	}
 }
 
-// abortDrain ends a sealed drain when the restart fails.
+// abortDrain ends a sealed drain when the restart fails. It gives the Approval messages that storeChat held while
+// Mobius was sealed.
 func (e *Engine) abortDrain() {
 	d := &e.drain
+	e.chatOrder.Lock()
 	d.mu.Lock()
 	d.sealed = false
 	d.mu.Unlock()
+	for key, items := range e.sealedApprovals {
+		e.handedChats[key] = true
+		e.give(key, false, items...)
+	}
+	clear(e.sealedApprovals)
+	e.chatOrder.Unlock()
 	e.releaseDrain()
 }
 

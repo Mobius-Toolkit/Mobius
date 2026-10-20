@@ -116,3 +116,8 @@ func (e *Engine) QueueOwnerMessageWithoutWake(ctx context.Context, key ChatKey, 
 	c.writing = true
 	return nil
 }
+
+// PostApproval adds an Approval message to the chat of key.
+func (e *Engine) PostApproval(ctx context.Context, key ChatKey, text string) error {
+	return e.postApproval(ctx, key, text)
+}

@@ -258,6 +258,7 @@ func (e *Engine) storeChat(ctx context.Context, key ChatKey, author, browserID, 
 		return err
 	}
 	if author == approvalAuthor && e.sealed() {
+		e.sealedApprovals[key] = append(e.sealedApprovals[key], item{message: &message})
 		return nil
 	}
 	e.handedChats[key] = true
