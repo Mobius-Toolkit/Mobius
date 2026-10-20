@@ -182,7 +182,7 @@ func TestTheHousekeeperRemovesTheDirectoriesThatNothingOwns(t *testing.T) {
 	var stale, owned []string
 	connectWith(t, fake, "", func(cfg *config.Config) {
 		fake.AddIssue(shop, 41, "Add plan model")
-		seed(t, cfg.DataDir, `INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z')`)
+		seed(t, cfg.DataDir, `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z')`)
 		worktrees := filepath.Join(cfg.DataDir, "worktrees", "owner", "shop")
 		stale = []string{filepath.Join(worktrees, "task-99"), filepath.Join(worktrees, "review-12345"), filepath.Join(cfg.DataDir, "scratch", "777")}
 		owned = []string{filepath.Join(worktrees, "task-41"), filepath.Join(cfg.DataDir, "leads", "owner", "shop", "12")}

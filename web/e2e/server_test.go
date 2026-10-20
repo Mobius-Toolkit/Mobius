@@ -620,14 +620,14 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	for number, state := range map[int64]string{38: "checks", 39: "approval"} {
-		if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
-			VALUES ('owner/shop', ?, 12, ?, ?)`, number, state, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
+			VALUES ('owner/shop', 'owner/shop', ?, 12, ?, ?)`, number, state, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 			t.Fatal(err)
 		}
 		github.AddLabel("owner/shop", number, "mobius:working", testkit.AppSlug+"[bot]")
 	}
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at)
-		VALUES ('owner/shop', 40, 14, 'ready_for_review', ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at)
+		VALUES ('owner/shop', 'owner/shop', 40, 14, 'ready_for_review', ?)`, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, delivered_at)
@@ -979,8 +979,8 @@ func setNeedsHuman(t *testing.T, server *testserver.Server, github *testkit.Fake
 func implementerSpec(t *testing.T, server *testserver.Server, number int64) engine.Spec {
 	t.Helper()
 	queuedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	result, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, queued_at)
-		VALUES ('owner/shop', ?, 12, 'queued', ?, ?)`, number, queuedAt, queuedAt)
+	result, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at)
+		VALUES ('owner/shop', 'owner/shop', ?, 12, 'queued', ?, ?)`, number, queuedAt, queuedAt)
 	if err != nil {
 		t.Fatal(err)
 	}

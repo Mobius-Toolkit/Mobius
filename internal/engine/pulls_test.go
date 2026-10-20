@@ -26,8 +26,8 @@ func TestAPollReadsTheReviewsAndThreadsOfManyChangedPullRequestsWithOneCall(t *t
 	fake.AddSubIssue(shop, 12, 43)
 	fake.PushCommit(shop, "mobius/43", "Plan API")
 	fake.OpenPullRequest(shop, "Plan API", "mobius/43")
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request, branch, fix_rounds)
-		VALUES ('owner/shop', 43, 12, 'stopped', '2026-10-04T10:00:00Z', 44, 'mobius/43', 3)`); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, pull_request, branch, fix_rounds)
+		VALUES ('owner/shop', 'owner/shop', 43, 12, 'stopped', '2026-10-04T10:00:00Z', 44, 'mobius/43', 3)`); err != nil {
 		t.Fatal(err)
 	}
 	waitForPolls(t, fake)
@@ -75,8 +75,8 @@ func TestAPollReadsThePullRequestsOfManyReviewedTasksWithOneCall(t *testing.T) {
 	fake.AddSubIssue(shop, 12, 43)
 	fake.PushCommit(shop, "mobius/43", "Plan API")
 	fake.OpenPullRequest(shop, "Plan API", "mobius/43")
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request, branch, fix_rounds)
-		VALUES ('owner/shop', 43, 12, 'stopped', '2026-10-04T10:00:00Z', 44, 'mobius/43', 3)`); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, pull_request, branch, fix_rounds)
+		VALUES ('owner/shop', 'owner/shop', 43, 12, 'stopped', '2026-10-04T10:00:00Z', 44, 'mobius/43', 3)`); err != nil {
 		t.Fatal(err)
 	}
 	app := testkit.AppSlug + "[bot]"
@@ -152,8 +152,8 @@ func TestARestartKeepsTheItemsOfTheJudge(t *testing.T) {
 	fake.AddComment(shop, 42, "owner", "Why cents?")
 	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nwhen = \"You are the Judge\"\nshell = \"true\"\n")
 	seed(t, dataDir,
-		`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
-		 VALUES (1, 'owner/shop', 41, 12, 'approval', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'mobius/41', 42)`)
+		`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
+		 VALUES (1, 'owner/shop', 'owner/shop', 41, 12, 'approval', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'mobius/41', 42)`)
 	cfg := testserver.Config(t, dataDir)
 	cfg.ReviewQuietPeriod = 200 * time.Millisecond
 

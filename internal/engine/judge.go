@@ -444,7 +444,7 @@ func (e *Engine) judgeTurn(ctx context.Context, a *Agent, j judgeJob) error {
 	if err != nil {
 		return err
 	}
-	brief, err := brief(ctx, repository, j.task.Workstream)
+	brief, err := e.workstreamBrief(ctx, j.task)
 	if err != nil {
 		return err
 	}
@@ -493,7 +493,7 @@ func (e *Engine) route(ctx context.Context, j judgeJob, verdicts []itemVerdicts)
 		}
 		event := fmt.Sprintf("%s follow-up on pull request #%d of #%d \"%s\", item %d:\n\n> %s\n%s",
 			time.Now().UTC().Format(timeFormat), number, j.task.Issue, j.title, followUp.item, followUp.text, text)
-		if err := e.addLeadEvent(ctx, j.task.Repository, j.task.Workstream, sql.NullInt64{Int64: j.task.Issue, Valid: true}, "follow_up", event); err != nil {
+		if err := e.addLeadEvent(ctx, j.task.WorkstreamRepository, j.task.Workstream, sql.NullInt64{Int64: j.task.Issue, Valid: true}, "follow_up", event); err != nil {
 			return err
 		}
 	}

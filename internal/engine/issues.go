@@ -211,29 +211,37 @@ func entry(login string, t time.Time, state, body string) string {
 	return fmt.Sprintf("\n@%s, %s%s:\n%s\n", login, t.UTC().Format(timeFormat), state, body)
 }
 
-// workstreamOf gives the number of the nearest Workstream issue above the issue number, or 0 when the issue is in no Workstream.
-func workstreamOf(ctx context.Context, repository github.Repository, number int64) (int64, error) {
+// workstreamOf gives the repository and the number of the nearest Workstream issue above the issue number, or the
+// number 0 when the issue is in no Workstream. It reads a parent in another repository through that repository. It
+// gives the number 0 when the Mobius App has no access to the repository of a parent.
+func (e *Engine) workstreamOf(ctx context.Context, repository github.Repository, number int64) (string, int64, error) {
 	for {
 		parent, err := repository.Parent(ctx, number)
 		if err != nil || parent == nil {
-			return 0, err
+			return "", 0, err
+		}
+		if name := blockerRepository(parent, repository.FullName); name != repository.FullName {
+			var ok bool
+			if repository, ok = e.github.Repository(name); !ok {
+				return "", 0, nil
+			}
 		}
 		if hasLabel(parent, workstreamLabel) {
-			return int64(parent.GetNumber()), nil
+			return repository.FullName, int64(parent.GetNumber()), nil
 		}
 		number = int64(parent.GetNumber())
 	}
 }
 
-// inWorkstream tells if the issue number is in the Workstream. An issue with a Workstream issue of its own
+// inWorkstream tells if the issue number is in the Workstream of repository. An issue with a Workstream issue of its own
 // below the Workstream belongs to that Workstream.
-func inWorkstream(ctx context.Context, repository github.Repository, workstream, number int64) (bool, error) {
+func (e *Engine) inWorkstream(ctx context.Context, repository github.Repository, workstream, number int64) (bool, error) {
 	issue, err := repository.Issue(ctx, number)
 	if err != nil || issue == nil || hasLabel(issue, workstreamLabel) {
 		return false, err
 	}
-	of, err := workstreamOf(ctx, repository, number)
-	return of == workstream, err
+	of, ofNumber, err := e.workstreamOf(ctx, repository, number)
+	return of == repository.FullName && ofNumber == workstream, err
 }
 
 // reply replies with text to the review thread that starts with the comment id, or to the conversation comment id,

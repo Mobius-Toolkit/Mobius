@@ -56,7 +56,7 @@ func (e *Engine) syncCopy(ctx context.Context, repository github.Repository) err
 		if err != nil {
 			return err
 		}
-		workstream, err := copyWorkstream(ctx, repository, issue, autopilot)
+		workstream, err := e.copyWorkstream(ctx, repository, issue, autopilot)
 		if err != nil {
 			return err
 		}
@@ -163,7 +163,7 @@ func (e *Engine) updateCopy(ctx context.Context, repository github.Repository, i
 	case wanted:
 		var workstream copiedWorkstream
 		before := e.labelChangesNow()
-		workstream, err = copyWorkstream(ctx, repository, issue, autopilot)
+		workstream, err = e.copyWorkstream(ctx, repository, issue, autopilot)
 		if err == nil {
 			changed, added = true, workstream.tree
 			err = e.writeRead(ctx, name, before, [][]copiedIssue{workstream.tree}, func(q *store.Queries) error { return addWorkstream(ctx, q, name, workstream) })
@@ -561,7 +561,7 @@ func (e *Engine) writeRead(ctx context.Context, repository string, before map[is
 // copyTree replaces the copied tree of the Workstream with the tree on GitHub.
 func (e *Engine) copyTree(ctx context.Context, repository github.Repository, workstream int64) error {
 	before := e.labelChangesNow()
-	tree, err := readTree(ctx, repository, workstream)
+	tree, err := e.readTree(ctx, repository, workstream)
 	if err != nil {
 		return err
 	}
@@ -573,19 +573,19 @@ func (e *Engine) copyTree(ctx context.Context, repository github.Repository, wor
 	})
 }
 
-func copyWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue, autopilot bool) (copiedWorkstream, error) {
-	tree, err := readTree(ctx, repository, int64(issue.GetNumber()))
+func (e *Engine) copyWorkstream(ctx context.Context, repository github.Repository, issue *gh.Issue, autopilot bool) (copiedWorkstream, error) {
+	tree, err := e.readTree(ctx, repository, int64(issue.GetNumber()))
 	return copiedWorkstream{issue: issue, autopilot: autopilot, tree: tree}, err
 }
 
 // readTree gives the issues below the Workstream, depth first, with the rules of list_tasks, but with each issue.
 // A nested Workstream and an issue of another repository are leaves.
-func readTree(ctx context.Context, repository github.Repository, workstream int64) ([]copiedIssue, error) {
+func (e *Engine) readTree(ctx context.Context, repository github.Repository, workstream int64) ([]copiedIssue, error) {
 	var tree []copiedIssue
-	return tree, addSubtree(ctx, repository, workstream, &tree)
+	return tree, e.addSubtree(ctx, repository, workstream, &tree)
 }
 
-func addSubtree(ctx context.Context, repository github.Repository, parent int64, tree *[]copiedIssue) error {
+func (e *Engine) addSubtree(ctx context.Context, repository github.Repository, parent int64, tree *[]copiedIssue) error {
 	issues, err := repository.SubIssues(ctx, parent)
 	if err != nil {
 		return err
@@ -594,7 +594,7 @@ func addSubtree(ctx context.Context, repository github.Repository, parent int64,
 		copied := copiedIssue{issue: issue, parent: parent}
 		leaf := hasLabel(issue, workstreamLabel) || inOtherRepository(issue, repository.FullName)
 		if !leaf && issue.GetIssueDependenciesSummary().GetBlockedBy() > 0 {
-			if copied.blockers, err = copyBlockers(ctx, repository, int64(issue.GetNumber())); err != nil {
+			if copied.blockers, err = e.copyBlockers(ctx, repository, int64(issue.GetNumber())); err != nil {
 				return err
 			}
 		}
@@ -602,7 +602,7 @@ func addSubtree(ctx context.Context, repository github.Repository, parent int64,
 		if leaf {
 			continue
 		}
-		if err := addSubtree(ctx, repository, int64(issue.GetNumber()), tree); err != nil {
+		if err := e.addSubtree(ctx, repository, int64(issue.GetNumber()), tree); err != nil {
 			return err
 		}
 	}
@@ -628,7 +628,7 @@ func blockerRepository(issue *gh.Issue, repository string) string {
 }
 
 // copyBlockers gives the open blockers of the issue number in repository.
-func copyBlockers(ctx context.Context, repository github.Repository, number int64) ([]copiedBlocker, error) {
+func (e *Engine) copyBlockers(ctx context.Context, repository github.Repository, number int64) ([]copiedBlocker, error) {
 	issues, err := openBlockers(ctx, repository, number)
 	if err != nil {
 		return nil, err
@@ -640,11 +640,11 @@ func copyBlockers(ctx context.Context, repository github.Repository, number int6
 			found = append(found, blocker)
 			continue
 		}
-		workstream, err := workstreamOf(ctx, repository, blocker.number)
+		workstreamRepository, workstream, err := e.workstreamOf(ctx, repository, blocker.number)
 		if err != nil {
 			return nil, err
 		}
-		if workstream != 0 {
+		if workstream != 0 && workstreamRepository == repository.FullName {
 			blocker.workstream = sql.NullInt64{Int64: workstream, Valid: true}
 			workstreamIssue, err := repository.Issue(ctx, workstream)
 			if err != nil {

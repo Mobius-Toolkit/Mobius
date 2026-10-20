@@ -100,8 +100,8 @@ func TestAHardBreakStartsNoNewTaskForAnIssueThatHadATask(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	prepareCIIssue(fake, false)
 	server := startWithStatements(t, fake, hardBreakSQL(ciIssue),
-		`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at)
-		 VALUES ('owner/shop', 30, 20, 'ended', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`)
+		`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at)
+		 VALUES ('owner/shop', 'owner/shop', 30, 20, 'ended', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')`)
 	server.WaitForFirstPoll(t, shop)
 
 	waitForPolls(t, fake)
@@ -249,8 +249,8 @@ func TestAnAnsweredTaskWaitsInAnsweredDuringTheStopAndDispatchesAfterIt(t *testi
 	prepareCIIssue(fake, false)
 	fake.AddWorkflowRun(shop, failedMainRun(7))
 	server := startWithStatements(t, fake, hardBreakSQL(ciIssue),
-		`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at)
-		 VALUES ('owner/shop', 41, 12, 'asked', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`)
+		`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at)
+		 VALUES ('owner/shop', 'owner/shop', 41, 12, 'asked', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`)
 	server.WaitForFirstPoll(t, shop)
 
 	fake.AddComment(shop, 41, "owner", "Cents.")
@@ -276,8 +276,8 @@ func TestARefusedReadOfTheCITaskIssueDoesNotStopThePoll(t *testing.T) {
 	prepareCIIssue(fake, false)
 	fake.ForbidIssue(shop, ciIssue)
 	server := startWithStatements(t, fake, hardBreakSQL(ciIssue),
-		`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at)
-		 VALUES ('owner/shop', 41, 12, 'ended', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`)
+		`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at)
+		 VALUES ('owner/shop', 'owner/shop', 41, 12, 'ended', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`)
 	server.WaitForFirstPoll(t, shop)
 
 	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")

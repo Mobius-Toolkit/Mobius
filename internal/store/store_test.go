@@ -202,24 +202,25 @@ func TestTheTaskStateMigrationKeepsTheRowsAndRefusesAnUnknownState(t *testing.T)
 		t.Fatalf("got %d tasks, want 2", len(tasks))
 	}
 	want := Task{
-		ID:             tasks[1].ID,
-		Repository:     "o/r",
-		Issue:          5,
-		Workstream:     4,
-		State:          "reviewed",
-		DispatchedAt:   "2026-10-01T11:00:00Z",
-		Branch:         sql.NullString{String: "mobius/5", Valid: true},
-		QueuedAt:       sql.NullString{String: "2026-10-01T11:01:00Z", Valid: true},
-		FixRounds:      2,
-		PullRequest:    sql.NullInt64{Int64: 9, Valid: true},
-		JudgedAt:       sql.NullString{String: "2026-10-01T11:02:00Z", Valid: true},
-		WorkerRestarts: 1,
-		Worker:         sql.NullString{String: "judge", Valid: true},
-		WorkerInput:    sql.NullString{String: "needs_human", Valid: true},
-		ReviewRounds:   3,
-		ReviewComment:  sql.NullInt64{Int64: 77, Valid: true},
-		CheckHead:      sql.NullString{String: "abc", Valid: true},
-		StateAt:        tasks[1].StateAt,
+		ID:                   tasks[1].ID,
+		Repository:           "o/r",
+		Issue:                5,
+		Workstream:           4,
+		WorkstreamRepository: "o/r",
+		State:                "reviewed",
+		DispatchedAt:         "2026-10-01T11:00:00Z",
+		Branch:               sql.NullString{String: "mobius/5", Valid: true},
+		QueuedAt:             sql.NullString{String: "2026-10-01T11:01:00Z", Valid: true},
+		FixRounds:            2,
+		PullRequest:          sql.NullInt64{Int64: 9, Valid: true},
+		JudgedAt:             sql.NullString{String: "2026-10-01T11:02:00Z", Valid: true},
+		WorkerRestarts:       1,
+		Worker:               sql.NullString{String: "judge", Valid: true},
+		WorkerInput:          sql.NullString{String: "needs_human", Valid: true},
+		ReviewRounds:         3,
+		ReviewComment:        sql.NullInt64{Int64: 77, Valid: true},
+		CheckHead:            sql.NullString{String: "abc", Valid: true},
+		StateAt:              tasks[1].StateAt,
 	}
 	if tasks[1] != want {
 		t.Errorf("task = %+v, want %+v", tasks[1], want)
@@ -543,6 +544,9 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("ALTER TABLE lead_events DROP COLUMN held_at"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN workstream_repository"); err != nil {
+		t.Fatal(err)
+	}
 	for _, column := range []string{"merging", "merge_refusal"} {
 		if _, err := db.Exec("ALTER TABLE inbox_items DROP COLUMN " + column); err != nil {
 			t.Fatal(err)
@@ -634,6 +638,7 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"DROP TABLE ci_diagnoses",
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
 		"ALTER TABLE lead_events DROP COLUMN held_at",
+		"ALTER TABLE tasks DROP COLUMN workstream_repository",
 		"ALTER TABLE inbox_items DROP COLUMN merging",
 		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261029100000",
@@ -686,7 +691,7 @@ func TestTheTasksTableAcceptsTheAskedStatesAndKeepsTheStateTrigger(t *testing.T)
 	defer func() { _ = db.Close() }()
 
 	for _, statement := range []string{
-		"INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, state_at) VALUES ('owner/shop', 41, 12, 'asked', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')",
+		"INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'asked', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z')",
 		"UPDATE tasks SET state = 'answered', state_at = '2026-10-04T11:00:00Z'",
 	} {
 		if _, err := db.Exec(statement); err != nil {
@@ -725,6 +730,7 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		"DROP TABLE ci_diagnoses",
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
 		"ALTER TABLE lead_events DROP COLUMN held_at",
+		"ALTER TABLE tasks DROP COLUMN workstream_repository",
 		"ALTER TABLE inbox_items DROP COLUMN merging",
 		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261105000000",

@@ -56,7 +56,7 @@ func (e *Engine) handLostTasksWith(ctx context.Context, repository github.Reposi
 		if recovered || label == needsHumanLabel {
 			continue
 		}
-		workstream, err := workstreamOf(ctx, repository, number)
+		_, workstream, err := e.workstreamOf(ctx, repository, number)
 		if err != nil {
 			return err
 		}
@@ -107,11 +107,15 @@ func (e *Engine) endedTaskToContinue(ctx context.Context, repository github.Repo
 	if pullRequest.GetState() != "open" || pullRequest.GetHead().GetRef() != task.Branch.String {
 		return store.Task{}, false, nil
 	}
-	workstream, err := workstreamOf(ctx, repository, number)
-	if err != nil || workstream == 0 || workstream != task.Workstream {
+	workstreamRepository, workstream, err := e.workstreamOf(ctx, repository, number)
+	if err != nil || workstream == 0 || workstreamRepository != task.WorkstreamRepository || workstream != task.Workstream {
 		return store.Task{}, false, err
 	}
-	issue, err := repository.Issue(ctx, workstream)
+	source, err := e.repository(workstreamRepository)
+	if err != nil {
+		return store.Task{}, false, err
+	}
+	issue, err := source.Issue(ctx, workstream)
 	return task, issue.GetState() == "open", err
 }
 
@@ -139,7 +143,7 @@ func (e *Engine) recoverTask(ctx context.Context, repository github.Repository, 
 	text := fmt.Sprintf("%s recovery of #%d \"%s\": Mobius restarted and found no live task. Mobius continued the task in %s with the branch %s and the pull request #%d (recovery %d of %d). %s",
 		time.Now().UTC().Format(timeFormat), issue.GetNumber(), issue.GetTitle(), state, task.Branch.String, task.PullRequest.Int64, task.Recoveries+1, e.config.MaxWorkerRestarts, findingsLost)
 	e.publish(Change{Workstreams: true})
-	return true, e.addLeadEvent(ctx, repository.FullName, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "recovery", text)
+	return true, e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "recovery", text)
 }
 
 // stateBeforeEnd gives the state that the task had before its end, when the task can go on from it. Else it gives checks.
@@ -168,7 +172,7 @@ func (e *Engine) continueEndedTask(ctx context.Context, repository github.Reposi
 	if reopened > 0 {
 		text := fmt.Sprintf("%s recovery of #%d \"%s\": the Owner continued the issue, and it had no live task. Mobius continued the earlier task with the branch %s and the pull request #%d. %s",
 			time.Now().UTC().Format(timeFormat), issue.GetNumber(), issue.GetTitle(), task.Branch.String, task.PullRequest.Int64, findingsLost)
-		if err := e.addLeadEvent(ctx, repository.FullName, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "recovery", text); err != nil {
+		if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "recovery", text); err != nil {
 			return err
 		}
 	}

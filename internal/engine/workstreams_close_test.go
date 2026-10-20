@@ -61,8 +61,8 @@ func addLiveTask(fake *testkit.FakeGitHub) {
 // startWithLiveTask starts a server with the live task of #41 and its pull request #45.
 func startWithLiveTask(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
 	t.Helper()
-	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request)
-		VALUES ('owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', 45)`)
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, pull_request)
+		VALUES ('owner/shop', 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', 45)`)
 	server.WaitForFirstPoll(t, shop)
 	return server
 }

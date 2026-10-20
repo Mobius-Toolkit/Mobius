@@ -43,7 +43,7 @@ func lostTaskEngine(t *testing.T) (*Engine, store.Task) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	task, err := store.New(db).AddTask(t.Context(), store.AddTaskParams{Repository: "owner/shop", Issue: 41, Workstream: 12, DispatchedAt: "2026-10-04T10:00:00Z"})
+	task, err := store.New(db).AddTask(t.Context(), store.AddTaskParams{Repository: "owner/shop", Issue: 41, WorkstreamRepository: "owner/shop", Workstream: 12, DispatchedAt: "2026-10-04T10:00:00Z"})
 	if err != nil {
 		t.Fatal(err)
 	}

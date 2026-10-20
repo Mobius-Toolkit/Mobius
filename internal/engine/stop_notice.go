@@ -171,7 +171,7 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 		return err
 	}
 	if !slices.ContainsFunc(stopped, func(event store.LeadEvent) bool { return !timeBefore(event.Time, createdAt) }) {
-		if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, record.LeadKind, record.LeadText); err != nil {
+		if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, record.LeadKind, record.LeadText); err != nil {
 			return err
 		}
 	}

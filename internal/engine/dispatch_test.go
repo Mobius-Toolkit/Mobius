@@ -342,8 +342,8 @@ func addStoppedTask(t *testing.T, fake *testkit.FakeGitHub, server *testserver.S
 	fake.AddSubIssue(shop, 12, 41)
 	fake.PushCommit(shop, "mobius/41", "Add plan model")
 	fake.OpenPullRequest(shop, "Add plan model", "mobius/41")
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, pull_request, branch, fix_rounds)
-		VALUES ('owner/shop', 41, 12, 'stopped', '2026-10-04T10:00:00Z', 42, 'mobius/41', 3)`); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, pull_request, branch, fix_rounds)
+		VALUES ('owner/shop', 'owner/shop', 41, 12, 'stopped', '2026-10-04T10:00:00Z', 42, 'mobius/41', 3)`); err != nil {
 		t.Fatal(err)
 	}
 	return server
@@ -434,7 +434,7 @@ func TestACommentOfTheOwnerContinuesATaskInNeedsHuman(t *testing.T) {
 	fake.AddSubIssue(shop, 12, 41)
 	fake.AddLabel(shop, 41, "mobius:needs-human", testkit.AppSlug+"[bot]")
 	fake.AddComment(shop, 41, testkit.AppSlug+"[bot]", "The Worker failed.")
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 41, 12, 'needs_human', '2026-10-04T10:00:00Z')`); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'needs_human', '2026-10-04T10:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -456,7 +456,7 @@ func TestAnAnswerRemovesMobiusQuestionAndContinuesATaskInNeedsHuman(t *testing.T
 	fake.AddLabel(shop, 41, "mobius:needs-human", testkit.AppSlug+"[bot]")
 	fake.AddLabel(shop, 41, "mobius:question", testkit.AppSlug+"[bot]")
 	fake.AddComment(shop, 41, testkit.AppSlug+"[bot]", "Cents or dollars?")
-	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 41, 12, 'needs_human', '2026-10-04T10:00:00Z')`); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at) VALUES ('owner/shop', 'owner/shop', 41, 12, 'needs_human', '2026-10-04T10:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 

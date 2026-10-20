@@ -224,18 +224,23 @@ func (e *Engine) closureItems(ctx context.Context, repository github.Repository,
 			}
 		}
 	}
-	numbers, err := e.queries.ListTaskPullRequests(ctx, store.ListTaskPullRequestsParams{Repository: repository.FullName, Workstream: workstream})
+	rows, err := e.queries.ListTaskPullRequests(ctx, store.ListTaskPullRequestsParams{WorkstreamRepository: repository.FullName, Workstream: workstream})
 	if err != nil {
 		return nil, err
 	}
 	var items []ClosureItem
-	var seen []int64
-	for _, number := range numbers {
-		if slices.Contains(seen, number) {
+	var seen []pullKey
+	for _, row := range rows {
+		key := pullKey{row.Repository, row.PullRequest}
+		if slices.Contains(seen, key) {
 			continue
 		}
-		seen = append(seen, number)
-		pullRequest, err := repository.Issue(ctx, number)
+		seen = append(seen, key)
+		source, err := e.repository(row.Repository)
+		if err != nil {
+			return nil, err
+		}
+		pullRequest, err := source.Issue(ctx, row.PullRequest)
 		if err != nil {
 			return nil, err
 		}
@@ -270,22 +275,26 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 	if err := e.dismissIssueItems(ctx, repository.FullName, workstream, inboxKinds...); err != nil {
 		return err
 	}
-	pullRequests, err := e.queries.ListTaskPullRequests(ctx, store.ListTaskPullRequestsParams{Repository: repository.FullName, Workstream: workstream})
+	pullRequests, err := e.queries.ListTaskPullRequests(ctx, store.ListTaskPullRequestsParams{WorkstreamRepository: repository.FullName, Workstream: workstream})
 	if err != nil {
 		return err
 	}
-	for _, number := range pullRequests {
-		pullRequest, err := repository.Issue(ctx, number)
+	for _, row := range pullRequests {
+		source, err := e.repository(row.Repository)
+		if err != nil {
+			return err
+		}
+		pullRequest, err := source.Issue(ctx, row.PullRequest)
 		if err != nil {
 			return err
 		}
 		if pullRequest.GetState() != "open" {
 			continue
 		}
-		if _, err := repository.AddComment(ctx, number, closedText); err != nil {
+		if _, err := source.AddComment(ctx, row.PullRequest, closedText); err != nil {
 			return err
 		}
-		if err := repository.ClosePullRequest(ctx, number); err != nil {
+		if err := source.ClosePullRequest(ctx, row.PullRequest); err != nil {
 			return err
 		}
 	}
@@ -339,15 +348,16 @@ func (e *Engine) stopWorkstream(ctx context.Context, repository github.Repositor
 	if err != nil {
 		return err
 	}
-	tasks, err := e.queries.ListLiveTasks(ctx, repository.FullName)
+	tasks, err := e.queries.ListWorkstreamLiveTasks(ctx, store.ListWorkstreamLiveTasksParams{WorkstreamRepository: repository.FullName, Workstream: workstream})
 	if err != nil {
 		return err
 	}
 	for _, task := range tasks {
-		if task.Workstream != workstream {
-			continue
+		source, err := e.repository(task.Repository)
+		if err != nil {
+			return err
 		}
-		if err := e.endTask(ctx, repository, task); err != nil {
+		if err := e.endTask(ctx, source, task); err != nil {
 			return err
 		}
 	}
@@ -359,8 +369,8 @@ func (e *Engine) hasWork(ctx context.Context, repository string, workstream int6
 	if e.hasLead(repository, workstream) {
 		return true, nil
 	}
-	tasks, err := e.queries.ListLiveTasks(ctx, repository)
-	return slices.ContainsFunc(tasks, func(task store.Task) bool { return task.Workstream == workstream }), err
+	tasks, err := e.queries.ListWorkstreamLiveTasks(ctx, store.ListWorkstreamLiveTasksParams{WorkstreamRepository: repository, Workstream: workstream})
+	return len(tasks) > 0, err
 }
 
 // SetAutopilot turns Autopilot of the Workstream number of repository on or off. The label change uses the user
@@ -394,8 +404,8 @@ func (e *Engine) SetAutopilot(ctx context.Context, repositoryName string, number
 }
 
 // workstreamAutopilot tells if the copy has Autopilot on for the Workstream number.
-func (e *Engine) workstreamAutopilot(ctx context.Context, repository github.Repository, number int64) (bool, error) {
-	on, err := e.queries.GetCopiedAutopilot(ctx, store.GetCopiedAutopilotParams{Repository: repository.FullName, Number: number})
+func (e *Engine) workstreamAutopilot(ctx context.Context, repository string, number int64) (bool, error) {
+	on, err := e.queries.GetCopiedAutopilot(ctx, store.GetCopiedAutopilotParams{Repository: repository, Number: number})
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

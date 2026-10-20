@@ -237,7 +237,7 @@ func (e *Engine) reviewRound(ctx context.Context, a *Agent, j *reviewJob, task s
 	if err != nil {
 		return err
 	}
-	brief, err := brief(ctx, repository, task.Workstream)
+	brief, err := e.workstreamBrief(ctx, task)
 	if err != nil {
 		return err
 	}
@@ -440,7 +440,7 @@ func (e *Engine) sendFollowUps(ctx context.Context, repository github.Repository
 		if !sent {
 			event := fmt.Sprintf("%s follow-up on pull request #%d of #%d \"%s\", item %d, %s line %d:\n\n%s",
 				time.Now().UTC().Format(timeFormat), number, task.Issue, title, thread.Comment, thread.Path, thread.Line, quote(body))
-			if err := e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "follow_up", event); err != nil {
+			if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "follow_up", event); err != nil {
 				return err
 			}
 		}

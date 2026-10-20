@@ -20,8 +20,8 @@ func seedWorkerTask(t *testing.T, fake *testkit.FakeGitHub, dataDir string, id, 
 	fake.AddIssue(shop, number, "Task")
 	fake.AddSubIssue(shop, 12, number)
 	fake.AddLabel(shop, number, "mobius:working", testkit.AppSlug+"[bot]")
-	seed(t, dataDir, fmt.Sprintf(`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, queued_at, worker, worker_input)
-		VALUES (%d, 'owner/shop', %d, 12, '%s', '2026-10-04T10:00:00Z', '2026-10-04T10:00:0%dZ', 'implementer', 'Store plans in cents.')`, id, number, state, id))
+	seed(t, dataDir, fmt.Sprintf(`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at, worker, worker_input)
+		VALUES (%d, 'owner/shop', 'owner/shop', %d, 12, '%s', '2026-10-04T10:00:00Z', '2026-10-04T10:00:0%dZ', 'implementer', 'Store plans in cents.')`, id, number, state, id))
 }
 
 // connectLost starts a server whose Implementers hang, with the tasks that seed adds. The first poll starts the Worker

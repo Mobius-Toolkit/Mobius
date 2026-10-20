@@ -36,8 +36,8 @@ func seedOpenCheck(t *testing.T, fake *testkit.FakeGitHub, task string) (*testse
 func TestTheRestartOfTheReviewerKeepsOneMobiusCheckRunOnTheHead(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, sha := seedOpenCheck(t, fake, `INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, queued_at, branch, pull_request, worker)
-		VALUES (1, 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'mobius/41', 42, 'reviewer')`)
+	server, sha := seedOpenCheck(t, fake, `INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at, branch, pull_request, worker)
+		VALUES (1, 'owner/shop', 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'mobius/41', 42, 'reviewer')`)
 
 	testkit.WaitFor(t, func() bool { return len(roleSessions(t, server, engine.ReviewerRole)) == 1 })
 	waitForTitle(t, fake, "Review, round 1 of 10")
@@ -50,8 +50,8 @@ func TestTheRestartOfTheReviewerKeepsOneMobiusCheckRunOnTheHead(t *testing.T) {
 func TestTheJudgeThatFindsNoOpenThreadKeepsOneMobiusCheckRunOnTheHead(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, sha := seedOpenCheck(t, fake, `INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
-		VALUES (1, 'owner/shop', 41, 12, 'reviewed', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'mobius/41', 42)`)
+	server, sha := seedOpenCheck(t, fake, `INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
+		VALUES (1, 'owner/shop', 'owner/shop', 41, 12, 'reviewed', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'mobius/41', 42)`)
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "checks" })
 	waitForPolls(t, fake)
@@ -65,8 +65,8 @@ func TestTheJudgeThatFindsNoOpenThreadKeepsOneMobiusCheckRunOnTheHead(t *testing
 func TestTheEndOfTheWaitInChecksKeepsOneMobiusCheckRunOnTheHead(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, sha := seedOpenCheck(t, fake, `INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
-		VALUES (1, 'owner/shop', 41, 12, 'checks', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'mobius/41', 42)`)
+	server, sha := seedOpenCheck(t, fake, `INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, state_at, branch, pull_request)
+		VALUES (1, 'owner/shop', 'owner/shop', 41, 12, 'checks', '2026-10-04T10:00:00Z', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'mobius/41', 42)`)
 	fake.AddCheckRun(shop, checkRun("build", sha, "completed", "success"))
 
 	testkit.WaitFor(t, func() bool { return taskState(t, server) == "approval" })

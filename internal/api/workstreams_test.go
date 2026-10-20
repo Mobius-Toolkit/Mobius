@@ -17,10 +17,10 @@ func TestListWorkstreams(t *testing.T) {
 			('o/a', 3, 'Early renewals', '', 0, 1);
 		INSERT INTO copied_issues (repository, workstream, position, number, parent, title, body, state, author, html_url, repository_url) VALUES
 			('o/a', 1, 0, 11, 1, 'Plan model', '', 'closed', 'owner', '', '');
-		INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES
-			('o/a', 21, 2, 'ready_for_review', '2026-10-04T10:00:00Z'),
-			('o/a', 31, 3, 'approval', '2026-10-04T10:00:00Z'),
-			('o/a', 32, 3, 'ended', '2026-10-04T10:00:00Z');
+		INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at) VALUES
+			('o/a', 'o/a', 21, 2, 'ready_for_review', '2026-10-04T10:00:00Z'),
+			('o/a', 'o/a', 31, 3, 'approval', '2026-10-04T10:00:00Z'),
+			('o/a', 'o/a', 32, 3, 'ended', '2026-10-04T10:00:00Z');
 	`)
 
 	rec := httptest.NewRecorder()

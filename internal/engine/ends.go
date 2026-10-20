@@ -90,7 +90,7 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 	if err != nil || count != checkErrorPolls {
 		return err
 	}
-	rows, err := e.queries.ListCopiedIssuesByNumber(ctx, store.ListCopiedIssuesByNumberParams{Repository: task.Repository, Workstream: task.Workstream, Number: task.Issue})
+	rows, err := e.queries.ListCopiedIssuesByNumber(ctx, store.ListCopiedIssuesByNumberParams{Repository: task.WorkstreamRepository, Workstream: task.Workstream, Number: task.Issue})
 	if err != nil {
 		return err
 	}
@@ -109,7 +109,7 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 	err = e.queries.AddEvent(ctx, store.AddEventParams{
 		Time:         now(),
 		Organization: repository.Owner(),
-		Repository:   task.Repository,
+		Repository:   task.WorkstreamRepository,
 		Workstream:   task.Workstream,
 		Issue:        task.Issue,
 		Actor:        appLogin(repository.AppSlug),
@@ -119,7 +119,7 @@ func (e *Engine) countCheckErrors(ctx context.Context, repository github.Reposit
 	if err != nil {
 		return err
 	}
-	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "check_errors", time.Now().UTC().Format(timeFormat)+" "+text)
+	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "check_errors", time.Now().UTC().Format(timeFormat)+" "+text)
 }
 
 // checkTask acts on the state of the issue and the pull request of the task, and gives the pull request when the task
@@ -457,7 +457,7 @@ func (e *Engine) endPullRequest(ctx context.Context, repository github.Repositor
 		what = "merged"
 	}
 	text := fmt.Sprintf("%s end of #%d \"%s\": pull request #%d %s.", time.Now().UTC().Format(timeFormat), task.Issue, issue.GetTitle(), pullRequest.GetNumber(), what)
-	return e.addLeadEvent(ctx, task.Repository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "end", text)
+	return e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "end", text)
 }
 
 // labelRemoved stops the task when a person removed label from its issue, and tells if it did. The pull request and
@@ -521,7 +521,7 @@ func (e *Engine) finishStop(ctx context.Context, repository github.Repository, t
 			return err
 		}
 	}
-	return e.addActivity(ctx, task.Repository, task.Workstream, issue, actor, text)
+	return e.addActivity(ctx, task.WorkstreamRepository, task.Workstream, issue, actor, text)
 }
 
 // lostAccess ends the live tasks of each repository that no App gives, and stops their Workers.
@@ -668,7 +668,7 @@ func (e *Engine) closeTask(ctx context.Context, c caller, repository github.Repo
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return "", err
 	}
-	if live && task.Workstream != c.workstream {
+	if live && (task.WorkstreamRepository != c.repository || task.Workstream != c.workstream) {
 		return "", refuse("#%d has no live task in this Workstream.", input.N)
 	}
 	if _, err := repository.AddComment(ctx, input.N, input.Reason); err != nil {

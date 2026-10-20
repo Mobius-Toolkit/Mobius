@@ -24,8 +24,8 @@ func TestARestartReadsTheQueueTimeAndThePauseThatTheRustVersionWrote(t *testing.
 		fake.AddLabel(shop, 41, "mobius:working", testkit.AppSlug+"[bot]")
 		seed(t, cfg.DataDir,
 			`INSERT INTO harness_pauses (harness, paused_until) VALUES ('devin', '2099-01-01T00:00:00.123456789Z')`,
-			`INSERT INTO tasks (id, repository, issue, workstream, state, dispatched_at, queued_at, worker, worker_input)
-			 VALUES (1, 'owner/shop', 41, 12, 'queued', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00.123456789Z', 'implementer', '`+prompt+`')`)
+			`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at, worker, worker_input)
+			 VALUES (1, 'owner/shop', 'owner/shop', 41, 12, 'queued', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00.123456789Z', 'implementer', '`+prompt+`')`)
 	})
 
 	session := testkit.WaitForValue(t, func() (store.Session, bool) {

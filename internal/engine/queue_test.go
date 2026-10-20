@@ -30,7 +30,7 @@ func implementerSpec(t *testing.T, server *testserver.Server, fake *testkit.Fake
 		fake.AddIssue(shop, number, "Task")
 	}
 	queuedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	result, err := server.DB.Exec("INSERT INTO tasks (repository, issue, workstream, state, dispatched_at, queued_at) VALUES (?, ?, 12, 'queued', ?, ?)", shop, number, queuedAt, queuedAt)
+	result, err := server.DB.Exec("INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at) VALUES (?, ?, ?, 12, 'queued', ?, ?)", shop, shop, number, queuedAt, queuedAt)
 	if err != nil {
 		t.Fatal(err)
 	}
