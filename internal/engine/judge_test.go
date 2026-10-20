@@ -283,7 +283,7 @@ func TestAnImplementerReplyWithACommitIsOnThePullRequestAfterThePush(t *testing.
 	fake := testkit.NewFakeGitHub(t)
 	dir := t.TempDir()
 	hold, started, release := dir+"/hold", dir+"/started", dir+"/release"
-	connectJudge(t, fake, fix2, renames+holdingCheck(hold, started, release), noChange)
+	connectJudge(t, fake, fix2, renames+holdingCheck(hold, started, release), func(cfg *config.Config) { cfg.MaxWorkerRestarts = 20 })
 	touch(t, hold)
 
 	fix := fake.AddReviewComment(shop, 42, 0, "owner", "Use price_cents.")
