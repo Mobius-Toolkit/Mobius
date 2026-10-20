@@ -27,11 +27,12 @@ export function WorkstreamsPage() {
 }
 
 export function CoordinatorChatPage() {
-  const { organizations, organization, unread, source } = useShell();
+  const { organizations, organization, inbox, unread, source } = useShell();
   return (
     <CoordinatorChat
       organizations={organizations}
       organization={organization}
+      inbox={inbox}
       unread={unread && unreadCount(unread, { organization, repository: "", workstream: 0 })}
       source={source}
     />

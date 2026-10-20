@@ -1,11 +1,12 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { completeWorkstream, setAutopilot, type InboxItem, type Workstream } from "@/api/api.gen";
+import { completeWorkstream, setAutopilot, type Workstream } from "@/api/api.gen";
 import { ErrorBadge, List } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
+import type { ActionItem, Approval } from "@/lib/actions";
 import type { Workstreams } from "@/lib/workstreams";
 import { AgentPanel } from "./AgentPanel";
 import { Conversation } from "./Conversation";
@@ -16,7 +17,7 @@ function WorkstreamInbox({
   items,
   workstreams,
 }: {
-  items: InboxItem[];
+  items: ActionItem[];
   workstreams?: Workstream[];
 }) {
   const [error, setError] = useState("");
@@ -48,11 +49,14 @@ export function Chat({
   name: string;
   number: number;
   workstreams: Workstreams;
-  inbox: InboxItem[];
+  inbox: ActionItem[];
   unread?: number;
   source?: EventSource;
 }) {
   const repository = `${owner}/${name}`;
+  const inWorkstream = inbox
+    .filter((item) => item.repository === repository && item.workstream === number)
+    .toSorted((a, b) => a.id - b.id);
   const workstream = workstreams.list?.find(
     (other) => other.repository === repository && other.number === number,
   );
@@ -162,12 +166,11 @@ export function Chat({
         }
         footer={
           <WorkstreamInbox
-            items={inbox
-              .filter((item) => item.repository === repository && item.workstream === number)
-              .toSorted((a, b) => a.id - b.id)}
+            items={inWorkstream.filter((item) => !item.action)}
             workstreams={workstreams.list}
           />
         }
+        approvals={inWorkstream.filter((item): item is Approval => item.action?.role === "lead")}
       />
       <aside className="hidden w-80 shrink-0 flex-col border-l pt-2 md:flex">{panel}</aside>
     </div>

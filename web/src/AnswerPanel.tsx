@@ -1,9 +1,18 @@
 import { use, useEffect, useRef, useState } from "react";
-import { answerInboxItem, type InboxItem } from "@/api/api.gen";
+import { answerInboxItem } from "@/api/api.gen";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  decideAction,
+  roleName,
+  type ActionItem,
+  type Decision,
+  type PendingAction,
+} from "@/lib/actions";
 import { answerDraftKey } from "@/lib/draft";
 import { LoginContext } from "@/lib/login";
-import { dayClock } from "@/lib/time";
+import { useShell } from "@/lib/shell";
+import { clock, dayClock } from "@/lib/time";
+import { FullArgument } from "./ActionCard";
 import { link } from "./Inbox";
 import { Markdown } from "./Markdown";
 import { MessageInput } from "./MessageInput";
@@ -37,13 +46,16 @@ export function AnswerPanel({
   input,
   workstream,
   onClose,
+  onDecided,
 }: {
-  item: InboxItem;
+  item: ActionItem;
   input: boolean;
   workstream: string;
   onClose: () => void;
+  onDecided?: (action: PendingAction) => void;
 }) {
   const showLogin = use(LoginContext);
+  const { leaveInbox } = useShell();
   const [error, setError] = useState("");
   const content = useRef<HTMLDivElement>(null);
   useKeyboardHeight();
@@ -66,6 +78,32 @@ export function AnswerPanel({
     return false;
   };
 
+  const decide = async (id: number, decision: Decision, message: string) => {
+    try {
+      const res = await decideAction(id, decision, message);
+      if (res.status === 200) {
+        onDecided?.(res.action);
+        if (res.action.state === "pending") {
+          setError(res.action.error);
+          return false;
+        }
+        leaveInbox(item.id);
+        onClose();
+        return true;
+      }
+      if (res.status === 401) {
+        showLogin();
+      } else {
+        setError(res.error);
+      }
+    } catch (err) {
+      setError(String(err));
+    }
+    return false;
+  };
+
+  const action = item.action;
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
@@ -79,20 +117,43 @@ export function AnswerPanel({
       >
         <DialogHeader className="gap-1 p-4 pr-10">
           <DialogTitle>{item.title || item.reason}</DialogTitle>
-          {item.title && <p className="text-sm text-muted-foreground">{item.reason}</p>}
+          {item.title && !action && <p className="text-sm text-muted-foreground">{item.reason}</p>}
         </DialogHeader>
-        <div className="grid content-start gap-2 overflow-y-auto px-4 pb-4">
-          <Markdown text={item.text} />
-          <span className="text-muted-foreground">
-            {workstream} · {dayClock(item.time)}
-          </span>
-          {item.reportUrl && (
-            <a href={item.reportUrl} target="_blank" rel="noreferrer" className={link}>
-              Approval report
-            </a>
-          )}
-        </div>
-        {input && (
+        {action ? (
+          <div className="grid min-w-0 content-start gap-2 overflow-y-auto px-4 pb-4">
+            <span className="text-muted-foreground">
+              {roleName[action.role]} · {clock(action.time)}
+            </span>
+            {action.arguments.map((argument) => (
+              <FullArgument key={argument.name} {...argument} />
+            ))}
+          </div>
+        ) : (
+          <div className="grid content-start gap-2 overflow-y-auto px-4 pb-4">
+            <Markdown text={item.text} />
+            <span className="text-muted-foreground">
+              {workstream} · {dayClock(item.time)}
+            </span>
+            {item.reportUrl && (
+              <a href={item.reportUrl} target="_blank" rel="noreferrer" className={link}>
+                Approval report
+              </a>
+            )}
+          </div>
+        )}
+        {input && action && (
+          <MessageInput
+            draftKey={answerDraftKey(item.id)}
+            label={`Note for the ${roleName[action.role]}`}
+            placeholder={`Add a note for the ${roleName[action.role]} (optional)`}
+            images={false}
+            error={error}
+            onError={setError}
+            stopping={false}
+            onDecide={(decision, message) => decide(action.id, decision, message)}
+          />
+        )}
+        {input && !action && (
           <MessageInput
             draftKey={answerDraftKey(item.id)}
             label="Your answer"

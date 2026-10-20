@@ -29,6 +29,8 @@ export default defineConfig({
     { name: "checkup", testMatch: "checkup.spec.ts", dependencies: ["agents"] },
     // The Inbox tests give their own data with page.route, and they need the Apps of the screenshots test.
     { name: "inbox", testMatch: "inbox.spec.ts", dependencies: ["agents"] },
+    // The action tests give their own data with page.route, and they need the Apps of the screenshots test.
+    { name: "actions", testMatch: "actions.spec.ts", dependencies: ["agents"] },
     // The voice tests change no data, but they need the Apps of the screenshots test.
     { name: "voice", testMatch: "voice.spec.ts", dependencies: ["screenshots"] },
     // The live tests change no data, but they need the Apps of the screenshots test.

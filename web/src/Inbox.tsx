@@ -8,11 +8,11 @@ import {
   type resumeIssueResponse,
   sendAgain,
   type sendAgainResponse,
-  type InboxItem,
   type Workstream,
 } from "@/api/api.gen";
 import { ErrorBadge, inset, List, Row } from "@/components/page";
 import { Button } from "@/components/ui/button";
+import type { ActionItem } from "@/lib/actions";
 import { LoginContext } from "@/lib/login";
 import { cn } from "@/lib/utils";
 import { AnswerPanel } from "./AnswerPanel";
@@ -23,7 +23,7 @@ export function Inbox({
   workstreams,
 }: {
   organization: string;
-  items: InboxItem[];
+  items: ActionItem[];
   workstreams?: Workstream[];
 }) {
   const [error, setError] = useState("");
@@ -53,14 +53,14 @@ export function InboxRow({
   workstreams,
   setError,
 }: {
-  item: InboxItem;
+  item: ActionItem;
   workstreams?: Workstream[];
   setError: (error: string) => void;
 }) {
   const showLogin = use(LoginContext);
   const [running, setRunning] = useState<"action" | "dismiss" | "merge" | null>(null);
   const [refusal, setRefusal] = useState("");
-  const [answered, setAnswered] = useState<{ item: InboxItem; merging: boolean } | null>(null);
+  const [answered, setAnswered] = useState<{ item: ActionItem; merging: boolean } | null>(null);
   const [panel, setPanel] = useState<"answer" | "details" | null>(null);
 
   const act = (
@@ -113,7 +113,11 @@ export function InboxRow({
   };
 
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
-  const reference = isPullRequest ? `PR #${item.pullRequest}` : `#${item.issue}`;
+  const reference = item.action
+    ? item.action.tool
+    : isPullRequest
+      ? `PR #${item.pullRequest}`
+      : `#${item.issue}`;
   const referenceLink = isPullRequest ? item.pullRequestUrl : item.link;
   const merging = answered?.item === item ? answered.merging : item.merging;
   const refusalText = refusal || (merging ? "" : item.mergeRefusal);
@@ -145,7 +149,7 @@ export function InboxRow({
         </span>
         <div className="flex basis-full items-center gap-2 sm:basis-auto sm:shrink-0 sm:gap-4">
           <div className="flex flex-wrap items-center gap-2 empty:hidden">
-            {item.kind === InboxItemKind.question && (
+            {(item.kind === InboxItemKind.question || item.action) && (
               <Button size="sm" onClick={() => setPanel("answer")}>
                 Answer
               </Button>
@@ -196,11 +200,13 @@ export function InboxRow({
             )}
           </div>
           <div className="ml-auto flex items-center gap-2">
-            {item.kind !== InboxItemKind.question && item.kind !== InboxItemKind.stopped && (
-              <Button variant="ghost" size="sm" onClick={() => setPanel("details")}>
-                Details
-              </Button>
-            )}
+            {item.kind !== InboxItemKind.question &&
+              item.kind !== InboxItemKind.stopped &&
+              !item.action && (
+                <Button variant="ghost" size="sm" onClick={() => setPanel("details")}>
+                  Details
+                </Button>
+              )}
             {item.kind === InboxItemKind.Lead_failed && (
               <Button
                 variant="outline"

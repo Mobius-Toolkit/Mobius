@@ -32,6 +32,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import type { ActionMessage, Approval, PendingAction } from "@/lib/actions";
 import { chatDraftKey } from "@/lib/draft";
 import { onEvent } from "@/lib/events";
 import { LoginContext } from "@/lib/login";
@@ -47,6 +48,9 @@ import { atEnd } from "@/lib/scroll";
 import { clock, clockSeconds, dayClock, dayLabel, localTimes } from "@/lib/time";
 import { sameChat } from "@/lib/unread";
 import { cn } from "@/lib/utils";
+import { ActionCard } from "./ActionCard";
+import { ActionTray } from "./ActionTray";
+import { AnswerPanel } from "./AnswerPanel";
 import { FileImage } from "./FileImage";
 import { Markdown } from "./Markdown";
 import { MessageInput } from "./MessageInput";
@@ -57,7 +61,7 @@ const retryDelays = [2000, 5000, 10_000, 30_000];
 type Waiting = Queued & { sent?: boolean };
 type Failure = { id: string; error: string; retryAt: number };
 
-function upsert(list: ChatMessage[], message: ChatMessage) {
+function upsert(list: ActionMessage[], message: ActionMessage) {
   const known = list.find((other) => other.id === message.id);
   // The agent only adds text to a message, so the longer text is the newer text. A message never loses a time.
   if (
@@ -100,7 +104,10 @@ function OwnerState({ message }: { message: ChatMessage }) {
   );
 }
 
-const Message = memo(function Message({ message }: { message: ChatMessage }) {
+const Message = memo(function Message({ message }: { message: ActionMessage }) {
+  if (message.action) {
+    return <ActionCard message={message} action={message.action} />;
+  }
   const event = message.author === "Event";
   const [summary, ...rest] = message.text.split("\n");
   const body = rest.join("\n").trim();
@@ -259,6 +266,7 @@ export function Conversation({
   brief,
   note,
   footer,
+  approvals = [],
 }: {
   organization: string;
   repository: string;
@@ -270,9 +278,10 @@ export function Conversation({
   brief?: Workstream;
   note?: ReactNode;
   footer?: ReactNode;
+  approvals?: Approval[];
 }) {
   const showLogin = use(LoginContext);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ActionMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
   // older is true when the chat has messages before the first loaded message.
   const [older, setOlder] = useState(false);
@@ -292,6 +301,11 @@ export function Conversation({
   // Ends the wait before the next try of the first message.
   const skipWait = useRef<() => void>(undefined);
   const [briefOpen, setBriefOpen] = useState<boolean>();
+  // The actions after a decision of the Owner, by action id. They show at once, while the list action is pending.
+  const [outcomes, setOutcomes] = useState<Record<number, PendingAction>>({});
+  const decided = (action: PendingAction) =>
+    action.state === "pending" ? (outcomes[action.id] ?? action) : action;
+  const [answering, setAnswering] = useState<Approval>();
   const listRef = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
   // The scrollTop of the last scroll to the end. A scroll event can come after an image has made the list longer.
@@ -611,6 +625,11 @@ export function Conversation({
     addQueued(item).catch((err: unknown) => setSendError(String(err)));
   };
 
+  const rows = approvals
+    .map((item) => ({ ...item, action: decided(item.action) }))
+    .filter((item) => item.action.state === "pending")
+    .toSorted((a, b) => a.id - b.id);
+
   const discard = (item: Waiting) => {
     removeQueued(item.id)
       .then(() => setQueue((current) => current.filter((other) => other.id !== item.id)))
@@ -693,7 +712,9 @@ export function Conversation({
               {(index === 0 || dayLabel(messages[index - 1].time) !== label) && (
                 <DaySeparator label={label} />
               )}
-              <Message message={message} />
+              <Message
+                message={message.action ? { ...message, action: decided(message.action) } : message}
+              />
             </Fragment>
           );
         })}
@@ -733,6 +754,7 @@ export function Conversation({
         )}
       </div>
       {footer}
+      <ActionTray rows={rows} answer={setAnswering} />
       <MessageInput
         draftKey={chatDraftKey(organization, repository, workstream)}
         label={`Message to the ${agent}`}
@@ -744,6 +766,15 @@ export function Conversation({
         onStop={stoppable ? stop : undefined}
         onSend={send}
       />
+      {answering && (
+        <AnswerPanel
+          item={answering}
+          input
+          workstream={agent}
+          onClose={() => setAnswering(undefined)}
+          onDecided={(action) => setOutcomes((current) => ({ ...current, [action.id]: action }))}
+        />
+      )}
     </section>
   );
 }

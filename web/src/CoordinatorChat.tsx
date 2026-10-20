@@ -1,15 +1,18 @@
 import { PageHeader } from "@/components/page";
+import type { Approval, ActionItem } from "@/lib/actions";
 import { Conversation } from "./Conversation";
 import { TopBar } from "./TopBar";
 
 export function CoordinatorChat({
   organizations,
   organization,
+  inbox,
   unread,
   source,
 }: {
   organizations: string[];
   organization: string;
+  inbox: ActionItem[];
   unread?: number;
   source?: EventSource;
 }) {
@@ -37,6 +40,10 @@ export function CoordinatorChat({
         agent="Coordinator"
         source={source}
         unread={unread}
+        approvals={inbox.filter(
+          (item): item is Approval =>
+            item.organization === organization && item.action?.role === "coordinator",
+        )}
         head={
           <>
             <h2 className="text-base font-semibold">Chat</h2>
