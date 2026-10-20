@@ -46,6 +46,10 @@ thought_level = ["low", "medium", "high"]
 mode = ["default", "bypassPermissions", "yolo"]
 
 [[prompts]]
+when = "# Approval message"
+reply = ["The Workstream exists."]
+
+[[prompts]]
 when = "Which lilies sell best?"
 reply = ["Pink lilies sell best."]
 busy = "3s"

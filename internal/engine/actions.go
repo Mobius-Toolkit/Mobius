@@ -13,7 +13,7 @@ import (
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
-// approvedRun marks the context of the run of an action that the Owner approved.
+// approvedRun is the key of the context of the run of an action that the Owner approved. Its value is the id of the action.
 type approvedRun struct{}
 
 const (
@@ -32,22 +32,25 @@ type ActionArgument struct {
 }
 
 // approvedTool is tool for a tool whose call waits for the approval of the Owner. A call checks its arguments, stores a
-// pending action with the title of its subject, and returns at once. The run of the tool starts when the Owner approves.
-func approvedTool[In any](e *Engine, c caller, name, description string, properties map[string]any, title func(In) string, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
+// pending action with the title of its subject, and returns at once. The check refuses the arguments that the run would refuse without a read of GitHub. The run of the tool starts when the Owner approves.
+func approvedTool[In any](e *Engine, c caller, resolve func(caller) (github.Repository, error), name, description string, properties map[string]any, title func(In) string, check func(caller, In) error, run func(context.Context, caller, github.Repository, In) (string, error)) mcp.Tool {
 	return mcp.Tool{
 		Name:        name,
 		Description: description,
 		Properties:  properties,
 		Run: func(ctx context.Context, arguments json.RawMessage) (string, error) {
 			if ctx.Value(approvedRun{}) != nil {
-				return call(ctx, c, e.callerRepository, name, arguments, run)
+				return call(ctx, c, resolve, name, arguments, run)
 			}
 			c.agent.touch()
 			var text string
-			_, err := e.callerRepository(c)
+			_, err := resolve(c)
 			if err == nil {
 				var input In
 				input, err = decode[In](name, arguments)
+				if err == nil {
+					err = check(c, input)
+				}
 				if err == nil {
 					text, err = e.holdAction(ctx, c, name, title(input), arguments)
 				}
@@ -83,14 +86,22 @@ func actionCaller(action store.PendingAction) caller {
 
 // approvedToolOf gives the tool name of the role of c, if its call waits for the approval of the Owner. It builds no other tool.
 func (e *Engine) approvedToolOf(c caller, name string) (mcp.Tool, bool) {
-	if c.role == CoordinatorRole && name == "message_lead" {
+	if c.role != CoordinatorRole {
+		return mcp.Tool{}, false
+	}
+	switch name {
+	case "message_lead":
 		return e.messageLeadTool(c), true
+	case "create_workstream":
+		return e.createWorkstreamTool(c), true
+	case "tell_curator":
+		return e.tellCuratorTool(c), true
 	}
 	return mcp.Tool{}, false
 }
 
 func (e *Engine) messageLeadTool(c caller) mcp.Tool {
-	return approvedTool(e, c, "message_lead",
+	return approvedTool(e, c, e.callerRepository, "message_lead",
 		"Send a message to the Lead of an open Workstream. Call it at once with the exact message. The tool returns at once, and Mobius sends the message only after the Owner approves it. The result arrives later as an Approval message.",
 		map[string]any{
 			"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue that the Owner selects."},
@@ -99,7 +110,33 @@ func (e *Engine) messageLeadTool(c caller) mcp.Tool {
 		func(input messageLeadInput) string {
 			return fmt.Sprintf("Message to the Lead of #%d", input.Workstream)
 		},
+		checkMessageLead,
 		e.messageLead)
+}
+
+func (e *Engine) createWorkstreamTool(c caller) mcp.Tool {
+	return approvedTool(e, c, e.callerRepository, "create_workstream",
+		"Create a Workstream: an issue with mobius:workstream. Call it at once with the exact title and Brief. The tool returns at once, and Mobius creates the Workstream only after the Owner approves it. The result arrives later as an Approval message. Add mobius:evergreen or mobius:maintenance in labels only when the Owner asks for that label.",
+		coordinatorWorkstreamProperties,
+		func(input workstreamInput) string {
+			return `Create the Workstream "` + input.Title + `"`
+		},
+		checkWorkstream,
+		e.createWorkstream)
+}
+
+func (e *Engine) tellCuratorTool(c caller) mcp.Tool {
+	return approvedTool(e, c, noRepository, "tell_curator",
+		"Send a request to the Curator of a repository. The Curator changes the memory file of the repository. Call it at once with the exact request. The tool returns at once, and Mobius sends the request only after the Owner approves it. The result arrives later as an Approval message.",
+		map[string]any{
+			"repository": map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository (owner/name) in the organization of the chat."},
+			"text":       map[string]any{"type": "string", "minLength": 1, "description": "The request for the Curator."},
+		},
+		func(input tellCuratorInput) string {
+			return "Request to the Curator of " + input.Repository
+		},
+		e.checkTellCurator,
+		e.tellCurator)
 }
 
 func actionChat(action store.PendingAction) ChatKey {
@@ -309,7 +346,7 @@ func (e *Engine) runAction(ctx context.Context, action store.PendingAction) (str
 	if !ok {
 		return "", fmt.Errorf("the role %s has no approved tool %s", action.Role, action.Tool)
 	}
-	return tool.Run(context.WithValue(ctx, approvedRun{}, true), json.RawMessage(action.Arguments))
+	return tool.Run(context.WithValue(ctx, approvedRun{}, action.ID), json.RawMessage(action.Arguments))
 }
 
 func withMessage(text, message string) string {

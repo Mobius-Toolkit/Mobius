@@ -502,7 +502,7 @@ func TestThePromptOfTheCuratorHasEachKindOfItemOfTheSessionsOfTheRepository(t *t
 
 // requestScript plays a Coordinator that tells the Curator for a message of the Owner, and a Curator that adds a lesson
 // for the request.
-const requestScript = `
+const requestScript = approvalSeen + `
 [[prompts]]
 when = "# Curator message"
 reply = ["I told the Owner."]
@@ -522,6 +522,7 @@ func TestATellCuratorCallStartsACuratorWithTheRequestAndTheResultGoesToTheCoordi
 	server, _ := connect(t, testkit.NewFakeGitHub(t), requestScript)
 
 	sendChat(t, server, coordinatorChat, "Remember the format rule.")
+	approveNext(t, server, 1)
 
 	curator := testkit.WaitForValue(t, func() (store.Session, bool) {
 		sessions := curatorSessions(t, server)
@@ -693,7 +694,7 @@ func TestThePromptOfTheCuratorCutsALongTextAndLeavesOutTheOldestItems(t *testing
 
 func TestTellCuratorRefusesABadInput(t *testing.T) {
 	t.Parallel()
-	server, _ := connect(t, testkit.NewFakeGitHub(t), `
+	server, _ := connect(t, testkit.NewFakeGitHub(t), approvalSeen+`
 [[prompts]]
 when = "1. "
 call = { tool = "tell_curator", arguments = { repository = "owner/shop", text = "Add the lesson." } }
@@ -712,13 +713,21 @@ call = { tool = "tell_curator", arguments = { repository = "other/shop", text = 
 `)
 	chat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 
-	session := run(t, server, chat, "2. ", "3. ", "4. ")
+	var got []string
+	for _, prompt := range []string{"2. ", "3. ", "4. "} {
+		got = append(got, reply(t, server, run(t, server, chat, prompt)))
+	}
 
-	want := "error: text must not be empty." +
-		"error: The Mobius App has no access to owner/other." +
-		"error: The Mobius App has no access to other/shop."
-	if got := reply(t, server, session); got != want {
-		t.Errorf("reply of the Coordinator chat = %q, want %q", got, want)
+	want := []string{
+		"error: text must not be empty.",
+		"error: The Mobius App has no access to owner/other.",
+		"error: The Mobius App has no access to other/shop.",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("errors = %q, want %q", got, want)
+	}
+	if actions := actionRows(t, server); len(actions) != 0 {
+		t.Errorf("actions = %+v", actions)
 	}
 	if sessions := curatorSessions(t, server); len(sessions) != 0 {
 		t.Errorf("Curators = %+v", sessions)
@@ -727,7 +736,7 @@ call = { tool = "tell_curator", arguments = { repository = "other/shop", text = 
 
 func TestTwoRequestsDuringACuratorSessionGoToOneMoreCurator(t *testing.T) {
 	t.Parallel()
-	script := `
+	script := approvalSeen + `
 [[prompts]]
 when = "# Curator message"
 reply = ["I told the Owner."]
@@ -736,14 +745,17 @@ reply = ["I told the Owner."]
 when = "You are a Curator"
 reply = ["The memory file is up to date."]
 ` +
-		call("tell_curator", `{ repository = "owner/shop", text = "First request." }`) +
-		call("tell_curator", `{ repository = "owner/shop", text = "Second request." }`) +
-		call("tell_curator", `{ repository = "owner/shop", text = "Third request." }`)
+		"[[prompts]]\nwhen = \"1. \"\ncall = { tool = \"tell_curator\", arguments = { repository = \"owner/shop\", text = \"First request.\" } }\n\n" +
+		"[[prompts]]\nwhen = \"2. \"\ncall = { tool = \"tell_curator\", arguments = { repository = \"owner/shop\", text = \"Second request.\" } }\n\n" +
+		"[[prompts]]\nwhen = \"3. \"\ncall = { tool = \"tell_curator\", arguments = { repository = \"owner/shop\", text = \"Third request.\" } }\n"
 	server, _ := connectWith(t, testkit.NewFakeGitHub(t), script, func(cfg *config.Config) { cfg.Roles.Curator.Max = 1 })
 	holder := start(t, server, roleSpec(t, engine.CuratorRole))
 	chat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 
-	run(t, server, chat, "1. ", "2. ", "3. ")
+	for i, prompt := range []string{"1. ", "2. ", "3. "} {
+		run(t, server, chat, prompt)
+		approveNext(t, server, i+1)
+	}
 
 	end(t, holder, "done")
 	sessions := testkit.WaitForValue(t, func() ([]store.Session, bool) {
@@ -803,13 +815,14 @@ func TestARestartStartsACuratorForTheRequestsThatWaitAndTheResultGoesToTheCoordi
 
 func TestACuratorThatFailsToGetASlotSendsTheFailureToTheCoordinatorChat(t *testing.T) {
 	t.Parallel()
-	server, _ := connectWith(t, testkit.NewFakeGitHub(t), requestReplies+call("tell_curator", `{ repository = "owner/shop", text = "Add the lesson." }`), func(cfg *config.Config) {
+	server, _ := connectWith(t, testkit.NewFakeGitHub(t), approvalSeen+requestReplies+call("tell_curator", `{ repository = "owner/shop", text = "Add the lesson." }`), func(cfg *config.Config) {
 		seed(t, cfg.DataDir, `CREATE TRIGGER no_start BEFORE UPDATE OF started_at ON sessions WHEN NEW.role = 'curator'
 			BEGIN SELECT RAISE(ABORT, 'no start'); END`)
 	})
 	chat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
 
 	run(t, server, chat, "Remember the format rule.")
+	approveNext(t, server, 1)
 
 	testkit.WaitFor(t, func() bool {
 		for _, session := range chatSessions(t, server, coordinatorChat, engine.CoordinatorRole) {

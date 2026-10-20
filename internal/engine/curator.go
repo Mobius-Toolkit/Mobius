@@ -88,18 +88,25 @@ func (e *Engine) startCurator(ctx context.Context, repository string) error {
 	return e.startCuratorLocked(ctx, repository)
 }
 
-// tellCurator saves the request of the Owner and gives it to a Curator of the repository of the input. While a Curator
-// of the repository runs, the request waits for the next Curator. The result goes to the Coordinator chat.
-func (e *Engine) tellCurator(ctx context.Context, c caller, _ github.Repository, input tellCuratorInput) (string, error) {
+func (e *Engine) checkTellCurator(c caller, input tellCuratorInput) error {
 	if empty(input.Text) {
-		return "", refuse("text must not be empty.")
+		return refuse("text must not be empty.")
 	}
 	repository, err := e.repository(input.Repository)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if repository.Owner() != c.organization {
-		return "", refuse("%s is not in the organization %s.", input.Repository, c.organization)
+		return refuse("%s is not in the organization %s.", input.Repository, c.organization)
+	}
+	return nil
+}
+
+// tellCurator saves the request of the Owner and gives it to a Curator of the repository of the input. While a Curator
+// of the repository runs, the request waits for the next Curator. The result goes to the Coordinator chat.
+func (e *Engine) tellCurator(ctx context.Context, c caller, _ github.Repository, input tellCuratorInput) (string, error) {
+	if err := e.checkTellCurator(c, input); err != nil {
+		return "", err
 	}
 	e.curatorsMu.Lock()
 	defer e.curatorsMu.Unlock()

@@ -146,6 +146,7 @@ type PendingAction struct {
 	DecidedAt    sql.NullString
 	ChatMessage  sql.NullInt64
 	InboxItem    sql.NullInt64
+	CreatedIssue sql.NullInt64
 }
 
 type Session struct {

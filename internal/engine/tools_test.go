@@ -517,19 +517,20 @@ func TestReplyThreadRepliesInAReviewThreadAndResolvesIt(t *testing.T) {
 func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
-	coordinatorChat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
+	server, _ := connect(t, fake, approvalSeen+call("create_workstream", `{ title = "Billing", brief = "Bill the plans." }`))
 
 	leadSession := run(t, server, leadSpec(t), "Create it.")
-	chat := run(t, server, coordinatorChat, "Create it.")
+	chat := run(t, server, coordinatorSpec(t), "Create it.")
+	done := approveNext(t, server, 1)
 
-	for session, want := range map[int64]string{
-		leadSession: "Created the Workstream #13.",
-		chat:        "Created the Workstream #14.",
-	} {
-		if got := reply(t, server, session); got != want {
-			t.Errorf("reply = %q, want %q", got, want)
-		}
+	if got := reply(t, server, leadSession); got != "Created the Workstream #13." {
+		t.Errorf("reply = %q", got)
+	}
+	if got := reply(t, server, chat); got != actionWaits {
+		t.Errorf("reply = %q", got)
+	}
+	if done.State != "done" || done.Result != "Created the Workstream #14." {
+		t.Errorf("action = %+v", done)
 	}
 	for _, number := range []int64{13, 14} {
 		title, body := fake.Issue(shop, number)
@@ -555,19 +556,22 @@ func TestCreateWorkstreamGivesTheNumberOfTheIssueWhenTheLabelAddFails(t *testing
 func TestCreateWorkstreamAddsTheLabelsOfTheCoordinatorChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake,
-		call("create_workstream", `{ title = "Upkeep", brief = "Keep the code healthy.", labels = ["mobius:maintenance"] }`)+
-			call("create_workstream", `{ title = "Ops", brief = "Run the shop.", labels = ["mobius:evergreen", "mobius:ready"] }`)+
-			call("create_workstream", `{ title = "Plain", brief = "No extra label.", labels = [] }`))
-	coordinatorChat := engine.Spec{Role: engine.CoordinatorRole, Organization: "owner", Dir: t.TempDir()}
+	server, _ := connect(t, fake, approvalSeen+
+		"[[prompts]]\nwhen = \"1. \"\ncall = { tool = \"create_workstream\", arguments = { title = \"Upkeep\", brief = \"Keep the code healthy.\", labels = [\"mobius:maintenance\"] } }\n\n"+
+		"[[prompts]]\nwhen = \"2. \"\ncall = { tool = \"create_workstream\", arguments = { title = \"Ops\", brief = \"Run the shop.\", labels = [\"mobius:evergreen\", \"mobius:ready\"] } }\n\n"+
+		"[[prompts]]\nwhen = \"3. \"\ncall = { tool = \"create_workstream\", arguments = { title = \"Plain\", brief = \"No extra label.\", labels = [] } }\n")
 
-	session := run(t, server, coordinatorChat, "1. ", "2. ", "3. ")
+	run(t, server, coordinatorSpec(t), "1. ")
+	created := approveNext(t, server, 1)
+	refused := run(t, server, coordinatorSpec(t), "2. ")
+	run(t, server, coordinatorSpec(t), "3. ")
+	plain := approveNext(t, server, 2)
 
-	want := "Created the Workstream #13." +
-		`error: The label "mobius:ready" is not allowed. Use mobius:evergreen or mobius:maintenance.` +
-		"Created the Workstream #14."
-	if got := reply(t, server, session); got != want {
-		t.Errorf("reply = %q, want %q", got, want)
+	if created.Result != "Created the Workstream #13." || plain.Result != "Created the Workstream #14." {
+		t.Errorf("actions = %+v, %+v", created, plain)
+	}
+	if got := reply(t, server, refused); got != `error: The label "mobius:ready" is not allowed. Use mobius:evergreen or mobius:maintenance.` {
+		t.Errorf("reply = %q", got)
 	}
 	if labels := fake.Labels(shop, 13); !slices.Contains(labels, "mobius:maintenance") || slices.Contains(labels, "mobius:ready") {
 		t.Errorf("labels of #13 = %v", labels)
