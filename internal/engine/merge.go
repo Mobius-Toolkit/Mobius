@@ -16,8 +16,9 @@ import (
 // keepApproval keeps the id of the newest APPROVED review of a trusted user that GitHub submitted after the kept
 // approval. The list of reviews is in the order of the start of each review, so the submit time decides which review is
 // newer. A dismissal of the kept approval cancels it: the task keeps the id and the approval counts as
-// refused, so a dismissal never brings back an older approval. A dismissal of another review does not change the kept
-// approval. It gives the task with the new approval.
+// refused, so a dismissal never brings back an older approval. It also gives each open ready for review Inbox item of
+// the issue the reason, and ends its merging state. A dismissal of another review does not change the kept approval.
+// It gives the task with the new approval.
 func (e *Engine) keepApproval(ctx context.Context, repository github.Repository, task store.Task) (store.Task, error) {
 	reviews := e.pull(repository, task.PullRequest.Int64).Reviews
 	kept := slices.IndexFunc(reviews, func(review github.Review) bool { return review.ID == task.ApprovedReview.String })
@@ -38,6 +39,10 @@ func (e *Engine) keepApproval(ctx context.Context, repository github.Repository,
 		return task, e.queries.SetTaskApprovedReview(ctx, store.SetTaskApprovedReviewParams{ApprovedReview: approved, ID: task.ID})
 	}
 	if kept >= 0 && reviews[kept].State == "DISMISSED" && task.RefusedReview != approved {
+		reason := fmt.Sprintf("A person dismissed the approval of pull request #%d on GitHub.", task.PullRequest.Int64)
+		if err := e.refuseMergeItem(ctx, task, reason); err != nil {
+			return task, err
+		}
 		task.RefusedReview = approved
 		return task, e.queries.SetTaskRefusedReview(ctx, store.SetTaskRefusedReviewParams{RefusedReview: approved, ID: task.ID})
 	}
@@ -53,9 +58,9 @@ func awaitsMerge(task store.Task) bool {
 // head commit passes these conditions: the pull request is not a draft and has no merge conflict, it has no open review
 // thread, and each check run of the head completed and passed, with the Mobius check among them. It reads the check
 // runs only when the other conditions are true, and it reads the review threads again before the merge. It gives true
-// when GitHub merged the pull request. When GitHub refuses the merge, the open ready for review Inbox item of the issue
-// gets the reason and the Lead gets an event, and the poll does not try again until a new APPROVED review. A refusal
-// for a pull request that a person merged in the meantime is no refusal: the next read of the pull request goes to
+// when GitHub merged the pull request, and then it dismisses the open ready for review Inbox items of the issue. When
+// GitHub refuses the merge, the open ready for review Inbox item of the issue gets the reason and the Lead gets an
+// event, and the poll does not try again until a new APPROVED review. A refusal for a pull request that a person merged in the meantime is no refusal: the next read of the pull request goes to
 // GitHub, and the poll ends the task.
 func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository, task store.Task, pullRequest *gh.PullRequest) (bool, error) {
 	number := int64(pullRequest.GetNumber())
@@ -77,8 +82,14 @@ func (e *Engine) mergeApproved(ctx context.Context, repository github.Repository
 		return false, err
 	}
 	merged, reason, err := repository.MergePullRequest(ctx, number, head)
-	if err != nil || merged || reason == "" {
-		return merged, err
+	if err != nil {
+		return false, err
+	}
+	if merged {
+		return true, e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind)
+	}
+	if reason == "" {
+		return false, nil
 	}
 	current, err := repository.PullRequest(ctx, number)
 	if err != nil {

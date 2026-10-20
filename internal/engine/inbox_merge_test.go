@@ -223,3 +223,52 @@ func TestAPersonWhoMergesDuringTheMergeOfMobiusCausesNoRefusalAndTheTaskEnds(t *
 		t.Errorf("refusal = %q, refused review = %q, events = %d", refusal, refusedReview(t, server), countLeadEvents(t, server, "merge_refused"))
 	}
 }
+
+func TestADismissedApprovalOfTheMergeRouteGivesTheItemTheReasonAndKeepsThePullRequestOpen(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, item := readyToMerge(t, fake, "")
+	fake.AddCheckRun(shop, checkRun("CI", head(t, fake, "mobius/41"), "in_progress", ""))
+
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	testkit.WaitFor(t, func() bool { return approvedReview(t, server) != "" })
+	reviews := fake.ReviewIDs(shop, 42)
+	fake.DismissReview(shop, 42, reviews[len(reviews)-1])
+
+	testkit.WaitFor(t, func() bool { return refusedReview(t, server) != "" })
+	reason := "A person dismissed the approval of pull request #42 on GitHub."
+	found := itemsOf(t, server, "ready for review")
+	if len(found) != 1 || found[0].Merging || found[0].MergeRefusal != reason {
+		t.Errorf("items = %+v", found)
+	}
+	if state, _ := fake.State(shop, 42); state != "open" {
+		t.Errorf("state of #42 = %s", state)
+	}
+	if calls := fake.MergeCalls(); calls != 0 {
+		t.Errorf("merge calls = %d", calls)
+	}
+}
+
+func TestTheMergeOfMobiusDismissesTheItemBeforeThePollEndsTheTask(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, item := readyToMerge(t, fake, "")
+	reached, release := fake.HoldMerge(shop, 42)
+
+	if status, body := merge(t, server, item.ID); status != http.StatusOK {
+		t.Fatalf("status = %d: %s", status, body)
+	}
+	<-reached
+	fake.FailIssueReads(shop, 41, 1000)
+	release()
+
+	testkit.WaitFor(t, func() bool { return len(itemsOf(t, server, "ready for review")) == 0 })
+	if state := taskState(t, server); state != "ready_for_review" {
+		t.Errorf("task state = %q", state)
+	}
+	if calls := fake.MergeCalls(); calls != 1 {
+		t.Errorf("merge calls = %d", calls)
+	}
+}

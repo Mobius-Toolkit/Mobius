@@ -143,6 +143,17 @@ func (g *FakeGitHub) SubmittedReviews(repository string, number int64) []Submitt
 	return append([]SubmittedReview{}, g.issues[issueKey{repository, number}].submittedReviews...)
 }
 
+// ReviewIDs gives the ids of the reviews of the pull request, the oldest first.
+func (g *FakeGitHub) ReviewIDs(repository string, number int64) []int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	var ids []int64
+	for _, review := range g.issues[issueKey{repository, number}].reviews {
+		ids = append(ids, review.ID)
+	}
+	return ids
+}
+
 // ReviewThread gives the review thread of the pull request that starts with the comment root.
 func (g *FakeGitHub) ReviewThread(repository string, number, root int64) Thread {
 	g.mu.Lock()

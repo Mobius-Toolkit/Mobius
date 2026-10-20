@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/github");
@@ -367,11 +367,64 @@ test("Merge is the primary button of a ready for review item and shows Merging a
   await expect.poll(() => merged).toEqual(["/api/inbox/4/merge"]);
 });
 
-test("an item that is merging shows Merging after a reload", async ({ page }) => {
+test("an item that is merging is not in the To do list and not in the counts after a load", async ({
+  page,
+}) => {
   await routeInbox(page, [{ ...readyItem, merging: true, mergeRefusal: "" }]);
   await page.goto("/inbox");
+  const main = page.getByRole("main");
 
-  await expect(page.getByRole("main").getByRole("button", { name: "Merging" })).toBeDisabled();
+  await expect(main.getByRole("tab", { name: "To do", exact: true })).toBeVisible();
+  await expect(main.getByRole("listitem")).toHaveCount(0);
+  await expect(main.getByRole("button", { name: "Merging" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Inbox" }).filter({ visible: true })).toHaveText(
+    /^Inbox$/,
+  );
+});
+
+async function reconnect(page: Page, context: BrowserContext) {
+  await context.setOffline(true);
+  await expect(page.getByRole("status")).toHaveText("Offline");
+  const reopened = page.waitForResponse("/api/events");
+  await context.setOffline(false);
+  await reopened;
+}
+
+test("a merging item leaves the To do list and the counts, and comes back with the reason of the refusal", async ({
+  page,
+  context,
+}) => {
+  let current = { ...readyItem, merging: false, mergeRefusal: "" };
+  await page.route("**/api/inbox", (route) => route.fulfill({ json: { data: [current] } }));
+  await page.route("**/api/inbox/*/merge", (route) =>
+    route.fulfill({ json: { data: { ...readyItem, merging: true, mergeRefusal: "" } } }),
+  );
+  await page.goto("/inbox");
+  const main = page.getByRole("main");
+  const row = main.getByRole("listitem");
+  const badge = page.getByRole("link", { name: "Inbox" }).filter({ visible: true });
+
+  await expect(row).toHaveCount(1);
+  await expect(main.getByRole("tab", { name: "To do 1" })).toBeVisible();
+  await expect(badge).toHaveText(/^Inbox\s*1$/);
+
+  await row.getByRole("button", { name: "Merge" }).click();
+  await expect(row.getByRole("button", { name: "Merging" })).toBeDisabled();
+  current = { ...readyItem, merging: true, mergeRefusal: "" };
+  await reconnect(page, context);
+
+  await expect(row).toHaveCount(0);
+  await expect(main.getByRole("tab", { name: "To do", exact: true })).toBeVisible();
+  await expect(badge).toHaveText(/^Inbox$/);
+
+  const refusal = "Pull request #44 has an open review thread.";
+  current = { ...readyItem, merging: false, mergeRefusal: refusal };
+  await reconnect(page, context);
+
+  await expect(row.getByText(refusal)).toBeVisible();
+  await expect(row.getByRole("button", { name: "Merge" })).toBeEnabled();
+  await expect(main.getByRole("tab", { name: "To do 1" })).toBeVisible();
+  await expect(badge).toHaveText(/^Inbox\s*1$/);
 });
 
 test("the row shows the refusal of GitHub, and Merge works again", async ({ page }) => {

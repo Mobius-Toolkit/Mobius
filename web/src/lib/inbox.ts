@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { listInbox, type LiveEvents } from "@/api/api.gen";
 import type { ActionItem } from "./actions";
 import { onEvent } from "./events";
@@ -34,7 +34,10 @@ export function useInbox(source?: EventSource) {
     };
   }, [source]);
 
+  // A merging item waits for the answer of GitHub. It comes back with its reason when GitHub refuses the merge.
+  const open = useMemo(() => items.filter((item) => !item.merging), [items]);
+
   const leave = (id: number) => setItems((list) => list.filter((item) => item.id !== id));
 
-  return { items, leave };
+  return { items: open, leave };
 }
