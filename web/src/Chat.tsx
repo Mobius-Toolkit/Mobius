@@ -1,12 +1,12 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { completeWorkstream, setAutopilot, type Workstream } from "@/api/api.gen";
+import { completeWorkstream, setAutopilot, type InboxItem, type Workstream } from "@/api/api.gen";
 import { ErrorBadge, List } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import type { ActionItem, Approval } from "@/lib/actions";
+import type { Approval } from "@/lib/actions";
 import type { Workstreams } from "@/lib/workstreams";
 import { AgentPanel } from "./AgentPanel";
 import { Conversation } from "./Conversation";
@@ -17,7 +17,7 @@ function WorkstreamInbox({
   items,
   workstreams,
 }: {
-  items: ActionItem[];
+  items: InboxItem[];
   workstreams?: Workstream[];
 }) {
   const [error, setError] = useState("");
@@ -49,7 +49,7 @@ export function Chat({
   name: string;
   number: number;
   workstreams: Workstreams;
-  inbox: ActionItem[];
+  inbox: InboxItem[];
   unread?: number;
   source?: EventSource;
 }) {

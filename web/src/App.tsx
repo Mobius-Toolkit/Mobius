@@ -71,7 +71,7 @@ function App() {
   const showLogin = useCallback(() => setLoginShown(true), []);
   const workstreams = useWorkstreams(showLogin, source);
   const unread = useUnread(source);
-  const { items: inbox, leave: leaveInbox } = useInbox(source);
+  const { items: inbox, leave: leaveInbox, updateAction } = useInbox(source);
   const pauses = usePauses(source);
   const ciStops = useCIStops(source);
 
@@ -281,6 +281,7 @@ function App() {
             unread,
             inbox,
             leaveInbox,
+            updateAction,
             activities,
           }}
         >
