@@ -363,3 +363,23 @@ func TestASecondCallOfMessageLeadReplacesTheWaitingActionAndDismissesItsItem(t *
 		t.Errorf("events = %v", events)
 	}
 }
+
+func TestACallWithNoSingleRepositoryInTheOrganizationStoresNoAction(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository("owner/other")
+	server, _ := connect(t, fake, callMessageLead("Send.", 12, "Create the task issues.")+seenScript)
+
+	session := run(t, server, coordinatorSpec(t), "Send.")
+
+	calls := mcpCalls(t, server, session)
+	if len(calls) != 1 || calls[0]["error"] != "The Coordinator chat needs exactly one repository in owner." {
+		t.Errorf("calls = %v", calls)
+	}
+	if got := actionRows(t, server); len(got) != 0 {
+		t.Errorf("rows = %+v", got)
+	}
+	if items := itemsOf(t, server, "approval"); len(items) != 0 {
+		t.Errorf("items = %+v", items)
+	}
+}

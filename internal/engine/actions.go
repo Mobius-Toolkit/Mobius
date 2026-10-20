@@ -44,9 +44,13 @@ func approvedTool[In any](e *Engine, c caller, name, description string, propert
 			}
 			c.agent.touch()
 			var text string
-			input, err := decode[In](name, arguments)
+			_, err := e.callerRepository(c)
 			if err == nil {
-				text, err = e.holdAction(ctx, c, name, title(input), arguments)
+				var input In
+				input, err = decode[In](name, arguments)
+				if err == nil {
+					text, err = e.holdAction(ctx, c, name, title(input), arguments)
+				}
 			}
 			if recordErr := e.recordCall(ctx, c.session, name, arguments, text, err); recordErr != nil {
 				return "", recordErr
