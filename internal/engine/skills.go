@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 )
@@ -19,10 +20,18 @@ func (a *Agent) copySkills(ctx context.Context) error {
 	folder := a.harness.SkillDirectory()
 	_, err := os.Stat(filepath.Join(a.spec.Dir, ".git"))
 	worktree := err == nil
-	if !worktree {
-		if err := os.RemoveAll(filepath.Join(a.spec.Dir, folder)); err != nil {
+	if worktree {
+		earlier, err := runner.Excluded(ctx, e.config.DataDir, a.spec.Dir)
+		if err != nil {
 			return err
 		}
+		for _, pattern := range earlier {
+			if err := os.RemoveAll(filepath.Join(a.spec.Dir, strings.Trim(pattern, "/"))); err != nil {
+				return err
+			}
+		}
+	} else if err := os.RemoveAll(filepath.Join(a.spec.Dir, folder)); err != nil {
+		return err
 	}
 	repository, ok := e.github.SkillRepository(a.spec.Organization)
 	if !ok {

@@ -169,16 +169,45 @@ func Export(ctx context.Context, dataDir, repository, branch, dir string, paths 
 // ExcludeFromStatus makes git status and git add -A of the worktree ignore patterns, which are in the format of a
 // .gitignore file. It sets core.excludesFile of the worktree to a file in its git directory.
 func ExcludeFromStatus(ctx context.Context, dataDir, worktree string, patterns []string) error {
-	gitDir, err := run(git(ctx, dataDir, worktree, "", "rev-parse", "--absolute-git-dir"))
+	file, err := excludeFile(ctx, dataDir, worktree)
 	if err != nil {
 		return err
 	}
-	file := filepath.Join(gitDir, "mobius-exclude")
 	if err := os.WriteFile(file, []byte(strings.Join(patterns, "\n")+"\n"), 0o600); err != nil {
 		return err
 	}
 	_, err = run(git(ctx, dataDir, worktree, "", "config", "--worktree", "core.excludesFile", file))
 	return err
+}
+
+// Excluded gives the patterns that ExcludeFromStatus wrote for the worktree, or none when it wrote nothing.
+func Excluded(ctx context.Context, dataDir, worktree string) ([]string, error) {
+	file, err := excludeFile(ctx, dataDir, worktree)
+	if err != nil {
+		return nil, err
+	}
+	content, err := os.ReadFile(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var patterns []string
+	for line := range strings.SplitSeq(string(content), "\n") {
+		if line != "" {
+			patterns = append(patterns, line)
+		}
+	}
+	return patterns, nil
+}
+
+func excludeFile(ctx context.Context, dataDir, worktree string) (string, error) {
+	gitDir, err := run(git(ctx, dataDir, worktree, "", "rev-parse", "--absolute-git-dir"))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(gitDir, "mobius-exclude"), nil
 }
 
 // TaskDir gives the worktree of the task of the issue number of repository below dataDir.

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/runner"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 )
@@ -118,5 +119,30 @@ func TestASessionStartsWhenTheFirstFetchOfTheSkillRepositoryFails(t *testing.T) 
 
 	if !strings.Contains(text, "started") {
 		t.Errorf("reply = %q", text)
+	}
+}
+
+func TestALaterSessionInTheSameWorktreeGetsAFreshCopyOfTheSkills(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "probe/SKILL.md", "Probe the price in cents.", "Add probe")
+	implementer := "[[prompts]]\nwhen = \"Inspect the skills\"\nshell = \"cat .agents/skills/probe/SKILL.md .agents/skills/review/SKILL.md\"\n\n" +
+		"[[prompts]]\nshell = \"echo changed >> .agents/skills/probe/SKILL.md && echo cents > plan.txt && git add -A && git commit -q -m 'Add plan model'\"\n"
+	server, dataDir := connectTask(t, fake, leadStarts, implementer, noChange)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	endedImplementers(t, server, 1)
+	fake.CommitFile(skills, "probe/SKILL.md", "Probe the price in dollars.", "Change probe")
+	fake.CommitFile(skills, "review/SKILL.md", "Review the price.", "Add review")
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
+	spec := engine.Spec{Role: engine.ImplementerRole, Organization: "owner", Repository: shop, Workstream: 12, Dir: worktree}
+
+	text := reply(t, server, run(t, server, spec, "Inspect the skills"))
+
+	if want := "Probe the price in dollars.Review the price."; !strings.Contains(text, want) || strings.Contains(text, "changed") {
+		t.Errorf("reply = %q, want %q", text, want)
+	}
+	if found, err := runner.HasUncommittedChanges(context.Background(), dataDir, worktree); err != nil || found {
+		t.Errorf("uncommitted changes = %v, %v", found, err)
 	}
 }
