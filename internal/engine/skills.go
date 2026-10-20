@@ -1,0 +1,59 @@
+package engine
+
+import (
+	"context"
+	"errors"
+	"io/fs"
+	"log"
+	"os"
+	"path"
+	"path/filepath"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/runner"
+)
+
+// copySkills writes the skills of the default branch of the skill repository of the organization of a into the skill
+// folder of the Harness in the directory of a. A skill that is only on another branch never reaches the session.
+func (a *Agent) copySkills(ctx context.Context) error {
+	e := a.engine
+	folder := a.harness.SkillDirectory()
+	_, err := os.Stat(filepath.Join(a.spec.Dir, ".git"))
+	worktree := err == nil
+	if !worktree {
+		if err := os.RemoveAll(filepath.Join(a.spec.Dir, folder)); err != nil {
+			return err
+		}
+	}
+	repository, ok := e.github.SkillRepository(a.spec.Organization)
+	if !ok {
+		return nil
+	}
+	if err := e.fetchRepository(ctx, repository); err != nil {
+		log.Printf("fetch of %s for the session %d failed, use the last fetch: %v", repository.FullName, a.id, err)
+	}
+	e.gitMu.Lock()
+	defer e.gitMu.Unlock()
+	names, err := runner.SkillNames(ctx, e.config.DataDir, repository.FullName, repository.DefaultBranch)
+	if err != nil {
+		return err
+	}
+	var copied, excluded []string
+	for _, name := range names {
+		_, err := os.Stat(filepath.Join(a.spec.Dir, folder, name))
+		if worktree && !errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		copied = append(copied, name)
+		excluded = append(excluded, "/"+path.Join(folder, name)+"/")
+	}
+	if len(copied) == 0 {
+		return nil
+	}
+	if err := runner.Export(ctx, e.config.DataDir, repository.FullName, repository.DefaultBranch, filepath.Join(a.spec.Dir, folder), copied...); err != nil {
+		return err
+	}
+	if !worktree {
+		return nil
+	}
+	return runner.ExcludeFromStatus(ctx, e.config.DataDir, a.spec.Dir, excluded)
+}

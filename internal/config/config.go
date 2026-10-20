@@ -34,6 +34,14 @@ func (h Harness) HasEffortLevels() bool {
 	return h == ClaudeCode || h == Devin
 }
 
+// SkillDirectory gives the skill folder that the Harness loads from its working directory, relative to that directory.
+func (h Harness) SkillDirectory() string {
+	if h == ClaudeCode {
+		return ".claude/skills"
+	}
+	return ".agents/skills"
+}
+
 // Config is the content of config.toml.
 type Config struct {
 	AccessPassword      string        `toml:"access_password"`

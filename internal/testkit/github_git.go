@@ -37,6 +37,16 @@ func (g *FakeGitHub) addRemote(fullName string) {
 
 // CommitFile commits the file path with content on main of the repository fullName.
 func (g *FakeGitHub) CommitFile(fullName, path, content, message string) {
+	g.commitFile(fullName, "main", path, content, message)
+}
+
+// CommitFileOnBranch commits the file path with content on a new branch of the repository fullName that starts at
+// main, and pushes the branch.
+func (g *FakeGitHub) CommitFileOnBranch(fullName, branch, path, content, message string) {
+	g.commitFile(fullName, branch, path, content, message)
+}
+
+func (g *FakeGitHub) commitFile(fullName, branch, path, content, message string) {
 	work := g.t.TempDir()
 	g.git(work, "clone", "--branch=main", g.Remote(fullName), ".")
 	file := filepath.Join(work, path)
@@ -48,7 +58,7 @@ func (g *FakeGitHub) CommitFile(fullName, path, content, message string) {
 	}
 	g.git(work, "add", path)
 	g.git(work, "commit", "-m", message)
-	g.git(work, "push", "origin", "HEAD:refs/heads/main")
+	g.git(work, "push", "origin", "HEAD:refs/heads/"+branch)
 }
 
 // PushCommit pushes one new empty commit with message on top of main to branch of the repository fullName, as a

@@ -129,6 +129,58 @@ func Show(ctx context.Context, dataDir, repository, branch, path string) (string
 	return text, err == nil, err
 }
 
+// SkillNames gives the names of the top-level folders of origin/branch in the bare clone of repository below dataDir,
+// as the last Fetch got it, that have a SKILL.md file.
+func SkillNames(ctx context.Context, dataDir, repository, branch string) ([]string, error) {
+	files, err := run(git(ctx, dataDir, bareDir(dataDir, repository), "", "ls-tree", "-r", "--name-only", "origin/"+branch))
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for file := range strings.SplitSeq(files, "\n") {
+		if name, found := strings.CutSuffix(file, "/SKILL.md"); found && !strings.Contains(name, "/") {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
+// Export writes the paths of origin/branch in the bare clone of repository below dataDir, as the last Fetch got them,
+// into the directory dir. The files have no .git.
+func Export(ctx context.Context, dataDir, repository, branch, dir string, paths ...string) error {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	archive := git(ctx, dataDir, bareDir(dataDir, repository), "", append([]string{"archive", "--format=tar", "origin/" + branch, "--"}, paths...)...)
+	var tarball bytes.Buffer
+	archive.Stdout = &tarball
+	var stderr bytes.Buffer
+	archive.Stderr = &stderr
+	if err := archive.Run(); err != nil {
+		return fmt.Errorf("%s: %w: %s", strings.Join(archive.Args, " "), err, strings.TrimSpace(stderr.String()))
+	}
+	extract := exec.CommandContext(ctx, "tar", "-x")
+	extract.Dir = dir
+	extract.Stdin = &tarball
+	_, err := run(extract)
+	return err
+}
+
+// ExcludeFromStatus makes git status and git add -A of the worktree ignore patterns, which are in the format of a
+// .gitignore file. It sets core.excludesFile of the worktree to a file in its git directory.
+func ExcludeFromStatus(ctx context.Context, dataDir, worktree string, patterns []string) error {
+	gitDir, err := run(git(ctx, dataDir, worktree, "", "rev-parse", "--absolute-git-dir"))
+	if err != nil {
+		return err
+	}
+	file := filepath.Join(gitDir, "mobius-exclude")
+	if err := os.WriteFile(file, []byte(strings.Join(patterns, "\n")+"\n"), 0o600); err != nil {
+		return err
+	}
+	_, err = run(git(ctx, dataDir, worktree, "", "config", "--worktree", "core.excludesFile", file))
+	return err
+}
+
 // TaskDir gives the worktree of the task of the issue number of repository below dataDir.
 func TaskDir(dataDir, repository string, number int64) string {
 	return filepath.Join(dataDir, "worktrees", repository, "task-"+strconv.FormatInt(number, 10))

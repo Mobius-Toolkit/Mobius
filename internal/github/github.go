@@ -373,7 +373,7 @@ func (g *GitHub) Refresh(ctx context.Context) (bool, error) {
 		found, err := g.appRepositories(ctx, app)
 		if err != nil {
 			log.Printf("read the repositories of the GitHub App %s: %v", app.Slug, err)
-			found = slices.DeleteFunc(g.Repositories(), func(r Repository) bool { return r.AppID != app.AppID })
+			found = slices.DeleteFunc(g.installed(), func(r Repository) bool { return r.AppID != app.AppID })
 			complete = false
 		}
 		repositories = append(repositories, found...)
@@ -450,11 +450,33 @@ func (g *GitHub) AsOwner(ctx context.Context, repository Repository) (Repository
 	return repository, err
 }
 
-// Repositories gives the repositories of the last read.
-func (g *GitHub) Repositories() []Repository {
+// skillRepositoryName is the name of the skill repository of an organization.
+const skillRepositoryName = "mobius-skills"
+
+func isSkillRepository(r Repository) bool {
+	return r.Name() == skillRepositoryName
+}
+
+// installed gives all repositories of the last read, also the skill repositories.
+func (g *GitHub) installed() []Repository {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return slices.Clone(g.repositories)
+}
+
+// Repositories gives the repositories of the last read, except the skill repositories.
+func (g *GitHub) Repositories() []Repository {
+	return slices.DeleteFunc(g.installed(), isSkillRepository)
+}
+
+// SkillRepository gives the skill repository of organization, as the last read has it.
+func (g *GitHub) SkillRepository(organization string) (Repository, bool) {
+	for _, repository := range g.installed() {
+		if isSkillRepository(repository) && repository.Owner() == organization {
+			return repository, true
+		}
+	}
+	return Repository{}, false
 }
 
 // Organizations gives the owners of the repositories, sorted, each one time.
