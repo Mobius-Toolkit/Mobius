@@ -478,6 +478,7 @@ func TestServer(t *testing.T) {
 				Repository:   key.Repository,
 				Workstream:   key.Workstream,
 				Author:       "Lead",
+				InboxItems:   "[]",
 				Time:         time.Now().UTC().Format(time.RFC3339Nano),
 				Text:         fmt.Sprintf("Note %d of #%d. %s", n, number, strings.Repeat("word ", 100)),
 			})
@@ -499,6 +500,7 @@ func TestServer(t *testing.T) {
 			Repository:   seeds.Repository,
 			Workstream:   seeds.Workstream,
 			Author:       "Lead",
+			InboxItems:   "[]",
 			Time:         time.Now().UTC().Format(time.RFC3339Nano),
 			Text:         text + " " + strings.Repeat("word ", 100),
 		})
@@ -537,6 +539,7 @@ func TestServer(t *testing.T) {
 			Repository:   "plants/garden",
 			Workstream:   25,
 			Author:       "Event",
+			InboxItems:   "[]",
 			Time:         time.Now().UTC().Format(time.RFC3339Nano),
 			Text:         text,
 		})
@@ -556,6 +559,7 @@ func TestServer(t *testing.T) {
 			Repository:   "plants/garden",
 			Workstream:   25,
 			Author:       "Owner",
+			InboxItems:   "[]",
 			Time:         time.Now().UTC().Format(time.RFC3339Nano),
 			Text:         message.text,
 		})
