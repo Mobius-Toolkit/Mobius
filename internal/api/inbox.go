@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -54,8 +55,28 @@ type InboxItem struct {
 	Merging bool `gork:"merging"`
 	// MergeRefusal is the reason of the last refusal of GitHub to merge the pull request, or empty
 	MergeRefusal string `gork:"mergeRefusal"`
+	// Questions are the questions with options of a question item, or an empty list
+	Questions []Question `gork:"questions"`
 	// Action is the action of an approval item, or null for another item
 	Action *PendingAction `gork:"action"`
+}
+
+// Question is a question of the Lead with its options.
+type Question struct {
+	// Text is the question
+	Text string `gork:"text"`
+	// Multiple is true when the Owner can select more than one option
+	Multiple bool `gork:"multiple"`
+	// Options are the options of the question
+	Options []QuestionOption `gork:"options"`
+}
+
+// QuestionOption is an option of a Question.
+type QuestionOption struct {
+	// Title is the short answer
+	Title string `gork:"title"`
+	// Details is the explanation of the option, or empty
+	Details string `gork:"details"`
 }
 
 // ListInboxRequest is the request of ListInbox.
@@ -219,6 +240,20 @@ func (h *handlers) inboxItemOf(ctx context.Context, item store.InboxItem) (Inbox
 		Time:         t,
 		Merging:      item.Merging != 0,
 		MergeRefusal: item.MergeRefusal,
+		Questions:    []Question{},
+	}
+	if item.Questions != "" {
+		var questions []engine.Question
+		if err := json.Unmarshal([]byte(item.Questions), &questions); err != nil {
+			return InboxItem{}, err
+		}
+		for _, question := range questions {
+			options := make([]QuestionOption, 0, len(question.Options))
+			for _, option := range question.Options {
+				options = append(options, QuestionOption{Title: option.Title, Details: option.Details})
+			}
+			found.Questions = append(found.Questions, Question{Text: question.Text, Multiple: question.Multiple, Options: options})
+		}
 	}
 	if item.PullRequest != 0 {
 		// The web URL of a pull request differs from the web URL of its issue only in the path.
