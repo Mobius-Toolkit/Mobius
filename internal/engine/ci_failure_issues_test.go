@@ -55,9 +55,9 @@ func TestTheSameTestInTwoPullRequestsGivesOneIssueBelowTheMaintenanceWorkstream(
 	if labels := fake.Labels(shop, number); slices.Contains(labels, "mobius:ready") || slices.Contains(labels, "mobius:triage") {
 		t.Errorf("labels = %v", labels)
 	}
-	if n := rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)); n != 1 {
-		t.Errorf("records with the issue = %d", n)
-	}
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", number)) == 1
+	})
 }
 
 func TestAThirdFailureOfTheSameTestGivesNoSecondIssue(t *testing.T) {
