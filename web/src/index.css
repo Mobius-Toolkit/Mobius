@@ -133,7 +133,7 @@
 
 @layer base {
   @supports (font: -apple-system-body) and (-webkit-touch-callout: none) {
-    :has(> .chat-text) {
+    :has(> .chat-text, > .chat-text\!) {
       font: -apple-system-body;
       font-family: var(--font-sans);
       line-height: calc(1.25 / 0.875);
