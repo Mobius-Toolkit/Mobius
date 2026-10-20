@@ -206,3 +206,34 @@ func TestALaterSessionWithNoSkillsDoesNotHideTheSkillFolderOfTheBranch(t *testin
 		t.Errorf("status = %q", got)
 	}
 }
+
+// Serial: the test sets XDG_CONFIG_HOME for the git of the whole process.
+func TestAFileThatTheUserIgnoreFileExcludesStaysExcludedInAWorktreeWithCopiedSkills(t *testing.T) {
+	config := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(config, "git"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(config, "git", "ignore"), []byte("*.scratch"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", config)
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository(skills)
+	fake.CommitFile(skills, "probe/SKILL.md", "Probe the price in cents.", "Add probe")
+	implementer := "[[prompts]]\nshell = \"echo notes > plan.scratch && echo cents > plan.txt && git add -A && git commit -q -m 'Add plan model' && git ls-files\"\n"
+	server, dataDir := connectTask(t, fake, leadStarts, implementer, noChange)
+
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	session := endedImplementers(t, server, 1)[0]
+
+	if text := reply(t, server, session.ID); strings.Contains(text, "plan.scratch") {
+		t.Errorf("reply = %q", text)
+	}
+	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
+	if _, err := os.Stat(filepath.Join(worktree, "plan.scratch")); err != nil {
+		t.Error(err)
+	}
+	if found, err := runner.HasUncommittedChanges(context.Background(), dataDir, worktree); err != nil || found {
+		t.Errorf("uncommitted changes = %v, %v", found, err)
+	}
+}

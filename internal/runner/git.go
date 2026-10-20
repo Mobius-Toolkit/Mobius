@@ -167,26 +167,44 @@ func Export(ctx context.Context, dataDir, repository, branch, dir string, paths 
 }
 
 // ExcludeFromStatus makes git status and git add -A of the worktree ignore patterns, which are in the format of a
-// .gitignore file. It sets core.excludesFile of the worktree to a file in its git directory.
+// .gitignore file. It sets core.excludesFile of the worktree to a file in its git directory. That key replaces the
+// default user ignore file of git, so the file also has the lines of that file.
 func ExcludeFromStatus(ctx context.Context, dataDir, worktree string, patterns []string) error {
-	file, err := excludeFile(ctx, dataDir, worktree)
+	gitDir, err := absoluteGitDir(ctx, dataDir, worktree)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(file, []byte(strings.Join(patterns, "\n")+"\n"), 0o600); err != nil {
+	user, err := os.ReadFile(filepath.Clean(userIgnoreFile()))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	list := strings.Join(patterns, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(gitDir, "mobius-copies"), []byte(list), 0o600); err != nil {
+		return err
+	}
+	file := filepath.Join(gitDir, "mobius-exclude")
+	if err := os.WriteFile(file, append(bytes.TrimRight(user, "\n"), []byte("\n"+list)...), 0o600); err != nil {
 		return err
 	}
 	_, err = run(git(ctx, dataDir, worktree, "", "config", "--worktree", "core.excludesFile", file))
 	return err
 }
 
-// Excluded gives the patterns that ExcludeFromStatus wrote for the worktree, or none when it wrote nothing.
+// userIgnoreFile gives the file that git reads for the ignored files of the user when core.excludesFile is not set.
+func userIgnoreFile() string {
+	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+		return filepath.Join(dir, "git", "ignore")
+	}
+	return filepath.Join(os.Getenv("HOME"), ".config", "git", "ignore")
+}
+
+// Excluded gives the patterns that ExcludeFromStatus got for the worktree, or none when it got nothing.
 func Excluded(ctx context.Context, dataDir, worktree string) ([]string, error) {
-	file, err := excludeFile(ctx, dataDir, worktree)
+	gitDir, err := absoluteGitDir(ctx, dataDir, worktree)
 	if err != nil {
 		return nil, err
 	}
-	content, err := os.ReadFile(filepath.Clean(file))
+	content, err := os.ReadFile(filepath.Join(gitDir, "mobius-copies"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -214,12 +232,8 @@ func CleanUntracked(ctx context.Context, dataDir, worktree, folder string) error
 	return err
 }
 
-func excludeFile(ctx context.Context, dataDir, worktree string) (string, error) {
-	gitDir, err := run(git(ctx, dataDir, worktree, "", "rev-parse", "--absolute-git-dir"))
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(gitDir, "mobius-exclude"), nil
+func absoluteGitDir(ctx context.Context, dataDir, worktree string) (string, error) {
+	return run(git(ctx, dataDir, worktree, "", "rev-parse", "--absolute-git-dir"))
 }
 
 // TaskDir gives the worktree of the task of the issue number of repository below dataDir.

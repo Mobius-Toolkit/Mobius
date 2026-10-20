@@ -133,7 +133,7 @@ A skill is a top-level folder of the default branch with a `SKILL.md` file and o
 
 A change of a skill reaches the agents only after it merges into the default branch. A skill on another branch never reaches a session. Mobius does not change your own skill directories.
 
-If a worktree already has a skill folder with the same name, Mobius does not copy that skill. Git status ignores the copied skills.
+If a worktree already has a skill folder with the same name, Mobius does not copy that skill. Git status ignores the copied skills. It also keeps the rules of your default user ignore file of git.
 
 ## 4. `mobius init`
 
