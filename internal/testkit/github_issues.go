@@ -20,6 +20,7 @@ type issueKey struct {
 }
 
 type issue struct {
+	id     int64
 	title  string
 	body   string
 	author string
@@ -173,12 +174,18 @@ func (g *FakeGitHub) AddForeignSubIssue(repository string, parent int64, childRe
 	found.subIssues = append(found.subIssues, issueKey{childRepository, child})
 }
 
-// RemoveSubIssue removes child from the sub-issues of parent. The change of the link changes the update time of no issue.
+// RemoveSubIssue removes child from the sub-issues of parent. Both issues are in repository. The change of the link
+// changes the update time of no issue.
 func (g *FakeGitHub) RemoveSubIssue(repository string, parent, child int64) {
+	g.RemoveForeignSubIssue(repository, parent, repository, child)
+}
+
+// RemoveForeignSubIssue removes the issue child of childRepository from the sub-issues of parent in repository.
+func (g *FakeGitHub) RemoveForeignSubIssue(repository string, parent int64, childRepository string, child int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	found := g.issues[issueKey{repository, parent}]
-	found.subIssues = slices.DeleteFunc(found.subIssues, func(sub issueKey) bool { return sub == issueKey{repository, child} })
+	found.subIssues = slices.DeleteFunc(found.subIssues, func(sub issueKey) bool { return sub == issueKey{childRepository, child} })
 }
 
 // AddSubIssueOf adds the open issue number with title below parent in one step, so a poll sees both.
@@ -554,7 +561,9 @@ func (g *FakeGitHub) Labels(repository string, number int64) []string {
 }
 
 func (g *FakeGitHub) insertIssue(key issueKey, title, body, author string) {
-	g.issues[key] = &issue{title: title, body: body, author: author, state: "open", updatedAt: g.tick()}
+	g.lastIssueID++
+	g.issues[key] = &issue{id: g.lastIssueID, title: title, body: body, author: author, state: "open", updatedAt: g.tick()}
+	g.issueKeys[g.lastIssueID] = key
 	g.createdAt[key] = g.issues[key].updatedAt
 }
 
@@ -607,7 +616,7 @@ func (g *FakeGitHub) issueJSON(key issueKey) issueJSON {
 		labels = append(labels, nameJSON{label})
 	}
 	result := issueJSON{
-		ID:            key.number + issueIDOffset,
+		ID:            found.id,
 		Number:        key.number,
 		Title:         found.title,
 		Body:          found.body,
@@ -877,7 +886,7 @@ func (g *FakeGitHub) subIssues(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, page(w, r, children))
 }
 
-// parent gives the issue in the same repository that has the issue as a sub-issue.
+// parent gives the issue, in any repository, that has the issue as a sub-issue.
 func (g *FakeGitHub) parent(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -890,7 +899,7 @@ func (g *FakeGitHub) parent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for other, found := range g.issues {
-		if other.repository == key.repository && slices.Contains(found.subIssues, key) {
+		if slices.Contains(found.subIssues, key) {
 			writeJSON(w, http.StatusOK, g.issueJSON(other))
 			return
 		}
@@ -898,7 +907,8 @@ func (g *FakeGitHub) parent(w http.ResponseWriter, r *http.Request) {
 	notFound(w)
 }
 
-// addSubIssue moves the issue with the id sub_issue_id below the issue of the path. Both issues are in the repository of the path.
+// addSubIssue moves the issue with the id sub_issue_id below the issue of the path. The issue can be in another
+// repository of the same owner.
 func (g *FakeGitHub) addSubIssue(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		SubIssueID    int64 `json:"sub_issue_id"`
@@ -917,13 +927,12 @@ func (g *FakeGitHub) addSubIssue(w http.ResponseWriter, r *http.Request) {
 		message(w, http.StatusInternalServerError, "Server Error")
 		return
 	}
-	child := issueKey{key.repository, request.SubIssueID - issueIDOffset}
-	if _, ok := g.issues[child]; !ok {
-		notFound(w)
+	child, ok := g.issueKeyOf(w, key, request.SubIssueID)
+	if !ok {
 		return
 	}
-	for other, found := range g.issues {
-		if other.repository != key.repository || !slices.Contains(found.subIssues, child) {
+	for _, found := range g.issues {
+		if !slices.Contains(found.subIssues, child) {
 			continue
 		}
 		if !request.ReplaceParent {
@@ -934,6 +943,21 @@ func (g *FakeGitHub) addSubIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	g.issues[key].subIssues = append(g.issues[key].subIssues, child)
 	writeJSON(w, http.StatusCreated, g.issueJSON(key))
+}
+
+// issueKeyOf gives the key of the issue with the id. It answers 404 for an unknown id and 422 for an issue of
+// another owner than the owner of key.
+func (g *FakeGitHub) issueKeyOf(w http.ResponseWriter, key issueKey, id int64) (issueKey, bool) {
+	found, ok := g.issueKeys[id]
+	if !ok {
+		notFound(w)
+		return issueKey{}, false
+	}
+	if owner, _, _ := strings.Cut(found.repository, "/"); !strings.HasPrefix(key.repository, owner+"/") {
+		message(w, http.StatusUnprocessableEntity, "The issue is in another organization.")
+		return issueKey{}, false
+	}
+	return found, true
 }
 
 func (g *FakeGitHub) blockedBy(w http.ResponseWriter, r *http.Request) {
@@ -950,7 +974,8 @@ func (g *FakeGitHub) blockedBy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, page(w, r, blockers))
 }
 
-// addBlockedBy makes the issue with the id issue_id a blocker of the issue of the path. Both issues are in the repository of the path.
+// addBlockedBy makes the issue with the id issue_id a blocker of the issue of the path. The blocker can be in another
+// repository of the same owner.
 func (g *FakeGitHub) addBlockedBy(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		IssueID int64 `json:"issue_id"`
@@ -964,9 +989,8 @@ func (g *FakeGitHub) addBlockedBy(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	blocker := issueKey{key.repository, request.IssueID - issueIDOffset}
-	if _, ok := g.issues[blocker]; !ok {
-		notFound(w)
+	blocker, ok := g.issueKeyOf(w, key, request.IssueID)
+	if !ok {
 		return
 	}
 	found := g.issues[key]

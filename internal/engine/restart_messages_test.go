@@ -120,7 +120,7 @@ func TestAStoredMessageGoesToTheAgentBeforeAMessageOfThisRunThatArrivesBeforeThe
 	release := fake.HoldNext("GET /repos/{owner}/{repo}/labels")
 	server := startServer(t, fake, dataDir, "")
 	testkit.WaitFor(t, func() bool {
-		return server.Engine.SendChat(t.Context(), leadChat, "a2", "Running message.", nil) == nil
+		return server.Engine.SendChat(t.Context(), leadChat, "a2", "Running message.", nil, nil) == nil
 	})
 	testkit.WaitFor(t, func() bool { return strings.Contains(joinedLeadPrompts(t, server), "Running message.") })
 	sendChatID(t, server, "a3", "Waiting message.")

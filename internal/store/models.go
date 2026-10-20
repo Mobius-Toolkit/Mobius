@@ -19,6 +19,7 @@ type ChatMessage struct {
 	BrowserID    sql.NullString
 	DeliveredAt  sql.NullString
 	StoppedAt    sql.NullString
+	InboxItems   string
 }
 
 type CheckTimeout struct {

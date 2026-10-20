@@ -228,8 +228,8 @@ SELECT * FROM inbox_items WHERE repository = ? AND kind = 'question' AND dismiss
 SELECT * FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id;
 
 -- name: AddChatMessage :one
-INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id, inbox_items)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
 RETURNING *;
 
