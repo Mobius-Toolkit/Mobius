@@ -119,7 +119,7 @@ func (e *Engine) createWorkstreamTool(c caller) mcp.Tool {
 		"Create a Workstream: an issue with mobius:workstream. Call it at once with the exact title and Brief. The tool returns at once, and Mobius creates the Workstream only after the Owner approves it. The result arrives later as an Approval message. Add mobius:evergreen or mobius:maintenance in labels only when the Owner asks for that label.",
 		coordinatorWorkstreamProperties,
 		func(input workstreamInput) string {
-			return "Create the Workstream: " + input.Title
+			return `Create the Workstream "` + input.Title + `"`
 		},
 		checkWorkstream,
 		e.createWorkstream)

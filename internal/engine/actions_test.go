@@ -448,7 +448,7 @@ func TestTheCoordinatorCallsCreateWorkstreamAndGitHubGetsTheIssueOnlyAfterTheOwn
 	}
 	items := itemsOf(t, server, "approval")
 	wantText := "brief: Keep the code healthy.\nlabels: [\"mobius:maintenance\"]\ntitle: Upkeep"
-	if len(items) != 1 || items[0].Title != "Create the Workstream: Upkeep" || items[0].Text != wantText {
+	if len(items) != 1 || items[0].Title != `Create the Workstream "Upkeep"` || items[0].Text != wantText {
 		t.Errorf("items = %+v", items)
 	}
 

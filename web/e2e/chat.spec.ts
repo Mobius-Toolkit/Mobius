@@ -864,7 +864,7 @@ test("the Coordinator chat stays open after its actions", async ({ page }) => {
     await page
       .getByRole("main")
       .getByRole("listitem")
-      .filter({ hasText: `Create the Workstream: ${title}` })
+      .filter({ hasText: `Create the Workstream "${title}"` })
       .getByRole("button", { name: "Answer" })
       .click();
     await page.getByRole("dialog").getByRole("button", { name: "Approve" }).click();
