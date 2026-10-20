@@ -306,17 +306,21 @@ test("screenshots", async ({ page }) => {
     }
     await route.fulfill({ response, json: body });
   });
+  const storedIcon = main.getByRole("img", { name: "Stored, waits for the agent" }).last();
   await screenshot(
     page,
     "chat-waiting",
     "/workstreams/owner/shop/12",
     (device) => [
       ...chatReady(device),
-      main.getByRole("img", { name: "Stored, waits for the agent" }).first(),
+      storedIcon,
       main.getByText("The message waits for the Lead."),
       main.getByRole("button", { name: "Stop the reply" }),
     ],
-    stopEnabled,
+    async () => {
+      await stopEnabled();
+      await storedIcon.scrollIntoViewIfNeeded();
+    },
   );
   await page.unroute("**/api/chat?*");
   await page.route("**/api/chat?*", async (route) => {
