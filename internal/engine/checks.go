@@ -106,20 +106,23 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	if task.CheckHead.String == head || state.running || !state.failedCheck && !state.failedWorkflow {
 		return false, nil
 	}
+	runs, err := failedCheckRuns(ctx, repository, head)
+	if err != nil || len(runs) == 0 {
+		return false, err
+	}
+	diagnosis := ""
+	if e.config.Roles.HasDiagnoser() {
+		var waits bool
+		diagnosis, waits, err = e.pullRequestDiagnosis(ctx, repository, int64(pullRequest.GetNumber()), head)
+		if err != nil || waits {
+			return false, err
+		}
+	}
 	items, err := ciItems(ctx, repository, head)
 	if err != nil {
 		return false, err
 	}
-	if items == "" {
-		return false, nil
-	}
-	if e.config.Roles.HasDiagnoser() {
-		diagnosis, waits, err := e.pullRequestDiagnosis(ctx, repository, int64(pullRequest.GetNumber()), head)
-		if err != nil || waits {
-			return false, err
-		}
-		items += diagnosis
-	}
+	items += diagnosis
 	issue, err := existingIssue(ctx, repository, task.Issue)
 	if err != nil {
 		return false, err

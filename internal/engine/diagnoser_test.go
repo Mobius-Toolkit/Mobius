@@ -133,6 +133,11 @@ func TestTheFixRoundWaitsForTheDiagnoser(t *testing.T) {
 	if n := implementers(t, server); n != 1 {
 		t.Errorf("Implementers = %d", n)
 	}
+	for _, request := range fake.Requests() {
+		if strings.HasSuffix(request.Path, "/annotations") {
+			t.Errorf("a poll read %s while the Diagnoser runs", request.Path)
+		}
+	}
 
 	touch(t, goFile)
 
