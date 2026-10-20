@@ -158,6 +158,9 @@ func TestACloseOfTheIssueOfARecordWithNoMergedPullRequestUpdatesNoBranchAndALate
 	if calls := fake.UpdateBranchCalls(); calls != 0 {
 		t.Errorf("update calls = %d", calls)
 	}
+	if recent := rowCount(t, server, "SELECT count(*) FROM ci_failure_places WHERE branch_updated_at > '0001-01-02'"); recent != 0 {
+		t.Errorf("places that await a merge commit = %d", recent)
+	}
 
 	third := approvalHeadOf(t, server, fake, 50)
 	failActions(fake, third)

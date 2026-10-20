@@ -55,7 +55,7 @@ func (e *Engine) endCIFailure(ctx context.Context, repository github.Repository,
 		return err
 	}
 	if !merged {
-		if err := e.queries.SetCIFailurePlacesUpdated(ctx, store.SetCIFailurePlacesUpdatedParams{BranchUpdatedAt: e.updatedAt(), Failure: failure.ID}); err != nil {
+		if err := e.queries.SetCIFailurePlacesUpdated(ctx, store.SetCIFailurePlacesUpdatedParams{BranchUpdatedAt: noBranchUpdate, Failure: failure.ID}); err != nil {
 			return err
 		}
 	}
@@ -80,12 +80,13 @@ func (e *Engine) fixMerged(ctx context.Context, repository github.Repository, is
 }
 
 // updateFailureBranch updates the branch of the pull request of place when the pull request is open and its head is the
-// head of place, and stores the time. A 4xx answer of GitHub stores the time too.
+// head of place, and stores the time of the update. Else it stores noBranchUpdate, also after a 4xx answer of GitHub.
 func (e *Engine) updateFailureBranch(ctx context.Context, repository github.Repository, place store.CiFailurePlace) error {
 	pullRequest, err := repository.PullRequest(ctx, place.PullRequest)
 	if err != nil && !refusedByGitHub(err) {
 		return err
 	}
+	updatedAt := noBranchUpdate
 	if err == nil && pullRequest.GetState() == "open" && pullRequest.GetHead().GetSHA() == place.Head {
 		err = repository.UpdatePullRequestBranch(ctx, place.PullRequest, place.Head)
 		if err != nil && !refusedByGitHub(err) {
@@ -93,9 +94,10 @@ func (e *Engine) updateFailureBranch(ctx context.Context, repository github.Repo
 		}
 		if err == nil {
 			e.pull(repository, place.PullRequest).changed = true
+			updatedAt = e.updatedAt()
 		}
 	}
-	return e.queries.SetCIFailurePlaceUpdated(ctx, store.SetCIFailurePlaceUpdatedParams{BranchUpdatedAt: e.updatedAt(), ID: place.ID})
+	return e.queries.SetCIFailurePlaceUpdated(ctx, store.SetCIFailurePlaceUpdatedParams{BranchUpdatedAt: updatedAt, ID: place.ID})
 }
 
 // awaitMergeCommit makes the next poll read the pull request of place from GitHub while the earlier read still has the
@@ -111,6 +113,10 @@ func (e *Engine) awaitMergeCommit(repository github.Repository, place store.CiFa
 	}
 	return nil
 }
+
+// noBranchUpdate is the branch_updated_at of a place that got no update. It is older than the window of
+// ListEndedCIFailurePullRequestPlaces, so awaitMergeCommit never sees the place.
+var noBranchUpdate = time.Time{}.Format(time.RFC3339Nano)
 
 func (e *Engine) updatedAt() string {
 	return e.timeNow().UTC().Format(time.RFC3339Nano)
