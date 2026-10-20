@@ -341,8 +341,8 @@ test.describe("images", () => {
         await expect(pictures.nth(position)).toHaveJSProperty("naturalWidth", 200);
       }
     }
-    await expect(onlyImage.locator(":scope > *")).toHaveCount(3);
-    await expect(onlyImage.locator(":scope > *").last()).toHaveText("Waits for the agent");
+    await expect(onlyImage.locator(":scope > *")).toHaveCount(2);
+    await expect(onlyImage.getByRole("img", { name: "Stored, waits for the agent" })).toBeVisible();
     await page.reload();
     await expect(withText.getByRole("img", { name: picture })).toHaveCount(2);
     await expect(withText.getByRole("img", { name: picture }).first()).toHaveJSProperty(
@@ -1940,7 +1940,6 @@ async function expectStates(page: Page) {
   });
   await expect(stored).toBeVisible();
   await expect(stored).toHaveAttribute("title", "Stored, waits for the agent");
-  await expect(message("Stored note").getByText("Waits for the agent")).toBeVisible();
   const delivered = message("Delivered note").getByRole("img", {
     name: "Delivered to the agent at 08:40 AM",
   });
@@ -1952,7 +1951,7 @@ async function expectStates(page: Page) {
   await expect(stopped).toBeVisible();
   await expect(stopped).toHaveAttribute("title", "Stopped, the agent did not get it, at 08:41 AM");
   await expect(message("Lead note").getByRole("img")).toHaveCount(0);
-  await expect(main.getByText("Waits for the agent")).toHaveCount(1);
+  await expect(main.getByText("Waits for the agent")).toHaveCount(0);
 }
 
 async function fulfillLoad(route: Route, deliveredAt: string | null) {

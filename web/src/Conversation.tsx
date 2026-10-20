@@ -158,9 +158,6 @@ const Message = memo(function Message({ message }: { message: ActionMessage }) {
           ))}
         </div>
       )}
-      {message.author === "Owner" && !message.deliveredAt && !message.stoppedAt && (
-        <span className="text-xs text-muted-foreground">Waits for the agent</span>
-      )}
     </div>
   );
 });
