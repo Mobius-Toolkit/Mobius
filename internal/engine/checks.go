@@ -118,6 +118,9 @@ func (e *Engine) onFailure(ctx context.Context, repository github.Repository, ta
 	if err != nil {
 		return false, err
 	}
+	if items == "" {
+		return false, nil
+	}
 	items += diagnosis
 	issue, err := existingIssue(ctx, repository, task.Issue)
 	if err != nil {
