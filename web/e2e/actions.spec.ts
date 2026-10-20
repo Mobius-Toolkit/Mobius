@@ -134,7 +134,9 @@ test("a failed action keeps the panel with its error and its note, and a second 
   await approve(page).click();
 
   await expect(panel(page)).toBeHidden();
-  await expect(card(page, createWorkstream.id).getByText("Done")).toBeVisible();
+  await expect(
+    card(page, createWorkstream.id).locator('[data-slot="badge"]', { hasText: "Done" }),
+  ).toBeVisible();
   expect(bodies).toEqual([{ message: "Go ahead." }, { message: "Go ahead." }]);
 });
 
