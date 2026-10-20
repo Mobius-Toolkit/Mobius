@@ -49,6 +49,29 @@ type CiBreak struct {
 	StartedAt    string
 }
 
+type CiDiagnosis struct {
+	ID          int64
+	Repository  string
+	PullRequest int64
+	CiBreak     int64
+	Head        string
+	Reasons     string
+	Session     sql.NullInt64
+	CreatedAt   string
+	EndedAt     string
+}
+
+type CiFailure struct {
+	ID         int64
+	Repository string
+	Reason     string
+	Test       string
+	Location   string
+	Issue      int64
+	CreatedAt  string
+	EndedAt    string
+}
+
 type CommentWrite struct {
 	ID         int64
 	Repository string

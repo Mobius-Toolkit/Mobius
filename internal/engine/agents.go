@@ -136,6 +136,8 @@ type Agent struct {
 	replies []heldReply
 	// head is the head commit that the Reviewer reviews.
 	head string
+	// jobURLs are the links of the failed jobs of the Diagnoser, one for each line.
+	jobURLs string
 	// items are the items of the batch of the Judge.
 	items []judgeItem
 	// verdicts are the verdicts of the last valid submit_verdicts call of the Judge, or nil.
@@ -825,6 +827,9 @@ func (e *Engine) ActiveAgents(ctx context.Context) (ActiveAgents, error) {
 	}
 	var active ActiveAgents
 	for _, g := range groups {
+		if g.role == DiagnoserRole && !e.config.Roles.HasDiagnoser() {
+			continue
+		}
 		binding, _ := roleBinding(e.config, g.role)
 		active.Groups = append(active.Groups, AgentGroup{Title: g.title, Count: running[g.role], Max: binding.Max, Agents: agents[g.role]})
 	}

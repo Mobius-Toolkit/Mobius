@@ -170,6 +170,8 @@ You can add these keys:
 
 A duration is a text with a number and a unit for each part: `s`, `m` or `h`. For example, `"90s"`, `"1h30m"` or `"168h"`. Mobius does not accept a day unit or a space.
 
+The section `[roles.diagnoser]` is optional. The Diagnoser reads the full log of each failed CI job of a pull request before the fix round, and gives the reason of the failure to the fix round. It has the same keys as each other Role. When the section has no `harness` and no `model`, Mobius has no Diagnoser and starts the fix round with no diagnosis. When the section has a `harness` or a `model`, Mobius checks it as it checks each other Role.
+
 Each Role can also have these keys:
 
 - `max`: the maximum number of agents of the Role that run at the same time. The default is 8 for the Lead, 4 for the Coordinator, 12 for the Triager, and 2 for each other Role.

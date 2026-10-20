@@ -167,6 +167,39 @@ func TestParseReadsTheCuratorRole(t *testing.T) {
 	}
 }
 
+func TestParseHasNoDiagnoserWithoutItsSection(t *testing.T) {
+	config := parse(t, valid)
+
+	if config.Roles.HasDiagnoser() {
+		t.Error("HasDiagnoser = true, want false")
+	}
+	for _, b := range config.Roles.Bindings() {
+		if b.Role == "diagnoser" {
+			t.Error("Bindings has the diagnoser")
+		}
+	}
+}
+
+func TestParseReadsTheDiagnoserRole(t *testing.T) {
+	config := parse(t, valid+`diagnoser   = { harness = "claude-code", model = "sonnet", effort = "low" }`+"\n")
+
+	want := RoleBinding{Harness: ClaudeCode, Model: "sonnet", Effort: "low", Max: 2}
+	if config.Roles.Diagnoser != want || !config.Roles.HasDiagnoser() {
+		t.Errorf("roles.diagnoser = %+v, want %+v", config.Roles.Diagnoser, want)
+	}
+	if got := config.Roles.Bindings(); got[len(got)-1].Role != "diagnoser" {
+		t.Errorf("Bindings = %+v, want the diagnoser last", got)
+	}
+}
+
+func TestParseChecksTheDiagnoserWhenItHasAModel(t *testing.T) {
+	got := parseError(t, valid+`diagnoser   = { model = "sonnet" }`+"\n")
+
+	if want := "roles.diagnoser.harness: must be claude-code, antigravity or devin"; got != want {
+		t.Errorf("error = %q, want %q", got, want)
+	}
+}
+
 func TestParseRefusesAWrongValue(t *testing.T) {
 	got := parseError(t, "max_checks = \"one\"\n"+valid)
 	if !strings.HasPrefix(got, "line 1: toml: cannot decode TOML string into struct field") {
