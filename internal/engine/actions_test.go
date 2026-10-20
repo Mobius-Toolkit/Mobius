@@ -537,3 +537,129 @@ func TestTheCoordinatorCallsTellCuratorAndTheCuratorGetsTheRequestOnlyAfterTheOw
 		t.Errorf("prompts = %q", prompts)
 	}
 }
+
+func callEditBrief(when, brief, reason string) string {
+	return fmt.Sprintf("[[prompts]]\nwhen = %q\ncall = { tool = \"edit_brief\", arguments = { brief = %q, reason = %q } }\n\n", when, brief, reason)
+}
+
+func briefOf(t *testing.T, server *testserver.Server, number int64) string {
+	t.Helper()
+	for _, found := range workstreams(t, server) {
+		if found.Number == number {
+			return found.Brief
+		}
+	}
+	t.Fatalf("no Workstream #%d", number)
+	return ""
+}
+
+func TestTheLeadCallsEditBriefAndTheBriefChangesOnlyAfterTheOwnerApproves(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, approvalSeen+callEditBrief("Change it.", "Ship loyalty plans and gift cards.", "Gift cards are in scope.")+seenScript)
+	_, oldBrief := fake.Issue(shop, 12)
+
+	session := run(t, server, leadSpec(t), "Change it.")
+
+	if got := reply(t, server, session); got != actionWaits {
+		t.Errorf("reply = %q", got)
+	}
+	action := waitForActions(t, server, 1)[0]
+	waitForPolls(t, fake)
+	if _, body := fake.Issue(shop, 12); body != oldBrief || action.State != "pending" {
+		t.Errorf("body = %q, action = %+v", body, action)
+	}
+	items := itemsOf(t, server, "approval")
+	if len(items) != 1 || items[0].Title != "Change the Brief of #12" || items[0].Repository != shop || items[0].Workstream != 12 ||
+		items[0].Text != "brief: Ship loyalty plans and gift cards.\nreason: Gift cards are in scope." {
+		t.Errorf("items = %+v", items)
+	}
+
+	done := decided(t, server, action.ID, "approve", "")
+
+	if done.State != "done" || done.Result != "Changed the Brief of #12." {
+		t.Errorf("action = %+v", done)
+	}
+	if _, body := fake.Issue(shop, 12); body != "Ship loyalty plans and gift cards." {
+		t.Errorf("body = %q", body)
+	}
+	if got := briefOf(t, server, 12); got != "Ship loyalty plans and gift cards." {
+		t.Errorf("copied Brief = %q", got)
+	}
+}
+
+func TestEditBriefRefusesAnEmptyBriefAtTheCall(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, callEditBrief("Change it.", " ", "Gift cards are in scope.")+seenScript)
+
+	session := run(t, server, leadSpec(t), "Change it.")
+
+	if got, want := reply(t, server, session), "error: brief and reason must not be empty."; got != want {
+		t.Errorf("reply = %q, want %q", got, want)
+	}
+	if rows := actionRows(t, server); len(rows) != 0 {
+		t.Errorf("actions = %+v", rows)
+	}
+}
+
+func TestTheLeadCallsMoveTaskAndTheIssueMovesOnlyAfterTheOwnerApproves(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 41, "Add plan model")
+	server, _ := connect(t, fake, approvalSeen+callMoveTask("Move it.", 41, 20)+seenScript)
+	fake.AddSubIssue(shop, 12, 41)
+
+	session := run(t, server, leadSpec(t), "Move it.")
+
+	if got := reply(t, server, session); got != actionWaits {
+		t.Errorf("reply = %q", got)
+	}
+	action := waitForActions(t, server, 1)[0]
+	waitForPolls(t, fake)
+	if got := fake.SubIssueNumbers(shop, 12); !slices.Equal(got, []int64{41}) {
+		t.Errorf("sub-issues of #12 = %v", got)
+	}
+	items := itemsOf(t, server, "approval")
+	if len(items) != 1 || items[0].Title != "Move #41 to the Workstream #20" || items[0].Repository != shop || items[0].Workstream != 12 {
+		t.Errorf("items = %+v", items)
+	}
+
+	done := decided(t, server, action.ID, "approve", "")
+
+	if done.Result != "Moved #41 to the Workstream #20." {
+		t.Errorf("action = %+v", done)
+	}
+	if got := fake.SubIssueNumbers(shop, 20); !slices.Equal(got, []int64{41}) {
+		t.Errorf("sub-issues of #20 = %v", got)
+	}
+	if got := fake.SubIssueNumbers(shop, 12); len(got) != 0 {
+		t.Errorf("sub-issues of #12 = %v", got)
+	}
+}
+
+func TestTheOwnerRejectsMessageLeadOfTheLeadWithAMessageAndTheLeadGetsTheMessage(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddIssue(shop, 20, "Billing")
+	fake.AddLabel(shop, 20, "mobius:workstream", "owner")
+	server, _ := connect(t, fake, approvalSeen+callMessageLead("Tell it.", 20, "Create the task issues.")+seenScript)
+
+	sendChat(t, server, leadChat, "Tell it.")
+	action := waitForActions(t, server, 1)[0]
+	rejected := decided(t, server, action.ID, "reject", "Ask about the price first.")
+
+	if rejected.State != "rejected" || rejected.Message != "Ask about the price first." {
+		t.Errorf("action = %+v", rejected)
+	}
+	want := "# Approval message\n\nThe Owner rejected `message_lead`.\n\nThe message of the Owner: Ask about the price first."
+	testkit.WaitFor(t, func() bool {
+		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, want) })
+	})
+	waitForPolls(t, fake)
+	if events := leadEvents(t, server); len(events) != 0 {
+		t.Errorf("events = %v", events)
+	}
+}

@@ -565,27 +565,30 @@ func TestAStopBeforeTheFirstTurnStartsNoTurn(t *testing.T) {
 	}
 }
 
-func TestTheLeadChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
+func TestTheLeadChatCreatesAWorkstreamAfterTheOwnerApproves(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, `
+[[prompts]]
+when = "# Approval message"
+reply = ["Created the Workstream #13."]
+
 [[prompts]]
 when = "# Event\n\n"
 list_tools = true
 
 [[prompts]]
-when = "# Owner message\n\nMove the API work to a new Workstream."
-reply = ["Title: Shop API\n\nBrief: The public API of the shop. The context is in #12."]
-
-[[prompts]]
-when = "Yes, create it."
+when = "Move the API work to a new Workstream."
 call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "The public API of the shop. The context is in #12." } }
 `)
 	changes := listen(t, server)
 
 	sendChat(t, server, leadChat, "Move the API work to a new Workstream.")
-	waitForChat(t, server, leadChat, "Lead", "Title: Shop API\n\nBrief: The public API of the shop. The context is in #12.")
-	sendChat(t, server, leadChat, "Yes, create it.")
+	action := waitForActions(t, server, 1)[0]
+	if fake.HasIssue(shop, 13) {
+		t.Error("the Workstream exists before the approval")
+	}
+	decided(t, server, action.ID, "approve", "")
 
 	waitForChat(t, server, leadChat, "Lead", "Created the Workstream #13.")
 	if title, body := fake.Issue(shop, 13); title != "Shop API" || body != "The public API of the shop. The context is in #12." {
@@ -619,15 +622,23 @@ func TestTheLeadChatCreatesAWorkstreamAndMovesATaskToIt(t *testing.T) {
 	// The first prompt of a new session has the earlier messages in its history, so the prompt of the newest message comes first.
 	server, _ := connect(t, fake, `
 [[prompts]]
+when = "The Owner approved \u0060move_task\u0060"
+reply = ["Moved #13 to the Workstream #15."]
+
+[[prompts]]
+when = "The Owner approved \u0060create_workstream\u0060"
+reply = ["Created the Workstream #15."]
+
+[[prompts]]
 when = "# Event\n\n"
 reply = ["Noted."]
 
 [[prompts]]
-when = "Yes, move it."
+when = "Move it."
 call = { tool = "move_task", arguments = { n = 13, workstream = 15 } }
 
 [[prompts]]
-when = "Yes, create it."
+when = "Create it."
 call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "The public API of the shop. The context is in #12." } }
 `)
 	fake.AddIssue(shop, 13, "Add the API route")
@@ -636,9 +647,11 @@ call = { tool = "create_workstream", arguments = { title = "Shop API", brief = "
 	fake.AddSubIssue(shop, 12, 14)
 	waitForPoll(t, server, fake)
 
-	sendChat(t, server, leadChat, "Yes, create it.")
+	sendChat(t, server, leadChat, "Create it.")
+	approveNext(t, server, 1)
 	waitForChat(t, server, leadChat, "Lead", "Created the Workstream #15.")
-	sendChat(t, server, leadChat, "Yes, move it.")
+	sendChat(t, server, leadChat, "Move it.")
+	approveNext(t, server, 2)
 
 	waitForChat(t, server, leadChat, "Lead", "Moved #13 to the Workstream #15.")
 	if got := fake.SubIssueNumbers(shop, 15); !slices.Equal(got, []int64{13}) {
@@ -1348,8 +1361,7 @@ type chatState struct {
 func TestTheLeadChatRefusesToMoveATaskWhenTheTaskOrTheTargetDoesNotFit(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	// The first prompt of a new session has the earlier messages in its history, so the prompt of the newest message comes first.
-	server, _ := connect(t, fake, `
+	server, _ := connectWith(t, fake, approvalSeen+`
 [[prompts]]
 when = "case-live"
 call = { tool = "move_task", arguments = { n = 13, workstream = 20 } }
@@ -1373,7 +1385,7 @@ call = { tool = "move_task", arguments = { n = 15, workstream = 20 } }
 [[prompts]]
 when = "case-other"
 call = { tool = "move_task", arguments = { n = 21, workstream = 20 } }
-`)
+`, keepSessionOpen)
 	fake.AddIssue(shop, 13, "Add the API route")
 	fake.AddIssue(shop, 14, "Add plan model")
 	fake.AddPullRequest(shop, 15, "Add the API route")
@@ -1388,22 +1400,26 @@ call = { tool = "move_task", arguments = { n = 21, workstream = 20 } }
 	fake.AddLabel(shop, 22, "mobius:workstream", "owner")
 	fake.CloseIssue(shop, 22)
 
-	for _, c := range []struct{ message, result string }{
-		{"case-other", "error: #21 is not in this Workstream."},
-		{"case-pull", "error: #15 is not an issue of owner/shop."},
-		{"case-self", "error: #12 is this Workstream."},
-		{"case-closed", "error: #22 is not an open Workstream."},
-		{"case-plain", "error: #14 is not an open Workstream."},
+	sendChat(t, server, leadChat, "case-self")
+	waitForChat(t, server, leadChat, "Lead", "error: #12 is this Workstream.")
+	for i, c := range []struct{ message, result string }{
+		{"case-other", "#21 is not in this Workstream."},
+		{"case-pull", "#15 is not an issue of owner/shop."},
+		{"case-closed", "#22 is not an open Workstream."},
+		{"case-plain", "#14 is not an open Workstream."},
 	} {
 		sendChat(t, server, leadChat, c.message)
-		waitForChat(t, server, leadChat, "Lead", c.result)
+		if got := approveNext(t, server, i+1); got.State != "pending" || got.Error != c.result {
+			t.Errorf("%s: action = %+v", c.message, got)
+		}
 	}
 	if _, err := server.DB.Exec("INSERT INTO tasks (repository, issue, workstream, state, dispatched_at) VALUES (?, 13, 12, 'dispatched', ?)", shop, time.Now().UTC().Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
 	}
 	sendChat(t, server, leadChat, "case-live")
-
-	waitForChat(t, server, leadChat, "Lead", "error: #13 has a live task. Stop the task first.")
+	if got := approveNext(t, server, 5); got.State != "pending" || got.Error != "#13 has a live task. Stop the task first." {
+		t.Errorf("case-live: action = %+v", got)
+	}
 	if got := fake.SubIssueNumbers(shop, 12); !reflect.DeepEqual(got, []int64{13, 14, 15}) {
 		t.Errorf("sub-issues of #12 = %v", got)
 	}

@@ -173,24 +173,10 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"text": map[string]any{"type": "string", "minLength": 1, "description": "The comment."},
 				},
 				e.commentPullRequest),
-			tool(e, c, "create_workstream",
-				"Create a Workstream in this repository: an issue with mobius:workstream. Call it only after the Owner approves the exact title and Brief in the chat.",
-				workstreamProperties,
-				e.createWorkstream),
-			tool(e, c, "move_task",
-				"Make a task of this Workstream a sub-issue of a different open Workstream in this repository. Call it only after the Owner approves the move in the chat. The task must not be in progress.",
-				map[string]any{
-					"n":          map[string]any{"type": "integer", "minimum": 1, "description": "The number of the task issue."},
-					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue."},
-				},
-				e.moveTask),
-			tool(e, c, "message_lead",
-				"Send a message to the Lead of a different open Workstream in this repository. Call it only after the Owner approves the target Workstream and the exact message in the chat.",
-				map[string]any{
-					"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the target Workstream issue."},
-					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
-				},
-				e.messageLead),
+			e.createWorkstreamTool(c),
+			e.moveTaskTool(c),
+			e.messageLeadTool(c),
+			e.editBriefTool(c),
 			tool(e, c, "hold_event",
 				"Hold the event of this turn until the Owner decides. Mobius sends the event again after the end of your next reply to a chat message of the Owner, or after the Owner answers a question on an issue of the Workstream. A later event of the same task issue waits behind it. Call it only in a turn for an event.",
 				map[string]any{},
@@ -503,6 +489,11 @@ type workstreamInput struct {
 type moveInput struct {
 	N          int64 `json:"n"`
 	Workstream int64 `json:"workstream"`
+}
+
+type editBriefInput struct {
+	Brief  string `json:"brief"`
+	Reason string `json:"reason"`
 }
 
 type messageLeadInput struct {
@@ -862,9 +853,19 @@ func issueOf(ctx context.Context, repository github.Repository, number int64) (*
 	return issue, nil
 }
 
-func (e *Engine) moveTask(ctx context.Context, c caller, repository github.Repository, input moveInput) (string, error) {
+func checkMoveTask(c caller, input moveInput) error {
 	if input.N < 1 || input.Workstream < 1 {
-		return "", refuse("n and workstream must be 1 or more.")
+		return refuse("n and workstream must be 1 or more.")
+	}
+	if input.Workstream == c.workstream {
+		return refuse("#%d is this Workstream.", input.Workstream)
+	}
+	return nil
+}
+
+func (e *Engine) moveTask(ctx context.Context, c caller, repository github.Repository, input moveInput) (string, error) {
+	if err := checkMoveTask(c, input); err != nil {
+		return "", err
 	}
 	issue, err := issueOf(ctx, repository, input.N)
 	if err != nil {
@@ -876,9 +877,6 @@ func (e *Engine) moveTask(ctx context.Context, c caller, repository github.Repos
 	}
 	if !in {
 		return "", refuse("#%d is not in this Workstream.", input.N)
-	}
-	if input.Workstream == c.workstream {
-		return "", refuse("#%d is this Workstream.", input.Workstream)
 	}
 	if err := openWorkstream(ctx, repository, input.Workstream); err != nil {
 		return "", err
@@ -933,6 +931,32 @@ func (e *Engine) moveIssue(ctx context.Context, _ caller, repository github.Repo
 		log.Printf("copy the tree of %s#%d: %v", repository.FullName, input.Workstream, err)
 	}
 	return fmt.Sprintf("Moved #%d to the Workstream #%d.", input.N, input.Workstream), nil
+}
+
+func checkEditBrief(_ caller, input editBriefInput) error {
+	if empty(input.Brief) || empty(input.Reason) {
+		return refuse("brief and reason must not be empty.")
+	}
+	return nil
+}
+
+func (e *Engine) editBrief(ctx context.Context, c caller, repository github.Repository, input editBriefInput) (string, error) {
+	if err := checkEditBrief(c, input); err != nil {
+		return "", err
+	}
+	issue, _, err := repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(c.workstream), gh.UpdateIssueRequest{Body: &input.Brief})
+	if err != nil {
+		return "", err
+	}
+	events, err := repository.IssueEvents(ctx, c.workstream)
+	if err == nil {
+		_, err = e.updateCopy(ctx, repository, issue, events, false, e.labelChangeCount(repository.FullName))
+	}
+	if err != nil {
+		log.Printf("copy the new Brief of %s#%d: %v", repository.FullName, c.workstream, err)
+	}
+	e.publish(Change{Workstreams: true})
+	return fmt.Sprintf("Changed the Brief of #%d.", c.workstream), nil
 }
 
 func checkMessageLead(c caller, input messageLeadInput) error {

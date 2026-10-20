@@ -177,6 +177,7 @@ func TestAStoppedDownloadLeavesNoModelFile(t *testing.T) {
 		_, err = c.transcribe("RIFF")
 		return c.model.Downloads() >= 2
 	})
+	testkit.WaitFor(t, func() bool { return !c.IsDownloading() })
 
 	if !errors.Is(err, voice.Downloading) {
 		t.Errorf("err = %v", err)
@@ -197,6 +198,7 @@ func TestADownloadThatGetsNoBytesEndsAndTheNextRequestStartsItAgain(t *testing.T
 		_, err = c.transcribe("RIFF")
 		return c.model.Downloads() >= 2
 	})
+	testkit.WaitFor(t, func() bool { return !c.IsDownloading() })
 
 	if !errors.Is(err, voice.Downloading) {
 		t.Errorf("err = %v", err)
