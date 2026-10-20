@@ -70,21 +70,32 @@ func (e *Engine) createCIBreakIssues(ctx context.Context, repository github.Repo
 }
 
 // createCIBreakIssue creates the issue of ciBreak and stores its number in ciBreak and in each open failure record with
-// a place of ciBreak and no issue. When such a record already has an issue, ciBreak takes that issue and Mobius creates
-// none. It gives the number, or 0 when GitHub created no issue. A 4xx answer of GitHub is no error. When GitHub refuses
+// a place of ciBreak and no issue. When such a record already has an issue that is open, ciBreak takes that issue and
+// Mobius creates none. It gives the number, or 0 when GitHub created no issue. A 4xx answer of GitHub is no error. When GitHub refuses
 // the list of jobs, it creates no issue. When GitHub creates the issue but does not add it below the Workstream, the
 // stored number is negative.
 func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repository, workstream int64, ciBreak store.CiBreak) (int, error) {
 	shared, err := e.queries.GetCIBreakFailureIssue(ctx, ciBreak.ID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
 	if err == nil {
-		if err := e.queries.SetCIBreakIssue(ctx, store.SetCIBreakIssueParams{Issue: shared, ID: ciBreak.ID}); err != nil {
+		number := max(shared, -shared)
+		issue, err := repository.Issue(ctx, number)
+		if refusedByGitHub(err) {
+			log.Printf("read the issue #%d of %s: %v", number, repository.FullName, err)
+			return 0, nil
+		}
+		if err != nil {
 			return 0, err
 		}
-		e.publishCIStops(ciBreak.Result)
-		return 0, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return 0, err
+		if issue != nil && issue.GetState() == "open" {
+			if err := e.queries.SetCIBreakIssue(ctx, store.SetCIBreakIssueParams{Issue: shared, ID: ciBreak.ID}); err != nil {
+				return 0, err
+			}
+			e.publishCIStops(ciBreak.Result)
+			return 0, nil
+		}
 	}
 	body, err := ciBreakBody(ctx, repository, ciBreak)
 	if refusedByGitHub(err) {

@@ -121,6 +121,36 @@ func TestABreakTakesTheIssueOfARecordThatTwoPullRequestsMade(t *testing.T) {
 	}
 }
 
+func TestABreakCreatesItsOwnIssueWhenTheIssueOfTheRecordIsClosed(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoser(t, fake, leadStartsTwo, reportsPlan)
+	addMaintenanceWorkstream(fake, maintenance)
+	fake.AddSubIssueOf(shop, 12, 43, "Task 43")
+	first := approvalHeadOf(t, server, fake, 41)
+	second := approvalHeadOf(t, server, fake, 43)
+	failActions(fake, first)
+	failActions(fake, second)
+	recordIssue := ciBreakIssue(t, fake)
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failures WHERE issue = %d", recordIssue)) == 1
+	})
+	fake.CloseIssue(shop, recordIssue)
+
+	hardMainRun(fake, head(t, fake, "main"))
+
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_breaks WHERE issue > 0 AND issue != %d", recordIssue)) == 1
+	})
+	waitForPolls(t, fake)
+	if n := len(openHardBreaks(t, server)); n != 1 {
+		t.Errorf("open hard breaks = %d", n)
+	}
+	if n := rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_breaks WHERE issue = %d", recordIssue)); n != 0 {
+		t.Errorf("breaks with the closed issue = %d", n)
+	}
+}
+
 func TestAPassedRunEndsTheBreakButKeepsTheIssueOpenThatAPullRequestRecordShares(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
