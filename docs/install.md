@@ -101,7 +101,7 @@ Do not use `claude setup-token` with `CLAUDE_CODE_OAUTH_TOKEN`. The token is the
 ### Antigravity
 
 1. Download the `agy_acp_server` zip for your host from the [`antigravity-acp` entry of the ACP registry](https://github.com/agentclientprotocol/registry/tree/main/registry/antigravity-acp).
-2. Put `agy_acp_server` on `PATH`.
+2. Put both files of the zip on `PATH`: the server as `agy_acp_server`, and `localharness_external` with its own name.
 3. Log in with `mobius init` (step 4). `agy_acp_server` has no login command.
 
 When Antigravity is not logged in, `mobius init` starts its Google login. Antigravity writes a link to the terminal and opens a browser. Log in within 300 seconds. If the login fails, Antigravity also removes its old login.
