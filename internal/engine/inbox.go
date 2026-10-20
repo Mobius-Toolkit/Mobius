@@ -192,7 +192,7 @@ func (e *Engine) SendAgain(ctx context.Context, id int64) error {
 		return err
 	}
 	key := ChatKey{Organization: message.Organization, Repository: message.Repository, Workstream: message.Workstream}
-	if err := e.postChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images); err != nil {
+	if err := e.postChat(ctx, key, ownerAuthor, rand.Text(), message.Text, images, nil); err != nil {
 		return err
 	}
 	return e.Dismiss(ctx, id)
