@@ -69,7 +69,28 @@ func actionCaller(action store.PendingAction) caller {
 	case "triager":
 		role = TriagerRole
 	}
-	return caller{role: role, organization: action.Organization, repository: action.Repository, workstream: action.Workstream}
+	return caller{role: role, organization: action.Organization, repository: action.Repository, workstream: action.Workstream, issue: action.Issue}
+}
+
+// approvedToolOf gives the tool name of the role of c, if its call waits for the approval of the Owner. It builds no other tool.
+func (e *Engine) approvedToolOf(c caller, name string) (mcp.Tool, bool) {
+	if c.role == CoordinatorRole && name == "message_lead" {
+		return e.messageLeadTool(c), true
+	}
+	return mcp.Tool{}, false
+}
+
+func (e *Engine) messageLeadTool(c caller) mcp.Tool {
+	return approvedTool(e, c, "message_lead",
+		"Send a message to the Lead of an open Workstream. Call it at once with the exact message. The tool returns at once, and Mobius sends the message only after the Owner approves it. The result arrives later as an Approval message.",
+		map[string]any{
+			"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue that the Owner selects."},
+			"text":       map[string]any{"type": "string", "minLength": 1, "description": "The message for the Lead."},
+		},
+		func(input messageLeadInput) string {
+			return fmt.Sprintf("Message to the Lead of #%d", input.Workstream)
+		},
+		e.messageLead)
 }
 
 func actionChat(action store.PendingAction) ChatKey {
@@ -110,15 +131,11 @@ func (e *Engine) holdAction(ctx context.Context, c caller, tool, title string, a
 	if err != nil {
 		return "", err
 	}
-	var issue int64
-	if c.agent != nil && c.agent.spec.Issue.Valid {
-		issue = c.agent.spec.Issue.Int64
-	}
 	action, err := e.queries.AddPendingAction(ctx, store.AddPendingActionParams{
 		Organization: c.organization,
 		Repository:   c.repository,
 		Workstream:   c.workstream,
-		Issue:        issue,
+		Issue:        c.issue,
 		Role:         actionRole(c.role),
 		Tool:         tool,
 		Arguments:    string(arguments),
@@ -278,12 +295,11 @@ func (e *Engine) RejectAction(ctx context.Context, id int64, message string) (st
 
 // runAction runs the tool of action with the caller of its chat.
 func (e *Engine) runAction(ctx context.Context, action store.PendingAction) (string, error) {
-	for _, tool := range e.tools(actionCaller(action)) {
-		if tool.Name == action.Tool {
-			return tool.Run(context.WithValue(ctx, approvedRun{}, true), json.RawMessage(action.Arguments))
-		}
+	tool, ok := e.approvedToolOf(actionCaller(action), action.Tool)
+	if !ok {
+		return "", fmt.Errorf("the role %s has no approved tool %s", action.Role, action.Tool)
 	}
-	return "", fmt.Errorf("the role %s has no tool %s", action.Role, action.Tool)
+	return tool.Run(context.WithValue(ctx, approvedRun{}, true), json.RawMessage(action.Arguments))
 }
 
 func withMessage(text, message string) string {

@@ -347,6 +347,7 @@ func (a *Agent) startHarness(ctx context.Context) error {
 	}
 	mcpCaller := mcp.Caller{Tools: e.tools(caller{
 		session:      a.id,
+		issue:        spec.Issue.Int64,
 		role:         spec.Role,
 		organization: spec.Organization,
 		repository:   spec.Repository,
