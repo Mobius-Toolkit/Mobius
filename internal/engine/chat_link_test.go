@@ -2,6 +2,8 @@ package engine_test
 
 import (
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
@@ -52,5 +54,78 @@ func TestCreateIssueAddsNoLinkWithNoUIURL(t *testing.T) {
 
 	if _, body := fake.Issue(shop, 13); body != "Plans have a price." {
 		t.Errorf("body = %q", body)
+	}
+}
+
+func TestAnApprovedCreateWorkstreamWritesTheBriefWithTheLinkToItsOwnLeadChat(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, approvalSeen+callCreateWorkstream("Create the Workstream.", "Gift cards", "Sell gift cards.", "mobius:maintenance")+seenScript, withUIURL)
+	run(t, server, coordinatorSpec(t), "Create the Workstream.")
+	action := waitForActions(t, server, 1)[0]
+
+	done := decided(t, server, action.ID, "approve", "")
+
+	if done.State != "done" || done.Result != "Created the Workstream #13." {
+		t.Errorf("action = %+v", done)
+	}
+	if _, body := fake.Issue(shop, 13); body != "Sell gift cards.\n\n"+strings.Replace(chatLink, "/12)", "/13)", 1) {
+		t.Errorf("body = %q", body)
+	}
+}
+
+func TestASecondApprovalOfCreateWorkstreamAfterAFailedAddOfTheLabelsKeepsOneLinkAndOneIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectWith(t, fake, approvalSeen+callCreateWorkstream("Create the Workstream.", "Gift cards", "Sell gift cards.", "mobius:maintenance")+seenScript, withUIURL)
+	fake.FailAddLabels(shop, 13, true)
+	run(t, server, coordinatorSpec(t), "Create the Workstream.")
+	action := waitForActions(t, server, 1)[0]
+
+	failed := decided(t, server, action.ID, "approve", "")
+
+	if failed.State != "pending" || !strings.HasPrefix(failed.Error, "GitHub created #13, but the add of the Workstream labels failed.") {
+		t.Errorf("action = %+v", failed)
+	}
+	fake.FailAddLabels(shop, 13, false)
+	done := decided(t, server, action.ID, "approve", "")
+
+	if done.State != "done" || done.Error != "" {
+		t.Errorf("action = %+v", done)
+	}
+	want := "Sell gift cards.\n\n" + strings.Replace(chatLink, "/12)", "/13)", 1)
+	if _, body := fake.Issue(shop, 13); body != want {
+		t.Errorf("body = %q, want %q", body, want)
+	}
+	if labels := fake.Labels(shop, 13); !slices.Equal(labels, []string{"mobius:workstream", "mobius:maintenance"}) {
+		t.Errorf("labels of #13 = %v", labels)
+	}
+	if fake.HasIssue(shop, 14) {
+		t.Error("the Workstream exists two times")
+	}
+}
+
+func TestEditBriefWritesTheLinkToTheLeadChatOneTime(t *testing.T) {
+	t.Parallel()
+	for name, brief := range map[string]string{
+		"no link":       "Ship loyalty plans.",
+		"the same link": "Ship loyalty plans.\n\n" + chatLink + "\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fake := testkit.NewFakeGitHub(t)
+			server, _ := connectWith(t, fake, approvalSeen+callEditBrief("Change it.", brief, "Gift cards are in scope.")+seenScript, withUIURL)
+			run(t, server, leadSpec(t), "Change it.")
+			action := waitForActions(t, server, 1)[0]
+
+			done := decided(t, server, action.ID, "approve", "")
+
+			if done.State != "done" {
+				t.Errorf("action = %+v", done)
+			}
+			if _, body := fake.Issue(shop, 12); body != "Ship loyalty plans.\n\n"+chatLink {
+				t.Errorf("body = %q", body)
+			}
+		})
 	}
 }
