@@ -861,6 +861,13 @@ test("the Coordinator chat stays open after its actions", async ({ page }) => {
     await page.goto("/chat");
     await input.fill(create);
     await send.click();
+    await page
+      .getByRole("main")
+      .getByRole("listitem")
+      .filter({ hasText: `Create the Workstream: ${title}` })
+      .getByRole("button", { name: "Answer" })
+      .click();
+    await page.getByRole("dialog").getByRole("button", { name: "Approve" }).click();
     // The side bar of a phone is hidden, and it has the link.
     const link = page.locator("nav a", { hasText: title });
     await expect(link).toBeAttached();

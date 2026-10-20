@@ -325,10 +325,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 		}
 	case CoordinatorRole:
 		return []mcp.Tool{
-			tool(e, c, "create_workstream",
-				"Create a Workstream: an issue with mobius:workstream. Call it only after the Owner approves the exact title and Brief. Add mobius:evergreen or mobius:maintenance in labels only when the Owner approves that label.",
-				coordinatorWorkstreamProperties,
-				e.createWorkstream),
+			e.createWorkstreamTool(c),
 			moveIssueTool(e, c),
 			e.messageLeadTool(c),
 			tool(e, c, "start_researcher",
@@ -337,13 +334,7 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"question": map[string]any{"type": "string", "minLength": 1, "description": "The question, with the context that the Researcher needs."},
 				},
 				e.startResearcher),
-			toolOf(e, c, noRepository, "tell_curator",
-				"Send a request to the Curator of a repository. The Curator changes the memory file of the repository. Call it only after the Owner approves the exact message. The tool returns at once, and the result arrives later.",
-				map[string]any{
-					"repository": map[string]any{"type": "string", "minLength": 1, "description": "The full name of the repository (owner/name) in the organization of the chat."},
-					"text":       map[string]any{"type": "string", "minLength": 1, "description": "The request for the Curator."},
-				},
-				e.tellCurator),
+			e.tellCuratorTool(c),
 		}
 	}
 	return nil
@@ -784,10 +775,26 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 	e.copyWrite.Lock()
 	defer e.copyWrite.Unlock()
 	owner, name := repository.Owner(), repository.Name()
-	issue, _, err := repository.Client.Issues.Create(ctx, owner, name, gh.CreateIssueRequest{Title: input.Title, Body: &input.Brief})
-	if err != nil {
-		return "", err
+	action, approved := ctx.Value(approvedRun{}).(int64)
+	var issue *gh.Issue
+	if approved {
+		var err error
+		if issue, err = e.createdIssue(ctx, repository, action); err != nil {
+			return "", err
+		}
 	}
+	if issue == nil {
+		var err error
+		if issue, _, err = repository.Client.Issues.Create(ctx, owner, name, gh.CreateIssueRequest{Title: input.Title, Body: &input.Brief}); err != nil {
+			return "", err
+		}
+		if approved {
+			if err := e.queries.SetPendingActionCreatedIssue(ctx, store.SetPendingActionCreatedIssueParams{CreatedIssue: sql.NullInt64{Int64: int64(issue.GetNumber()), Valid: true}, ID: action}); err != nil {
+				return "", fmt.Errorf("GitHub created #%d, but Mobius could not save its number. Check the issues before you approve again: %w", issue.GetNumber(), err)
+			}
+		}
+	}
+	var err error
 	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), append([]string{workstreamLabel}, input.Labels...)); err != nil {
 		return "", fmt.Errorf("GitHub created #%d, but the add of the Workstream labels failed. Do not create the Workstream again: %w", issue.GetNumber(), err)
 	}
@@ -804,6 +811,19 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 		}
 	}
 	return fmt.Sprintf("Created the Workstream #%d.", issue.GetNumber()), nil
+}
+
+// createdIssue gives the issue that an earlier run of the action created, or nil when the action created none.
+func (e *Engine) createdIssue(ctx context.Context, repository github.Repository, action int64) (*gh.Issue, error) {
+	row, err := e.queries.GetPendingAction(ctx, action)
+	if err != nil || !row.CreatedIssue.Valid {
+		return nil, err
+	}
+	issue, err := repository.Issue(ctx, row.CreatedIssue.Int64)
+	if err == nil && issue == nil {
+		return nil, fmt.Errorf("GitHub has no issue #%d, which this action created", row.CreatedIssue.Int64)
+	}
+	return issue, err
 }
 
 // triageEndText starts the comment of the Mobius App that ends the triage of an issue.

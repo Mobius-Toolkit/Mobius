@@ -842,12 +842,15 @@ func TestTheReportOfAResearcherThatIsTooLongForACommentArrivesCutAndStartsTheNex
 func TestTheCoordinatorChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectTriager(t, fake)
+	server, _ := connect(t, fake, approvalSeen+triager)
+	fake.SetBody(shop, 12, "Ship loyalty plans to all shops.")
+	waitForPoll(t, server, fake)
 	changes := listen(t, server)
 
 	sendChat(t, server, coordinatorChat, "Start a Workstream for loyalty points.")
 	waitForChat(t, server, coordinatorChat, "Coordinator", "Title: Loyalty points\n\nBrief: Give points for each order.")
 	sendChat(t, server, coordinatorChat, "Yes, create it.")
+	approveNext(t, server, 1)
 
 	created := waitForChange(t, changes, func(change engine.Change) bool { return change.Created != nil }).Created
 	if *created != (engine.Created{Repository: shop, Number: 13}) {
@@ -864,7 +867,7 @@ func TestTheCoordinatorChatCreatesAWorkstreamAfterTheApproval(t *testing.T) {
 		for _, session := range chatSessions(t, server, coordinatorChat, engine.CoordinatorRole) {
 			prompts = append(prompts, promptTexts(t, server, session.ID)...)
 		}
-		return prompts, len(prompts) == 2
+		return prompts, len(prompts) == 3
 	})
 	for _, part := range []string{
 		"You are the Coordinator",

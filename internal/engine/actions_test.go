@@ -93,6 +93,12 @@ func decided(t *testing.T, server *testserver.Server, id int64, decision, messag
 	return body.Data
 }
 
+// approveNext waits for the action number n and approves it.
+func approveNext(t *testing.T, server *testserver.Server, n int) actionJSON {
+	t.Helper()
+	return decided(t, server, waitForActions(t, server, n)[n-1].ID, "approve", "")
+}
+
 func approvalPrompts(t *testing.T, server *testserver.Server) []string {
 	t.Helper()
 	var found []string
@@ -408,5 +414,126 @@ func TestAnApprovalMessageStoredWhileSealedGoesToTheAgentWhenTheSealIsAborted(t 
 	testkit.WaitFor(t, func() bool { return len(approvalPrompts(t, server)) == 1 })
 	if got := approvalPrompts(t, server); !slices.Equal(got, []string{"# Approval message\n\n" + text}) {
 		t.Errorf("approval prompts = %q", got)
+	}
+}
+
+func callCreateWorkstream(when, title, brief string, labels ...string) string {
+	return fmt.Sprintf("[[prompts]]\nwhen = %q\ncall = { tool = \"create_workstream\", arguments = { title = %q, brief = %q, labels = %q } }\n\n", when, title, brief, labels)
+}
+
+func createdIssue(t *testing.T, server *testserver.Server, id int64) sql.NullInt64 {
+	t.Helper()
+	var issue sql.NullInt64
+	if err := server.DB.QueryRow("SELECT created_issue FROM pending_actions WHERE id = ?", id).Scan(&issue); err != nil {
+		t.Fatal(err)
+	}
+	return issue
+}
+
+func TestTheCoordinatorCallsCreateWorkstreamAndGitHubGetsTheIssueOnlyAfterTheOwnerApproves(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, approvalSeen+callCreateWorkstream("Create.", "Upkeep", "Keep the code healthy.", "mobius:maintenance")+seenScript)
+
+	session := run(t, server, coordinatorSpec(t), "Create.")
+
+	if got := reply(t, server, session); got != actionWaits {
+		t.Errorf("reply = %q", got)
+	}
+	action := waitForActions(t, server, 1)[0]
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if action.State != "pending" || fake.HasIssue(shop, 13) {
+		t.Errorf("action = %+v, issue = %v", action, fake.HasIssue(shop, 13))
+	}
+	items := itemsOf(t, server, "approval")
+	wantText := "brief: Keep the code healthy.\nlabels: [\"mobius:maintenance\"]\ntitle: Upkeep"
+	if len(items) != 1 || items[0].Title != "Create the Workstream: Upkeep" || items[0].Text != wantText {
+		t.Errorf("items = %+v", items)
+	}
+
+	done := decided(t, server, action.ID, "approve", "")
+
+	if done.State != "done" || done.Result != "Created the Workstream #13." {
+		t.Errorf("action = %+v", done)
+	}
+	title, body := fake.Issue(shop, 13)
+	if labels := fake.Labels(shop, 13); title != "Upkeep" || body != "Keep the code healthy." || !slices.Equal(labels, []string{"mobius:workstream", "mobius:maintenance"}) {
+		t.Errorf("#13 = %q, %q, %v", title, body, labels)
+	}
+	if fake.HasIssue(shop, 14) {
+		t.Error("the Workstream exists two times")
+	}
+}
+
+func TestAFailedAddOfTheLabelsLeavesTheActionPendingAndASecondApprovalCreatesNoSecondIssue(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, approvalSeen+callCreateWorkstream("Create.", "Upkeep", "Keep the code healthy.", "mobius:maintenance")+seenScript)
+	fake.FailAddLabels(shop, 13, true)
+	run(t, server, coordinatorSpec(t), "Create.")
+	action := waitForActions(t, server, 1)[0]
+
+	failed := decided(t, server, action.ID, "approve", "")
+
+	if failed.State != "pending" || !strings.HasPrefix(failed.Error, "GitHub created #13, but the add of the Workstream labels failed.") {
+		t.Errorf("action = %+v", failed)
+	}
+	if issue := createdIssue(t, server, action.ID); issue != (sql.NullInt64{Int64: 13, Valid: true}) {
+		t.Errorf("created issue = %+v", issue)
+	}
+	if items := itemsOf(t, server, "approval"); len(items) != 1 {
+		t.Errorf("items = %+v", items)
+	}
+
+	fake.FailAddLabels(shop, 13, false)
+	done := decided(t, server, action.ID, "approve", "")
+
+	if done.State != "done" || done.Error != "" || done.Result != "Created the Workstream #13." {
+		t.Errorf("action = %+v", done)
+	}
+	if labels := fake.Labels(shop, 13); !slices.Equal(labels, []string{"mobius:workstream", "mobius:maintenance"}) {
+		t.Errorf("labels of #13 = %v", labels)
+	}
+	if fake.HasIssue(shop, 14) {
+		t.Error("the Workstream exists two times")
+	}
+	waitForNoItem(t, server, "approval")
+}
+
+func TestTheCoordinatorCallsTellCuratorAndTheCuratorGetsTheRequestOnlyAfterTheOwnerApproves(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connect(t, fake, requestScript)
+
+	sendChat(t, server, coordinatorChat, "Remember the format rule.")
+
+	action := waitForActions(t, server, 1)[0]
+	waitForPolls(t, fake)
+	waitForPolls(t, fake)
+	if sessions := curatorSessions(t, server); action.State != "pending" || len(sessions) != 0 || requestCount(t, server) != 0 {
+		t.Errorf("action = %+v, Curators = %+v", action, sessions)
+	}
+	items := itemsOf(t, server, "approval")
+	wantText := "repository: owner/shop\ntext: Add the lesson: run make fmt before each commit."
+	if len(items) != 1 || items[0].Title != "Request to the Curator of owner/shop" || items[0].Text != wantText {
+		t.Errorf("items = %+v", items)
+	}
+
+	done := decided(t, server, action.ID, "approve", "")
+
+	if done.State != "done" || done.Result != "Sent the request to the Curator. The result arrives later." {
+		t.Errorf("action = %+v", done)
+	}
+	prompts := testkit.WaitForValue(t, func() ([]string, bool) {
+		sessions := curatorSessions(t, server)
+		if len(sessions) != 1 {
+			return nil, false
+		}
+		prompts := promptTexts(t, server, sessions[0].ID)
+		return prompts, len(prompts) == 1
+	})
+	if !strings.Contains(prompts[0], "## Request 1\n\nAdd the lesson: run make fmt before each commit.\n\n") {
+		t.Errorf("prompts = %q", prompts)
 	}
 }
