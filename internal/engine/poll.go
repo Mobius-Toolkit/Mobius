@@ -155,6 +155,9 @@ func (e *Engine) pollRepository(ctx context.Context, repository github.Repositor
 	if err := e.createCheckTimeoutIssue(ctx, repository); err != nil {
 		return err
 	}
+	if err := e.createCIFailureIssues(ctx, repository); err != nil {
+		return err
+	}
 	if err := e.dispatchReady(ctx, repository); err != nil {
 		return err
 	}
