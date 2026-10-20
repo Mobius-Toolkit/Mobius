@@ -186,7 +186,7 @@ func Excluded(ctx context.Context, dataDir, worktree string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	content, err := os.ReadFile(file)
+	content, err := os.ReadFile(filepath.Clean(file))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
