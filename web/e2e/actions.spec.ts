@@ -51,6 +51,7 @@ test("the Owner approves an action with a note", async ({ page }) => {
   await expect(card(page, messageLead.id).getByText("Waits for the approval")).toBeVisible();
   await expect(row(page, createTitle).getByRole("button")).toHaveText("Answer");
   await expect(row(page, messageTitle).getByRole("button")).toHaveText("Answer");
+  await expect(row(page, createTitle)).not.toContainText(createWorkstream.tool);
   await expect(main.getByRole("button", { name: "Approve" })).toHaveCount(0);
   await expect(main.getByRole("button", { name: "Reject" })).toHaveCount(0);
 

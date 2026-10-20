@@ -113,11 +113,7 @@ export function InboxRow({
   };
 
   const isPullRequest = item.kind === InboxItemKind.ready_for_review;
-  const reference = item.action
-    ? item.action.tool
-    : isPullRequest
-      ? `PR #${item.pullRequest}`
-      : `#${item.issue}`;
+  const reference = item.action ? "" : isPullRequest ? `PR #${item.pullRequest}` : `#${item.issue}`;
   const referenceLink = isPullRequest ? item.pullRequestUrl : item.link;
   const merging = answered?.item === item ? answered.merging : item.merging;
   const refusalText = refusal || (merging ? "" : item.mergeRefusal);
@@ -126,18 +122,19 @@ export function InboxRow({
     <Row className="flex-wrap gap-y-2 py-2">
       <div className="flex min-w-0 grow basis-full flex-wrap items-center gap-x-2 gap-y-2 sm:flex-nowrap">
         <span className="flex min-w-0 grow basis-full flex-wrap items-baseline gap-x-2 sm:basis-0 sm:flex-nowrap">
-          {referenceLink ? (
-            <a
-              href={referenceLink}
-              target="_blank"
-              rel="noreferrer"
-              className={cn("shrink-0", link)}
-            >
-              {reference}
-            </a>
-          ) : (
-            <span className="shrink-0">{reference}</span>
-          )}
+          {reference &&
+            (referenceLink ? (
+              <a
+                href={referenceLink}
+                target="_blank"
+                rel="noreferrer"
+                className={cn("shrink-0", link)}
+              >
+                {reference}
+              </a>
+            ) : (
+              <span className="shrink-0">{reference}</span>
+            ))}
           <span className="contents sm:flex sm:min-w-0 sm:items-baseline sm:gap-x-2">
             <span className="grow basis-0 truncate sm:max-w-full sm:shrink-0 sm:grow-0 sm:basis-auto">
               {item.title}
