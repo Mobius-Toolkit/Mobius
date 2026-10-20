@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"slices"
 	"strings"
@@ -35,6 +36,8 @@ type ChatMessage struct {
 	Text string `gork:"text"`
 	// Images is the number of images of the message. GetChatImage gives each image by its position, from 0
 	Images int64 `gork:"images"`
+	// InboxItems are the Inbox items that the Owner sent with the message, in the order of the request
+	InboxItems []ChatInboxItem `gork:"inboxItems"`
 	// BrowserID is the id that the browser gave to the message of the Owner. It is empty for another message
 	BrowserID string `gork:"browserId"`
 	// DeliveredAt is the time when the turn of the agent for the message of the Owner started, or null before that
@@ -45,6 +48,18 @@ type ChatMessage struct {
 	StoppedAt *time.Time `gork:"stoppedAt"`
 	// Action is the action of a card, or null for another message
 	Action *PendingAction `gork:"action"`
+}
+
+// ChatInboxItem is an Inbox item that the Owner sends with a chat message.
+type ChatInboxItem struct {
+	// Reference is #N or PR #N, or empty for an item with no issue
+	Reference string `gork:"reference"`
+	// Title is the title of the Inbox item
+	Title string `gork:"title"`
+	// Reason is the reason of the Inbox item
+	Reason string `gork:"reason"`
+	// Link is the GitHub URL of the issue or the pull request, or empty
+	Link string `gork:"link"`
 }
 
 // Chat is a page of the messages of a Lead chat or of the Coordinator chat.
@@ -113,10 +128,13 @@ type SendChatRequest struct {
 		// ID is the id that the browser gives to the message. A message with an id that another message has is not
 		// stored again, and the response is the same
 		ID string `gork:"id" validate:"required"`
-		// Text is the message of the Owner. It is required when the message has no image
-		Text string `gork:"text" validate:"required_without=Images"`
+		// Text is the message of the Owner. It is required when the message has no image and no Inbox item
+		Text string `gork:"text" validate:"required_without_all=Images InboxItems"`
 		// Images are the images of the message, PNG, JPEG, GIF or WebP, each at most 5 MB
 		Images []api.File `gork:"images" validate:"max=4,dive,max=5242880"`
+		// InboxItems are the Inbox items of the message. The request has one part inboxItems for each item, in order,
+		// and each part is one JSON object
+		InboxItems []ChatInboxItem `gork:"inboxItems"`
 	}
 }
 
@@ -142,7 +160,11 @@ func (h *handlers) SendChat(ctx context.Context, req SendChatRequest) error {
 	for _, image := range body.Images {
 		images = append(images, engine.Image{MIMEType: image.ContentType, Data: image.Data})
 	}
-	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, text, images)
+	inboxItems := make([]engine.ChatInboxItem, 0, len(body.InboxItems))
+	for _, item := range body.InboxItems {
+		inboxItems = append(inboxItems, engine.ChatInboxItem(item))
+	}
+	err := h.engine.SendChat(ctx, engine.ChatKey{Organization: body.Organization, Repository: body.Repository, Workstream: body.Workstream}, body.ID, text, images, inboxItems)
 	if engine.Refused(err) {
 		return api.NewHTTPError(http.StatusConflict, err.Error())
 	}
@@ -258,6 +280,13 @@ func (h *handlers) chatMessageOf(ctx context.Context, message store.ChatMessage)
 		return ChatMessage{}, err
 	}
 	images, err := h.engine.ImageCount(message.ID)
+	if err != nil {
+		return ChatMessage{}, err
+	}
+	var inboxItems []ChatInboxItem
+	if err := json.Unmarshal([]byte(message.InboxItems), &inboxItems); err != nil {
+		return ChatMessage{}, err
+	}
 	found := ChatMessage{
 		ID:           message.ID,
 		Organization: message.Organization,
@@ -267,6 +296,7 @@ func (h *handlers) chatMessageOf(ctx context.Context, message store.ChatMessage)
 		Time:         t,
 		Text:         message.Text,
 		Images:       int64(images),
+		InboxItems:   inboxItems,
 		BrowserID:    message.BrowserID.String,
 	}
 	if message.DeliveredAt.Valid {
