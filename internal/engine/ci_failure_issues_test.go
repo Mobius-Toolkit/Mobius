@@ -98,3 +98,29 @@ func TestAFailureInOnePullRequestGivesNoIssue(t *testing.T) {
 		t.Errorf("sub-issues = %v", numbers)
 	}
 }
+
+func TestALongReasonTestAndLocationGiveAnIssueThatGitHubAccepts(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("x", 70000)
+	reportsLong := "[[prompts]]\nwhen = \"You are a Diagnoser\"\ncall = { tool = \"report_failure\", arguments = { reason = \"" + long + "\", test = \"" + long + "\", location = \"" + long + "\", lines = \"--- FAIL: TestPlan\", caused_by_pull_request = false } }\n"
+	fake := testkit.NewFakeGitHub(t)
+	server := connectDiagnoser(t, fake, leadStartsTwo, reportsLong)
+	addMaintenanceWorkstream(fake, maintenance)
+	fake.AddSubIssueOf(shop, 12, 43, "Task 43")
+	first := approvalHeadOf(t, server, fake, 41)
+	second := approvalHeadOf(t, server, fake, 43)
+
+	failActions(fake, first)
+	failActions(fake, second)
+
+	title, body := fake.Issue(shop, ciBreakIssue(t, fake))
+	if len(title) >= 256 {
+		t.Errorf("title has %d characters", len(title))
+	}
+	if len(body) >= 60000 {
+		t.Errorf("body has %d bytes", len(body))
+	}
+	if !strings.Contains(body, "\n````\n--- FAIL: TestPlan\n````\n") {
+		t.Errorf("body does not have the failed lines:\n%s", body[:500])
+	}
+}

@@ -14,6 +14,13 @@ import (
 
 const failureLinesFormat = "\n````\n%s\n````\n"
 
+// The Diagnoser output has no length bound. These limits, in characters, keep the head of the issue body and the title
+// below the limits of GitHub.
+const (
+	failureReasonChars = 2000
+	failureNameChars   = 200
+)
+
 // createCIFailureIssues creates the task issue of each open failure record of repository that has two or more places and
 // no issue. The issue goes below the maintenance Workstream and has no label. A repository with no open maintenance
 // Workstream gets no issue, and the next poll tries again. The number of an issue that GitHub created but did not add
@@ -62,7 +69,7 @@ func (e *Engine) createCIFailureIssue(ctx context.Context, repository github.Rep
 	if err != nil {
 		return 0, err
 	}
-	title := "Fix the CI failure of " + ciFailureName(failure)
+	title := "Fix the CI failure of " + cutChars(ciFailureName(failure), failureNameChars)
 	number, err := e.addIssue(ctx, repository, workstream, issueInput{Title: title, Body: ciFailureBody(repository, failure, places), Parent: workstream}, nil)
 	if number != 0 {
 		stored := int64(number)
@@ -109,8 +116,12 @@ func ciFailureName(failure store.CiFailure) string {
 	case failure.Location != "":
 		return failure.Location
 	}
-	reason := []rune(failure.Reason)
-	return string(reason[:min(len(reason), 80)])
+	return cutChars(failure.Reason, 80)
+}
+
+func cutChars(text string, limit int) string {
+	runes := []rune(text)
+	return string(runes[:min(len(runes), limit)])
 }
 
 // ciFailureBody gives the body of the issue of failure: the reason, the test, the location, and for each place the pull
@@ -118,12 +129,12 @@ func ciFailureName(failure store.CiFailure) string {
 // the lines of a place lose their first lines.
 func ciFailureBody(repository github.Repository, failure store.CiFailure, places []store.ListCIFailurePlacesRow) string {
 	var head strings.Builder
-	fmt.Fprintf(&head, "The same CI failure occurs in %d places.\n\nReason: %s\n", len(places), strings.TrimSpace(failure.Reason))
+	fmt.Fprintf(&head, "The same CI failure occurs in %d places.\n\nReason: %s\n", len(places), cutChars(strings.TrimSpace(failure.Reason), failureReasonChars))
 	if failure.Test != "" {
-		fmt.Fprintf(&head, "Test: %s\n", failure.Test)
+		fmt.Fprintf(&head, "Test: %s\n", cutChars(failure.Test, failureNameChars))
 	}
 	if failure.Location != "" {
-		fmt.Fprintf(&head, "Location: %s\n", failure.Location)
+		fmt.Fprintf(&head, "Location: %s\n", cutChars(failure.Location, failureNameChars))
 	}
 	sections := make([]string, len(places))
 	used := head.Len()
