@@ -268,7 +268,7 @@ test.describe("the size of the chat text", () => {
     await page.setViewportSize(phone);
     expect(await sizes(page)).toEqual({ text: 16, input: 16 });
     await expectHeadingRatios(page);
-    expect(await page.evaluate(fontSize("main h2"))).toBe(16);
+    expect(await page.evaluate(fontSize("header h1"))).toBe(16);
     expect(await page.evaluate(fontSize("[data-message] .text-xs"))).toBe(12);
   });
 
