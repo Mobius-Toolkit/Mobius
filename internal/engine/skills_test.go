@@ -193,6 +193,7 @@ func TestALaterSessionWithNoSkillsDoesNotHideTheSkillFolderOfTheBranch(t *testin
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	endedImplementers(t, server, 1)
 	fake.RemoveRepository(skills)
+	waitForPolls(t, fake)
 	worktree := filepath.Join(dataDir, "worktrees", "owner", "shop", "task-41")
 	spec := engine.Spec{Role: engine.ImplementerRole, Organization: "owner", Repository: shop, Workstream: 12, Dir: worktree}
 

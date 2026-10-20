@@ -121,7 +121,7 @@ Each agent loads your own skills from the user skill directory of its Harness:
 | Antigravity | `~/.gemini/config/skills/` |
 | Devin | `~/.agents/skills/` or `~/.config/devin/skills/` |
 
-Mobius also gives each agent the skills of your organization. Put them in the repository `<organization>/mobius-skills`. The name is fixed. Install the Mobius App on this repository.
+Mobius also gives each agent the skills of your organization. Put them in the repository `<organization>/mobius-skills`. The name is fixed. Install the Mobius App on this repository. Mobius treats it as each other repository, so a change of a skill uses a task issue, a pull request and your approval.
 
 A skill is a top-level folder of the default branch with a `SKILL.md` file and optional other files. At the start of each session, Mobius copies the skills of the default branch into the skill folder of the Harness in the working directory of the session:
 

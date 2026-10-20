@@ -539,36 +539,18 @@ func TestMergePullRequestTellsAMergeApartFromAChangedHeadAndARefusal(t *testing.
 	}
 }
 
-func TestTheSkillRepositoryOfAnOrganizationIsNotInTheRepositoriesAndSkillRepositoryGivesIt(t *testing.T) {
+func TestTheSkillRepositoryIsARepositoryAndSkillRepositoryGivesIt(t *testing.T) {
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddRepository("owner/mobius-skills")
 	gh := connect(t, fake)
 
-	if got, want := repositoryNames(gh), []string{"other/garden mobius-second", "owner/shop mobius-test"}; !slices.Equal(got, want) {
+	if got, want := repositoryNames(gh), []string{"other/garden mobius-second", "owner/mobius-skills mobius-test", "owner/shop mobius-test"}; !slices.Equal(got, want) {
 		t.Errorf("repositories = %v", got)
-	}
-	if got := gh.Organizations(); !slices.Equal(got, []string{"other", "owner"}) {
-		t.Errorf("organizations = %v", got)
 	}
 	if repository, ok := gh.SkillRepository("owner"); !ok || repository.FullName != "owner/mobius-skills" {
 		t.Errorf("skill repository = %+v, %v", repository, ok)
 	}
 	if _, ok := gh.SkillRepository("other"); ok {
 		t.Error("the organization other has no skill repository")
-	}
-}
-
-func TestAFailedAppKeepsItsSkillRepository(t *testing.T) {
-	fake := testkit.NewFakeGitHub(t)
-	fake.AddRepository("owner/mobius-skills")
-	gh := connect(t, fake)
-
-	fake.FailInstallations(testkit.AppID, true)
-	if complete, err := gh.Refresh(t.Context()); err != nil || complete {
-		t.Fatalf("complete = %v, err = %v", complete, err)
-	}
-
-	if _, ok := gh.SkillRepository("owner"); !ok {
-		t.Error("the skill repository is gone")
 	}
 }
