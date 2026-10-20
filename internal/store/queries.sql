@@ -814,6 +814,13 @@ SELECT * FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id;
 -- name: ListOpenHardCIBreaks :many
 SELECT * FROM ci_breaks WHERE repository = ? AND ended_at = '' AND result = 'hard' ORDER BY id;
 
+-- name: HasDiagnosingHardCIBreak :one
+SELECT EXISTS (
+  SELECT 1 FROM ci_breaks JOIN ci_diagnoses ON ci_diagnoses.ci_break = ci_breaks.id
+  WHERE ci_breaks.repository = ? AND ci_breaks.issue = 0 AND ci_breaks.result = 'hard' AND ci_breaks.ended_at = ''
+    AND ci_diagnoses.ended_at = ''
+);
+
 -- name: ListAllOpenHardCIBreaks :many
 SELECT * FROM ci_breaks WHERE ended_at = '' AND result = 'hard' AND issue != 0 ORDER BY repository, id;
 

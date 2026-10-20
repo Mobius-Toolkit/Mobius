@@ -2554,6 +2554,21 @@ func (q *Queries) HasCopiedWorkstream(ctx context.Context, arg HasCopiedWorkstre
 	return exists, err
 }
 
+const hasDiagnosingHardCIBreak = `-- name: HasDiagnosingHardCIBreak :one
+SELECT EXISTS (
+  SELECT 1 FROM ci_breaks JOIN ci_diagnoses ON ci_diagnoses.ci_break = ci_breaks.id
+  WHERE ci_breaks.repository = ? AND ci_breaks.issue = 0 AND ci_breaks.result = 'hard' AND ci_breaks.ended_at = ''
+    AND ci_diagnoses.ended_at = ''
+)
+`
+
+func (q *Queries) HasDiagnosingHardCIBreak(ctx context.Context, repository string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasDiagnosingHardCIBreak, repository)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const hasFollowUpEvent = `-- name: HasFollowUpEvent :one
 SELECT EXISTS (
     SELECT 1 FROM lead_events

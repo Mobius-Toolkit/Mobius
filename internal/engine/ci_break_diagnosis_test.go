@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -171,5 +172,28 @@ func TestAPassedRunClosesTheIssueOfABreakWhoseRecordHasNoPullRequestPlace(t *tes
 	})
 	if state, reason := fake.State(shop, number); state != "closed" || reason != "completed" {
 		t.Errorf("state = %q, reason = %q", state, reason)
+	}
+}
+
+func TestTheStopHoldsTheDispatchWhileTheDiagnoserReadsAHardBreak(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	prepareAutopilot(fake, false)
+	addMaintenanceWorkstream(fake, maintenance)
+	server := connectDiagnoser(t, fake, leadStarts, "[[prompts]]\nwhen = \"You are a Diagnoser\"\nreply = [\"Waiting.\"]\nhang = true\n")
+	server.WaitForFirstPoll(t, shop)
+	hardMainRun(fake, head(t, fake, "main"))
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, "SELECT count(*) FROM ci_diagnoses WHERE ci_break != 0 AND ended_at = ''") == 1
+	})
+	dispatchTask(fake, 45, "Add plan model")
+
+	waitForPolls(t, fake)
+
+	if hasLiveTask(t, server, 45) {
+		t.Error("a task started")
+	}
+	if labels := fake.Labels(shop, 45); !slices.Contains(labels, "mobius:ready") {
+		t.Errorf("labels = %v", labels)
 	}
 }

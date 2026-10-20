@@ -252,7 +252,9 @@ func (e *Engine) ciBreakIssueClosed(ctx context.Context, repository github.Repos
 }
 
 // ciStop gives the task issue numbers of the open hard breaks of repository that have an issue, also an issue that is
-// not below the Workstream yet. While it has some, Mobius starts no task in repository except these issues.
+// not below the Workstream yet. While it has some, Mobius starts no task in repository except these issues. An open
+// hard break with no issue and an open diagnosis also starts the stop: the map then holds the number 0, which is no
+// issue.
 func (e *Engine) ciStop(ctx context.Context, repository string) (map[int64]bool, error) {
 	breaks, err := e.queries.ListOpenHardCIBreaks(ctx, repository)
 	if err != nil {
@@ -263,6 +265,13 @@ func (e *Engine) ciStop(ctx context.Context, repository string) (map[int64]bool,
 		if ciBreak.Issue != 0 {
 			stop[max(ciBreak.Issue, -ciBreak.Issue)] = true
 		}
+	}
+	diagnosing, err := e.queries.HasDiagnosingHardCIBreak(ctx, repository)
+	if err != nil {
+		return nil, err
+	}
+	if diagnosing {
+		stop[0] = true
 	}
 	return stop, nil
 }
@@ -288,7 +297,12 @@ func (e *Engine) ciStopRefusal(ctx context.Context, repository github.Repository
 	}
 	var links []string
 	for _, issue := range slices.Sorted(maps.Keys(stop)) {
-		links = append(links, issueLink(repository.FullName, issue))
+		if issue != 0 {
+			links = append(links, issueLink(repository.FullName, issue))
+		}
+	}
+	if len(links) == 0 {
+		return refuse("Mobius started no task: the CI of %s has a hard break. Mobius makes its task issue.", repository.DefaultBranch)
 	}
 	return refuse("Mobius started no task: the CI of %s has a hard break. Fix it first in %s.", repository.DefaultBranch, strings.Join(links, ", "))
 }
