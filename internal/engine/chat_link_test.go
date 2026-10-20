@@ -60,8 +60,8 @@ func TestCreateIssueAddsNoLinkWithNoUIURL(t *testing.T) {
 func TestAnApprovedCreateWorkstreamWritesTheBriefWithTheLinkToItsOwnLeadChat(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, approvalSeen+callCreateWorkstream("Create.", "Upkeep", "Keep the code healthy.", "mobius:maintenance")+seenScript, withUIURL)
-	run(t, server, coordinatorSpec(t), "Create.")
+	server, _ := connectWith(t, fake, approvalSeen+callCreateWorkstream("Create the Workstream.", "Gift cards", "Sell gift cards.", "mobius:maintenance")+seenScript, withUIURL)
+	run(t, server, coordinatorSpec(t), "Create the Workstream.")
 	action := waitForActions(t, server, 1)[0]
 
 	done := decided(t, server, action.ID, "approve", "")
@@ -69,7 +69,7 @@ func TestAnApprovedCreateWorkstreamWritesTheBriefWithTheLinkToItsOwnLeadChat(t *
 	if done.State != "done" || done.Result != "Created the Workstream #13." {
 		t.Errorf("action = %+v", done)
 	}
-	if _, body := fake.Issue(shop, 13); body != "Keep the code healthy.\n\n"+strings.Replace(chatLink, "/12)", "/13)", 1) {
+	if _, body := fake.Issue(shop, 13); body != "Sell gift cards.\n\n"+strings.Replace(chatLink, "/12)", "/13)", 1) {
 		t.Errorf("body = %q", body)
 	}
 }
@@ -77,9 +77,9 @@ func TestAnApprovedCreateWorkstreamWritesTheBriefWithTheLinkToItsOwnLeadChat(t *
 func TestASecondApprovalOfCreateWorkstreamAfterAFailedAddOfTheLabelsKeepsOneLinkAndOneIssue(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connectWith(t, fake, approvalSeen+callCreateWorkstream("Create.", "Upkeep", "Keep the code healthy.", "mobius:maintenance")+seenScript, withUIURL)
+	server, _ := connectWith(t, fake, approvalSeen+callCreateWorkstream("Create the Workstream.", "Gift cards", "Sell gift cards.", "mobius:maintenance")+seenScript, withUIURL)
 	fake.FailAddLabels(shop, 13, true)
-	run(t, server, coordinatorSpec(t), "Create.")
+	run(t, server, coordinatorSpec(t), "Create the Workstream.")
 	action := waitForActions(t, server, 1)[0]
 
 	failed := decided(t, server, action.ID, "approve", "")
@@ -93,7 +93,7 @@ func TestASecondApprovalOfCreateWorkstreamAfterAFailedAddOfTheLabelsKeepsOneLink
 	if done.State != "done" || done.Error != "" {
 		t.Errorf("action = %+v", done)
 	}
-	want := "Keep the code healthy.\n\n" + strings.Replace(chatLink, "/12)", "/13)", 1)
+	want := "Sell gift cards.\n\n" + strings.Replace(chatLink, "/12)", "/13)", 1)
 	if _, body := fake.Issue(shop, 13); body != want {
 		t.Errorf("body = %q, want %q", body, want)
 	}
