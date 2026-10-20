@@ -225,24 +225,30 @@ func (e *Engine) deliverReport(ctx context.Context, c caller, repository github.
 	text := header + report
 	if c.role == TriagerRole {
 		text = header + tail(report, commentLimit-utf8.RuneCountInString(header))
-		number := c.agent.spec.Issue.Int64
-		if !e.triagingOrUnknown(ctx, repository, number) {
-			return nil
-		}
-		if _, err := repository.AddComment(ctx, number, text); err != nil {
-			log.Printf("add a comment to %s#%d: %v", repository.FullName, number, err)
-			if err := e.queries.AddCommentWrite(ctx, store.AddCommentWriteParams{
-				Repository: repository.FullName,
-				Number:     sql.NullInt64{Int64: number, Valid: true},
-				Body:       text,
-			}); err != nil {
-				return err
-			}
-			return e.queries.AddTriagerTurn(ctx, store.AddTriagerTurnParams{Repository: repository.FullName, Issue: number})
-		}
-		return e.restartTriager(ctx, repository, number)
+		return e.commentToTriager(ctx, repository, c.agent.spec.Issue.Int64, text)
 	}
 	return e.postChat(ctx, ChatKey{c.organization, c.repository, c.workstream}, researcherAuthor, "", text, nil)
+}
+
+// commentToTriager adds the text as a comment on the issue number of the Triager, and starts the next turn of the
+// Triager. When the triage has ended, the text goes nowhere. When GitHub refuses the comment, the comment stays in
+// comment_writes and the turn stays held until the poll sends it.
+func (e *Engine) commentToTriager(ctx context.Context, repository github.Repository, number int64, text string) error {
+	if !e.triagingOrUnknown(ctx, repository, number) {
+		return nil
+	}
+	if _, err := repository.AddComment(ctx, number, text); err != nil {
+		log.Printf("add a comment to %s#%d: %v", repository.FullName, number, err)
+		if err := e.queries.AddCommentWrite(ctx, store.AddCommentWriteParams{
+			Repository: repository.FullName,
+			Number:     sql.NullInt64{Int64: number, Valid: true},
+			Body:       text,
+		}); err != nil {
+			return err
+		}
+		return e.queries.AddTriagerTurn(ctx, store.AddTriagerTurnParams{Repository: repository.FullName, Issue: number})
+	}
+	return e.restartTriager(ctx, repository, number)
 }
 
 // triagingOrUnknown tells if the issue number is in the triage, or if a failed read does not show it.
