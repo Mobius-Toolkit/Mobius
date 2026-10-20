@@ -785,6 +785,13 @@ func (e *Engine) createWorkstream(ctx context.Context, c caller, repository gith
 		}
 	}
 	var err error
+	if body := e.withChatLink(repository, int64(issue.GetNumber()), input.Brief); body != issue.GetBody() {
+		updated, _, err := repository.Client.Issues.Update(ctx, owner, name, issue.GetNumber(), gh.UpdateIssueRequest{Body: &body})
+		if err != nil {
+			return "", fmt.Errorf("GitHub created #%d, but the update of its body failed. Approve the action again: %w", issue.GetNumber(), err)
+		}
+		issue = updated
+	}
 	if issue.Labels, _, err = repository.Client.Issues.AddLabelsToIssue(ctx, owner, name, issue.GetNumber(), append([]string{workstreamLabel}, input.Labels...)); err != nil {
 		return "", fmt.Errorf("GitHub created #%d, but the add of the Workstream labels failed. Do not create the Workstream again: %w", issue.GetNumber(), err)
 	}
@@ -945,7 +952,8 @@ func (e *Engine) editBrief(ctx context.Context, c caller, repository github.Repo
 	if err := checkEditBrief(c, input); err != nil {
 		return "", err
 	}
-	issue, _, err := repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(c.workstream), gh.UpdateIssueRequest{Body: &input.Brief})
+	body := e.withChatLink(repository, c.workstream, input.Brief)
+	issue, _, err := repository.Client.Issues.Update(ctx, repository.Owner(), repository.Name(), int(c.workstream), gh.UpdateIssueRequest{Body: &body})
 	if err != nil {
 		return "", err
 	}
@@ -1012,11 +1020,14 @@ func (e *Engine) messageLead(ctx context.Context, c caller, repository github.Re
 	return fmt.Sprintf("Sent the message to the Lead of #%d.", input.Workstream), nil
 }
 
-// withChatLink gives body with the link to the Lead chat of the Workstream at the end. It gives body with no change
-// when the config has no ui_url.
+// withChatLink gives body with the link to the Lead chat of the Workstream at the end, one time. It removes the link
+// lines of the same Workstream and the blank lines at the end of body first. It gives body with no change when the config
+// has no ui_url.
 func (e *Engine) withChatLink(repository github.Repository, workstream int64, body string) string {
 	if e.config.UIURL == "" {
 		return body
 	}
-	return fmt.Sprintf("%s\n\n[Open the Lead chat in Mobius](%s/workstreams/%s/%s/%d)", body, e.config.UIURL, repository.Owner(), repository.Name(), workstream)
+	link := fmt.Sprintf("[Open the Lead chat in Mobius](%s/workstreams/%s/%s/%d)", e.config.UIURL, repository.Owner(), repository.Name(), workstream)
+	lines := slices.DeleteFunc(strings.Split(body, "\n"), func(line string) bool { return strings.TrimSpace(line) == link })
+	return strings.TrimRight(strings.Join(lines, "\n"), " \t\r\n") + "\n\n" + link
 }
