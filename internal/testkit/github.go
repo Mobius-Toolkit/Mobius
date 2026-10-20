@@ -52,7 +52,7 @@ var apps = []githubApp{
 
 const botUserID = 41898282
 
-// The id of an issue is its number plus this offset, so a number in place of an id finds no issue.
+// The ids of the issues count up from this offset, so a number in place of an id finds no issue.
 const issueIDOffset = 100_000
 
 // The permissions of an App or an installation with no SetAppPermissions or SetInstallationPermissions.
@@ -99,6 +99,9 @@ type FakeGitHub struct {
 	repositories            []string
 	cloneURLs               map[string]string
 	issues                  map[issueKey]*issue
+	// The ids of all issues and pull requests are different, as on GitHub.
+	lastIssueID int64
+	issueKeys   map[int64]issueKey
 	// commentsAfterList holds the comments that the next issue list adds after it builds its page.
 	commentsAfterList []listedComment
 	// The comment ids of all issues are different, as on GitHub.
@@ -231,6 +234,8 @@ func NewFakeGitHub(t testing.TB) *FakeGitHub {
 		tokens:                  map[string]token{},
 		installationTokenLife:   time.Hour,
 		issues:                  map[issueKey]*issue{},
+		lastIssueID:             issueIDOffset,
+		issueKeys:               map[int64]issueKey{},
 		repositoryLabels:        map[labelKey]Label{},
 		reactions:               map[reactionKey][]storedReaction{},
 		failedReactions:         map[string]bool{},
