@@ -142,9 +142,9 @@ async function mockLog(page: Page) {
   });
   return (id: number) =>
     page.evaluate(
-      `window.sources.forEach((source) => source.dispatchEvent(new MessageEvent('transcript', { data: ${JSON.stringify(
+      `window.sources.at(-1).dispatchEvent(new MessageEvent('transcript', { data: ${JSON.stringify(
         JSON.stringify({ ...entry(id), session }),
-      )} })))`,
+      )} }))`,
     );
 }
 
