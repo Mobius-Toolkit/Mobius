@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Mobius-Toolkit/Mobius/internal/config"
+	"github.com/Mobius-Toolkit/Mobius/internal/engine"
 	"github.com/Mobius-Toolkit/Mobius/internal/store"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit"
 	"github.com/Mobius-Toolkit/Mobius/internal/testkit/testserver"
@@ -244,5 +245,40 @@ func TestReportFailureRefusesARecordThatIsNotOpenInTheRepository(t *testing.T) {
 	}
 	if n := rowCount(t, server, "SELECT count(*) FROM ci_failures"); n != 0 {
 		t.Errorf("records = %d", n)
+	}
+}
+
+func TestAResumeRoundOfATaskThatTheCIStoppedAfterADiagnosisGetsTheSameDiagnosis(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	dataDir := t.TempDir()
+	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+reportsPlan)
+	server, _ := connectTaskIn(t, fake, dataDir, leadStarts, fixesNothing, func(cfg *config.Config) {
+		cfg.Roles.Diagnoser = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 2}
+	})
+	sha := approvalHead(t, server, fake)
+	failActions(fake, sha)
+	testkit.WaitFor(t, func() bool { return taskState(t, server) == "needs_human" && hasLabel(fake, "mobius:needs-human") })
+	diagnosis := "\nDiagnosis of the failed jobs:\n- The plan test expects cents. Test: TestPlan. Location: plan_test.go:12. The change of the pull request did not cause this failure.\n"
+	if round := roundPrompt(t, server); !strings.Contains(round, diagnosis) {
+		t.Fatalf("%q is not in %s", diagnosis, round)
+	}
+
+	fake.RemoveLabel(shop, 41, "mobius:needs-human", "owner")
+
+	resumed := testkit.WaitForValue(t, func() (string, bool) {
+		sessions := roleSessions(t, server, engine.ImplementerRole)
+		if len(sessions) < 3 {
+			return "", false
+		}
+		prompts := promptTexts(t, server, sessions[2].ID)
+		if len(prompts) == 0 {
+			return "", false
+		}
+		return prompts[0], true
+	})
+	inOrder(t, resumed, "Check run \"build\"", "Action: fix\n", diagnosis)
+	if n := len(diagnoserSessions(t, server)); n != 1 {
+		t.Errorf("Diagnosers = %d", n)
 	}
 }

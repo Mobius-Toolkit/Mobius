@@ -51,10 +51,27 @@ func (e *Engine) pullRequestDiagnosis(ctx context.Context, repository github.Rep
 		e.startDiagnoser(repository.FullName)
 		return "", true, nil
 	}
-	if diagnosis.Reasons == "" {
-		return "", false, nil
+	return diagnosisSection(diagnosis.Reasons), false, nil
+}
+
+// endedDiagnosis gives the section of the items of a fix round with the diagnosis of an ended Diagnoser of the head. It
+// waits for no Diagnoser and starts none. The section is empty when the head has no ended row.
+func (e *Engine) endedDiagnosis(ctx context.Context, repository github.Repository, pullRequest int64, head string) (string, error) {
+	diagnosis, err := e.queries.GetPullRequestCIDiagnosis(ctx, store.GetPullRequestCIDiagnosisParams{Repository: repository.FullName, PullRequest: pullRequest, Head: head})
+	if errors.Is(err, sql.ErrNoRows) || err == nil && diagnosis.EndedAt == "" {
+		return "", nil
 	}
-	return "\nDiagnosis of the failed jobs:\n" + diagnosis.Reasons, false, nil
+	if err != nil {
+		return "", err
+	}
+	return diagnosisSection(diagnosis.Reasons), nil
+}
+
+func diagnosisSection(reasons string) string {
+	if reasons == "" {
+		return ""
+	}
+	return "\nDiagnosis of the failed jobs:\n" + reasons
 }
 
 // startDiagnoser starts the Diagnoser worker of repository, when none runs. The worker runs one Diagnoser at a time,

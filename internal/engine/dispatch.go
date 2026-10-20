@@ -1005,8 +1005,16 @@ func (e *Engine) continueTask(ctx context.Context, repository github.Repository,
 	}
 	items, ci := "", ""
 	if !conflict {
-		if ci, err = ciItems(ctx, repository, pullRequest.GetHead().GetSHA()); err != nil {
+		head := pullRequest.GetHead().GetSHA()
+		if ci, err = ciItems(ctx, repository, head); err != nil {
 			return false, err
+		}
+		if ci != "" {
+			diagnosis, err := e.endedDiagnosis(ctx, repository, int64(pullRequest.GetNumber()), head)
+			if err != nil {
+				return false, err
+			}
+			ci += diagnosis
 		}
 		if items, err = e.continueItems(ctx, repository, task, title, pullRequest.GetNumber(), ci); err != nil {
 			return false, err
