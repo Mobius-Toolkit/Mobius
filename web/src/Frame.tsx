@@ -34,7 +34,7 @@ const tabs = [
 
 export type Connection = "connected" | "connecting" | "offline";
 
-function ConnectionBadge({ connection }: { connection: Connection }) {
+export function ConnectionBadge({ connection }: { connection: Connection }) {
   return (
     <div role="status" className="pointer-events-none flex justify-center pt-2">
       {connection === "connecting" && (
