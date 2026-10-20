@@ -926,3 +926,123 @@ func TestAPollWithNoChangeAndABlockerInAnotherRepositorySendsNoWorkstreamsChange
 
 	noWorkstreams(t, changes)
 }
+
+type copiedChild struct {
+	Number           int64
+	Parent           int64
+	ParentRepository string
+	Repository       string
+}
+
+// copiedChildren gives the copied issues of owner/shop with their parents and repositories in the walk order of the Workstream #12.
+func copiedChildren(t *testing.T, server *testserver.Server) []copiedChild {
+	t.Helper()
+	return query(t, server, func(rows *sql.Rows, c *copiedChild) error {
+		return rows.Scan(&c.Number, &c.Parent, &c.ParentRepository, &c.Repository)
+	}, "SELECT number, parent, parent_repository, substr(repository_url, instr(repository_url, '/repos/') + 7) FROM copied_issues WHERE repository = ? AND workstream = 12 ORDER BY position", shop)
+}
+
+// startWithTaskInAnotherRepository starts a server where the Workstream #12 has the task #77 of other/repo. The task has
+// the sub-issue #78 and the blocker #70, both in other/repo.
+func startWithTaskInAnotherRepository(t *testing.T, fake *testkit.FakeGitHub) *testserver.Server {
+	t.Helper()
+	fake.AddRepository("other/repo")
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue("other/repo", 70, "A blocker in another repository")
+	fake.AddIssue("other/repo", 77, "A task in another repository")
+	fake.AddBlockedBy("other/repo", 77, 70)
+	fake.AddIssue("other/repo", 78, "A child in another repository")
+	fake.AddForeignSubIssue(shop, 12, "other/repo", 77)
+	fake.AddSubIssue("other/repo", 77, 78)
+	server := startCopied(t, fake)
+	server.WaitForFirstPoll(t, "other/repo")
+	return server
+}
+
+func TestTheFullSyncCopiesTheBlockersAndTheSubIssuesOfASubIssueOfAnotherRepository(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTaskInAnotherRepository(t, fake)
+
+	want := []copiedChild{{77, 12, shop, "other/repo"}, {78, 77, "other/repo", "other/repo"}}
+	if got := copiedChildren(t, server); !reflect.DeepEqual(got, want) {
+		t.Errorf("issues = %+v, want %+v", got, want)
+	}
+	if got, want := copiedBlockers(t, server), []copiedBlocker{{Issue: 77, Repository: "other/repo", Number: 70}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("blockers = %+v, want %+v", got, want)
+	}
+	other := "other/repo"
+	waitForTasks(t, server, []taskLine{
+		{Number: 77, Title: "A task in another repository", State: "open", URL: "https://github.com/other/repo/issues/77", OtherRepository: true, BlockedBy: []taskBlocker{{Number: 70, Repository: &other}}},
+		{Number: 78, Title: "A child in another repository", State: "open", URL: "https://github.com/other/repo/issues/78", Depth: 1, OtherRepository: true, BlockedBy: []taskBlocker{}},
+	})
+}
+
+func TestTheSubIssuesOfTwoIssuesWithTheSameNumberInTwoRepositoriesStayBelowTheirOwnParent(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	fake.AddRepository("other/repo")
+	fake.AddIssue(shop, 12, "Integrate loyalty plans")
+	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
+	fake.AddIssue(shop, 5, "Task of this repository")
+	fake.AddIssue(shop, 6, "Child of this repository")
+	fake.AddSubIssue(shop, 12, 5)
+	fake.AddSubIssue(shop, 5, 6)
+	fake.AddIssue("other/repo", 5, "Task of another repository")
+	fake.AddIssue("other/repo", 7, "Child of another repository")
+	fake.AddForeignSubIssue(shop, 12, "other/repo", 5)
+	fake.AddSubIssue("other/repo", 5, 7)
+
+	server := startCopied(t, fake)
+
+	foreign := func(number, depth int64, title string) taskLine {
+		return taskLine{Number: number, Title: title, State: "open", URL: "https://github.com/other/repo/issues/" + itoa(number), Depth: depth, OtherRepository: true, BlockedBy: []taskBlocker{}}
+	}
+	waitForTasks(t, server, []taskLine{
+		line(5, "Task of this repository", "open", 0),
+		line(6, "Child of this repository", "open", 1),
+		foreign(5, 0, "Task of another repository"),
+		foreign(7, 1, "Child of another repository"),
+	})
+}
+
+func TestASubIssueThatIsAddedBelowASubIssueOfAnotherRepositoryIsCopied(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTaskInAnotherRepository(t, fake)
+	fake.AddIssue("other/repo", 79, "A new child in another repository")
+
+	fake.AddSubIssue("other/repo", 77, 79)
+
+	testkit.WaitFor(t, func() bool { return slices.Equal(issueNumbers(t, server), []int64{77, 78, 79}) })
+}
+
+func TestABlockerThatIsAddedToASubIssueOfAnotherRepositoryIsCopied(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTaskInAnotherRepository(t, fake)
+	fake.AddIssue("other/repo", 71, "A new blocker in another repository")
+
+	fake.AddBlockedBy("other/repo", 78, 71)
+
+	testkit.WaitFor(t, func() bool {
+		return reflect.DeepEqual(copiedBlockers(t, server), []copiedBlocker{
+			{Issue: 77, Repository: "other/repo", Number: 70},
+			{Issue: 78, Repository: "other/repo", Number: 71},
+		})
+	})
+}
+
+func TestANewLabelAndANewTitleOfASubIssueOfAnotherRepositoryChangeTheCopy(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server := startWithTaskInAnotherRepository(t, fake)
+
+	fake.AddLabel("other/repo", 77, "mobius:working", "owner")
+	fake.SetTitle("other/repo", 77, "A renamed task")
+
+	testkit.WaitFor(t, func() bool {
+		return copiedTitle(t, server, 77) == "A renamed task" && slices.Equal(copiedLabels(t, server, 77), []string{"mobius:working"})
+	})
+}

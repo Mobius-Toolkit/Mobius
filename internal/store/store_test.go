@@ -247,12 +247,14 @@ func TestListCopiedWorkstreams(t *testing.T) {
 			('o/a', 1, 'No task', '', 0),
 			('o/a', 2, 'Open task', 'Brief', 1),
 			('o/a', 3, 'Closed tasks', '', 0),
+			('o/a', 4, 'Task of the same number in another repository', '', 0),
 			('o/b', 1, 'Other repository', '', 0);
-		INSERT INTO copied_issues (repository, workstream, position, number, parent, title, body, state, author, html_url, repository_url) VALUES
-			('o/a', 2, 0, 20, 2, 'Task', '', 'closed', 'owner', '', ''),
-			('o/a', 2, 1, 21, 2, 'Task', '', 'open', 'owner', '', ''),
-			('o/a', 3, 0, 30, 3, 'Task', '', 'closed', 'owner', '', ''),
-			('o/a', 3, 1, 31, 30, 'Nested task', '', 'open', 'owner', '', '');
+		INSERT INTO copied_issues (repository, workstream, position, number, parent, parent_repository, title, body, state, author, html_url, repository_url) VALUES
+			('o/a', 2, 0, 20, 2, 'o/a', 'Task', '', 'closed', 'owner', '', ''),
+			('o/a', 2, 1, 21, 2, 'o/a', 'Task', '', 'open', 'owner', '', ''),
+			('o/a', 3, 0, 30, 3, 'o/a', 'Task', '', 'closed', 'owner', '', ''),
+			('o/a', 3, 1, 31, 30, 'o/a', 'Nested task', '', 'open', 'owner', '', ''),
+			('o/a', 4, 0, 40, 4, 'o/b', 'Child of an issue of another repository', '', 'closed', 'owner', '', '');
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -263,6 +265,7 @@ func TestListCopiedWorkstreams(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []ListCopiedWorkstreamsRow{
+		{Repository: "o/a", Number: 4, Title: "Task of the same number in another repository"},
 		{Repository: "o/a", Number: 3, Title: "Closed tasks", AllTasksClosed: true},
 		{Repository: "o/a", Number: 2, Title: "Open task", Body: "Brief", Autopilot: true},
 		{Repository: "o/a", Number: 1, Title: "No task"},
@@ -551,6 +554,9 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("ALTER TABLE chat_messages DROP COLUMN inbox_items"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec("ALTER TABLE copied_issues DROP COLUMN parent_repository"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec("DELETE FROM goose_db_version WHERE version_id >= 20261027000000"); err != nil {
 		t.Fatal(err)
 	}
@@ -640,6 +646,7 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"ALTER TABLE inbox_items DROP COLUMN merging",
 		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
 		"ALTER TABLE chat_messages DROP COLUMN inbox_items",
+		"ALTER TABLE copied_issues DROP COLUMN parent_repository",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261029100000",
 		`INSERT INTO inbox_items (id, kind, organization, repository, workstream, issue, text, link, time) VALUES
 			(1, 'usage limit', 'owner', '', 0, 0, 'devin reached a usage limit.', '', '2026-10-04T10:00:00Z'),
@@ -732,6 +739,7 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		"ALTER TABLE inbox_items DROP COLUMN merging",
 		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
 		"ALTER TABLE chat_messages DROP COLUMN inbox_items",
+		"ALTER TABLE copied_issues DROP COLUMN parent_repository",
 		"DELETE FROM goose_db_version WHERE version_id >= 20261105000000",
 		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, started_at) VALUES
 			(1, 'triager', 'claude-code', 'sonnet', 'owner', '', 0, '2026-10-04T10:00:00Z'),

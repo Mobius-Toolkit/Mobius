@@ -73,8 +73,8 @@ type Blocker struct {
 
 // Tasks gives a line for each issue of a trusted author below the Workstream number of repositoryName, from the
 // local copy, depth first. A closed issue has the state closed, and no blockers. The sub-issues of an untrusted
-// issue take the depth of that issue, so a nested task does not move below an unrelated sibling. An issue in another repository has no blockers and no sub-issues
-// here, because its number names a different issue in this repository.
+// issue take the depth of that issue, so a nested task does not move below an unrelated sibling. An issue in another
+// repository has its own blockers, sub-issues and task state.
 func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream int64) ([]TaskLine, error) {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
@@ -108,28 +108,32 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 		blockers[row.Position] = append(blockers[row.Position], blocker)
 	}
 	lines := []TaskLine{}
-	// depths holds the depth of the sub-issues of each issue of this repository.
-	depths := map[int64]int64{workstream: 0}
+	// depths holds the depth of the sub-issues of each issue.
+	depths := map[issueRef]int64{lowerRef(repositoryName, workstream): 0}
 	for _, row := range tree {
 		if slices.Contains(labels[row.Position], workstreamLabel) {
 			continue
 		}
-		depth := depths[row.Parent]
+		issueRepositoryName := repositoryName
 		own := !otherRepository(row.RepositoryUrl, repositoryName)
+		if !own {
+			issueRepositoryName = repositoryOfURL(row.RepositoryUrl)
+		}
+		depth := depths[lowerRef(row.ParentRepository, row.Parent)]
 		visible := e.TrustedAuthor(repository.AppSlug, row.Author)
 		if visible {
 			line := TaskLine{Number: row.Number, Title: row.Title, State: labelState(labels[row.Position]), URL: row.HtmlUrl, Depth: depth, OtherRepository: !own, BlockedBy: []Blocker{}}
 			if row.State != "open" {
 				line.State = "closed"
-			} else if own {
+			} else {
 				line.BlockedBy = append(line.BlockedBy, blockers[row.Position]...)
 				if line.State == "working" || line.State == "open" {
-					task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repositoryName, Issue: row.Number})
+					task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: issueRepositoryName, Issue: row.Number})
 					if err != nil && !errors.Is(err, sql.ErrNoRows) {
 						return nil, err
 					}
 					if line.State == "working" {
-						heldEvent, err := e.queries.HasHeldLeadEvent(ctx, store.HasHeldLeadEventParams{Repository: repositoryName, Issue: sql.NullInt64{Int64: row.Number, Valid: true}})
+						heldEvent, err := e.queries.HasHeldLeadEvent(ctx, store.HasHeldLeadEventParams{Repository: issueRepositoryName, Issue: sql.NullInt64{Int64: row.Number, Valid: true}})
 						if err != nil {
 							return nil, err
 						}
@@ -141,11 +145,9 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 			}
 			lines = append(lines, line)
 		}
-		if own {
-			depths[row.Number] = depth
-			if visible {
-				depths[row.Number]++
-			}
+		depths[lowerRef(issueRepositoryName, row.Number)] = depth
+		if visible {
+			depths[lowerRef(issueRepositoryName, row.Number)]++
 		}
 	}
 	return lines, nil
