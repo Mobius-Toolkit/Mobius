@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"slices"
 
@@ -66,10 +67,39 @@ func (e *Engine) readDefaultBranchCI(ctx context.Context, repository github.Repo
 			return err
 		}
 	}
+	if err := e.diagnoseCIBreaks(ctx, repository, byID); err != nil {
+		return err
+	}
 	if err := e.createCIBreakIssues(ctx, repository); err != nil {
 		return err
 	}
 	return e.startCIBreakTasks(ctx, repository)
+}
+
+// diagnoseCIBreaks adds a diagnosis for each break of repository that has a result and no issue and no diagnosis yet, and
+// starts the Diagnoser while a diagnosis is open. A break whose run is not in runs gets no diagnosis. The head of a
+// diagnosis is the head commit of the failed run.
+func (e *Engine) diagnoseCIBreaks(ctx context.Context, repository github.Repository, runs map[int64]*gh.WorkflowRun) error {
+	breaks, err := e.queries.ListCIBreaksToDiagnose(ctx, repository.FullName)
+	if err != nil {
+		return err
+	}
+	for _, ciBreak := range breaks {
+		run := runs[ciBreak.RunID]
+		if run == nil {
+			continue
+		}
+		if _, err := e.queries.AddCIDiagnosis(ctx, store.AddCIDiagnosisParams{Repository: repository.FullName, CiBreak: ciBreak.ID, Head: run.GetHeadSHA(), CreatedAt: now()}); err != nil {
+			return err
+		}
+	}
+	if _, err := e.queries.NextCIDiagnosis(ctx, repository.FullName); errors.Is(err, sql.ErrNoRows) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	e.startDiagnoser(repository.FullName)
+	return nil
 }
 
 func failedRunConclusion(conclusion string) bool {
@@ -103,7 +133,8 @@ func (e *Engine) startCIBreak(ctx context.Context, repository github.Repository,
 // after a stop between the call and the mark) is not run again. When GitHub refuses the call with a 4xx status (for
 // example with no permission, or for a run older than 30 days), the failure stays a failure, so the break is hard.
 // Another error returns, and the next poll tries again. A hard break that ends with a passed run closes its open task
-// issue first. A hard break with a task issue also ends when that issue is closed or GitHub does not find it, with no
+// issue first, unless an open failure record with a place on a pull request has the same issue: the issue then closes
+// only with its fix. A hard break with a task issue also ends when that issue is closed or GitHub does not find it, with no
 // ended run.
 func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repository, ciBreak store.CiBreak, byID map[int64]*gh.WorkflowRun, newest *gh.WorkflowRun) error {
 	run := byID[ciBreak.RunID]
@@ -139,8 +170,14 @@ func (e *Engine) advanceCIBreak(ctx context.Context, repository github.Repositor
 	}
 	if passedAgain {
 		if ciBreak.Result == "hard" && ciBreak.Issue != 0 {
-			if closed, err := e.closeCIBreakIssue(ctx, repository, ciBreak, newest); err != nil || !closed {
+			shared, err := e.queries.HasOpenPullRequestFailureWithIssue(ctx, store.HasOpenPullRequestFailureWithIssueParams{Repository: repository.FullName, Issue: max(ciBreak.Issue, -ciBreak.Issue)})
+			if err != nil {
 				return err
+			}
+			if !shared {
+				if closed, err := e.closeCIBreakIssue(ctx, repository, ciBreak, newest); err != nil || !closed {
+					return err
+				}
 			}
 		}
 		return e.endCIBreak(ctx, ciBreak, store.EndCIBreakParams{Result: ciBreak.Result, EndedRunID: newest.GetID(), EndedAt: now(), ID: ciBreak.ID})

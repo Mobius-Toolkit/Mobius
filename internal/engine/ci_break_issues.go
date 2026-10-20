@@ -69,10 +69,23 @@ func (e *Engine) createCIBreakIssues(ctx context.Context, repository github.Repo
 	return nil
 }
 
-// createCIBreakIssue creates the issue of ciBreak and stores its number. It gives the number, or 0 when GitHub created
-// no issue. A 4xx answer of GitHub is no error. When GitHub refuses the list of jobs, it creates no issue. When
-// GitHub creates the issue but does not add it below the Workstream, the stored number is negative.
+// createCIBreakIssue creates the issue of ciBreak and stores its number in ciBreak and in each open failure record with
+// a place of ciBreak and no issue. When such a record already has an issue, ciBreak takes that issue and Mobius creates
+// none. It gives the number, or 0 when GitHub created no issue. A 4xx answer of GitHub is no error. When GitHub refuses
+// the list of jobs, it creates no issue. When GitHub creates the issue but does not add it below the Workstream, the
+// stored number is negative.
 func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repository, workstream int64, ciBreak store.CiBreak) (int, error) {
+	shared, err := e.queries.GetCIBreakFailureIssue(ctx, ciBreak.ID)
+	if err == nil {
+		if err := e.queries.SetCIBreakIssue(ctx, store.SetCIBreakIssueParams{Issue: shared, ID: ciBreak.ID}); err != nil {
+			return 0, err
+		}
+		e.publishCIStops(ciBreak.Result)
+		return 0, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
 	body, err := ciBreakBody(ctx, repository, ciBreak)
 	if refusedByGitHub(err) {
 		log.Printf("read the jobs of the run %d of %s: %v", ciBreak.RunID, repository.FullName, err)
@@ -93,6 +106,9 @@ func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repos
 			stored = -stored
 		}
 		if storeErr := e.queries.SetCIBreakIssue(ctx, store.SetCIBreakIssueParams{Issue: stored, ID: ciBreak.ID}); storeErr != nil {
+			return number, storeErr
+		}
+		if storeErr := e.queries.SetCIBreakFailuresIssue(ctx, store.SetCIBreakFailuresIssueParams{Issue: stored, CiBreak: ciBreak.ID}); storeErr != nil {
 			return number, storeErr
 		}
 		e.publishCIStops(ciBreak.Result)
