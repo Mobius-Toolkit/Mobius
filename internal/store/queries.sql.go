@@ -113,7 +113,7 @@ func (q *Queries) AddCIFailure(ctx context.Context, arg AddCIFailureParams) (int
 const addCIFailurePlace = `-- name: AddCIFailurePlace :exec
 INSERT INTO ci_failure_places (failure, pull_request, ci_break, head, job_urls, lines, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (failure, pull_request, ci_break) DO NOTHING
+ON CONFLICT (failure, pull_request, ci_break) DO UPDATE SET head = excluded.head, job_urls = excluded.job_urls, lines = excluded.lines
 `
 
 type AddCIFailurePlaceParams struct {
@@ -1496,6 +1496,20 @@ func (q *Queries) EndCIDiagnosis(ctx context.Context, arg EndCIDiagnosisParams) 
 	return err
 }
 
+const endCIFailure = `-- name: EndCIFailure :exec
+UPDATE ci_failures SET ended_at = ? WHERE id = ?
+`
+
+type EndCIFailureParams struct {
+	EndedAt string
+	ID      int64
+}
+
+func (q *Queries) EndCIFailure(ctx context.Context, arg EndCIFailureParams) error {
+	_, err := q.db.ExecContext(ctx, endCIFailure, arg.EndedAt, arg.ID)
+	return err
+}
+
 const endCheckTimeout = `-- name: EndCheckTimeout :exec
 UPDATE check_timeouts SET ended_at = ? WHERE id = ?
 `
@@ -2313,6 +2327,22 @@ func (q *Queries) GetNewestStopText(ctx context.Context, arg GetNewestStopTextPa
 	return text, err
 }
 
+const getNewestTaskPullRequest = `-- name: GetNewestTaskPullRequest :one
+SELECT pull_request FROM tasks WHERE repository = ? AND issue = ? ORDER BY id DESC LIMIT 1
+`
+
+type GetNewestTaskPullRequestParams struct {
+	Repository string
+	Issue      int64
+}
+
+func (q *Queries) GetNewestTaskPullRequest(ctx context.Context, arg GetNewestTaskPullRequestParams) (sql.NullInt64, error) {
+	row := q.db.QueryRowContext(ctx, getNewestTaskPullRequest, arg.Repository, arg.Issue)
+	var pull_request sql.NullInt64
+	err := row.Scan(&pull_request)
+	return pull_request, err
+}
+
 const getOpenCIFailure = `-- name: GetOpenCIFailure :one
 SELECT id, repository, reason, test, location, issue, created_at, ended_at FROM ci_failures WHERE id = ? AND repository = ? AND ended_at = ''
 `
@@ -3084,6 +3114,42 @@ SELECT id, repository, reason, test, location, issue, created_at, ended_at FROM 
 
 func (q *Queries) ListCIFailuresNotBelowWorkstream(ctx context.Context, repository string) ([]CiFailure, error) {
 	rows, err := q.db.QueryContext(ctx, listCIFailuresNotBelowWorkstream, repository)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CiFailure
+	for rows.Next() {
+		var i CiFailure
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Reason,
+			&i.Test,
+			&i.Location,
+			&i.Issue,
+			&i.CreatedAt,
+			&i.EndedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCIFailuresWithIssue = `-- name: ListCIFailuresWithIssue :many
+SELECT id, repository, reason, test, location, issue, created_at, ended_at FROM ci_failures WHERE repository = ? AND issue <> 0 AND ended_at = '' ORDER BY id
+`
+
+func (q *Queries) ListCIFailuresWithIssue(ctx context.Context, repository string) ([]CiFailure, error) {
+	rows, err := q.db.QueryContext(ctx, listCIFailuresWithIssue, repository)
 	if err != nil {
 		return nil, err
 	}
@@ -4025,6 +4091,51 @@ func (q *Queries) ListDismissedQuestionItems(ctx context.Context, repository str
 			&i.Merging,
 			&i.MergeRefusal,
 			&i.Questions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEndedCIFailurePullRequestPlaces = `-- name: ListEndedCIFailurePullRequestPlaces :many
+SELECT ci_failure_places.id, ci_failure_places.failure, ci_failure_places.pull_request, ci_failure_places.ci_break, ci_failure_places.head, ci_failure_places.job_urls, ci_failure_places.lines, ci_failure_places.created_at, ci_failure_places.branch_updated_at FROM ci_failure_places JOIN ci_failures ON ci_failures.id = ci_failure_places.failure
+WHERE ci_failures.repository = ?1 AND ci_failures.ended_at <> '' AND ci_failure_places.pull_request <> 0
+  AND (ci_failure_places.branch_updated_at = '' OR ci_failure_places.branch_updated_at > ?2)
+ORDER BY ci_failure_places.id
+`
+
+type ListEndedCIFailurePullRequestPlacesParams struct {
+	Repository   string
+	UpdatedAfter string
+}
+
+func (q *Queries) ListEndedCIFailurePullRequestPlaces(ctx context.Context, arg ListEndedCIFailurePullRequestPlacesParams) ([]CiFailurePlace, error) {
+	rows, err := q.db.QueryContext(ctx, listEndedCIFailurePullRequestPlaces, arg.Repository, arg.UpdatedAfter)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CiFailurePlace
+	for rows.Next() {
+		var i CiFailurePlace
+		if err := rows.Scan(
+			&i.ID,
+			&i.Failure,
+			&i.PullRequest,
+			&i.CiBreak,
+			&i.Head,
+			&i.JobUrls,
+			&i.Lines,
+			&i.CreatedAt,
+			&i.BranchUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -6163,6 +6274,34 @@ type SetCIFailureIssueParams struct {
 
 func (q *Queries) SetCIFailureIssue(ctx context.Context, arg SetCIFailureIssueParams) error {
 	_, err := q.db.ExecContext(ctx, setCIFailureIssue, arg.Issue, arg.ID)
+	return err
+}
+
+const setCIFailurePlaceUpdated = `-- name: SetCIFailurePlaceUpdated :exec
+UPDATE ci_failure_places SET branch_updated_at = ? WHERE id = ?
+`
+
+type SetCIFailurePlaceUpdatedParams struct {
+	BranchUpdatedAt string
+	ID              int64
+}
+
+func (q *Queries) SetCIFailurePlaceUpdated(ctx context.Context, arg SetCIFailurePlaceUpdatedParams) error {
+	_, err := q.db.ExecContext(ctx, setCIFailurePlaceUpdated, arg.BranchUpdatedAt, arg.ID)
+	return err
+}
+
+const setCIFailurePlacesUpdated = `-- name: SetCIFailurePlacesUpdated :exec
+UPDATE ci_failure_places SET branch_updated_at = ? WHERE failure = ? AND branch_updated_at = ''
+`
+
+type SetCIFailurePlacesUpdatedParams struct {
+	BranchUpdatedAt string
+	Failure         int64
+}
+
+func (q *Queries) SetCIFailurePlacesUpdated(ctx context.Context, arg SetCIFailurePlacesUpdatedParams) error {
+	_, err := q.db.ExecContext(ctx, setCIFailurePlacesUpdated, arg.BranchUpdatedAt, arg.Failure)
 	return err
 }
 

@@ -73,6 +73,18 @@ type CiFailure struct {
 	EndedAt    string
 }
 
+type CiFailurePlace struct {
+	ID              int64
+	Failure         int64
+	PullRequest     int64
+	CiBreak         int64
+	Head            string
+	JobUrls         string
+	Lines           string
+	CreatedAt       string
+	BranchUpdatedAt string
+}
+
 type CommentWrite struct {
 	ID         int64
 	Repository string

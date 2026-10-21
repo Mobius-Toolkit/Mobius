@@ -988,7 +988,7 @@ RETURNING id;
 -- name: AddCIFailurePlace :exec
 INSERT INTO ci_failure_places (failure, pull_request, ci_break, head, job_urls, lines, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (failure, pull_request, ci_break) DO NOTHING;
+ON CONFLICT (failure, pull_request, ci_break) DO UPDATE SET head = excluded.head, job_urls = excluded.job_urls, lines = excluded.lines;
 
 -- name: ListCIFailuresWithoutIssue :many
 SELECT ci_failures.* FROM ci_failures
@@ -1006,6 +1006,27 @@ SELECT * FROM ci_failures WHERE repository = ? AND issue < 0 AND ended_at = '' O
 
 -- name: SetCIFailureIssue :exec
 UPDATE ci_failures SET issue = ? WHERE id = ?;
+
+-- name: ListCIFailuresWithIssue :many
+SELECT * FROM ci_failures WHERE repository = ? AND issue <> 0 AND ended_at = '' ORDER BY id;
+
+-- name: EndCIFailure :exec
+UPDATE ci_failures SET ended_at = ? WHERE id = ?;
+
+-- name: SetCIFailurePlacesUpdated :exec
+UPDATE ci_failure_places SET branch_updated_at = ? WHERE failure = ? AND branch_updated_at = '';
+
+-- name: SetCIFailurePlaceUpdated :exec
+UPDATE ci_failure_places SET branch_updated_at = ? WHERE id = ?;
+
+-- name: ListEndedCIFailurePullRequestPlaces :many
+SELECT ci_failure_places.* FROM ci_failure_places JOIN ci_failures ON ci_failures.id = ci_failure_places.failure
+WHERE ci_failures.repository = sqlc.arg(repository) AND ci_failures.ended_at <> '' AND ci_failure_places.pull_request <> 0
+  AND (ci_failure_places.branch_updated_at = '' OR ci_failure_places.branch_updated_at > sqlc.arg(updated_after))
+ORDER BY ci_failure_places.id;
+
+-- name: GetNewestTaskPullRequest :one
+SELECT pull_request FROM tasks WHERE repository = ? AND issue = ? ORDER BY id DESC LIMIT 1;
 
 -- name: GetCIBreakFailureIssue :one
 SELECT ci_failures.issue FROM ci_failures JOIN ci_failure_places ON ci_failure_places.failure = ci_failures.id

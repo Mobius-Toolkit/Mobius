@@ -26,9 +26,15 @@ const (
 // connectDiagnoser is connectTask with a Diagnoser that plays diagnoser on Antigravity.
 func connectDiagnoser(t *testing.T, fake *testkit.FakeGitHub, lead, diagnoser string) *testserver.Server {
 	t.Helper()
+	return connectDiagnoserFixing(t, fake, lead, fixes, diagnoser)
+}
+
+// connectDiagnoserFixing is connectDiagnoser with the Implementer script implementer.
+func connectDiagnoserFixing(t *testing.T, fake *testkit.FakeGitHub, lead, implementer, diagnoser string) *testserver.Server {
+	t.Helper()
 	dataDir := t.TempDir()
 	testkit.InstallFakeHarness(t, dataDir, "agy_acp_server", options+diagnoser)
-	server, _ := connectTaskIn(t, fake, dataDir, lead, fixes, func(cfg *config.Config) {
+	server, _ := connectTaskIn(t, fake, dataDir, lead, implementer, func(cfg *config.Config) {
 		cfg.Roles.Diagnoser = config.RoleBinding{Harness: config.Antigravity, Model: "gemini-3-pro", Max: 2}
 	})
 	return server
@@ -204,7 +210,7 @@ func TestTwoPullRequestsWithTheSameTestAndLocationShareOneRecord(t *testing.T) {
 	}
 }
 
-func TestASecondFailedHeadOfThePullRequestWithTheSameFailureKeepsOnePlace(t *testing.T) {
+func TestASecondFailedHeadOfThePullRequestWithTheSameFailureKeepsOnePlaceWithTheNewestHead(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := connectDiagnoser(t, fake, leadStarts, reportsPlan)
@@ -222,8 +228,8 @@ func TestASecondFailedHeadOfThePullRequestWithTheSameFailureKeepsOnePlace(t *tes
 		t.Errorf("records = %d", n)
 	}
 	var head string
-	if err := server.DB.QueryRow("SELECT head FROM ci_failure_places WHERE pull_request = 42").Scan(&head); err != nil || head != sha {
-		t.Errorf("place head = %s, %v, want %s", head, err, sha)
+	if err := server.DB.QueryRow("SELECT head FROM ci_failure_places WHERE pull_request = 42").Scan(&head); err != nil || head != next {
+		t.Errorf("place head = %s, %v, want %s", head, err, next)
 	}
 	if n := rowCount(t, server, "SELECT count(*) FROM ci_failure_places"); n != 1 {
 		t.Errorf("places = %d", n)
