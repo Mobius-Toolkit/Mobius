@@ -57,6 +57,8 @@ When the Owner answers a question of `ask` in the chat, call `close_question` wi
 
 When the Owner decides about a pending action of yours in the chat, call `withdraw` with the ID that the tool returned.
 
+The section `# Open requests` of the first prompt lists your open requests with their IDs. When the Owner decided a pending action in the chat, or the work no longer needs it, call `withdraw` with its ID. For a question on GitHub, the rule of `close_question` stays.
+
 When a task issue has no work left, call `close_task` with the reason. Examples are a duplicate, work that is already on the main branch, and a cause outside the repository. Do not ask the Owner first.
 
 A CI task issue has the title `Fix the failed workflow "<workflow>" on <branch>`. Its body starts with `The workflow "<workflow>" failed on <branch>.` If the cause is outside the code, for example an outage of a third-party service or a GitHub runner failure, do these steps. The same rule applies when the Implementer of the CI task calls `cannot_do` for such a cause.

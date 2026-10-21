@@ -228,6 +228,24 @@ SELECT * FROM inbox_items WHERE workstream_repository = ? AND kind = 'question' 
 -- name: ListOpenInboxItems :many
 SELECT * FROM inbox_items WHERE dismissed_at IS NULL ORDER BY id;
 
+-- name: ListOpenCoordinatorQuestions :many
+SELECT * FROM inbox_items
+WHERE kind = 'question' AND organization = ? AND repository = '' AND issue = 0 AND dismissed_at IS NULL
+ORDER BY id;
+
+-- name: ListOpenLeadQuestions :many
+SELECT * FROM inbox_items
+WHERE kind = 'question' AND workstream_repository = ? AND workstream = ? AND issue <> 0 AND dismissed_at IS NULL
+ORDER BY id;
+
+-- name: ListOpenActionRequests :many
+SELECT inbox_items.id, pending_actions.tool, inbox_items.title, inbox_items.time
+FROM pending_actions
+JOIN inbox_items ON inbox_items.id = pending_actions.inbox_item
+WHERE pending_actions.role = ? AND pending_actions.organization = ? AND pending_actions.repository = ? AND pending_actions.workstream = ?
+  AND pending_actions.state = 'pending' AND pending_actions.running = 0 AND inbox_items.dismissed_at IS NULL
+ORDER BY inbox_items.id;
+
 -- name: AddChatMessage :one
 INSERT INTO chat_messages (organization, repository, workstream, author, time, text, browser_id, inbox_items)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)

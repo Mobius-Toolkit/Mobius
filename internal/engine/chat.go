@@ -1373,11 +1373,15 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 		if err != nil {
 			return "", nil, err
 		}
+		requests, err := e.openRequests(ctx, key)
+		if err != nil {
+			return "", nil, err
+		}
 		text, err := promptText(*first.message)
 		if err != nil {
 			return "", nil, err
 		}
-		return fmt.Sprintf("%s\n%s\n%s# %s message\n\n%s", coordinatorPrompt, workstreams, history, first.message.Author, text), images, nil
+		return fmt.Sprintf("%s\n%s\n%s%s# %s message\n\n%s", coordinatorPrompt, workstreams, requests, history, first.message.Author, text), images, nil
 	}
 	repository, err := e.repository(key.Repository)
 	if err != nil {
@@ -1403,11 +1407,15 @@ func (e *Engine) firstPrompt(ctx context.Context, key ChatKey, first item) (stri
 			before = first.event.ChatMessage.Int64
 		}
 	}
+	requests, err := e.openRequests(ctx, key)
+	if err != nil {
+		return "", nil, err
+	}
 	history, err := e.history(ctx, key, before)
 	if err != nil {
 		return "", nil, err
 	}
-	return fmt.Sprintf("%s\n%s%s%s# %s\n\n%s", leadPrompt, sections, lead, history, heading, text), images, nil
+	return fmt.Sprintf("%s\n%s%s%s%s# %s\n\n%s", leadPrompt, sections, lead, requests, history, heading, text), images, nil
 }
 
 // leadContext gives the Brief, the memory and the task list of the Workstream.
