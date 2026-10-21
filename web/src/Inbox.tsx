@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { use, useState } from "react";
 import {
   dismiss,
@@ -13,9 +14,11 @@ import {
 } from "@/api/api.gen";
 import { ErrorBadge, inset, List, Row } from "@/components/page";
 import { Button } from "@/components/ui/button";
+import { addDraftInboxItem, chatDraftKey } from "@/lib/draft";
 import { LoginContext } from "@/lib/login";
 import { useShell } from "@/lib/shell";
 import { cn } from "@/lib/utils";
+import { chatParams } from "@/lib/workstreams";
 import { AnswerPanel } from "./AnswerPanel";
 
 export function Inbox({
@@ -59,6 +62,8 @@ export function InboxRow({
   setError: (error: string) => void;
 }) {
   const showLogin = use(LoginContext);
+  const { organization, selectOrganization } = useShell();
+  const navigate = useNavigate();
   const [running, setRunning] = useState<"action" | "dismiss" | "merge" | null>(null);
   const [refusal, setRefusal] = useState("");
   const [answered, setAnswered] = useState<{ item: InboxItem; merging: boolean } | null>(null);
@@ -120,6 +125,30 @@ export function InboxRow({
   const reference =
     item.action && !item.issue ? "" : isPullRequest ? `PR #${item.pullRequest}` : `#${item.issue}`;
   const referenceLink = isPullRequest ? item.pullRequestUrl : item.link;
+  const chat = async () => {
+    const inWorkstream = item.workstream !== 0;
+    const key = inWorkstream
+      ? chatDraftKey(item.repository.split("/")[0], item.repository, item.workstream)
+      : chatDraftKey(item.organization, "", 0);
+    await addDraftInboxItem(key, {
+      id: item.id,
+      reference,
+      title: item.title,
+      reason: item.reason,
+      link: referenceLink,
+    });
+    if (inWorkstream) {
+      await navigate({
+        to: "/workstreams/$owner/$name/$number",
+        params: chatParams({ repository: item.repository, number: item.workstream }),
+      });
+      return;
+    }
+    if (item.organization !== organization) {
+      selectOrganization(item.organization);
+    }
+    await navigate({ to: "/chat" });
+  };
   const merging = answered?.item === item ? answered.merging : item.merging;
   const refusalText = refusal || (merging ? "" : item.mergeRefusal);
 
@@ -200,6 +229,9 @@ export function InboxRow({
                 </a>
               </Button>
             )}
+            <Button variant="outline" size="sm" onClick={() => void chat()}>
+              Chat
+            </Button>
           </div>
           <div className="ml-auto flex items-center gap-2">
             {item.kind !== InboxItemKind.question &&

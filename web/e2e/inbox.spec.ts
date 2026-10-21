@@ -100,14 +100,19 @@ test("each item shows on one line with the action of its kind, oldest first", as
   await expect(rows.nth(5)).toContainText("#46");
 
   const action = (row: number, name: string) => rows.nth(row).getByRole("link", { name });
-  await expect(rows.nth(0).getByRole("button")).toHaveText(["Answer"]);
+  await expect(rows.nth(0).getByRole("button")).toHaveText(["Answer", "Chat"]);
   await expect(action(0, "Open GitHub")).toHaveAttribute("href", `${link}/issues/45`);
-  await expect(rows.nth(1).getByRole("button")).toHaveText(["Resume", "Answer"]);
+  await expect(rows.nth(1).getByRole("button")).toHaveText(["Resume", "Answer", "Chat"]);
   await expect(action(1, "Open GitHub")).toHaveAttribute("href", `${link}/issues/42`);
-  await expect(rows.nth(2).getByRole("button")).toHaveText(["Start again", "Details"]);
+  await expect(rows.nth(2).getByRole("button")).toHaveText(["Start again", "Chat", "Details"]);
   await expect(action(3, "Open PR")).toHaveAttribute("href", `${link}/pull/44`);
-  await expect(rows.nth(4).getByRole("button")).toHaveText(["Send again", "Details", "Dismiss"]);
-  await expect(rows.nth(5).getByRole("button")).toHaveText(["Details"]);
+  await expect(rows.nth(4).getByRole("button")).toHaveText([
+    "Send again",
+    "Chat",
+    "Details",
+    "Dismiss",
+  ]);
+  await expect(rows.nth(5).getByRole("button")).toHaveText(["Chat", "Details"]);
   await expect(rows.getByRole("button", { name: "Dismiss" })).toHaveCount(1);
   await expect(page.getByRole("main").getByRole("tab", { name: "To do 6" })).toBeVisible();
 });
@@ -352,7 +357,7 @@ test("Merge is the primary button of a ready for review item and shows Merging a
   await page.goto("/inbox");
   const row = page.getByRole("main").getByRole("listitem");
 
-  await expect(row.getByRole("button")).toHaveText(["Merge", "Details"]);
+  await expect(row.getByRole("button")).toHaveText(["Merge", "Chat", "Details"]);
   await expect(row.getByRole("link", { name: "Open PR" })).toHaveAttribute(
     "href",
     `${link}/pull/44`,

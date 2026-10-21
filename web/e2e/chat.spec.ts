@@ -1091,7 +1091,7 @@ test("a question shows the same row, with the same buttons, in the Inbox and in 
   const chat = await actionsOf(page, shop, longTitle);
 
   expect(chat).toEqual(inbox);
-  expect(chat.buttons).toEqual(["Answer"]);
+  expect(chat.buttons).toEqual(["Answer", "Chat"]);
   expect(chat.links).toEqual([
     "#409:https://github.com/owner/shop/issues/409",
     "Open GitHub:https://github.com/owner/shop/issues/409",
@@ -1102,7 +1102,7 @@ test("a stopped task shows Resume, Answer and Open GitHub in the chat", async ({
   await routeInboxItems(page, stoppedItems);
   const chat = await actionsOf(page, shop, "Let customers change plans");
 
-  expect(chat.buttons).toEqual(["Resume", "Answer"]);
+  expect(chat.buttons).toEqual(["Resume", "Answer", "Chat"]);
   expect(chat.links).toContain("Open GitHub:https://github.com/owner/shop/issues/42");
 });
 
@@ -1769,6 +1769,7 @@ test("the chat shows one separator before the first message of each day", async 
       text: `Message ${index + 1}`,
       time,
       images: 0,
+      inboxItems: [],
       organization: "owner",
       repository: "owner/shop",
       workstream: 12,
@@ -1817,6 +1818,7 @@ test.describe("a time zone east of UTC", () => {
           text: "2026-09-28 09:30 UTC stop of #42\n\nSince 2026-09-28 23:45 UTC the check fails. Keep 09:30 UTC.",
           time: "2026-09-28T09:30:00Z",
           images: 0,
+          inboxItems: [],
           organization: "owner",
           repository: "owner/shop",
           workstream: 12,
@@ -1844,6 +1846,7 @@ async function longHistory(page: Page) {
       text: `History ${index} ${"word ".repeat(30)}`,
       time: "2026-10-15T08:37:00Z",
       images: 0,
+      inboxItems: [],
       organization: "owner",
       repository: "owner/shop",
       workstream: 12,
@@ -1993,6 +1996,7 @@ test.describe("the state of an Owner message", () => {
           deliveredAt: state.deliveredAt,
           stoppedAt: state.stoppedAt,
           images: 0,
+          inboxItems: [],
           organization,
           repository,
           workstream,
@@ -2006,6 +2010,7 @@ test.describe("the state of an Owner message", () => {
           deliveredAt: null,
           stoppedAt: null,
           images: 0,
+          inboxItems: [],
           organization,
           repository,
           workstream,

@@ -77,7 +77,7 @@ test("the Owner approves an action with a note", async ({ page }) => {
   await expect(main.getByRole("button", { name: "Reject" })).toHaveCount(0);
 
   await link(page, "/inbox").click();
-  await expect(row(page, leadTitle).getByRole("button")).toHaveText("Answer");
+  await expect(row(page, leadTitle).getByRole("button")).toHaveText(["Answer", "Chat"]);
   await link(page, "/chat").click();
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
 
@@ -239,7 +239,7 @@ test("the Inbox approves an item in the panel", async ({ page }) => {
   await link(page, "/inbox").click();
   await expect(row(page, leadTitle)).toBeVisible();
   await expect(row(page, leadTitle)).not.toContainText("message_lead");
-  await expect(row(page, leadTitle).getByRole("button")).toHaveText("Answer");
+  await expect(row(page, leadTitle).getByRole("button")).toHaveText(["Answer", "Chat"]);
 
   await answer(page, leadTitle);
   await approve(page).click();

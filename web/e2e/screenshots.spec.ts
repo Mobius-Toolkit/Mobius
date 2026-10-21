@@ -72,6 +72,14 @@ const logConnected = async (page: Page) => {
 };
 
 // The tests have no DOM types, so the check is a script.
+const storedDrafts = `new Promise((resolve) => {
+  const open = indexedDB.open("mobius");
+  open.onsuccess = () => {
+    const count = open.result.transaction("drafts").objectStore("drafts").count();
+    count.onsuccess = () => resolve(count.result);
+  };
+})`;
+
 const wide = (selector: string) =>
   `(document.querySelector('${selector}')?.scrollWidth ?? 0) > (document.querySelector('${selector}')?.clientWidth ?? 0)`;
 
@@ -340,6 +348,13 @@ test("screenshots", async ({ page }) => {
   ]);
   await page.unroute("**/api/chat?*");
   const stoppedRow = main.getByRole("listitem").filter({ hasText: "Add plan model" });
+  const composer = main.locator("form");
+  const clearComposer = async () => {
+    const remove = composer.getByRole("button", { name: /^Remove / });
+    while ((await remove.count()) > 0) {
+      await remove.first().click();
+    }
+  };
   await screenshot(page, "chat-stop-reason", "/workstreams/owner/shop/12", (device) => [
     ...chatReady(device),
     stoppedRow.getByRole("button", { name: "Answer" }),
@@ -372,8 +387,32 @@ test("screenshots", async ({ page }) => {
         await expect(main.getByRole("img", { name })).toHaveJSProperty("naturalWidth", 200);
       }
     },
+    clearComposer,
   );
   await main.getByLabel("Message to the Lead").fill("");
+  await expect.poll(() => page.evaluate(storedDrafts)).toBe(0);
+  await screenshot(
+    page,
+    "chat-inbox-item",
+    "/workstreams/owner/shop/12",
+    (device) => [
+      ...chatReady(device),
+      composer.getByText("Add plan model"),
+      composer.getByText("The agent asked a question"),
+      composer.getByRole("button", { name: "Remove #41" }),
+      composer.getByRole("img", { name: "Image 1" }),
+    ],
+    async () => {
+      await stoppedRow.getByRole("button", { name: "Chat" }).click();
+      await composer.getByRole("button", { name: "Remove #41" }).waitFor();
+      await composer.locator("input[type=file]").setInputFiles(photos[0]);
+      await expect(composer.getByRole("img", { name: "Image 1" })).toHaveJSProperty(
+        "naturalWidth",
+        200,
+      );
+    },
+    clearComposer,
+  );
   await page.unroute(inboxRoute);
   await routeInboxItems(page, [longTitleItem]);
   await screenshot(page, "chat-stop-long-title", "/workstreams/owner/shop/12", (device) => [
@@ -1107,6 +1146,26 @@ test("screenshots", async ({ page }) => {
         await expect(pictures.nth(position)).toHaveJSProperty("naturalWidth", 200);
       }
       await expect(pictures.last()).toBeInViewport();
+    },
+  );
+  const withCard = main.locator("[data-message]", { hasText: "This is the new plan page." });
+  await screenshot(
+    page,
+    "chat-history-inbox-item",
+    "/workstreams/plants/garden/25",
+    (device) => [
+      ...(device === "desktop"
+        ? [release, page.getByLabel("Work in another organization")]
+        : [page.getByLabel("Upgrade available")]),
+      withCard.getByRole("link", { name: /Integrate loyalty plans/ }),
+      withCard.getByText("PR #44 is ready to merge"),
+    ],
+    async () => {
+      await expect(pictures).toHaveCount(3);
+      for (let position = 0; position < 3; position++) {
+        await expect(pictures.nth(position)).toHaveJSProperty("naturalWidth", 200);
+      }
+      await withCard.evaluate((el) => el.scrollIntoView({ block: "start" }));
     },
   );
 });
