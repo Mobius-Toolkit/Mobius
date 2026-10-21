@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
+	"time"
 )
 
 // LowSpeedLimit and LowSpeedTime are the stall limit of a git transfer over HTTP: git stops the transfer when its
@@ -25,14 +25,14 @@ var (
 
 // git gives the git command with args in dir. The token goes to git only in the environment of the process, so no
 // file and no process list shows it. No hook runs, so no code of the repository gets that environment. The command
-// leads its own process group, so the end of ctx also stops the git processes that it started, for example of a fetch.
+// stays in the process group of the caller, so a kill of that group also stops the git processes that it started.
 func git(ctx context.Context, dataDir, dir, token string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git")
 	cmd.Args = append(cmd.Args, "-c", "core.hooksPath=/dev/null")
 	cmd.Args = append(cmd.Args, args...)
 	cmd.Dir = dir
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	// A child of git that the kill leaves can hold the output open.
+	cmd.WaitDelay = time.Second
 	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+filepath.Join(agentEnv(dataDir), "gitconfig"), "GIT_TERMINAL_PROMPT=0")
 	settings := [][2]string{
 		{"http.lowSpeedLimit", strconv.Itoa(LowSpeedLimit)},
