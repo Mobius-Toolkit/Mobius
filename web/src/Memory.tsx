@@ -1,4 +1,4 @@
-import { Fragment, use, useCallback, useEffect, useState } from "react";
+import { Fragment, use, useCallback, useEffect, useMemo, useState } from "react";
 import {
   listMemoryVersions,
   revertMemory,
@@ -124,7 +124,7 @@ function Hunk({ hunk }: { hunk: DiffLine[] }) {
 }
 
 function Diff({ before, after }: { before: string; after: string }) {
-  const hunks = diffHunks(before, after);
+  const hunks = useMemo(() => diffHunks(before, after), [before, after]);
   if (hunks.length === 0) {
     return <p className="text-sm text-muted-foreground">Only the final newline changed.</p>;
   }
@@ -143,6 +143,8 @@ function Diff({ before, after }: { before: string; after: string }) {
 export function Memory({ owner, name }: { owner: string; name: string }) {
   const showLogin = use(LoginContext);
   const [versions, setVersions] = useState<MemoryVersion[]>();
+  const [older, setOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [draft, setDraft] = useState<string>();
   const [base, setBase] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -155,7 +157,8 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
         if (res.status === 401) {
           showLogin();
         } else if (res.status === 200) {
-          setVersions(res.data.data);
+          setVersions(res.data.data.versions);
+          setOlder(res.data.data.older);
         } else {
           setError(res.data.error);
         }
@@ -164,6 +167,23 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
   }, [owner, name, showLogin]);
 
   useEffect(load, [load]);
+
+  const loadOlder = (before: number) => {
+    setLoadingOlder(true);
+    listMemoryVersions(owner, name, { before })
+      .then((res) => {
+        if (res.status === 401) {
+          showLogin();
+        } else if (res.status === 200) {
+          setVersions((current) => [...(current ?? []), ...res.data.data.versions]);
+          setOlder(res.data.data.older);
+        } else {
+          setError(res.data.error);
+        }
+      })
+      .catch((err: unknown) => setError(String(err)))
+      .finally(() => setLoadingOlder(false));
+  };
 
   const save = (text: string) => {
     setSaving(true);
@@ -261,7 +281,7 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
               <p className="text-muted-foreground">The memory file has no version.</p>
             )}
             <ul className="grid gap-4">
-              {versions.map((version, i) => (
+              {versions.map((version) => (
                 <li key={version.id} className="grid gap-2">
                   <div className="flex items-center justify-between gap-4">
                     <span className="flex items-center gap-2">
@@ -281,10 +301,19 @@ export function Memory({ owner, name }: { owner: string; name: string }) {
                   {!version.revertible && (
                     <p className="text-sm text-muted-foreground">{version.revert_problem}</p>
                   )}
-                  <Diff before={versions[i + 1]?.text ?? ""} after={version.text} />
+                  <Diff before={version.before} after={version.text} />
                 </li>
               ))}
             </ul>
+            {older && (
+              <Button
+                variant="outline"
+                pending={loadingOlder}
+                onClick={() => loadOlder(versions[versions.length - 1].id)}
+              >
+                Show older versions
+              </Button>
+            )}
           </section>
         )}
       </div>

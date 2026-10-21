@@ -18,6 +18,7 @@ type memoryVersion struct {
 	Author string `json:"author"`
 	Reason string `json:"reason"`
 	Text   string `json:"text"`
+	Before string `json:"before"`
 
 	Revertible    bool   `json:"revertible"`
 	RevertProblem string `json:"revert_problem"`
@@ -27,15 +28,29 @@ func memoryURL(server *testserver.Server, repository string) string {
 	return server.URL + "/api/repositories/" + repository + "/memory"
 }
 
-func listMemory(t *testing.T, server *testserver.Server, repository string) []memoryVersion {
+type memoryPage struct {
+	Versions []memoryVersion `json:"versions"`
+	Older    bool            `json:"older"`
+}
+
+func listMemoryPage(t *testing.T, server *testserver.Server, repository string, before int64) memoryPage {
 	t.Helper()
 	var body struct {
-		Data []memoryVersion `json:"data"`
+		Data memoryPage `json:"data"`
 	}
-	if reply := call(t, server.Client, http.MethodGet, memoryURL(server, repository), "", &body); reply.StatusCode != http.StatusOK {
+	address := memoryURL(server, repository)
+	if before != 0 {
+		address += "?before=" + strconv.FormatInt(before, 10)
+	}
+	if reply := call(t, server.Client, http.MethodGet, address, "", &body); reply.StatusCode != http.StatusOK {
 		t.Fatalf("list memory: status %d", reply.StatusCode)
 	}
 	return body.Data
+}
+
+func listMemory(t *testing.T, server *testserver.Server, repository string) []memoryVersion {
+	t.Helper()
+	return listMemoryPage(t, server, repository, 0).Versions
 }
 
 func saveMemory(t *testing.T, server *testserver.Server, texts ...string) {
@@ -92,6 +107,31 @@ func TestTheMemoryRouteGivesTheVersionsNewestFirst(t *testing.T) {
 	}
 	if versions[0].ID <= versions[1].ID || versions[0].Time == "" {
 		t.Errorf("versions = %+v", versions)
+	}
+}
+
+func TestTheMemoryRouteGivesThe20NewestVersionsAndThePageBeforeAVersion(t *testing.T) {
+	server := startWithApp(t, testkit.NewFakeGitHub(t), "User")
+	for i := 1; i <= 25; i++ {
+		saveMemory(t, server, fmt.Sprintf("Version %d.\n", i))
+	}
+
+	first := listMemoryPage(t, server, shop, 0)
+	second := listMemoryPage(t, server, shop, first.Versions[19].ID)
+
+	if len(first.Versions) != 20 || !first.Older || len(second.Versions) != 5 || second.Older {
+		t.Fatalf("pages = %d %t, %d %t", len(first.Versions), first.Older, len(second.Versions), second.Older)
+	}
+	all := slices.Concat(first.Versions, second.Versions)
+	for i, version := range all {
+		want := fmt.Sprintf("Version %d.\n", 25-i)
+		wantBefore := ""
+		if i < 24 {
+			wantBefore = fmt.Sprintf("Version %d.\n", 24-i)
+		}
+		if version.Text != want || version.Before != wantBefore {
+			t.Errorf("version %d: text %q, before %q, want %q, %q", i, version.Text, version.Before, want, wantBefore)
+		}
 	}
 }
 
