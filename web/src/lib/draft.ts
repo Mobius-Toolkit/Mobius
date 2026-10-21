@@ -48,8 +48,11 @@ function load(key: string) {
   return promise;
 }
 
-export function peekDraft(key: string) {
-  return drafts.get(key);
+export async function loadDraft(key: string) {
+  if (!drafts.has(key)) {
+    await load(key);
+  }
+  return drafts.get(key) ?? emptyDraft;
 }
 
 // Changes the draft of the key. A draft that the store has not given yet changes after it loads.

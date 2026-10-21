@@ -15,7 +15,7 @@ import type { Decision } from "@/lib/actions";
 import {
   type DraftInboxItem,
   emptyDraft,
-  peekDraft,
+  loadDraft,
   saveDraftText,
   updateDraft,
   useDraft,
@@ -177,10 +177,7 @@ export function MessageInput({
     }));
 
   const addImages = async (files: File[]) => {
-    if (!peekDraft(draftKey)) {
-      return;
-    }
-    const room = maxImages - (peekDraft(draftKey)?.images.length ?? 0);
+    const room = maxImages - (await loadDraft(draftKey)).images.length;
     let problem = "";
     const added: File[] = [];
     for (const file of files.slice(0, room)) {
@@ -190,7 +187,7 @@ export function MessageInput({
         problem = err instanceof Error ? err.message : String(err);
       }
     }
-    const all = [...(peekDraft(draftKey)?.images ?? []), ...added];
+    const all = [...(await loadDraft(draftKey)).images, ...added];
     void updateDraft(draftKey, (draft) => ({ ...draft, images: all.slice(0, maxImages) }));
     if (!problem && (files.length > room || all.length > maxImages)) {
       problem = tooManyImages;
