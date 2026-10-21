@@ -472,6 +472,7 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("DROP INDEX transcript_session"); err != nil {
 		t.Fatal(err)
 	}
+	dropQueryIndexes(t, db)
 	if _, err := db.Exec("INSERT INTO sessions (id, role, harness, model, repository, workstream, started_at) VALUES (1, 'lead', 'h', 'm', 'o/a', 1, '2026-10-01T00:00:00Z')"); err != nil {
 		t.Fatal(err)
 	}
@@ -631,6 +632,7 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	dropQueryIndexes(t, db)
 	for _, statement := range []string{
 		"DROP TABLE triager_turns",
 		"CREATE TABLE held_triagers (repository TEXT NOT NULL, issue INTEGER NOT NULL, PRIMARY KEY (repository, issue))",
@@ -737,6 +739,7 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	dropQueryIndexes(t, db)
 	for _, statement := range []string{
 		"DROP TABLE triager_turns",
 		"CREATE TABLE held_triagers (repository TEXT NOT NULL, issue INTEGER NOT NULL, PRIMARY KEY (repository, issue))",
@@ -821,4 +824,90 @@ func fileSize(t *testing.T, path string) int64 {
 		t.Fatal(err)
 	}
 	return info.Size()
+}
+
+func dropQueryIndexes(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, index := range []string{"transcript_kind", "sessions_repository_role", "tasks_issue", "lead_events_workstream", "lead_events_issue"} {
+		if _, err := db.Exec("DROP INDEX " + index); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestTheHotQueriesReadAnIndex(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, c := range []struct {
+		name  string
+		query string
+		args  []any
+		index string
+	}{
+		{"ListToolCallsSince", listToolCallsSince, []any{"o/a", "2026-10-01T00:00:00Z"}, "transcript_kind"},
+		{"GetLiveTask", getLiveTask, []any{"o/a", 1}, "tasks_issue"},
+		{"ListReadyLeadEvents", listReadyLeadEvents, []any{"o/a", 1}, "lead_events_workstream"},
+		{"CountSessionsEndedSinceCurator", countSessionsEndedSinceCurator, []any{"o/a"}, "sessions_repository_role"},
+	} {
+		rows, err := db.QueryContext(ctx, "EXPLAIN QUERY PLAN "+c.query, c.args...)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		var details []string
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+				t.Fatal(err)
+			}
+			details = append(details, detail)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		plan := strings.Join(details, "\n")
+		if strings.Contains(plan, "SCAN ") {
+			t.Errorf("%s plan has a SCAN:\n%s", c.name, plan)
+		}
+		if !strings.Contains(plan, "SEARCH") || !strings.Contains(plan, c.index) {
+			t.Errorf("%s plan does not search the index %s:\n%s", c.name, c.index, plan)
+		}
+	}
+}
+
+func TestTheCountOfEndedSessionsSinceTheCuratorUsesTheRepositoryOfTheQuery(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "mobius.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	_, err = db.Exec(`
+		INSERT INTO sessions (role, harness, model, repository, workstream, started_at, ended_at, end_reason) VALUES
+			('lead', 'h', 'm', 'o/a', 1, '2026-10-01T00:00:00Z', '2026-10-01T01:00:00Z', 'done'),
+			('lead', 'h', 'm', 'o/a', 1, '2026-10-03T00:00:00Z', '2026-10-03T01:00:00Z', 'done'),
+			('lead', 'h', 'm', 'o/a', 1, '2026-10-05T00:00:00Z', '2026-10-05T01:00:00Z', 'done'),
+			('curator', 'h', 'm', 'o/a', 0, '2026-10-02T00:00:00Z', '2026-10-02T01:00:00Z', 'done'),
+			('lead', 'h', 'm', 'o/b', 1, '2026-10-01T00:00:00Z', '2026-10-01T01:00:00Z', 'done'),
+			('lead', 'h', 'm', 'o/b', 1, '2026-10-04T00:00:00Z', '2026-10-04T01:00:00Z', 'done'),
+			('lead', 'h', 'm', 'o/b', 1, '2026-10-06T00:00:00Z', '2026-10-06T01:00:00Z', 'done'),
+			('lead', 'h', 'm', 'o/b', 1, '2026-10-07T00:00:00Z', '2026-10-07T01:00:00Z', 'done'),
+			('curator', 'h', 'm', 'o/b', 0, '2026-10-05T00:00:00Z', '2026-10-05T01:00:00Z', 'done');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for repository, want := range map[string]int64{"o/a": 2, "o/b": 2} {
+		got, err := New(db).CountSessionsEndedSinceCurator(ctx, repository)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("count for %s = %d, want %d", repository, got, want)
+		}
+	}
 }

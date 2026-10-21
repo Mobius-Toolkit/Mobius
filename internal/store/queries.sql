@@ -795,7 +795,7 @@ SELECT count(*) FROM sessions s
 WHERE s.repository = sqlc.arg(repository) AND s.role <> 'curator' AND s.ended_at IS NOT NULL
   AND julianday(s.ended_at) > coalesce((
       SELECT max(julianday(c.started_at)) FROM sessions c
-      WHERE c.repository = s.repository AND c.role = 'curator' AND (c.ended_at IS NULL OR c.end_reason IN ('done', 'failed', 'hung'))
+      WHERE c.repository = sqlc.arg(repository) AND c.role = 'curator' AND (c.ended_at IS NULL OR c.end_reason IN ('done', 'failed', 'hung'))
   ), 0);
 
 -- name: CountOrganizationSessionsEndedSinceCurator :one
