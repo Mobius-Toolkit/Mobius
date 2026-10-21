@@ -31,6 +31,8 @@
 //	later = { after = "100ms", updates = ['{"sessionUpdate": "plan", "entries": []}'] }
 //	                        # after the response, the agent waits for after and then sends the updates, as Claude Code
 //	                        # does for a turn that it starts alone
+//	later = { wait_for = "/tmp/go", updates = ['{"sessionUpdate": "plan", "entries": []}'] }
+//	                        # with wait_for, the agent waits for the file instead of the time after
 //	later = { after = "100ms", call = { tool = "cannot_do", arguments = { reason = "No." } } }
 //	                        # with call, the agent calls the tool of the Mobius MCP server before it sends the updates
 //	later = { updates = ['{"sessionUpdate": "plan", "entries": []}'], absorb = true }
@@ -104,6 +106,7 @@ type promptResult struct {
 
 type later struct {
 	After   string   `toml:"after"`
+	WaitFor string   `toml:"wait_for"`
 	Updates []string `toml:"updates"`
 	Absorb  bool     `toml:"absorb"`
 	Call    *call    `toml:"call"`
@@ -453,12 +456,21 @@ func (a *agent) startLater(sessionID, mcpURL string, l later) error {
 		a.mu.Unlock()
 		return nil
 	}
-	after, err := time.ParseDuration(l.After)
-	if err != nil {
-		return err
+	var after time.Duration
+	if l.WaitFor == "" {
+		var err error
+		if after, err = time.ParseDuration(l.After); err != nil {
+			return err
+		}
 	}
 	go func() {
 		time.Sleep(after)
+		for l.WaitFor != "" {
+			if _, err := os.Stat(l.WaitFor); err == nil {
+				break
+			}
+			time.Sleep(busyInterval)
+		}
 		if l.Call != nil {
 			if _, err := mobiusReply(context.Background(), mcpURL, prompt{Call: l.Call}, ""); err != nil {
 				return

@@ -445,6 +445,32 @@ reply = ["second"]
 	}
 }
 
+func TestALaterWithWaitForSendsItsUpdatesOnlyAfterTheFileExists(t *testing.T) {
+	gate := filepath.Join(t.TempDir(), "go")
+	c := start(t, `
+[[prompts]]
+reply = ["first"]
+later = { wait_for = '`+gate+`', updates = ['{"sessionUpdate": "plan", "entries": []}'] }
+`)
+
+	c.prompt(t, "Go.")
+
+	time.Sleep(100 * time.Millisecond)
+	if updates := c.updatesNow(); len(updates) != 0 {
+		t.Errorf("updates before the file = %+v", updates)
+	}
+	if err := os.WriteFile(gate, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Minute)
+	for len(c.updatesNow()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if updates := c.takeUpdates(); len(updates) != 1 || updates[0]["sessionUpdate"] != "plan" {
+		t.Errorf("updates = %+v", updates)
+	}
+}
+
 func TestAPromptAfterALaterWithAbsorbGetsItsUpdatesAndNoResponseBeforeTheCancel(t *testing.T) {
 	c := start(t, `
 [[prompts]]
