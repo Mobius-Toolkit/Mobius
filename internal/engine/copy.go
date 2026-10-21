@@ -497,7 +497,8 @@ func (e *Engine) updateCopiedWorkstream(ctx context.Context, repository string, 
 
 // updateCopiedIssue changes each copied row of the issue in all repositories. It gives false when the copy has the same values.
 // It keeps the labels of the copy when changeCopiedLabels changed a label of this issue after labelChangeCount gave changes,
-// because the issue can have the old labels.
+// because the issue can have the old labels. In this case, a closed issue of the copy also stays closed, because the issue
+// can be open on GitHub from before the close that Mobius made.
 func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue, repository string, changes int) (bool, error) {
 	changed := false
 	labels := labelNames(issue)
@@ -506,10 +507,20 @@ func (e *Engine) updateCopiedIssue(ctx context.Context, issue *gh.Issue, reposit
 	defer e.labelChangeMu.Unlock()
 	keepLabels := e.labelChangedAt[issueRef{repository, int64(issue.GetNumber())}] > changes
 	return changed, e.inTx(ctx, func(q *store.Queries) error {
+		state := issue.GetState()
+		if keepLabels && state == "open" {
+			stored, err := q.GetCopiedIssueState(ctx, store.GetCopiedIssueStateParams{Number: int64(issue.GetNumber()), RepositoryUrl: issue.GetRepositoryURL()})
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if stored == "closed" {
+				state = stored
+			}
+		}
 		updated, err := q.UpdateCopiedIssue(ctx, store.UpdateCopiedIssueParams{
 			Title:         issue.GetTitle(),
 			Body:          issue.GetBody(),
-			State:         issue.GetState(),
+			State:         state,
 			Author:        issue.GetUser().GetLogin(),
 			Number:        int64(issue.GetNumber()),
 			RepositoryUrl: issue.GetRepositoryURL(),
@@ -607,7 +618,8 @@ func (e *Engine) labelChangesNow() map[issueRef]int {
 }
 
 // writeRead runs write in a transaction, to store the trees that GitHub gave. An issue that changeCopiedLabels changed
-// after labelChangesNow gave before keeps its copied labels, because the read can have the old labels.
+// after labelChangesNow gave before keeps its copied labels, because the read can have the old labels. It also keeps a
+// closed state of the copy, because the issue can be open on GitHub from before the close that Mobius made.
 func (e *Engine) writeRead(ctx context.Context, repository string, before map[issueRef]int, trees [][]copiedIssue, write func(*store.Queries) error) error {
 	e.labelChangeMu.Lock()
 	defer e.labelChangeMu.Unlock()
@@ -633,6 +645,16 @@ func (e *Engine) writeRead(ctx context.Context, repository string, before map[is
 				issue.Labels = nil
 				for _, name := range names {
 					issue.Labels = append(issue.Labels, &gh.Label{Name: name})
+				}
+				if issue.GetState() != "open" {
+					continue
+				}
+				stored, err := q.GetCopiedIssueState(ctx, store.GetCopiedIssueStateParams{Number: int64(issue.GetNumber()), RepositoryUrl: issue.GetRepositoryURL()})
+				if err != nil {
+					return err
+				}
+				if stored == "closed" {
+					issue.State = &stored
 				}
 			}
 		}

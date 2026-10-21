@@ -168,10 +168,10 @@ func TestACloseOfTheIssueOfARecordWithNoMergedPullRequestUpdatesNoBranchAndALate
 	third := approvalHeadOf(t, server, fake, 50)
 	failActions(fake, third)
 
-	testkit.WaitFor(t, func() bool { return rowCount(t, server, "SELECT count(*) FROM ci_failures") == 2 })
-	if places := rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failure_places WHERE head = '%s'", third)); places != 1 {
-		t.Errorf("places of the third head = %d", places)
-	}
+	testkit.WaitFor(t, func() bool {
+		return rowCount(t, server, "SELECT count(*) FROM ci_failures") == 2 &&
+			rowCount(t, server, fmt.Sprintf("SELECT count(*) FROM ci_failure_places WHERE head = '%s'", third)) == 1
+	})
 }
 
 func TestAPullRequestThatFailsTheSameTestOnANewerHeadGetsTheUpdateOfItsNewestHead(t *testing.T) {
