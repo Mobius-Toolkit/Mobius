@@ -106,11 +106,19 @@ func leadReply(t *testing.T, server *testserver.Server) (int64, string) {
 
 func transcript(t *testing.T, server *testserver.Server, session int64) []engine.Line {
 	t.Helper()
-	page, err := server.Engine.Transcript(t.Context(), session, 0)
-	if err != nil {
-		t.Fatal(err)
+	var lines []engine.Line
+	var before int64
+	for {
+		page, err := server.Engine.Transcript(t.Context(), session, before)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines = append(page.Lines, lines...)
+		if !page.Older {
+			return lines
+		}
+		before = page.Lines[0].ID
 	}
-	return page.Lines
 }
 
 // rows gives the JSON of each Transcript row of kind of the session.
