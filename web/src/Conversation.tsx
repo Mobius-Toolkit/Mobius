@@ -546,7 +546,7 @@ export function Conversation({
     older && openUnread !== undefined && messages.filter(countsAsUnread).length < openUnread;
   const lastAgentMessage = messages.findLast((message) => message.author !== "Owner")?.id;
   useEffect(() => {
-    if (!waiting && unread && lastAgentMessage !== undefined) {
+    if (queueLoaded && !waiting && unread && lastAgentMessage !== undefined) {
       // A failed call keeps the count, and the next message of the agent calls again.
       seeChat({
         organization,
@@ -555,7 +555,7 @@ export function Conversation({
         message: lastAgentMessage,
       }).catch(() => {});
     }
-  }, [waiting, unread, lastAgentMessage, organization, repository, workstream]);
+  }, [queueLoaded, waiting, unread, lastAgentMessage, organization, repository, workstream]);
 
   // The first scroll waits for the older pages up to the first unread message. Later, the list gets the page before
   // its first message when the Owner is less than one list height from the top.
@@ -588,7 +588,7 @@ export function Conversation({
   // last message scrolls only while the Owner is at the end.
   useLayoutEffect(() => {
     const list = listRef.current;
-    if (!list || !loaded || !queueLoaded || unread === undefined) {
+    if (!list || !loaded || !queueLoaded || openUnread === undefined) {
       return;
     }
     if (scrolledCount.current === undefined) {
@@ -597,7 +597,8 @@ export function Conversation({
       }
       const unreadMessages = messages.filter(countsAsUnread);
       scrolledCount.current = count;
-      const first = unread > 0 && unreadMessages[Math.max(0, unreadMessages.length - unread)];
+      const first =
+        openUnread > 0 && unreadMessages[Math.max(0, unreadMessages.length - openUnread)];
       const element = first && list.querySelector(`[data-message="${first.id}"]`);
       if (element) {
         list.scrollTop += element.getBoundingClientRect().top - list.getBoundingClientRect().top;
