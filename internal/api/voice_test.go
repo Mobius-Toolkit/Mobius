@@ -43,10 +43,10 @@ func withoutDraft(t *testing.T, whisper *voice.Whisper) *voice.Recordings {
 
 func transcribe(t *testing.T, handler http.Handler, body []byte) (int, string) {
 	t.Helper()
-	return transcribeWithin(t, context.Background(), handler, body)
+	return transcribeWithin(context.Background(), t, handler, body)
 }
 
-func transcribeWithin(t *testing.T, ctx context.Context, handler http.Handler, body []byte) (int, string) {
+func transcribeWithin(ctx context.Context, t *testing.T, handler http.Handler, body []byte) (int, string) {
 	t.Helper()
 	request := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/voice/transcriptions", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "audio/wav")
@@ -143,7 +143,7 @@ func TestTranscribeAnswers503WithTheReasonWhenTheConverterIsNotReady(t *testing.
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 
-			status, text := transcribeWithin(t, ctx, handler, []byte("RIFF"))
+			status, text := transcribeWithin(ctx, t, handler, []byte("RIFF"))
 
 			if status != http.StatusServiceUnavailable || strings.TrimSpace(text) != `{"error":"`+test.message+`"}` {
 				t.Errorf("status = %d, body = %s", status, text)
