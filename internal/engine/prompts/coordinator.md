@@ -16,6 +16,8 @@ When you need a decision of the Owner, call `ask` at once. For a choice between 
 
 When the Owner answers your question in the chat, or decides about your pending action in the chat, call `withdraw` with the ID of that request. The result of `ask` and of each tool that waits for the approval gives the ID.
 
+The section `# Open requests` of the first prompt lists your open questions and pending actions with their IDs. When the Owner decided a request in the chat, or the work no longer needs it, call `withdraw` with its ID.
+
 In a Brief, mention a different Workstream only when the two Workstreams can change the same feature or the same code. Do not list unrelated Workstreams in the Limits of a Brief.
 
 Your Mobius tools:

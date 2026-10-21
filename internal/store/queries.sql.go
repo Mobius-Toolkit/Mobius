@@ -4718,6 +4718,62 @@ func (q *Queries) ListMemoryVersions(ctx context.Context, repository string) ([]
 	return items, nil
 }
 
+const listOpenActionRequests = `-- name: ListOpenActionRequests :many
+SELECT inbox_items.id, pending_actions.tool, inbox_items.title, inbox_items.time
+FROM pending_actions
+JOIN inbox_items ON inbox_items.id = pending_actions.inbox_item
+WHERE pending_actions.role = ? AND pending_actions.organization = ? AND pending_actions.repository = ? AND pending_actions.workstream = ?
+  AND pending_actions.state = 'pending' AND pending_actions.running = 0 AND inbox_items.dismissed_at IS NULL
+ORDER BY inbox_items.id
+`
+
+type ListOpenActionRequestsParams struct {
+	Role         string
+	Organization string
+	Repository   string
+	Workstream   int64
+}
+
+type ListOpenActionRequestsRow struct {
+	ID    int64
+	Tool  string
+	Title string
+	Time  string
+}
+
+func (q *Queries) ListOpenActionRequests(ctx context.Context, arg ListOpenActionRequestsParams) ([]ListOpenActionRequestsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenActionRequests,
+		arg.Role,
+		arg.Organization,
+		arg.Repository,
+		arg.Workstream,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListOpenActionRequestsRow
+	for rows.Next() {
+		var i ListOpenActionRequestsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Tool,
+			&i.Title,
+			&i.Time,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenCIBreaks = `-- name: ListOpenCIBreaks :many
 SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE repository = ? AND ended_at = '' ORDER BY id
 `
@@ -4804,6 +4860,55 @@ func (q *Queries) ListOpenCIFailures(ctx context.Context, repository string) ([]
 	return items, nil
 }
 
+const listOpenCoordinatorQuestions = `-- name: ListOpenCoordinatorQuestions :many
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions FROM inbox_items
+WHERE kind = 'question' AND organization = ? AND repository = '' AND issue = 0 AND dismissed_at IS NULL
+ORDER BY id
+`
+
+func (q *Queries) ListOpenCoordinatorQuestions(ctx context.Context, organization string) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenCoordinatorQuestions, organization)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InboxItem
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Repository,
+			&i.Workstream,
+			&i.Issue,
+			&i.Text,
+			&i.Link,
+			&i.Time,
+			&i.DismissedAt,
+			&i.Organization,
+			&i.Title,
+			&i.Reason,
+			&i.PullRequest,
+			&i.ReportLink,
+			&i.ChatMessage,
+			&i.Merging,
+			&i.MergeRefusal,
+			&i.WorkstreamRepository,
+			&i.Questions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenHardCIBreaks = `-- name: ListOpenHardCIBreaks :many
 SELECT id, repository, workflow_id, workflow_name, run_id, run_url, run_attempt, rerun_at, result, ended_run_id, ended_at, issue, started_at FROM ci_breaks WHERE repository = ? AND ended_at = '' AND result = 'hard' ORDER BY id
 `
@@ -4851,6 +4956,60 @@ SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, 
 
 func (q *Queries) ListOpenInboxItems(ctx context.Context) ([]InboxItem, error) {
 	rows, err := q.db.QueryContext(ctx, listOpenInboxItems)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []InboxItem
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Repository,
+			&i.Workstream,
+			&i.Issue,
+			&i.Text,
+			&i.Link,
+			&i.Time,
+			&i.DismissedAt,
+			&i.Organization,
+			&i.Title,
+			&i.Reason,
+			&i.PullRequest,
+			&i.ReportLink,
+			&i.ChatMessage,
+			&i.Merging,
+			&i.MergeRefusal,
+			&i.WorkstreamRepository,
+			&i.Questions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenLeadQuestions = `-- name: ListOpenLeadQuestions :many
+SELECT id, kind, repository, workstream, issue, text, link, time, dismissed_at, organization, title, reason, pull_request, report_link, chat_message, merging, merge_refusal, workstream_repository, questions FROM inbox_items
+WHERE kind = 'question' AND workstream_repository = ? AND workstream = ? AND issue <> 0 AND dismissed_at IS NULL
+ORDER BY id
+`
+
+type ListOpenLeadQuestionsParams struct {
+	WorkstreamRepository string
+	Workstream           int64
+}
+
+func (q *Queries) ListOpenLeadQuestions(ctx context.Context, arg ListOpenLeadQuestionsParams) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenLeadQuestions, arg.WorkstreamRepository, arg.Workstream)
 	if err != nil {
 		return nil, err
 	}
