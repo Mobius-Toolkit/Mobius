@@ -609,7 +609,7 @@ func TestTheTriagerHasNoMoveIssueTool(t *testing.T) {
 	fake.CreateIssue(shop, 60, "Add refunds", "Refund each order.", "owner")
 
 	session := waitForChatSession(t, server, issueTriagers, engine.TriagerRole, func(session store.Session) bool { return session.EndedAt.Valid })
-	if got := toolNames(t, reply(t, server, session.ID)); !slices.Equal(got, []string{"create_workstream", "message_lead", "start_researcher"}) {
+	if got := toolNames(t, reply(t, server, session.ID)); !slices.Equal(got, []string{"create_workstream", "message_lead", "propose_skill", "start_researcher"}) {
 		t.Errorf("tools = %q", got)
 	}
 }

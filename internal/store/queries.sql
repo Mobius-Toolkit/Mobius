@@ -589,8 +589,9 @@ DELETE FROM copied_blockers WHERE repository = ? AND workstream = ?;
 
 -- The Lead tool create_workstream and the poll can both add a new Workstream.
 -- name: AddCopiedWorkstream :exec
-INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen)
-VALUES (sqlc.arg(repository), sqlc.arg(number), sqlc.arg(title), sqlc.arg(body), CAST(sqlc.arg(autopilot) AS BOOLEAN), CAST(sqlc.arg(evergreen) AS BOOLEAN))
+INSERT INTO copied_workstreams (repository, number, title, body, autopilot, evergreen, skills)
+VALUES (sqlc.arg(repository), sqlc.arg(number), sqlc.arg(title), sqlc.arg(body), CAST(sqlc.arg(autopilot) AS BOOLEAN), CAST(sqlc.arg(evergreen) AS BOOLEAN),
+        CAST(sqlc.arg(skills) AS BOOLEAN))
 ON CONFLICT (repository, number) DO NOTHING;
 
 -- name: AddCopiedIssue :exec
@@ -620,6 +621,13 @@ WHERE i.number = sqlc.arg(number) AND i.repository_url = sqlc.arg(repository_url
       WHERE l.repository = i.repository AND l.workstream = i.workstream AND l.position = i.position AND l.name = sqlc.arg(name)
   ) != CAST(sqlc.arg(present) AS BOOLEAN);
 
+-- The Workstream with the label mobius:skills in a repository of the organization, with the lowest number.
+-- name: GetSkillsWorkstream :one
+SELECT repository, number FROM copied_workstreams
+WHERE skills AND substr(repository, 1, length(sqlc.arg(organization)) + 1) = sqlc.arg(organization) || '/'
+ORDER BY number, repository
+LIMIT 1;
+
 -- name: ListCopiedWorkstreamsWithBlockerIn :many
 SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker_workstream = ?;
 
@@ -631,10 +639,10 @@ SELECT DISTINCT workstream FROM copied_blockers WHERE repository = ? AND blocker
 
 -- name: UpdateCopiedWorkstream :execrows
 UPDATE copied_workstreams SET title = sqlc.arg(title), body = sqlc.arg(body), autopilot = CAST(sqlc.arg(autopilot) AS BOOLEAN),
-    evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN)
+    evergreen = CAST(sqlc.arg(evergreen) AS BOOLEAN), skills = CAST(sqlc.arg(skills) AS BOOLEAN)
 WHERE repository = sqlc.arg(repository) AND number = sqlc.arg(number)
   AND (title != sqlc.arg(title) OR body != sqlc.arg(body) OR autopilot != CAST(sqlc.arg(autopilot) AS BOOLEAN)
-       OR evergreen != CAST(sqlc.arg(evergreen) AS BOOLEAN));
+       OR evergreen != CAST(sqlc.arg(evergreen) AS BOOLEAN) OR skills != CAST(sqlc.arg(skills) AS BOOLEAN));
 
 -- name: GetCopiedWorkstream :one
 SELECT body, CAST(evergreen AS BOOLEAN) AS evergreen FROM copied_workstreams WHERE repository = ? AND number = ?;

@@ -79,10 +79,10 @@ func TestTheCuratorHasToolsToSearchAndCreateIssuesOnlyWithAMaintenanceWorkstream
 	addMaintenanceWorkstream(fake, 20)
 	with := run(t, server, roleSpec(t, engine.CuratorRole), "List the tools")
 
-	if got := toolNames(t, reply(t, server, without)); !reflect.DeepEqual(got, []string{"edit_memory"}) {
+	if got := toolNames(t, reply(t, server, without)); !reflect.DeepEqual(got, []string{"edit_memory", "propose_skill"}) {
 		t.Errorf("tools without a maintenance Workstream = %q", got)
 	}
-	if got := toolNames(t, reply(t, server, with)); !reflect.DeepEqual(got, []string{"create_issue", "edit_memory", "search_issues"}) {
+	if got := toolNames(t, reply(t, server, with)); !reflect.DeepEqual(got, []string{"create_issue", "edit_memory", "propose_skill", "search_issues"}) {
 		t.Errorf("tools with a maintenance Workstream = %q", got)
 	}
 }

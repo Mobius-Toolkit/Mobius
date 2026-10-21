@@ -82,6 +82,7 @@ func TestFixLabelsCreatesTheMissingLabelsAndSetsTheFixedColors(t *testing.T) {
 		{"mobius:wont-do", engine.Missing, ""},
 		{"mobius:evergreen", engine.Missing, ""},
 		{"mobius:maintenance", engine.Missing, ""},
+		{"mobius:skills", engine.Missing, ""},
 	}
 	if got := checkLabels(t, repository); !reflect.DeepEqual(got, want) {
 		t.Errorf("status = %v, want %v", got, want)
@@ -101,6 +102,7 @@ func TestFixLabelsCreatesTheMissingLabelsAndSetsTheFixedColors(t *testing.T) {
 		{Name: "mobius:question", Color: "C5A3F5", Description: "Mobius waits for an answer from a human"},
 		{Name: "mobius:ready", Color: "0e8a16", Description: "Ready, says the Owner"},
 		{Name: "mobius:review", Color: "006B75", Description: "The pull request waits for a human review"},
+		{Name: "mobius:skills", Color: "C2E0C6", Description: "Mobius evergreen Workstream that gets the proposals for the skill repository"},
 		{Name: "mobius:triage", Color: "FEF2C0", Description: "The Owner must accept this task before Mobius can start it"},
 		{Name: "mobius:wont-do", Color: "CFD3D7", Description: "The Owner closed the Workstream of this issue as \"won't do\""},
 		{Name: "mobius:working", Color: "FBCA04", Description: "Custom description"},
@@ -140,6 +142,7 @@ func TestFixLabelsSkipsALabelWithANameInADifferentCase(t *testing.T) {
 		{"mobius:wont-do", engine.Missing, ""},
 		{"mobius:evergreen", engine.Missing, ""},
 		{"mobius:maintenance", engine.Missing, ""},
+		{"mobius:skills", engine.Missing, ""},
 	}
 	if got := checkLabels(t, repository); !reflect.DeepEqual(got, want) {
 		t.Errorf("status = %v, want %v", got, want)
@@ -163,6 +166,7 @@ func TestFixLabelsSkipsALabelWithANameInADifferentCase(t *testing.T) {
 		"mobius:no-workstream BFD4F2 The Triager found no Workstream for this issue",
 		"mobius:question C5A3F5 Mobius waits for an answer from a human",
 		"mobius:review 006B75 The pull request waits for a human review",
+		"mobius:skills C2E0C6 Mobius evergreen Workstream that gets the proposals for the skill repository",
 		"mobius:triage FEF2C0 The Owner must accept this task before Mobius can start it",
 		"mobius:wont-do CFD3D7 The Owner closed the Workstream of this issue as \"won't do\"",
 		"mobius:workstream 5319E7 Mobius Workstream: a parent issue for a group of tasks",

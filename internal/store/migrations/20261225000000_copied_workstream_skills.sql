@@ -1,0 +1,1 @@
+ALTER TABLE copied_workstreams ADD COLUMN skills INTEGER NOT NULL DEFAULT 0;
