@@ -171,6 +171,7 @@ func (e *Engine) continueEndedTask(ctx context.Context, repository github.Reposi
 		return err
 	}
 	if reopened > 0 {
+		e.publish(Change{Workstreams: true})
 		text := fmt.Sprintf("%s recovery of %s \"%s\": the Owner continued the issue, and it had no live task. Mobius continued the earlier task with the branch %s and the pull request %s. %s",
 			time.Now().UTC().Format(timeFormat), taskEventRef(task, task.Issue), issue.GetTitle(), task.Branch.String, taskEventRef(task, task.PullRequest.Int64), findingsLost)
 		if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "recovery", text); err != nil {

@@ -139,7 +139,7 @@ func (e *Engine) startImplementer(ctx context.Context, repository github.Reposit
 			return "", err
 		}
 	}
-	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: "dispatched"})
+	queued, err := e.queueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: "dispatched"})
 	if err != nil {
 		return "", err
 	}
@@ -540,7 +540,7 @@ func (e *Engine) fixRound(ctx context.Context, repository github.Repository, r r
 		}
 		count = current.FixRounds
 	}
-	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: r.task.ID, FromState: "working"})
+	queued, err := e.queueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: r.task.ID, FromState: "working"})
 	if err != nil || queued == 0 {
 		return err
 	}
@@ -634,7 +634,7 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err := e.setFixRoundStep(ctx, repository, pullRequest.GetHead().GetSHA(), conflictCause, 0); err != nil {
 		return err
 	}
-	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: task.State})
+	queued, err := e.queueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: task.State})
 	if err != nil || queued == 0 {
 		return err
 	}
@@ -642,7 +642,6 @@ func (e *Engine) conflictRound(ctx context.Context, repository github.Repository
 	if err := e.queries.SetTaskConflictHead(ctx, store.SetTaskConflictHeadParams{ConflictHead: head, ID: task.ID}); err != nil {
 		return err
 	}
-	e.publishReadyForReview(task.State, "queued")
 	defer func() {
 		err = errors.Join(err, e.dismissReadyForReview(ctx, task, task.State))
 	}()
@@ -691,7 +690,7 @@ func (e *Engine) restartImplementer(repository github.Repository, task store.Tas
 		if err != nil {
 			return false, err
 		}
-		queued, err := e.queries.RequeueTask(ctx, task.ID)
+		queued, err := e.requeueTask(ctx, task.ID)
 		if err != nil || queued == 0 {
 			return false, err
 		}
@@ -795,9 +794,9 @@ func (e *Engine) runWorker(task store.Task, title *string, name string, lost boo
 // queueAgain puts a working task at the end of the queue, and keeps the place of a queued task. It tells if the task
 // was working or queued.
 func (e *Engine) queueAgain(ctx context.Context, task int64) (bool, error) {
-	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task, FromState: "working"})
+	queued, err := e.queueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task, FromState: "working"})
 	if err == nil && queued == 0 {
-		queued, err = e.queries.RequeueTask(ctx, task)
+		queued, err = e.requeueTask(ctx, task)
 	}
 	return queued > 0, err
 }

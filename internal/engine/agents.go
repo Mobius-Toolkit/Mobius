@@ -872,12 +872,39 @@ func (e *Engine) publish(change Change) {
 	}
 }
 
-// setTaskState moves the task like SetTaskState. It publishes a Workstream change when the task enters or leaves
-// ready_for_review, because the Workstream list shows a pull request that waits for the merge.
+// setTaskState moves the task like SetTaskState. It publishes a Workstream change when the task moved, because the
+// Workstream list and the Tasks board show the state of the task.
 func (e *Engine) setTaskState(ctx context.Context, params store.SetTaskStateParams) (int64, error) {
 	moved, err := e.queries.SetTaskState(ctx, params)
 	if err == nil && moved > 0 {
-		e.publishReadyForReview(params.FromState, params.State)
+		e.publish(Change{Workstreams: true})
+	}
+	return moved, err
+}
+
+// queueTask moves the task like QueueTask. It publishes a Workstream change when the task moved.
+func (e *Engine) queueTask(ctx context.Context, params store.QueueTaskParams) (int64, error) {
+	moved, err := e.queries.QueueTask(ctx, params)
+	if err == nil && moved > 0 {
+		e.publish(Change{Workstreams: true})
+	}
+	return moved, err
+}
+
+// requeueTask moves the task like RequeueTask. It publishes a Workstream change when the task moved.
+func (e *Engine) requeueTask(ctx context.Context, id int64) (int64, error) {
+	moved, err := e.queries.RequeueTask(ctx, id)
+	if err == nil && moved > 0 {
+		e.publish(Change{Workstreams: true})
+	}
+	return moved, err
+}
+
+// startTaskWorker moves the task like StartTaskWorker. It publishes a Workstream change when the task moved.
+func (e *Engine) startTaskWorker(ctx context.Context, params store.StartTaskWorkerParams) (int64, error) {
+	moved, err := e.queries.StartTaskWorker(ctx, params)
+	if err == nil && moved > 0 {
+		e.publish(Change{Workstreams: true})
 	}
 	return moved, err
 }
@@ -890,10 +917,4 @@ func (e *Engine) dismissReadyForReview(ctx context.Context, task store.Task, fro
 		return nil
 	}
 	return e.dismissIssueItems(ctx, task.Repository, task.Issue, readyForReviewKind)
-}
-
-func (e *Engine) publishReadyForReview(from, to string) {
-	if from == "ready_for_review" || to == "ready_for_review" {
-		e.publish(Change{Workstreams: true})
-	}
 }

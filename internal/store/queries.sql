@@ -155,6 +155,17 @@ LEFT JOIN copied_issues i
   AND substr(lower(i.repository_url), -(length(sessions.repository) + 7)) = '/repos/' || lower(sessions.repository)
 WHERE sessions.ended_at IS NULL ORDER BY sessions.id;
 
+-- name: ListBoardTasks :many
+SELECT tasks.repository, tasks.issue, tasks.workstream_repository, tasks.workstream, tasks.state, tasks.state_at,
+       tasks.pull_request, tasks.fix_rounds, tasks.review_rounds,
+       i.title AS issue_title, i.html_url AS issue_url, w.title AS workstream_title
+FROM tasks
+JOIN copied_workstreams w ON w.repository = tasks.workstream_repository AND w.number = tasks.workstream
+JOIN copied_issues i
+  ON i.repository = tasks.workstream_repository AND i.workstream = tasks.workstream AND i.number = tasks.issue
+  AND substr(lower(i.repository_url), -(length(tasks.repository) + 7)) = '/repos/' || lower(tasks.repository)
+ORDER BY tasks.id;
+
 -- name: ListQueuedTasks :many
 SELECT id, queued_at, EXISTS (
   SELECT 1 FROM ci_breaks WHERE ci_breaks.repository = tasks.repository AND ci_breaks.issue = tasks.issue

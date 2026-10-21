@@ -60,7 +60,7 @@ func (e *Engine) roundText(task store.Task, afterConflict bool) string {
 // review queues the Reviewer of the head that the done Implementer session pushed. A task that is not working, for
 // example after a decline of the Lead during the Implementer session, gets no Reviewer.
 func (e *Engine) review(ctx context.Context, j *job, p pushed, session int64) error {
-	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: j.task.ID, FromState: "working"})
+	queued, err := e.queueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: j.task.ID, FromState: "working"})
 	if err != nil || queued == 0 {
 		return err
 	}
@@ -104,7 +104,7 @@ func (e *Engine) restartReviewer(repository github.Repository, task store.Task, 
 		if err != nil {
 			return false, err
 		}
-		queued, err := e.queries.RequeueTask(ctx, task.ID)
+		queued, err := e.requeueTask(ctx, task.ID)
 		if err != nil || queued == 0 {
 			return false, err
 		}
