@@ -16,12 +16,12 @@ var rustTimes = []string{"2026-10-04T10:00:00Z", "2026-10-04T10:00:01.5Z", "2026
 func TestTheAPIReadsTheTimesThatTheRustVersionWrote(t *testing.T) {
 	mux, db := testMux(t)
 	exec(t, db, "UPDATE device_logins SET created_at = '"+rustTimes[1]+"'")
-	exec(t, db, `INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, started_at, ended_at, end_reason)
-		VALUES (1, 'lead_chat', 'claude-code', 'opus', 'owner', 'owner/shop', 12, '`+rustTimes[0]+`', '`+rustTimes[2]+`', 'idle')`)
+	exec(t, db, `INSERT INTO sessions (id, role, harness, model, organization, repository, workstream_repository, workstream, started_at, ended_at, end_reason)
+		VALUES (1, 'lead_chat', 'claude-code', 'opus', 'owner', 'owner/shop', 'owner/shop', 12, '`+rustTimes[0]+`', '`+rustTimes[2]+`', 'idle')`)
 	for _, at := range rustTimes {
 		exec(t, db, `INSERT INTO transcript (session, time, kind, json) VALUES (1, '`+at+`', 'prompt', '{"text":"Plan"}')`)
 		exec(t, db, `INSERT INTO chat_messages (organization, repository, workstream, author, time, text) VALUES ('owner', 'owner/shop', 12, 'Owner', '`+at+`', 'Plan')`)
-		exec(t, db, `INSERT INTO inbox_items (kind, organization, repository, workstream, issue, text, link, time) VALUES ('question', 'owner', 'owner/shop', 12, 41, 'Why?', 'https://example.com/41', '`+at+`')`)
+		exec(t, db, `INSERT INTO inbox_items (kind, organization, repository, workstream_repository, workstream, issue, text, link, time) VALUES ('question', 'owner', 'owner/shop', 'owner/shop', 12, 41, 'Why?', 'https://example.com/41', '`+at+`')`)
 		exec(t, db, `INSERT INTO events (time, repository, workstream, issue, actor, text, link) VALUES ('`+at+`', 'owner/shop', 12, 41, 'owner', 'Dispatched', 'https://example.com/41')`)
 	}
 

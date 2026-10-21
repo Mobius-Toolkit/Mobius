@@ -2,8 +2,11 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/Mobius-Toolkit/Mobius/internal/store"
 )
 
 // The tests make these waits short.
@@ -120,4 +123,19 @@ func (e *Engine) QueueOwnerMessageWithoutWake(ctx context.Context, key ChatKey, 
 // PostApproval adds an Approval message to the chat of key.
 func (e *Engine) PostApproval(ctx context.Context, key ChatKey, text string) error {
 	return e.postApproval(ctx, key, text)
+}
+
+// StartImplementer starts an Implementer for the dispatched task, as start_implementer does for a task of the
+// repository of the Lead.
+func (e *Engine) StartImplementer(ctx context.Context, task store.Task, title, prompt string) error {
+	defer e.holdWorker(task.ID)()
+	queued, err := e.queries.QueueTask(ctx, store.QueueTaskParams{QueuedAt: sql.NullString{String: now(), Valid: true}, ID: task.ID, FromState: "dispatched"})
+	if err != nil || queued == 0 {
+		return err
+	}
+	if err := e.setWorker(ctx, task.ID, ImplementerRole, prompt); err != nil {
+		return err
+	}
+	e.runImplementer(job{task: task, title: title, prompt: prompt})
+	return nil
 }

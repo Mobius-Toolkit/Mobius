@@ -539,7 +539,7 @@ func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxIte
 	if want := (testkit.CheckRun{Name: "Mobius", HeadSHA: sha, Status: "completed", Conclusion: "success", Output: approvedOutput}); !reflect.DeepEqual(fake.CheckRuns(shop)[0], want) {
 		t.Errorf("check runs = %+v", fake.CheckRuns(shop))
 	}
-	want := []inboxItem{{Kind: "ready for review", Repository: shop, Workstream: 12, Issue: 41, Title: "Add plan model", Reason: "PR #42 is ready to merge", Text: "Pull request #42 of #41 \"Add plan model\" is ready for review.", Link: "https://github.com/owner/shop/issues/41", PullRequest: 42, PullRequestURL: "https://github.com/owner/shop/pull/42", ReportURL: "https://github.com/owner/shop/pull/42#issuecomment-2"}}
+	want := []inboxItem{{Kind: "ready for review", Repository: shop, WorkstreamRepository: shop, Workstream: 12, Issue: 41, Title: "Add plan model", Reason: "PR #42 is ready to merge", Text: "Pull request #42 of #41 \"Add plan model\" is ready for review.", Link: "https://github.com/owner/shop/issues/41", PullRequest: 42, PullRequestURL: "https://github.com/owner/shop/pull/42", ReportURL: "https://github.com/owner/shop/pull/42#issuecomment-2"}}
 	if want, comments := (testkit.Comment{Author: testkit.AppSlug + "[bot]", Body: "Checked the diff. Verified the tests."}), fake.Comments(shop, 42); comments[len(comments)-1] != want {
 		t.Errorf("comments = %+v", comments)
 	}

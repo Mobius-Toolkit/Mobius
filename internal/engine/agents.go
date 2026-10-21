@@ -40,6 +40,8 @@ type Spec struct {
 	// Organization is the owner of Repository. The Coordinator chat has an organization and an empty Repository.
 	Organization string
 	Repository   string
+	// WorkstreamRepository is the repository of the Workstream issue. An empty value means Repository.
+	WorkstreamRepository string
 	// Workstream is the number of the Workstream issue. The Triager has 0.
 	Workstream int64
 	// Issue is the one issue that the session works on.
@@ -250,17 +252,21 @@ func (e *Engine) newAgent(ctx context.Context, spec Spec) (*Agent, error) {
 	if !worker && !spec.Tracked && !e.track() {
 		return nil, refuse("Mobius restarts for an upgrade.")
 	}
+	if spec.WorkstreamRepository == "" {
+		spec.WorkstreamRepository = spec.Repository
+	}
 	session, err := e.queries.AddSession(ctx, store.AddSessionParams{
-		Role:         spec.Role,
-		Harness:      string(binding.Harness),
-		Model:        binding.Model,
-		Effort:       sql.NullString{String: binding.Effort, Valid: binding.Effort != ""},
-		Organization: spec.Organization,
-		Repository:   spec.Repository,
-		Workstream:   spec.Workstream,
-		Issue:        spec.Issue,
-		Parent:       spec.Parent,
-		StartedAt:    now(),
+		Role:                 spec.Role,
+		Harness:              string(binding.Harness),
+		Model:                binding.Model,
+		Effort:               sql.NullString{String: binding.Effort, Valid: binding.Effort != ""},
+		Organization:         spec.Organization,
+		Repository:           spec.Repository,
+		WorkstreamRepository: spec.WorkstreamRepository,
+		Workstream:           spec.Workstream,
+		Issue:                spec.Issue,
+		Parent:               spec.Parent,
+		StartedAt:            now(),
 	})
 	if err != nil {
 		if !worker {
@@ -719,7 +725,7 @@ func (a *Agent) addReply(ctx context.Context, kind, content string) error {
 		return nil
 	}
 	spec := a.spec
-	message, err := a.engine.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, a.author, content, "", "", nil)
+	message, err := a.engine.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, a.author, content, "", "", nil)
 	a.message = message.ID
 	return err
 }
@@ -767,7 +773,7 @@ func (e *Engine) working(n Node) bool {
 	case n.Title == "chat session":
 		e.chatsMu.Lock()
 		defer e.chatsMu.Unlock()
-		c, ok := e.chats[ChatKey{session.Organization, session.Repository, session.Workstream}]
+		c, ok := e.chats[ChatKey{session.Organization, session.WorkstreamRepository, session.Workstream}]
 		return ok && c.writing && session.QueueReason.String == ""
 	}
 	return session.QueueReason.String == "" || session.QueueReason.String == checkRunsReason
@@ -776,7 +782,7 @@ func (e *Engine) working(n Node) bool {
 // Tree gives the sessions of the Workstream of repository, the oldest first.
 func (e *Engine) Tree(ctx context.Context, repository string, workstream int64) ([]Node, error) {
 	organization, _, _ := strings.Cut(repository, "/")
-	sessions, err := e.queries.ListSessions(ctx, store.ListSessionsParams{Organization: organization, Repository: repository, Workstream: workstream})
+	sessions, err := e.queries.ListSessions(ctx, store.ListSessionsParams{Organization: organization, WorkstreamRepository: repository, Workstream: workstream})
 	if err != nil {
 		return nil, err
 	}

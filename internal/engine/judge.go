@@ -357,13 +357,14 @@ func (e *Engine) judgeSession(ctx context.Context, j judgeJob) error {
 		return err
 	}
 	a, err := e.addAgent(ctx, Spec{
-		Role:         JudgeRole,
-		Organization: owner(j.task.Repository),
-		Repository:   j.task.Repository,
-		Workstream:   j.task.Workstream,
-		Issue:        sql.NullInt64{Int64: j.task.Issue, Valid: true},
-		Parent:       parent,
-		Tracked:      true,
+		Role:                 JudgeRole,
+		Organization:         owner(j.task.Repository),
+		Repository:           j.task.Repository,
+		WorkstreamRepository: j.task.WorkstreamRepository,
+		Workstream:           j.task.Workstream,
+		Issue:                sql.NullInt64{Int64: j.task.Issue, Valid: true},
+		Parent:               parent,
+		Tracked:              true,
 	})
 	if err != nil {
 		if ctx.Err() != nil {

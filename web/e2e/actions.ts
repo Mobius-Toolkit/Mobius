@@ -118,6 +118,7 @@ export const triagerItem = {
   id: 333,
   organization: "owner",
   repository: "owner/shop",
+  workstreamRepository: "owner/shop",
   workstream: 12,
   issue: 61,
   kind: "approval",

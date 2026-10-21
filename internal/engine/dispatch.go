@@ -663,16 +663,17 @@ func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository
 		return "", err
 	}
 	err = e.addInboxItem(ctx, store.AddInboxItemParams{
-		Kind:         questionKind,
-		Organization: repository.Owner(),
-		Repository:   repository.FullName,
-		Workstream:   c.workstream,
-		Issue:        input.N,
-		Title:        issue.GetTitle(),
-		Reason:       "The Lead asks a question",
-		Text:         input.Text,
-		Questions:    questions,
-		Link:         issue.GetHTMLURL(),
+		Kind:                 questionKind,
+		Organization:         repository.Owner(),
+		Repository:           repository.FullName,
+		WorkstreamRepository: c.repository,
+		Workstream:           c.workstream,
+		Issue:                input.N,
+		Title:                issue.GetTitle(),
+		Reason:               "The Lead asks a question",
+		Text:                 input.Text,
+		Questions:            questions,
+		Link:                 issue.GetHTMLURL(),
 	})
 	if err != nil {
 		return "", err

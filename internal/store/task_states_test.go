@@ -118,7 +118,7 @@ func TestTheGroupValuesComeFromTheNewestImplementerSession(t *testing.T) {
 	addSession := func(role, model string, repository string, issue int64) Session {
 		t.Helper()
 		session, err := queries.AddSession(t.Context(), AddSessionParams{Role: role, Harness: "claude", Model: model,
-			Effort: sql.NullString{String: "high", Valid: true}, Organization: "o", Repository: repository, Workstream: 4,
+			Effort: sql.NullString{String: "high", Valid: true}, Organization: "o", Repository: repository, WorkstreamRepository: repository, Workstream: 4,
 			Issue: sql.NullInt64{Int64: issue, Valid: true}, StartedAt: "2026-10-01T10:00:00Z"})
 		if err != nil {
 			t.Fatal(err)

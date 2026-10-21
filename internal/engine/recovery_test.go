@@ -118,8 +118,8 @@ func TestAStartContinuesTheEndedTaskOfAnIssueWithNeedsHumanInNeedsHumanAndKeepsI
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server := seedEnded(t, fake, []string{"mobius:needs-human"}, 0, nil,
-		`INSERT INTO inbox_items (kind, organization, repository, workstream, issue, title, reason, text, link, time)
-		 VALUES ('stopped', 'owner', 'owner/shop', 12, 41, 'Add plan model', 'Stopped', 'The task stopped.', '', '2026-10-04T11:00:00Z')`)
+		`INSERT INTO inbox_items (kind, organization, repository, workstream_repository, workstream, issue, title, reason, text, link, time)
+		 VALUES ('stopped', 'owner', 'owner/shop', 'owner/shop', 12, 41, 'Add plan model', 'Stopped', 'The task stopped.', '', '2026-10-04T11:00:00Z')`)
 
 	testkit.WaitFor(t, func() bool { return hasLiveTask(t, server, 41) })
 

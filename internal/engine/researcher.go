@@ -42,12 +42,13 @@ func (e *Engine) startResearcher(ctx context.Context, c caller, repository githu
 		return "", refuse("Mobius prepares an upgrade, so no Researcher starts now.")
 	}
 	a, err := e.newAgent(ctx, Spec{
-		Role:         ResearcherRole,
-		Organization: c.organization,
-		Repository:   repository.FullName,
-		Workstream:   c.workstream,
-		Issue:        c.agent.spec.Issue,
-		Parent:       sql.NullInt64{Int64: c.session, Valid: true},
+		Role:                 ResearcherRole,
+		Organization:         c.organization,
+		Repository:           repository.FullName,
+		WorkstreamRepository: c.repository,
+		Workstream:           c.workstream,
+		Issue:                c.agent.spec.Issue,
+		Parent:               sql.NullInt64{Int64: c.session, Valid: true},
 	})
 	if err != nil {
 		return "", err

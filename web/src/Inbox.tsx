@@ -128,7 +128,11 @@ export function InboxRow({
   const chat = async () => {
     const inWorkstream = item.workstream !== 0;
     const key = inWorkstream
-      ? chatDraftKey(item.repository.split("/")[0], item.repository, item.workstream)
+      ? chatDraftKey(
+          item.workstreamRepository.split("/")[0],
+          item.workstreamRepository,
+          item.workstream,
+        )
       : chatDraftKey(item.organization, "", 0);
     await addDraftInboxItem(key, {
       id: item.id,
@@ -140,7 +144,7 @@ export function InboxRow({
     if (inWorkstream) {
       await navigate({
         to: "/workstreams/$owner/$name/$number",
-        params: chatParams({ repository: item.repository, number: item.workstream }),
+        params: chatParams({ repository: item.workstreamRepository, number: item.workstream }),
       });
       return;
     }
@@ -267,7 +271,8 @@ export function InboxRow({
           workstream={
             workstreams?.find(
               (workstream) =>
-                workstream.repository === item.repository && workstream.number === item.workstream,
+                workstream.repository === item.workstreamRepository &&
+                workstream.number === item.workstream,
             )?.title ?? `#${item.workstream}`
           }
           onClose={() => setPanel(null)}

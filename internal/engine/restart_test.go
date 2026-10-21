@@ -30,9 +30,9 @@ func TestARestartStartsTheImplementerAgainAndTheHousekeeperRemovesTheDirectories
 		seed(t, cfg.DataDir,
 			`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at, worker, worker_input)
 			 VALUES (1, 'owner/shop', 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'implementer', '`+prompt+`')`,
-			`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, issue, parent, started_at)
-			 VALUES (1, 'lead_event', 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, NULL, NULL, '2026-10-04T10:00:00Z'),
-			        (2, 'implementer', 'devin', 'swe-1.5', 'owner', 'owner/shop', 12, 41, 1, '2026-10-04T10:00:00Z')`,
+			`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream_repository, workstream, issue, parent, started_at)
+			 VALUES (1, 'lead_event', 'claude-code', 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, NULL, NULL, '2026-10-04T10:00:00Z'),
+			        (2, 'implementer', 'devin', 'swe-1.5', 'owner', 'owner/shop', 'owner/shop', 12, 41, 1, '2026-10-04T10:00:00Z')`,
 			`INSERT INTO transcript (session, time, kind, json) VALUES (2, '2026-10-04T10:00:00Z', 'prompt', '{"text":"`+prompt+`"}')`)
 		scratch = filepath.Join(cfg.DataDir, "scratch", "2")
 		if err := os.MkdirAll(scratch, 0o750); err != nil {
@@ -116,10 +116,10 @@ func TestARestartStartsTheJudgeAgainBelowTheParentOfTheEndedJudge(t *testing.T) 
 	seed(t, dataDir,
 		`INSERT INTO tasks (id, repository, workstream_repository, issue, workstream, state, dispatched_at, queued_at, branch, pull_request, worker, worker_input)
 		 VALUES (1, 'owner/shop', 'owner/shop', 41, 12, 'working', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 'mobius/41', 42, 'judge', 'reviewed')`,
-		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, issue, parent, started_at)
-		 VALUES (1, 'lead_event', 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, NULL, NULL, '2026-10-04T10:00:00Z'),
-		        (2, 'implementer', 'devin', 'swe-1.5', 'owner', 'owner/shop', 12, 41, 1, '2026-10-04T10:00:00Z'),
-		        (3, 'judge', 'claude-code', 'haiku', 'owner', 'owner/shop', 12, 41, 2, '2026-10-04T10:00:00Z')`)
+		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream_repository, workstream, issue, parent, started_at)
+		 VALUES (1, 'lead_event', 'claude-code', 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, NULL, NULL, '2026-10-04T10:00:00Z'),
+		        (2, 'implementer', 'devin', 'swe-1.5', 'owner', 'owner/shop', 'owner/shop', 12, 41, 1, '2026-10-04T10:00:00Z'),
+		        (3, 'judge', 'claude-code', 'haiku', 'owner', 'owner/shop', 'owner/shop', 12, 41, 2, '2026-10-04T10:00:00Z')`)
 	cfg := testserver.Config(t, dataDir)
 	cfg.ReviewQuietPeriod = 200 * time.Millisecond
 
@@ -145,8 +145,8 @@ func TestARestartAfterADrainOfAPausedLeadGivesTheWaitingEventToANewLeadAndTheTim
 	dataDir := t.TempDir()
 	until := time.Now().Add(300 * time.Millisecond).UTC().Format(time.RFC3339Nano)
 	seed(t, dataDir,
-		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, issue, parent, started_at)
-		 VALUES (1, 'lead_chat', 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, NULL, NULL, '2026-10-04T10:00:00Z')`,
+		`INSERT INTO sessions (id, role, harness, model, organization, repository, workstream_repository, workstream, issue, parent, started_at)
+		 VALUES (1, 'lead_chat', 'claude-code', 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, NULL, NULL, '2026-10-04T10:00:00Z')`,
 		`INSERT INTO harness_pauses (harness, paused_until) VALUES ('claude-code', '`+until+`')`,
 		`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, 41, 'comment', 'A comment before the restart.', '2026-10-04T10:00:00Z')`)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")

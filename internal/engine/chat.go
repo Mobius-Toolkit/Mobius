@@ -816,14 +816,15 @@ func (e *Engine) leadFailed(ctx context.Context, failed item) error {
 	if failed.message != nil {
 		message := failed.message
 		err := e.addInboxItem(ctx, store.AddInboxItemParams{
-			Kind:         leadFailedKind,
-			Organization: message.Organization,
-			Repository:   message.Repository,
-			Workstream:   message.Workstream,
-			Issue:        message.Workstream,
-			Reason:       "The Lead did not get your message",
-			Text:         message.Text,
-			ChatMessage:  sql.NullInt64{Int64: message.ID, Valid: true},
+			Kind:                 leadFailedKind,
+			Organization:         message.Organization,
+			Repository:           message.Repository,
+			WorkstreamRepository: message.Repository,
+			Workstream:           message.Workstream,
+			Issue:                message.Workstream,
+			Reason:               "The Lead did not get your message",
+			Text:                 message.Text,
+			ChatMessage:          sql.NullInt64{Int64: message.ID, Valid: true},
 		})
 		return err
 	}
@@ -1094,7 +1095,7 @@ func (e *Engine) tellHold(ctx context.Context, key ChatKey, event store.LeadEven
 	}
 	var question *store.InboxItem
 	for _, item := range items {
-		if item.Kind == questionKind && item.Repository == key.Repository && item.Workstream == key.Workstream {
+		if item.Kind == questionKind && item.WorkstreamRepository == key.Repository && item.Workstream == key.Workstream {
 			question = &item
 		}
 	}

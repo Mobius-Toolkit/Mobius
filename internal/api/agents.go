@@ -28,6 +28,8 @@ type Agent struct {
 	Organization string `gork:"organization"`
 	// Repository is the repository as "owner/name". It is empty for the Coordinator chat
 	Repository string `gork:"repository"`
+	// WorkstreamRepository is the repository of the Workstream issue as "owner/name". It differs from Repository for a task whose Workstream is in another repository. It is empty for the Coordinator chat
+	WorkstreamRepository string `gork:"workstreamRepository"`
 	// Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat
 	Workstream int64 `gork:"workstream"`
 	// Issue is the one issue that the session works on, or null
@@ -242,18 +244,19 @@ func (h *handlers) StreamTranscript(ctx context.Context, req StreamTranscriptReq
 func (h *handlers) agentOf(ctx context.Context, node engine.Node) (Agent, error) {
 	session := node.Session
 	agent := Agent{
-		ID:           session.ID,
-		Role:         session.Role,
-		Name:         node.Name,
-		Title:        node.Title,
-		Harness:      session.Harness,
-		Model:        session.Model,
-		Organization: session.Organization,
-		Repository:   session.Repository,
-		Workstream:   session.Workstream,
-		EndReason:    session.EndReason.String,
-		QueueReason:  session.QueueReason.String,
-		Working:      node.Working,
+		ID:                   session.ID,
+		Role:                 session.Role,
+		Name:                 node.Name,
+		Title:                node.Title,
+		Harness:              session.Harness,
+		Model:                session.Model,
+		Organization:         session.Organization,
+		Repository:           session.Repository,
+		WorkstreamRepository: session.WorkstreamRepository,
+		Workstream:           session.Workstream,
+		EndReason:            session.EndReason.String,
+		QueueReason:          session.QueueReason.String,
+		Working:              node.Working,
 	}
 	if session.Issue.Valid {
 		agent.Issue = &session.Issue.Int64

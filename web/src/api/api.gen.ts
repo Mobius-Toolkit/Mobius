@@ -64,6 +64,8 @@ export interface Agent {
   working: boolean;
   /** Workstream is the number of the Workstream issue. It is 0 for the Coordinator chat */
   workstream: number;
+  /** WorkstreamRepository is the repository of the Workstream issue as "owner/name". It differs from Repository for a task whose Workstream is in another repository. It is empty for the Coordinator chat */
+  workstreamRepository: string;
 }
 
 /**
@@ -674,6 +676,8 @@ export interface InboxItem {
   title: string;
   /** Workstream is the number of the Workstream issue, or 0 for an issue with no Workstream */
   workstream: number;
+  /** WorkstreamRepository is the repository of the Workstream issue as "owner/name". It differs from Repository for a task whose Workstream is in another repository */
+  workstreamRepository: string;
 }
 
 /**

@@ -147,14 +147,15 @@ func (e *Engine) reviewer(ctx context.Context, j *reviewJob) error {
 		return e.addOrKeepComment(ctx, repository, number, fmt.Sprintf("Review not started. Limit reached (%d of %d). Mobius added mobius:needs-human. Add a comment on this pull request to continue.", limit, limit))
 	}
 	a, err := e.addAgent(ctx, Spec{
-		Role:         ReviewerRole,
-		Organization: owner(task.Repository),
-		Repository:   task.Repository,
-		Workstream:   task.Workstream,
-		Issue:        sql.NullInt64{Int64: task.Issue, Valid: true},
-		Parent:       j.parent,
-		Task:         task.ID,
-		PullRequest:  number,
+		Role:                 ReviewerRole,
+		Organization:         owner(task.Repository),
+		Repository:           task.Repository,
+		WorkstreamRepository: task.WorkstreamRepository,
+		Workstream:           task.Workstream,
+		Issue:                sql.NullInt64{Int64: task.Issue, Valid: true},
+		Parent:               j.parent,
+		Task:                 task.ID,
+		PullRequest:          number,
 	})
 	if err != nil {
 		if errors.Is(err, ErrLeftQueue) || ctx.Err() != nil {

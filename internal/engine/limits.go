@@ -223,7 +223,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 		text := limitText(a.harness, *currentEnd)
 		spec := a.spec
 		last, err := e.queries.GetLastChatMessageOf(ctx, store.GetLastChatMessageOfParams{
-			Organization: spec.Organization, Repository: spec.Repository, Workstream: spec.Workstream, Author: mobiusAuthor,
+			Organization: spec.Organization, Repository: spec.WorkstreamRepository, Workstream: spec.Workstream, Author: mobiusAuthor,
 		})
 		if err == nil && last.Text == text {
 			return nil
@@ -256,7 +256,7 @@ func (e *Engine) pause(ctx context.Context, a *Agent, until time.Time) error {
 // addLimitMessage adds text to the chat of the Workstream of a.
 func (e *Engine) addLimitMessage(ctx context.Context, a *Agent, text string) error {
 	spec := a.spec
-	_, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.Repository, spec.Workstream}, mobiusAuthor, text, "", "", nil)
+	_, err := e.addChatMessage(ctx, ChatKey{spec.Organization, spec.WorkstreamRepository, spec.Workstream}, mobiusAuthor, text, "", "", nil)
 	return err
 }
 

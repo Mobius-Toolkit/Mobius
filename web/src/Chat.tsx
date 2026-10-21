@@ -55,7 +55,7 @@ export function Chat({
 }) {
   const repository = `${owner}/${name}`;
   const inWorkstream = inbox
-    .filter((item) => item.repository === repository && item.workstream === number)
+    .filter((item) => item.workstreamRepository === repository && item.workstream === number)
     .toSorted((a, b) => a.id - b.id);
   const workstream = workstreams.list?.find(
     (other) => other.repository === repository && other.number === number,
