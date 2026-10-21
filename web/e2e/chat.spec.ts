@@ -222,6 +222,7 @@ test.describe("the agent log of a running Lead", () => {
 test("Enter sends, and Shift+Enter adds a line on a desktop", async ({ page }) => {
   await page.goto(shop);
   const input = page.getByLabel("Message to the Lead");
+  await expect(input).toBeEditable();
   await input.pressSequentially("one");
   await input.press("Shift+Enter");
   await input.pressSequentially("two");
@@ -460,6 +461,7 @@ test.describe("on a touch screen", () => {
   test("Enter adds a line, and only Send sends", async ({ page }) => {
     await page.goto(shop);
     const input = page.getByLabel("Message to the Lead");
+    await expect(input).toBeEditable();
     await input.pressSequentially("three");
     await input.press("Enter");
     await input.pressSequentially("four");
@@ -475,7 +477,9 @@ test.describe("on a touch screen", () => {
     await page.goto(shop);
     const input = page.getByLabel("Message to the Lead");
     const send = page.getByRole("button", { name: "Send" });
+    await expect(input).toBeEditable();
     await input.pressSequentially("double");
+    await expect(input).toHaveValue("double");
     await page.evaluate(
       "for (let n = 0; n < 2; n++) document.querySelector('main form button[type=submit]').click()",
     );

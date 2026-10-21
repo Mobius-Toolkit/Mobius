@@ -1075,7 +1075,7 @@ func TestAHeldEventStaysHeldAfterARestartUntilATurnForAnOwnerMessageEnds(t *test
 	fake := testkit.NewFakeGitHub(t)
 	dataDir := t.TempDir()
 	seed(t, dataDir,
-		`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time, held) VALUES ('owner/shop', 12, 41, 'comment', 'A held comment.', '2026-10-04T10:00:00Z', 1)`)
+		`INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time, held) VALUES ('owner/shop', 12, 'owner/shop', 41, 'comment', 'A held comment.', '2026-10-04T10:00:00Z', 1)`)
 	fake.AddIssue(shop, 12, "Integrate loyalty plans")
 	fake.AddLabel(shop, 12, "mobius:workstream", "owner")
 	testkit.InstallFakeAgent(t, dataDir, options+"[[prompts]]\nreply = [\"Owner one.\"]\n\n[[prompts]]\nreply = [\"Noted.\"]\n")

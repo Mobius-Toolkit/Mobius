@@ -38,7 +38,7 @@ func addLeadEvent(t *testing.T, server *testserver.Server, kind, payload string)
 
 func addIssueLeadEvent(t *testing.T, server *testserver.Server, issue int64, kind, payload string) {
 	t.Helper()
-	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue, kind, payload, time) VALUES ('owner/shop', 12, ?, ?, ?, '2026-10-04T10:00:00Z')`, issue, kind, payload); err != nil {
+	if _, err := server.DB.Exec(`INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time) VALUES ('owner/shop', 12, 'owner/shop', ?, ?, ?, '2026-10-04T10:00:00Z')`, issue, kind, payload); err != nil {
 		t.Fatal(err)
 	}
 }

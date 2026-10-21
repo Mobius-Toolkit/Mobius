@@ -167,12 +167,12 @@ func (e *Engine) deliverStopNotice(ctx context.Context, record store.StopNotice,
 			return err
 		}
 	}
-	stopped, err := e.queries.ListStopEvents(ctx, store.ListStopEventsParams{Repository: task.WorkstreamRepository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Kind: record.LeadKind, Payload: record.LeadText})
+	stopped, err := e.queries.ListStopEvents(ctx, store.ListStopEventsParams{WorkstreamRepository: task.WorkstreamRepository, Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Kind: record.LeadKind, Payload: record.LeadText})
 	if err != nil {
 		return err
 	}
 	if !slices.ContainsFunc(stopped, func(event store.LeadEvent) bool { return !timeBefore(event.Time, createdAt) }) {
-		if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, record.LeadKind, record.LeadText); err != nil {
+		if err := e.addLeadEvent(ctx, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, record.LeadKind, record.LeadText); err != nil {
 			return err
 		}
 	}

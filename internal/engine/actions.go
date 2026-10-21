@@ -106,9 +106,13 @@ func (e *Engine) approvedToolOf(c caller, name string) (mcp.Tool, bool) {
 func (e *Engine) messageLeadTool(c caller) mcp.Tool {
 	description := "Send a message to the Lead of an open Workstream. Call it at once with the exact message. The tool returns at once, and Mobius sends the message only after the Owner approves it. The result arrives later as an Approval message."
 	if c.role == TriagerRole {
-		description = "Send a message to the Lead of an open Workstream. Mobius adds the link to the issue to the message. Call it at once with the target Workstream and the exact message. The tool returns at once, and Mobius sends the message only after the Owner approves it in the Inbox of Mobius. Then Mobius closes the issue with a link to the Workstream. A failed action or a rejection arrives as a comment of Mobius on the issue."
+		description = "Send a message to the Lead of an open Workstream in the issue repository of the organization. Mobius adds the link to the issue to the message. Call it at once with the target Workstream and the exact message. The tool returns at once, and Mobius sends the message only after the Owner approves it in the Inbox of Mobius. Then Mobius closes the issue with a link to the Workstream. A failed action or a rejection arrives as a comment of Mobius on the issue."
 	}
-	return approvedTool(e, c, e.callerRepository, "message_lead",
+	resolve := e.callerRepository
+	if c.role == TriagerRole {
+		resolve = e.triagerWorkstreamRepository
+	}
+	return approvedTool(e, c, resolve, "message_lead",
 		description,
 		map[string]any{
 			"workstream": map[string]any{"type": "integer", "minimum": 1, "description": "The number of the Workstream issue that the Owner selects."},
@@ -129,9 +133,13 @@ func (e *Engine) createWorkstreamTool(c caller) mcp.Tool {
 		description += " Add mobius:evergreen or mobius:maintenance in labels only when the Owner asks for that label."
 		properties = coordinatorWorkstreamProperties
 	case TriagerRole:
-		description = "Create a Workstream in this repository: an issue with mobius:workstream. Call it at once with the exact title and Brief. The tool returns at once, and Mobius creates the Workstream only after the Owner approves it in the Inbox of Mobius. Then Mobius closes the issue with a link to the Workstream. A failed action or a rejection arrives as a comment of Mobius on the issue."
+		description = "Create a Workstream in the issue repository of the organization: an issue with mobius:workstream. Call it at once with the exact title and Brief. The tool returns at once, and Mobius creates the Workstream only after the Owner approves it in the Inbox of Mobius. Then Mobius closes the issue with a link to the Workstream. A failed action or a rejection arrives as a comment of Mobius on the issue."
 	}
-	return approvedTool(e, c, e.callerRepository, "create_workstream", description,
+	resolve := e.callerRepository
+	if c.role == TriagerRole {
+		resolve = e.triagerWorkstreamRepository
+	}
+	return approvedTool(e, c, resolve, "create_workstream", description,
 		properties,
 		func(input workstreamInput) string {
 			return `Create the Workstream "` + input.Title + `"`

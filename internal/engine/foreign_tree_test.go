@@ -94,8 +94,8 @@ func TestTheNeedsHumanListHasAStoppedTaskInAnotherRepository(t *testing.T) {
 	fake.AddPullRequest(garden, 8, "Water the plants")
 	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, pull_request)
 		VALUES ('owner/garden', 'owner/shop', 7, 12, 'needs_human', '2026-10-04T10:00:00Z', 8);
-		INSERT INTO lead_events (repository, workstream, issue, kind, payload, time)
-		VALUES ('owner/shop', 12, 7, 'stop', '2026-10-04 10:00 UTC stop of #7 "Water the plants": no push.', '2026-10-04T10:00:00Z')`)
+		INSERT INTO lead_events (repository, workstream, issue_repository, issue, kind, payload, time)
+		VALUES ('owner/shop', 12, 'owner/garden', 7, 'stop', '2026-10-04 10:00 UTC stop of #7 "Water the plants": no push.', '2026-10-04T10:00:00Z')`)
 
 	pullRequest := int64(8)
 	pullRequestURL := "https://github.com/owner/garden/pull/8"

@@ -286,6 +286,7 @@ func (e *Engine) approvePullRequest(ctx context.Context, c caller, repository gi
 		return "", err
 	}
 	if checkRun == 0 {
+		e.markPushed(repository, task.PullRequest.Int64)
 		if _, err := e.setTaskState(ctx, store.SetTaskStateParams{State: "checks", ID: task.ID, FromState: "approval"}); err != nil {
 			return "", err
 		}
@@ -850,7 +851,7 @@ func (e *Engine) implementer(ctx context.Context, j *job) error {
 		}
 		checkErr := e.failCheckRun(ended, task, "Cannot do", "The Implementer could not do the task. The Lead decides the next step.")
 		text := fmt.Sprintf("%s cannot_do on #%d \"%s\" by the Implementer:\n\n%s", time.Now().UTC().Format(timeFormat), task.Issue, j.title, quote(r.text))
-		return errors.Join(checkErr, e.addLeadEvent(ended, task.WorkstreamRepository, task.Workstream, sql.NullInt64{Int64: task.Issue, Valid: true}, "cannot_do", text))
+		return errors.Join(checkErr, e.addLeadEvent(ended, task.WorkstreamRepository, task.Workstream, task.Repository, sql.NullInt64{Int64: task.Issue, Valid: true}, "cannot_do", text))
 	case checkFailed:
 		return e.handOver(ended, task, j.title, fmt.Sprintf(".mobius/check failed %d times. Mobius pushed the work, set the Mobius check to failure, and added mobius:needs-human.", e.config.MaxCheckAttempts), stopNotice{
 			reason: "Local check failed",
