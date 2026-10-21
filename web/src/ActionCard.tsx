@@ -13,7 +13,12 @@ function actionState(action: PendingAction) {
   if (action.state === "pending") {
     return action.error ? "Failed" : "Waits for the approval";
   }
-  return { done: "Done", rejected: "Rejected", replaced: "Replaced" }[action.state];
+  return {
+    done: "Done",
+    rejected: "Rejected",
+    replaced: "Replaced",
+    withdrawn: "Withdrawn by the agent",
+  }[action.state];
 }
 
 const isShort = (value: string) => !value.includes("\n") && value.length <= 80;

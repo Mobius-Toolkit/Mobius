@@ -7054,3 +7054,40 @@ func (q *Queries) UpdateCopiedWorkstream(ctx context.Context, arg UpdateCopiedWo
 	}
 	return result.RowsAffected()
 }
+
+const withdrawPendingAction = `-- name: WithdrawPendingAction :one
+UPDATE pending_actions SET state = 'withdrawn', decided_at = ?
+WHERE id = ? AND state = 'pending' AND running = 0
+RETURNING id, organization, repository, workstream, issue, role, tool, arguments, state, running, error, result, message, time, decided_at, chat_message, inbox_item, created_issue
+`
+
+type WithdrawPendingActionParams struct {
+	DecidedAt sql.NullString
+	ID        int64
+}
+
+func (q *Queries) WithdrawPendingAction(ctx context.Context, arg WithdrawPendingActionParams) (PendingAction, error) {
+	row := q.db.QueryRowContext(ctx, withdrawPendingAction, arg.DecidedAt, arg.ID)
+	var i PendingAction
+	err := row.Scan(
+		&i.ID,
+		&i.Organization,
+		&i.Repository,
+		&i.Workstream,
+		&i.Issue,
+		&i.Role,
+		&i.Tool,
+		&i.Arguments,
+		&i.State,
+		&i.Running,
+		&i.Error,
+		&i.Result,
+		&i.Message,
+		&i.Time,
+		&i.DecidedAt,
+		&i.ChatMessage,
+		&i.InboxItem,
+		&i.CreatedIssue,
+	)
+	return i, err
+}
