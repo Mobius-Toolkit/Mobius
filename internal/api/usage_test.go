@@ -67,6 +67,10 @@ func seedUsage(t *testing.T) func(query string) (int, usageBody) {
 			(3, 1, 'o', 'o/a', 'Reviewer', 'claude-code', 'sonnet', NULL, 'low',
 				'2026-10-03T23:59:59.9Z', '2026-10-04T00:10:00Z', 1000, 1000, NULL, NULL, 100);
 	`)
+	return usageGetter(t, mux)
+}
+
+func usageGetter(t *testing.T, mux http.Handler) func(query string) (int, usageBody) {
 	return func(query string) (int, usageBody) {
 		t.Helper()
 		rec := httptest.NewRecorder()
@@ -174,6 +178,38 @@ func TestGetUsageGroups(t *testing.T) {
 				t.Errorf("groups = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestGetUsageGroupsSplitAModelByItsEfforts(t *testing.T) {
+	mux, db := testMux(t)
+	exec(t, db, `
+		INSERT INTO sessions (id, role, harness, model, repository, workstream, started_at, organization) VALUES
+			(1, 'Implementer', 'claude-code', 'opus', 'o/a', 1, '2026-10-04T23:00:00Z', 'o');
+		INSERT INTO turn_usage (session, workstream, organization, repository, role, harness, model, reported_model, effort,
+			started_at, ended_at, input_tokens, output_tokens) VALUES
+			(1, 1, 'o', 'o/a', 'Implementer', 'claude-code', 'opus', 'claude-opus-5', 'high',
+				'2026-10-04T23:30:00Z', '2026-10-04T23:40:00Z', 100, 10),
+			(1, 1, 'o', 'o/a', 'Implementer', 'claude-code', 'opus', 'claude-opus-5', 'medium',
+				'2026-10-05T00:10:00Z', '2026-10-05T00:20:00Z', 50, 5);
+	`)
+	get := usageGetter(t, mux)
+
+	for group, want := range map[string][]string{
+		"modelEffort":        {"opus high", "opus medium"},
+		"modelVersionEffort": {"claude-opus-5 high", "claude-opus-5 medium"},
+	} {
+		code, body := get(usagePeriod + "&group=" + group)
+		if code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want %d", group, code, http.StatusOK)
+		}
+		var got []string
+		for _, item := range body.Groups {
+			got = append(got, item.Group)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: groups = %q, want %q", group, got, want)
+		}
 	}
 }
 
