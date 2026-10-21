@@ -1208,17 +1208,17 @@ test("screenshots", async ({ page }) => {
     row(leadTitle),
   ]);
 
-  // A call of the same tool replaces the action for #14, and the Lead of #9999 does not exist.
+  // The Lead of #9999 does not exist.
   await page.goto("/chat");
   await ask(page, stopUnknown);
-  await expect(waits(2)).toBeVisible({ timeout: 30_000 });
+  await expect(waits(3)).toBeVisible({ timeout: 30_000 });
   await fixActionTimes();
   await screenshot(
     page,
     "action-failed",
     "/chat",
     (device) => [
-      ...approvalReady(device, "3"),
+      ...approvalReady(device, "4"),
       panel.getByRole("alert").getByText(/#9999 is not an open Workstream/),
       cardOf(page, unknownText).getByText("Failed", { exact: true }),
     ],
@@ -1234,8 +1234,8 @@ test("screenshots", async ({ page }) => {
     "action-rejected",
     "/chat",
     (device) => [
-      ...approvalReady(device, "2"),
-      waits(1),
+      ...approvalReady(device, "3"),
+      waits(2),
       cardOf(page, unknownText).getByText("Rejected", { exact: true }),
       cardOf(page, unknownText).getByText("Wait for the migration of #12."),
     ],
@@ -1248,7 +1248,7 @@ test("screenshots", async ({ page }) => {
       const card = cardOf(page, unknownText);
       await expect(card.getByText("Rejected", { exact: true })).toBeVisible();
       await expect(card.getByText("Wait for the migration of #12.")).toBeVisible();
-      await expect(waits(1)).toBeVisible();
+      await expect(waits(2)).toBeVisible();
       await showEnd(unknownText)();
     },
   );
@@ -1265,8 +1265,8 @@ test("screenshots", async ({ page }) => {
     "action-withdrawn",
     "/chat",
     (device) => [
-      ...approvalReady(device, "2"),
-      waits(1),
+      ...approvalReady(device, "3"),
+      waits(2),
       cardOf(page, unknownText).getByText("Withdrawn by the agent", { exact: true }),
     ],
     showEnd(unknownText),
@@ -1276,7 +1276,7 @@ test("screenshots", async ({ page }) => {
   // The fake Coordinator asks a question with options. The answer ends the question.
   await page.goto("/chat");
   await ask(page, askStore);
-  await expect(waits(2)).toBeVisible({ timeout: 30_000 });
+  await expect(waits(3)).toBeVisible({ timeout: 30_000 });
   await fixActionTimes();
   const group = (name: string) => panel.getByRole("group", { name });
   const option = (name: string, title: string) => group(name).getByRole("button", { name: title });
@@ -1285,7 +1285,7 @@ test("screenshots", async ({ page }) => {
     "answer-options",
     "/chat",
     (device) => [
-      ...approvalReady(device, "3"),
+      ...approvalReady(device, "4"),
       group(storeQuestion).getByRole("button", { name: "SQLite", pressed: true }),
       group(checksQuestion).getByRole("button", { name: "Tests", pressed: true }),
       option(checksQuestion, "Types"),
@@ -1301,6 +1301,9 @@ test("screenshots", async ({ page }) => {
   await row(storeQuestion).getByRole("button", { name: "Answer" }).click();
   await panel.getByRole("textbox", { name: "Your answer" }).fill("Keep the old data.");
   await panel.getByRole("button", { name: "Send" }).click();
+  await expect(panel).toBeHidden();
+  await row(leadTitle).getByRole("button", { name: "Answer" }).click();
+  await panel.getByRole("button", { name: "Reject" }).click();
   await expect(panel).toBeHidden();
   await settle(page);
   expect((await page.request.post("/e2e/approvals/times/fix")).ok()).toBe(true);

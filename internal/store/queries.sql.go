@@ -1936,7 +1936,7 @@ func (q *Queries) GetCopiedIssueWorkstream(ctx context.Context, arg GetCopiedIss
 }
 
 const getCopiedWorkstream = `-- name: GetCopiedWorkstream :one
-SELECT body, CAST(evergreen AS BOOLEAN) AS evergreen FROM copied_workstreams WHERE repository = ? AND number = ?
+SELECT title, body, CAST(evergreen AS BOOLEAN) AS evergreen FROM copied_workstreams WHERE repository = ? AND number = ?
 `
 
 type GetCopiedWorkstreamParams struct {
@@ -1945,6 +1945,7 @@ type GetCopiedWorkstreamParams struct {
 }
 
 type GetCopiedWorkstreamRow struct {
+	Title     string
 	Body      string
 	Evergreen bool
 }
@@ -1952,7 +1953,7 @@ type GetCopiedWorkstreamRow struct {
 func (q *Queries) GetCopiedWorkstream(ctx context.Context, arg GetCopiedWorkstreamParams) (GetCopiedWorkstreamRow, error) {
 	row := q.db.QueryRowContext(ctx, getCopiedWorkstream, arg.Repository, arg.Number)
 	var i GetCopiedWorkstreamRow
-	err := row.Scan(&i.Body, &i.Evergreen)
+	err := row.Scan(&i.Title, &i.Body, &i.Evergreen)
 	return i, err
 }
 

@@ -66,7 +66,7 @@ const approval = {
   repository: "",
   workstreamRepository: "",
   kind: "approval",
-  title: "Message to the Lead of #14",
+  title: "Message to the Lead of #14 Early renewals",
   reason: "The Coordinator waits for your approval",
   text: "",
   action: {

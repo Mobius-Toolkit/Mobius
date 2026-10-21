@@ -134,12 +134,12 @@ func TestTheCoordinatorCallsMessageLeadAndTheLeadGetsTheTextOnlyAfterTheOwnerApp
 		t.Errorf("action = %+v, events = %v", action, leadEvents(t, server))
 	}
 	items := itemsOf(t, server, "approval")
-	if len(items) != 1 || items[0].Title != "Message to the Lead of #12" || items[0].Reason != "Waits for your approval" ||
+	if len(items) != 1 || items[0].Title != "Message to the Lead of #12 Integrate loyalty plans" || items[0].Reason != "Waits for your approval" ||
 		items[0].Text != "text: Create the task issues.\nworkstream: 12" || items[0].Action == nil || items[0].Action.ID != action.ID {
 		t.Errorf("items = %+v", items)
 	}
 	cards := slices.DeleteFunc(chatLines(t, server, coordinatorChat), func(line chatLine) bool { return line.Author != "Action" })
-	if want := []chatLine{{"Action", "Message to the Lead of #12"}}; !slices.Equal(cards, want) {
+	if want := []chatLine{{"Action", "Message to the Lead of #12 Integrate loyalty plans"}}; !slices.Equal(cards, want) {
 		t.Errorf("cards = %v", cards)
 	}
 
@@ -157,7 +157,7 @@ func TestTheCoordinatorCallsMessageLeadAndTheLeadGetsTheTextOnlyAfterTheOwnerApp
 	}
 	waitForNoItem(t, server, "approval")
 	testkit.WaitFor(t, func() bool { return len(approvalPrompts(t, server)) == 1 })
-	want := "# Approval message\n\nThe Owner approved `message_lead`. The result: Sent the message to the Lead of #12.\n\nThe message of the Owner: Go ahead."
+	want := "# Approval message\n\nThe Owner approved `message_lead` 1 (Create the task issues.). The result: Sent the message to the Lead of #12.\n\nThe message of the Owner: Go ahead."
 	if got := approvalPrompts(t, server); !slices.Equal(got, []string{want}) {
 		t.Errorf("approval prompts = %q", got)
 	}
@@ -217,7 +217,7 @@ func TestTheOwnerRejectsAnActionWithAMessageAndTheCoordinatorGetsTheMessage(t *t
 		t.Errorf("action = %+v", rejected)
 	}
 	testkit.WaitFor(t, func() bool { return len(approvalPrompts(t, server)) == 1 })
-	want := "# Approval message\n\nThe Owner rejected `message_lead`.\n\nThe message of the Owner: Ask about the price first."
+	want := "# Approval message\n\nThe Owner rejected `message_lead` 1 (Create the task issues.).\n\nThe message of the Owner: Ask about the price first."
 	if got := approvalPrompts(t, server); !slices.Equal(got, []string{want}) {
 		t.Errorf("approval prompts = %q", got)
 	}
@@ -280,7 +280,7 @@ func TestAnApprovalThatFailsLeavesTheActionPendingAndASecondApprovalSendsTheMess
 		t.Errorf("items = %+v", items)
 	}
 	testkit.WaitFor(t, func() bool { return len(approvalPrompts(t, server)) == 1 })
-	want := "# Approval message\n\nThe Owner approved `message_lead`, and it failed: #20 is not an open Workstream. The action still waits for the approval of the Owner."
+	want := "# Approval message\n\nThe Owner approved `message_lead` 1 (Create the task issues.), and it failed: #20 is not an open Workstream. The action still waits for the approval of the Owner."
 	if got := approvalPrompts(t, server); !slices.Equal(got, []string{want}) {
 		t.Errorf("approval prompts = %q", got)
 	}
@@ -343,9 +343,14 @@ func TestASecondCallOfMessageLeadReplacesTheWaitingActionAndDismissesItsItem(t *
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	server, _ := connect(t, fake, approvalSeen+callMessageLead("Send 1.", 12, "First text.")+callMessageLead("Send 2.", 12, "Second text.")+seenScript)
-	run(t, server, coordinatorSpec(t), "Send 1.", "Send 2.")
+	session := run(t, server, coordinatorSpec(t), "Send 1.", "Send 2.")
 	rows := waitForActions(t, server, 2)
 	first, second := rows[0], rows[1]
+
+	calls := mcpCalls(t, server, session)
+	if len(calls) != 2 || calls[1]["result"] != actionWaits+"2. It replaces the pending action 1, which does not run." {
+		t.Errorf("calls = %v", calls)
+	}
 
 	if first.State != "replaced" || second.State != "pending" {
 		t.Errorf("rows = %+v", rows)
@@ -400,7 +405,7 @@ func TestAnApprovalMessageStoredWhileSealedGoesToTheAgentWhenTheSealIsAborted(t 
 	if got := server.Engine.Seal(); got != engine.Drained {
 		t.Fatalf("seal = %s", got)
 	}
-	text := "The Owner rejected `message_lead`."
+	text := "The Owner rejected `message_lead` 1 (Create the task issues.)."
 	if err := server.Engine.PostApproval(t.Context(), coordinatorChat, text); err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +580,7 @@ func TestTheLeadCallsEditBriefAndTheBriefChangesOnlyAfterTheOwnerApproves(t *tes
 		t.Errorf("body = %q, action = %+v", body, action)
 	}
 	items := itemsOf(t, server, "approval")
-	if len(items) != 1 || items[0].Title != "Change the Brief of #12" || items[0].Repository != shop || items[0].Workstream != 12 ||
+	if len(items) != 1 || items[0].Title != "Change the Brief of #12 Integrate loyalty plans" || items[0].Repository != shop || items[0].Workstream != 12 ||
 		items[0].Text != "brief: Ship loyalty plans and gift cards.\nreason: Gift cards are in scope." {
 		t.Errorf("items = %+v", items)
 	}
@@ -628,7 +633,7 @@ func TestTheLeadCallsMoveTaskAndTheIssueMovesOnlyAfterTheOwnerApproves(t *testin
 		t.Errorf("sub-issues of #12 = %v", got)
 	}
 	items := itemsOf(t, server, "approval")
-	if len(items) != 1 || items[0].Title != "Move owner/shop#41 to the Workstream #20" || items[0].Repository != shop || items[0].Workstream != 12 {
+	if len(items) != 1 || items[0].Title != "Move owner/shop#41 to the Workstream #20 Billing" || items[0].Repository != shop || items[0].Workstream != 12 {
 		t.Errorf("items = %+v", items)
 	}
 
@@ -659,7 +664,7 @@ func TestTheOwnerRejectsMessageLeadOfTheLeadWithAMessageAndTheLeadGetsTheMessage
 	if rejected.State != "rejected" || rejected.Message != "Ask about the price first." {
 		t.Errorf("action = %+v", rejected)
 	}
-	want := "# Approval message\n\nThe Owner rejected `message_lead`.\n\nThe message of the Owner: Ask about the price first."
+	want := "# Approval message\n\nThe Owner rejected `message_lead` 1 (Create the task issues.).\n\nThe message of the Owner: Ask about the price first."
 	testkit.WaitFor(t, func() bool {
 		return slices.ContainsFunc(leadPrompts(t, server), func(prompt string) bool { return strings.Contains(prompt, want) })
 	})

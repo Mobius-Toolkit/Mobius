@@ -37,7 +37,7 @@ func TestANewLeadSessionGetsItsOpenRequestsAndNotAWithdrawnAction(t *testing.T) 
 	sendChat(t, server, leadChat, "Plan the next step")
 
 	section := requestsOf(t, promptTexts(t, server, endedChatSession(t, server, 1).ID)[0])
-	for _, line := range []*regexp.Regexp{requestLine(1, "action message_lead", "Message to the Lead of #20"), requestLine(2, "question on #12", "Integrate loyalty plans")} {
+	for _, line := range []*regexp.Regexp{requestLine(1, "action message_lead", "Message to the Lead of #20 Billing"), requestLine(2, "question on #12", "Integrate loyalty plans")} {
 		if !line.MatchString(section) {
 			t.Errorf("%s not in %q", line, section)
 		}
@@ -74,7 +74,7 @@ func TestANewCoordinatorSessionGetsItsOwnOpenRequests(t *testing.T) {
 		return strings.Join(prompts, ""), len(prompts) == 1
 	})
 	section := requestsOf(t, prompt)
-	for _, line := range []*regexp.Regexp{requestLine(2, "question", "Which unit?"), requestLine(3, "action message_lead", "Message to the Lead of #12")} {
+	for _, line := range []*regexp.Regexp{requestLine(2, "question", "Which unit?"), requestLine(3, "action message_lead", "Message to the Lead of #12 Integrate loyalty plans")} {
 		if !line.MatchString(section) {
 			t.Errorf("%s not in %q", line, section)
 		}
