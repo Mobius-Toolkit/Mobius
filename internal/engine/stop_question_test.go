@@ -10,7 +10,7 @@ import (
 
 const (
 	leadSeesAnswer     = "[[prompts]]\nwhen = \"Cents.\"\nreply = [\"Seen\"]\n\n"
-	askCall            = "call = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n\n"
+	askCall            = "call = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n\n"
 	leadAsksOnStop     = leadSeesAnswer + "[[prompts]]\nwhen = \" stop of #41\"\n" + askCall
 	leadAsksInChat     = leadSeesAnswer + "[[prompts]]\nwhen = \" stop of #41\"\nreply = [\"Seen\"]\n\n[[prompts]]\nwhen = \"Ask about #41\"\n" + askCall
 	leadAsksAfterStops = leadSeesAnswer + "[[prompts]]\nwhen = \"Ask about #41\"\n" + askCall + "[[prompts]]\nwhen = \" stop of #41\"\nreply = [\"Seen\"]\n\n"

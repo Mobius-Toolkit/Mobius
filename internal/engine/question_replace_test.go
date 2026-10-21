@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	askFirst  = "call = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n\n"
-	askSecond = "call = { tool = \"ask\", arguments = { n = 41, text = \"Euros or dollars?\" } }\n\n"
+	askFirst  = "call = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n\n"
+	askSecond = "call = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Euros or dollars?\" } }\n\n"
 
 	leadAsksTwice = leadSeesAnswer +
 		"[[prompts]]\nwhen = \"Ask two\"\n" + askSecond +
@@ -22,11 +22,11 @@ func TestASecondQuestionOnAnIssueReplacesTheFirstQuestionItem(t *testing.T) {
 	server, _ := connect(t, fake, `
 [[prompts]]
 when = "Ask two"
-call = { tool = "ask", arguments = { n = 12, text = "Euros or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 12, text = "Euros or dollars?" } }
 
 [[prompts]]
 when = "Ask one"
-call = { tool = "ask", arguments = { n = 12, text = "Cents or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 12, text = "Cents or dollars?" } }
 
 [[prompts]]
 reply = ["Seen"]

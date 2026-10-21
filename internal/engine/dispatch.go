@@ -628,21 +628,21 @@ func (e *Engine) commentIsEvent(ctx context.Context, repository github.Repositor
 // mobius:question, and adds an Inbox item that replaces the stopped item of the issue. The reply comes later as a
 // comment event. A dispatched task moves to asked and frees its Autopilot slot, and the reply dispatches it again. The
 // task moves before mobius:working goes away, because setStateLabels adds mobius:working again to a dispatched task.
-func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository, input askInput) (string, error) {
+func (e *Engine) ask(ctx context.Context, c caller, repository github.Repository, input taskAskInput) (string, error) {
 	if input.N < 1 {
 		return "", refuse("n must be 1 or more.")
 	}
 	if err := refuseQuestions(input.Text, input.Questions); err != nil {
 		return "", err
 	}
-	comment, questions, err := questionsComment(input)
+	comment, questions, err := questionsComment(input.askInput)
 	if err != nil {
 		return "", err
 	}
 	var task store.Task
-	if input.N != c.workstream {
+	if repository.FullName != c.repository || input.N != c.workstream {
 		var err error
-		if task, err = e.workstreamTask(ctx, repository, c.workstream, input.N); err != nil {
+		if task, err = e.workstreamTask(ctx, repository, c.repository, c.workstream, input.N); err != nil {
 			return "", err
 		}
 	}
@@ -810,9 +810,9 @@ func (e *Engine) closeQuestionTool(ctx context.Context, c caller, repository git
 		return "", refuse("answer must not be empty.")
 	}
 	var task store.Task
-	if input.N != c.workstream {
+	if repository.FullName != c.repository || input.N != c.workstream {
 		var err error
-		if task, err = e.workstreamTask(ctx, repository, c.workstream, input.N); err != nil {
+		if task, err = e.workstreamTask(ctx, repository, c.repository, c.workstream, input.N); err != nil {
 			return "", err
 		}
 	}
@@ -830,10 +830,10 @@ func (e *Engine) closeQuestionTool(ctx context.Context, c caller, repository git
 	return fmt.Sprintf("Closed the question on #%d.", input.N), nil
 }
 
-// workstreamTask gives the live task of the issue number in the Workstream.
-func (e *Engine) workstreamTask(ctx context.Context, repository github.Repository, workstream, number int64) (store.Task, error) {
+// workstreamTask gives the live task of the issue number of repository in the Workstream of workstreamRepository.
+func (e *Engine) workstreamTask(ctx context.Context, repository github.Repository, workstreamRepository string, workstream, number int64) (store.Task, error) {
 	task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
-	if errors.Is(err, sql.ErrNoRows) || err == nil && (task.WorkstreamRepository != repository.FullName || task.Workstream != workstream) {
+	if errors.Is(err, sql.ErrNoRows) || err == nil && (task.WorkstreamRepository != workstreamRepository || task.Workstream != workstream) {
 		return store.Task{}, refuse("#%d has no live task in this Workstream.", number)
 	}
 	return task, err

@@ -21,7 +21,7 @@ import (
 const leadStartsThree = `
 [[prompts]]
 when = "dispatch of #45"
-call = { tool = "start_implementer", arguments = { n = 45, instructions = "Add a price page." } }
+call = { tool = "start_implementer", arguments = { repository = "owner/shop", n = 45, instructions = "Add a price page." } }
 
 ` + leadStartsTwo
 
