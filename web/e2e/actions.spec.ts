@@ -169,7 +169,9 @@ test("a failed action keeps the panel with its error and its note, and a second 
   ]);
 });
 
-test("a decision with an empty note goes out one time while the request runs", async ({ page }) => {
+test("a decision with an empty note goes out one time and hides the row while the request runs", async ({
+  page,
+}) => {
   await openChat(page);
   const bodies: unknown[] = [];
   const gate: { open?: () => void } = {};
@@ -186,13 +188,12 @@ test("a decision with an empty note goes out one time while the request runs", a
   await expect(waiting(page, 1)).toBeVisible(agentTimeout);
   await answer(page, leadTitle);
   await approve(page).click();
-  await expect(approve(page)).toBeDisabled();
-  await expect(reject(page)).toBeDisabled();
-  await approve(page).click({ force: true });
-  await note(page).press("Enter");
+  await expect(panel(page)).toBeHidden();
+  await expect(row(page, leadTitle)).toBeHidden();
+  await expect.poll(() => bodies.length).toBe(1);
   gate.open?.();
 
-  await expect(panel(page)).toBeHidden();
+  await expect(waiting(page, 1)).toBeHidden();
   expect(bodies).toEqual([{ message: "" }]);
 });
 

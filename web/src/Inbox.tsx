@@ -67,7 +67,10 @@ export function InboxRow({
   const [running, setRunning] = useState<"action" | "dismiss" | "merge" | null>(null);
   const [refusal, setRefusal] = useState("");
   const [answered, setAnswered] = useState<{ item: InboxItem; merging: boolean } | null>(null);
-  const [panel, setPanel] = useState<"answer" | "details" | null>(null);
+  const { inboxFailure } = useShell();
+  const [panel, setPanel] = useState<"answer" | "details" | null>(
+    inboxFailure?.id === item.id ? "answer" : null,
+  );
 
   const act = (
     name: "action" | "dismiss",
