@@ -483,13 +483,11 @@ export interface LabelCheck {
 }
 
 /**
- * RepositoryCheckup is the status of each Mobius label in a repository, and its maintenance Workstream.
+ * RepositoryCheckup is the status of each Mobius label in a repository.
  */
 export interface RepositoryCheckup {
   /** Labels are the Mobius labels */
   labels: LabelCheck[];
-  /** MaintenanceWorkstream is the number of the open Workstream with mobius:maintenance and the lowest number, or 0 when the repository has none */
-  maintenanceWorkstream: number;
   /** Repository is the repository as "owner/name" */
   repository: string;
 }
@@ -498,14 +496,26 @@ export interface RepositoryCheckup {
  * Checkup is the status of the App permissions and of the Mobius labels in an organization.
  */
 export interface Checkup {
+  /** IssueRepository is the repository of the Workstream issues of the organization as "owner/name", or empty when IssueRepositoryError is not empty */
+  issueRepository: string;
+  /** IssueRepositoryError tells why Mobius cannot find the issue repository, or is empty */
+  issueRepositoryError: string;
   /** LabelFix is create when all Mobius labels are missing, fix when another label is missing or has a different color, and none when the fix has nothing to change */
   labelFix: CheckupLabelFix;
+  /** MaintenanceWorkstream is the number of the open Workstream with mobius:maintenance and the lowest number in the issue repository, or 0 when it has none or IssueRepositoryError is not empty */
+  maintenanceWorkstream: number;
   /** Permissions are the permissions of the App of the first repository. It is empty when the organization has no repository or the check failed */
   permissions: PermissionCheck[];
   /** PermissionsError is the error of the permission check, or empty */
   permissionsError: string;
   /** Repositories are the repositories of the organization, in name order */
   repositories: RepositoryCheckup[];
+  /** SkillRepository is the skill repository of the organization as "owner/name", or empty when the organization has none */
+  skillRepository: string;
+  /** SkillsWorkstream is the number of the Workstream in SkillsWorkstreamRepository, or 0 when the organization has none */
+  skillsWorkstream: number;
+  /** SkillsWorkstreamRepository is the repository of the open Workstream with mobius:skills and the lowest number as "owner/name", or empty when the organization has none */
+  skillsWorkstreamRepository: string;
 }
 
 /**

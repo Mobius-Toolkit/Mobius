@@ -143,7 +143,7 @@ func TestThePromptOfTheCuratorTellsThatTheRepositoryHasNoMaintenanceWorkstream(t
 		sessions := curatorSessions(t, server)
 		return sessions[0], len(sessions) == 1 && sessions[0].EndedAt.Valid
 	})
-	if prompt := promptTexts(t, server, session.ID)[0]; !strings.Contains(prompt, "The repository has no maintenance Workstream. You have no tool to create task issues.") {
+	if prompt := promptTexts(t, server, session.ID)[0]; !strings.Contains(prompt, "The organization has no maintenance Workstream. You have no tool to create task issues.") {
 		t.Errorf("prompt = %s", prompt)
 	}
 }

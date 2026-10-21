@@ -78,9 +78,9 @@ type Agent struct {
 	// are never both true.
 	uncounted bool
 
-	// maintenance is the number of the maintenance Workstream of the repository of a Curator at the start of the
-	// session, or 0.
-	maintenance int64
+	// maintenance is the maintenance Workstream of the organization of a Curator at the start of the session. Its
+	// number is 0 when the organization has none, and when Mobius needs the issue repository in the config.
+	maintenance issueAt
 	// issues is the number of task issues that the Curator created. issuesMu holds the calls that create one.
 	issues   int
 	issuesMu sync.Mutex
@@ -348,11 +348,8 @@ func (a *Agent) startHarness(ctx context.Context) error {
 	e := a.engine
 	spec := a.spec
 	if spec.Role == CuratorRole {
-		repository, err := e.repository(spec.Repository)
-		if err != nil {
-			return err
-		}
-		if a.maintenance, err = maintenanceWorkstream(ctx, repository); err != nil {
+		var err error
+		if a.maintenance, err = e.organizationMaintenance(ctx, spec.Organization); err != nil && !Refused(err) {
 			return err
 		}
 	}

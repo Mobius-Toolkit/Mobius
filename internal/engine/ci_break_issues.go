@@ -29,8 +29,9 @@ func refusedByGitHub(err error) bool {
 }
 
 // createCIBreakIssues creates the task issue of each break of repository that needs one: a hard break that is open, and
-// a flaky break. The issue goes below the maintenance Workstream. A repository with no open maintenance Workstream gets
-// no issue, and the next poll tries again. The issue of a flaky break has mobius:ready, so the usual task flow starts
+// a flaky break. The issue stays in repository and goes below the maintenance Workstream of the organization. An
+// organization with no open maintenance Workstream, or with no issue repository that Mobius can find, gets no issue,
+// and the next poll tries again. The issue of a flaky break has mobius:ready, so the usual task flow starts
 // it. A hard break gets no label. The number of an issue that GitHub created but did not add below the Workstream is
 // stored as a negative number, and the next poll adds the issue below the Workstream.
 func (e *Engine) createCIBreakIssues(ctx context.Context, repository github.Repository) error {
@@ -42,8 +43,12 @@ func (e *Engine) createCIBreakIssues(ctx context.Context, repository github.Repo
 	if err != nil || len(breaks)+len(pending) == 0 {
 		return err
 	}
-	workstream, err := maintenanceWorkstream(ctx, repository)
-	if err != nil || workstream == 0 {
+	workstream, err := e.organizationMaintenance(ctx, repository.Owner())
+	if Refused(err) {
+		log.Printf("find the maintenance Workstream for %s: %v", repository.FullName, err)
+		return nil
+	}
+	if err != nil || workstream.number == 0 {
 		return err
 	}
 	changed := false
@@ -62,8 +67,8 @@ func (e *Engine) createCIBreakIssues(ctx context.Context, repository github.Repo
 		}
 	}
 	if changed {
-		if err := e.recopyTrees(ctx, repository, workstream); err != nil {
-			log.Printf("copy the tree of %s#%d: %v", repository.FullName, workstream, err)
+		if err := e.recopyTrees(ctx, workstream.repository, workstream.number); err != nil {
+			log.Printf("copy the tree of %s#%d: %v", workstream.repository.FullName, workstream.number, err)
 		}
 	}
 	return nil
@@ -74,7 +79,7 @@ func (e *Engine) createCIBreakIssues(ctx context.Context, repository github.Repo
 // Mobius creates none. It gives the number, or 0 when GitHub created no issue. A 4xx answer of GitHub is no error. When GitHub refuses
 // the list of jobs, it creates no issue. When GitHub creates the issue but does not add it below the Workstream, the
 // stored number is negative.
-func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repository, workstream int64, ciBreak store.CiBreak) (int, error) {
+func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repository, workstream issueAt, ciBreak store.CiBreak) (int, error) {
 	shared, err := e.queries.GetCIBreakFailureIssue(ctx, ciBreak.ID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return 0, err
@@ -110,7 +115,7 @@ func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repos
 		labels = []string{readyLabel}
 	}
 	title := fmt.Sprintf("Fix the failed workflow \"%s\" on %s", ciBreak.WorkflowName, repository.DefaultBranch)
-	number, err := e.addIssue(ctx, repository, workstream, issueInput{Title: title, Body: body, Parent: workstream}, labels)
+	number, err := e.addIssueAt(ctx, repository, workstream, newIssue{title: title, body: body, parent: workstream}, labels)
 	if number != 0 {
 		stored := int64(number)
 		if err != nil {
@@ -133,14 +138,14 @@ func (e *Engine) createCIBreakIssue(ctx context.Context, repository github.Repos
 
 // addCIBreakIssueBelow adds the issue of ciBreak below the Workstream, and stores its number as a positive number. It
 // tells whether the issue is below the Workstream. A 4xx answer of GitHub is no error, and the next poll tries again.
-func (e *Engine) addCIBreakIssueBelow(ctx context.Context, repository github.Repository, workstream int64, ciBreak store.CiBreak) (bool, error) {
+func (e *Engine) addCIBreakIssueBelow(ctx context.Context, repository github.Repository, workstream issueAt, ciBreak store.CiBreak) (bool, error) {
 	number := -ciBreak.Issue
 	issue, err := repository.Issue(ctx, number)
 	if err == nil && issue != nil {
-		_, _, err = repository.Client.SubIssue.Add(ctx, repository.Owner(), repository.Name(), workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)})
+		_, _, err = workstream.repository.Client.SubIssue.Add(ctx, workstream.repository.Owner(), workstream.repository.Name(), workstream.number, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)})
 	}
 	if refusedByGitHub(err) {
-		log.Printf("add the issue #%d of %s below #%d: %v", number, repository.FullName, workstream, err)
+		log.Printf("add the issue #%d of %s below %s#%d: %v", number, repository.FullName, workstream.repository.FullName, workstream.number, err)
 		return false, nil
 	}
 	if err != nil {
@@ -344,8 +349,12 @@ func (e *Engine) startCIBreakTasks(ctx context.Context, repository github.Reposi
 		if had {
 			continue
 		}
-		workstream, err := maintenanceWorkstream(ctx, repository)
-		if err != nil || workstream == 0 {
+		workstream, err := e.organizationMaintenance(ctx, repository.Owner())
+		if Refused(err) {
+			log.Printf("find the maintenance Workstream for %s: %v", repository.FullName, err)
+			return nil
+		}
+		if err != nil || workstream.number == 0 {
 			return err
 		}
 		issue, err := repository.Issue(ctx, ciBreak.Issue)
@@ -359,10 +368,10 @@ func (e *Engine) startCIBreakTasks(ctx context.Context, repository github.Reposi
 		if issue == nil || issue.GetState() != "open" {
 			continue
 		}
-		if err := e.dispatch(ctx, repository, issue, repository.FullName, workstream, appLogin(repository.AppSlug)); err != nil {
+		if err := e.dispatch(ctx, repository, issue, workstream.repository.FullName, workstream.number, appLogin(repository.AppSlug)); err != nil {
 			return err
 		}
-		if _, err := e.startImplementer(ctx, repository, repository.FullName, workstream, ciBreak.Issue, ciTaskInstructions, sql.NullInt64{}); err != nil {
+		if _, err := e.startImplementer(ctx, repository, workstream.repository.FullName, workstream.number, ciBreak.Issue, ciTaskInstructions, sql.NullInt64{}); err != nil {
 			log.Printf("start the Implementer of #%d of %s: %v", ciBreak.Issue, repository.FullName, err)
 		}
 	}

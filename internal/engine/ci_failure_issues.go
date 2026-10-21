@@ -22,8 +22,9 @@ const (
 )
 
 // createCIFailureIssues creates the task issue of each open failure record of repository that has two or more places and
-// no issue. The issue goes below the maintenance Workstream and has no label. A repository with no open maintenance
-// Workstream gets no issue, and the next poll tries again. The number of an issue that GitHub created but did not add
+// no issue. The issue stays in repository, goes below the maintenance Workstream of the organization and has no label.
+// An organization with no open maintenance Workstream, or with no issue repository that Mobius can find, gets no issue,
+// and the next poll tries again. The number of an issue that GitHub created but did not add
 // below the Workstream is stored as a negative number, and the next poll adds the issue below the Workstream. A 4xx
 // answer of GitHub is no error.
 func (e *Engine) createCIFailureIssues(ctx context.Context, repository github.Repository) error {
@@ -35,8 +36,12 @@ func (e *Engine) createCIFailureIssues(ctx context.Context, repository github.Re
 	if err != nil || len(failures)+len(pending) == 0 {
 		return err
 	}
-	workstream, err := maintenanceWorkstream(ctx, repository)
-	if err != nil || workstream == 0 {
+	workstream, err := e.organizationMaintenance(ctx, repository.Owner())
+	if Refused(err) {
+		log.Printf("find the maintenance Workstream for %s: %v", repository.FullName, err)
+		return nil
+	}
+	if err != nil || workstream.number == 0 {
 		return err
 	}
 	changed := false
@@ -55,8 +60,8 @@ func (e *Engine) createCIFailureIssues(ctx context.Context, repository github.Re
 		}
 	}
 	if changed {
-		if err := e.recopyTrees(ctx, repository, workstream); err != nil {
-			log.Printf("copy the tree of %s#%d: %v", repository.FullName, workstream, err)
+		if err := e.recopyTrees(ctx, workstream.repository, workstream.number); err != nil {
+			log.Printf("copy the tree of %s#%d: %v", workstream.repository.FullName, workstream.number, err)
 		}
 	}
 	return nil
@@ -64,13 +69,13 @@ func (e *Engine) createCIFailureIssues(ctx context.Context, repository github.Re
 
 // createCIFailureIssue creates the issue of failure and stores its number. It gives the number, or 0 when GitHub created
 // no issue. When GitHub creates the issue but does not add it below the Workstream, the stored number is negative.
-func (e *Engine) createCIFailureIssue(ctx context.Context, repository github.Repository, workstream int64, failure store.CiFailure) (int, error) {
+func (e *Engine) createCIFailureIssue(ctx context.Context, repository github.Repository, workstream issueAt, failure store.CiFailure) (int, error) {
 	places, err := e.queries.ListCIFailurePlaces(ctx, failure.ID)
 	if err != nil {
 		return 0, err
 	}
 	title := "Fix the CI failure of " + cutChars(ciFailureName(failure), failureNameChars)
-	number, err := e.addIssue(ctx, repository, workstream, issueInput{Title: title, Body: ciFailureBody(repository, failure, places), Parent: workstream}, nil)
+	number, err := e.addIssueAt(ctx, repository, workstream, newIssue{title: title, body: ciFailureBody(repository, failure, places), parent: workstream}, nil)
 	if number != 0 {
 		stored := int64(number)
 		if err != nil {
@@ -89,14 +94,14 @@ func (e *Engine) createCIFailureIssue(ctx context.Context, repository github.Rep
 
 // addCIFailureIssueBelow adds the issue of failure below the Workstream, and stores its number as a positive number. It
 // tells whether the issue is below the Workstream. A 4xx answer of GitHub is no error, and the next poll tries again.
-func (e *Engine) addCIFailureIssueBelow(ctx context.Context, repository github.Repository, workstream int64, failure store.CiFailure) (bool, error) {
+func (e *Engine) addCIFailureIssueBelow(ctx context.Context, repository github.Repository, workstream issueAt, failure store.CiFailure) (bool, error) {
 	number := -failure.Issue
 	issue, err := repository.Issue(ctx, number)
 	if err == nil && issue != nil {
-		_, _, err = repository.Client.SubIssue.Add(ctx, repository.Owner(), repository.Name(), workstream, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)})
+		_, _, err = workstream.repository.Client.SubIssue.Add(ctx, workstream.repository.Owner(), workstream.repository.Name(), workstream.number, gh.SubIssueRequest{SubIssueID: issue.GetID(), ReplaceParent: new(true)})
 	}
 	if refusedByGitHub(err) {
-		log.Printf("add the issue #%d of %s below #%d: %v", number, repository.FullName, workstream, err)
+		log.Printf("add the issue #%d of %s below %s#%d: %v", number, repository.FullName, workstream.repository.FullName, workstream.number, err)
 		return false, nil
 	}
 	if err != nil {

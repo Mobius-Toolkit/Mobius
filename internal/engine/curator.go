@@ -68,6 +68,18 @@ func maintenanceWorkstream(ctx context.Context, repository github.Repository) (i
 	return found, err
 }
 
+// organizationMaintenance gives the maintenance Workstream of the organization: the issue repository, and the number of
+// its maintenance Workstream, or 0 when it has none. It gives a refusal when Mobius needs the issue repository in the
+// config.
+func (e *Engine) organizationMaintenance(ctx context.Context, organization string) (issueAt, error) {
+	repository, err := e.workstreamRepository(organization)
+	if err != nil {
+		return issueAt{}, err
+	}
+	number, err := maintenanceWorkstream(ctx, repository)
+	return issueAt{repository, number}, err
+}
+
 // startCuratorAfterEnds starts a Curator for repository when curatorEvery sessions of the repository ended since the
 // last Curator session. It also starts the Curator of the skill repository of the organization of repository when
 // curatorEvery sessions of the organization ended since the last Curator session of the skill repository.
@@ -287,15 +299,15 @@ func (e *Engine) curateTurn(ctx context.Context, a *Agent, requests []store.List
 	if err := a.open(ctx); err != nil {
 		return err
 	}
-	return a.Prompt(ctx, curatorPrompt+"\n"+maintenanceSection(a.maintenance)+requestsSection(requests)+skills+sections+versions+problems+leads, nil)
+	return a.Prompt(ctx, curatorPrompt+"\n"+maintenanceSection(a.spec.Repository, a.maintenance)+requestsSection(requests)+skills+sections+versions+problems+leads, nil)
 }
 
 // maintenanceSection gives the maintenance Workstream of the Curator as a prompt section.
-func maintenanceSection(workstream int64) string {
-	if workstream == 0 {
-		return "# Maintenance Workstream\n\nThe repository has no maintenance Workstream. You have no tool to create task issues.\n\n"
+func maintenanceSection(repository string, workstream issueAt) string {
+	if workstream.number == 0 {
+		return "# Maintenance Workstream\n\nThe organization has no maintenance Workstream. You have no tool to create task issues.\n\n"
 	}
-	return fmt.Sprintf("# Maintenance Workstream\n\nThe maintenance Workstream is #%d. Create task issues below it.\n\n", workstream)
+	return fmt.Sprintf("# Maintenance Workstream\n\nThe maintenance Workstream is %s. Create task issues below it.\n\n", eventRef(repository, workstream.repository.FullName, workstream.number))
 }
 
 // requestsSection gives the requests of the Owner as a prompt section, or "" for no request.

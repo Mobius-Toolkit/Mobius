@@ -123,7 +123,9 @@ func TestSearchIssuesGivesAnIssueOfAnotherRepositoryWithItsRepositoryAndItsOwnCo
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	fake.AddRepository(garden)
-	server, _ := connect(t, fake, call("search_issues", `{ query = "repo:owner/garden flaky" }`))
+	server, _ := connectWith(t, fake, call("search_issues", `{ query = "repo:owner/garden flaky" }`), func(cfg *config.Config) {
+		cfg.Organizations = map[string]config.Organization{"owner": {IssueRepository: shop}}
+	})
 	addMaintenanceWorkstream(fake, 20)
 	fake.AddIssue(shop, 40, "Flaky CI of the shop")
 	fake.AddIssue(garden, 40, "Flaky CI of the garden")
