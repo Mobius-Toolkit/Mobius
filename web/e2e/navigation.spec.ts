@@ -486,6 +486,7 @@ test("a Workstream with only a paused agent shows no dot", async ({ page }) => {
                 {
                   agent: {
                     repository: "owner/shop",
+                    workstreamRepository: "owner/shop",
                     workstream: 14,
                     queueReason: "paused until 2026-09-28 12:00 UTC",
                     working: false,
@@ -582,6 +583,7 @@ test.describe("the bars of a phone", () => {
       reason: "",
       reportUrl: "",
       repository: "owner/shop",
+      workstreamRepository: "owner/shop",
       text: "",
       time: "2026-09-27T10:00:00Z",
       title: `Question number ${index + 1}`,

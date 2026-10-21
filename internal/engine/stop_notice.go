@@ -53,16 +53,17 @@ func stoppedItem(task store.Task, title string, notice stopNotice) store.AddInbo
 		text += "\n\n" + notice.output
 	}
 	return store.AddInboxItemParams{
-		Kind:         stoppedKind,
-		Organization: owner(task.Repository),
-		Repository:   task.Repository,
-		Workstream:   task.Workstream,
-		Issue:        task.Issue,
-		Title:        title,
-		Reason:       notice.reason,
-		Text:         text,
-		Link:         issueLink(task.Repository, task.Issue),
-		PullRequest:  task.PullRequest.Int64,
+		Kind:                 stoppedKind,
+		Organization:         owner(task.Repository),
+		Repository:           task.Repository,
+		WorkstreamRepository: task.WorkstreamRepository,
+		Workstream:           task.Workstream,
+		Issue:                task.Issue,
+		Title:                title,
+		Reason:               notice.reason,
+		Text:                 text,
+		Link:                 issueLink(task.Repository, task.Issue),
+		PullRequest:          task.PullRequest.Int64,
 	}
 }
 

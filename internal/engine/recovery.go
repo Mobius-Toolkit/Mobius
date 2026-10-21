@@ -56,20 +56,21 @@ func (e *Engine) handLostTasksWith(ctx context.Context, repository github.Reposi
 		if recovered || label == needsHumanLabel {
 			continue
 		}
-		_, workstream, err := e.workstreamOf(ctx, repository, number)
+		workstreamRepository, workstream, err := e.workstreamOf(ctx, repository, number)
 		if err != nil {
 			return err
 		}
 		if err := e.addInboxItem(ctx, store.AddInboxItemParams{
-			Kind:         lostKind,
-			Organization: repository.Owner(),
-			Repository:   repository.FullName,
-			Workstream:   workstream,
-			Issue:        number,
-			Title:        issue.GetTitle(),
-			Reason:       "Mobius lost the task",
-			Text:         lostText,
-			Link:         issue.GetHTMLURL(),
+			Kind:                 lostKind,
+			Organization:         repository.Owner(),
+			Repository:           repository.FullName,
+			WorkstreamRepository: workstreamRepository,
+			Workstream:           workstream,
+			Issue:                number,
+			Title:                issue.GetTitle(),
+			Reason:               "Mobius lost the task",
+			Text:                 lostText,
+			Link:                 issue.GetHTMLURL(),
 		}); err != nil {
 			return err
 		}

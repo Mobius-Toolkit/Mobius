@@ -135,6 +135,7 @@ test("a tap on Dismiss disables the button of the row", async ({ page }) => {
             dismissedAt: null,
             organization: "owner",
             repository: "owner/shop",
+            workstreamRepository: "owner/shop",
             workstream: 12,
             issue: 12,
             time: "2026-09-28T09:30:00Z",

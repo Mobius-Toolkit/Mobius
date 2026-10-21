@@ -1154,11 +1154,19 @@ test("the chat of a Workstream does not show an item of another Workstream", asy
     ...longTitleItem,
     organization: "plants",
     repository: "plants/garden",
+    workstreamRepository: "plants/garden",
     title: "Water the roses",
   };
   await routeInboxItems(page, [
     other,
-    { ...other, id: 208, repository: "owner/shop", workstream: 14, title: "Plan the autumn sale" },
+    {
+      ...other,
+      id: 208,
+      repository: "owner/shop",
+      workstreamRepository: "owner/shop",
+      workstream: 14,
+      title: "Plan the autumn sale",
+    },
   ]);
 
   await page.goto(shop);
@@ -1171,6 +1179,28 @@ test("the chat of a Workstream does not show an item of another Workstream", asy
     page.getByRole("main").getByRole("listitem").filter({ hasText: "Water the roses" }),
   ).toBeVisible();
   await expect(page.getByText("Plan the autumn sale")).toHaveCount(0);
+});
+
+test("the chat of a Workstream shows an item of a task in another repository", async ({ page }) => {
+  await page.goto("/api/github/user-callback?code=shop-code");
+  await routeInboxItems(page, [
+    {
+      ...longTitleItem,
+      id: 209,
+      repository: "plants/garden",
+      issue: 77,
+      title: "Water the roses",
+      link: "https://github.com/plants/garden/issues/77",
+    },
+  ]);
+
+  await page.goto(shop);
+  const row = page.getByRole("main").getByRole("listitem").filter({ hasText: "Water the roses" });
+  await expect(row).toBeVisible();
+  await expect(row.getByRole("link", { name: "#77", exact: true })).toHaveAttribute(
+    "href",
+    "https://github.com/plants/garden/issues/77",
+  );
 });
 
 async function boxOf(locator: Locator) {

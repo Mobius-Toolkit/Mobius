@@ -247,14 +247,15 @@ func (e *Engine) holdAction(ctx context.Context, c caller, tool, title string, a
 		fmt.Fprintf(&text, "%s: %s\n", argument.Name, argument.Value)
 	}
 	itemParams := store.AddInboxItemParams{
-		Kind:         approvalKind,
-		Organization: action.Organization,
-		Repository:   action.Repository,
-		Workstream:   action.Workstream,
-		Title:        title,
-		Reason:       "Waits for your approval",
-		Text:         strings.TrimSuffix(text.String(), "\n"),
-		Time:         now(),
+		Kind:                 approvalKind,
+		Organization:         action.Organization,
+		Repository:           action.Repository,
+		WorkstreamRepository: action.Repository,
+		Workstream:           action.Workstream,
+		Title:                title,
+		Reason:               "Waits for your approval",
+		Text:                 strings.TrimSuffix(text.String(), "\n"),
+		Time:                 now(),
 	}
 	if c.role == TriagerRole {
 		itemParams.Repository = action.Repository

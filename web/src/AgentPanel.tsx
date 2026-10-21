@@ -102,7 +102,7 @@ function AgentList({
     load();
     source.addEventListener("open", load);
     const remove = onEvent<LiveEvents, "agent">(source, "agent", (agent) => {
-      if (agent.repository === `${owner}/${name}` && agent.workstream === number) {
+      if (agent.workstreamRepository === `${owner}/${name}` && agent.workstream === number) {
         load();
       }
     });

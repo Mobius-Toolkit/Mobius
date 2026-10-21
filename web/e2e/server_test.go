@@ -339,18 +339,20 @@ func TestServer(t *testing.T) {
 	server.Mux.HandleFunc("POST /e2e/inbox-items", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
 		params := store.AddInboxItemParams{
-			Kind:         "Lead failed",
-			Organization: "owner",
-			Repository:   "owner/shop",
-			Workstream:   12,
-			Issue:        40,
-			Reason:       "The Lead did not get your message",
-			Time:         "2026-09-28T09:30:00Z",
+			Kind:                 "Lead failed",
+			Organization:         "owner",
+			Repository:           "owner/shop",
+			WorkstreamRepository: "owner/shop",
+			Workstream:           12,
+			Issue:                40,
+			Reason:               "The Lead did not get your message",
+			Time:                 "2026-09-28T09:30:00Z",
 		}
 		if kind := query.Get("kind"); kind != "" {
 			params.Kind = kind
 			params.Organization, _, _ = strings.Cut(query.Get("repository"), "/")
 			params.Repository = query.Get("repository")
+			params.WorkstreamRepository = params.Repository
 			params.Workstream, _ = strconv.ParseInt(query.Get("workstream"), 10, 64)
 			params.Issue, _ = strconv.ParseInt(query.Get("issue"), 10, 64)
 			params.Title = query.Get("title")
@@ -660,8 +662,8 @@ func TestServer(t *testing.T) {
 		{45, "antigravity", "paused until 2026-09-28 12:00 UTC"},
 		{42, "claude-code", "no free Implementer slot (2/2)"},
 	} {
-		if _, err := server.DB.Exec(`INSERT INTO sessions (role, harness, model, organization, repository, workstream, issue, started_at, queue_reason)
-			VALUES (?, ?, 'sonnet', 'owner', 'owner/shop', 12, ?, ?, ?)`,
+		if _, err := server.DB.Exec(`INSERT INTO sessions (role, harness, model, organization, repository, workstream_repository, workstream, issue, started_at, queue_reason)
+			VALUES (?, ?, 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, ?, ?, ?)`,
 			engine.ImplementerRole, session.harness, session.number, time.Now().UTC().Format(time.RFC3339Nano), session.reason); err != nil {
 			t.Fatal(err)
 		}

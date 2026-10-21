@@ -31,10 +31,10 @@ func pausedUntils(t *testing.T, mux http.Handler, path string) []*string {
 
 func TestTheAPISendsTheEndOfThePauseOfAnAgent(t *testing.T) {
 	mux, db := testMux(t)
-	exec(t, db, `INSERT INTO sessions (id, role, harness, model, organization, repository, workstream, started_at, queue_reason) VALUES
-		(1, 'implementer', 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, '2026-10-04T10:00:00Z', 'paused until 2026-10-08 17:10 UTC'),
-		(2, 'implementer', 'claude-code', 'sonnet', 'owner', 'owner/shop', 12, '2026-10-04T10:00:00Z', 'waits for a check slot'),
-		(3, 'implementer', 'devin', 'sonnet', 'owner', 'owner/shop', 12, '2026-10-04T10:00:00Z', 'paused until 2026-10-08 17:10 UTC')`)
+	exec(t, db, `INSERT INTO sessions (id, role, harness, model, organization, repository, workstream_repository, workstream, started_at, queue_reason) VALUES
+		(1, 'implementer', 'claude-code', 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, '2026-10-04T10:00:00Z', 'paused until 2026-10-08 17:10 UTC'),
+		(2, 'implementer', 'claude-code', 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, '2026-10-04T10:00:00Z', 'waits for a check slot'),
+		(3, 'implementer', 'devin', 'sonnet', 'owner', 'owner/shop', 'owner/shop', 12, '2026-10-04T10:00:00Z', 'paused until 2026-10-08 17:10 UTC')`)
 	exec(t, db, "INSERT INTO harness_pauses (harness, paused_until) VALUES ('claude-code', '2026-10-08T17:10:00Z')")
 
 	want := "2026-10-08T17:10:00Z"

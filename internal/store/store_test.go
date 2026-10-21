@@ -549,6 +549,11 @@ func TestTheTranscriptMigrationRemovesTheDuplicatesAndAddsTheIndex(t *testing.T)
 	if _, err := db.Exec("ALTER TABLE tasks DROP COLUMN workstream_repository"); err != nil {
 		t.Fatal(err)
 	}
+	for _, table := range []string{"inbox_items", "sessions"} {
+		if _, err := db.Exec("ALTER TABLE " + table + " DROP COLUMN workstream_repository"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, column := range []string{"merging", "merge_refusal", "questions"} {
 		if _, err := db.Exec("ALTER TABLE inbox_items DROP COLUMN " + column); err != nil {
 			t.Fatal(err)
@@ -647,6 +652,8 @@ func TestTheInboxMigrationsDismissTheOpenItemsAndKeepThePause(t *testing.T) {
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
 		"ALTER TABLE lead_events DROP COLUMN held_at",
 		"ALTER TABLE tasks DROP COLUMN workstream_repository",
+		"ALTER TABLE inbox_items DROP COLUMN workstream_repository",
+		"ALTER TABLE sessions DROP COLUMN workstream_repository",
 		"ALTER TABLE inbox_items DROP COLUMN merging",
 		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
 		"ALTER TABLE inbox_items DROP COLUMN questions",
@@ -742,6 +749,8 @@ func TestTheCoordinatorMigrationMovesTheChatSessionsAndTheChatMessages(t *testin
 		"ALTER TABLE copied_workstreams DROP COLUMN evergreen",
 		"ALTER TABLE lead_events DROP COLUMN held_at",
 		"ALTER TABLE tasks DROP COLUMN workstream_repository",
+		"ALTER TABLE inbox_items DROP COLUMN workstream_repository",
+		"ALTER TABLE sessions DROP COLUMN workstream_repository",
 		"ALTER TABLE inbox_items DROP COLUMN merging",
 		"ALTER TABLE inbox_items DROP COLUMN merge_refusal",
 		"ALTER TABLE inbox_items DROP COLUMN questions",
