@@ -65,7 +65,11 @@ func waitForActions(t *testing.T, server *testserver.Server, count int) []action
 	t.Helper()
 	return testkit.WaitForValue(t, func() ([]actionRow, bool) {
 		found := actionRows(t, server)
-		return found, len(found) == count
+		var linked int
+		if err := server.DB.QueryRow("SELECT count(*) FROM pending_actions WHERE inbox_item IS NOT NULL").Scan(&linked); err != nil {
+			t.Fatal(err)
+		}
+		return found, len(found) == count && linked == count
 	})
 }
 
