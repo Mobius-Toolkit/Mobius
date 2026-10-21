@@ -1031,9 +1031,9 @@ test("screenshots", async ({ page }) => {
     (device) => [
       ...frame(device, release),
       main.getByRole("heading", { name: "plants/garden", exact: true }),
-      main.getByText("Maintenance Workstream"),
+      main.getByText("Maintenance Workstream", { exact: true }),
       main.getByRole("heading", { name: "plants/mobius-skills", exact: true }),
-      main.getByText("Skills Workstream"),
+      main.getByText("Skills Workstream", { exact: true }),
     ],
   );
   await screenshot(page, "memory-repositories", "/settings/memory", (device) => [

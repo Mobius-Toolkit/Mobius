@@ -173,7 +173,7 @@ test("the Workstreams page explains the Workstreams, links them and sends the fu
   const link = main
     .locator("section")
     .filter({ hasText: "plants/mobius-skills" })
-    .getByRole("link", { name: "Skills Workstream #9" });
+    .getByRole("link", { name: "Skills Workstream plants/garden#9" });
   await expect(link).toHaveAttribute("href", "/workstreams/plants/garden/9");
   await expect(main.getByRole("button", { name: "Create" })).toHaveCount(1);
 
@@ -253,7 +253,7 @@ test("the Workstreams page shows the error of the issue repository in place of t
   await page.goto("/settings/checkup/plants/workstreams");
 
   await expect(main.getByText(error)).toBeVisible();
-  await expect(main.getByText("Maintenance Workstream")).toBeHidden();
+  await expect(main.getByText("Maintenance Workstream", { exact: true })).toBeHidden();
   await expect(main.getByRole("button", { name: "Create" })).toHaveCount(0);
 });
 

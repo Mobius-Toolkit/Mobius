@@ -458,7 +458,12 @@ export function CheckupWorkstreams({ organization }: { organization: string }) {
                 }}
                 title={<span className="whitespace-nowrap">Skills Workstream</span>}
               >
-                <span className="text-muted-foreground">#{checkup.skillsWorkstream}</span>
+                <span className="text-muted-foreground">
+                  {checkup.skillsWorkstreamRepository === checkup.skillRepository
+                    ? ""
+                    : checkup.skillsWorkstreamRepository}
+                  #{checkup.skillsWorkstream}
+                </span>
               </LinkRow>
             ) : (
               <Row className="justify-between">

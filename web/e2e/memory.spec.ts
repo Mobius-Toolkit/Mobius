@@ -21,7 +21,7 @@ test("the Owner sees the repositories of each organization in a section and open
     .locator("section")
     .filter({ has: page.getByRole("heading", { name: "plants", exact: true }) });
   await expect(owner.getByRole("link")).toHaveText(["owner/shop"]);
-  await expect(plants.getByRole("link")).toHaveText(["plants/garden"]);
+  await expect(plants.getByRole("link")).toHaveText(["plants/garden", "plants/mobius-skills"]);
 
   await plants.getByRole("link", { name: "plants/garden" }).click();
   await expect(page).toHaveURL("/settings/memory/plants/garden");
