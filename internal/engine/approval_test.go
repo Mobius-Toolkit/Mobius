@@ -671,6 +671,34 @@ func TestApprovePullRequestRefusesANewHeadAndMovesTheTaskBackToChecks(t *testing
 	}
 }
 
+func TestApprovePullRequestMakesThePollReadANewHeadThatNoIssueListShows(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, keepSessionOpen)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
+	waitForPolls(t, fake)
+	fake.UnlistPullRequests(true)
+	work := t.TempDir()
+	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
+	testkit.Git(t, work, "commit", "--allow-empty", "-m", "Change by a human")
+	testkit.Git(t, work, "push", "origin", "HEAD:refs/heads/mobius/41")
+	build := fake.AddCheckRun(shop, checkRun("build", head(t, fake, "mobius/41"), "in_progress", ""))
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	waitForChat(t, server, leadChat, "Lead", "error: The head of the pull request of #41 changed after the CI passed. The task waits for the CI of the new head.")
+	waitForPolls(t, fake)
+	if state, events := taskState(t, server), readyEvents(t, server); state != "checks" || events != 1 {
+		t.Errorf("state = %s, ready events = %d", state, events)
+	}
+	fake.SetCheckRunStatus(build, "completed", "success")
+	waitForReadyEvents(t, server, 2)
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+}
+
 func TestTheTasksTabAndListTasksShowTheWaitForCIAndTheWaitForTheLeadAndTheWaitForStartImplementer(t *testing.T) {
 	t.Parallel()
 	for state, want := range map[string]string{"checks": "waits for CI", "approval": "waits for Lead", "dispatched": "waits for start_implementer"} {
