@@ -1873,6 +1873,22 @@ func (q *Queries) GetCopiedAutopilot(ctx context.Context, arg GetCopiedAutopilot
 	return autopilot, err
 }
 
+const getCopiedIssueState = `-- name: GetCopiedIssueState :one
+SELECT state FROM copied_issues WHERE number = ? AND repository_url = ? LIMIT 1
+`
+
+type GetCopiedIssueStateParams struct {
+	Number        int64
+	RepositoryUrl string
+}
+
+func (q *Queries) GetCopiedIssueState(ctx context.Context, arg GetCopiedIssueStateParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getCopiedIssueState, arg.Number, arg.RepositoryUrl)
+	var state string
+	err := row.Scan(&state)
+	return state, err
+}
+
 const getCopiedIssueWorkstream = `-- name: GetCopiedIssueWorkstream :one
 SELECT workstream FROM copied_issues WHERE repository = ? AND number = ? AND repository_url = ? LIMIT 1
 `

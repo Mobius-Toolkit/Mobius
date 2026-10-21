@@ -643,6 +643,9 @@ UPDATE copied_issues SET title = sqlc.arg(title), body = sqlc.arg(body), state =
 WHERE number = sqlc.arg(number) AND repository_url = sqlc.arg(repository_url)
   AND (title != sqlc.arg(title) OR body != sqlc.arg(body) OR state != sqlc.arg(state) OR author != sqlc.arg(author));
 
+-- name: GetCopiedIssueState :one
+SELECT state FROM copied_issues WHERE number = ? AND repository_url = ? LIMIT 1;
+
 -- name: ListCopiedIssueRows :many
 SELECT repository, workstream, position FROM copied_issues WHERE number = ? AND repository_url = ?;
 
