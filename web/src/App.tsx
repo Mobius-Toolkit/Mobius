@@ -69,9 +69,19 @@ function App() {
   const [activities, setActivities] = useState<ActivityRow[]>([]);
   const live = !loginShown && apps !== undefined && apps.length > 0;
   const showLogin = useCallback(() => setLoginShown(true), []);
-  const workstreams = useWorkstreams(showLogin, source);
+  const listed = useWorkstreams(showLogin, source);
   const unread = useUnread(source);
-  const { items: inbox, leave: leaveInbox, updateAction } = useInbox(source);
+  const {
+    items: inbox,
+    needsHuman,
+    leave: leaveInbox,
+    updateAction,
+    hide: hideInbox,
+    fail: failInbox,
+    failure: inboxFailure,
+    clearFailure: clearInboxFailure,
+  } = useInbox(source, listed.needsHuman);
+  const workstreams = { ...listed, needsHuman };
   const pauses = usePauses(source);
   const ciStops = useCIStops(source);
 
@@ -281,6 +291,10 @@ function App() {
             unread,
             inbox,
             leaveInbox,
+            hideInbox,
+            failInbox,
+            inboxFailure,
+            clearInboxFailure,
             updateAction,
             activities,
           }}
