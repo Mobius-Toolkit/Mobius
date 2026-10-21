@@ -184,24 +184,37 @@ type GetTranscriptRequest struct {
 		// ID is the id of the session
 		ID int64 `gork:"id"`
 	}
+	Query struct {
+		// Before is the id of a row. The page has at most 100 lines with an id below Before. With no Before,
+		// the page has the newest 100 lines
+		Before int64 `gork:"before"`
+	}
+}
+
+// TranscriptPage is a page of the Transcript of a session.
+type TranscriptPage struct {
+	// Lines are the lines of the page, the oldest first
+	Lines []TranscriptLine `gork:"lines"`
+	// Older is true when the session has rows before the first line of the page
+	Older bool `gork:"older"`
 }
 
 // GetTranscriptResponse is the response of GetTranscript.
 type GetTranscriptResponse struct {
-	Body Envelope[[]TranscriptLine]
+	Body Envelope[TranscriptPage]
 }
 
-// GetTranscript returns the Transcript of a session, the oldest row first.
+// GetTranscript returns a page of the Transcript of a session, the oldest row first.
 func (h *handlers) GetTranscript(ctx context.Context, req GetTranscriptRequest) (*GetTranscriptResponse, error) {
-	lines, err := h.engine.Transcript(ctx, req.Path.ID)
+	page, err := h.engine.Transcript(ctx, req.Path.ID, req.Query.Before)
 	if err != nil {
 		return nil, err
 	}
-	transcript := make([]TranscriptLine, 0, len(lines))
-	for _, line := range lines {
-		transcript = append(transcript, transcriptLineOf(line))
+	lines := make([]TranscriptLine, 0, len(page.Lines))
+	for _, line := range page.Lines {
+		lines = append(lines, transcriptLineOf(line))
 	}
-	return &GetTranscriptResponse{Body: Envelope[[]TranscriptLine]{Data: transcript}}, nil
+	return &GetTranscriptResponse{Body: Envelope[TranscriptPage]{Data: TranscriptPage{Lines: lines, Older: page.Older}}}, nil
 }
 
 // TranscriptEvents are the events of the live stream of a Transcript.

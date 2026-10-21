@@ -283,7 +283,7 @@
     },
     "/api/agents/{id}/transcript": {
       "get": {
-        "description": "GetTranscript returns the Transcript of a session, the oldest row first.",
+        "description": "GetTranscript returns a page of the Transcript of a session, the oldest row first.",
         "operationId": "GetTranscript",
         "parameters": [
           {
@@ -294,6 +294,15 @@
             "schema": {
               "type": "integer"
             }
+          },
+          {
+            "description": "Before is the id of a row. The page has at most 100 lines with an id below Before. With no Before, the page has the newest 100 lines",
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -301,7 +310,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Envelope_Array_TranscriptLine"
+                  "$ref": "#/components/schemas/Envelope_TranscriptPage"
                 }
               }
             },
@@ -5122,24 +5131,6 @@
         ],
         "description": "Envelope is the body of each success response."
       },
-      "Envelope_Array_TranscriptLine": {
-        "type": "object",
-        "title": "Envelope_Array_TranscriptLine",
-        "properties": {
-          "data": {
-            "type": "array",
-            "title": "[]TranscriptLine",
-            "description": "Data is the payload of the response",
-            "items": {
-              "$ref": "#/components/schemas/TranscriptLine"
-            }
-          }
-        },
-        "required": [
-          "data"
-        ],
-        "description": "Envelope is the body of each success response."
-      },
       "Envelope_Array_Unread": {
         "type": "object",
         "title": "Envelope_Array_Unread",
@@ -5354,6 +5345,20 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/Release",
+            "description": "Data is the payload of the response"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "description": "Envelope is the body of each success response."
+      },
+      "Envelope_TranscriptPage": {
+        "type": "object",
+        "title": "Envelope_TranscriptPage",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TranscriptPage",
             "description": "Data is the payload of the response"
           }
         },
@@ -6816,6 +6821,29 @@
           "raw"
         ],
         "description": "TranscriptLine is a row of the Transcript of a session."
+      },
+      "TranscriptPage": {
+        "type": "object",
+        "title": "TranscriptPage",
+        "properties": {
+          "lines": {
+            "type": "array",
+            "title": "[]TranscriptLine",
+            "description": "Lines are the lines of the page, the oldest first",
+            "items": {
+              "$ref": "#/components/schemas/TranscriptLine"
+            }
+          },
+          "older": {
+            "type": "boolean",
+            "description": "Older is true when the session has rows before the first line of the page"
+          }
+        },
+        "required": [
+          "lines",
+          "older"
+        ],
+        "description": "TranscriptPage is a page of the Transcript of a session."
       },
       "Transcription": {
         "type": "object",

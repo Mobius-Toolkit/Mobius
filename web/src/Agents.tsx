@@ -82,6 +82,7 @@ function TranscriptEntry({ line }: { line: TranscriptLine }) {
   const [raw, setRaw] = useState(false);
   return (
     <li
+      data-line={line.id}
       className={cn(
         "grid max-w-[85%] grid-cols-[minmax(0,1fr)] gap-1 rounded-xl border px-3 py-2",
         line.kind === "prompt"
@@ -159,13 +160,16 @@ function StartCheckControl({ id }: { id: number }) {
   );
 }
 
-function upsert(list: TranscriptLine[], line: TranscriptLine) {
-  const known = list.find((other) => other.id === line.id);
-  // The agent only adds text to a chunk, so the longer body is the newer body.
-  if (known && known.body.length >= line.body.length) {
-    return list;
+function merge(list: TranscriptLine[], added: TranscriptLine[]) {
+  const lines = new Map(list.map((line) => [line.id, line]));
+  for (const line of added) {
+    const known = lines.get(line.id);
+    // The agent only adds text to a chunk, so the longer raw text is the newer text.
+    if (!known || known.raw.length < line.raw.length) {
+      lines.set(line.id, line);
+    }
   }
-  return [...list.filter((other) => other.id !== line.id), line].toSorted((a, b) => a.id - b.id);
+  return [...lines.values()].toSorted((a, b) => a.id - b.id);
 }
 
 function TranscriptLog({
@@ -179,31 +183,98 @@ function TranscriptLog({
 }) {
   const showLogin = use(LoginContext);
   const [lines, setLines] = useState<TranscriptLine[]>();
+  // older is true when the session has rows before the first loaded line.
+  const [older, setOlder] = useState(false);
   const [error, setError] = useState<string>();
   const [behind, setBehind] = useState(false);
   const [opened, setOpened] = useState<EventSource>();
   const listRef = useRef<HTMLUListElement>(null);
   const pinned = useRef(true);
+  const loadingOlder = useRef(false);
+  // The id of the last line that the log got, to find the lines that came while the connection was down.
+  const newest = useRef<number>(undefined);
+  // The place of a line on the screen before the log gets older lines at its start.
+  const anchor = useRef<{ id: number; offset: number }>(undefined);
 
-  const load = useCallback(() => {
-    getTranscript(agent.id)
-      .then((res) => {
-        if (res.status === 401) {
-          showLogin();
-        } else if (res.status === 200) {
-          setLines((list) => res.data.data.reduce(upsert, list ?? []));
-        } else {
-          setError(res.data.error);
+  const fetchPage = useCallback(
+    async (before?: number) => {
+      const res = await getTranscript(agent.id, { before });
+      if (res.status === 200) {
+        return res.data.data;
+      }
+      if (res.status === 401) {
+        showLogin();
+      } else {
+        setError(res.data.error);
+      }
+    },
+    [agent.id, showLogin],
+  );
+
+  // The first load gets the newest page. A load after a reconnect gets pages until one has the last line that the log
+  // got before.
+  const load = useCallback(async () => {
+    const known = newest.current;
+    const newestPage = await fetchPage();
+    if (!newestPage) {
+      return;
+    }
+    const pages = [newestPage];
+    if (known !== undefined) {
+      while (pages[0].older && pages[0].lines[0].id > known) {
+        const page = await fetchPage(pages[0].lines[0].id);
+        if (!page) {
+          return;
         }
+        pages.unshift(page);
+      }
+    }
+    const added = pages.flatMap((page) => page.lines);
+    if (added.length > 0) {
+      newest.current = Math.max(newest.current ?? 0, ...added.map((line) => line.id));
+    }
+    setLines((list) => merge(list ?? [], added));
+    if (known === undefined) {
+      setOlder(newestPage.older);
+    }
+  }, [fetchPage]);
+
+  const loadOlder = useCallback(() => {
+    const list = listRef.current;
+    const first = lines?.[0];
+    if (!list || !first || loadingOlder.current) {
+      return;
+    }
+    loadingOlder.current = true;
+    fetchPage(first.id)
+      .then((page) => {
+        if (!page) {
+          return;
+        }
+        const element = list.querySelector(`[data-line="${first.id}"]`);
+        if (element) {
+          anchor.current = {
+            id: first.id,
+            offset: element.getBoundingClientRect().top - list.getBoundingClientRect().top,
+          };
+        }
+        setLines((current) => merge(current ?? [], page.lines));
+        setOlder(page.older);
       })
-      .catch((err: unknown) => setError(String(err)));
-  }, [agent.id, showLogin]);
+      .catch((err: unknown) => setError(String(err)))
+      .finally(() => {
+        loadingOlder.current = false;
+      });
+  }, [fetchPage, lines]);
 
   // A line that comes while the connection is down is lost, so each connection reads the log. The stream opens again
   // with each new source, so a reconnect of the live events also reconnects the log.
   useEffect(() => {
+    const reload = () => {
+      load().catch((err: unknown) => setError(String(err)));
+    };
     if (!source) {
-      load();
+      reload();
       return;
     }
     let stream: EventSource;
@@ -214,20 +285,24 @@ function TranscriptLog({
       const next = new EventSource(`/api/agents/${agent.id}/transcript/events`);
       next.addEventListener("open", () => {
         setOpened(source);
-        load();
+        reload();
       });
       next.addEventListener("error", () => {
         setOpened(undefined);
         if (next.readyState === EventSource.CLOSED) {
           timer = setTimeout(() => {
-            load();
+            reload();
             stream = connect();
           }, retryDelay);
         }
       });
-      onEvent<TranscriptEvents, "transcript">(next, "transcript", (line) =>
-        setLines((list) => upsert(list ?? [], line)),
-      );
+      onEvent<TranscriptEvents, "transcript">(next, "transcript", (line) => {
+        newest.current = Math.max(newest.current ?? 0, line.id);
+        // A line before the first loaded line would leave a gap.
+        setLines((list) =>
+          list && list.length > 0 && line.id < list[0].id ? list : merge(list ?? [], [line]),
+        );
+      });
       return next;
     };
     stream = connect();
@@ -237,13 +312,30 @@ function TranscriptLog({
     };
   }, [source, load, agent.id]);
 
+  // The log gets the page before its first line when the Owner is less than one log height from the top.
+  useEffect(() => {
+    const list = listRef.current;
+    if (list && older && list.scrollTop < list.clientHeight) {
+      loadOlder();
+    }
+  }, [older, loadOlder]);
+
   // New data scrolls the log to the end while the Owner is at the end. Else the log stays, and the button shows.
   useLayoutEffect(() => {
     const list = listRef.current;
     if (!list || !lines) {
       return;
     }
-    if (pinned.current) {
+    if (anchor.current) {
+      const element = list.querySelector(`[data-line="${anchor.current.id}"]`);
+      if (element) {
+        list.scrollTop +=
+          element.getBoundingClientRect().top -
+          list.getBoundingClientRect().top -
+          anchor.current.offset;
+      }
+      anchor.current = undefined;
+    } else if (pinned.current) {
       list.scrollTop = list.scrollHeight;
     } else {
       setBehind(true);
@@ -260,6 +352,9 @@ function TranscriptLog({
             pinned.current = atEnd(event.currentTarget);
             if (pinned.current) {
               setBehind(false);
+            }
+            if (older && event.currentTarget.scrollTop < event.currentTarget.clientHeight) {
+              loadOlder();
             }
           }}
           className="grid min-h-0 grow grid-cols-[minmax(0,1fr)] content-start gap-2 overflow-y-auto"

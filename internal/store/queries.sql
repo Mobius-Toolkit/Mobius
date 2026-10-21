@@ -116,8 +116,11 @@ RETURNING *;
 UPDATE transcript SET json = ? WHERE id = ?
 RETURNING *;
 
--- name: ListTranscript :many
-SELECT * FROM transcript WHERE session = ? ORDER BY id;
+-- name: ListTranscriptPage :many
+SELECT * FROM transcript WHERE session = ? AND id < ? ORDER BY id DESC LIMIT ?;
+
+-- name: GetFirstTranscriptPrompt :one
+SELECT CAST(COALESCE(MIN(id), 0) AS INTEGER) FROM transcript WHERE session = ? AND kind = 'prompt';
 
 -- name: GetLiveTask :one
 SELECT * FROM tasks WHERE repository = ? AND issue = ? AND state <> 'ended';
