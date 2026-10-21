@@ -350,7 +350,7 @@ func TestTheFirstPromptTellsTheLeadOfAnEvergreenWorkstreamWhileGitHubRefusesEach
 	sendChat(t, server, leadChat, "Plan the next step")
 
 	prompt := promptTexts(t, server, endedChatSession(t, server, 0).ID)[0]
-	if !strings.Contains(prompt, "This Workstream is evergreen: it has no end.\n\n# MEMORY.md") {
+	if !strings.Contains(prompt, "This Workstream is evergreen: it has no end.\n\nAutopilot is off: a task starts only after `mark_ready` or a start of the Owner.\n\n# MEMORY.md") {
 		t.Errorf("prompt = %s", prompt)
 	}
 }
