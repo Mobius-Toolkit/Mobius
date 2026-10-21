@@ -24,7 +24,7 @@ const columns: { title: string; states: BoardTaskState[] }[] = [
   { title: "Done", states: ["ended"] },
 ];
 
-function TaskCard({ task }: { task: BoardTask }) {
+function TaskCard({ task, now }: { task: BoardTask; now: number }) {
   const rounds = [
     task.fixRounds > 0 && `fix ${task.fixRounds}`,
     task.reviewRounds > 0 && `review ${task.reviewRounds}`,
@@ -54,7 +54,7 @@ function TaskCard({ task }: { task: BoardTask }) {
           </a>
         )}
         <span className="ml-auto whitespace-nowrap text-muted-foreground">
-          {elapsed(task.stateAt)}
+          {elapsed(task.stateAt, now)}
         </span>
       </span>
       {rounds.length > 0 && <span className="text-muted-foreground">{rounds.join(" · ")}</span>}
@@ -66,6 +66,12 @@ export function Tasks({ organization, source }: { organization: string; source?:
   const showLogin = use(LoginContext);
   const [tasks, setTasks] = useState<BoardTask[]>();
   const [error, setError] = useState("");
+  const [now, setNow] = useState(Date.now);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const load = useCallback(() => {
     listBoardTasks()
@@ -127,7 +133,11 @@ export function Tasks({ organization, source }: { organization: string; source?:
                 {cards.length === 0 && <p className="text-sm text-muted-foreground">No tasks</p>}
                 <ul className="grid min-h-0 grid-cols-1 content-start gap-2 overflow-y-auto">
                   {cards.map((task) => (
-                    <TaskCard key={`${task.repository}#${task.number}`} task={task} />
+                    <TaskCard
+                      key={`${task.repository}#${task.number}@${task.stateAt}`}
+                      task={task}
+                      now={now}
+                    />
                   ))}
                 </ul>
               </section>

@@ -56,8 +56,8 @@ export function localTimes(text: string) {
   return text.replace(utcTime, (_, date: string, time: string) => dayClock(`${date}T${time}:00Z`));
 }
 
-export function elapsed(time: string) {
-  const minutes = Math.floor((Date.now() - new Date(time).getTime()) / 60_000);
+export function elapsed(time: string, now: number) {
+  const minutes = Math.floor((now - new Date(time).getTime()) / 60_000);
   if (minutes < 1) {
     return "now";
   }
