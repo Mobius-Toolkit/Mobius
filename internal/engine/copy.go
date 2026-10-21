@@ -399,10 +399,16 @@ func (e *Engine) treeDiffers(ctx context.Context, repository github.Repository, 
 // issueRepository gives the repository of the issue, which is a sub-issue or a blocker of an issue of from, and tells
 // if the App can read that repository.
 func (e *Engine) issueRepository(issue *gh.Issue, from github.Repository) (github.Repository, bool) {
-	if !inOtherRepository(issue, from.FullName) {
+	return e.urlRepository(issue.GetRepositoryURL(), from)
+}
+
+// urlRepository gives the repository of repositoryURL, the API URL of a repository, and tells if the App can read it.
+// It gives from for the URL of from.
+func (e *Engine) urlRepository(repositoryURL string, from github.Repository) (github.Repository, bool) {
+	if !otherRepository(repositoryURL, from.FullName) {
 		return from, true
 	}
-	return e.github.Repository(blockerRepository(issue, from.FullName))
+	return e.github.Repository(repositoryOfURL(repositoryURL))
 }
 
 // lowerRef gives the key of the issue number of repository in a map. GitHub does not tell the case of a name.

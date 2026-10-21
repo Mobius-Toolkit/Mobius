@@ -61,8 +61,34 @@ type WorkstreamDetails struct {
 	OpenTasks      int64
 }
 
+// walkTasks calls visit for each task below the issue parent of repository, depth first in the order of the sub-issues,
+// with the repository of the task. A nested Workstream, the issues below it, and an issue in a repository that the App
+// cannot read are no tasks. When visit gives true, the walk ends and walkTasks gives true.
+func (e *Engine) walkTasks(ctx context.Context, repository github.Repository, parent int64, visit func(github.Repository, *gh.Issue) (bool, error)) (bool, error) {
+	issues, err := repository.SubIssues(ctx, parent)
+	if err != nil {
+		return false, err
+	}
+	for _, issue := range issues {
+		if hasLabel(issue, workstreamLabel) {
+			continue
+		}
+		source, ok := e.issueRepository(issue, repository)
+		if !ok {
+			continue
+		}
+		if done, err := visit(source, issue); err != nil || done {
+			return done, err
+		}
+		if done, err := e.walkTasks(ctx, source, int64(issue.GetNumber()), visit); err != nil || done {
+			return done, err
+		}
+	}
+	return false, nil
+}
+
 // WorkstreamDetails reads the Workstream number of repository from GitHub. A task is an issue in the sub-issue tree of
-// the Workstream. A nested Workstream, the issues below it, and an issue of another repository are no tasks.
+// the Workstream, also an issue of another repository. A nested Workstream and the issues below it are no tasks.
 func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, number int64) (WorkstreamDetails, error) {
 	repository, err := e.repository(repositoryName)
 	if err != nil {
@@ -76,26 +102,15 @@ func (e *Engine) WorkstreamDetails(ctx context.Context, repositoryName string, n
 		return WorkstreamDetails{}, refuse("The issue is not a Workstream.")
 	}
 	details := WorkstreamDetails{CreatedAt: issue.GetCreatedAt().Time, Open: issue.GetState() == "open"}
-	parents := []int64{number}
-	for len(parents) > 0 {
-		tasks, err := repository.SubIssues(ctx, parents[0])
-		if err != nil {
-			return WorkstreamDetails{}, err
+	_, err = e.walkTasks(ctx, repository, number, func(_ github.Repository, task *gh.Issue) (bool, error) {
+		if task.GetState() == "open" {
+			details.OpenTasks++
+		} else {
+			details.CompletedTasks++
 		}
-		parents = parents[1:]
-		for _, task := range tasks {
-			if hasLabel(task, workstreamLabel) || inOtherRepository(task, repository.FullName) {
-				continue
-			}
-			parents = append(parents, int64(task.GetNumber()))
-			if task.GetState() == "open" {
-				details.OpenTasks++
-			} else {
-				details.CompletedTasks++
-			}
-		}
-	}
-	return details, nil
+		return false, nil
+	})
+	return details, err
 }
 
 // ClosureItem is an issue or a pull request that the close of a Workstream as "won't do" closes.
@@ -207,22 +222,14 @@ func (e *Engine) openWorkstream(ctx context.Context, repository github.Repositor
 func (e *Engine) closureItems(ctx context.Context, repository github.Repository, workstreamIssue *gh.Issue) ([]ClosureItem, error) {
 	workstream := int64(workstreamIssue.GetNumber())
 	var issues []*gh.Issue
-	parents := []int64{workstream}
-	for len(parents) > 0 {
-		subIssues, err := repository.SubIssues(ctx, parents[0])
-		if err != nil {
-			return nil, err
+	_, err := e.walkTasks(ctx, repository, workstream, func(_ github.Repository, subIssue *gh.Issue) (bool, error) {
+		if subIssue.GetState() == "open" {
+			issues = append(issues, subIssue)
 		}
-		parents = parents[1:]
-		for _, subIssue := range subIssues {
-			if hasLabel(subIssue, workstreamLabel) || inOtherRepository(subIssue, repository.FullName) {
-				continue
-			}
-			parents = append(parents, int64(subIssue.GetNumber()))
-			if subIssue.GetState() == "open" {
-				issues = append(issues, subIssue)
-			}
-		}
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	rows, err := e.queries.ListTaskPullRequests(ctx, store.ListTaskPullRequestsParams{WorkstreamRepository: repository.FullName, Workstream: workstream})
 	if err != nil {
@@ -298,42 +305,29 @@ func (e *Engine) closeWorkstream(ctx context.Context, repository github.Reposito
 			return err
 		}
 	}
-	parents := []int64{workstream}
-	for len(parents) > 0 {
-		issues, err := repository.SubIssues(ctx, parents[0])
-		if err != nil {
-			return err
+	_, err = e.walkTasks(ctx, repository, workstream, func(source github.Repository, issue *gh.Issue) (bool, error) {
+		number := int64(issue.GetNumber())
+		if err := e.dismissIssueItems(ctx, source.FullName, number, inboxKinds...); err != nil {
+			return false, err
 		}
-		parents = parents[1:]
-		for _, issue := range issues {
-			if hasLabel(issue, workstreamLabel) || inOtherRepository(issue, repository.FullName) {
+		for _, label := range []string{readyLabel, workingLabel, needsHumanLabel, questionLabel, reviewLabel} {
+			if !hasLabel(issue, label) {
 				continue
 			}
-			number := int64(issue.GetNumber())
-			parents = append(parents, number)
-			if err := e.dismissIssueItems(ctx, repository.FullName, number, inboxKinds...); err != nil {
-				return err
-			}
-			for _, label := range []string{readyLabel, workingLabel, needsHumanLabel, questionLabel, reviewLabel} {
-				if !hasLabel(issue, label) {
-					continue
-				}
-				if err := repository.RemoveLabel(ctx, number, label); err != nil {
-					return err
-				}
-			}
-			if issue.GetState() != "open" {
-				continue
-			}
-			if _, err := repository.AddComment(ctx, number, closedText); err != nil {
-				return err
-			}
-			if _, err := repository.CloseIssue(ctx, number, "not_planned"); err != nil {
-				return err
+			if err := source.RemoveLabel(ctx, number, label); err != nil {
+				return false, err
 			}
 		}
-	}
-	return nil
+		if issue.GetState() != "open" {
+			return false, nil
+		}
+		if _, err := source.AddComment(ctx, number, closedText); err != nil {
+			return false, err
+		}
+		_, err := source.CloseIssue(ctx, number, "not_planned")
+		return false, err
+	})
+	return err
 }
 
 // stopWorkstream stops the Lead and ends the live tasks of the Workstream. The queued events of the Lead go to no

@@ -870,7 +870,7 @@ func (e *Engine) startAutopilot(ctx context.Context, repository github.Repositor
 		return err
 	}
 	for _, workstream := range workstreams {
-		full, err := e.autopilotTree(ctx, repository, workstream, workstream, stop)
+		full, err := e.autopilotTree(ctx, repository, workstream, stop)
 		if err != nil || full {
 			return err
 		}
@@ -907,56 +907,54 @@ func (e *Engine) dispatchAnsweredWithoutAutopilot(ctx context.Context, repositor
 	return nil
 }
 
-// autopilotTree dispatches the tasks below parent in the Workstream, depth first. It gives true when as many tasks
-// are active as roles.implementer.max. When stop has some issues, it starts only these.
-func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository, workstream, parent int64, stop map[int64]bool) (bool, error) {
-	issues, err := repository.SubIssues(ctx, parent)
-	if err != nil {
-		return false, err
-	}
-	for _, issue := range issues {
-		if hasLabel(issue, workstreamLabel) || inOtherRepository(issue, repository.FullName) {
-			continue
-		}
+// autopilotTree dispatches the tasks below the Workstream, depth first, also a task issue of another repository. It
+// gives true when as many tasks are active as roles.implementer.max. When stop has some issues of repository, it
+// starts only these. A task issue of another repository follows the stop of its own repository.
+func (e *Engine) autopilotTree(ctx context.Context, repository github.Repository, workstream int64, stop map[int64]bool) (bool, error) {
+	return e.walkTasks(ctx, repository, workstream, func(source github.Repository, issue *gh.Issue) (bool, error) {
 		number := int64(issue.GetNumber())
-		if issue.GetState() == "open" && issue.GetIssueDependenciesSummary().GetBlockedBy() == 0 && !hasLabel(issue, triageLabel) {
-			task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: repository.FullName, Issue: number})
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if issue.GetState() != "open" || issue.GetIssueDependenciesSummary().GetBlockedBy() > 0 || hasLabel(issue, triageLabel) {
+			return false, nil
+		}
+		task, err := e.queries.GetLiveTask(ctx, store.GetLiveTaskParams{Repository: source.FullName, Issue: number})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return false, err
+		}
+		answered := err == nil && task.State == "answered"
+		start := answered
+		if errors.Is(err, sql.ErrNoRows) && e.TrustedAuthor(source.AppSlug, issue.GetUser().GetLogin()) {
+			had, err := e.queries.HasTask(ctx, store.HasTaskParams{Repository: source.FullName, Issue: number})
+			if err != nil {
 				return false, err
 			}
-			answered := err == nil && task.State == "answered"
-			start := answered
-			if errors.Is(err, sql.ErrNoRows) && e.TrustedAuthor(repository.AppSlug, issue.GetUser().GetLogin()) {
-				had, err := e.queries.HasTask(ctx, store.HasTaskParams{Repository: repository.FullName, Issue: number})
-				if err != nil {
-					return false, err
-				}
-				start = !had
-			}
-			if start && (len(stop) == 0 || stop[number]) {
-				active, err := e.queries.CountActiveTasks(ctx)
-				if err != nil {
-					return false, err
-				}
-				if active >= int64(e.config.Roles.Implementer.Max) {
-					return true, e.noteFullSlots(ctx, repository, issue, workstream)
-				}
-				if answered {
-					err = e.dispatchAnswer(ctx, repository, issue, task)
-				} else {
-					err = e.dispatch(ctx, repository, issue, repository.FullName, workstream, appLogin(repository.AppSlug))
-				}
-				if err != nil {
-					return false, err
-				}
+			start = !had
+		}
+		if !start {
+			return false, nil
+		}
+		issueStop := stop
+		if source.FullName != repository.FullName {
+			if issueStop, err = e.ciStop(ctx, source.FullName); err != nil {
+				return false, err
 			}
 		}
-		full, err := e.autopilotTree(ctx, repository, workstream, number, stop)
-		if err != nil || full {
-			return full, err
+		if len(issueStop) > 0 && !issueStop[number] {
+			return false, nil
 		}
-	}
-	return false, nil
+		active, err := e.queries.CountActiveTasks(ctx)
+		if err != nil {
+			return false, err
+		}
+		if active >= int64(e.config.Roles.Implementer.Max) {
+			return true, e.noteFullSlots(ctx, repository, issue, workstream)
+		}
+		if answered {
+			err = e.dispatchAnswer(ctx, source, issue, task)
+		} else {
+			err = e.dispatch(ctx, source, issue, repository.FullName, workstream, appLogin(source.AppSlug))
+		}
+		return false, err
+	})
 }
 
 // noteFullSlots keeps the time when Autopilot first could not start a task because all slots were full. When
