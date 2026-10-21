@@ -433,7 +433,7 @@ func (e *Engine) sendFollowUps(ctx context.Context, repository github.Repository
 		if thread.Resolved || !isFollowUp {
 			continue
 		}
-		sent, err := e.queries.HasFollowUpEvent(ctx, store.HasFollowUpEventParams{Repository: task.Repository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Item: thread.Comment})
+		sent, err := e.queries.HasFollowUpEvent(ctx, store.HasFollowUpEventParams{Repository: task.WorkstreamRepository, Issue: sql.NullInt64{Int64: task.Issue, Valid: true}, Item: thread.Comment})
 		if err != nil {
 			return err
 		}

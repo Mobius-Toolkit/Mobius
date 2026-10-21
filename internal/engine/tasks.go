@@ -133,7 +133,7 @@ func (e *Engine) Tasks(ctx context.Context, repositoryName string, workstream in
 						return nil, err
 					}
 					if line.State == "working" {
-						heldEvent, err := e.queries.HasHeldLeadEvent(ctx, store.HasHeldLeadEventParams{Repository: issueRepositoryName, Issue: sql.NullInt64{Int64: row.Number, Valid: true}})
+						heldEvent, err := e.queries.HasHeldLeadEvent(ctx, store.HasHeldLeadEventParams{Repository: repositoryName, Issue: sql.NullInt64{Int64: row.Number, Valid: true}})
 						if err != nil {
 							return nil, err
 						}

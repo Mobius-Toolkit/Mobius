@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"errors"
 	"net/http"
 	"reflect"
 	"slices"
@@ -138,5 +139,61 @@ func TestSearchIssuesGivesAnIssueOfAnotherRepositoryWithItsRepositoryAndItsOwnCo
 	}
 	if strings.Contains(text, "of the shop") {
 		t.Errorf("text = %q", text)
+	}
+}
+
+func TestAStopOfATaskInAnotherRepositoryWhoseCheckWriteFailsAddsNoSecondStopEventToTheLead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addGardenTask(fake)
+	fake.AddLabel(shop, 12, "mobius:autopilot", "owner")
+	fake.PushCommit(garden, "mobius/7", "Water the plants")
+	sha := testkit.Git(t, fake.Remote(garden), "rev-parse", "mobius/7")
+	if number := fake.OpenPullRequest(garden, "Water the plants", "mobius/7"); number != 8 {
+		t.Fatalf("pull request = %d", number)
+	}
+	fake.AddCheckRun(garden, checkRun("Mobius", sha, "in_progress", ""))
+	server := startAutopilot(t, fake, func(*config.Config) {}, "")
+	gardenTask(t, server)
+	if _, err := server.DB.Exec("UPDATE tasks SET state = 'working', worker = NULL, worker_restarts = 3, pull_request = 8 WHERE repository = ? AND issue = 7", garden); err != nil {
+		t.Fatal(err)
+	}
+	fake.FailUpdateCheckRuns(true)
+
+	restart, _ := server.Engine.RestartWorker(t.Context(), gardenTask(t, server), "Water the plants", errors.New("the Worker died"))
+
+	if restart {
+		t.Fatal("the Worker restarted")
+	}
+	testkit.WaitFor(t, func() bool { return countLeadEvents(t, server, "stop") == 1 })
+	waitForPolls(t, fake)
+	if events := countLeadEvents(t, server, "stop"); events != 1 {
+		t.Errorf("stop events = %d", events)
+	}
+}
+
+func TestAFollowUpThreadOfATaskInAnotherRepositoryWhoseResolveFailsAddsNoSecondFollowUpEventToTheLead(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	addGardenTask(fake)
+	fake.AddLabel(garden, 7, "mobius:needs-human", testkit.AppSlug+"[bot]")
+	fake.PushCommit(garden, "mobius/7", "Water the plants")
+	if number := fake.OpenPullRequest(garden, "Water the plants", "mobius/7"); number != 8 {
+		t.Fatalf("pull request = %d", number)
+	}
+	fake.AddLabel(garden, 8, "mobius:needs-human", testkit.AppSlug+"[bot]")
+	fake.AddReviewComment(garden, 8, 0, testkit.AppSlug+"[bot]", "Name the unit.\n\n<!-- mobius:follow-up -->")
+	fake.FailResolveThreads(true)
+	server := startServer(t, fake, t.TempDir(), `INSERT INTO tasks (repository, workstream_repository, issue, workstream, state, dispatched_at, state_at, pull_request)
+		VALUES ('owner/garden', 'owner/shop', 7, 12, 'needs_human', '2026-10-04T10:00:00Z', '2026-10-04T10:00:00Z', 8)`)
+	server.WaitForFirstPoll(t, shop)
+	server.WaitForFirstPoll(t, garden)
+
+	fake.RemoveLabel(garden, 7, "mobius:needs-human", "owner")
+
+	testkit.WaitFor(t, func() bool { return countLeadEvents(t, server, "follow_up") == 1 })
+	waitForPolls(t, fake)
+	if events := countLeadEvents(t, server, "follow_up"); events != 1 {
+		t.Errorf("follow-up events = %d", events)
 	}
 }
