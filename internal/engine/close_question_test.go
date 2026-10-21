@@ -18,11 +18,11 @@ reply = ["Seen"]
 
 [[prompts]]
 when = "Dollars were chosen"
-call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
 
 [[prompts]]
 when = "dispatch of #41"
-call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "Cents or dollars?" } }
 
 [[prompts]]
 reply = ["Seen"]
@@ -73,15 +73,15 @@ reply = ["Seen"]
 
 [[prompts]]
 when = "Dollars again"
-call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
 
 [[prompts]]
 when = "Dollars were chosen"
-call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
 
 [[prompts]]
 when = "dispatch of #41"
-call = { tool = "ask", arguments = { n = 41, text = "Cents or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 41, text = "Cents or dollars?" } }
 
 [[prompts]]
 reply = ["Seen"]
@@ -131,7 +131,7 @@ func TestCloseQuestionRefusesAnIssueWithNoQuestionAndWritesNothing(t *testing.T)
 	server, _ := connect(t, fake, `
 [[prompts]]
 when = "Dollars were chosen"
-call = { tool = "close_question", arguments = { n = 41, answer = "Dollars." } }
+call = { tool = "close_question", arguments = { repository = "owner/shop", n = 41, answer = "Dollars." } }
 
 [[prompts]]
 when = "dispatch of #41"
@@ -154,7 +154,7 @@ reply = ["Seen"]
 func TestApprovePullRequestClosesTheOpenQuestionOfTheTask(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	ask := "[[prompts]]\nwhen = \"Ask #41\"\ncall = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n\n"
+	ask := "[[prompts]]\nwhen = \"Ask #41\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n\n"
 	server, _ := connectTask(t, fake, ask+leadApproves+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForReadyEvents(t, server, 1)

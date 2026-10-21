@@ -291,7 +291,7 @@ func TestARefusedReadOfTheCITaskIssueDoesNotStopThePoll(t *testing.T) {
 func TestDuringTheStopStartImplementerRefusesWithTheLinkToTheCITaskIssue(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, call("start_implementer", `{ n = 41, instructions = "Round prices down." }`))
+	server, _ := connect(t, fake, call("start_implementer", `{ repository = "owner/shop", n = 41, instructions = "Round prices down." }`))
 	addTask(t, server, fake, 41, 12, 45)
 	fake.AddIssue(shop, ciIssue, "Fix the failed workflow")
 	if _, err := server.DB.Exec(`UPDATE tasks SET state = 'dispatched'`); err != nil {

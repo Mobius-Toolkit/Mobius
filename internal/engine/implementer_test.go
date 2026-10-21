@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	startImplementer = "call = { tool = \"start_implementer\", arguments = { n = 41, instructions = \"Store plans in cents.\" } }\n"
+	startImplementer = "call = { tool = \"start_implementer\", arguments = { repository = \"owner/shop\", n = 41, instructions = \"Store plans in cents.\" } }\n"
 	// leadStarts is a Lead that starts an Implementer for the dispatch of #41.
 	leadStarts = "[[prompts]]\nwhen = \"dispatch of #41\"\n" + startImplementer
 	// commitCents has the directory of the task in the message, so that two tasks that commit in the same second get two
@@ -38,7 +38,7 @@ const (
 	commits = "[[prompts]]\n" + commitCents
 	// leadStartsTwo is a Lead that starts an Implementer for the dispatch of #41 and of #43. The first prompt of a new
 	// session has the earlier events in its history, so the rule of the newer dispatch comes first.
-	leadStartsTwo = "[[prompts]]\nwhen = \"dispatch of #43\"\ncall = { tool = \"start_implementer\", arguments = { n = 43, instructions = \"Round prices down.\" } }\n\n" + leadStarts
+	leadStartsTwo = "[[prompts]]\nwhen = \"dispatch of #43\"\ncall = { tool = \"start_implementer\", arguments = { repository = \"owner/shop\", n = 43, instructions = \"Round prices down.\" } }\n\n" + leadStarts
 )
 
 // connectTask starts a server with the Workstream #12 and its task issue #41 in owner/shop. The Lead and the
@@ -245,7 +245,7 @@ func TestCannotDoGoesToTheLeadAndTheNextStartMergesABranchThatDiverged(t *testin
 func TestTheLeadAsksAfterACannotDoAndTheTaskFreesItsWorkerSlot(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = { tool = \"ask\", arguments = { n = 41, text = \"The plan table needs a fix in Gork.\" } }\n\n" + leadStarts + "\n[[prompts]]\nreply = [\"Seen\"]\n"
+	lead := "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"The plan table needs a fix in Gork.\" } }\n\n" + leadStarts + "\n[[prompts]]\nreply = [\"Seen\"]\n"
 	server, _ := connectTask(t, fake, lead, "[[prompts]]\n"+cannotDoCall, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForLeadPrompt(t, server, " cannot_do on #41 \"Add plan model\" by the Implementer:\n\n> The plan table does not exist.")
@@ -432,7 +432,7 @@ func TestAPushThatGitHubRejectsStopsTheTaskWithNoRestart(t *testing.T) {
 func TestASecondTaskOfTheIssueGetsTheNextFreeBranch(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = { tool = \"decline\", arguments = { n = 41, reason = \"Split it.\" } }\n\n" + leadStarts
+	lead := "[[prompts]]\nwhen = \"cannot_do on #41\"\ncall = { tool = \"decline\", arguments = { repository = \"owner/shop\", n = 41, reason = \"Split it.\" } }\n\n" + leadStarts
 	implementer := "[[prompts]]\n" + cannotDoCall + "\n[[prompts]]\nwhen = \"Start again.\"\n" + commitCents
 	server, dataDir := connectTask(t, fake, lead, implementer, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -861,7 +861,7 @@ func TestAPushThatFailsAfterAPassedCheckTriesAgainWithNoNewSession(t *testing.T)
 func TestSendDetailsStopsTheTurnAndSendsTheDetailsInTheSameSession(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"Send the details\"\ncall = { tool = \"send_details\", arguments = { n = 41, text = \"Round prices down.\" } }\n\n" + leadStarts
+	lead := "[[prompts]]\nwhen = \"Send the details\"\ncall = { tool = \"send_details\", arguments = { repository = \"owner/shop\", n = 41, text = \"Round prices down.\" } }\n\n" + leadStarts
 	implementer := "[[prompts]]\nreply = [\"Working.\"]\nhang = true\n\n[[prompts]]\nwhen = \"The Owner gave new details\"\n" + commitCents
 	server, _ := connectTask(t, fake, lead, implementer, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -966,7 +966,7 @@ func TestCannotDoIsRefusedWhenTheWorktreeHasWorkThatMobiusDidNotPush(t *testing.
 	}
 }
 
-const askCents = "call = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } }\n"
+const askCents = "call = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } }\n"
 
 func TestStartImplementerRemovesTheQuestionLabelOfTheIssue(t *testing.T) {
 	t.Parallel()
@@ -1007,7 +1007,7 @@ func TestAnAskAfterStartImplementerAddsTheQuestionLabelAgain(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
 	lead := "[[prompts]]\nwhen = \"dispatch of #41\"\n" + startImplementer +
-		"later = { after = \"100ms\", call = { tool = \"ask\", arguments = { n = 41, text = \"Cents or dollars?\" } } }\n"
+		"later = { after = \"100ms\", call = { tool = \"ask\", arguments = { repository = \"owner/shop\", n = 41, text = \"Cents or dollars?\" } } }\n"
 	server, _ := connectTask(t, fake, lead, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:question", "owner")
 

@@ -517,7 +517,7 @@ func TestStartFixRoundWorksWhileTheTaskWaitsForTheLead(t *testing.T) {
 	}
 }
 
-const leadApproves = "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { n = 41, report = \"Checked the diff. Verified the tests.\" } }\n\n"
+const leadApproves = "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { repository = \"owner/shop\", n = 41, report = \"Checked the diff. Verified the tests.\" } }\n\n"
 
 func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxItem(t *testing.T) {
 	t.Parallel()
@@ -556,7 +556,7 @@ func TestApprovePullRequestMakesTheTaskReadyForReviewAndGivesTheOwnerTheInboxIte
 func TestApprovePullRequestRefusesAnEmptyReportAndChangesNothing(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	empty := "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { n = 41, report = \" \" } }\n\n"
+	empty := "[[prompts]]\nwhen = \"Approve #41\"\ncall = { tool = \"approve_pull_request\", arguments = { repository = \"owner/shop\", n = 41, report = \" \" } }\n\n"
 	server, _ := connectTask(t, fake, empty+leadStarts, commits, noChange)
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
 	waitForReadyEvents(t, server, 1)
@@ -665,6 +665,34 @@ func TestApprovePullRequestRefusesANewHeadAndMovesTheTaskBackToChecks(t *testing
 	if items := inbox(t, server); len(items) != 0 {
 		t.Errorf("Inbox = %+v", items)
 	}
+	waitForReadyEvents(t, server, 2)
+	if state := taskState(t, server); state != "approval" {
+		t.Errorf("state = %s", state)
+	}
+}
+
+func TestApprovePullRequestMakesThePollReadANewHeadThatNoIssueListShows(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	server, _ := connectTask(t, fake, leadApproves+leadStarts, commits, keepSessionOpen)
+	fake.AddLabel(shop, 41, "mobius:ready", "owner")
+	waitForReadyEvents(t, server, 1)
+	waitForPolls(t, fake)
+	fake.UnlistPullRequests(true)
+	work := t.TempDir()
+	testkit.Git(t, work, "clone", "--branch=mobius/41", fake.Remote(shop), ".")
+	testkit.Git(t, work, "commit", "--allow-empty", "-m", "Change by a human")
+	testkit.Git(t, work, "push", "origin", "HEAD:refs/heads/mobius/41")
+	build := fake.AddCheckRun(shop, checkRun("build", head(t, fake, "mobius/41"), "in_progress", ""))
+
+	sendChat(t, server, leadChat, "Approve #41")
+
+	waitForChat(t, server, leadChat, "Lead", "error: The head of the pull request of #41 changed after the CI passed. The task waits for the CI of the new head.")
+	waitForPolls(t, fake)
+	if state, events := taskState(t, server), readyEvents(t, server); state != "checks" || events != 1 {
+		t.Errorf("state = %s, ready events = %d", state, events)
+	}
+	fake.SetCheckRunStatus(build, "completed", "success")
 	waitForReadyEvents(t, server, 2)
 	if state := taskState(t, server); state != "approval" {
 		t.Errorf("state = %s", state)

@@ -11,7 +11,7 @@ import (
 )
 
 // leadStartsWithFortyFour is a Lead that starts an Implementer for the dispatch of #41, #43 and #44.
-const leadStartsWithFortyFour = "[[prompts]]\nwhen = \"dispatch of #44\"\ncall = { tool = \"start_implementer\", arguments = { n = 44, instructions = \"Round prices down.\" } }\n\n" + leadStartsTwo
+const leadStartsWithFortyFour = "[[prompts]]\nwhen = \"dispatch of #44\"\ncall = { tool = \"start_implementer\", arguments = { repository = \"owner/shop\", n = 44, instructions = \"Round prices down.\" } }\n\n" + leadStartsTwo
 
 // approvalHeadOf starts the task of the issue number and gives the head of its branch in the state approval.
 func approvalHeadOf(t *testing.T, server *testserver.Server, fake *testkit.FakeGitHub, number int) string {

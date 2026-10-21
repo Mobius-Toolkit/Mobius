@@ -14,7 +14,7 @@ when = "dispatch of #42"
 reply = ["Seen"]
 
 [[prompts]]
-call = { tool = "ask", arguments = { n = 12, text = "Cents or dollars?" } }
+call = { tool = "ask", arguments = { repository = "owner/shop", n = 12, text = "Cents or dollars?" } }
 
 [[prompts]]
 ` + holdEvent + `

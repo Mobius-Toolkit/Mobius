@@ -12,7 +12,7 @@ import (
 func TestClosingATaskWithAnOpenPullRequestClosesTheIssueAndThePullRequest(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	lead := "[[prompts]]\nwhen = \"ready for Lead approval of #41\"\ncall = { tool = \"close_task\", arguments = { n = 41, reason = \"#43 has this work.\" } }\n\n" + leadStarts
+	lead := "[[prompts]]\nwhen = \"ready for Lead approval of #41\"\ncall = { tool = \"close_task\", arguments = { repository = \"owner/shop\", n = 41, reason = \"#43 has this work.\" } }\n\n" + leadStarts
 	server, _ := connectTask(t, fake, lead, commits, noChange)
 
 	fake.AddLabel(shop, 41, "mobius:ready", "owner")
@@ -44,7 +44,7 @@ func TestClosingATaskWithAnOpenPullRequestClosesTheIssueAndThePullRequest(t *tes
 func TestClosingATaskIssueWithNoLiveTaskClosesItAtOnce(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"Close it\"\ncall = { tool = \"close_task\", arguments = { n = 41, reason = \"Main has this work.\" } }\n\n[[prompts]]\nwhen = \"List it\"\ncall = { tool = \"list_tasks\" }\n")
+	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"Close it\"\ncall = { tool = \"close_task\", arguments = { repository = \"owner/shop\", n = 41, reason = \"Main has this work.\" } }\n\n[[prompts]]\nwhen = \"List it\"\ncall = { tool = \"list_tasks\" }\n")
 	fake.AddIssue(shop, 41, "Add plan model")
 	fake.AddSubIssue(shop, 12, 41)
 	waitForTasks(t, server, []taskLine{line(41, "Add plan model", "open", 0)})
@@ -66,7 +66,7 @@ func TestClosingATaskIssueWithNoLiveTaskClosesItAtOnce(t *testing.T) {
 func TestClosingTheWorkstreamIssueOrAnIssueOfAnotherWorkstreamIsRefused(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
-	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"Close 12\"\ncall = { tool = \"close_task\", arguments = { n = 12, reason = \"Done.\" } }\n\n[[prompts]]\nwhen = \"Close 51\"\ncall = { tool = \"close_task\", arguments = { n = 51, reason = \"Done.\" } }\n")
+	server, _ := connect(t, fake, "[[prompts]]\nwhen = \"Close 12\"\ncall = { tool = \"close_task\", arguments = { repository = \"owner/shop\", n = 12, reason = \"Done.\" } }\n\n[[prompts]]\nwhen = \"Close 51\"\ncall = { tool = \"close_task\", arguments = { repository = \"owner/shop\", n = 51, reason = \"Done.\" } }\n")
 	fake.AddIssue(shop, 13, "Other Workstream")
 	fake.AddLabel(shop, 13, "mobius:workstream", "owner")
 	fake.AddIssue(shop, 51, "Other task")
