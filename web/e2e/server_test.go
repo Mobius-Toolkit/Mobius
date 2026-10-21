@@ -312,13 +312,9 @@ func TestServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	port, err := strconv.Atoi(portText)
-	if err != nil {
-		t.Fatal(err)
-	}
 	// The Checkup page shows the path of each tool, so the data directory has the same path for the same port.
 	// CI always uses port 6464. A run on a free port cannot use the directory of another run.
-	dataDir := "/tmp/mobius-e2e-" + strconv.Itoa(port)
+	dataDir := "/tmp/mobius-e2e-" + portText
 	if err := os.RemoveAll(dataDir); err != nil {
 		t.Fatal(err)
 	}
