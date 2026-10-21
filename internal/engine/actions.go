@@ -291,7 +291,7 @@ func (e *Engine) holdAction(ctx context.Context, c caller, tool, title string, a
 			return "", err
 		}
 	}
-	return "The action waits for the approval of the Owner.", nil
+	return fmt.Sprintf("The action waits for the approval of the Owner. Its ID is %d.", item.ID), nil
 }
 
 // replaceActions marks each pending action that action replaces as replaced, and dismisses its Inbox item.

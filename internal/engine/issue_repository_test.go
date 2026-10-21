@@ -45,7 +45,7 @@ func TestTheCoordinatorCreatesTheWorkstreamInTheIssueRepository(t *testing.T) {
 	chat := run(t, server, coordinatorSpec(t), "Create it.")
 	done := approveNext(t, server, 1)
 
-	if got := reply(t, server, chat); got != actionWaits {
+	if got := reply(t, server, chat); !strings.HasPrefix(got, actionWaits) {
 		t.Errorf("reply = %q", got)
 	}
 	if done.State != "done" || done.Result != "Created the Workstream #13." {

@@ -142,6 +142,11 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"answer":     map[string]any{"type": "string", "minLength": 1, "description": "The answer of the Owner."},
 				},
 				e.closeQuestionTool),
+			toolOf(e, c, noRepository, "withdraw", withdrawDescription,
+				map[string]any{
+					"id": map[string]any{"type": "integer", "minimum": 1, "description": "The ID of your open question or pending action."},
+				},
+				e.withdraw),
 			taskTool(e, c, "decline",
 				"Decline a task. Mobius posts the reason as a comment on the issue, removes mobius:working, and ends the task.",
 				map[string]any{
@@ -352,6 +357,11 @@ func (e *Engine) tools(c caller) []mcp.Tool {
 					"questions": questionsProperty,
 				},
 				e.coordinatorAsk),
+			toolOf(e, c, noRepository, "withdraw", withdrawDescription,
+				map[string]any{
+					"id": map[string]any{"type": "integer", "minimum": 1, "description": "The ID of your open question or pending action."},
+				},
+				e.withdraw),
 		}
 	}
 	return nil

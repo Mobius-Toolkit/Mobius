@@ -82,7 +82,7 @@ func TestTheLeadGetsTheMobiusURLAndOnlyTheLeadTools(t *testing.T) {
 	_, text := leadReply(t, server)
 
 	// The MCP SDK gives the tools in name order.
-	want := []string{"approve_pull_request", "ask", "close_question", "close_task", "comment_pull_request", "create_issue", "create_workstream", "decline", "edit_brief", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "read_issue", "reply_thread", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner"}
+	want := []string{"approve_pull_request", "ask", "close_question", "close_task", "comment_pull_request", "create_issue", "create_workstream", "decline", "edit_brief", "hold_event", "list_tasks", "mark_ready", "message_lead", "move_task", "read_issue", "reply_thread", "send_details", "send_researcher_details", "start_fix_round", "start_implementer", "start_researcher", "stop_researcher", "stop_task", "tell_owner", "withdraw"}
 	if got := toolNames(t, text); !reflect.DeepEqual(got, want) {
 		t.Errorf("tools = %q", got)
 	}
@@ -116,7 +116,7 @@ func TestEachRoleGetsOnlyItsOwnTools(t *testing.T) {
 		spec engine.Spec
 		want []string
 	}{
-		{coordinator, []string{"ask", "create_workstream", "message_lead", "move_issue", "start_researcher", "tell_curator"}},
+		{coordinator, []string{"ask", "create_workstream", "message_lead", "move_issue", "start_researcher", "tell_curator", "withdraw"}},
 		{triager, []string{"create_workstream", "message_lead", "start_researcher"}},
 		{reviewer, []string{"submit_review"}},
 		{implementer, []string{"cannot_do", "reply_thread"}},
@@ -532,7 +532,7 @@ func TestCreateWorkstreamCreatesTheIssueWithTheWorkstreamLabel(t *testing.T) {
 	done := approveNext(t, server, 2)
 
 	for _, session := range []int64{leadSession, chat} {
-		if got := reply(t, server, session); got != actionWaits {
+		if got := reply(t, server, session); !strings.HasPrefix(got, actionWaits) {
 			t.Errorf("reply = %q", got)
 		}
 	}
@@ -621,11 +621,10 @@ func TestMessageLeadSendsTheMessageOfTheLeadToTheLeadOfAnotherOpenWorkstream(t *
 	refused := run(t, server, leadSpec(t), "Message 3.")
 	closed := approveNext(t, server, 2)
 
-	want := actionWaits + "error: A Lead cannot send a message to its own Workstream."
-	if got := reply(t, server, session); got != want {
+	if got := reply(t, server, session); !strings.HasPrefix(got, actionWaits) || !strings.HasSuffix(got, "error: A Lead cannot send a message to its own Workstream.") {
 		t.Errorf("reply = %q", got)
 	}
-	if got := reply(t, server, refused); got != actionWaits {
+	if got := reply(t, server, refused); !strings.HasPrefix(got, actionWaits) {
 		t.Errorf("reply = %q", got)
 	}
 	if sent.Result != "Sent the message to the Lead of #20." || closed.State != "pending" || closed.Error != "#21 is not an open Workstream." {
@@ -658,7 +657,7 @@ func TestMessageLeadSendsTheMessageOfTheCoordinatorWhileGitHubRefusesEachRequest
 	action := waitForActions(t, server, 1)[0]
 	decided(t, server, action.ID, "approve", "")
 
-	if got := reply(t, server, chat); got != actionWaits {
+	if got := reply(t, server, chat); !strings.HasPrefix(got, actionWaits) {
 		t.Errorf("reply = %q", got)
 	}
 	text := "Message of the Coordinator, approved by the Owner:\n\nCreate the task issues."
@@ -678,7 +677,7 @@ func TestMessageLeadSendsTheMessageOfTheLeadWhileGitHubRefusesEachRequest(t *tes
 	session := run(t, server, leadSpec(t), "Message 1.")
 	done := approveNext(t, server, 1)
 
-	if got := reply(t, server, session); got != actionWaits {
+	if got := reply(t, server, session); !strings.HasPrefix(got, actionWaits) {
 		t.Errorf("reply = %q", got)
 	}
 	if want := "Sent the message to the Lead of #20."; done.Result != want {
