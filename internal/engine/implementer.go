@@ -434,7 +434,7 @@ func (e *Engine) cannotDo(ctx context.Context, c caller, repository github.Repos
 	if empty(input.Reason) {
 		return "", refuse("reason must not be empty.")
 	}
-	task, err := e.workstreamTask(ctx, repository, repository.FullName, c.workstream, c.agent.spec.Issue.Int64)
+	task, err := e.workstreamTask(ctx, repository, c.agent.spec.WorkstreamRepository, c.workstream, c.agent.spec.Issue.Int64)
 	if err != nil {
 		return "", err
 	}
@@ -468,7 +468,7 @@ func (e *Engine) holdReply(ctx context.Context, c caller, repository github.Repo
 	if !found {
 		return "", refuse("%d is not a review thread or a comment of pull request #%d.", input.Thread, pullRequest)
 	}
-	task, err := e.workstreamTask(ctx, repository, repository.FullName, c.workstream, c.agent.spec.Issue.Int64)
+	task, err := e.workstreamTask(ctx, repository, c.agent.spec.WorkstreamRepository, c.workstream, c.agent.spec.Issue.Int64)
 	if err != nil {
 		return "", err
 	}

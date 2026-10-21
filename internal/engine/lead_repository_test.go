@@ -70,6 +70,25 @@ func TestTheLeadAsksOnTheIssueOfATaskInAnotherRepository(t *testing.T) {
 	}
 }
 
+func TestTheImplementerOfATaskInAnotherRepositoryCallsCannotDo(t *testing.T) {
+	t.Parallel()
+	fake := testkit.NewFakeGitHub(t)
+	lead := "[[prompts]]\nwhen = \"cannot_do on #7\"\nreply = [\"ok\"]\n\n" +
+		"[[prompts]]\nwhen = \"dispatch of #7\"\ncall = { tool = \"start_implementer\", arguments = { repository = \"owner/garden\", n = 7, instructions = \"Water them twice a day.\" } }\n"
+	server := connectGarden(t, fake, lead, "[[prompts]]\n"+cannotDoCall)
+
+	fake.AddLabel(garden, 7, "mobius:ready", "owner")
+
+	waitForLeadPrompt(t, server, " cannot_do on #7 \"Water the plants\" by the Implementer:\n\n> The plan table does not exist.")
+	if session := endedImplementers(t, server, 1)[0]; session.EndReason.String != "cannot_do" {
+		t.Errorf("end reason = %s", session.EndReason.String)
+	}
+	var state string
+	if err := server.DB.QueryRow("SELECT state FROM tasks WHERE repository = ? AND issue = 7", garden).Scan(&state); err != nil || state != "dispatched" {
+		t.Errorf("state = %q, error = %v", state, err)
+	}
+}
+
 func TestALeadCallWithNoRepositoryFailsAndChangesNothing(t *testing.T) {
 	t.Parallel()
 	fake := testkit.NewFakeGitHub(t)
